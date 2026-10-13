@@ -15,10 +15,8 @@ import Security
 /// （本项目里的 MPV / MDK）准备的官方通路——内核把解码后的帧交给这个 layer，
 /// 系统负责画中画窗口与手势。
 ///
-/// AVPlayer 内核不经过这里：它自带 `AVPictureInPictureController(playerLayer:)`，
-/// 由 video_player 插件在原生侧直接处理（见播放器文档的画中画规范）。
-///
-/// 开窗前由 Dart 主动送首帧；进入后持续转发 MPV 画面。
+/// AVPlayer 直接绑定插件持有的真实 AVPlayer；MDK / MPV 转发解码帧。
+/// 各内核保留当前媒体和进度，不为开启画中画重建播放器。
 final class PipController: NSObject {
   private let methodChannelName = "lumebox/pip"
   private let eventChannelName = "lumebox/pip/events"
@@ -27,6 +25,8 @@ final class PipController: NSObject {
   private var controller: AVPictureInPictureController?
   private var frameLayer: AVSampleBufferDisplayLayer?
   private var frameHost: UIView?
+  private var avLayer: AVPlayerLayer?
+  private var avObserver: NSObjectProtocol?
   private var paused = false
   private var durationSeconds: Double = 0
 
@@ -37,7 +37,17 @@ final class PipController: NSObject {
   private let frameChannelName = "lumebox/pip/frames"
 
 
+  deinit {
+    if let avObserver { NotificationCenter.default.removeObserver(avObserver) }
+  }
+
   func register(with messenger: FlutterBinaryMessenger) {
+    avObserver = NotificationCenter.default.addObserver(
+      forName: Notification.Name("LumeBox.avplayer.pip"), object: nil, queue: .main
+    ) { [weak self] note in
+      guard let player = note.object as? AVPlayer else { return }
+      self?.attach(player: player)
+    }
     let credentials = FlutterMethodChannel(name: "lumebox/danmaku_credentials", binaryMessenger: messenger)
     credentials.setMethodCallHandler { call, result in
       let query: [String: Any] = [
@@ -101,6 +111,8 @@ final class PipController: NSObject {
         self.frameHost?.removeFromSuperview()
         self.frameHost = nil
         self.frameLayer = nil
+        self.avLayer?.player = nil
+        self.avLayer = nil
         self.controller = nil
         result(nil)
       case "stats":
@@ -174,6 +186,9 @@ final class PipController: NSObject {
   /// 首帧到达时绑定内容源并挂入窗口视图。
   @available(iOS 15.0, *)
   func attach(frameLayer layer: AVSampleBufferDisplayLayer) {
+    avLayer?.player = nil
+    avLayer = nil
+    frameHost?.removeFromSuperview()
     frameLayer = layer
     if let host = UIApplication.shared.connectedScenes
       .compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows })
@@ -197,6 +212,31 @@ final class PipController: NSObject {
     controller.delegate = self
     controller.canStartPictureInPictureAutomaticallyFromInline = true
     self.controller = controller
+  }
+
+  private func attach(player: AVPlayer) {
+    if avLayer?.player === player, controller != nil { return }
+    controller?.delegate = nil
+    controller?.stopPictureInPicture()
+    frameHost?.removeFromSuperview()
+    frameLayer = nil
+    avLayer?.player = nil
+    guard let root = UIApplication.shared.connectedScenes
+      .compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows })
+      .first(where: { $0.isKeyWindow })?.rootViewController?.view,
+      let parent = root.superview else { return }
+    let host = UIView(frame: root.frame)
+    host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    host.isUserInteractionEnabled = false
+    let layer = AVPlayerLayer(player: player)
+    layer.frame = host.bounds
+    host.layer.addSublayer(layer)
+    parent.insertSubview(host, belowSubview: root)
+    frameHost = host
+    avLayer = layer
+    controller = AVPictureInPictureController(playerLayer: layer)
+    controller?.delegate = self
+    controller?.canStartPictureInPictureAutomaticallyFromInline = true
   }
 
   private func start(result: @escaping FlutterResult) {

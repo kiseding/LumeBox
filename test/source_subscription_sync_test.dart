@@ -1,6 +1,10 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/features/source/source_section_page.dart';
+
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -12,6 +16,7 @@ import 'package:lume_box/core/net/network_settings.dart';
 import 'support/fake_source_manager.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   late _Manager manager;
   late SourceSubscriptionSync service;
@@ -21,6 +26,11 @@ void main() {
   setUp(() async {
     root = Directory.systemTemp.createTempSync('subscription-sync');
     manager = _Manager();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => root.path,
+        );
     remote = {};
     service = SourceSubscriptionSync(
       section: Section.video,
@@ -38,7 +48,10 @@ void main() {
     );
     await service.register([manifest]);
   });
-  tearDown(() => root.deleteSync(recursive: true));
+  tearDown(() async {
+    await SectionScope.closeAll();
+    root.deleteSync(recursive: true);
+  });
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
@@ -118,6 +131,57 @@ void main() {
     service.subscriptions.single.enabled = false;
     expect((await service.sync(force: true)).errors, isEmpty);
     expect(manager.imported, isEmpty);
+  });
+  testWidgets('常驻订阅入口：添加一次、返回重进保留链接、无需粘贴即可更新', (tester) async {
+    await tester.runAsync(
+      () => SourceSubscriptionSync.open(Section.video, manager: manager),
+    );
+    remote[manifest] = 'https://repo.example/a.js';
+    remote['https://repo.example/a.js'] = script('a', 1);
+    await tester.binding.setSurfaceSize(const Size(440, 956));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    Future<void> settle() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
+      }
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceSectionPage(
+          section: Section.video,
+          manager: manager,
+          fetchSubscription: service.fetch,
+        ),
+      ),
+    );
+    await settle();
+    expect(find.text('订阅管理 · 添加订阅链接'), findsOneWidget);
+    await tester.tap(find.text('订阅管理 · 添加订阅链接'));
+    await settle();
+    await tester.enterText(find.byType(TextField), manifest);
+    await tester.tap(find.text('添加订阅并导入'));
+    await settle();
+    expect(manager.sources.single.version, '1');
+    expect(find.text(manifest), findsOneWidget);
+    await tester.pageBack();
+    await settle();
+    expect(find.textContaining('已保存 1 个订阅'), findsOneWidget);
+    await tester.tap(find.text('订阅管理 · 添加订阅链接'));
+    await settle();
+    expect(find.text(manifest), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      isEmpty,
+    );
+    remote['https://repo.example/a.js'] = script('a', 2);
+    await tester.tap(find.text('更新已保存的订阅'));
+    await settle();
+    expect(manager.sources.single.version, '2');
   });
 }
 

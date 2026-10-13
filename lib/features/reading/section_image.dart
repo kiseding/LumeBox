@@ -137,7 +137,7 @@ class _SectionImageState extends State<SectionImage> {
     if (image == null) {
       setState(() => _failed = true);
       // 自动重试：只在页面还在、且没超过次数时排队。
-      if (_retries < _maxRetries) {
+      if (_retries < _maxRetries && pipeline.canRetry(url)) {
         final delay = _retryDelays[_retries];
         _retries++;
         _retryTimer?.cancel();
@@ -170,7 +170,19 @@ class _SectionImageState extends State<SectionImage> {
         filterQuality: FilterQuality.medium,
       );
     } else {
-      child = _Placeholder(failed: _failed);
+      child = _failed
+          ? Tooltip(
+              message: widget.pipeline.failureFor(widget.url) ?? '封面暂未加载，点击重试',
+              child: GestureDetector(
+                onTap: () {
+                  _retries = 0;
+                  _retryTimer?.cancel();
+                  unawaited(_resolve());
+                },
+                child: const _Placeholder(failed: true),
+              ),
+            )
+          : const _Placeholder(failed: false);
     }
     final radius = widget.borderRadius;
     return radius == null

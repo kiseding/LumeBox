@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/session/section.dart';
+import '../../core/net/source_subscription.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -10,9 +11,11 @@ class SourceSubscriptionPage extends StatefulWidget {
     super.key,
     required this.section,
     this.manager,
+    this.fetchSubscription,
   });
   final Section section;
   final SourceManager? manager;
+  final Future<SourceFetchResult> Function(String url)? fetchSubscription;
   @override
   State<SourceSubscriptionPage> createState() => _SourceSubscriptionPageState();
 }
@@ -73,11 +76,15 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
       final result = await SourceSubscriptionSync.refresh(
         widget.section,
         force: true,
+        manager: widget.manager,
+        fetch: widget.fetchSubscription,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(result.summary)));
       await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -137,7 +144,12 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _busy ? null : _add,
-            child: const Text('保存并同步'),
+            child: const Text('添加订阅并导入'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _busy || service == null ? null : _sync,
+            icon: const Icon(Icons.sync),
+            label: const Text('更新已保存的订阅'),
           ),
           if (_busy) const LinearProgressIndicator(),
           if (_error != null)
@@ -163,9 +175,10 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
                         record.error.isNotEmpty
                             ? record.error
                             : record.checkedAt == null
-                            ? '尚未同步'
+                            ? '已保存 · ${record.enabled ? '自动更新开启' : '自动更新关闭'} · 尚未同步'
                             : '上次同步：${record.checkedAt!.toLocal().toString().split('.').first}',
                       ),
+                      secondary: const Icon(Icons.rss_feed),
                       value: record.enabled,
                       onChanged: _busy
                           ? null

@@ -10,6 +10,7 @@ import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../core/theme/floating_modules.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
@@ -140,11 +141,13 @@ class _ExploreViewState extends State<ExploreView> {
   final SourceFilterCache _inlineFilterCache = SourceFilterCache();
   final GlobalKey _floatingHeaderKey = GlobalKey();
   double _floatingHeaderHeight = 52;
-  bool _filtersExpanded = false;
+  bool _headerHidden = false;
+  int _facetRequestSeq = 0;
   double get _contentTop =>
       GlassScaffold.barHeight(context, extra: BoardTabHeader.height) +
       _floatingHeaderHeight +
-      12;
+      FloatingModules.instance.style(FloatingModule.home).y.clamp(0, 80) +
+      8;
 
   void _measureFloatingHeader() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -401,11 +404,16 @@ class _ExploreViewState extends State<ExploreView> {
   Future<void> _loadCategories() async {
     final source = _source;
     if (source == null) return;
+    final seq = ++_facetRequestSeq;
     await Future.wait<void>([
       () async {
         try {
           final categories = await source.categories();
-          if (!mounted || !identical(source, _source)) return;
+          if (!mounted ||
+              seq != _facetRequestSeq ||
+              !identical(source, _source)) {
+            return;
+          }
           setState(() {
             _categories = categories;
             if (_categoryId != null &&
@@ -423,8 +431,14 @@ class _ExploreViewState extends State<ExploreView> {
             source: source,
             cache: _inlineFilterCache,
             force: true,
+            categoryId: _categoryId,
+            selection: Map.of(_facetFilters),
           );
-          if (!mounted || !identical(source, _source)) return;
+          if (!mounted ||
+              seq != _facetRequestSeq ||
+              !identical(source, _source)) {
+            return;
+          }
           setState(() {
             _filterGroups = groups
                 .where((group) => group.options.isNotEmpty)
@@ -449,66 +463,50 @@ class _ExploreViewState extends State<ExploreView> {
     mainAxisSize: MainAxisSize.min,
     children: [
       if (_categories.isNotEmpty)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 8, top: 4),
-            child: Text(
-              '分类',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-            ),
-          ),
-        ),
-      if (_categories.isNotEmpty)
         SizedBox(
-          height: 44,
+          height: 34,
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
               _facetChip('全部', _categoryId == null, () {
-                setState(() => _categoryId = null);
+                setState(() {
+                  _categoryId = null;
+                  _facetFilters = Map.of(_facetFilters)
+                    ..remove('tid')
+                    ..remove('class');
+                });
                 unawaited(_refresh());
               }),
-              for (final category in _categories)
+              for (final category in _categories.where((c) => c.title != '全部'))
                 _facetChip(category.title, _categoryId == category.id, () {
-                  setState(() => _categoryId = category.id);
+                  setState(() {
+                    _categoryId = category.id;
+                    _facetFilters = Map.of(_facetFilters)
+                      ..remove('tid')
+                      ..remove('class');
+                  });
                   unawaited(_refresh());
                 }),
             ],
           ),
         ),
-      if (_source != null)
+      for (final group in _filterGroups)
         Row(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Text(
-                '筛选',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                group.title,
+                style: TextStyle(fontSize: 11, color: LumeTheme.muted),
               ),
             ),
-            const Spacer(),
-            TextButton(onPressed: _openFilters, child: const Text('打开筛选')),
-          ],
-        ),
-      if (_filterGroups.isNotEmpty) ...[
-        for (final group
-            in (_filtersExpanded ? _filterGroups : _filterGroups.take(2)))
-          Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  group.title,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-                ),
-              ),
-              Expanded(
-                child: SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
+            Expanded(
+              child: SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    if (!group.options.any((o) => o.title == '全部'))
                       _facetChip(
                         '全部',
                         !_facetFilters.containsKey(group.id),
@@ -521,71 +519,32 @@ class _ExploreViewState extends State<ExploreView> {
                           unawaited(_refresh());
                         },
                       ),
-                      for (final option in group.options)
-                        _facetChip(
-                          option.title,
-                          _facetFilters[group.id] == option.id,
-                          () {
-                            setState(
-                              () => _facetFilters = {
-                                ..._facetFilters,
-                                group.id: option.id,
-                              },
-                            );
-                            unawaited(_refresh());
-                          },
-                        ),
-                    ],
-                  ),
+                    for (final option in group.options)
+                      _facetChip(
+                        option.title,
+                        (_facetFilters[group.id] ?? group.options.first.id) ==
+                            option.id,
+                        () {
+                          setState(() {
+                            _facetFilters = {
+                              ..._facetFilters,
+                              group.id: option.id,
+                            };
+                            if (group.id == 'tid') {
+                              _facetFilters.remove('class');
+                            }
+                          });
+                          unawaited(_refresh());
+                        },
+                      ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        if (_filterGroups.length > 2)
-          SizedBox(
-            height: 30,
-            child: TextButton(
-              onPressed: () =>
-                  setState(() => _filtersExpanded = !_filtersExpanded),
-              child: Text(_filtersExpanded ? '收起筛选' : '展开全部筛选'),
             ),
-          ),
-      ],
+          ],
+        ),
     ],
   );
-
-  Future<void> _openFilters() async {
-    final source = _source;
-    if (source == null) return;
-    final selection = await showModalBottomSheet<SourceFilterSelection>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * .85,
-        child: SourceFilterPage(
-          source: source,
-          cache: _inlineFilterCache,
-          categoryId: _categoryId,
-          initial: _facetFilters,
-          originUrl: _current?.originUrl ?? '',
-          pipeline: _imagePipeline,
-          onOpenItem: (item) {
-            Navigator.of(context).pop();
-            widget.onOpenItem(
-              ExploreSelection(sourceId: source.id, item: item),
-            );
-          },
-        ),
-      ),
-    );
-    if (!mounted || selection == null || !identical(source, _source)) return;
-    setState(() {
-      _categoryId = selection.categoryId.isEmpty ? null : selection.categoryId;
-      _facetFilters = selection.filters;
-    });
-    await _refresh();
-  }
 
   Widget _facetChip(String title, bool selected, VoidCallback onTap) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
@@ -595,7 +554,9 @@ class _ExploreViewState extends State<ExploreView> {
             ? LumeTheme.accent.withValues(alpha: .15)
             : Colors.transparent,
         foregroundColor: selected ? LumeTheme.accent : LumeTheme.textPrimary,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(32, 28),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const StadiumBorder(),
       ),
       onPressed: onTap,
@@ -962,73 +923,121 @@ class _ExploreViewState extends State<ExploreView> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_manager.runtimeAvailable) return const SkeletonNotice();
-    return Scaffold(
-      // **本页不随键盘收缩**（真机反馈：唤起键盘后顶部搜索框被顶出屏幕，
-      // 小说 / 漫画 / 视频三块都复现）。这里的布局契约是：
-      //   顶栏占位 + 搜索行是**固定头部**，键盘只能影响下面的内容列表。
-      // 交给 Scaffold 收缩的话，头部会跟着被挤压/位移；因此关掉自动收缩，
-      // 让键盘的高度由列表自己用底部内边距让出来（见 _keyboardInset）。
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.transparent,
-      key: _scaffold,
-      drawerScrimColor: Colors.black54,
-      // 返回键：**联想弹窗开着时先关它**（用户点名「返回关闭联想弹窗」），
-      // 而不是直接退出搜索 / 退出页面。
-      body: PopScope(
-        canPop: _suggestions.isEmpty,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _closeSuggestions();
-        },
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _closeSuggestions,
-                child: _buildBody(),
+    return ListenableBuilder(
+      listenable: FloatingModules.instance,
+      builder: (context, _) => Scaffold(
+        // **本页不随键盘收缩**（真机反馈：唤起键盘后顶部搜索框被顶出屏幕，
+        // 小说 / 漫画 / 视频三块都复现）。这里的布局契约是：
+        //   顶栏占位 + 搜索行是**固定头部**，键盘只能影响下面的内容列表。
+        // 交给 Scaffold 收缩的话，头部会跟着被挤压/位移；因此关掉自动收缩，
+        // 让键盘的高度由列表自己用底部内边距让出来（见 _keyboardInset）。
+        resizeToAvoidBottomInset: false,
+        backgroundColor: Colors.transparent,
+        key: _scaffold,
+        drawerScrimColor: Colors.black54,
+        // 返回键：**联想弹窗开着时先关它**（用户点名「返回关闭联想弹窗」），
+        // 而不是直接退出搜索 / 退出页面。
+        body: PopScope(
+          canPop: _suggestions.isEmpty,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _closeSuggestions();
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _closeSuggestions,
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification.depth != 0 ||
+                          notification.metrics.axis != Axis.vertical) {
+                        return false;
+                      }
+                      if (notification is ScrollUpdateNotification &&
+                          notification.dragDetails != null) {
+                        final delta = notification.scrollDelta ?? 0;
+                        final hidden =
+                            notification.metrics.pixels > 12 && delta > 0
+                            ? true
+                            : delta < 0 || notification.metrics.pixels <= 12
+                            ? false
+                            : _headerHidden;
+                        if (hidden != _headerHidden) {
+                          setState(() => _headerHidden = hidden);
+                        }
+                      }
+                      return false;
+                    },
+                    child: _buildBody(),
+                  ),
+                ),
               ),
-            ),
-            Positioned(
-              top:
-                  GlassScaffold.barHeight(
-                    context,
-                    extra: BoardTabHeader.height,
-                  ) +
-                  6,
-              left: 16,
-              right: 16,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  _measureFloatingHeader();
-                  return ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.sizeOf(context).height * .42,
-                    ),
-                    child: GlassPanel(
-                      key: _floatingHeaderKey,
-                      radius: 24,
-                      color: LumeTheme.glass.withValues(alpha: .38),
-                      blur: 18,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+              Positioned(
+                top:
+                    GlassScaffold.barHeight(
+                      context,
+                      extra: BoardTabHeader.height,
+                    ) +
+                    FloatingModules.instance.style(FloatingModule.home).y,
+                left:
+                    16 + FloatingModules.instance.style(FloatingModule.home).x,
+                right:
+                    16 - FloatingModules.instance.style(FloatingModule.home).x,
+                child: IgnorePointer(
+                  ignoring: _headerHidden,
+                  child: AnimatedOpacity(
+                    opacity: _headerHidden ? 0 : 1,
+                    duration: const Duration(milliseconds: 160),
+                    child: AnimatedSlide(
+                      offset: _headerHidden ? const Offset(0, -1) : Offset.zero,
+                      duration: const Duration(milliseconds: 180),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          _measureFloatingHeader();
+                          return ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight:
+                                  MediaQuery.sizeOf(context).height * .75,
+                            ),
+                            child: GlassPanel(
+                              module: null,
+                              key: _floatingHeaderKey,
+                              radius: 24,
+                              color: LumeTheme.glass.withValues(
+                                alpha: FloatingModules.instance
+                                    .style(FloatingModule.home)
+                                    .opacity,
+                              ),
+                              blur: FloatingModules.instance
+                                  .style(FloatingModule.home)
+                                  .blur,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ?HomeHeaderScope.headerOf(context),
+                                    _searching
+                                        ? _buildSearchField()
+                                        : _buildHeader(),
+                                    if (!_searching) _buildInlineFacets(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _searching ? _buildSearchField() : _buildHeader(),
-                            if (!_searching) _buildInlineFacets(),
-                          ],
-                        ),
-                      ),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1197,6 +1206,12 @@ class _ExploreViewState extends State<ExploreView> {
   }
 
   Widget _buildBody() {
+    if (!_manager.runtimeAvailable) {
+      return Padding(
+        padding: EdgeInsets.only(top: _contentTop),
+        child: const SkeletonNotice(),
+      );
+    }
     // 首页模式：横滑板块（或旧兼容的普通网格），由 SourceHomeView 自理加载与空态。
     if (_isHomeMode) {
       return SourceHomeView(

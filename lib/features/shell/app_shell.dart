@@ -1,3 +1,5 @@
+import '../../core/theme/floating_modules.dart';
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -89,7 +91,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static double dockMarginFor(double availableWidth) => _dockMargin;
   static double dockContentInset(BuildContext context) => 0;
   static double dockBottomOffset(BuildContext context) =>
-      MediaQuery.viewPaddingOf(context).bottom + _dockBottomMargin;
+      (MediaQuery.viewPaddingOf(context).bottom - 8).clamp(0, 120).toDouble() +
+      _dockBottomMargin;
 
   /// 页签目录：标识 + 展示文案 + 两个图标 + 页面构造。
   ///
@@ -540,69 +543,92 @@ class _DockBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 左右留白按**布局宽度**算（见 [_AppShellState.dockMarginFor]）：收窄 + 居中。
-    return IgnorePointer(
-      ignoring: !visible,
-      child: ExcludeSemantics(
-        excluding: !visible,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final margin = _AppShellState.dockMarginFor(constraints.maxWidth);
-            final safe = MediaQuery.viewPaddingOf(context);
-            // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
-            return AnimatedSlide(
-              offset: visible ? Offset.zero : const Offset(0, 1.2),
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
-              // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  margin + safe.left,
-                  0,
-                  margin + safe.right,
-                  bottomMargin,
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
-                    borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                    boxShadow: LumeTheme.floatShadow,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: LumeTheme.glass.withValues(alpha: .38),
-                          borderRadius: BorderRadius.circular(
-                            capsuleHeight / 2,
+    return ListenableBuilder(
+      listenable: FloatingModules.instance,
+      builder: (context, _) => Transform.translate(
+        offset: Offset(
+          FloatingModules.instance.style(FloatingModule.dock).x,
+          FloatingModules.instance.style(FloatingModule.dock).y,
+        ),
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: ExcludeSemantics(
+            excluding: !visible,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final margin = _AppShellState.dockMarginFor(
+                  constraints.maxWidth,
+                );
+                final safe = MediaQuery.viewPaddingOf(context);
+                // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
+                return AnimatedSlide(
+                  offset: visible ? Offset.zero : const Offset(0, 1.2),
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
+                  // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      margin + safe.left,
+                      0,
+                      margin + safe.right,
+                      bottomMargin,
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
+                        borderRadius: BorderRadius.circular(capsuleHeight / 2),
+                        boxShadow: LumeTheme.floatShadow,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(capsuleHeight / 2),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: FloatingModules.instance
+                                .style(FloatingModule.dock)
+                                .blur,
+                            sigmaY: FloatingModules.instance
+                                .style(FloatingModule.dock)
+                                .blur,
                           ),
-                          border: Border.all(color: LumeTheme.hairline),
-                        ),
-                        child: SizedBox(
-                          height: capsuleHeight,
-                          child: Padding(
-                            // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                            // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                            padding: EdgeInsets.only(bottom: contentInset),
-                            // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                            // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: _AppShellState._dockInnerPadding,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: LumeTheme.glass.withValues(
+                                alpha: FloatingModules.instance
+                                    .style(FloatingModule.dock)
+                                    .opacity,
                               ),
-                              child: Row(
-                                children: <Widget>[
-                                  for (final tab in tabs)
-                                    Expanded(
-                                      child: _DockItem(
-                                        tab: tab,
-                                        selected: tab.id == activeId,
-                                        onTap: () => onSelect(tab.id),
-                                      ),
-                                    ),
-                                ],
+                              borderRadius: BorderRadius.circular(
+                                capsuleHeight / 2,
+                              ),
+                              border: Border.all(color: LumeTheme.hairline),
+                            ),
+                            child: SizedBox(
+                              height: capsuleHeight,
+                              child: Padding(
+                                // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                                // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                                padding: EdgeInsets.only(bottom: contentInset),
+                                // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                                // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal:
+                                        _AppShellState._dockInnerPadding,
+                                  ),
+                                  child: Row(
+                                    children: <Widget>[
+                                      for (final tab in tabs)
+                                        Expanded(
+                                          child: _DockItem(
+                                            tab: tab,
+                                            selected: tab.id == activeId,
+                                            onTap: () => onSelect(tab.id),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -610,10 +636,10 @@ class _DockBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

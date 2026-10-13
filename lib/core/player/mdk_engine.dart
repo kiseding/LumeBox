@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'mpv_engine.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:fvp/mdk.dart' as mdk;
@@ -37,7 +39,7 @@ import 'player_stats.dart';
 ///   实际在用、语义明确的网络重连两项（`avio.reconnect` /
 ///   `avio.reconnect_delay_max`）——它们解决的是「起播/播放中连接被掐断后
 ///   要重新握手」这一类卡顿，与缓冲策略是两回事，如实分开说。
-class MdkEngine extends AbstractPlayer {
+class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   MdkEngine._(this._player);
 
   /// 创建引擎。原生库不可用时抛 [StateError]（由工厂转成可读提示）。
@@ -50,10 +52,12 @@ class MdkEngine extends AbstractPlayer {
 
   final mdk.Player _player;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
-  final ValueNotifier<PlayerStats> _stats =
-      ValueNotifier<PlayerStats>(PlayerStats.empty);
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
+  final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
+    PlayerStats.empty,
+  );
 
   final List<StreamSubscription<Object?>> _subscriptions =
       <StreamSubscription<Object?>>[];
@@ -87,7 +91,10 @@ class MdkEngine extends AbstractPlayer {
       _player.onStateChanged.listen((change) {
         if (!_live) return;
         final playing = change.newValue == mdk.PlaybackState.playing;
-        _emit(playing: playing, buffering: change.newValue == mdk.PlaybackState.running);
+        _emit(
+          playing: playing,
+          buffering: change.newValue == mdk.PlaybackState.running,
+        );
       }),
     );
     _subscriptions.add(
@@ -142,7 +149,8 @@ class MdkEngine extends AbstractPlayer {
 
   /// 能力矩阵：见 [PlayerCapabilities.of] 的唯一声明处（MDK 那一栏）。
   @override
-  PlayerCapabilities get capabilities => PlayerCapabilities.of(PlayerKernel.mdk);
+  PlayerCapabilities get capabilities =>
+      PlayerCapabilities.of(PlayerKernel.mdk);
 
   /// 可选音轨：列表来自 libmdk 的媒体信息，选中项从当前激活轨道反查。
   @override
@@ -277,7 +285,9 @@ class MdkEngine extends AbstractPlayer {
   /// 格式按 fvp 自己的做法：每行 `'Key: Value\r\n'`。没有请求头时**清空**该属性
   /// （否则上一集带的头会跟到下一集，那是另一种「串味」的 403）。
   void _applyHeaders(Map<String, String>? headers) {
-    final header = headers == null || headers.isEmpty ? '' : headersText(headers);
+    final header = headers == null || headers.isEmpty
+        ? ''
+        : headersText(headers);
     try {
       _player.setProperty('avio.headers', header);
       if (header.isNotEmpty) {
@@ -417,6 +427,34 @@ class MdkEngine extends AbstractPlayer {
     } catch (error) {
       LumeLog.warn('[mdk] 切字幕轨失败：$error');
     }
+  }
+
+  @override
+  Future<MpvVideoFrame?> captureFrame() async {
+    if (!_live) return null;
+    final videos = _player.mediaInfo.video;
+    if (videos == null || videos.isEmpty) return null;
+    final codec = videos.first.codec;
+    if (codec.width <= 0 || codec.height <= 0) return null;
+    final scale = codec.width > 960 ? 960 / codec.width : 1.0;
+    final width = (codec.width * scale).round();
+    final height = (codec.height * scale).round();
+    final rgba = await _player.snapshot(width: width, height: height);
+    if (!_live || rgba == null || rgba.length != width * height * 4) {
+      return null;
+    }
+    final bgra = Uint8List.fromList(rgba);
+    for (var i = 0; i < bgra.length; i += 4) {
+      final red = bgra[i];
+      bgra[i] = bgra[i + 2];
+      bgra[i + 2] = red;
+    }
+    return MpvVideoFrame(
+      pixels: bgra,
+      width: width,
+      height: height,
+      stride: width * 4,
+    );
   }
 
   @override

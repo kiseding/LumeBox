@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/lume_theme.dart';
+import '../../core/theme/floating_modules.dart';
 import '../../features/shell/shell_dock.dart';
 
 /// 磨砂玻璃层：半透明白底 + 背景模糊 + 极浅描边。
@@ -19,9 +20,11 @@ class GlassPanel extends StatelessWidget {
     this.color,
     this.border,
     this.padding,
+    this.module = FloatingModule.overlay,
   });
 
   final Widget child;
+  final FloatingModule? module;
 
   /// 圆角；0 表示直角（整条顶栏 / 底栏）。
   final double radius;
@@ -43,19 +46,38 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderRadius = BorderRadius.circular(radius);
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: color ?? LumeTheme.glass,
-            borderRadius: borderRadius,
-            border: border ?? Border.all(color: LumeTheme.hairline),
+    return ListenableBuilder(
+      listenable: FloatingModules.instance,
+      builder: (context, _) => Transform.translate(
+        offset: module != null
+            ? FloatingModules.instance.style(module!).offset
+            : Offset.zero,
+        child: ClipRRect(
+          borderRadius: borderRadius,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(
+              sigmaX: module != null
+                  ? FloatingModules.instance.style(module!).blur
+                  : blur,
+              sigmaY: module != null
+                  ? FloatingModules.instance.style(module!).blur
+                  : blur,
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: module == null
+                    ? (color ?? LumeTheme.glass)
+                    : (color ?? LumeTheme.glass).withValues(
+                        alpha: FloatingModules.instance.style(module!).opacity,
+                      ),
+                borderRadius: borderRadius,
+                border: border ?? Border.all(color: LumeTheme.hairline),
+              ),
+              child: padding == null
+                  ? child
+                  : Padding(padding: padding!, child: child),
+            ),
           ),
-          child: padding == null
-              ? child
-              : Padding(padding: padding!, child: child),
         ),
       ),
     );
@@ -162,64 +184,94 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
-      title: title,
-      // 右上角那排图标：默认 IconButton 是 48×48 + 内边距，四个连排会占掉大半
-      // 个标题栏。这里压到 42 的触达尺寸、去掉内边距——比默认紧凑，但不至于
-      // 挤在一起（用户反馈「收得太紧了，放开一点点」，因此从 38 放到 42）。
-      actionsPadding: const EdgeInsets.only(right: 10),
-      actions: actions == null
-          ? null
-          : <Widget>[
-              IconButtonTheme(
-                data: IconButtonThemeData(
-                  style: IconButton.styleFrom(
-                    minimumSize: const Size(42, 42),
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return ListenableBuilder(
+      listenable: FloatingModules.instance,
+      builder: (context, _) => Transform.translate(
+        offset: FloatingModules.instance
+            .style(FloatingModule.navigation)
+            .offset,
+        child: AppBar(
+          title: title,
+          // 右上角那排图标：默认 IconButton 是 48×48 + 内边距，四个连排会占掉大半
+          // 个标题栏。这里压到 42 的触达尺寸、去掉内边距——比默认紧凑，但不至于
+          // 挤在一起（用户反馈「收得太紧了，放开一点点」，因此从 38 放到 42）。
+          actionsPadding: const EdgeInsets.only(right: 10),
+          actions: actions == null
+              ? null
+              : <Widget>[
+                  IconButtonTheme(
+                    data: IconButtonThemeData(
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(42, 42),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions!,
+                    ),
+                  ),
+                ],
+          bottom: bottom,
+          leading: leading,
+          automaticallyImplyLeading: automaticallyImplyLeading ?? true,
+          toolbarHeight: toolbarHeight ?? kLumeToolbarHeight,
+          centerTitle: centerTitle,
+          // 标题与图标**贴状态栏下沿**：Material 默认还会在工具栏里再垂直居中一次，
+          // 视觉上就是「顶栏往下陷」（用户反馈）。这里把标题内边距收到最小，
+          // 控件尺寸不变、只是整条内容上移。
+          titleSpacing: 0,
+          leadingWidth: 48,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          flexibleSpace: floating
+              ? Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    MediaQuery.viewPaddingOf(context).top,
+                    16,
+                    0,
+                  ),
+                  child: GlassPanel(
+                    module: null,
+                    radius: 24,
+                    blur: FloatingModules.instance
+                        .style(FloatingModule.navigation)
+                        .blur,
+                    color: LumeTheme.glass.withValues(
+                      alpha: FloatingModules.instance
+                          .style(FloatingModule.navigation)
+                          .opacity,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                )
+              : ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(20),
+                  ),
+                  child: GlassPanel(
+                    module: null,
+                    color: LumeTheme.glass.withValues(
+                      alpha: FloatingModules.instance
+                          .style(FloatingModule.navigation)
+                          .opacity,
+                    ),
+                    blur: FloatingModules.instance
+                        .style(FloatingModule.navigation)
+                        .blur,
+                    border: Border(
+                      bottom: BorderSide(color: LumeTheme.hairline),
+                    ),
+                    child: const SizedBox.expand(),
                   ),
                 ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: actions!),
-              ),
-            ],
-      bottom: bottom,
-      leading: leading,
-      automaticallyImplyLeading: automaticallyImplyLeading ?? true,
-      toolbarHeight: toolbarHeight ?? kLumeToolbarHeight,
-      centerTitle: centerTitle,
-      // 标题与图标**贴状态栏下沿**：Material 默认还会在工具栏里再垂直居中一次，
-      // 视觉上就是「顶栏往下陷」（用户反馈）。这里把标题内边距收到最小，
-      // 控件尺寸不变、只是整条内容上移。
-      titleSpacing: 0,
-      leadingWidth: 48,
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      flexibleSpace: floating
-          ? Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                MediaQuery.viewPaddingOf(context).top,
-                16,
-                0,
-              ),
-              child: GlassPanel(
-                radius: 24,
-                color: LumeTheme.glass.withValues(alpha: .38),
-                child: const SizedBox.expand(),
-              ),
-            )
-          : ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(20),
-              ),
-              child: GlassPanel(
-                border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
-                child: const SizedBox.expand(),
-              ),
-            ),
+        ),
+      ),
     );
   }
 }
@@ -291,6 +343,7 @@ class GlassScaffold extends StatelessWidget {
     this.floatingActionButton,
     this.behindBar = false,
     this.floatingBar = false,
+    this.mergeHomeHeader = false,
     this.resizeToAvoidBottomInset,
   });
 
@@ -310,6 +363,7 @@ class GlassScaffold extends StatelessWidget {
   /// 内容是否铺到顶栏之下（见类文档）。
   final bool behindBar;
   final bool floatingBar;
+  final bool mergeHomeHeader;
 
   final bool? resizeToAvoidBottomInset;
 
@@ -351,26 +405,76 @@ class GlassScaffold extends StatelessWidget {
     // body 的注入内边距仍是「未缩」的总高——下方 _GlassBarHeight 用 [height]
     // 覆盖它，列表与页面内容跟顶栏下沿严丝合缝。
     final unusedInset = statusInset - trimmedTopInset(statusInset);
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      resizeToAvoidBottomInset: resizeToAvoidBottomInset ?? true,
-      appBar: unusedInset <= 0
-          ? _buildBar()
-          : _ShiftedAppBar(dy: unusedInset, child: _buildBar()),
-      floatingActionButton: floatingActionButton,
-      body: DecoratedBox(
-        decoration: LumeTheme.background,
-        // 穿栏时顶部不设安全区（顶栏由内容自己用 barInset 让出）；
-        // 左右照常让开；**底部只在壳里让**（Dock 的脚印），二级页让内容铺到底
-        // ——见 [_reservesBottom]。
-        child: _GlassBarHeight(
-          height: height,
-          child: behindBar
-              ? SafeArea(top: false, bottom: false, child: child)
-              : SafeArea(bottom: _reservesBottom(context), child: child),
+    final tabs = DefaultTabController.maybeOf(context);
+    Widget scaffold() {
+      final merge = mergeHomeHeader && (tabs == null || tabs.index == 0);
+      return Scaffold(
+        extendBodyBehindAppBar: true,
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset ?? true,
+        appBar: merge
+            ? null
+            : (unusedInset <= 0
+                  ? _buildBar()
+                  : _ShiftedAppBar(dy: unusedInset, child: _buildBar())),
+        floatingActionButton: floatingActionButton,
+        body: DecoratedBox(
+          decoration: LumeTheme.background,
+          child: _GlassBarHeight(
+            height: merge ? trimmedTopInset(statusInset) : height,
+            child: HomeHeaderScope(
+              header: merge
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          height: 36,
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  title ?? LumeTheme.appName,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (actions != null)
+                                IconButtonTheme(
+                                  data: IconButtonThemeData(
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(40, 40),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: actions!,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        ?bottom,
+                      ],
+                    )
+                  : null,
+              child: behindBar
+                  ? SafeArea(top: false, bottom: false, child: child)
+                  : SafeArea(bottom: _reservesBottom(context), child: child),
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    return tabs == null
+        ? scaffold()
+        : AnimatedBuilder(animation: tabs, builder: (_, _) => scaffold());
   }
 
   /// 页签条高度。
@@ -433,4 +537,18 @@ class _GlassBarHeight extends InheritedWidget {
   @override
   bool updateShouldNotify(_GlassBarHeight oldWidget) =>
       oldWidget.height != height;
+}
+
+class HomeHeaderScope extends InheritedWidget {
+  const HomeHeaderScope({
+    super.key,
+    required this.header,
+    required super.child,
+  });
+  final Widget? header;
+  static Widget? headerOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<HomeHeaderScope>()?.header;
+  @override
+  bool updateShouldNotify(HomeHeaderScope oldWidget) =>
+      header != oldWidget.header;
 }

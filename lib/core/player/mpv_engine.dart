@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter/widgets.dart';
@@ -11,7 +10,11 @@ import 'player_capabilities.dart';
 /// [MpvPlayer] 只依赖这个端口：命令映射、状态与 HUD 组装、生命周期全在 Dart 侧，
 /// 原生库（media_kit / libmpv）挡在 `MediaKitMpvEngine` 后面。这样测试注入替身
 /// 就能在没有 libmpv 的机器（含 CI）上验证整条链路，也保证上层与 libmpv 无关。
-abstract interface class MpvEngine {
+abstract interface class VideoFrameCapture {
+  Future<MpvVideoFrame?> captureFrame();
+}
+
+abstract interface class MpvEngine implements VideoFrameCapture {
   /// 订阅引擎快照（位置 / 时长 / 播放 / 缓冲 / HUD 原始字段）。
   ///
   /// 注册时会立刻回调一次当前状态，调用方不必额外问一次。
@@ -39,6 +42,7 @@ abstract interface class MpvEngine {
   /// 返回 null 表示当前拿不到帧（未加载 / 已释放 / 引擎不支持）。
   /// 这是**轮询式**取帧（mpv 的 `screenshot-raw`），不是推流式回调：
   /// 因此画中画期间由上层按帧率节拍调用，而不是内核主动推。
+  @override
   Future<MpvVideoFrame?> captureFrame();
 
   /// 字幕总开关（MPV 由 libmpv 的轨道选择实现；字号 / 颜色 / 描边仍待自研字幕层）。
@@ -169,18 +173,19 @@ class MpvProperties {
       config.mpvProperties;
 
   /// 硬件解码开关：`auto` = 自动选硬解，`no` = 强制软解。
-  static Map<String, String> hardwareDecoding(bool enabled) =>
-      <String, String>{'hwdec': enabled ? 'auto' : 'no'};
+  static Map<String, String> hardwareDecoding(bool enabled) => <String, String>{
+    'hwdec': enabled ? 'auto' : 'no',
+  };
 
   /// 字幕延迟：libmpv 的 `sub-delay` **单位是秒**（可负 = 字幕提前）。
   static Map<String, String> subtitleDelay(Duration delay) => <String, String>{
-        'sub-delay': _seconds(delay),
-      };
+    'sub-delay': _seconds(delay),
+  };
 
   /// 音频延迟：libmpv 的 `audio-delay` 单位同样是秒。
   static Map<String, String> audioDelay(Duration delay) => <String, String>{
-        'audio-delay': _seconds(delay),
-      };
+    'audio-delay': _seconds(delay),
+  };
 
   static String _seconds(Duration value) =>
       '${value.inMicroseconds / Duration.microsecondsPerSecond}';
@@ -258,6 +263,35 @@ class MpvVideoFrame {
   /// 每行字节数（含对齐填充）。
   final int stride;
 
+  /// PiP uses a small viewport; keep high resolution frames below channel limits.
+  MpvVideoFrame forPictureInPicture({int maxDimension = 960}) {
+    final largest = width > height ? width : height;
+    if (largest <= maxDimension) return this;
+    final scaledWidth = (width * maxDimension / largest).round().clamp(
+      1,
+      maxDimension,
+    );
+    final scaledHeight = (height * maxDimension / largest).round().clamp(
+      1,
+      maxDimension,
+    );
+    final output = Uint8List(scaledWidth * scaledHeight * 4);
+    for (var y = 0; y < scaledHeight; y++) {
+      final row = (y * height ~/ scaledHeight) * stride;
+      for (var x = 0; x < scaledWidth; x++) {
+        final from = row + (x * width ~/ scaledWidth) * 4;
+        final to = (y * scaledWidth + x) * 4;
+        output.setRange(to, to + 4, pixels, from);
+      }
+    }
+    return MpvVideoFrame(
+      pixels: output,
+      width: scaledWidth,
+      height: scaledHeight,
+      stride: scaledWidth * 4,
+    );
+  }
+
   /// 去掉行距填充，得到紧密排列的 BGRA（原生侧期望的格式）。
   Uint8List toTightBgra() {
     final rowBytes = width * 4;
@@ -267,12 +301,7 @@ class MpvVideoFrame {
       final sourceStart = row * stride;
       final targetStart = row * rowBytes;
       if (sourceStart + rowBytes > pixels.length) break;
-      tight.setRange(
-        targetStart,
-        targetStart + rowBytes,
-        pixels,
-        sourceStart,
-      );
+      tight.setRange(targetStart, targetStart + rowBytes, pixels, sourceStart);
     }
     return tight;
   }

@@ -16,6 +16,8 @@ import '../../core/player/pip_channel.dart';
 import '../../core/player/pip_frame_pump.dart';
 import '../../core/player/mpv_engine.dart';
 import '../../core/player/mpv_player.dart';
+import '../../core/player/mdk_engine.dart';
+import '../../core/player/av_player.dart';
 import '../../core/player/playback_orientation.dart';
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
@@ -289,6 +291,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _preparingInlinePip = false;
   DateTime? _nextInlinePipAttempt;
   bool _backgroundPlaying = false;
+  bool _returnedFromBackground = false;
   bool _recoveringPlayback = false;
   Duration _healthyPosition = Duration.zero;
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
@@ -297,6 +300,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final previous = _lifecycle;
     _lifecycle = state;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _returnedFromBackground = true;
+    }
     if (state == AppLifecycleState.inactive &&
         previous == AppLifecycleState.resumed) {
       final snapshot = _player?.snapshot.value;
@@ -305,8 +312,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _healthyPosition = snapshot.position;
       }
     }
-    if (state == AppLifecycleState.resumed &&
-        previous != AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && _returnedFromBackground) {
+      _returnedFromBackground = false;
       if (_session?.state == PipState.active) unawaited(_session?.exit());
       unawaited(_restoreInlinePlayback());
     }
@@ -315,18 +322,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Future<void> _prepareInlinePip() async {
     if (_nextInlinePipAttempt?.isAfter(DateTime.now()) ?? false) return;
     final backend = _session?.backend;
-    final engine = _mpvEngineOf(_player);
+    final engine = _frameEngineOf(_player);
     if (_inlinePipReady ||
         _preparingInlinePip ||
         _pipPreparing ||
         backend is! MethodChannelPipBackend ||
-        engine == null) {
+        (engine == null && _player is! AvPlayer)) {
       return;
     }
     _preparingInlinePip = true;
     _nextInlinePipAttempt = DateTime.now().add(const Duration(seconds: 5));
     final player = _player;
     try {
+      if (player is AvPlayer) {
+        final id = player.nativePlayerId;
+        if (id != null) {
+          await backend.prepareAvPlayer(id);
+          if (mounted && identical(player, _player)) _inlinePipReady = true;
+        }
+        return;
+      }
+      if (engine == null) return;
       _framePump ??= PipFramePump(
         engine: engine,
         frameSource: backend.frameSource,
@@ -1765,50 +1781,46 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final session = _session;
       if (session == null) return;
 
-      // 画中画要能持续拿到**画面帧**：只有 MPV 内核有导出通道（AVPlayer 由
-      // video_player 插件驱动、插件不暴露 AVPlayerLayer；MDK 没有取帧接口）。
-      // 因此用其它内核点画中画时，先切到 MPV 再进——而不是给一个点了没反应的按钮。
-      if (session.state != PipState.active &&
-          _settings.kernel != PlayerKernel.mpv) {
-        final capable = _catalog.isAvailable(PlayerKernel.mpv);
-        if (!capable) {
-          _showToast('画中画需要 MPV 内核，本机没有可用的 MPV');
-          return;
-        }
-        _showToast('画中画需要 MPV 内核，已为你切换（${_settings.kernel.label} → MPV）');
-        await _applySettings(_settings.copyWith(kernel: PlayerKernel.mpv));
-        if (!mounted) return;
-      }
-
       if (session.state != PipState.active) {
-        final backend = widget.pipBackend;
-        if (backend == null || backend is MethodChannelPipBackend) {
-          final engine = _mpvEngineOf(_player);
-          final nativeBackend = session.backend;
-          if (engine == null || nativeBackend is! MethodChannelPipBackend) {
-            _showToast('当前内核无法提供画中画视频帧');
-            return;
-          }
-          _framePump ??= PipFramePump(
-            engine: engine,
-            frameSource: nativeBackend.frameSource,
+        final player = _player;
+        if (player == null) return;
+        await player.play();
+        _backgroundPlaying = true;
+        final nativeBackend = session.backend;
+        if (nativeBackend is MethodChannelPipBackend) {
+          await nativeBackend.updatePlaybackState(
+            playing: true,
+            duration: player.snapshot.value.duration,
           );
-          final snapshot = _player?.snapshot.value;
-          if (snapshot != null) {
-            await nativeBackend.updatePlaybackState(
-              playing: snapshot.playing,
-              duration: snapshot.duration,
+          if (player is AvPlayer) {
+            final id = player.nativePlayerId;
+            if (id == null) {
+              _showToast('请等播放画面就绪');
+              return;
+            }
+            await nativeBackend.prepareAvPlayer(id);
+          } else {
+            final engine = _frameEngineOf(player);
+            if (engine == null) {
+              _showToast('当前内核无法提供画中画视频帧');
+              return;
+            }
+            _framePump ??= PipFramePump(
+              engine: engine,
+              frameSource: nativeBackend.frameSource,
             );
-          }
-          final ready = await _framePump!.prime().timeout(
-            const Duration(seconds: 3),
-            onTimeout: () => false,
-          );
-          if (!mounted) return;
-          if (!ready) {
-            _stopFrameForwarding();
-            _showToast('画中画视频帧未就绪，请等画面出现后重试');
-            return;
+            final ready = await _framePump!.prime().timeout(
+              const Duration(seconds: 3),
+              onTimeout: () => false,
+            );
+            if (!mounted) return;
+            if (!ready) {
+              _stopFrameForwarding();
+              _showToast('画中画视频帧未就绪，请等画面出现后重试');
+              return;
+            }
+            // Keep supplying frames while iOS checks readiness, not only after entered.
+            _framePump!.start();
           }
         }
       }
@@ -1821,6 +1833,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _stopFrameForwarding();
         _showToast(rejection);
       }
+    } catch (error) {
+      _stopFrameForwarding();
+      _showToast('画中画准备失败：$error');
     } finally {
       _pipPreparing = false;
     }
@@ -1850,9 +1865,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _stopFrameForwarding();
         _showToast(event.message ?? '画中画失败');
       case PipEventKind.entered:
-        if (_lifecycle == AppLifecycleState.resumed) {
-          _backgroundPlaying = _player?.snapshot.value.playing ?? false;
-        }
+        _backgroundPlaying = true;
+        unawaited(_player?.play());
         _startFrameForwarding();
       case PipEventKind.exited:
         _stopFrameForwarding();
@@ -1868,13 +1882,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void _startFrameForwarding() {
     final player = _player;
     final backend = _session?.backend;
-    final engine = _mpvEngineOf(player);
+    final engine = _frameEngineOf(player);
     if (player == null || backend is! MethodChannelPipBackend) {
       LumeLog.info('[player] 当前内核不需要帧转发（或画中画后端非原生）');
       return;
     }
     if (engine == null) {
-      LumeLog.info('[player] 当前内核没有帧导出能力，画中画将显示空白');
+      LumeLog.info('[pip] 系统播放器由原生 AVPlayerLayer 提供画面');
       return;
     }
     _framePump ??= PipFramePump(
@@ -1914,8 +1928,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 取播放器背后的 MPV 引擎（非 MPV 内核返回 null）。
-  MpvEngine? _mpvEngineOf(AbstractPlayer? player) {
+  VideoFrameCapture? _frameEngineOf(AbstractPlayer? player) {
     if (player is MpvPlayer) return player.engine;
+    if (player is MdkEngine) return player;
     return null;
   }
 

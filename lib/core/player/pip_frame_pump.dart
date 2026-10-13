@@ -30,8 +30,8 @@ class PipFramePump {
     this.targetFps = 30,
   });
 
-  /// 取帧来源（MPV 引擎）。
-  final MpvEngine engine;
+  /// 取帧来源（MPV / MDK）。
+  final VideoFrameCapture engine;
 
   /// 帧出口（节流 + 送原生）。
   final PipFrameSource frameSource;
@@ -66,10 +66,12 @@ class PipFramePump {
     _pumping = true;
     frameSource.resetStats();
     try {
-      final frame = await engine.captureFrame();
+      final frame = (await engine.captureFrame())?.forPictureInPicture();
       if (!_running || frame == null) return false;
       return await frameSource.submitFrame(
-        pixels: frame.toTightBgra(), width: frame.width, height: frame.height,
+        pixels: frame.toTightBgra(),
+        width: frame.width,
+        height: frame.height,
         timestamp: Duration.zero,
       );
     } catch (error, stackTrace) {
@@ -137,7 +139,7 @@ class PipFramePump {
     if (_pumping) return;
     _pumping = true;
     try {
-      final frame = await engine.captureFrame();
+      final frame = (await engine.captureFrame())?.forPictureInPicture();
       if (!_running) return;
       if (frame == null) {
         _captureFailures++;

@@ -74,6 +74,19 @@ public final class VideoPlayerPlugin: NSObject, FlutterPlugin, AVFoundationVideo
     let instance = VideoPlayerPlugin(registrar: registrar)
     // Publish the instance so that it receives detachFromEngine.
     registrar.publish(instance)
+    #if os(iOS)
+      let pip = FlutterMethodChannel(name: "lumebox/av_pip", binaryMessenger: registrar.messenger())
+      pip.setMethodCallHandler { [weak instance] call, result in
+        guard call.method == "prepare" else { result(FlutterMethodNotImplemented); return }
+        guard let args = call.arguments as? [String: Any],
+              let identifier = args["playerId"] as? NSNumber,
+              let video = instance?.playersByIdentifier[identifier.int64Value], !video.disposed else {
+          result(false); return
+        }
+        NotificationCenter.default.post(name: Notification.Name("LumeBox.avplayer.pip"), object: video.player)
+        result(true)
+      }
+    #endif
 
     #if os(iOS)
       let messenger = registrar.messenger()

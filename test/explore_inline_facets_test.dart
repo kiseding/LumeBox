@@ -62,6 +62,7 @@ void main() {
             title: '视频',
             behindBar: true,
             floatingBar: true,
+            mergeHomeHeader: true,
             child: ExploreView(
               section: Section.video,
               manager: manager,
@@ -84,9 +85,10 @@ void main() {
       opened: {'a': source},
     );
     await show(tester, manager);
+    expect(find.byType(AppBar), findsNothing, reason: '标题与功能合到一个悬浮模块');
     expect(find.byTooltip('筛选'), findsNothing);
-    expect(find.text('筛选'), findsOneWidget);
-    expect(find.text('打开筛选'), findsOneWidget);
+    expect(find.text('筛选'), findsNothing);
+    expect(find.text('打开筛选'), findsNothing);
     expect(
       tester.getCenter(find.text('源A')).dy,
       lessThan(tester.getCenter(find.text('网站大分类')).dy),
@@ -104,6 +106,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(source.requests.last.$1, 'category-a');
     expect(source.requests.last.$2, {'region-a': 'option-a'});
+    await tester.drag(find.byType(GridView), const Offset(0, -360));
+    await tester.pumpAndSettle();
+    final opacity = tester
+        .widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))
+        .map((w) => w.opacity);
+    expect(opacity, contains(0), reason: '上滑收起整块顶部导航、分类与筛选');
+    await tester.drag(find.byType(GridView), const Offset(0, 180));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widgetList<AnimatedOpacity>(find.byType(AnimatedOpacity))
+          .map((w) => w.opacity),
+      everyElement(1),
+    );
+  });
+
+  testWidgets('五组网站筛选全部直接显示，第五行可选择并下发', (tester) async {
+    final source = _ManyFilterSource();
+    await show(
+      tester,
+      FakeSourceManager(
+        sources: const [
+          SourceDescriptor(id: 'a', name: '源A', version: '1', enabled: true),
+        ],
+        opened: {'a': source},
+      ),
+    );
+    for (var i = 1; i <= 5; i++) {
+      expect(find.text('网站第$i行'), findsOneWidget);
+    }
+    expect(find.text('展开全部筛选'), findsNothing);
+    await tester.tap(find.text('第五组条件5'));
+    await tester.pumpAndSettle();
+    expect(source.requests.last.$2, {'row5': 'pick5'});
+    expect(find.byType(AppBar), findsNothing);
   });
 
   testWidgets('切源后旧源晚返回的分类和筛选不能覆盖新源', (tester) async {
@@ -130,6 +167,7 @@ void main() {
             title: '视频',
             behindBar: true,
             floatingBar: true,
+            mergeHomeHeader: true,
             child: ExploreView(
               section: Section.video,
               manager: manager,
@@ -150,6 +188,19 @@ void main() {
     expect(find.text('过期分类'), findsNothing);
     expect(find.text('旧选项'), findsNothing);
   });
+}
+
+class _ManyFilterSource extends _FilterSource {
+  _ManyFilterSource() : super('a', '网站分类', '网站分组', '网站条件');
+  @override
+  Future<List<SourceFilterGroup>> filters() async => [
+    for (var i = 1; i <= 5; i++)
+      SourceFilterGroup(
+        id: 'row$i',
+        title: '网站第$i行',
+        options: [SourceFilterOption(id: 'pick$i', title: '第五组条件$i')],
+      ),
+  ];
 }
 
 class _ScopePlaceholder extends StatelessWidget {

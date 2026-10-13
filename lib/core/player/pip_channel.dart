@@ -16,8 +16,7 @@ import 'pip_frame_source.dart';
 /// 事件通道 `lumebox/pip/events`：`{kind: entered|exited|restored|failed, message?}`
 /// 四种事件与 [PipEventKind] 一一对应。
 ///
-/// 原生实现（Swift）尚未接入：此时 `isSupported` 会把 MissingPluginException
-/// 如实降级为 false，页面显示占位而不是报错——契约由测试固定，原生落地即生效。
+/// AVPlayer 使用原生 playerLayer，MDK / MPV 使用解码帧内容源。
 class MethodChannelPipBackend implements PipBackend {
   MethodChannelPipBackend({
     MethodChannel? methodChannel,
@@ -55,6 +54,12 @@ class MethodChannelPipBackend implements PipBackend {
 
   @override
   Future<void> stop() => _invoke('stop');
+
+  Future<void> prepareAvPlayer(int playerId) async {
+    final ready = await const MethodChannel('lumebox/av_pip')
+        .invokeMethod<bool>('prepare', {'playerId': playerId});
+    if (ready != true) throw const PipException('系统播放器画中画内容源未就绪');
+  }
 
   Future<void> updatePlaybackState({
     required bool playing,

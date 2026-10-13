@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/js/lume_js_engine.dart';
 
 import 'js_sandbox/support/js_sandbox_support.dart';
+
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
@@ -28,10 +29,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   void writeFile(String relative, int bytes) {
@@ -93,31 +94,31 @@ void main() {
   }
 
   Finder clearButtonOf(String sectionLabel) => find.descendant(
-        of: find.ancestor(
-          of: find.text(sectionLabel),
-          matching: find.byType(GlassCard),
-        ),
-        matching: find.widgetWithText(TextButton, '清理'),
-      );
+    of: find.ancestor(
+      of: find.text(sectionLabel),
+      matching: find.byType(GlassCard),
+    ),
+    matching: find.widgetWithText(TextButton, '清理'),
+  );
 
   testWidgets('切到深色：设置页整页换色（含「显示」「播放」两张分组卡）', (tester) async {
     // 走**真实壳层**：设置页挂在 AppShell 的页签里，主题接线与 app.dart 一致
     // （theme + darkTheme + builder 里回写静态色名）。这正是真机那条路径：
     // 只读静态色名的部件不会随 ThemeData 自动重建，靠壳层按主题身份重建当前页签。
     Widget app(ThemeMode mode) => MaterialApp(
-          theme: LumeTheme.build(brightness: Brightness.light),
-          darkTheme: LumeTheme.build(brightness: Brightness.dark),
-          themeMode: mode,
-          builder: (context, child) {
-            final brightness = Theme.of(context).brightness;
-            LumeTheme.applyBrightness(brightness);
-            return KeyedSubtree(
-              key: ValueKey<String>(LumeTheme.themeId),
-              child: child ?? const SizedBox.shrink(),
-            );
-          },
-          home: AppShell(controller: ShellDockController(), desktopRail: false),
+      theme: LumeTheme.build(brightness: Brightness.light),
+      darkTheme: LumeTheme.build(brightness: Brightness.dark),
+      themeMode: mode,
+      builder: (context, child) {
+        final brightness = Theme.of(context).brightness;
+        LumeTheme.applyBrightness(brightness);
+        return KeyedSubtree(
+          key: ValueKey<String>(LumeTheme.themeId),
+          child: child ?? const SizedBox.shrink(),
         );
+      },
+      home: AppShell(controller: ShellDockController(), desktopRail: false),
+    );
 
     /// 某段文字所在的（最近的）GlassCard 的实际底色。
     Color? cardColorOf(String text) {
@@ -168,16 +169,8 @@ void main() {
     await tester.pumpWidget(app(ThemeMode.dark));
     await tester.pumpAndSettle();
     expect(LumeTheme.surface, dark, reason: '静态色名的活动色板要跟着亮度走');
-    expect(
-      cardColorOf('外观'),
-      dark,
-      reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）',
-    );
-    expect(
-      cardColorOf('横屏播放'),
-      dark,
-      reason: '「播放」分组卡要跟着变深（真机同款白底）',
-    );
+    expect(cardColorOf('外观'), dark, reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）');
+    expect(cardColorOf('横屏播放'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
     expect(cardColorOf('底部导航栏管理'), dark);
   });
 
@@ -216,7 +209,8 @@ void main() {
 
     expect(find.text('已清理 漫画 100 B 缓存'), findsOneWidget);
     expect(
-      File('${root.path}/sections/comic/reading_cache/images/a.img').existsSync(),
+      File('${root.path}/sections/comic/reading_cache/images/a.img')
+          .existsSync(),
       isFalse,
     );
     expect(
@@ -226,7 +220,8 @@ void main() {
       reason: '用户保存的图片不参与清理',
     );
     expect(
-      File('${root.path}/sections/novel/reading_cache/images/b.img').existsSync(),
+      File('${root.path}/sections/novel/reading_cache/images/b.img')
+          .existsSync(),
       isTrue,
       reason: '小说板块的缓存不受漫画清理影响',
     );
@@ -268,6 +263,11 @@ void main() {
     LumeLog.error(StateError('错误一条'), StackTrace.current);
 
     await pumpSettings(tester);
+    await tester.scrollUntilVisible(
+      find.text('运行日志'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('运行日志'));
     await tester.pumpAndSettle();
 
@@ -303,7 +303,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('已导出报告：2 条日志'), findsOneWidget);
-    final path = '${root.path}${Platform.pathSeparator}logs'
+    final path =
+        '${root.path}${Platform.pathSeparator}logs'
         '${Platform.pathSeparator}log_report_20261004_213310.txt';
     expect(find.text(path), findsOneWidget);
     final file = File(path);
@@ -315,11 +316,12 @@ void main() {
     String? copied;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied = (call.arguments as Map<Object?, Object?>)['text'] as String?;
-      }
-      return null;
-    });
+          if (call.method == 'Clipboard.setData') {
+            copied =
+                (call.arguments as Map<Object?, Object?>)['text'] as String?;
+          }
+          return null;
+        });
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -355,24 +357,20 @@ void main() {
     expect(find.textContaining('导出失败'), findsOneWidget);
   });
 
-  testWidgets(
-    '非 iOS：设置只保留骨架占位',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(900, 1400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        MaterialApp(theme: LumeTheme.build(), home: const SettingsPage()),
-      );
-      await tester.pumpAndSettle();
+  testWidgets('非 iOS：设置只保留骨架占位', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(theme: LumeTheme.build(), home: const SettingsPage()),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('当前平台在 Phase1 仅保留页面骨架'), findsOneWidget);
-      expect(find.text('源总管理'), findsNothing);
-      expect(find.text('缓存管理'), findsNothing);
-      expect(find.text('运行日志'), findsNothing);
-      expect(find.text('错误报告'), findsNothing);
-    },
-    skip: Platform.isIOS,
-  );
+    expect(find.text('当前平台在 Phase1 仅保留页面骨架'), findsOneWidget);
+    expect(find.text('源总管理'), findsNothing);
+    expect(find.text('缓存管理'), findsNothing);
+    expect(find.text('运行日志'), findsNothing);
+    expect(find.text('错误报告'), findsNothing);
+  }, skip: Platform.isIOS);
 
   test('Section 顺序与设置页展示一致（防未来加板块时漏行）', () {
     // 展示文案（label）与内部标识（id）是两回事：视频板块显示「视频」，

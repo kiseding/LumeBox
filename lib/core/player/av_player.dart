@@ -30,7 +30,7 @@ import 'player_stats.dart';
 /// 对之后创建的每个播放器生效（[setBuffering] 改了参数则重写一次）。
 class AvPlayer extends AbstractPlayer {
   AvPlayer({BufferingBackend? buffering})
-      : _buffering = buffering ?? createPlatformBufferingBackend();
+    : _buffering = buffering ?? createPlatformBufferingBackend();
 
   /// 缓冲参数的原生写通道（测试可注入替身）。
   final BufferingBackend _buffering;
@@ -40,8 +40,9 @@ class AvPlayer extends AbstractPlayer {
 
   /// 是否已经把缓冲参数写进原生侧（只写一次，后续起播省掉通道往返）。
   bool _bufferingWritten = false;
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
 
   /// HUD 参数：video_player 只暴露分辨率 / 缓冲 / 缓冲中，
   /// 编码、帧率、码率它拿不到——留空由 HUD 自动省略（不编造）。
@@ -50,6 +51,10 @@ class AvPlayer extends AbstractPlayer {
   );
 
   VideoPlayerController? _controller;
+
+  // video_player is pinned; this ID resolves its existing native AVPlayer.
+  // ignore: invalid_use_of_visible_for_testing_member
+  int? get nativePlayerId => _controller?.playerId;
   Timer? _ticker;
   bool _disposed = false;
 
@@ -280,13 +285,17 @@ class AvPlayer extends AbstractPlayer {
     final controller = _controller;
     if (controller == null || _disposed) return;
     final value = controller.value;
-    _emit(PlayerSnapshot(
-      position: value.position,
-      duration: value.duration,
-      playing: value.isPlaying,
-      buffering: value.isBuffering,
-      error: value.hasError ? PlayerErrorText.describe(value.errorDescription) : null,
-    ));
+    _emit(
+      PlayerSnapshot(
+        position: value.position,
+        duration: value.duration,
+        playing: value.isPlaying,
+        buffering: value.isBuffering,
+        error: value.hasError
+            ? PlayerErrorText.describe(value.errorDescription)
+            : null,
+      ),
+    );
     _stats.value = PlayerStats(
       engineLabel: 'AVPlayer',
       width: value.size.width > 0 ? value.size.width.round() : null,

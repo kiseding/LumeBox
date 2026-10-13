@@ -86,6 +86,7 @@ class JsDataSource
         DanmakuCapable,
         DanmakuPostCapable,
         FilterCapable,
+        ContextualFilterCapable,
         HomeCapable {
   JsDataSource({
     required this.id,
@@ -156,10 +157,19 @@ class JsDataSource
   Future<List<SourceFilterGroup>> filters() async {
     // 标签组不缓存（用户要求「每次打开实时抓，加短时缓存」——短时缓存放在
     // 视频板块的 VideoFilterCache 里，App 侧统一 TTL，脚本只管取最新值）。
-    return SourceFilterGroup.parseAll(
-      await _invoke(JsSourceContract.filters),
-    );
+    return SourceFilterGroup.parseAll(await _invoke(JsSourceContract.filters));
   }
+
+  @override
+  Future<List<SourceFilterGroup>> filtersFor({
+    String? categoryId,
+    Map<String, String>? selection,
+  }) async => SourceFilterGroup.parseAll(
+    await _invoke(JsSourceContract.filters, {
+      'categoryId': categoryId,
+      'filters': selection ?? const <String, String>{},
+    }),
+  );
 
   @override
   Future<SourceList> list({
@@ -214,10 +224,10 @@ class JsDataSource
     required String itemId,
     required String chapterId,
   }) async {
-    final value = await _invoke(
-      JsSourceContract.content,
-      <String, Object?>{'id': itemId, 'chapterId': chapterId},
-    );
+    final value = await _invoke(JsSourceContract.content, <String, Object?>{
+      'id': itemId,
+      'chapterId': chapterId,
+    });
     try {
       return ChapterContent.parse(value);
     } on FormatException catch (error) {
@@ -236,11 +246,10 @@ class JsDataSource
   Future<Object?> danmaku({
     required String itemId,
     required String chapterId,
-  }) =>
-      _invoke('danmaku', <String, Object?>{
-        'id': itemId,
-        'chapterId': chapterId,
-      });
+  }) => _invoke('danmaku', <String, Object?>{
+    'id': itemId,
+    'chapterId': chapterId,
+  });
 
   /// 可选能力：上报弹幕（图源脚本实现 `postDanmaku({...})` 才有）。
   ///
@@ -315,7 +324,8 @@ class JsDataSource
           section: section,
           sourceId: id,
           sourceName: name,
-          url: resolveWebViewOrigin(
+          url:
+              resolveWebViewOrigin(
                 failureMessage: error.message,
                 sourceId: id,
               ) ??

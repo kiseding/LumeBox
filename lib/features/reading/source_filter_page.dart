@@ -87,9 +87,18 @@ Future<List<SourceFilterGroup>> loadSourceFilters({
   required DataSource source,
   required SourceFilterCache cache,
   bool force = false,
+  String? categoryId,
+  Map<String, String>? selection,
 }) async {
+  final entries = (selection ?? const <String, String>{}).entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  final contextKey =
+      source is ContextualFilterCapable &&
+          (categoryId != null || entries.isNotEmpty)
+      ? '${source.id}|${categoryId ?? ""}|${Uri(queryParameters: Map.fromEntries(entries)).query}'
+      : source.id;
   if (!force) {
-    final cached = cache.read(source.id);
+    final cached = cache.read(contextKey);
     if (cached != null) return cached;
   }
   if (source is! FilterCapable) {
@@ -101,7 +110,7 @@ Future<List<SourceFilterGroup>> loadSourceFilters({
     // 先问「脚本到底有没有 filters」：老脚本（比如大哥视频）没有这个入口，
     // 直接调会抛脚本错误，筛选页就变成一条红字报错（真机反馈的「筛选 2 页」问题）。
     if (!await capable.supportsFilters()) {
-      cache.write(source.id, const <SourceFilterGroup>[]);
+      cache.write(contextKey, const <SourceFilterGroup>[]);
       return const <SourceFilterGroup>[];
     }
   } catch (error) {
@@ -111,13 +120,18 @@ Future<List<SourceFilterGroup>> loadSourceFilters({
     return const <SourceFilterGroup>[];
   }
   try {
-    final groups = await capable.filters();
-    cache.write(source.id, groups);
+    final groups = source is ContextualFilterCapable
+        ? await (source as ContextualFilterCapable).filtersFor(
+            categoryId: categoryId,
+            selection: selection,
+          )
+        : await capable.filters();
+    cache.write(contextKey, groups);
     return groups;
   } on SourceException catch (error) {
     // 兜底：脚本运行期才暴露「没有实现 filters」时，同样按「没有标签」处理。
     if (error.message.contains('没有实现')) {
-      cache.write(source.id, const <SourceFilterGroup>[]);
+      cache.write(contextKey, const <SourceFilterGroup>[]);
       return const <SourceFilterGroup>[];
     }
     rethrow;
@@ -259,6 +273,8 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
         source: widget.source,
         cache: widget.cache,
         force: force,
+        categoryId: _categoryId,
+        selection: _filters,
       );
       if (!mounted) return;
       setState(() {

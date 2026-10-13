@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:lume_box/core/player/pip.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -260,6 +264,7 @@ void main() {
       PlaybackSpeedMeter? speedMeter,
       VideoPlayTarget? target,
       SourceManager? sourceManager,
+      PipBackend? pipBackend,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -272,6 +277,7 @@ void main() {
             qualities: qualities,
             catalog: catalog ?? const _AllKernelsCatalog(),
             speedMeter: speedMeter,
+            pipBackend: pipBackend,
             target: target,
             sourceManager: sourceManager,
             playerFactory: (kernel) {
@@ -1055,25 +1061,26 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Slider), findsOneWidget, reason: '关掉自动隐藏后控制栏一直显示');
     });
-    testWidgets('画中画：非 MPV 内核点时先切到 MPV（否则按钮点了没反应）', (tester) async {
-      final created = await pump(tester); // 默认 AVPlayer
-      expect(created.single.kernel, PlayerKernel.avplayer);
-
-      await tester.tap(find.byTooltip('播放器设置'));
+    testWidgets('画中画保留当前内核、自动播放；短暂 inactive 不关闭窗口', (tester) async {
+      final backend = _TestPipBackend();
+      addTearDown(backend.close);
+      final created = await pump(tester, pipBackend: backend);
+      created.single.emit(playing: false);
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('关闭'));
-      await tester.pumpAndSettle();
-
-      // 直接点画中画按钮：应当给一句说明并切到 MPV（本机三内核都可用）。
       await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('画中画需要 MPV 内核'),
-        findsOneWidget,
-        reason: '要说明为什么要换内核，而不是静默切换',
-      );
-      expect(created.length, greaterThan(1), reason: '换内核会重建播放器（新实例是 MPV）');
-      expect(created.last.kernel, PlayerKernel.mpv);
+      expect(created.length, 1, reason: '画中画不重建或切换内核');
+      expect(created.single.kernel, PlayerKernel.avplayer);
+      expect(created.single.snapshot.value.playing, true);
+      expect(backend.started, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(backend.stopped, 0, reason: '开窗引起的短暂焦点变化不能立即退出画中画');
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(backend.stopped, 1);
     });
   });
 }
@@ -1229,4 +1236,26 @@ Future<void> openPlayerAction(WidgetTester tester, String action) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text(action));
   await tester.pumpAndSettle();
+}
+
+class _TestPipBackend implements PipBackend {
+  final _events = StreamController<PipEvent>.broadcast();
+  int started = 0, stopped = 0;
+  @override
+  Future<bool> isSupported() async => true;
+  @override
+  Stream<PipEvent> get events => _events.stream;
+  @override
+  Future<void> start() async {
+    started++;
+    _events.add(const PipEvent(PipEventKind.entered));
+  }
+
+  @override
+  Future<void> stop() async {
+    stopped++;
+    _events.add(const PipEvent(PipEventKind.exited));
+  }
+
+  Future<void> close() => _events.close();
 }

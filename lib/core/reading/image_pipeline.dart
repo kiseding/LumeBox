@@ -42,6 +42,8 @@ class SectionImagePipeline {
     this.diskCache = true,
     int maxRetries = 3,
     this.network = NetworkProfile.none,
+    this.sourceLabel = '图片缓存',
+    this.requestSender,
   }) : _client = client ?? http.Client(),
        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
        _memory = ImageMemoryCache(memoryBudgetBytes);
@@ -56,6 +58,13 @@ class SectionImagePipeline {
   final String cacheDir;
   final http.Client _client;
   final NetworkProfile network;
+  final String sourceLabel;
+  final NetworkSender? requestSender;
+  final Map<String, String> _failures = {};
+  String? failureFor(String url) =>
+      _failures[upgradeToHttps(normalizeTransform(url))];
+  bool canRetry(String url) =>
+      !{'证书异常', '链接失效', '非图片响应'}.contains(failureFor(url));
   final Map<String, Map<String, String>> _imageHeaders = {};
 
   /// 图片请求头只能绑定到该源明确给出的 URL，不向其他域名或图片扩散。
@@ -91,6 +100,8 @@ class SectionImagePipeline {
         diskCache: diskCache,
         maxRetries: maxRetries,
         network: profile,
+        sourceLabel: '封面:${section.id}:$sourceId',
+        requestSender: requestSender,
       ),
     );
   }
@@ -265,6 +276,7 @@ class SectionImagePipeline {
     }
     _sourcePipelines.clear();
     _imageHeaders.clear();
+    _failures.clear();
     // 取消在飞请求：关闭客户端是 package:http 提供的取消入口。
     try {
       _client.close();
@@ -296,29 +308,51 @@ class SectionImagePipeline {
     int? targetWidth,
     String cacheKey,
   ) async {
-    final data = await bytes(url);
-    if (data == null || _disposed) return null;
-    try {
-      final codec = await ui.instantiateImageCodec(
-        data,
-        targetWidth: targetWidth,
-        // 原图比目标宽度小就按原尺寸解：长条图不会被放大后白占内存。
-        allowUpscaling: false,
-      );
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-      codec.dispose();
-      if (_disposed) {
-        image.dispose();
-        return null;
+    var data = await bytes(url);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (data == null || _disposed) return null;
+      try {
+        final codec = await ui.instantiateImageCodec(
+          data,
+          targetWidth: targetWidth,
+          allowUpscaling: false,
+        );
+        final frame = await codec.getNextFrame();
+        final image = frame.image;
+        codec.dispose();
+        if (_disposed) {
+          image.dispose();
+          return null;
+        }
+        if (attempt == 1 && diskCache) {
+          try {
+            final file = File(
+              _diskPath(upgradeToHttps(normalizeTransform(url))),
+            );
+            file.parent.createSync(recursive: true);
+            file.writeAsBytesSync(data);
+          } catch (_) {}
+        }
+        _failures.remove(upgradeToHttps(normalizeTransform(url)));
+        _memory.put(cacheKey, image);
+        return image;
+      } catch (error) {
+        final normalized = upgradeToHttps(normalizeTransform(url));
+        _failures[normalized] = '图片解码失败';
+        LumeLog.warn('[$sourceLabel] 图片解码失败: $url ($error)');
+        if (!diskCache || attempt != 0) return null;
+        final file = File(_diskPath(normalized));
+        if (!file.existsSync()) return null;
+        try {
+          file.deleteSync();
+        } catch (_) {
+          return null;
+        }
+        // Discard poisoned/partial cache once and fetch fresh bytes.
+        data = await _download(normalized);
       }
-      // 入库时的淘汰会跳过刚插入的这一张：它马上就要交给调用方，不能被自己挤掉。
-      _memory.put(cacheKey, image);
-      return image;
-    } catch (error) {
-      LumeLog.warn('图片解码失败: $url ($error)');
-      return null;
     }
+    return null;
   }
 
   /// 字节来源顺序：磁盘缓存 → 网络。网络结果落盘，跨会话复用。
@@ -461,16 +495,19 @@ class SectionImagePipeline {
     try {
       // 图片同样走全局网络队列：单域名并发（2~3）保护图床，429/503 自动退避。
       // 队列管「什么时候发」，这里只管「拿到字节后怎么用」。
-      final response = await LumeNet.queue.send(
+      final response = await (requestSender ?? LumeNet.queue.send)(
         NetworkRequest(
           url: url,
           headers: {
             ...imageRequestHeaders(url, withReferer: withReferer),
             if (network.userAgent.trim().isNotEmpty)
               'User-Agent': network.userAgent.trim(),
-            ...?_imageHeaders[url],
+            for (final entry
+                in (_imageHeaders[url] ?? const <String, String>{}).entries)
+              if (withReferer || entry.key.toLowerCase() != 'referer')
+                entry.key: entry.value,
           },
-          source: '图片缓存',
+          source: sourceLabel,
           proxy: network.proxy.trim().isEmpty
               ? LumeNet.settings.proxy
               : network.proxy.trim(),
@@ -487,6 +524,15 @@ class SectionImagePipeline {
           LumeLog.warn('图片响应为空: $url');
           return (bytes: null, retryable: true, forbidden: false);
         }
+        final prefix = String.fromCharCodes(bytes.take(160))
+            .trimLeft()
+            .toLowerCase();
+        if (prefix.startsWith('<!doctype html') || prefix.startsWith('<html')) {
+          _failures[url] = '非图片响应';
+          LumeLog.warn('[$sourceLabel] 图片返回网页/校验页，不缓存: $url');
+          return (bytes: null, retryable: false, forbidden: false);
+        }
+        _failures.remove(url);
         return (
           bytes: Uint8List.fromList(bytes),
           retryable: false,
@@ -497,9 +543,16 @@ class SectionImagePipeline {
       // · **429 / 408**：限流与超时，正是「有时能出、有时空白」的典型（真机反馈），
       //   必须重试（退避在下面的重试循环里）；
       // · 403：换一种 Referer 再试一次（见 [_download]）。
+      _failures[url] = code == 404 || code == 410
+          ? '链接失效'
+          : code == 403
+          ? '图片被拦截'
+          : 'HTTP $code';
       final forbidden = code == 403;
       final retryable = code < 400 || code == 408 || code == 429 || code >= 500;
-      LumeLog.warn('图片请求失败($code${retryable ? '，将重试' : '，不重试'}): $url');
+      LumeLog.warn(
+        '[$sourceLabel] 图片请求失败($code${retryable ? '，将重试' : '，不重试'}): $url',
+      );
       return (bytes: null, retryable: retryable, forbidden: forbidden);
     } on Object catch (error) {
       // 管线已释放导致的请求中断不算错误，也不值得重试。
@@ -507,7 +560,10 @@ class SectionImagePipeline {
         return (bytes: null, retryable: false, forbidden: false);
       }
       final retryable = !NetworkQueue.isCertificateFailure(error);
-      LumeLog.warn('图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)');
+      _failures[url] = retryable ? '网络异常' : '证书异常';
+      LumeLog.warn(
+        '[$sourceLabel] 图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)',
+      );
       return (bytes: null, retryable: retryable, forbidden: false);
     }
   }

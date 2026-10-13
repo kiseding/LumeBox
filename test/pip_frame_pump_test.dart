@@ -14,6 +14,29 @@ import 'package:lume_box/core/player/pip_frame_source.dart';
 /// 为什么要「泵」：mpv 的取帧是 `screenshot-raw`（拉取），不是解码回调（推送）。
 /// 因此这里验证的是「按节拍拉、拉不到就跳过、失败不冒泡」。
 void main() {
+  test('高分辨率画中画缩放到通道预算内，BGRA 和行距正确', () {
+    final pixels = Uint8List.fromList(List<int>.generate(40, (i) => i));
+    final frame = MpvVideoFrame(
+      pixels: pixels,
+      width: 4,
+      height: 2,
+      stride: 20,
+    );
+    final scaled = frame.forPictureInPicture(maxDimension: 2);
+    expect(scaled.width, 2);
+    expect(scaled.height, 1);
+    expect(scaled.toTightBgra(), [0, 1, 2, 3, 8, 9, 10, 11]);
+    final large = MpvVideoFrame(
+      pixels: Uint8List(3840 * 2160 * 4),
+      width: 3840,
+      height: 2160,
+      stride: 3840 * 4,
+    ).forPictureInPicture();
+    expect(large.width, 960);
+    expect(large.height, 540);
+    expect(large.pixels.length, lessThan(8 * 1024 * 1024));
+  });
+
   /// 可编程的假引擎：控制每次取帧返回什么。
   _FakeEngine engineWith(List<MpvVideoFrame?> frames) {
     final engine = _FakeEngine();
@@ -59,7 +82,8 @@ void main() {
     test('开窗前主动送首帧，不依赖播放节拍或已进入事件', () async {
       final engine = engineWith([frame(), frame()]);
       final received = <Map<String, Object?>>[];
-      final source = PipFrameSource()..attach((frame) async => received.add(frame));
+      final source = PipFrameSource()
+        ..attach((frame) async => received.add(frame));
       final pump = PipFramePump(engine: engine, frameSource: source);
       addTearDown(pump.stop);
       expect(await pump.prime(), isTrue);
@@ -70,8 +94,12 @@ void main() {
     });
 
     test('原生拒收首帧时不宣告就绪', () async {
-      final source = PipFrameSource()..attach((_) async => throw StateError('rejected'));
-      final pump = PipFramePump(engine: engineWith([frame()]), frameSource: source);
+      final source = PipFrameSource()
+        ..attach((_) async => throw StateError('rejected'));
+      final pump = PipFramePump(
+        engine: engineWith([frame()]),
+        frameSource: source,
+      );
       addTearDown(pump.stop);
       expect(await pump.prime(), isFalse);
       expect(source.submittedFrames, 0);

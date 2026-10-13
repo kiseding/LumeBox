@@ -141,6 +141,14 @@ abstract interface class FilterCapable {
   Future<List<SourceFilterGroup>> filters();
 }
 
+/// 可选的上下文筛选：类型变化后，题材等依赖项由源重新计算。
+abstract interface class ContextualFilterCapable {
+  Future<List<SourceFilterGroup>> filtersFor({
+    String? categoryId,
+    Map<String, String>? selection,
+  });
+}
+
 /// 一组筛选标签（一行横向标签）。
 class SourceFilterGroup {
   const SourceFilterGroup({

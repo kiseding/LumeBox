@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/appearance.dart';
+import 'floating_settings_page.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 
@@ -26,14 +27,14 @@ class DisplaySettingsGroup extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
             child: Text(
-            '显示',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: LumeTheme.textSecondary,
+              '显示',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: LumeTheme.textSecondary,
+              ),
             ),
           ),
-        ),
         GlassCard(
           radius: 14,
           padding: EdgeInsets.zero,
@@ -49,6 +50,16 @@ class DisplaySettingsGroup extends StatelessWidget {
                 ),
               ),
               const _AccentRow(),
+              _DisplayRow(
+                icon: Icons.tune,
+                title: '悬浮模块',
+                value: '位置 · 透明度',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const FloatingSettingsPage(),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -118,10 +129,10 @@ class _AppearanceRow extends StatelessWidget {
 
   /// 模式 → 展示名（弹窗与行内当前值共用一份）。
   static String labelOf(ThemeMode mode) => switch (mode) {
-        ThemeMode.system => '跟随系统',
-        ThemeMode.light => '浅色',
-        ThemeMode.dark => '深色',
-      };
+    ThemeMode.system => '跟随系统',
+    ThemeMode.light => '浅色',
+    ThemeMode.dark => '深色',
+  };
 
   @override
   Widget build(BuildContext context) {

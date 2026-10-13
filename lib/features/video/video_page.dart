@@ -592,6 +592,7 @@ class _VideoPageState extends State<VideoPage> {
       // 播放器页，页签条只是白占一条高度。
       behindBar: true,
       floatingBar: true,
+      mergeHomeHeader: !_libraryFailed,
       child: _buildBrowseTab(),
     );
   }

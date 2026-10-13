@@ -181,15 +181,7 @@ void main() {
         withInitialMedia: false,
       );
 
-      // 先切内核（画中画需要 MPV），再做就绪边界检查。
-      await tester.tap(find.byTooltip('进入画中画'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('画中画需要 MPV 内核'), findsOneWidget);
-      expect(pip.started, 0, reason: '内核切换本身不进画中画');
-      ScaffoldMessenger.of(tester.element(find.byType(VideoPlayerPage)))
-          .clearSnackBars();
-      await tester.pumpAndSettle();
-
+      // 保留当前内核，未加载媒体时仍由就绪边界拒绝进入。
       await tester.tap(find.byTooltip('进入画中画'));
       await tester.pumpAndSettle();
       expect(find.text('媒体尚未就绪'), findsOneWidget);

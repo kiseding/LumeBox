@@ -73,14 +73,15 @@ class SourceSubscriptionSync {
       file: File(scope.resolve('subscriptions.json')),
     );
     await service.load();
+    if (service.manager.runtimeAvailable) await service._migrate();
     return service;
   }
 
   Future<void> load() async {
     subscriptions.clear();
     if (!file.existsSync()) return;
-    final data = jsonDecode(await file.readAsString()) as Map;
-    _migrated = data['migrated'] == true;
+    final data = jsonDecode(file.readAsStringSync()) as Map;
+    _migrated = data['migrationVersion'] == 2;
     for (final raw in (data['subscriptions'] as List? ?? [])) {
       if (raw is! Map || !_validUrl('${raw['url']}')) continue;
       subscriptions.add(
@@ -98,14 +99,17 @@ class SourceSubscriptionSync {
   }
 
   Future<void> save() async {
-    await file.parent.create(recursive: true);
-    await file.writeAsString(
+    file.parent.createSync(recursive: true);
+    final temp = File('${file.path}.tmp');
+    temp.writeAsStringSync(
       jsonEncode({
         'migrated': _migrated,
+        'migrationVersion': _migrated ? 2 : 0,
         'subscriptions': subscriptions.map((s) => s.toJson()).toList(),
       }),
       flush: true,
     );
+    temp.renameSync(file.path);
   }
 
   Future<void> register(Iterable<String> urls) async {
@@ -132,14 +136,20 @@ class SourceSubscriptionSync {
         'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/';
     for (final source in await manager.list()) {
       // 旧版本只保存脚本地址，官方清单可确定恢复；自定义清单需要首次保存根地址。
-      if (!source.originUrl.startsWith('$prefix${section.id}/')) continue;
-      final url = '$prefix${section.id}/sources.txt';
+      if (!source.subscribed || !_validUrl(source.originUrl)) continue;
+      final url = source.originUrl.startsWith('$prefix${section.id}/')
+          ? '$prefix${section.id}/sources.txt'
+          : source.originUrl;
       var record = subscriptions.where((s) => s.url == url).firstOrNull;
       if (record == null) {
         record = SavedSourceSubscription(url);
         subscriptions.add(record);
       }
       record.members[source.id] = source.originUrl;
+    }
+    // Upgrade once: fetch revised source scripts without waiting out the old interval.
+    for (final record in subscriptions) {
+      record.checkedAt = null;
     }
     _migrated = true;
     await save();
@@ -247,9 +257,13 @@ class SourceSubscriptionSync {
   static Future<SubscriptionSyncResult> refresh(
     Section section, {
     bool force = false,
+    SourceManager? manager,
+    Future<SourceFetchResult> Function(String url)? fetch,
   }) {
     // 桌面版是 UI 骨架，测试的运行时覆盖不应启动真实后台 IO。
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!Platform.isIOS &&
+        !Platform.isAndroid &&
+        (manager == null || fetch == null)) {
       return Future.value(SubscriptionSyncResult());
     }
     SectionScope.registerShutdownHook('subscription-sync', () async {
@@ -258,15 +272,29 @@ class SourceSubscriptionSync {
         LumeSources.manager(section).close();
       }
     });
-    return _running.putIfAbsent(section, () => _refresh(section, force));
+    return _running.putIfAbsent(
+      section,
+      () => _refresh(section, force, manager, fetch),
+    );
   }
 
   static Future<SubscriptionSyncResult> _refresh(
     Section section,
     bool force,
+    SourceManager? manager,
+    Future<SourceFetchResult> Function(String url)? fetch,
   ) async {
     try {
-      return await (await open(section)).sync(force: force);
+      final service = await open(section, manager: manager);
+      if (fetch == null) return await service.sync(force: force);
+      final injected = SourceSubscriptionSync(
+        section: section,
+        manager: service.manager,
+        file: service.file,
+        fetch: fetch,
+      );
+      await injected.load();
+      return await injected.sync(force: force);
     } catch (error) {
       final result = SubscriptionSyncResult();
       result.errors.add('$error');
