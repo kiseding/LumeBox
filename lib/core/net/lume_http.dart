@@ -233,16 +233,26 @@ class LumeHttp {
 
   /// 请求头：调用方给的优先，UA 与 Cookie 按「图源覆盖 → 全局」补齐。
   Map<String, String> _headersFor(Map<String, String>? headers) {
-    final merged = <String, String>{...?headers};
+    // HTTP 头名不区分大小写；统一需合并的头名，避免覆盖脚本的小写头。
+    final merged = <String, String>{};
+    for (final entry in (headers ?? const <String, String>{}).entries) {
+      final name = switch (entry.key.toLowerCase()) {
+        'user-agent' => 'User-Agent',
+        'cookie' => 'Cookie',
+        _ => entry.key,
+      };
+      merged[name] = entry.value;
+    }
     merged.putIfAbsent('User-Agent', () => effectiveUserAgent);
-    // Cookie 三段合并：脚本自己给的（最高优先，原样保留）→ 网页视图会话 →
-    // 图源 / 全局配置里的 Cookie。会话里那枚 cf_clearance 必须带上，否则永远 403。
+    final verifiedUserAgent = _sessionUserAgent?.call()?.trim() ?? '';
+    if (verifiedUserAgent.isNotEmpty) merged['User-Agent'] = verifiedUserAgent;
+    // 配置 → 脚本 → 最新验证会话，同名 Cookie 只保留优先级最高的一份。
     final existing = merged['Cookie'];
     final session = _sessionCookies?.call();
     final profile = _profile.mergedWith(_settings).cookie.trim();
     final mergedCookie = mergeCookieHeader(
-      existing: existing,
-      wafCookies: <String>[session ?? '', profile].where((v) => v.isNotEmpty).join('; '),
+      existing: mergeCookieHeader(existing: profile, wafCookies: existing),
+      wafCookies: session,
     );
     if (mergedCookie != null && mergedCookie.isNotEmpty) {
       merged['Cookie'] = mergedCookie;

@@ -87,7 +87,8 @@ class PlaybackSpeedMeter {
       url: uri.toString(),
       method: 'GET',
       headers: <String, String>{
-        ...?headers,
+        for (final entry in (headers ?? const <String, String>{}).entries)
+          if (entry.key.toLowerCase() != 'range') entry.key: entry.value,
         'Range': 'bytes=0-${probeBytes - 1}',
       },
       timeout: probeTimeout,
@@ -96,6 +97,14 @@ class PlaybackSpeedMeter {
       maxBytes: probeBytes,
     );
     stopwatch.stop();
+
+    // 错误页与登录页的下载速度不能代表视频测速成功。
+    if (response.statusCode != 200 && response.statusCode != 206) return null;
+    final contentType = response.headers.entries
+        .where((entry) => entry.key.toLowerCase() == 'content-type')
+        .map((entry) => entry.value.toLowerCase())
+        .firstOrNull;
+    if (contentType?.contains('text/html') ?? false) return null;
 
     final bytes = response.body.length;
     final millis = stopwatch.elapsedMilliseconds;

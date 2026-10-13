@@ -203,10 +203,13 @@ class WafSessions {
 
   /// 某板块的会话存储（库没打开时为 null）。
   static WafSessionStore? storeOf(Section section) {
-    final cached = _stores[section.id];
-    if (cached != null) return cached;
     final library = ReadingLibrary.find(section);
-    if (library == null) return null;
+    if (library == null) {
+      _stores.remove(section.id);
+      return null;
+    }
+    final cached = _stores[section.id];
+    if (cached != null && identical(cached.library, library)) return cached;
     final store = WafSessionStore(library);
     _stores[section.id] = store;
     return store;
@@ -234,6 +237,47 @@ class WafSessions {
 
   /// 仅测试用：丢掉缓存句柄。
   static void resetForTesting() => _stores.clear();
+}
+
+/// 从共享 WebKit Cookie 仓库中只选目标请求可发送的 Cookie。
+/// 同名时优先保留更具体的路径 / 域，避免其他站点的 clearance 覆盖当前凭证。
+Map<String, String> webViewCookiesForUrl(List<Object?> entries, String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.host.isEmpty) return const {};
+  final host = uri.host.toLowerCase();
+  final path = uri.path.isEmpty ? '/' : uri.path;
+  final candidates = <Map>[];
+  for (final entry in entries) {
+    if (entry is! Map) continue;
+    final rawDomain = '${entry['domain'] ?? ''}'.toLowerCase();
+    final domain = rawDomain.startsWith('.') ? rawDomain.substring(1) : rawDomain;
+    if (domain.isEmpty) continue;
+    final matches = host == domain ||
+        (rawDomain.startsWith('.') && host.endsWith('.$domain'));
+    if (!matches) continue;
+    final cookiePath = '${entry['path'] ?? '/'}';
+    if (path != cookiePath &&
+        !(path.startsWith(cookiePath) &&
+            (cookiePath.endsWith('/') ||
+                (path.length > cookiePath.length && path[cookiePath.length] == '/')))) {
+      continue;
+    }
+    if (entry['secure'] == true && uri.scheme != 'https') continue;
+    final expires = entry['expires'];
+    if (expires is num && expires * 1000 <= DateTime.now().millisecondsSinceEpoch) continue;
+    candidates.add(entry);
+  }
+  candidates.sort((a, b) {
+    final pathOrder = '${a['path'] ?? '/'}'.length.compareTo('${b['path'] ?? '/'}'.length);
+    return pathOrder != 0 ? pathOrder : '${a['domain']}'.length.compareTo('${b['domain']}'.length);
+  });
+  final result = <String, String>{};
+  for (final entry in candidates) {
+    final name = '${entry['name'] ?? ''}'.trim();
+    final value = '${entry['value'] ?? ''}';
+    if (name.isNotEmpty && value.isNotEmpty) result[name] = value;
+  }
+  return result;
 }
 
 /// 脚本抛出的**固定标记**对应的处理方式（用户口径 2.1 / 2.2）。

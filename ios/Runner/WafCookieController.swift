@@ -44,6 +44,8 @@ final class WafCookieController: NSObject {
           "value": cookie.value,
           "domain": cookie.domain,
           "path": cookie.path,
+          "secure": cookie.isSecure,
+          "expires": cookie.expiresDate.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
         ]
       }
       DispatchQueue.main.async { result(list) }

@@ -123,6 +123,16 @@ void main() {
   });
 
   group('会话：按图源存、同名覆盖、可合并进请求头', () {
+    test('阅读库关闭重开后会话查询换用新句柄', () async {
+      WafSessions.save(Section.comic, 'mh92_comic', {'cf_clearance': 'saved'});
+      final before = WafSessions.storeOf(Section.comic);
+      ReadingLibrary.disposeAll();
+      ReadingStore.disposeAll();
+      expect(WafSessions.storeOf(Section.comic), isNull);
+      await ReadingLibrary.open(Section.comic);
+      expect(identical(before, WafSessions.storeOf(Section.comic)), isFalse);
+      expect(WafSessions.cookiesFor(Section.comic, 'mh92_comic'), 'cf_clearance=saved');
+    });
     test('保存后能读回；同名覆盖、新的追加', () {
       final store = WafSessions.storeOf(Section.comic)!;
       store.save('92mh', <String, String>{

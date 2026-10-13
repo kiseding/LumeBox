@@ -38,7 +38,10 @@ void main() {
     Qjs.reclaimRuntime = false;
   }
 
-  _heavyPageTest();
+  final nativeSkipReason = Qjs.isAvailable
+      ? null
+      : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
+  _heavyPageTest(skipReason: nativeSkipReason);
 
   test('审计：三份订阅里的脚本都能载入、元信息对得上、被拦时抛对标记', () async {
     final scripts = _cachedScripts();
@@ -60,7 +63,7 @@ void main() {
     }
 
     expect(problems, isEmpty, reason: problems.join('\n'));
-  }, skip: _cachedScripts().isEmpty ? _auditSkipReason() : null);
+  }, skip: nativeSkipReason ?? (_cachedScripts().isEmpty ? _auditSkipReason() : null));
 }
 
 /// 大页面解析不许撞沙箱预算（真机反馈：鸟鸟韩漫首页报「超出指令计数上限」）。
@@ -69,11 +72,12 @@ void main() {
 /// 81 个字符跑 85 秒）。这条用例拿「200KB 以上、上千锚点、还夹着一批又长又没数字的
 /// 链接」的合成页面当回归网：解析必须跑完并出条目——将来谁再把回溯型正则写回去，
 /// 这条用例在沙箱里也不会跑得动。
-void _heavyPageTest() {
+void _heavyPageTest({String? skipReason}) {
   test('大页面（≈200KB / 上千锚点）解析不撞指令预算', () async {
     final scriptPath = sourceScriptPath('nnhanman_comic.js');
     if (scriptPath == null) {
-      fail('本机没有 nnhanman_comic.js：先跑 `dart run tool/fetch_sources.dart`');
+      markTestSkipped('本机没有 nnhanman_comic.js：先跑 `dart run tool/fetch_sources.dart`');
+      return;
     }
     final html = _syntheticListPage(anchors: 2000);
     expect(html.length, greaterThan(150 * 1024), reason: '合成页面要真的够大');
@@ -106,7 +110,7 @@ void _heavyPageTest() {
     final list = await source.list(page: 1);
     expect(list.items, isNotEmpty, reason: '大页面也要解析得出条目');
     stdout.writeln('[audit] 大页面解析：${list.items.length} 条，未撞指令预算');
-  });
+  }, skip: skipReason);
 }
 
 /// 合成一个「很像漫画站首页」的大页面：上千个锚点，穿插作品页 / 章节页 / 导航链。

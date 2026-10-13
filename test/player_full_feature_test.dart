@@ -844,6 +844,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(players.single.seeks.last, Duration.zero);
     });
+    testWidgets('跳转被内核拒绝：给出失败提示，保持暂停状态', (tester) async {
+      final player = _FakePlayer()..seekError = StateError('seek rejected');
+      await pump(tester, player: player);
+      player.emit(position: const Duration(seconds: 74),
+          duration: const Duration(minutes: 10), playing: false);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('前进 10 秒'));
+      await tester.pump();
+      expect(find.text('跳转失败，请重试'), findsOneWidget);
+      expect(player.snapshot.value.position, const Duration(seconds: 74));
+      expect(player.snapshot.value.playing, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+
   testWidgets('全屏浮层：进度条贴底、按钮分左下 / 右下两组（用户要求）', (tester) async {
     await pump(tester);
     await tester.tap(find.byTooltip('全屏'));
@@ -892,6 +906,42 @@ void main() {
     await tester.tap(find.byType(Scaffold).first);
     await tester.pumpAndSettle();
     expect(find.byType(Slider), findsOneWidget, reason: '点屏幕再显示');
+  });
+
+  testWidgets('无障碍导航：播放中全屏控制栏保持可访问', (tester) async {
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final players = await pump(tester);
+    await tester.tap(find.byTooltip('全屏'));
+    await tester.pumpAndSettle();
+    players.single.emit(playing: true, duration: const Duration(minutes: 10));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byType(Slider), findsOneWidget);
+    expect(find.byTooltip('前进 10 秒'), findsOneWidget);
+    expect(find.byTooltip('退出全屏'), findsWidgets);
+  });
+
+  testWidgets('播放中开启无障碍导航：恢复隐藏的控制栏并取消计时', (tester) async {
+    addTearDown(tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final players = await pump(tester);
+    await tester.tap(find.byTooltip('全屏'));
+    await tester.pumpAndSettle();
+    players.single.emit(playing: true, duration: const Duration(minutes: 10));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byType(Slider), findsNothing);
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byType(Slider), findsOneWidget);
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: false);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byType(Slider), findsNothing);
   });
 
   testWidgets('关掉「自动隐藏控制栏」后：怎么放着都不收起', (tester) async {
@@ -1018,6 +1068,7 @@ class _FakePlayer extends AbstractPlayer {
 
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
+  Object? seekError;
   int plays = 0;
 
   @override
@@ -1052,7 +1103,10 @@ class _FakePlayer extends AbstractPlayer {
   Future<void> pause() async => emit(playing: false);
 
   @override
-  Future<void> seek(Duration position) async => seeks.add(position);
+  Future<void> seek(Duration position) async {
+    if (seekError case final error?) throw error;
+    seeks.add(position);
+  }
 
   @override
   Future<void> stop() async {}

@@ -215,7 +215,6 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
               await _repairUserAgent();
               return;
             }
-            widget.onUserAgent?.call(liveUa);
             _loadedOnce = true;
             _loadErrorTimer?.cancel();
             setState(() {
@@ -470,7 +469,10 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       final raw = await _controller?.runJavaScriptReturningResult(
         'document.cookie',
       );
-      cookies.addAll(parseJsCookie('$raw'));
+      final current = Uri.tryParse(await _controller?.currentUrl() ?? '');
+      if (current?.host == Uri.tryParse(widget.url)?.host) {
+        cookies.addAll(parseJsCookie('$raw'));
+      }
     } catch (error) {
       LumeLog.info('[waf] 读取 document.cookie 失败：$error');
     }
@@ -481,13 +483,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         'allCookies',
         <String, Object?>{'url': widget.url},
       );
-      for (final entry in list ?? const <Object?>[]) {
-        if (entry is Map) {
-          final name = '${entry['name'] ?? ''}'.trim();
-          final value = '${entry['value'] ?? ''}';
-          if (name.isNotEmpty && value.isNotEmpty) cookies[name] = value;
-        }
-      }
+      cookies.addAll(webViewCookiesForUrl(list ?? const <Object?>[], widget.url));
     } on MissingPluginException {
       LumeLog.info('[waf] 当前平台没有原生 Cookie 通道，只取 JS 可见的 Cookie');
     } catch (error) {
@@ -495,7 +491,8 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     }
 
     if (!mounted) return;
-    if (cookies.isEmpty) {
+    if (cookies.isEmpty ||
+        (_challengeSeen && (cookies['cf_clearance'] ?? '').isEmpty)) {
       if (widget.auto) {
         // 自动模式下静默退出：由调用方（引擎层）按原来的失败处理并给出口，
         // 不要在这里插一个「未能读取验证会话」的对话框打断正在进行的解析。
@@ -523,6 +520,13 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       );
       return;
     }
+    try {
+      final rawUa = await _controller?.runJavaScriptReturningResult('navigator.userAgent');
+      widget.onUserAgent?.call('$rawUa'.replaceAll('"', '').trim());
+    } catch (error) {
+      LumeLog.info('[waf] 读取验证 UA 失败：$error');
+    }
+    if (!mounted) return;
     widget.onCollected(cookies);
     Navigator.of(context).pop();
   }
@@ -919,6 +923,7 @@ Future<Map<String, String>?> showWafWebView({
   // 上下各留 1/6：上面露出 App 标题栏，下面留出空余区域（都不是贴边）。
   final gap = (size.height - panelHeight) / 2;
   Map<String, String>? collected;
+  String? collectedUserAgent;
   return showGeneralDialog<Map<String, String>>(
     context: context,
     // 中途不许点空白关掉：用户没点 ✕，验证就还没结束（口径 3）。
@@ -937,15 +942,16 @@ Future<Map<String, String>?> showWafWebView({
           // 二来 WKWebView 默认 UA 不带 Safari 段，CF 会给一张没有勾选框的白页。
           userAgentOverride: userAgent,
           onCollected: (cookies) => collected = cookies,
-          onUserAgent: (ua) {
-            if (section != null && sourceId != null) {
-              WafSessions.saveUserAgent(section, sourceId, ua);
-            }
-          },
+          onUserAgent: (ua) => collectedUserAgent = ua,
         ),
       ),
     ),
-  ).then((_) => collected ?? const <String, String>{});
+  ).then((_) {
+    if (collected?.isNotEmpty == true && section != null && sourceId != null) {
+      WafSessions.saveUserAgent(section, sourceId, collectedUserAgent);
+    }
+    return collected ?? const <String, String>{};
+  });
 }
 
 /// WAF 判定与失败文本的桥（页面用它决定要不要显示【网页视图】）。
@@ -1054,6 +1060,8 @@ Future<WafWebViewOutcome> _runWafWebViewFlow({
 
   // 验证窗用与 API 请求同一个 UA（cf_clearance 绑 IP + UA）；解析失败就交给
   // 页面自己的兜底（它会在日志里写明用的是 WKWebView 默认 UA）。
+  if (opener == showWafWebView) await openWafSessionStore(section);
+  if (!context.mounted) return WafWebViewOutcome.notOpened;
   final ua = await (userAgentFor ?? LumeSources.userAgentFor)(section, sourceId);
   if (!context.mounted) return WafWebViewOutcome.notOpened;
 

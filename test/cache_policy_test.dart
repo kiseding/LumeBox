@@ -55,7 +55,7 @@ void main() {
       final time = DateTime.now().subtract(age);
       file.setLastModifiedSync(time);
       // 访问时间也退回去（prune 取 accessed 与 modified 里较晚的那个）。
-      await Process.run('touch', <String>['-a', '-d', time.toIso8601String(), file.path]);
+      file.setLastAccessedSync(time);
     }
     return file;
   }

@@ -247,6 +247,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   /// 控制栏自动隐藏的计时器（用户要求：播放中无操作 N 秒收起，点屏幕唤回）。
   Timer? _autoHideTimer;
+  bool _accessibleNavigation = false;
 
   /// 无操作多久收起控制栏。
   static const Duration _autoHideDelay = Duration(seconds: 4);
@@ -384,6 +385,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _media = media;
     _prelaunch = widget.prelaunch;
     if (_anyKernelAvailable) _boot();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final accessible = MediaQuery.accessibleNavigationOf(context);
+    if (accessible == _accessibleNavigation) return;
+    _accessibleNavigation = accessible;
+    if (accessible) {
+      // VoiceOver 导航需要稳定的控件，不能在聚焦途中把返回键与控制栏移除。
+      _cancelAutoHide();
+    } else {
+      _scheduleAutoHide();
+    }
   }
 
   @override
@@ -1792,10 +1807,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   void _scheduleAutoHide() {
     _autoHideTimer?.cancel();
     if (!_fullscreen || _locked) return;
+    if (_accessibleNavigation) return;
     if (!_settings.autoHideControls) return;
     if (!(_player?.snapshot.value.playing ?? false)) return;
     _autoHideTimer = Timer(_autoHideDelay, () {
       if (!mounted || !_fullscreen || _locked) return;
+      if (_accessibleNavigation) return;
       if (!(_player?.snapshot.value.playing ?? false)) return;
       setState(() => _overlayVisible = false);
     });
@@ -2917,7 +2934,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   /// 相对当前位置跳转（前进 / 后退按钮）。越界值夹到 [0, duration]。
-  void _seekBy(Duration delta) {
+  Future<void> _seekBy(Duration delta) async {
     final player = _player;
     final snapshot = player?.snapshot.value;
     if (player == null || snapshot == null) return;
@@ -2926,7 +2943,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (snapshot.duration > Duration.zero && target > snapshot.duration) {
       target = snapshot.duration;
     }
-    unawaited(player.seek(target));
+    try {
+      await player.seek(target);
+    } catch (error, stackTrace) {
+      LumeLog.error(error, stackTrace);
+      LumeLog.warn('[player] ${_settings.kernel.label} 跳转失败：'
+          '${snapshot.position.inMilliseconds}ms → ${target.inMilliseconds}ms');
+      if (mounted && identical(_player, player)) {
+        _showToast('跳转失败，请重试');
+      }
+    }
   }
 
   /// 画中画按钮：不可用时**照旧显示**，点了弹可读提示（不直接隐藏按钮）。
