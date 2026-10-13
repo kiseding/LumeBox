@@ -23,6 +23,8 @@ class SourceDisplayNames {
     'jm18_comic': '18禁漫',
     'xman6_comic': 'X漫',
     'jcomic_comic': 'JComic',
+    'gmh_comic': 'G社漫画',
+    'mycomic_comic': 'MYCOMIC',
     // 小说
     '99xs_novel': 'CA小说',
     'xchina_novel': '小黄书小说',

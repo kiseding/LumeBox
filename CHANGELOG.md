@@ -8,6 +8,28 @@
 
 ## 未发布
 
+### 2026-10-13：新增两个漫画源 G社漫画（g-mh.org）与 MYCOMIC（mycomic.com/cn）
+
+- 源脚本 `comic/gmh_comic.js`（id `gmh_comic`）与 `comic/mycomic_comic.js`（id `mycomic_comic`）已进源仓库漫画清单；
+  App 里重贴一次漫画板块订阅即可导入。
+- **G社漫画**：列表/题材/标签走站点的 Astro 页面，详情与章节走它自己的 API（v2.apikk.top）。
+  正文图片是站点前端**混淆解码器**解出来的加密串——本源的做法是把站点自己的
+  `/assets/runtime/chapter-decoder.js` 取进沙盒、配最小浏览器垫片后 eval，再调它的 `r()`
+  （不逆向、不改写它的算法；实测一话 38–56 张图 ≈2 秒）。站点没有搜索，关键词如实拒绝。
+- **MYCOMIC**：服务端渲染，筛选/排序就是站点自己的查询串，目录是页面里的 Alpine JSON。
+  整站在 Cloudflare 托管校验后面：被拦时抛固定标记，App 给出「网页视图」入口，
+  用户过一次校验后 Cookie（含 HttpOnly 的 cf_clearance）由 App 存进该图源会话。
+- 展示名字典同步 `gmh_comic → G社漫画`、`mycomic_comic → MYCOMIC`；两份解析规则都有站点快照与
+  Node 回归用例守着（源仓库 `node --test tools/snapshot_test.js`，40 条全过）。
+
+### 2026-10-13：新增视频源 XAnimu（xanimu.one / xanimu.art）
+
+- 源脚本 `video/xanimu_video.js`（id `xanimu_video`）已进源仓库视频清单；App 里重贴一次视频板块订阅即可导入。
+- 站点有多个同站镜域：脚本按 `xanimu.art → xanimu.one → xanimu.com` 试并记住可用的那个；
+  xanimu.one 在国内常被连接重置（本机直连即如此），首选 .art；全被挡时如实报网络错误并提示配代理。
+- 一条视频就是一个条目（站点没有分集），目录给「正片」，清晰度走播放源的多线路（high/low 两条 mp4）。
+- 展示名字典同步 `xanimu_video → XAnimu`；解析规则有站点快照与 Node 回归用例守着（源仓库 `node --test tools/snapshot_test.js`）。
+
 ### 2026-10-13：新增四个图源（X漫 / JComic / 夜读小说 / 金牌影院）
 
 - 源脚本放在源仓库（LumeBox-Sources），清单已更新：漫画加 X漫（xman6.com）、JComic（jcomic.net），
