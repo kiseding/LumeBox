@@ -360,7 +360,8 @@ void main() {
       await tester.enterText(find.byType(TextField), '本机弹幕测试');
       player.emit(position: const Duration(seconds: 25));
       await tester.tap(find.text('发送'));
-      await tester.pumpAndSettle();
+      // Vsync-driven danmaku continues animating while video plays.
+      await tester.pump(const Duration(milliseconds: 300));
       final overlay = tester.widget<DanmakuOverlay>(
         find.byType(DanmakuOverlay),
       );

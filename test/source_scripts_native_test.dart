@@ -232,7 +232,7 @@ void main() {
         section: Section.video,
         http: _SnapshotHttp(
           get: <String, String>{
-            'https://v.luttt.com/vodshow/2--------1---.html': _read(
+            'https://v.luttt.com/vodshow/2-----------.html': _read(
               'luttt_list.html',
             ),
             'https://v.luttt.com/vodshow/2--------2---.html': _read(
