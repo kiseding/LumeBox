@@ -13,10 +13,12 @@ class SourceSubscriptionPage extends StatefulWidget {
     required this.section,
     this.manager,
     this.fetchSubscription,
+    this.extraActions = const [],
   });
   final Section section;
   final SourceManager? manager;
   final Future<SourceFetchResult> Function(String url)? fetchSubscription;
+  final List<Widget> extraActions;
   @override
   State<SourceSubscriptionPage> createState() => _SourceSubscriptionPageState();
 }
@@ -120,6 +122,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
     return GlassScaffold(
       title: '${widget.section.label} · 订阅管理',
       actions: [
+        ...widget.extraActions,
         IconButton(
           tooltip: '源管理',
           icon: const Icon(Icons.folder_open),

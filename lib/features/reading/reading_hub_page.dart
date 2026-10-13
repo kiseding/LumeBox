@@ -83,6 +83,12 @@ class ReadingHubPage extends StatelessWidget {
                   builder: (_) => SourceSubscriptionPage(
                     section: section,
                     manager: manager,
+                    extraActions:
+                        actions
+                            ?.whereType<IconButton>()
+                            .where((action) => action.tooltip == '扩展仓库')
+                            .toList() ??
+                        const [],
                   ),
                 ),
               );

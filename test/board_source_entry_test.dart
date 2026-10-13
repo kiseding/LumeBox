@@ -105,6 +105,11 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 80)),
     );
     await tester.pumpAndSettle();
+    expect(
+      find.byTooltip('扩展仓库'),
+      findsOneWidget,
+      reason: 'Venera 仓库入口收进订阅管理后仍可使用',
+    );
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
