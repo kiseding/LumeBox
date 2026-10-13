@@ -99,7 +99,7 @@ final class PipFramePump {
     }
     if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true)
       as? [NSMutableDictionary], let attachment = attachments.first {
-      attachment[kCMSampleBufferAttachmentKey_DisplayImmediately as String] = true
+      attachment[kCMSampleAttachmentKey_DisplayImmediately as String] = true
     }
 
     // 层可能处于「需要重启」状态（切后台回来常见）：先 flush 再入队。
