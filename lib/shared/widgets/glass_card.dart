@@ -1,12 +1,10 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../core/theme/lume_theme.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../features/shell/shell_dock.dart';
 
-/// 磨砂玻璃层：半透明白底 + 背景模糊 + 极浅描边。
+/// 清透玻璃层：低透明底色 + 极浅描边，不模糊背景。
 ///
 /// 用在「浮在内容之上」的表面上（顶部栏 / 底部栏 / 覆盖面板）——它下面有东西
 /// 可透，才谈得上玻璃。直接铺在页面底色上的卡片不要用它（模糊一层纯色等于没
@@ -16,7 +14,7 @@ class GlassPanel extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 0,
-    this.blur = 24,
+    this.blur = 0,
     this.color,
     this.border,
     this.padding,
@@ -29,7 +27,7 @@ class GlassPanel extends StatelessWidget {
   /// 圆角；0 表示直角（整条顶栏 / 底栏）。
   final double radius;
 
-  /// 模糊强度。
+  /// 保留旧构造参数以兼容调用；清透模式不再应用模糊。
   final double blur;
 
   /// 玻璃底色（默认半透明白）。
@@ -54,29 +52,19 @@ class GlassPanel extends StatelessWidget {
             : Offset.zero,
         child: ClipRRect(
           borderRadius: borderRadius,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(
-              sigmaX: module != null
-                  ? FloatingModules.instance.style(module!).blur
-                  : blur,
-              sigmaY: module != null
-                  ? FloatingModules.instance.style(module!).blur
-                  : blur,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: module == null
+                  ? (color ?? LumeTheme.glass)
+                  : (color ?? LumeTheme.glass).withValues(
+                      alpha: FloatingModules.instance.style(module!).opacity,
+                    ),
+              borderRadius: borderRadius,
+              border: border ?? Border.all(color: LumeTheme.hairline),
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: module == null
-                    ? (color ?? LumeTheme.glass)
-                    : (color ?? LumeTheme.glass).withValues(
-                        alpha: FloatingModules.instance.style(module!).opacity,
-                      ),
-                borderRadius: borderRadius,
-                border: border ?? Border.all(color: LumeTheme.hairline),
-              ),
-              child: padding == null
-                  ? child
-                  : Padding(padding: padding!, child: child),
-            ),
+            child: padding == null
+                ? child
+                : Padding(padding: padding!, child: child),
           ),
         ),
       ),
@@ -84,11 +72,7 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// 卡片：纯白底 + 极浅描边 + 极柔和阴影，靠微弱色差与阴影从底上浮起。
-///
-/// 与旧版「深色玻璃卡」的差别：**不再默认开背景模糊**。模糊只在「卡片压在封面 /
-/// 图片之上」时有意义（那种场合传 [frosted]），铺在浅色底上的卡片开模糊等于白付
-/// 代价——书架、章节列表这类页面动辄上百张卡，模糊的开销是实打实的。
+/// 清透卡片：低透明底色、细描边与轻阴影，背景保持清晰。
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -105,7 +89,7 @@ class GlassCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final double radius;
 
-  /// 是否磨砂（卡片压在图片 / 封面之上时打开）。
+  /// 保留旧构造参数以兼容调用；所有卡片均不模糊背景。
   final bool frosted;
 
   /// 自定义底色；为空时用纯白。
@@ -136,16 +120,7 @@ class GlassCard extends StatelessWidget {
         ),
       ),
     );
-    if (!frosted) {
-      return ClipRRect(borderRadius: border, child: surface);
-    }
-    return ClipRRect(
-      borderRadius: border,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: surface,
-      ),
-    );
+    return ClipRRect(borderRadius: border, child: surface);
   }
 }
 

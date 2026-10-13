@@ -145,11 +145,11 @@ void main() {
 
     test('卡片装饰与背景在两种亮度下都取自对应色板', () {
       LumeTheme.build(brightness: Brightness.dark);
-      expect(LumeTheme.cardDecoration().color, LumePalette.dark.surface);
+      expect(LumeTheme.cardDecoration().color, LumePalette.dark.glass);
       expect(LumeTheme.cardShadow.first.color, LumePalette.dark.cardShadow.first.color);
 
       LumeTheme.build(brightness: Brightness.light);
-      expect(LumeTheme.cardDecoration().color, LumePalette.light.surface);
+      expect(LumeTheme.cardDecoration().color, LumePalette.light.glass);
     });
 
     test('默认构建仍是浅色（既有调用方不受影响）', () {

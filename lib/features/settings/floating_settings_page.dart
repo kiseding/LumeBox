@@ -13,7 +13,7 @@ class FloatingSettingsPage extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('数值实时生效，返回后自动保留。向下偏移为正值。首页合并顶部使用“首页功能、分类与筛选”的设置。'),
+          const Text('全部模块使用清透效果，无磨砂模糊。透明度和位置实时生效，返回后自动保留。向下偏移为正值。'),
           for (final module in FloatingModule.values) _module(context, module),
         ],
       ),
@@ -89,7 +89,6 @@ class FloatingSettingsPage extends StatelessWidget {
               module == FloatingModule.dock ? 20 : 80,
               (v) => style.copyWith(y: v),
             ),
-            slider('磨砂强度', style.blur, 0, 30, (v) => style.copyWith(blur: v)),
           ],
         ),
       ),

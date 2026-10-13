@@ -160,15 +160,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final light = LumeTheme.paletteOf(Brightness.light).surface;
-    final dark = LumeTheme.paletteOf(Brightness.dark).surface;
+    final light = LumeTheme.paletteOf(Brightness.light).glass;
+    final dark = LumeTheme.paletteOf(Brightness.dark).glass;
     expect(cardColorOf('外观'), light);
     expect(cardColorOf('横屏播放'), light);
 
     // 切深色：整页（含两张内容为 const 的分组卡）当场换成深色卡。
     await tester.pumpWidget(app(ThemeMode.dark));
     await tester.pumpAndSettle();
-    expect(LumeTheme.surface, dark, reason: '静态色名的活动色板要跟着亮度走');
+    expect(LumeTheme.glass, dark, reason: '清透色板要跟着亮度走');
     expect(cardColorOf('外观'), dark, reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）');
     expect(cardColorOf('横屏播放'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
     expect(cardColorOf('底部导航栏管理'), dark);

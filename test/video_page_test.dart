@@ -324,9 +324,9 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('AVPlayer'), findsOneWidget);
+      expect(find.text('AVPlayer'), findsNothing);
       expect(find.text('1280×720'), findsOneWidget);
-      expect(find.text('缓冲 4s'), findsOneWidget);
+      expect(find.text('缓冲 4s'), findsNothing);
 
       // 换成 MPV 内核：同一块 HUD 直接显示 MPV 的参数，页面代码零改动。
       await tester.tap(find.byTooltip('播放器设置'));
@@ -350,12 +350,12 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('MPV'), findsWidgets);
+      expect(find.text('MPV'), findsNothing);
       expect(find.text('HEVC'), findsOneWidget);
       expect(find.text('1920×1080'), findsOneWidget);
       expect(find.text('30FPS'), findsOneWidget);
       expect(find.text('1.8Mbps'), findsOneWidget);
-      expect(find.text('缓冲 9s'), findsOneWidget);
+      expect(find.text('缓冲 9s'), findsNothing);
       expect(find.text('1280×720'), findsNothing, reason: '旧内核的参数不该残留');
     });
 

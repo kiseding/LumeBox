@@ -92,8 +92,8 @@ class LumePalette {
     base: Color(0xFFF7F7F9),
     surface: Color(0xFFFFFFFF),
     surfaceAlt: Color(0xFFFBFBFC),
-    glass: Color(0xB8FFFFFF),
-    glassStrong: Color(0xE0FFFFFF),
+    glass: Color(0x1FFFFFFF),
+    glassStrong: Color(0x33FFFFFF),
     textPrimary: Color(0xFF1A1A1A),
     textSecondary: Color(0xFF707076),
     textHint: Color(0xFF99999F),
@@ -129,8 +129,8 @@ class LumePalette {
     base: Color(0xFF121214),
     surface: Color(0xFF1C1C1F),
     surfaceAlt: Color(0xFF242428),
-    glass: Color(0xB81C1C1F),
-    glassStrong: Color(0xE02A2A2F),
+    glass: Color(0x1F1C1C1F),
+    glassStrong: Color(0x332A2A2F),
     textPrimary: Color(0xFFF2F2F4),
     textSecondary: Color(0xFFA0A0A8),
     textHint: Color(0xFF7A7A82),
@@ -193,13 +193,13 @@ class LumePalette {
       );
 }
 
-/// 全局主题：分层底 + 玻璃磨砂 + 极淡阴影，**浅色与深色两套**。
+/// 全局主题：分层底 + 清透玻璃 + 极淡阴影，**浅色与深色两套**。
 ///
 /// 三条分层规则（其它颜色都是它们的派生，两套主题都成立）：
 /// 1. **底与卡不同色**——页面最底层是 [base]，卡片是 [surface]，靠微弱色差分出
 ///    第一层；页面背景另带一层几乎看不见的渐变，避免大色块死板；
 /// 2. **玻璃只给「浮在内容之上」的条**——顶部栏 / 底部导航 / 覆盖面板走
-///    [glass] + 模糊（见 `GlassPanel`），滚动内容从下面透出来；
+///    [glass] 的透明底色（见 `GlassPanel`），滚动内容从下面透出来；
 /// 3. **卡片靠阴影而不是描边浮起**——[cardShadow] 透明度极低，只做「轻微浮起」。
 ///
 /// 文字三档：[textPrimary] / [textSecondary] / [textHint]；装饰与交互元素一律用
@@ -269,7 +269,7 @@ class LumeTheme {
   /// 卡内嵌块 / 次级面板：第三层。
   static Color get surfaceAlt => palette.surfaceAlt;
 
-  /// 玻璃层底色：半透明（顶栏 / 底栏 / 覆盖面板），叠加模糊成磨砂。
+  /// 玻璃层底色：低透明度（顶栏 / 底栏 / 覆盖面板），保留背景清晰。
   static Color get glass => palette.glass;
 
   /// 玻璃层上更实一点（在图片 / 视频之上需要更强可读性的面板）。
@@ -319,7 +319,7 @@ class LumeTheme {
   /// 卡片的标准装饰。
   static BoxDecoration cardDecoration({double radius = 16}) {
     return BoxDecoration(
-      color: surface,
+      color: glass,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(color: hairline),
       boxShadow: cardShadow,
@@ -396,7 +396,7 @@ class LumeTheme {
         actionsIconTheme: IconThemeData(color: textPrimary),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: surface,
+        backgroundColor: glassStrong,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontSize: 17,
@@ -406,9 +406,9 @@ class LumeTheme {
         contentTextStyle: TextStyle(fontSize: 14, color: textSecondary),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: surface,
+        backgroundColor: glassStrong,
         surfaceTintColor: Colors.transparent,
-        modalBackgroundColor: surface,
+        modalBackgroundColor: glassStrong,
         modalBarrierColor:
             isDark ? const Color(0x99000000) : const Color(0x33101018),
       ),
@@ -492,7 +492,7 @@ class LumeTheme {
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: surface,
+        color: glassStrong,
         surfaceTintColor: Colors.transparent,
         textStyle: TextStyle(color: textPrimary, fontSize: 14),
       ),

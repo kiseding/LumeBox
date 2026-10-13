@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -132,8 +131,9 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
 
       // 当前源搜索：与浏览页同一套 list(keyword:)。
       final sourceId = widget.sourceId ?? (await _manager.current())?.id;
-      final DataSource? source =
-          sourceId == null ? null : await _manager.open(sourceId);
+      final DataSource? source = sourceId == null
+          ? null
+          : await _manager.open(sourceId);
       if (!mounted || seq != _seq) return;
       if (source == null) {
         setState(() {
@@ -169,7 +169,9 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
 
   /// 翻页（只有当前源搜索有下一页；聚合搜索一次问全）。
   Future<void> _loadMore() async {
-    if (_loadingMore || !_hasMore || widget.mode == SearchMode.aggregate) return;
+    if (_loadingMore || !_hasMore || widget.mode == SearchMode.aggregate) {
+      return;
+    }
     final sourceId = widget.sourceId ?? (await _manager.current())?.id;
     if (sourceId == null) return;
     setState(() => _loadingMore = true);
@@ -231,7 +233,9 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
     final hours = value.inHours;
     final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '${value.inMinutes}:$seconds';
+    return hours > 0
+        ? '$hours:$minutes:$seconds'
+        : '${value.inMinutes}:$seconds';
   }
 
   static String _date(DateTime value) {
@@ -274,53 +278,46 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
   /// 顶栏：返回 + 「搜索 · 关键词」+ 结果条数。
   Widget _buildHeader(BuildContext context) {
     return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: LumeTheme.glass,
-            border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
-          ),
-          child: Padding(
-            padding: EdgeInsets.only(
-              top: MediaQuery.paddingOf(context).top,
-            ),
-            child: SizedBox(
-              height: kToolbarHeight,
-              child: Row(
-                children: <Widget>[
-                  IconButton(
-                    tooltip: '返回',
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          '搜索 · ${widget.keyword}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
-                          ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: LumeTheme.glass,
+          border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+          child: SizedBox(
+            height: kToolbarHeight,
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  tooltip: '返回',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        '搜索 · ${widget.keyword}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: LumeTheme.textPrimary,
                         ),
-                        Text(
-                          _loading
-                              ? '正在搜索…'
-                              : '${widget.mode.label} · $_count 条',
-                          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-                        ),
-                      ],
-                    ),
+                      ),
+                      Text(
+                        _loading ? '正在搜索…' : '${widget.mode.label} · $_count 条',
+                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                ],
-              ),
+                ),
+                const SizedBox(width: 12),
+              ],
             ),
           ),
         ),
@@ -332,9 +329,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
     if (_loading) return const SourceStateView(state: SourceStateKind.loading);
     final failure = _failure;
     if (failure != null) {
-      final detail = failure is SourceException
-          ? failure.message
-          : '$failure';
+      final detail = failure is SourceException ? failure.message : '$failure';
       return SourceStateView(
         state: stateForError(failure),
         detail: detail,
@@ -461,10 +456,10 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
     final text = _loadingMore
         ? '正在加载…'
         : count != null
-            ? (_aggregateFailed == 0
-                ? '共 $count 条'
-                : '共 $count 条（$_aggregateFailed 个源没取到）')
-            : null;
+        ? (_aggregateFailed == 0
+              ? '共 $count 条'
+              : '共 $count 条（$_aggregateFailed 个源没取到）')
+        : null;
     if (text == null) return const SizedBox(height: 8);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),

@@ -528,7 +528,13 @@ class _ExploreViewState extends State<ExploreView> {
                                           (o) => o.id == _categoryId,
                                         )
                                     ? _categoryId
-                                    : group.options.first.id)) ==
+                                    : (group.options.any((o) => o.title == '全部')
+                                          ? group.options
+                                                .firstWhere(
+                                                  (o) => o.title == '全部',
+                                                )
+                                                .id
+                                          : null))) ==
                             option.id,
                         () {
                           setState(() {

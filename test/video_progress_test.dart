@@ -117,6 +117,30 @@ void main() {
     expect(progress.position, const Duration(minutes: 12, seconds: 30));
   });
 
+  testWidgets('链接中断重试重新取地址与请求头，保留断点并继续播放', (tester) async {
+    source.items = const [SourceItem(id: 'movie-1', title: '示例影片')];
+    source.chapterList = const [
+      SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
+    ];
+    source.contentUrl = 'https://example.com/movie-1-e1.mp4?token=old';
+    final players = await pumpBoard(tester);
+    await tester.tap(find.text('示例影片'));
+    await tester.pumpAndSettle();
+    final player = players.single;
+    player.emit(position: const Duration(minutes: 6), playing: true);
+    await tester.pump();
+    source.contentUrl = 'https://example.com/movie-1-e1.mp4?token=new';
+    source.contentHeaders = const {'Referer': 'https://new.example/'};
+    player.emit(error: 'HTTP 403', playing: false);
+    await tester.pump();
+    await tester.tap(find.text('重试播放'));
+    await tester.pumpAndSettle();
+    expect(player.media!.uri.query, 'token=new');
+    expect(player.media!.headers, {'Referer': 'https://new.example/'});
+    expect(player.seeks.last, const Duration(minutes: 6));
+    expect(player.snapshot.value.playing, isTrue);
+  });
+
   testWidgets('再次点开同一集：从上次位置继续', (tester) async {
     source.items = const <SourceItem>[
       SourceItem(id: 'movie-1', title: '示例影片'),

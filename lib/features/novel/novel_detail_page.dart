@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -43,8 +41,8 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   late final SectionImagePipeline _pipeline = SectionImagePipeline(
     cacheDir: widget.library.imageCacheDir,
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
-          // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
-          maxConcurrent: SectionImagePipeline.coverConcurrency,
+    // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
+    maxConcurrent: SectionImagePipeline.coverConcurrency,
   );
 
   /// 详情页的章节列表**不再截断预览**（用户口径：章节列表要完整展示，不得压缩
@@ -136,10 +134,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     });
     if (!silent) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          duration: Duration(seconds: 1),
-          content: Text('已加入书架'),
-        ),
+        const SnackBar(duration: Duration(seconds: 1), content: Text('已加入书架')),
       );
     }
   }
@@ -171,7 +166,11 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   }
 
   /// 进阅读器。[index] 为正序章节下标。
-  Future<void> _openReader(int index, {int charOffset = 0, bool atEnd = false}) async {
+  Future<void> _openReader(
+    int index, {
+    int charOffset = 0,
+    bool atEnd = false,
+  }) async {
     final source = _source;
     if (source == null || _chapters.isEmpty) return;
     if (!_onShelf) _shelve(silent: true);
@@ -241,10 +240,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: DecoratedBox(
-        decoration: LumeTheme.background,
-        child: _buildBody(),
-      ),
+      body: DecoratedBox(decoration: LumeTheme.background, child: _buildBody()),
     );
   }
 
@@ -389,14 +385,11 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         if (cover != null && cover.isNotEmpty)
           Opacity(
             opacity: 0.34,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
-              child: SectionImage(
-                pipeline: _pipeline,
-                url: cover,
-                targetWidth: 200,
-                fit: BoxFit.cover,
-              ),
+            child: SectionImage(
+              pipeline: _pipeline,
+              url: cover,
+              targetWidth: 200,
+              fit: BoxFit.cover,
             ),
           ),
         const DecoratedBox(

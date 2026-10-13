@@ -683,7 +683,18 @@ void main() {
       expect(find.byTooltip('播放器设置'), findsOneWidget);
     });
 
-    testWidgets('删除测速入口与自动探测，不再与视频争用网络', (tester) async {
+    testWidgets('倍速点击弹出选项，选择后生效且可关闭', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip('播放速度（1.0x）'));
+      await tester.pumpAndSettle();
+      expect(find.text('播放速度'), findsOneWidget);
+      await tester.tap(find.widgetWithText(ChoiceChip, '2.0x'));
+      await tester.pumpAndSettle();
+      expect(find.text('播放速度'), findsNothing);
+      expect(find.byTooltip('播放速度（2.0x）'), findsOneWidget);
+    });
+
+    testWidgets('未出现首帧不自动测速', (tester) async {
       final client = _CountingClient(bytes: 256 * 1024);
       final meter = PlaybackSpeedMeter(http: LumeHttp(client: client));
       addTearDown(meter.dispose);

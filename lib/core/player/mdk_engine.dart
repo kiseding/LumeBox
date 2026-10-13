@@ -114,7 +114,9 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
         if (!_live) return;
         // MDK 的事件里既有真错误（解码 / 网络），也有可恢复的告警；
         // 只在非 0 错误码时把它当错误报给页面，其余写日志留痕。
-        if (event.error != 0) {
+        if (event.category == 'reader.buffering') {
+          _emit(buffering: event.error < 100);
+        } else if (event.error < 0) {
           LumeLog.warn('[mdk] 事件（${event.category}）: ${event.detail}');
           _emit(error: '${event.category}: ${event.detail}');
         }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/player/player_stats.dart';
+import 'player_speed_meter.dart';
 
 /// 播放器 HUD：显示当前内核给出的解码与传输参数
 /// （编码格式 / 分辨率 / 帧率 / 码率 / 缓冲状态）。
@@ -10,25 +11,41 @@ import '../../core/player/player_stats.dart';
 /// 因此**换内核时这里一行都不用改**（宪法「播放器抽象架构规范」）。内核拿不到
 /// 的项由 [PlayerStats.chips] 自动省略；一条都没有时整块不渲染。
 class PlayerHud extends StatelessWidget {
-  const PlayerHud({super.key, required this.stats});
+  const PlayerHud({super.key, required this.stats, this.networkKbps});
 
   final ValueListenable<PlayerStats> stats;
+  final ValueListenable<int?>? networkKbps;
 
   @override
   Widget build(BuildContext context) {
+    if (networkKbps != null) {
+      return ValueListenableBuilder<int?>(
+        valueListenable: networkKbps!,
+        builder: (context, kbps, _) => _buildStats(kbps),
+      );
+    }
+    return _buildStats(null);
+  }
+
+  Widget _buildStats(int? kbps) {
     return ValueListenableBuilder<PlayerStats>(
       valueListenable: stats,
       builder: (context, value, _) {
-        final chips = value.chips;
+        final speed = PlaybackSpeedMeter.describe(kbps);
+        final chips = <String>[
+          if (value.resolutionText != null) value.resolutionText!,
+          if (value.codecText != null) value.codecText!,
+          if (value.fpsText != null) value.fpsText!,
+          if (value.bitrateText != null) value.bitrateText!,
+          if (speed != null) '网速 $speed' else '网速 —',
+        ];
         if (chips.isEmpty) return const SizedBox.shrink();
         return Padding(
           padding: const EdgeInsets.all(10),
           child: Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: <Widget>[
-              for (final chip in chips) _HudChip(label: chip),
-            ],
+            children: <Widget>[for (final chip in chips) _HudChip(label: chip)],
           ),
         );
       },

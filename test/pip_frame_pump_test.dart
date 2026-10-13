@@ -241,6 +241,20 @@ void main() {
       pump.stop();
     });
 
+    test('后台纹理节拍消失仍取帧，返回前台停止兜底', () async {
+      final engine = _TickingEngine();
+      final pump = PipFramePump(engine: engine, frameSource: PipFrameSource());
+      pump.start();
+      pump.setBackground(true);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(engine.captureCalls, greaterThan(0));
+      pump.setBackground(false);
+      final before = engine.captureCalls;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(engine.captureCalls, before);
+      pump.stop();
+    });
+
     test('节拍停止后不再取帧（暂停即停，不空转）', () async {
       final engine = _TickingEngine();
       final pump = PipFramePump(engine: engine, frameSource: PipFrameSource());

@@ -286,6 +286,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   PipFramePump? _framePump;
   bool? _pipPlaying;
   Duration? _pipDuration;
+  late final PlaybackSpeedMeter _networkSpeed =
+      widget.speedMeter ?? PlaybackSpeedMeter();
+  DateTime? _nextSpeedProbe;
   bool _pipPreparing = false;
   bool _inlinePipReady = false;
   bool _preparingInlinePip = false;
@@ -300,6 +303,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final previous = _lifecycle;
     _lifecycle = state;
+    _framePump?.setBackground(state != AppLifecycleState.resumed);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _returnedFromBackground = true;
@@ -378,10 +382,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           final backend = _session?.backend;
           if (backend is MethodChannelPipBackend) await backend.resetFrames();
         }
-        await player.load(media);
+        final recoveryMedia = retry
+            ? await _renewPlaybackAddress(media)
+            : media;
         if (!mounted ||
             !identical(player, _player) ||
             !identical(media, _media)) {
+          return;
+        }
+        _media = recoveryMedia;
+        _networkSpeed.reset();
+        _nextSpeedProbe = null;
+        await player.load(recoveryMedia);
+        if (!mounted ||
+            !identical(player, _player) ||
+            !identical(recoveryMedia, _media)) {
           return;
         }
         if (position > Duration.zero) await player.seek(position);
@@ -400,6 +415,36 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _suppressProgressSave = false;
       _recoveringPlayback = false;
     }
+  }
+
+  /// 手势进行态（亮度 / 音量 / 进度 / 长按倍速）。
+  Future<PlayerMedia> _renewPlaybackAddress(PlayerMedia previous) async {
+    final target = _target;
+    if (target == null) return previous;
+    final source = await _openSource();
+    if (source == null) return previous;
+    final content = await source
+        .content(itemId: target.itemId, chapterId: target.chapterId)
+        .timeout(const Duration(seconds: 15));
+    if (!mounted || !identical(target, _target)) return previous;
+    final qualities = SourcePlayback.contentQualities(content);
+    final label = _qualityIndex < _qualities.length
+        ? _qualities[_qualityIndex].label
+        : null;
+    final selected = qualities
+        .where((quality) => quality.label == label)
+        .firstOrNull;
+    final address = selected?.url ?? SourcePlayback.contentAddress(content);
+    if (address == null) throw StateError('源未返回可播放地址');
+    _qualities = qualities;
+    _qualityIndex = selected == null ? 0 : qualities.indexOf(selected);
+    return PlayerMedia(
+      uri: address,
+      title: previous.title,
+      headers: selected != null && selected.headers.isNotEmpty
+          ? selected.headers
+          : SourcePlayback.contentHeaders(content),
+    );
   }
 
   /// 手势进行态（亮度 / 音量 / 进度 / 长按倍速）。
@@ -516,6 +561,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 作品身份由 [_startPlayback] 在起播时落定：这里不预设，否则「换作品前先落盘
     // 上一部进度」那一步会在首次起播时写出一条位置为 0 的空记录。
     _media = media;
+    _networkSpeed.reset();
     _prelaunch = widget.prelaunch;
     if (_anyKernelAvailable) _boot();
   }
@@ -589,6 +635,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (widget.library == null) ReadingLibrary.close(Section.video);
     _input.dispose();
     _idleSnapshot.dispose();
+    if (widget.speedMeter == null) _networkSpeed.dispose();
     // 注入进来的网速表由调用方释放。
     super.dispose();
   }
@@ -625,6 +672,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (snapshot != null) {
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
       // 片头片尾：每次快照变化判一次（判定本身是纯函数，跳过一次后不再重复）。
+      if (playing &&
+          !snapshot.buffering &&
+          snapshot.position > Duration.zero &&
+          _lifecycle == AppLifecycleState.resumed &&
+          !(_nextSpeedProbe?.isAfter(DateTime.now()) ?? false)) {
+        final media = _media;
+        if (media != null && media.isNetwork) {
+          _nextSpeedProbe = DateTime.now().add(const Duration(seconds: 30));
+          unawaited(
+            _networkSpeed.measure(
+              media.uri,
+              headers: media.headers,
+              force: true,
+            ),
+          );
+        }
+      }
       _maybeSkip(_skipMarks, snapshot.position, snapshot.duration);
       // 锁屏播放条跟随播放状态（进度在会话内部节流，不必在这里省）。
       unawaited(
@@ -972,6 +1036,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     if (!mounted || !identical(player, _player)) return;
     _media = media;
+    _networkSpeed.reset();
+    _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
     await player.load(media);
     // 起播那几秒里同一个 CDN 域名上多一条 256KB 探测，就是和首帧缓冲抢带宽。
@@ -1896,6 +1962,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       frameSource: backend.frameSource,
     );
     _framePump!.start();
+    _framePump!.setBackground(_lifecycle != AppLifecycleState.resumed);
   }
 
   void _stopFrameForwarding() {
@@ -2595,7 +2662,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: <Color>[
-            Colors.black.withValues(alpha: 0.55),
+            Colors.black.withValues(alpha: 0.22),
             Colors.transparent,
           ],
         ),
@@ -2641,7 +2708,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               icon: Icons.speed,
               tooltip: '倍速（当前 ${_settings.speed}x）',
               highlighted: _settings.speed != 1.0,
-              onPressed: _cycleSpeed,
+              onPressed: _showSpeedPicker,
             ),
             _topIcon(
               icon: _locked ? Icons.lock : Icons.lock_open,
@@ -2692,13 +2759,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _showToast('画面比例：${next.label}');
   }
 
-  /// 倍速循环：走与设置面板同一份档位表（[PlayerSettings.speeds]），1.0x 在中间。
-  void _cycleSpeed() {
-    final values = PlayerSettings.speeds;
-    final index = values.indexOf(_settings.speed);
-    final next = values[index < 0 ? 0 : (index + 1) % values.length];
-    _applySettings(_settings.copyWith(speed: next));
-    _showToast('倍速：${next}x');
+  Future<void> _showSpeedPicker() async {
+    _cancelAutoHide();
+    final speed = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '播放速度',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final value in PlayerSettings.speeds)
+                    ChoiceChip(
+                      label: Text('${value}x'),
+                      selected: value == _settings.speed,
+                      onSelected: (_) => Navigator.pop(context, value),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (speed != null) await _applySettings(_settings.copyWith(speed: speed));
+    _scheduleAutoHide();
   }
 
   /// 全屏浮层控制栏：进度 + 主要控制 + 次级控制（退出全屏与设置都在里面）。
@@ -2709,7 +2805,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           begin: Alignment.bottomCenter,
           end: Alignment.topCenter,
           colors: <Color>[
-            Colors.black.withValues(alpha: 0.6),
+            Colors.black.withValues(alpha: 0.22),
             Colors.transparent,
           ],
         ),
@@ -2931,8 +3027,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Align(
-                      alignment: Alignment.bottomLeft,
-                      child: PlayerHud(stats: player.stats),
+                      alignment: Alignment.topLeft,
+                      child: PlayerHud(
+                        stats: player.stats,
+                        networkKbps: _networkSpeed.kbps,
+                      ),
                     ),
                   ),
                 ),
@@ -3159,7 +3258,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (stats.bitrateText != null) '码率 ${stats.bitrateText}',
       if (stats.codecText != null) stats.codecText!,
       if (stats.fpsText != null) stats.fpsText!,
-      if (stats.bufferText != null) stats.bufferText!,
     ];
     return pieces.isEmpty ? '等待视频参数…' : pieces.join(' · ');
   }
@@ -3270,6 +3368,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         tooltip: '停止',
         icon: const Icon(Icons.stop_circle),
         onPressed: player?.stop,
+      ),
+      IconButton(
+        tooltip: '播放速度（${_settings.speed}x）',
+        icon: const Icon(Icons.speed),
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        onPressed: _showSpeedPicker,
       ),
       IconButton(
         iconSize: 28,

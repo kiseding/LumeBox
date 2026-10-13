@@ -18,10 +18,10 @@ enum FloatingModule {
 
 class FloatingStyle {
   const FloatingStyle({
-    this.opacity = .18,
+    this.opacity = .12,
     this.x = 0,
     this.y = 0,
-    this.blur = 12,
+    this.blur = 0,
   });
   final double opacity, x, y, blur;
   Offset get offset => Offset(x, y);
@@ -51,10 +51,10 @@ class FloatingStyle {
     }
 
     return FloatingStyle(
-      opacity: read('opacity', .18, 0, 1),
+      opacity: read('opacity', .12, 0, 1),
       x: read('x', 0, -40, 40),
       y: read('y', 0, -40, 80),
-      blur: read('blur', 12, 0, 30),
+      blur: 0,
     );
   }
 }
@@ -68,6 +68,7 @@ class FloatingModules extends ChangeNotifier {
       _styles[module] ?? const FloatingStyle();
   Future<void> boot() async {
     try {
+      _styles.clear();
       final dir = await getApplicationSupportDirectory();
       _file = File('${dir.path}/floating_modules.json');
       if (_file!.existsSync()) {
@@ -75,10 +76,19 @@ class FloatingModules extends ChangeNotifier {
         if (data is Map) {
           for (final module in FloatingModule.values) {
             final raw = data[module.name];
-            if (raw is Map) _styles[module] = FloatingStyle.fromJson(raw);
+            if (raw is Map) {
+              final previous = FloatingStyle.fromJson(raw);
+              _styles[module] = data['_clearGlassVersion'] == 1
+                  ? previous
+                  : previous.copyWith(
+                      opacity: previous.opacity.clamp(0, .12),
+                      blur: 0,
+                    );
+            }
           }
         }
       }
+      save();
       notifyListeners();
     } catch (error) {
       LumeLog.warn('悬浮设置读取失败：$error');
@@ -86,6 +96,7 @@ class FloatingModules extends ChangeNotifier {
   }
 
   void set(FloatingModule module, FloatingStyle value) {
+    value = value.copyWith(blur: 0);
     _styles[module] = module == FloatingModule.dock
         ? value.copyWith(y: value.y.clamp(-40, 20))
         : value;
@@ -100,6 +111,7 @@ class FloatingModules extends ChangeNotifier {
       final temp = File('${file.path}.tmp');
       temp.writeAsStringSync(
         jsonEncode({
+          '_clearGlassVersion': 1,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

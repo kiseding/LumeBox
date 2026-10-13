@@ -285,6 +285,10 @@ class AvPlayer extends AbstractPlayer {
     final controller = _controller;
     if (controller == null || _disposed) return;
     final value = controller.value;
+    if (value.hasError && _snapshot.value.error == null) {
+      // Preserve the native reason; the UI below receives a short translation.
+      LumeLog.warn('[avplayer] 播放失败: ${value.errorDescription}');
+    }
     _emit(
       PlayerSnapshot(
         position: value.position,

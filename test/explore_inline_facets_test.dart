@@ -85,6 +85,14 @@ void main() {
       opened: {'a': source},
     );
     await show(tester, manager);
+    final optionButton = tester.widget<TextButton>(
+      find.ancestor(of: find.text('网站选项'), matching: find.byType(TextButton)),
+    );
+    expect(
+      optionButton.style!.foregroundColor!.resolve({}),
+      isNot(LumeTheme.accent),
+      reason: '默认全部时，不同时选中第一个实际条件',
+    );
     expect(find.byType(AppBar), findsNothing, reason: '标题与功能合到一个悬浮模块');
     expect(find.byTooltip('筛选'), findsNothing);
     expect(find.text('筛选'), findsNothing);

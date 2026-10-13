@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -478,14 +476,11 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
         if (cover != null && cover.isNotEmpty)
           Opacity(
             opacity: 0.34,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
-              child: SectionImage(
-                pipeline: _pipeline,
-                url: cover,
-                targetWidth: 200,
-                fit: BoxFit.cover,
-              ),
+            child: SectionImage(
+              pipeline: _pipeline,
+              url: cover,
+              targetWidth: 200,
+              fit: BoxFit.cover,
             ),
           ),
         const DecoratedBox(

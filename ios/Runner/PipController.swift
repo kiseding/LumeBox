@@ -28,6 +28,8 @@ final class PipController: NSObject {
   private var avLayer: AVPlayerLayer?
   private var avObserver: NSObjectProtocol?
   private var paused = false
+  private var starting = false
+  private var playbackRate: Float = 1
   private var durationSeconds: Double = 0
 
   /// 帧泵：把 Dart 送来的 BGRA 帧包成 CMSampleBuffer 上屏。
@@ -165,7 +167,7 @@ final class PipController: NSObject {
       stop(result: result)
     case "updateState":
       let args = call.arguments as? [String: Any] ?? [:]
-      paused = !((args["playing"] as? Bool) ?? false)
+      paused = !(((args["playing"] as? Bool) ?? false) || starting)
       durationSeconds = (args["durationMs"] as? Double ?? 0) / 1000
       if #available(iOS 15.0, *) { controller?.invalidatePlaybackState() }
       result(nil)
@@ -268,6 +270,12 @@ final class PipController: NSObject {
       return
     }
     if candidate.isPictureInPicturePossible {
+      starting = true
+      paused = false
+      playbackRate = avLayer?.player?.rate ?? 1
+      if playbackRate <= 0 { playbackRate = 1 }
+      avLayer?.player?.playImmediately(atRate: playbackRate)
+      candidate.invalidatePlaybackState()
       candidate.startPictureInPicture()
       result(nil)
     } else if attempts > 0 {
@@ -309,6 +317,11 @@ extension PipController: FlutterStreamHandler {
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PipController: AVPictureInPictureControllerDelegate {
+  func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    starting = true
+    if let rate = avLayer?.player?.rate, rate > 0 { playbackRate = rate }
+    paused = false
+  }
   func pictureInPictureController(
     _ controller: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
@@ -317,10 +330,16 @@ extension PipController: AVPictureInPictureControllerDelegate {
     completionHandler(true)
   }
   func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    starting = false
+    paused = false
+    avLayer?.player?.playImmediately(atRate: playbackRate)
+    controller.invalidatePlaybackState()
+    emit(kind: "play", message: nil)
     emit(kind: "entered", message: nil)
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+    starting = false
     emit(kind: "exited", message: nil)
   }
 
@@ -328,6 +347,7 @@ extension PipController: AVPictureInPictureControllerDelegate {
     _ controller: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
+    starting = false
     emit(kind: "failed", message: error.localizedDescription)
   }
 }
@@ -364,6 +384,9 @@ extension PipController: AVPictureInPictureSampleBufferPlaybackDelegate {
     _ controller: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
+    // Ignore the transient pause while the system moves the content source.
+    // After entry, all PiP play/pause gestures are forwarded normally.
+    if starting && !playing { return }
     paused = !playing
     emit(kind: playing ? "play" : "pause", message: nil)
   }

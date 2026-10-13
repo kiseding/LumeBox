@@ -43,6 +43,19 @@ class PipFramePump {
   StreamSubscription<void>? _ticks;
   bool _pumping = false;
   int _captureFailures = 0;
+  DateTime? _lastFrameTick;
+  bool _background = false;
+
+  void setBackground(bool background) {
+    _background = background;
+    if (!isPumping || _ticks == null) return;
+    if (background) {
+      _startTimer();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
 
   /// 是否处于转发中。
   ///
@@ -92,7 +105,10 @@ class PipFramePump {
     if (engine is FrameTickCapable) {
       // 引擎能给帧节拍：跟着画面走（暂停时自然不再取帧）。
       _ticks = (engine as FrameTickCapable).frameTicks.listen(
-        (_) => unawaited(_tick()),
+        (_) {
+          _lastFrameTick = DateTime.now();
+          unawaited(_tick());
+        },
         onError: (Object error, StackTrace stackTrace) {
           // 节拍流出错不该让泵停摆：退回定时器。
           LumeLog.warn('[pip] 帧节拍流异常，退回定时器节拍: $error');
@@ -103,6 +119,9 @@ class PipFramePump {
         },
       );
       LumeLog.info('[pip] 帧转发开始（引擎帧节拍）');
+      // Flutter texture ticks may stop when iOS backgrounds the inline view.
+      // Keep pulling decoded frames if that signal has gone quiet.
+      if (_background) _startTimer();
       return;
     }
     _startTimer();
@@ -114,6 +133,12 @@ class PipFramePump {
     // 避免定时器抖动导致实际帧率低于目标。
     final intervalMs = (1000 / (targetFps * 1.2)).round();
     _timer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
+      final last = _lastFrameTick;
+      if (_ticks != null &&
+          last != null &&
+          DateTime.now().difference(last) < const Duration(milliseconds: 200)) {
+        return;
+      }
       unawaited(_tick());
     });
     LumeLog.info('[pip] 帧转发开始（定时器节拍，目标 $targetFps fps）');
@@ -126,6 +151,7 @@ class PipFramePump {
     _timer = null;
     final ticks = _ticks;
     _ticks = null;
+    _lastFrameTick = null;
     unawaited(ticks?.cancel());
     LumeLog.info('[pip] 帧转发停止（${frameSource.describe()}）');
   }
