@@ -482,8 +482,9 @@ class SectionImagePipeline {
           handled403 = true;
           continue;
         }
-        if (!outcome.retryable || attempt == budget || retries >= _maxRetries)
+        if (!outcome.retryable || attempt == budget || retries >= _maxRetries) {
           break;
+        }
         retries++;
         // 退避：300ms、600ms、1200ms。图片是**可见内容**，等太久不如让用户先
         // 看到缺口再自己重试——因此次数仍克制（默认 3 次，弱网多给一次机会）。

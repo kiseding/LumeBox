@@ -55,7 +55,7 @@ void main() {
     final database = sqlite3.open(scope.resolve('reading.db'));
     database.execute('ALTER TABLE reading_progress DROP COLUMN progress_kind');
     database.execute('PRAGMA user_version=1');
-    database.dispose();
+    database.close();
     final restored = await ReadingLibrary.open(Section.video);
     expect(
       restored.videoProgress('legacy')?.position,

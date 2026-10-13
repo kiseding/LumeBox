@@ -529,54 +529,68 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   Widget header() => GlassPanel(
     module: FloatingModule.home,
     radius: 28,
-    padding: const EdgeInsets.all(12),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '猫源',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
+        SizedBox(
+          height: 36,
+          child: IconButtonTheme(
+            data: IconButtonThemeData(
+              style: IconButton.styleFrom(
+                minimumSize: const Size(40, 40),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '猫源',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        HomeBrowseNavigation(
+                          selected: browseMode,
+                          onSelect: selectBrowseMode,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    HomeBrowseNavigation(
-                      selected: browseMode,
-                      onSelect: selectBrowseMode,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                IconButton(
+                  tooltip: '历史',
+                  onPressed: () => collection(false),
+                  icon: const Icon(Icons.history),
+                ),
+                IconButton(
+                  tooltip: '收藏',
+                  onPressed: () => collection(true),
+                  icon: const Icon(Icons.bookmark_outline),
+                ),
+                Tooltip(
+                  message: '订阅',
+                  child: TextButton.icon(
+                    label: const Text('订阅'),
+                    onPressed: subscriptions,
+                    icon: const Icon(Icons.rss_feed),
+                  ),
+                ),
+              ],
             ),
-            IconButton(
-              tooltip: '历史',
-              onPressed: () => collection(false),
-              icon: const Icon(Icons.history),
-            ),
-            IconButton(
-              tooltip: '收藏',
-              onPressed: () => collection(true),
-              icon: const Icon(Icons.bookmark_outline),
-            ),
-            Tooltip(
-              message: '订阅',
-              child: TextButton.icon(
-                label: const Text('订阅'),
-                onPressed: subscriptions,
-                icon: const Icon(Icons.rss_feed),
-              ),
-            ),
-          ],
+          ),
         ),
         Row(
           children: [

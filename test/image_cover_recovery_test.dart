@@ -20,8 +20,9 @@ void main() {
       maxRetries: 0,
       requestSender: (request) async {
         requests.add(request);
-        if (request.url.startsWith('https:'))
+        if (request.url.startsWith('https:')) {
           throw const HandshakeException('CERTIFICATE_VERIFY_FAILED: expired');
+        }
         return const NetworkResponse(
           statusCode: 200,
           body: [1, 2, 3],
