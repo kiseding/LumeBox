@@ -18,6 +18,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
     this.onMatch,
     this.onConfigureService,
     this.onReload,
+    this.onCompose,
   });
 
   final DanmakuSettings settings;
@@ -30,6 +31,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
   final VoidCallback? onMatch;
   final VoidCallback? onConfigureService;
   final VoidCallback? onReload;
+  final VoidCallback? onCompose;
 
   @override
   State<DanmakuSettingsSheet> createState() => _DanmakuSettingsSheetState();
@@ -50,6 +52,12 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.onCompose != null)
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined),
+                    title: const Text('发送弹幕'),
+                    onTap: widget.onCompose,
+                  ),
                 if (widget.status != null)
                   ListTile(title: Text(widget.status!)),
                 if (widget.onMatch != null)

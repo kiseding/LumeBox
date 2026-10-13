@@ -158,7 +158,7 @@ void main() {
       expect(find.byTooltip('弹幕：开'), findsWidgets, reason: '默认是开');
 
       // 用户点开关（此刻 _library 还是 null，落库无从谈起）。
-      await tester.tap(find.byTooltip('弹幕：开').first);
+      await tester.longPress(find.byTooltip('弹幕：开').first);
       await advance(tester, 2);
       expect(find.byTooltip('弹幕：关'), findsWidgets, reason: '界面当场就变了');
 

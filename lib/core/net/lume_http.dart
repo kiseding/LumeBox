@@ -1,5 +1,9 @@
+import 'ios_verified_webview.dart';
+
 import 'dart:async';
+
 import 'source_request_log.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -62,15 +66,15 @@ class LumeHttp {
     String? Function()? sessionCookies,
     String? Function()? sessionUserAgent,
     String bridge = '',
-  })  : _client = client ?? http.Client(),
-        _clientInjected = client != null,
-        _settings = (settings ?? const NetworkSettings()).clamped(),
-        _profile = profile ?? NetworkProfile.none,
-        // ignore: prefer_initializing_formals —— 具名参数是公开契约，字段是私有的
-        _sessionCookies = sessionCookies,
-        // ignore: prefer_initializing_formals
-        _sessionUserAgent = sessionUserAgent,
-        _bridge = bridge.trim();
+  }) : _client = client ?? http.Client(),
+       _clientInjected = client != null,
+       _settings = (settings ?? const NetworkSettings()).clamped(),
+       _profile = profile ?? NetworkProfile.none,
+       // ignore: prefer_initializing_formals —— 具名参数是公开契约，字段是私有的
+       _sessionCookies = sessionCookies,
+       // ignore: prefer_initializing_formals
+       _sessionUserAgent = sessionUserAgent,
+       _bridge = bridge.trim();
 
   static const Duration defaultTimeout = NetworkSettings.defaultTimeout;
 
@@ -143,8 +147,10 @@ class LumeHttp {
     if (_queue != null) return _queue!;
     // 显式注入了客户端（测试替身）：额度仍按本实例算，发送走注入的客户端。
     if (_clientInjected) {
-      return _injectedQueue ??=
-          NetworkQueue(settings: _settings, sender: _sendWithClient);
+      return _injectedQueue ??= NetworkQueue(
+        settings: _settings,
+        sender: _sendWithClient,
+      );
     }
     // 生产：全应用共享一份并发额度。
     return LumeNet.queue;
@@ -185,9 +191,23 @@ class LumeHttp {
     SourceRequestLog.record(_source, url);
 
     final budget = (timeout ?? _settings.timeout) * (_settings.maxRetries + 1);
-    final NetworkResponse response;
+    NetworkResponse response;
     try {
       response = await _effectiveQueue.send(request).timeout(budget);
+      if (Platform.isIOS &&
+          !_clientInjected &&
+          request.method == 'GET' &&
+          response.statusCode == 403 &&
+          (_sessionCookies?.call()?.contains('cf_clearance=') ?? false) &&
+          (_sessionUserAgent?.call()?.isNotEmpty ?? false) &&
+          request.proxy.isEmpty) {
+        try {
+          response = await IosVerifiedWebView.read(request)
+              .timeout(const Duration(seconds: 20));
+        } catch (_) {
+          // Preserve the original challenge response; never claim a passed session.
+        }
+      }
     } on TimeoutException catch (error) {
       throw LumeHttpException(
         '${LumeSourceNetworkMarker.failure}：请求超时（${budget.inSeconds}s）',

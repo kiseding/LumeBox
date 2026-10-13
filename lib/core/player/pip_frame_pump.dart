@@ -133,7 +133,7 @@ class PipFramePump {
     if (_timer != null) return;
     // 拉取节拍略快于目标帧率（1.2 倍）：让节流层决定实际送出多少帧，
     // 避免定时器抖动导致实际帧率低于目标。
-    final intervalMs = (1000 / (targetFps * 1.2)).round();
+    final intervalMs = (1000 / targetFps).ceil();
     _timer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
       final last = _lastFrameTick;
       if (_ticks != null &&

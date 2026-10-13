@@ -84,7 +84,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('播放器内核 · 故障逃生入口'), findsOneWidget);
+    expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
+    await tester.tap(find.text('各模块独立设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放器设置'));
+    await tester.pumpAndSettle();
     expect(
       find.byType(PlayerKernelPicker),
       findsOneWidget,

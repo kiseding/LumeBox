@@ -116,12 +116,18 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     password.dispose();
     if (accepted == true && mounted) {
       await run(() async {
-        await service.add(savedName, savedUrl);
+        final record = await service.add(savedName, savedUrl);
+        if (record.enabled) await service.refreshSites(record);
       });
     }
   }
 
   Future<void> configure(CatSubscription record) => run(() async {
+    if (!record.enabled) {
+      record.enabled = true;
+      await service.save();
+    }
+    if (record.hash.isEmpty) await service.update(record);
     final url = await service.configurationUrl(record);
     if (!mounted) return;
     await Navigator.push(
@@ -132,7 +138,11 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
   });
 
   Future<void> more(CatSubscription record, String action) => run(() async {
-    if (action == 'update') await service.update(record);
+    if (action == 'update') {
+      await service.update(record);
+      if (record.enabled) await service.refreshSites(record);
+    }
+    if (action == 'auth') await add(name: record.name, url: record.url);
     if (action == 'automatic') {
       record.automatic = !record.automatic;
       await service.save();
@@ -208,7 +218,11 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      '${record.sites.length} 个站点 · ${record.automatic ? '自动更新' : '手动更新'}',
+                      '${record.hash.isEmpty
+                          ? '未下载'
+                          : record.sites.isEmpty
+                          ? '站点尚未读取'
+                          : '${record.sites.length} 个站点'} · ${record.enabled ? '已启用' : '已停用'}',
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -220,6 +234,12 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                               : (value) => run(() async {
                                   record.enabled = value;
                                   await service.save();
+                                  if (value) {
+                                    if (record.hash.isEmpty) {
+                                      await service.update(record);
+                                    }
+                                    await service.refreshSites(record);
+                                  }
                                 }),
                         ),
                         PopupMenuButton<String>(
@@ -235,6 +255,10 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                               value: 'automatic',
                               checked: record.automatic,
                               child: const Text('自动更新'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'auth',
+                              child: Text('编辑地址 / 授权'),
                             ),
                             const PopupMenuItem(
                               value: 'info',
@@ -260,11 +284,11 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   TextButton.icon(
-                    onPressed: working || service.busy || !record.enabled
+                    onPressed: working || service.busy
                         ? null
                         : () => configure(record),
                     icon: const Icon(Icons.cloud_outlined),
-                    label: const Text('网盘登录 · 站点配置'),
+                    label: Text(record.enabled ? '网盘登录 · 站点配置' : '启用并打开配置'),
                   ),
                 ],
               ),

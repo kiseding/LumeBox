@@ -75,8 +75,7 @@ class ReadingHubPage extends StatelessWidget {
           ),
           Tooltip(
             message: '订阅',
-            child: TextButton.icon(
-              label: const Text('订阅'),
+            child: IconButton(
               icon: const Icon(Icons.rss_feed),
               onPressed: () async {
                 await Navigator.push(

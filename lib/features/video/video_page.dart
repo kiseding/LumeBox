@@ -561,8 +561,7 @@ class _VideoPageState extends State<VideoPage> {
     // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
     Tooltip(
       message: '订阅',
-      child: TextButton.icon(
-        label: const Text('订阅'),
+      child: IconButton(
         icon: const Icon(Icons.rss_feed),
         onPressed: () async {
           await Navigator.push(

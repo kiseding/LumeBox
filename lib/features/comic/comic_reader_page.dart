@@ -1,3 +1,5 @@
+import '../source/waf_webview_page.dart';
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -846,6 +848,24 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         state: SourceStateKind.scriptError,
         detail: _failureDetail,
         onRetry: () => _loadChapter(resume: false),
+        action: (_failureDetail?.contains('NEED_WEBVIEW_VERIFY') ?? false)
+            ? OutlinedButton.icon(
+                icon: const Icon(Icons.public),
+                label: const Text('章节网页验证'),
+                onPressed: () async {
+                  final outcome = await runWafWebViewFlow(
+                    context: context,
+                    section: widget.library.section,
+                    sourceId: widget.target.sourceId,
+                    sourceName: widget.target.title,
+                    failureMessage: _failureDetail,
+                  );
+                  if (mounted && outcome == WafWebViewOutcome.collected) {
+                    await _loadChapter(resume: false);
+                  }
+                },
+              )
+            : null,
       );
     }
     if (_images.isEmpty) {

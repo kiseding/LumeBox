@@ -1,3 +1,5 @@
+import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:lume_box/features/novel/novel_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,9 +34,9 @@ void main() {
 
   /// Dock 内的文字（页面标题里也有同名文字，必须限定在 Dock 内部找）。
   Finder inDock(String text) => find.descendant(
-        of: find.byKey(AppShell.dockKey),
-        matching: find.text(text),
-      );
+    of: find.byKey(AppShell.dockKey),
+    matching: find.text(text),
+  );
 
   testWidgets('移动端：底部 Dock 五页签，顺序为 小说 / 漫画 / 视频 / 猫源 / 设置', (tester) async {
     await pumpShell(tester, desktopRail: false);
@@ -52,8 +54,41 @@ void main() {
       for (final label in expected) tester.getCenter(inDock(label)).dx,
     ];
     for (var i = 1; i < xs.length; i++) {
-      expect(xs[i] > xs[i - 1], isTrue, reason: '${expected[i]} 应排在 ${expected[i - 1]} 右侧');
+      expect(
+        xs[i] > xs[i - 1],
+        isTrue,
+        reason: '${expected[i]} 应排在 ${expected[i - 1]} 右侧',
+      );
     }
+  });
+
+  testWidgets('向上浏览收成左侧入口，向下浏览恢复五个页签', (tester) async {
+    await pumpShell(tester, desktopRail: false);
+    final pageContext = tester.element(find.byType(NovelPage));
+    final metrics = FixedScrollMetrics(
+      minScrollExtent: 0,
+      maxScrollExtent: 1000,
+      pixels: 200,
+      viewportDimension: 600,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: 1,
+    );
+    UserScrollNotification(
+      metrics: metrics,
+      context: pageContext,
+      direction: ScrollDirection.reverse,
+    ).dispatch(pageContext);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('展开导航'), findsOneWidget);
+    expect(inDock('漫画'), findsNothing);
+    UserScrollNotification(
+      metrics: metrics,
+      context: pageContext,
+      direction: ScrollDirection.forward,
+    ).dispatch(pageContext);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('展开导航'), findsNothing);
+    expect(inDock('漫画'), findsOneWidget);
   });
 
   testWidgets('桌面端：自动切换为左侧 NavigationRail，页签一致', (tester) async {
@@ -93,7 +128,9 @@ void main() {
     await pumpShell(tester, desktopRail: false);
     expect(controller.visible, isTrue);
 
-    final navigator = tester.state<NavigatorState>(find.byType(Navigator).first);
+    final navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
     navigator.push(
       MaterialPageRoute<void>(
         builder: (_) => const Scaffold(body: Center(child: Text('阅读器'))),
@@ -107,7 +144,9 @@ void main() {
     // 所以这里带 skipOffstage: false 才能断言它的位移。
     expect(
       tester
-          .widget<AnimatedSlide>(find.byType(AnimatedSlide, skipOffstage: false))
+          .widget<AnimatedSlide>(
+            find.byType(AnimatedSlide, skipOffstage: false),
+          )
           .offset,
       isNot(Offset.zero),
       reason: 'Dock 应平移到屏幕外',

@@ -33,13 +33,18 @@ void main() {
         ),
         ...extra,
       ],
-      opened: <String, DataSource>{'demo-1': const MockDataSource(section: video)},
+      opened: <String, DataSource>{
+        'demo-1': const MockDataSource(section: video),
+      },
     );
     if (results != null) manager.testResults.addAll(results);
     return manager;
   }
 
-  Future<void> pumpManager(WidgetTester tester, FakeSourceManager manager) async {
+  Future<void> pumpManager(
+    WidgetTester tester,
+    FakeSourceManager manager,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -246,11 +251,9 @@ void main() {
     await tester.tap(find.byTooltip('批量测试连通性'));
     await tester.pumpAndSettle();
 
-    expect(
-      manager.testedIds,
-      <String>['demo-1'],
-      reason: '停用的源跳过（测试会如实报「已停用」，没意义）',
-    );
+    expect(manager.testedIds, <String>[
+      'demo-1',
+    ], reason: '停用的源跳过（测试会如实报「已停用」，没意义）');
     expect(find.textContaining('测试完成：可用 1'), findsOneWidget);
   });
 
@@ -279,10 +282,7 @@ void main() {
     await tester.tap(find.byTooltip('批量测试连通性'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('可用 1 · 无内容 1 · 不可用 1'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('可用 1 · 无内容 1 · 不可用 1'), findsOneWidget);
   });
 
   testWidgets('测试是只读的：不改图源状态与当前选择', (tester) async {
@@ -330,11 +330,9 @@ void main() {
     await tester.pumpAndSettle();
 
     for (final section in Section.values) {
-      expect(
-        managers[section]!.testedIds,
-        <String>['src-${section.id}'],
-        reason: '${section.label} 板块的源应当被测到',
-      );
+      expect(managers[section]!.testedIds, <String>[
+        'src-${section.id}',
+      ], reason: '${section.label} 板块的源应当被测到');
     }
     expect(find.textContaining('测试完成（4 个）'), findsOneWidget);
   });
@@ -401,11 +399,7 @@ void main() {
       // 置灰的菜单项在 Flutter 里渲染为禁用色；点它不会触发回调。
       await tester.tap(find.text('更新订阅源'), warnIfMissed: false);
       await tester.pumpAndSettle();
-      expect(
-        manager.updatedIds,
-        isEmpty,
-        reason: '本地源没有订阅地址，点了也不该去更新',
-      );
+      expect(manager.updatedIds, isEmpty, reason: '本地源没有订阅地址，点了也不该去更新');
       // 菜单仍然开着（禁用项不关闭菜单）。
       expect(find.text('更新订阅源'), findsOneWidget);
     });
@@ -467,14 +461,14 @@ void main() {
       );
       await pumpManager(tester, manager);
 
-      await tester.tap(find.byTooltip('刷新全部订阅源'));
+      await tester.tap(find.byTooltip('订阅操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('刷新已导入订阅源'));
       await tester.pumpAndSettle();
 
-      expect(
-        manager.updatedIds,
-        <String>['sub-1'],
-        reason: '本地导入的源没有来源地址，不该被刷新',
-      );
+      expect(manager.updatedIds, <String>[
+        'sub-1',
+      ], reason: '本地导入的源没有来源地址，不该被刷新');
       expect(find.textContaining('更新 1'), findsOneWidget);
     });
 

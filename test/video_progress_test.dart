@@ -1,3 +1,5 @@
+import 'package:lume_box/features/video/player_settings_sheet.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -36,11 +38,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_video_progress');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     await ReadingLibrary.open(Section.video);
     source = _VideoSource();
     manager = FakeSourceManager(
@@ -86,9 +88,7 @@ void main() {
   }
 
   testWidgets('播到一半退出：进度落库（集数 + 时间点）', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
@@ -142,9 +142,7 @@ void main() {
   });
 
   testWidgets('再次点开同一集：从上次位置继续', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
@@ -173,9 +171,7 @@ void main() {
   });
 
   testWidgets('换了另一集：从头播，不 seek 到上一集的位置', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
       SourceChapter(id: 'movie-1-e2', title: '第 2 集'),
@@ -200,28 +196,18 @@ void main() {
     await tester.tap(find.text('第 2 集'));
     await tester.pumpAndSettle();
 
-    expect(
-      second.single.seeks,
-      isEmpty,
-      reason: '换了集就不该恢复上一集的时间点',
-    );
+    expect(second.single.seeks, isEmpty, reason: '换了集就不该恢复上一集的时间点');
   });
 
   testWidgets('已播完的作品：续看不跳结尾（重看从头）', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
     source.contentUrl = 'https://example.com/e1.mp4';
 
     final library = await ReadingLibrary.open(Section.video);
-    library.shelve(
-      sourceId: 'demo-video',
-      itemId: 'movie-1',
-      title: '示例影片',
-    );
+    library.shelve(sourceId: 'demo-video', itemId: 'movie-1', title: '示例影片');
     library.saveProgress(
       VideoProgress(
         section: Section.video,
@@ -244,20 +230,14 @@ void main() {
   });
 
   testWidgets('首页不再有「继续观看」区块；记录与续看都在 ⏱️ 抽屉里（用户要求删除）', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
     source.contentUrl = 'https://example.com/e1.mp4';
 
     final library = await ReadingLibrary.open(Section.video);
-    library.shelve(
-      sourceId: 'demo-video',
-      itemId: 'movie-1',
-      title: '示例影片',
-    );
+    library.shelve(sourceId: 'demo-video', itemId: 'movie-1', title: '示例影片');
     library.saveProgress(
       VideoProgress(
         section: Section.video,
@@ -284,7 +264,10 @@ void main() {
       of: find.byType(ReadingHistorySheet),
       matching: find.text('示例影片'),
     );
-    expect(find.text('第 1 集 · 12:00 / 45:00', skipOffstage: false), findsWidgets);
+    expect(
+      find.text('第 1 集 · 12:00 / 45:00', skipOffstage: false),
+      findsWidgets,
+    );
 
     await tester.tap(inSheet);
     await tester.pumpAndSettle();
@@ -300,9 +283,7 @@ void main() {
     // 地址带防盗链头，而起播点只取了地址、把 VideoContent.headers 丢在了原地——
     // CDN 回 403 后网络队列按退避重试，累积起来正是那个量级。
     // 这条守的是「地址与请求头必须一起交给播放器」。
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.contentUrl = 'https://cdn.example/with-referer.mp4';
     source.contentHeaders = const <String, String>{
       'Referer': 'https://example.com/',
@@ -322,26 +303,16 @@ void main() {
 
     final media = players.single.media;
     expect(media, isNotNull, reason: '应当已经把媒体交给内核');
-    expect(
-      media!.headers,
-      <String, String>{
-        'Referer': 'https://example.com/',
-        'User-Agent': 'Mozilla/5.0 (iPhone)',
-      },
-      reason: '防盗链请求头不能丢：丢了就是 CDN 403 + 退避重试（等一两分钟）',
-    );
+    expect(media!.headers, <String, String>{
+      'Referer': 'https://example.com/',
+      'User-Agent': 'Mozilla/5.0 (iPhone)',
+    }, reason: '防盗链请求头不能丢：丢了就是 CDN 403 + 退避重试（等一两分钟）');
   });
 
   testWidgets('历史抽屉里删单条：记录与书架条目一起消失', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     final library = await ReadingLibrary.open(Section.video);
-    library.shelve(
-      sourceId: 'demo-video',
-      itemId: 'movie-1',
-      title: '示例影片',
-    );
+    library.shelve(sourceId: 'demo-video', itemId: 'movie-1', title: '示例影片');
     library.saveProgress(
       VideoProgress(
         section: Section.video,
@@ -369,9 +340,7 @@ void main() {
   });
 
   testWidgets('片头片尾：从源条目播时记一下，片尾到点自动跳（用户口径）', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
@@ -382,10 +351,8 @@ void main() {
     videoLibrary.setSetting('video.player.autoHideControls', 'false');
     // 片尾标记预先写好（走与「记片尾」按钮同一个存储）：播放器起播时读一次标记，
     // 中途写库到不了正在播的那个实例。面板按钮本身由「记片头」那一步覆盖。
-    SkipMarksStore(videoLibrary).save(
-      'movie-1',
-      const SkipMarks(outro: Duration(minutes: 44)),
-    );
+    SkipMarksStore(videoLibrary)
+        .save('movie-1', const SkipMarks(outro: Duration(minutes: 44)));
     final created = await pumpBoard(tester);
 
     // 进播放器（有作品身份：记的标记会落到这部件品上）。
@@ -403,17 +370,23 @@ void main() {
     // 播放中有常驻定时器在跑（进度落盘 / 弹幕节拍 / 跳过判定），
     // pumpAndSettle 永远等不到「无新帧」——按固定时长推进即可。
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'));
+    await tester.tap(find.byTooltip('播放器设置'));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('音轨 / 跳过片头片尾 / 连播'));
+    await tester.dragUntilVisible(
+      find.text('跳过片头片尾'),
+      find.byType(PlayerSettingsSheet),
+      const Offset(0, -250),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('跳过片头片尾'));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('跳过片头片尾'), findsOneWidget);
+    expect(find.text('跳过片头片尾'), findsWidgets);
     // 面板限高 70% 屏高且可滚动：「记片头」可能落在可视区外，先把面板内容上拖。
     // （拖动目标本身可能已经在可视区之外，miss 属正常，不必告警。）
     await tester.drag(
-      find.text('跳过片头片尾'),
+      find.text('跳过片头片尾').last,
       const Offset(0, -320),
       warnIfMissed: false,
     );
@@ -464,11 +437,7 @@ void main() {
 
     // 播放页退出时**不能关掉图源管理器**：它是板块级共享实例，关了之后浏览页
     // 再点条目就会报「This database has already been closed」（真机截图那种）。
-    expect(
-      manager.closed,
-      isFalse,
-      reason: '播放页只借不关：关掉会连带关掉板块的图源库',
-    );
+    expect(manager.closed, isFalse, reason: '播放页只借不关：关掉会连带关掉板块的图源库');
 
     // 第二条照样能起播。
     await tester.tap(find.text('另一部片子'));
@@ -478,9 +447,7 @@ void main() {
   });
 
   testWidgets('没有播放记录：首页照常，抽屉给空态说明', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     await pumpBoard(tester);
     expect(find.text('继续观看'), findsNothing, reason: '这个区块已经不在了');
 
@@ -533,15 +500,15 @@ void main() {
 
     test('已看完判定与比例', () {
       VideoProgress at(double ratio) => VideoProgress(
-            section: Section.video,
-            itemId: 'v',
-            chapterIndex: 0,
-            chapterId: 'c',
-            chapterTitle: '第 1 集',
-            updatedAt: DateTime.now(),
-            position: Duration(seconds: (100 * ratio).round()),
-            duration: const Duration(seconds: 100),
-          );
+        section: Section.video,
+        itemId: 'v',
+        chapterIndex: 0,
+        chapterId: 'c',
+        chapterTitle: '第 1 集',
+        updatedAt: DateTime.now(),
+        position: Duration(seconds: (100 * ratio).round()),
+        duration: const Duration(seconds: 100),
+      );
 
       expect(at(0.5).isFinished, isFalse);
       expect(at(0.5).ratio, closeTo(0.5, 0.01));
@@ -727,11 +694,15 @@ void main() {
 
       // 控制栏在独立播放器页里（点条目时已经压栈）。
       // 关掉连播开关（按图标点，避免 tooltip 在窄屏上不可见）。
-      await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'));
+      await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('音轨 / 跳过片头片尾 / 连播'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(Switch));
+
+      await tester.dragUntilVisible(
+        find.text('自动连播'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -250),
+      );
+      await tester.tap(find.widgetWithText(SwitchListTile, '自动连播'));
       await tester.pumpAndSettle();
       expect(created.single.media, isNotNull);
 
@@ -766,7 +737,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // 位置在走但时长未知（0）。
-      created.single.emit(position: const Duration(minutes: 10), duration: Duration.zero);
+      created.single.emit(
+        position: const Duration(minutes: 10),
+        duration: Duration.zero,
+      );
       await tester.pumpAndSettle();
 
       expect(
@@ -804,8 +778,7 @@ class _VideoSource implements DataSource {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      SourceList(items: items, hasMore: false);
+  }) async => SourceList(items: items, hasMore: false);
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -846,8 +819,9 @@ class _FakePlayer extends AbstractPlayer {
 
   final PlayerKernel kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
 
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
@@ -860,7 +834,12 @@ class _FakePlayer extends AbstractPlayer {
       ValueNotifier<PlayerStats>(const PlayerStats());
 
   /// 用例手动推进播放位置 / 播放状态。
-  void emit({Duration? position, Duration? duration, bool? playing, String? error}) {
+  void emit({
+    Duration? position,
+    Duration? duration,
+    bool? playing,
+    String? error,
+  }) {
     _snapshot.value = PlayerSnapshot(
       position: position ?? _snapshot.value.position,
       duration: duration ?? const Duration(minutes: 45),

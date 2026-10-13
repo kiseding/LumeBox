@@ -1620,6 +1620,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           onMatch: _matchPublicDanmaku,
           onConfigureService: _configureDanmakuService,
           onReload: () => _loadDanmaku(_target, force: true),
+          onCompose: _composeDanmaku,
           onChanged: _applyDanmakuSettings,
         ),
       ),
@@ -2256,9 +2257,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onOrientationChanged: PlaybackOrientationController.instance.apply,
       // 弹幕设置也收进同一份设置弹窗（用户点名：所有功能入口都固定在这里）；
       // 控制栏那颗 tune 仍保留为快捷入口。
-      danmaku: _danmakuSettings,
-      danmakuCount: _danmaku.length,
-      onDanmakuChanged: _applyDanmakuSettings,
       extraControls: _buildPlaybackSettings(),
     );
   }
@@ -2334,27 +2332,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.link),
-              title: const Text('播放线路 / 清晰度'),
-              onTap: _openSourceSheet,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.search),
-              title: const Text('匹配公共弹幕'),
-              onTap: _matchPublicDanmaku,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.cloud_outlined),
-              title: const Text('弹幕服务地址'),
-              onTap: _configureDanmakuService,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.skip_next),
               title: const Text('跳过片头片尾'),
-              onTap: _openMorePanel,
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_openMorePanel());
+              },
             ),
           ],
         ),
@@ -2758,13 +2741,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ),
               ),
             ),
-            // 倍速：小按钮留在顶栏（用户点名不藏进弹窗）。
-            _topIcon(
-              icon: Icons.speed,
-              tooltip: '倍速（当前 ${_settings.speed}x）',
-              highlighted: _settings.speed != 1.0,
-              onPressed: _showSpeedPicker,
-            ),
             _topIcon(
               icon: _locked ? Icons.lock : Icons.lock_open,
               tooltip: _locked ? '解除锁定' : '锁定（防误触）',
@@ -2916,15 +2892,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   List<Widget> _essentialActions() => <Widget>[
     _compactIcon(
-      icon: Icons.subtitles_outlined,
-      tooltip: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-      highlighted: _danmakuSettings.enabled,
-      onPressed: _toggleDanmaku,
+      icon: Icons.playlist_play_rounded,
+      tooltip: '线路 / 选集',
+      onPressed: _openSourceSheet,
+    ),
+    Tooltip(
+      message: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+      child: TextButton(
+        onPressed: _openDanmakuSettings,
+        onLongPress: _toggleDanmaku,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(40, 40),
+          padding: EdgeInsets.zero,
+          foregroundColor: _fullscreen ? Colors.white : null,
+        ),
+        child: const Text(
+          '弹',
+          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+        ),
+      ),
     ),
     _compactIcon(
-      icon: Icons.chat_bubble_outline,
-      tooltip: '发弹幕',
-      onPressed: _composeDanmaku,
+      icon: Icons.high_quality_outlined,
+      tooltip: '清晰度',
+      onPressed: _openQualityMenu,
     ),
     _buildPipButton(),
     _compactIcon(
@@ -2932,16 +2923,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       tooltip: _fullscreen ? '退出全屏' : '全屏',
       onPressed: () => _setFullscreen(!_fullscreen),
     ),
-    _compactIcon(
-      icon: Icons.settings_outlined,
-      tooltip: '播放器设置',
-      onPressed: _openSettings,
-    ),
-    _compactIcon(
-      icon: Icons.more_vert,
-      tooltip: '更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）',
-      onPressed: _openActionMenu,
-    ),
+    _compactIcon(icon: Icons.tune, tooltip: '播放器设置', onPressed: _openSettings),
   ];
 
   /// 画面区：四态——设置库不可用 / 重建失败 / 正在准备 / 就绪。
@@ -3447,62 +3429,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 清晰度、音频轨道、跳过片头片尾、自动连播——四个都在这里，不再散落。
   ///
   /// 倍速不藏进来（用户点名）：它的小按钮留在控制栏上。
-  Future<void> _openActionMenu() async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final entry in <(String, String, IconData)>[
-              ('source', '播放源 / 更换线路', Icons.link),
-              ('quality', '清晰度', Icons.high_quality_outlined),
-              ('danmaku', '弹幕设置', Icons.subtitles_outlined),
-              ('match', '匹配公共弹幕', Icons.search),
-              ('service', '弹幕服务地址', Icons.cloud_outlined),
-              ('advanced', '音轨 / 跳过片头片尾 / 连播', Icons.tune),
-            ])
-              ListTile(
-                leading: Icon(entry.$3),
-                title: Text(entry.$2),
-                onTap: () => Navigator.pop(context, entry.$1),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted) return;
-    switch (action) {
-      case 'source':
-        await _openSourceSheet();
-      case 'quality':
-        await _openQualityMenu();
-      case 'danmaku':
-        await _openDanmakuSettings();
-      case 'match':
-        await _matchPublicDanmaku();
-      case 'service':
-        await _configureDanmakuService();
-      case 'advanced':
-        await _openMorePanel();
-    }
-  }
-
   Future<void> _openMorePanel() async {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => _MorePanelSheet(
-        qualities: _qualities,
-        currentQuality: _qualityIndex,
-        onPickQuality: (index) {
-          Navigator.of(sheetContext).pop();
-          unawaited(_selectQuality(index));
-        },
-        onPickAudioTrack: () {
-          Navigator.of(sheetContext).pop();
-          unawaited(_pickAudioTrack());
-        },
         marks: _skipMarks,
         onMarkIntro: () {
           Navigator.of(sheetContext).pop();
@@ -3515,11 +3446,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         onClearMarks: () {
           Navigator.of(sheetContext).pop();
           _clearSkipMarks();
-        },
-        autoNext: _autoNext,
-        onToggleAutoNext: (value) {
-          Navigator.of(sheetContext).pop();
-          _setAutoNext(value);
         },
       ),
     );
@@ -4039,28 +3965,16 @@ class _QualitySheet extends StatelessWidget {
 /// 倍速**不在这里**（用户点名：它的小按钮留在控制栏上）。
 class _MorePanelSheet extends StatelessWidget {
   const _MorePanelSheet({
-    required this.qualities,
-    required this.currentQuality,
-    required this.onPickQuality,
-    required this.onPickAudioTrack,
     required this.marks,
     required this.onMarkIntro,
     required this.onMarkOutro,
     required this.onClearMarks,
-    required this.autoNext,
-    required this.onToggleAutoNext,
   });
 
-  final List<VideoQuality> qualities;
-  final int currentQuality;
-  final ValueChanged<int> onPickQuality;
-  final VoidCallback onPickAudioTrack;
   final SkipMarks marks;
   final VoidCallback onMarkIntro;
   final VoidCallback onMarkOutro;
   final VoidCallback onClearMarks;
-  final bool autoNext;
-  final ValueChanged<bool> onToggleAutoNext;
 
   static String _time(Duration duration) {
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -4086,7 +4000,7 @@ class _MorePanelSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               children: <Widget>[
                 Text(
-                  '更多',
+                  '跳过片头片尾',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -4094,65 +4008,6 @@ class _MorePanelSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                if (qualities.length > 1)
-                  GlassCard(
-                    radius: 14,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          '清晰度',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: LumeTheme.textSecondary,
-                          ),
-                        ),
-                        for (var i = 0; i < qualities.length; i++)
-                          ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              i == currentQuality
-                                  ? Icons.check_circle
-                                  : Icons.circle_outlined,
-                              size: 20,
-                              color: i == currentQuality
-                                  ? LumeTheme.accent
-                                  : LumeTheme.muted,
-                            ),
-                            title: Text(
-                              qualities[i].label,
-                              style: TextStyle(color: LumeTheme.textPrimary),
-                            ),
-                            onTap: () => onPickQuality(i),
-                          ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 10),
-                GlassCard(
-                  radius: 14,
-                  padding: EdgeInsets.zero,
-                  child: Column(
-                    children: <Widget>[
-                      ListTile(
-                        leading: const Icon(Icons.graphic_eq, size: 20),
-                        title: const Text('音频轨道'),
-                        trailing: const Icon(Icons.chevron_right, size: 20),
-                        onTap: onPickAudioTrack,
-                      ),
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        value: autoNext,
-                        onChanged: onToggleAutoNext,
-                        title: const Text('自动连播'),
-                        subtitle: const Text('播完一集接着下一集'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
                 GlassCard(
                   radius: 14,
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),

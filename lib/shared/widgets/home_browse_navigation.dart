@@ -17,14 +17,17 @@ class HomeBrowseNavigation extends StatelessWidget {
         TextButton(
           style: TextButton.styleFrom(
             minimumSize: const Size(36, 32),
-            padding: const EdgeInsets.symmetric(horizontal: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             backgroundColor: selected == mode
                 ? Theme.of(context).colorScheme.primary.withValues(alpha: .12)
                 : null,
             foregroundColor: selected == mode
                 ? null
                 : Theme.of(context).colorScheme.onSurface,
-            textStyle: const TextStyle(fontSize: 12),
+            textStyle: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           onPressed: () => onSelect(mode),
           child: Text(mode),

@@ -56,17 +56,26 @@ class SourceRegistry {
   /// 当前图源的设置键。板块级设置，落在本板块库里。
   static const String currentSourceKey = 'current_source';
 
-  static Future<SourceRegistry> open(Section section) async {
+  static final Map<String, Future<SourceRegistry>> _opening = {};
+  static Future<SourceRegistry> open(Section section) {
     final existing = _registries[section.id];
-    if (existing != null) return existing;
-    final scope = await SectionScope.open(section);
-    final registry = SourceRegistry._(
-      section,
-      await SectionDatabase.open(scope),
-      LumeHttp(),
-    );
-    _registries[section.id] = registry;
-    return registry;
+    if (existing != null) return Future.value(existing);
+    return _opening.putIfAbsent(section.id, () => _open(section));
+  }
+
+  static Future<SourceRegistry> _open(Section section) async {
+    try {
+      final scope = await SectionScope.open(section);
+      final registry = SourceRegistry._(
+        section,
+        await SectionDatabase.open(scope),
+        LumeHttp(),
+      );
+      _registries[section.id] = registry;
+      return registry;
+    } finally {
+      _opening.remove(section.id);
+    }
   }
 
   /// 本板块在当前平台是否有可用引擎。
@@ -468,6 +477,25 @@ class SourceRegistry {
     } else if (existing != null) {
       return existing;
     }
+    if (_disposed) return null;
+    final pending = _loadingEngines[sourceId];
+    if (pending != null) return pending;
+    final epoch = _engineEpochs[sourceId] ?? 0;
+    final future = _loadEngine(sourceId, epoch);
+    _loadingEngines[sourceId] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_loadingEngines[sourceId], future)) {
+        _loadingEngines.remove(sourceId);
+      }
+    }
+  }
+
+  final Map<String, Future<SourceEngine?>> _loadingEngines = {};
+  final Map<String, int> _engineEpochs = {};
+  bool get isDisposed => _disposed;
+  Future<SourceEngine?> _loadEngine(String sourceId, int epoch) async {
     final record = _database.source(sourceId);
     if (record == null || !_belongs(record) || !record.enabled) return null;
     if (!_engineAvailable) return null;
@@ -482,12 +510,20 @@ class SourceRegistry {
       LumeLog.warn('[${section.id}] 源引擎不可用: $sourceId');
       return null;
     }
+    if (_disposed || (_engineEpochs[sourceId] ?? 0) != epoch) {
+      engine.dispose();
+      return null;
+    }
     if (!await engine.loadScript(stripScriptBom(record.script))) {
       // 运行时载入失败的原因同样记全：日志是用户排查「图源为什么打不开」的入口。
       LumeLog.warn(
         '[${section.id}] 源脚本载入失败: $sourceId'
         '${engine.loadFailure == null ? '' : '：${engine.loadFailure}'}',
       );
+      engine.dispose();
+      return null;
+    }
+    if (_disposed || (_engineEpochs[sourceId] ?? 0) != epoch) {
       engine.dispose();
       return null;
     }
@@ -508,6 +544,8 @@ class SourceRegistry {
   /// 释放单个图源运行时（引擎 + 它专属的 HTTP 客户端）。
   /// 超时 / 内存超限 / 停用 / 删除后据此重建。
   void release(String sourceId) {
+    _engineEpochs[sourceId] = (_engineEpochs[sourceId] ?? 0) + 1;
+    _loadingEngines.remove(sourceId);
     _engines.remove(sourceId)?.dispose();
     _httpBySource.remove(sourceId)?.dispose();
     // 运行时没了，它之前的读结果（分类 / 详情 / 章节）也一并作废：
@@ -518,7 +556,10 @@ class SourceRegistry {
   /// 关闭整个板块：释放引擎、HTTP 客户端与数据库。
   static void close(Section section) => _registries[section.id]?.dispose();
 
+  bool _disposed = false;
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     for (final engine in _engines.values) {
       engine.dispose();
     }
@@ -529,6 +570,8 @@ class SourceRegistry {
     _httpBySource.clear();
     _http.dispose();
     _database.dispose();
-    _registries.remove(section.id);
+    if (identical(_registries[section.id], this)) {
+      _registries.remove(section.id);
+    }
   }
 }

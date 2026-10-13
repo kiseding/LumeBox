@@ -875,8 +875,8 @@ class _FakePlayer extends AbstractPlayer {
 }
 
 Future<void> openPlayerAction(WidgetTester tester, String action) async {
-  await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）').first);
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(action));
+  await tester.tap(
+    find.byTooltip(action == '播放源 / 更换线路' ? '线路 / 选集' : '清晰度').first,
+  );
   await tester.pumpAndSettle();
 }

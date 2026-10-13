@@ -73,6 +73,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   Duration _anchor = Duration.zero;
   Duration _lastFrame = Duration.zero;
   Duration _renderPosition = Duration.zero;
+  Duration _clockPosition = Duration.zero;
+  Duration _clockFrame = Duration.zero;
   bool get _animate =>
       widget.playing && widget.settings.enabled && !widget.track.isEmpty;
   void _frame(Duration elapsed) {
@@ -98,7 +100,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void initState() {
     super.initState();
     _ticker = createTicker(_frame);
-    _renderPosition = widget.position;
+    _renderPosition = _clockPosition = widget.position;
     _syncTicker();
     _onTick();
   }
@@ -153,9 +155,22 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     final advance = _animate
         ? (_elapsed - _anchor).inMicroseconds.clamp(0, 500000)
         : 0;
-    final position =
+    final target =
         widget.position +
         Duration(microseconds: (advance * widget.playbackRate).round());
+    final frameDelta = (_elapsed - _clockFrame).inMicroseconds.clamp(0, 500000);
+    _clockFrame = _elapsed;
+    if (!_animate || (target - _clockPosition).inMilliseconds.abs() > 750) {
+      _clockPosition = target;
+    } else {
+      final predicted =
+          _clockPosition +
+          Duration(microseconds: (frameDelta * widget.playbackRate).round());
+      final correction = (target - predicted).inMicroseconds.clamp(-2000, 2000);
+      _clockPosition = predicted + Duration(microseconds: correction);
+      if (advance >= 500000) _clockPosition = target;
+    }
+    final position = _clockPosition;
     _renderPosition =
         position - Duration(milliseconds: widget.settings.delayMs);
 

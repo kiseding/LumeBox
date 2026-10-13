@@ -582,8 +582,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                 ),
                 Tooltip(
                   message: '订阅',
-                  child: TextButton.icon(
-                    label: const Text('订阅'),
+                  child: IconButton(
                     onPressed: subscriptions,
                     icon: const Icon(Icons.rss_feed),
                   ),

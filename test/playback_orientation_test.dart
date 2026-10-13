@@ -98,6 +98,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('各模块独立设置'));
+      await tester.pumpAndSettle();
     }
 
     testWidgets('开关：打开 = 强制横屏，关闭 = 回到自动判断', (tester) async {

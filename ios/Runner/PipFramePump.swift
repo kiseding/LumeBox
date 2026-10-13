@@ -97,6 +97,12 @@ final class PipFramePump {
       }
     }
 
+    // mpv screenshot-raw may be BGR0: video is opaque, but CoreGraphics
+    // requires valid alpha before blending text into the pixel buffer.
+    let bytes = base.assumingMemoryBound(to: UInt8.self)
+    for row in 0..<height {
+      for column in 0..<width { bytes[row * bytesPerRow + column * 4 + 3] = 255 }
+    }
     danmaku.draw(base: base, width: width, height: height, stride: bytesPerRow, timestampMs: timestampMs)
     guard let sample = makeSampleBuffer(from: buffer, timestampMs: timestampMs) else {
       droppedFrames += 1
@@ -231,7 +237,7 @@ final class PipDanmakuRenderer {
     let now = CACurrentMediaTime()
     if timestampMs != lastPosition { lastPosition = timestampMs; anchor = now }
     let position = Double(timestampMs) + (playing ? min(500, (now - anchor) * 1000) * value("playbackRate", 1) : 0) - value("delayMs", 0)
-    let scale = Double(width) / 320
+    let scale = Double(width) / 640
     let fontSize = 16 * value("fontScale", 1) * scale
     let rowHeight = max(16 * scale, fontSize * value("lineSpacing", 1.35))
     let available = Double(height) * (bool("avoidSubtitles", true) ? 0.82 : 1)

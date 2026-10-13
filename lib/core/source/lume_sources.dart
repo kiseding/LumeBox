@@ -530,7 +530,17 @@ class _EngineRuntime implements JsSourceRuntime {
     if (engine == null) {
       throw const SourceException(SourceErrorKind.notFound, '源不可用（未启用或脚本载入失败）');
     }
-    final result = await engine.callResult(method, argument);
+    var result = await engine.callResult(method, argument);
+    if (!result.isOk &&
+        result.error?.kind == SandboxErrorKind.disposed &&
+        method != 'postDanmaku') {
+      if (!registry.isDisposed) registry.release(_sourceId);
+      final fresh = await SourceRegistry.open(_section);
+      final replacement = await fresh.engineFor(_sourceId);
+      if (replacement != null) {
+        result = await replacement.callResult(method, argument);
+      }
+    }
     if (result.isOk) return result.value;
     throw mapSandboxFailure(result.error!);
   }

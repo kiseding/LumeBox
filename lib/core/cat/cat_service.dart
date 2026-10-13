@@ -325,7 +325,19 @@ class CatService extends ChangeNotifier {
       );
       final indexFile = File('${destination.path}/index.js');
       if (!await indexFile.exists()) {
-        final bytes = await _download(indexUri, auth, 20 * 1024 * 1024);
+        var bytes = await _download(indexUri, auth, 20 * 1024 * 1024);
+        if (md5.convert(bytes).toString() != hash) {
+          bytes = await _download(
+            indexUri.replace(
+              queryParameters: {
+                ...indexUri.queryParameters,
+                '_lume_refresh': '${DateTime.now().millisecondsSinceEpoch}',
+              },
+            ),
+            auth,
+            20 * 1024 * 1024,
+          );
+        }
         if (md5.convert(bytes).toString() != hash) {
           throw const FormatException('程序包 MD5 不一致，保留旧版本，请稍后刷新');
         }
@@ -376,6 +388,7 @@ class CatService extends ChangeNotifier {
             .timeout(const Duration(seconds: 20));
         request.followRedirects = false;
         request.headers.set('User-Agent', 'LumeBox/1 CatPaw');
+        request.headers.set('Cache-Control', 'no-cache');
         if (auth != null &&
             target.host == uri.host &&
             target.port == uri.port &&
@@ -396,7 +409,11 @@ class CatService extends ChangeNotifier {
           continue;
         }
         if (response.statusCode != 200) {
-          throw HttpException('订阅 HTTP ${response.statusCode}');
+          throw HttpException(
+            response.statusCode == 401
+                ? '订阅需要有效账号密码，请在编辑地址 / 授权中填写作者提供的凭据（HTTP 401）'
+                : '订阅 HTTP ${response.statusCode}',
+          );
         }
         final bytes = BytesBuilder(copy: false);
         await for (final chunk in response.timeout(

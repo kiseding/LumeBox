@@ -196,6 +196,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
       _speedSlider(context),
       const SizedBox(height: 20),
+      if (widget.extraControls != null) ...[
+        widget.extraControls!,
+        const SizedBox(height: 20),
+      ],
       _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
       _pictureCard(context),
       const SizedBox(height: 20),
@@ -233,10 +237,6 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         ),
       ],
       const SizedBox(height: 20),
-      if (widget.extraControls != null) ...[
-        widget.extraControls!,
-        const SizedBox(height: 20),
-      ],
       _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
       _decodingCard(context),
     ];

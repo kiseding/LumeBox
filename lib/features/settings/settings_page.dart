@@ -11,14 +11,11 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
 import '../source/global_source_page.dart';
-import '../video/player_kernel_section.dart';
-import '../video/player_settings_host.dart';
 import 'cache_settings_page.dart';
 import 'display_settings_group.dart';
 import 'debug_panel_page.dart';
 import 'module_settings_pages.dart';
 import 'network_settings_page.dart';
-import 'playback_settings_group.dart';
 import 'log_report.dart';
 import 'log_report_page.dart';
 import 'log_viewer_page.dart';
@@ -82,29 +79,13 @@ class SettingsPage extends StatelessWidget {
             onTap: () => _push(context, const TabBarSettingsPage()),
           ),
           const SizedBox(height: 20),
-          const _GroupTitle('播放'),
-          // 方向偏好（横屏播放）+ 播放器设置 + 内核逃生入口都归到这一组：
-          // 它们都是「播放怎么进行」的设置，散在三处最难找。
-          const PlaybackSettingsGroup(showTitle: false),
-          const SizedBox(height: 10),
-          _SettingsEntry(
-            icon: Icons.play_circle_outline_rounded,
-            title: '播放器设置',
-            subtitle: '播放内核、倍速、字幕、方向锁定（写视频板块自己的设置库）',
-            onTap: () => _push(context, const PlayerSettingsHost()),
-          ),
-          const SizedBox(height: 10),
-          // 故障逃生入口：内核选择列表**内嵌**在设置页里（点得最少、最稳），
-          // 与视频板块的快捷入口共用同一份列表组件。播放器设置库打不开时，
-          // 这里是唯一还能换内核的地方，因此独立成卡而不是并进上面那一行。
-          const PlayerKernelSection(),
-          const SizedBox(height: 20),
-          const _GroupTitle('模块设置'),
+          const _GroupTitle('阅读与播放'),
           // 用户口径：全局入口不藏到深层子页面，点一下就是四个模块的设置入口。
           _SettingsEntry(
             icon: Icons.tune,
             title: '各模块独立设置',
-            subtitle: '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
+            subtitle:
+                '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
                 '阅读页与播放页里的就地设置仍然保留）',
             onTap: () => _push(context, const ModuleSettingsHubPage()),
           ),
@@ -129,7 +110,8 @@ class SettingsPage extends StatelessWidget {
             icon: Icons.cleaning_services_outlined,
             title: '缓存管理',
             subtitle: '按板块清理磁盘缓存与内存缓存（漫画板块的图片缓存已关闭）',
-            onTap: () => _push(context, CacheSettingsPage(service: cacheService)),
+            onTap: () =>
+                _push(context, CacheSettingsPage(service: cacheService)),
           ),
           const SizedBox(height: 10),
           // 文档第 4 条点名的全局参数之一：JS 沙箱超时（四板块共用）。
@@ -176,9 +158,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _push(BuildContext context, Widget page) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => page),
-    );
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 }
 
@@ -327,7 +307,9 @@ class _BuildInfoRowState extends State<_BuildInfoRow> {
     try {
       final info = await PackageInfo.fromPlatform();
       final version = info.version.trim().isEmpty ? '未知' : info.version.trim();
-      final build = info.buildNumber.trim().isEmpty ? '未知' : info.buildNumber.trim();
+      final build = info.buildNumber.trim().isEmpty
+          ? '未知'
+          : info.buildNumber.trim();
       if (!mounted) return;
       setState(() => _line = '版本 $version（构建 $build）');
     } catch (error) {
@@ -349,9 +331,8 @@ class _BuildInfoRowState extends State<_BuildInfoRow> {
           ClipboardData(text: '${LumeTheme.appName} · $_line'),
         );
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已复制版本信息')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已复制版本信息')));
       },
     );
   }

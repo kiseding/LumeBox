@@ -1,3 +1,6 @@
+import '../video/player_settings_host.dart';
+import 'playback_settings_group.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/player/player_settings.dart';
@@ -43,6 +46,23 @@ class ModuleSettingsHubPage extends StatelessWidget {
           ),
         ),
         children: <Widget>[
+          const PlaybackSettingsGroup(),
+          const SizedBox(height: 10),
+          GlassCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              leading: const Icon(Icons.play_circle_outline),
+              title: const Text('播放器设置'),
+              subtitle: const Text('内核、字幕、画面与播放参数'),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const PlayerSettingsHost(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           for (final section in sections) ...<Widget>[
             _ModuleEntry(section: section),
             const SizedBox(height: 10),
@@ -53,7 +73,11 @@ class ModuleSettingsHubPage extends StatelessWidget {
               '四个模块的参数**各存各的**（各板块自己的库），改一个不会影响另一个。\n'
               '阅读页 / 播放页里的就地设置保留着，和这里改的是同一份数值——'
               '哪边改，另一边立刻就是新值。',
-              style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
         ],
@@ -107,18 +131,18 @@ class _ModuleEntry extends StatelessWidget {
   }
 
   static IconData _iconFor(Section section) => switch (section) {
-        Section.novel => Icons.menu_book_outlined,
-        Section.comic => Icons.auto_stories_outlined,
-        Section.video => Icons.play_circle_outline_rounded,
-        Section.cat => Icons.pets_outlined,
-      };
+    Section.novel => Icons.menu_book_outlined,
+    Section.comic => Icons.auto_stories_outlined,
+    Section.video => Icons.play_circle_outline_rounded,
+    Section.cat => Icons.pets_outlined,
+  };
 
   static String _subtitleFor(Section section) => switch (section) {
-        Section.novel => '排版（字号 / 行距）、翻页方式、手势阈值、动画与控件尺寸',
-        Section.comic => '阅读模式、边距、背景、点击行为、手势阈值、控件尺寸',
-        Section.video => '播放行为（连播 / 倍速）、缓冲、手势灵敏度、控件尺寸',
-        Section.cat => '浏览布局、手势阈值、动画与控件尺寸（猫源的播放沿用视频模块设置）',
-      };
+    Section.novel => '排版（字号 / 行距）、翻页方式、手势阈值、动画与控件尺寸',
+    Section.comic => '阅读模式、边距、背景、点击行为、手势阈值、控件尺寸',
+    Section.video => '播放行为（连播 / 倍速）、缓冲、手势灵敏度、控件尺寸',
+    Section.cat => '浏览布局、手势阈值、动画与控件尺寸（猫源的播放沿用视频模块设置）',
+  };
 }
 
 /// 单个板块的设置页：五个**可折叠分组**（用户口径：不要把所有项堆在一页）。
@@ -218,118 +242,116 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   // ------------------------------------------------------------ 各分组内容
 
   List<Widget> _uiChildren() => <Widget>[
-        _Row(
-          label: '布局方案',
-          hint: '整套页面布局取开发给的方案，避免自定义坐标把界面弄乱',
-          child: SegmentedButton<ModuleLayoutPreset>(
-            segments: <ButtonSegment<ModuleLayoutPreset>>[
-              for (final preset in ModuleLayoutPreset.values)
-                ButtonSegment<ModuleLayoutPreset>(
-                  value: preset,
-                  label: Text(preset.label, style: const TextStyle(fontSize: 11)),
-                ),
-            ],
-            selected: <ModuleLayoutPreset>{_module.layoutPreset},
-            showSelectedIcon: false,
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    _Row(
+      label: '布局方案',
+      hint: '整套页面布局取开发给的方案，避免自定义坐标把界面弄乱',
+      child: SegmentedButton<ModuleLayoutPreset>(
+        segments: <ButtonSegment<ModuleLayoutPreset>>[
+          for (final preset in ModuleLayoutPreset.values)
+            ButtonSegment<ModuleLayoutPreset>(
+              value: preset,
+              label: Text(preset.label, style: const TextStyle(fontSize: 11)),
             ),
-            onSelectionChanged: (selection) =>
-                _update(_module.withPreset(selection.first)),
-          ),
+        ],
+        selected: <ModuleLayoutPreset>{_module.layoutPreset},
+        showSelectedIcon: false,
+        style: const ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-        _Slider(
-          label: '控件尺寸',
-          value: _module.controlScale,
-          min: SectionModuleSettings.minControlScale,
-          max: SectionModuleSettings.maxControlScale,
-          display: '${(_module.controlScale * 100).round()}%',
-          onChanged: (value) => _update(_module.copyWith(controlScale: value)),
-        ),
-        _Slider(
-          label: '间距',
-          value: _module.spacingScale,
-          min: SectionModuleSettings.minSpacingScale,
-          max: SectionModuleSettings.maxSpacingScale,
-          display: '${(_module.spacingScale * 100).round()}%',
-          onChanged: (value) => _update(_module.copyWith(spacingScale: value)),
-        ),
-        _Switch(
-          label: '界面动画',
-          hint: '关掉后翻页 / 面板切换不做过渡动画（弱机更跟手）',
-          value: _module.animationEnabled,
-          onChanged: (value) =>
-              _update(_module.copyWith(animationEnabled: value)),
-        ),
-      ];
+        onSelectionChanged: (selection) =>
+            _update(_module.withPreset(selection.first)),
+      ),
+    ),
+    _Slider(
+      label: '控件尺寸',
+      value: _module.controlScale,
+      min: SectionModuleSettings.minControlScale,
+      max: SectionModuleSettings.maxControlScale,
+      display: '${(_module.controlScale * 100).round()}%',
+      onChanged: (value) => _update(_module.copyWith(controlScale: value)),
+    ),
+    _Slider(
+      label: '间距',
+      value: _module.spacingScale,
+      min: SectionModuleSettings.minSpacingScale,
+      max: SectionModuleSettings.maxSpacingScale,
+      display: '${(_module.spacingScale * 100).round()}%',
+      onChanged: (value) => _update(_module.copyWith(spacingScale: value)),
+    ),
+    _Switch(
+      label: '界面动画',
+      hint: '关掉后翻页 / 面板切换不做过渡动画（弱机更跟手）',
+      value: _module.animationEnabled,
+      onChanged: (value) => _update(_module.copyWith(animationEnabled: value)),
+    ),
+  ];
 
   List<Widget> _gestureChildren(ReadingLibrary? library) => <Widget>[
-        _Slider(
-          label: '呼出工具栏延时',
-          hint: '越大越不容易误触（面板不会一点就弹）',
-          value: _module.toolbarToggleDelayMs.toDouble(),
-          min: SectionModuleSettings.minToolbarToggleDelayMs.toDouble(),
-          max: SectionModuleSettings.maxToolbarToggleDelayMs.toDouble(),
-          divisions: 12,
-          display: '${_module.toolbarToggleDelayMs}ms',
-          onChanged: (value) => _update(
-            _module.copyWith(toolbarToggleDelayMs: value.round()),
-          ),
+    _Slider(
+      label: '呼出工具栏延时',
+      hint: '越大越不容易误触（面板不会一点就弹）',
+      value: _module.toolbarToggleDelayMs.toDouble(),
+      min: SectionModuleSettings.minToolbarToggleDelayMs.toDouble(),
+      max: SectionModuleSettings.maxToolbarToggleDelayMs.toDouble(),
+      divisions: 12,
+      display: '${_module.toolbarToggleDelayMs}ms',
+      onChanged: (value) =>
+          _update(_module.copyWith(toolbarToggleDelayMs: value.round())),
+    ),
+    _Slider(
+      label: '双击判定窗口',
+      value: _module.doubleTapWindowMs.toDouble(),
+      min: SectionModuleSettings.minDoubleTapWindowMs.toDouble(),
+      max: SectionModuleSettings.maxDoubleTapWindowMs.toDouble(),
+      divisions: 8,
+      display: '${_module.doubleTapWindowMs}ms',
+      onChanged: (value) =>
+          _update(_module.copyWith(doubleTapWindowMs: value.round())),
+    ),
+    _Slider(
+      label: '滑动翻页阈值',
+      value: _module.swipeTurnThresholdPx.toDouble(),
+      min: SectionModuleSettings.minSwipeTurnThresholdPx.toDouble(),
+      max: SectionModuleSettings.maxSwipeTurnThresholdPx.toDouble(),
+      divisions: 16,
+      display: '${_module.swipeTurnThresholdPx}px',
+      onChanged: (value) =>
+          _update(_module.copyWith(swipeTurnThresholdPx: value.round())),
+    ),
+    _Slider(
+      label: '长按判定时长',
+      value: _module.longPressMs.toDouble(),
+      min: SectionModuleSettings.minLongPressMs.toDouble(),
+      max: SectionModuleSettings.maxLongPressMs.toDouble(),
+      divisions: 10,
+      display: '${_module.longPressMs}ms',
+      onChanged: (value) =>
+          _update(_module.copyWith(longPressMs: value.round())),
+    ),
+    // 视频模块：播放器自带的手势灵敏度（拖进度 / 亮度 / 音量）也在这里，数据
+    // 就是播放设置那一份，和播放页里的入口完全同步。
+    if (widget.section == Section.video && library != null)
+      _Slider(
+        label: '播放手势灵敏度',
+        hint: '播放器里左右滑动调亮度 / 音量、拖动进度的灵敏度',
+        value: _videoSettings(library).gestureSensitivity,
+        min: PlayerSettings.minGestureSensitivity,
+        max: PlayerSettings.maxGestureSensitivity,
+        display:
+            '${_videoSettings(library).gestureSensitivity.toStringAsFixed(1)}×',
+        onChanged: (value) => _updatePlayer(
+          library,
+          _videoSettings(library).copyWith(gestureSensitivity: value),
         ),
-        _Slider(
-          label: '双击判定窗口',
-          value: _module.doubleTapWindowMs.toDouble(),
-          min: SectionModuleSettings.minDoubleTapWindowMs.toDouble(),
-          max: SectionModuleSettings.maxDoubleTapWindowMs.toDouble(),
-          divisions: 8,
-          display: '${_module.doubleTapWindowMs}ms',
-          onChanged: (value) =>
-              _update(_module.copyWith(doubleTapWindowMs: value.round())),
-        ),
-        _Slider(
-          label: '滑动翻页阈值',
-          value: _module.swipeTurnThresholdPx.toDouble(),
-          min: SectionModuleSettings.minSwipeTurnThresholdPx.toDouble(),
-          max: SectionModuleSettings.maxSwipeTurnThresholdPx.toDouble(),
-          divisions: 16,
-          display: '${_module.swipeTurnThresholdPx}px',
-          onChanged: (value) =>
-              _update(_module.copyWith(swipeTurnThresholdPx: value.round())),
-        ),
-        _Slider(
-          label: '长按判定时长',
-          value: _module.longPressMs.toDouble(),
-          min: SectionModuleSettings.minLongPressMs.toDouble(),
-          max: SectionModuleSettings.maxLongPressMs.toDouble(),
-          divisions: 10,
-          display: '${_module.longPressMs}ms',
-          onChanged: (value) =>
-              _update(_module.copyWith(longPressMs: value.round())),
-        ),
-        // 视频模块：播放器自带的手势灵敏度（拖进度 / 亮度 / 音量）也在这里，数据
-        // 就是播放设置那一份，和播放页里的入口完全同步。
-        if (widget.section == Section.video && library != null)
-          _Slider(
-            label: '播放手势灵敏度',
-            hint: '播放器里左右滑动调亮度 / 音量、拖动进度的灵敏度',
-            value: _videoSettings(library).gestureSensitivity,
-            min: PlayerSettings.minGestureSensitivity,
-            max: PlayerSettings.maxGestureSensitivity,
-            display:
-                '${_videoSettings(library).gestureSensitivity.toStringAsFixed(1)}×',
-            onChanged: (value) => _updatePlayer(
-              library,
-              _videoSettings(library).copyWith(gestureSensitivity: value),
-            ),
-          ),
-      ];
+      ),
+  ];
 
   String _layoutSubtitle() => switch (widget.section) {
-        Section.novel => '字号 / 行距 / 段间距 / 页边距（与阅读器里的排版面板同一份数据）',
-        Section.comic => '阅读模式 / 边距 / 背景 / 页间距（与阅读页底部面板同一份数据）',
-        _ => '这个模块没有排版项（播放 / 浏览界面用固定排版）',
-      };
+    Section.novel => '字号 / 行距 / 段间距 / 页边距（与阅读器里的排版面板同一份数据）',
+    Section.comic => '阅读模式 / 边距 / 背景 / 页间距（与阅读页底部面板同一份数据）',
+    _ => '这个模块没有排版项（播放 / 浏览界面用固定排版）',
+  };
 
   List<Widget> _layoutChildren(ReadingLibrary? library) {
     if (library == null) return <Widget>[const _Note('设置库还没就绪，稍后重试。')];
@@ -343,13 +365,12 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
           value: typesetting.fontSize,
           min: NovelTypesetting.minFontSize,
           max: NovelTypesetting.maxFontSize,
-          divisions: (NovelTypesetting.maxFontSize - NovelTypesetting.minFontSize)
-              .round(),
+          divisions:
+              (NovelTypesetting.maxFontSize - NovelTypesetting.minFontSize)
+                  .round(),
           display: '${typesetting.fontSize.round()}pt',
-          onChanged: (value) => _saveTypesetting(
-            library,
-            typesetting.copyWith(fontSize: value),
-          ),
+          onChanged: (value) =>
+              _saveTypesetting(library, typesetting.copyWith(fontSize: value)),
         ),
         _Slider(
           label: '行距',
@@ -379,10 +400,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
           min: NovelTypesetting.minMargin,
           max: NovelTypesetting.maxMargin,
           display: typesetting.margin.round().toString(),
-          onChanged: (value) => _saveTypesetting(
-            library,
-            typesetting.copyWith(margin: value),
-          ),
+          onChanged: (value) =>
+              _saveTypesetting(library, typesetting.copyWith(margin: value)),
         ),
       ];
     }
@@ -405,10 +424,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               visualDensity: VisualDensity.compact,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            onSelectionChanged: (selection) => _saveComic(
-              library,
-              comic.copyWith(mode: selection.first),
-            ),
+            onSelectionChanged: (selection) =>
+                _saveComic(library, comic.copyWith(mode: selection.first)),
           ),
         ),
         _Slider(
@@ -438,8 +455,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               for (final background in ComicReaderBackground.values)
                 ButtonSegment<ComicReaderBackground>(
                   value: background,
-                  label:
-                      Text(background.label, style: const TextStyle(fontSize: 11)),
+                  label: Text(
+                    background.label,
+                    style: const TextStyle(fontSize: 11),
+                  ),
                 ),
             ],
             selected: <ComicReaderBackground>{comic.background},
@@ -460,11 +479,11 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   }
 
   String _behaviorSubtitle() => switch (widget.section) {
-        Section.novel => '翻页方式、预加载（阅读器里的设置同一份数据）',
-        Section.comic => '点击行为、翻页方向、预加载半径（阅读页面板同一份数据）',
-        Section.video => '切集连播、倍速、跳过片头片尾（播放页设置同一份数据）',
-        Section.cat => '猫源沿用视频模块的播放行为；本页只管浏览与手势',
-      };
+    Section.novel => '翻页方式、预加载（阅读器里的设置同一份数据）',
+    Section.comic => '点击行为、翻页方向、预加载半径（阅读页面板同一份数据）',
+    Section.video => '切集连播、倍速、跳过片头片尾（播放页设置同一份数据）',
+    Section.cat => '猫源沿用视频模块的播放行为；本页只管浏览与手势',
+  };
 
   List<Widget> _behaviorChildren(ReadingLibrary? library) {
     if (library == null) return <Widget>[const _Note('设置库还没就绪，稍后重试。')];
@@ -478,8 +497,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               for (final action in ComicTapAction.values)
                 ButtonSegment<ComicTapAction>(
                   value: action,
-                  label:
-                      Text(action.label, style: const TextStyle(fontSize: 11)),
+                  label: Text(
+                    action.label,
+                    style: const TextStyle(fontSize: 11),
+                  ),
                 ),
             ],
             selected: <ComicTapAction>{comic.tapAction},
@@ -488,10 +509,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               visualDensity: VisualDensity.compact,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            onSelectionChanged: (selection) => _saveComic(
-              library,
-              comic.copyWith(tapAction: selection.first),
-            ),
+            onSelectionChanged: (selection) =>
+                _saveComic(library, comic.copyWith(tapAction: selection.first)),
           ),
         ),
         _Row(
@@ -501,8 +520,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               for (final direction in ComicReadingDirection.values)
                 ButtonSegment<ComicReadingDirection>(
                   value: direction,
-                  label:
-                      Text(direction.label, style: const TextStyle(fontSize: 11)),
+                  label: Text(
+                    direction.label,
+                    style: const TextStyle(fontSize: 11),
+                  ),
                 ),
             ],
             selected: <ComicReadingDirection>{comic.direction},
@@ -511,10 +532,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               visualDensity: VisualDensity.compact,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            onSelectionChanged: (selection) => _saveComic(
-              library,
-              comic.copyWith(direction: selection.first),
-            ),
+            onSelectionChanged: (selection) =>
+                _saveComic(library, comic.copyWith(direction: selection.first)),
           ),
         ),
         _Slider(
@@ -537,10 +556,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
           label: '自动连播',
           hint: '一集播完自动进下一集（时长未知时不跳）',
           value: player.autoNext,
-          onChanged: (value) => _updatePlayer(
-            library,
-            player.copyWith(autoNext: value),
-          ),
+          onChanged: (value) =>
+              _updatePlayer(library, player.copyWith(autoNext: value)),
         ),
         _Slider(
           label: '默认倍速',
@@ -683,7 +700,10 @@ class _Row extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: 13, color: LumeTheme.textSecondary),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: LumeTheme.textSecondary,
+                  ),
                 ),
               ),
               child,
@@ -691,10 +711,7 @@ class _Row extends StatelessWidget {
           ),
           if (hint != null) ...<Widget>[
             const SizedBox(height: 2),
-            Text(
-              hint!,
-              style: TextStyle(fontSize: 11, color: LumeTheme.muted),
-            ),
+            Text(hint!, style: TextStyle(fontSize: 11, color: LumeTheme.muted)),
           ],
         ],
       ),
@@ -800,10 +817,10 @@ class _Note extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Text(
-          text,
-          style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
-        ),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Text(
+      text,
+      style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+    ),
+  );
 }

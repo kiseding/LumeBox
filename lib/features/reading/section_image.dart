@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 
 import '../../core/reading/reading.dart';
 import '../../core/theme/lume_theme.dart';
@@ -79,7 +80,7 @@ class _SectionImageState extends State<SectionImage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
         oldWidget.targetWidth != widget.targetWidth ||
-        !identical(oldWidget.headers, widget.headers) ||
+        !mapEquals(oldWidget.headers, widget.headers) ||
         !identical(oldWidget.pipeline, widget.pipeline)) {
       _retryTimer?.cancel();
       _retries = 0;

@@ -297,13 +297,13 @@ void main() {
 
       expect(find.byTooltip('前进 10 秒'), findsOneWidget);
       expect(find.byTooltip('后退 10 秒'), findsOneWidget);
-      expect(find.byTooltip('清晰度'), findsNothing);
-      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget);
+      expect(find.byTooltip('清晰度'), findsOneWidget);
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.byTooltip('全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       // 用户要求：长播放链接不再铺在控制栏上，改成右侧的小信息图标（弹窗里看 / 换）。
       expect(
-        find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'),
+        find.byTooltip('线路 / 选集'),
         findsOneWidget,
         reason: '播放源入口（地址与线路）',
       );
@@ -315,7 +315,7 @@ void main() {
       expect(find.widgetWithText(TextButton, '播放器'), findsNothing);
       expect(find.widgetWithText(TextButton, '字幕'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
-      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget);
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
       expect(find.byType(BottomSheet), findsWidgets);
@@ -353,9 +353,11 @@ void main() {
         duration: const Duration(minutes: 10),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('弹幕：开'));
+      await tester.longPress(find.byTooltip('弹幕：开'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('发弹幕'));
+      await tester.tap(find.byTooltip('弹幕：关'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('发送弹幕'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '本机弹幕测试');
       player.emit(position: const Duration(seconds: 25));
@@ -528,24 +530,18 @@ void main() {
       );
     });
 
-    testWidgets('设置弹窗里有弹幕区（与弹幕设置弹窗同一份控件）', (tester) async {
+    testWidgets('弹幕独立入口有效，播放器设置不重复弹幕面板', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-
-      await tester.dragUntilVisible(
-        find.text('弹幕'),
-        find.byType(PlayerSettingsSheet),
-        const Offset(0, -240),
-      );
+      expect(find.text('显示弹幕'), findsNothing);
+      Navigator.of(tester.element(find.byType(PlayerSettingsSheet))).pop();
       await tester.pumpAndSettle();
-      expect(find.text('弹幕'), findsOneWidget);
-      // 面板内的控件（标题已由外层 section 给，面板不重复标题）。
+      await tester.tap(find.byTooltip('弹幕：开'));
+      await tester.pumpAndSettle();
       expect(find.text('显示弹幕'), findsOneWidget);
       expect(find.text('不透明度'), findsOneWidget);
-      expect(find.text('恢复默认'), findsOneWidget);
-
-      // 改一项：立即生效（面板自持状态）。
+      await tester.ensureVisible(find.text('恢复默认'));
       await tester.tap(find.text('恢复默认'));
       await tester.pumpAndSettle();
       expect(find.text('不透明度'), findsOneWidget);
@@ -747,7 +743,8 @@ void main() {
       expect(tipContains('旋转（当前：'), findsWidgets);
       expect(tipContains('画面比例（当前：'), findsWidgets);
       expect(tipContains('弹幕：'), findsWidgets);
-      expect(tipContains('倍速（当前 '), findsWidgets);
+      expect(tipContains('倍速（当前 '), findsNothing);
+      expect(tipContains('播放速度（'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsWidgets);
 
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
@@ -1267,9 +1264,13 @@ class _CountingClient extends http.BaseClient {
 }
 
 Future<void> openPlayerAction(WidgetTester tester, String action) async {
-  await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）').first);
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(action));
+  final tooltip = switch(action) {
+    '播放源 / 更换线路' => '线路 / 选集',
+    '清晰度' => '清晰度',
+    '弹幕设置' => '弹幕：开',
+    _ => '播放器设置',
+  };
+  await tester.tap(find.byTooltip(tooltip).first);
   await tester.pumpAndSettle();
 }
 

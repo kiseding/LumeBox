@@ -1,3 +1,5 @@
+import '../../core/source/source_subscription_sync.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -19,7 +21,6 @@ import 'browse_page.dart';
 import 'source_editor_page.dart';
 import 'source_import_dialog.dart';
 import 'source_subscription_page.dart';
-import '../../core/source/source_subscription_sync.dart';
 
 /// 板块页面：图源管理 + 浏览入口。
 ///
@@ -536,21 +537,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       title: '${widget.section.label} · 源管理',
       actions: <Widget>[
         IconButton(
-          tooltip: '订阅管理',
-          icon: const Icon(Icons.rss_feed),
-          onPressed: _openSubscriptions,
-        ),
-        IconButton(
           tooltip: '可视化编辑器',
           icon: const Icon(Icons.edit_note),
           onPressed: _openEditor,
         ),
-        if (_sources != null && _sources!.any((source) => source.subscribed))
-          IconButton(
-            tooltip: '刷新全部订阅源',
-            icon: const Icon(Icons.cloud_sync_outlined),
-            onPressed: _testing.isEmpty ? _updateAllSubscriptions : null,
-          ),
         if (_sources != null && _sources!.isNotEmpty)
           IconButton(
             tooltip: '批量测试连通性',
@@ -590,7 +580,13 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
             ? '链接保存一次，之后自动更新并导入'
             : '已保存 $_subscriptionCount 个订阅 · 更新源无需重新粘贴',
       ),
-      trailing: const Icon(Icons.chevron_right),
+      trailing: PopupMenuButton<String>(
+        tooltip: '订阅操作',
+        onSelected: (_) => _updateAllSubscriptions(),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'refresh', child: Text('刷新已导入订阅源')),
+        ],
+      ),
       onTap: _openSubscriptions,
     ),
   );

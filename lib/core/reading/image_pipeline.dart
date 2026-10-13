@@ -649,7 +649,8 @@ class SectionImagePipeline {
     _slots.add(waiter);
     await waiter.future;
     if (_disposed) return null;
-    _running++;
+    // The releasing request transfers its existing slot to this waiter.
+    // Incrementing again leaks capacity after the initial batch drains.
     return true;
   }
 

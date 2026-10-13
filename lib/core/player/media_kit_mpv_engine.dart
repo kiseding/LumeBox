@@ -33,11 +33,7 @@ import 'player_capabilities.dart';
 /// 句柄（`ctx`）做成了公开字段**，libmpv 的客户端 API 又是线程安全的，
 /// 因此这一层可以直接调用 `mpv_set_property_string`——不 fork、不反射、不猜。
 class MediaKitMpvEngine
-    implements
-        MpvEngine,
-        FrameTickCapable,
-        EnginePropertyCapable,
-        TrackCapable {
+    implements MpvEngine, EnginePropertyCapable, TrackCapable {
   /// 私有构造：只接受**已经**建好的 Player。
   ///
   /// 外部只能走 [create]——它保证 media_kit 先初始化、再碰任何 media_kit API。
@@ -46,16 +42,8 @@ class MediaKitMpvEngine
     _subscribe();
   }
 
-  /// 帧节拍：`time-pos` 每次**最多**更新一帧，因此位置变化就是「新的一帧到了」。
-  ///
-  /// 为什么不用定时器：定时器在暂停时照样空转取帧（白白拷贝整帧），播放时又可能
-  /// 与真实帧错开（同一帧取两次、或跳过一帧）。用位置流当节拍，取帧时刻自然
-  /// 跟着画面走——暂停即停，播放时与帧对齐。
-  ///
-  /// 位置流比目标帧率更密（60fps 视频就是每秒 60 次），但下游
-  /// [PipFrameSource] 已有帧率节流，这里不必重复限流。
-  @override
-  Stream<void> get frameTicks => _player.stream.position.map((_) {});
+  // Position reports are not decode-frame callbacks. PiP must use its bounded
+  // capture timer rather than a low-frequency progress stream.
 
   /// 创建引擎：**MPV 初始化的第一步就是 media_kit 初始化**。
   ///
@@ -479,24 +467,19 @@ class MediaKitMpvEngine
       if (raw == null || raw.isEmpty) return null;
 
       final params = _player.state.videoParams;
-      final width = params.dw ?? 0;
-      final height = params.dh ?? 0;
+      final width = params.w ?? 0;
+      final height = params.h ?? 0;
       if (width <= 0 || height <= 0) return null;
 
-      // mpv 的 screenshot-raw 输出是紧密排列的 BGRA（无行距填充）；
-      // 若原生库将来改成带 stride，这里会通过字节数校验暴露出来。
-      final expected = width * height * 4;
-      if (raw.length < expected) {
-        LumeLog.warn('[mpv] 帧尺寸不符（${raw.length} < $expected），跳过本帧');
-        return null;
-      }
+      // Raw screenshots retain mpv's aligned row pitch, unlike encoded images.
+      if (raw.length % height != 0) return null;
+      final stride = raw.length ~/ height;
+      if (stride < width * 4) return null;
       return MpvVideoFrame(
-        pixels: raw.length == expected
-            ? raw
-            : Uint8List.sublistView(raw, 0, expected),
+        pixels: raw,
         width: width,
         height: height,
-        stride: width * 4,
+        stride: stride,
       );
     } catch (error, stackTrace) {
       // 取帧失败不影响播放（画中画是增强功能）。
@@ -525,6 +508,8 @@ class MediaKitMpvEngine
     builder: (context, revision, _) => Video(
       key: ValueKey<int>(revision),
       controller: _video,
+      pauseUponEnteringBackgroundMode: false,
+      resumeUponEnteringForegroundMode: false,
       // 控制栏由上层画：内核不自带 UI（换内核上层零改动的前提）。
       controls: NoVideoControls,
       fit: BoxFit.contain,

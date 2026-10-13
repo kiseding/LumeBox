@@ -163,14 +163,14 @@ void main() {
     final light = LumeTheme.paletteOf(Brightness.light).glass;
     final dark = LumeTheme.paletteOf(Brightness.dark).glass;
     expect(cardColorOf('外观'), light);
-    expect(cardColorOf('横屏播放'), light);
+    expect(cardColorOf('各模块独立设置'), light);
 
     // 切深色：整页（含两张内容为 const 的分组卡）当场换成深色卡。
     await tester.pumpWidget(app(ThemeMode.dark));
     await tester.pumpAndSettle();
     expect(LumeTheme.glass, dark, reason: '清透色板要跟着亮度走');
     expect(cardColorOf('外观'), dark, reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）');
-    expect(cardColorOf('横屏播放'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
+    expect(cardColorOf('各模块独立设置'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
     expect(cardColorOf('底部导航栏管理'), dark);
   });
 
@@ -242,12 +242,9 @@ void main() {
   testWidgets('播放器内核：全局设置里保留逃生入口', (tester) async {
     await pumpSettings(tester);
 
-    // 逃生入口是**内嵌**在设置页里的（点得最少）：同一份内核列表直接可见。
-    expect(find.text('播放器内核 · 故障逃生入口'), findsOneWidget);
-    expect(find.text('AVPlayer'), findsOneWidget);
-    expect(find.text('MPV'), findsOneWidget);
-    expect(find.text('MDK'), findsOneWidget);
-
+    expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
+    await tester.tap(find.text('各模块独立设置'));
+    await tester.pumpAndSettle();
     // 播放器设置（内核 / 倍速 / 字幕）也从板块页迁到了全局设置。
     expect(find.text('播放器设置'), findsOneWidget);
     await tester.tap(find.text('播放器设置'));

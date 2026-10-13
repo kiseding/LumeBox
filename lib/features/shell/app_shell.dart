@@ -1,3 +1,5 @@
+import 'package:flutter/rendering.dart' show ScrollDirection;
+
 import '../../core/theme/floating_modules.dart';
 
 import 'dart:async';
@@ -80,6 +82,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   /// 当前页签的**标识**（不是下标：顺序会变、页签会隐藏）。
   String _activeId = _pageCatalog.first.id;
+  bool _scrollCollapsed = false;
 
   // 手机导航条使用完整安全区避让；玻璃胶囊内只摆图标与文字。
   static const double _dockHeight = 56;
@@ -267,7 +270,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 第一页提前拉起来；页面构建后能直接吃这口热饭。
     // 预热失败不影响任何事（页面照旧自己取），见 [SectionPreloader]。
     _warmUp(id);
-    setState(() => _activeId = id);
+    setState(() {
+      _activeId = id;
+      _scrollCollapsed = false;
+    });
   }
 
   /// 预热目标板块（只预热有源运行时的板块；失败静默）。
@@ -399,7 +405,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       extendBody: true,
       body: Stack(
         children: <Widget>[
-          _buildPage(),
+          NotificationListener<UserScrollNotification>(
+            onNotification: (notification) {
+              if (notification.depth != 0 ||
+                  notification.metrics.axis != Axis.vertical ||
+                  notification.direction == ScrollDirection.idle) {
+                return false;
+              }
+              final collapsed =
+                  notification.direction == ScrollDirection.reverse;
+              if (_scrollCollapsed != collapsed) {
+                setState(() => _scrollCollapsed = collapsed);
+              }
+              return false;
+            },
+            child: _buildPage(),
+          ),
           if (settingsHidden)
             // 与底栏同一个显隐来源：Dock 收起（播放中 / 全屏页压栈）时，
             // 恢复入口一并收起。
@@ -415,17 +436,48 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: AnimatedBuilder(
         animation: _controller,
-        builder: (context, _) => _DockBar(
-          key: AppShell.dockKey,
-          tabs: tabs,
-          activeId: _activeId,
-          onSelect: _select,
-          visible:
-              _controller.visible &&
-              MediaQuery.viewInsetsOf(context).bottom == 0,
-          height: _dockHeight,
-          contentInset: contentInset,
-          bottomMargin: dockBottomOffset(context),
+        builder: (context, _) => AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: animation,
+              alignment: Alignment.centerLeft,
+              child: child,
+            ),
+          ),
+          child:
+              _scrollCollapsed &&
+                  _controller.visible &&
+                  MediaQuery.viewInsetsOf(context).bottom == 0
+              ? Padding(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    bottom: dockBottomOffset(context),
+                  ),
+                  child: Align(
+                    heightFactor: 1,
+                    alignment: Alignment.centerLeft,
+                    child: IconButton.filledTonal(
+                      key: AppShell.dockKey,
+                      tooltip: '展开导航',
+                      onPressed: () => setState(() => _scrollCollapsed = false),
+                      icon: const Icon(Icons.menu_rounded),
+                    ),
+                  ),
+                )
+              : _DockBar(
+                  key: AppShell.dockKey,
+                  tabs: tabs,
+                  activeId: _activeId,
+                  onSelect: _select,
+                  visible:
+                      _controller.visible &&
+                      MediaQuery.viewInsetsOf(context).bottom == 0,
+                  height: _dockHeight,
+                  contentInset: contentInset,
+                  bottomMargin: dockBottomOffset(context),
+                ),
         ),
       ),
     );

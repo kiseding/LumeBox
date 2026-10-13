@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import WebKit
+import UIKit
 
 /// 内置网页视图的**原生 Cookie 仓库读取**（iOS）。
 ///
@@ -24,6 +25,21 @@ final class WafCookieController: NSObject {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "readVerifiedPage":
+        guard let args = call.arguments as? [String: Any], let text = args["url"] as? String,
+              let url = URL(string: text), ["https", "http"].contains(url.scheme ?? ""), url.user == nil else {
+          result(FlutterError(code: "invalid_url", message: "Invalid page URL", details: nil)); return
+        }
+        guard self.reads.count < 4 else {
+          result(FlutterError(code: "busy", message: "Browser session busy", details: nil)); return
+        }
+        let id = UUID()
+        let task = VerifiedPageRead(url: url, userAgent: args["userAgent"] as? String) { response in
+          self.reads.removeValue(forKey: id)
+          result(response)
+        }
+        self.reads[id] = task
+        task.start()
       case "allCookies":
         WafCookieController.allCookies(result: result)
       default:
@@ -33,6 +49,7 @@ final class WafCookieController: NSObject {
   }
 
   private let imageNetwork = ImageNetworkController()
+  private var reads: [UUID: VerifiedPageRead] = [:]
 
   /// 枚举默认数据仓里的全部 Cookie；`WKHTTPCookieStore` 是异步回调接口。
   ///
@@ -115,5 +132,87 @@ private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
       redirected.setValue(nil, forHTTPHeaderField: "Authorization")
     }
     completionHandler(redirected)
+  }
+}
+
+
+/// Navigation uses the same default WebKit data store as the visible verification page.
+/// It does not solve challenges: a remaining challenge is returned as an ordinary 403.
+private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
+  private let webView: WKWebView
+  private let url: URL
+  private var completion: ((Any) -> Void)?
+  private var timeout: DispatchWorkItem?
+  private var poll: DispatchWorkItem?
+  private var status = 200
+  private var mime = "text/html"
+  init(url: URL, userAgent: String?, completion: @escaping (Any) -> Void) {
+    self.url = url
+    self.completion = completion
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .default()
+    webView = WKWebView(frame: CGRect(x: -1000, y: -1000, width: 390, height: 600), configuration: configuration)
+    super.init()
+    webView.customUserAgent = userAgent
+    webView.navigationDelegate = self
+  }
+  func start() {
+    let work = DispatchWorkItem { [weak self] in
+      self?.finish(FlutterError(code: "timeout", message: "Verified page timed out", details: nil))
+    }
+    timeout = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 18, execute: work)
+    webView.load(URLRequest(url: url))
+  }
+  func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+               decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+    if navigationResponse.isForMainFrame, let response = navigationResponse.response as? HTTPURLResponse {
+      status = response.statusCode
+      mime = response.mimeType ?? "text/html"
+    }
+    decisionHandler(.allow)
+  }
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    readDocument(force: true)
+  }
+  func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    scheduleRead()
+  }
+  private func scheduleRead() {
+    guard completion != nil else { return }
+    let work = DispatchWorkItem { [weak self] in self?.readDocument(force: false) }
+    poll = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+  }
+  private func readDocument(force: Bool) {
+    guard completion != nil else { return }
+    let body = mime.contains("html") ? "document.documentElement.outerHTML" : "document.body.innerText"
+    let script = "({ready: document.readyState, body: \(body)})"
+    webView.evaluateJavaScript(script) { [weak self] value, error in
+      guard let self = self else { return }
+      if let error = error { self.finish(FlutterError(code: "read_failed", message: error.localizedDescription, details: nil)); return }
+      let document = value as? [String: Any] ?? [:]
+      if !force && document["ready"] as? String == "loading" { self.scheduleRead(); return }
+      let text = document["body"] as? String ?? ""
+      guard text.utf8.count <= 10 * 1024 * 1024 else {
+        self.finish(FlutterError(code: "too_large", message: "Page too large", details: nil)); return
+      }
+      self.finish(["status": self.status, "body": text, "contentType": self.mime])
+    }
+  }
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    finish(FlutterError(code: "navigation_failed", message: error.localizedDescription, details: nil))
+  }
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    finish(FlutterError(code: "navigation_failed", message: error.localizedDescription, details: nil))
+  }
+  private func finish(_ value: Any) {
+    guard let callback = completion else { return }
+    completion = nil
+    timeout?.cancel()
+    poll?.cancel()
+    webView.stopLoading()
+    webView.navigationDelegate = nil
+    callback(value)
   }
 }

@@ -24,11 +24,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_group');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     LumeLog.clear();
   });
 
@@ -46,7 +46,10 @@ void main() {
   Future<SectionDatabase> openDatabase(Section section) async =>
       SectionDatabase.open(await SectionScope.open(section));
 
-  Future<SourceRegistry> seed(Section section, {List<String> ids = const <String>['a']}) async {
+  Future<SourceRegistry> seed(
+    Section section, {
+    List<String> ids = const <String>['a'],
+  }) async {
     final scope = await SectionScope.open(section);
     final database = await SectionDatabase.open(scope);
     for (final id in ids) {
@@ -60,6 +63,22 @@ void main() {
     }
     return SourceRegistry.open(section);
   }
+
+  test('并发打开共享同一注册表，旧实例重复释放不误关新注册表', () async {
+    final registries = await Future.wait(
+      List.generate(12, (_) => SourceRegistry.open(Section.comic)),
+    );
+    expect(
+      registries.every((value) => identical(value, registries.first)),
+      isTrue,
+    );
+    final old = registries.first;
+    old.dispose();
+    final fresh = await SourceRegistry.open(Section.comic);
+    old.dispose();
+    expect(identical(await SourceRegistry.open(Section.comic), fresh), isTrue);
+    expect(fresh.isDisposed, isFalse);
+  });
 
   group('分组：落库与隔离', () {
     test('设置分组后读回，取消分组也生效', () async {
@@ -182,11 +201,7 @@ void main() {
       final comic = await seed(Section.comic, ids: <String>['a']);
       // 漫画板块对同名 id 调恢复：无操作（它自己的记录本来就没失效）。
       comic.clearFailure('a');
-      expect(
-        novel.source('a')!.isBroken,
-        isTrue,
-        reason: '漫画板块的操作不该影响小说板块的记录',
-      );
+      expect(novel.source('a')!.isBroken, isTrue, reason: '漫画板块的操作不该影响小说板块的记录');
       expect(comic.source('a')!.isBroken, isFalse);
     });
 
@@ -244,8 +259,15 @@ CREATE TABLE section_setting (
       legacy.execute(
         'INSERT INTO source (id, name, version, section, script, enabled, '
         'updated_at, origin_url) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
-        ['old', '老源', '0.9.0', Section.video.id, 'var LumeSource = {};',
-            DateTime.now().millisecondsSinceEpoch, 'https://example.com/x.js'],
+        [
+          'old',
+          '老源',
+          '0.9.0',
+          Section.video.id,
+          'var LumeSource = {};',
+          DateTime.now().millisecondsSinceEpoch,
+          'https://example.com/x.js',
+        ],
       );
       legacy.execute('PRAGMA user_version = 4');
       legacy.close();

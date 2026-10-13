@@ -68,6 +68,18 @@ void main() {
     expect(painter(tester).position, const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
   });
+  testWidgets('引擎采样略落后时，滚动时钟不突然后退', (tester) async {
+    await tester.pumpWidget(view());
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 200));
+    final before = painter(tester).position as Duration;
+    await tester.pumpWidget(view(position: const Duration(milliseconds: 150)));
+    final after = painter(tester).position as Duration;
+    expect((after - before).inMilliseconds, greaterThanOrEqualTo(-3));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(painter(tester).position, greaterThan(after));
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('暂停情况下进度更新仍清理已经过期的文字', (tester) async {
     await tester.pumpWidget(view(playing: false));
     expect(painter(tester).entries.length, 1);
