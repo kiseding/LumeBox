@@ -25,6 +25,26 @@ void main() {
       ..setMockMethodCallHandler(events, null);
   });
 
+  test('画中画同步弹幕样式与时间轴，不传截图或界面控件', () async {
+    MethodCall? received;
+    messenger().setMockMethodCallHandler(frames, (call) async {
+      received = call;
+      return null;
+    });
+    await MethodChannelPipBackend().updateDanmaku(
+      {'rows': 3, 'pipEnabled': true},
+      [
+        {'time': 1200, 'text': '测试弹幕', 'mode': 'scroll'},
+      ],
+    );
+    expect(received?.method, 'setDanmaku');
+    expect(received?.arguments, {
+      'settings': {'rows': 3, 'pipEnabled': true},
+      'items': [
+        {'time': 1200, 'text': '测试弹幕', 'mode': 'scroll'},
+      ],
+    });
+  });
   test('换媒体清理原生层后仍可送帧，退出页面才解绑通道', () async {
     final calls = <String>[];
     messenger().setMockMethodCallHandler(frames, (call) async {
@@ -34,8 +54,15 @@ void main() {
     final backend = MethodChannelPipBackend();
     await backend.resetFrames();
     expect(backend.frameSource.isReady, isTrue);
-    expect(await backend.frameSource.submitFrame(pixels: Uint8List(4), width: 1,
-      height: 1, timestamp: Duration.zero), isTrue);
+    expect(
+      await backend.frameSource.submitFrame(
+        pixels: Uint8List(4),
+        width: 1,
+        height: 1,
+        timestamp: Duration.zero,
+      ),
+      isTrue,
+    );
     await backend.teardownFrames();
     expect(backend.frameSource.isReady, isFalse);
     expect(calls, ['teardown', 'submitFrame', 'teardown']);
@@ -44,9 +71,15 @@ void main() {
   test('原生拒收帧时不会增加成功送帧计数', () async {
     messenger().setMockMethodCallHandler(frames, (_) async => false);
     final backend = MethodChannelPipBackend();
-    await expectLater(backend.frameSource.submitFrame(
-      pixels: Uint8List(4), width: 1, height: 1, timestamp: Duration.zero,
-    ), throwsA(isA<PipException>()));
+    await expectLater(
+      backend.frameSource.submitFrame(
+        pixels: Uint8List(4),
+        width: 1,
+        height: 1,
+        timestamp: Duration.zero,
+      ),
+      throwsA(isA<PipException>()),
+    );
     expect(backend.frameSource.submittedFrames, 0);
   });
 
@@ -57,7 +90,8 @@ void main() {
       return null;
     });
     await MethodChannelPipBackend().updatePlaybackState(
-      playing: false, duration: const Duration(seconds: 484),
+      playing: false,
+      duration: const Duration(seconds: 484),
     );
     expect(received?.method, 'updateState');
     expect(received?.arguments, {'playing': false, 'durationMs': 484000.0});
@@ -108,9 +142,10 @@ void main() {
           ?.kind,
       PipEventKind.restored,
     );
-    final failed = MethodChannelPipBackend.decodeEvent(
-      <String, Object?>{'kind': 'failed', 'message': '原生中断'},
-    );
+    final failed = MethodChannelPipBackend.decodeEvent(<String, Object?>{
+      'kind': 'failed',
+      'message': '原生中断',
+    });
     expect(failed?.kind, PipEventKind.failed);
     expect(failed?.message, '原生中断');
 
@@ -152,8 +187,8 @@ void main() {
 Future<void> _raiseEvent(Map<String, Object?> payload) {
   return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .handlePlatformMessage(
-    MethodChannelPipBackend.eventChannelName,
-    const StandardMethodCodec().encodeSuccessEnvelope(payload),
-    (_) {},
-  );
+        MethodChannelPipBackend.eventChannelName,
+        const StandardMethodCodec().encodeSuccessEnvelope(payload),
+        (_) {},
+      );
 }

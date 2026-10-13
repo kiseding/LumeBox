@@ -34,12 +34,19 @@ final class PipController: NSObject {
 
   /// 帧泵：把 Dart 送来的 BGRA 帧包成 CMSampleBuffer 上屏。
   private let framePump = PipFramePump()
+  private var avPlayer: AVPlayer?
+  private var avOutput: AVPlayerItemVideoOutput?
+  private var avOutputItem: AVPlayerItem?
+  private var avTimer: Timer?
+  private var avUsesFrames = false
+
 
   /// 帧通道：与 Dart 侧 `PipFrameSource` 的帧提交一一对应。
   private let frameChannelName = "lumebox/pip/frames"
 
 
   deinit {
+    avTimer?.invalidate()
     if let avObserver { NotificationCenter.default.removeObserver(avObserver) }
   }
 
@@ -103,9 +110,18 @@ final class PipController: NSObject {
         return
       }
       switch call.method {
+      case "setDanmaku":
+        self.framePump.danmaku.update(call.arguments as? [String: Any] ?? [:])
+        if let player = self.avPlayer, self.controller?.isPictureInPictureActive != true {
+          self.attach(player: player)
+        }
+        result(nil)
       case "submitFrame":
         self.handleFrame(call, result: result)
       case "teardown":
+        self.stopAvFrames()
+        self.avPlayer = nil
+        self.avUsesFrames = false
         self.controller?.delegate = nil
         self.controller?.canStartPictureInPictureAutomaticallyFromInline = false
         self.controller?.stopPictureInPicture()
@@ -130,6 +146,8 @@ final class PipController: NSObject {
 
   /// 收一帧：BGRA 字节 → CMSampleBuffer → 显示层。
   private func handleFrame(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    if avPlayer != nil { stopAvFrames(); avPlayer = nil; avUsesFrames = false }
+
     guard let args = call.arguments as? [String: Any],
           let data = args["pixels"] as? FlutterStandardTypedData,
           let width = args["width"] as? Int,
@@ -168,6 +186,7 @@ final class PipController: NSObject {
     case "updateState":
       let args = call.arguments as? [String: Any] ?? [:]
       paused = !(((args["playing"] as? Bool) ?? false) || starting)
+      framePump.danmaku.playing = !paused
       durationSeconds = (args["durationMs"] as? Double ?? 0) / 1000
       if #available(iOS 15.0, *) { controller?.invalidatePlaybackState() }
       result(nil)
@@ -217,7 +236,28 @@ final class PipController: NSObject {
   }
 
   private func attach(player: AVPlayer) {
-    if avLayer?.player === player, controller != nil { return }
+    let needsFrames = framePump.danmaku.enabled
+    if avPlayer === player && avUsesFrames == needsFrames && controller != nil { return }
+    if controller?.isPictureInPictureActive == true { return }
+    stopAvFrames()
+    avPlayer = player
+    avUsesFrames = needsFrames
+    if needsFrames, let item = player.currentItem {
+      controller?.delegate = nil
+      controller?.stopPictureInPicture()
+      frameHost?.removeFromSuperview()
+      avLayer?.player = nil
+      avLayer = nil
+      framePump.ensureDisplayLayer()
+      if let layer = framePump.displayLayer { attach(frameLayer: layer) }
+      let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+      item.add(output)
+      avOutput = output
+      avOutputItem = item
+      startAvFrames()
+      return
+    }
+
     controller?.delegate = nil
     controller?.stopPictureInPicture()
     frameHost?.removeFromSuperview()
@@ -241,6 +281,29 @@ final class PipController: NSObject {
     controller?.canStartPictureInPictureAutomaticallyFromInline = true
   }
 
+  private func stopAvFrames() {
+    avTimer?.invalidate(); avTimer = nil
+    if let output = avOutput, let item = avOutputItem { item.remove(output) }
+    avOutput = nil; avOutputItem = nil
+  }
+
+  private func startAvFrames() {
+    guard avUsesFrames, avTimer == nil else { return }
+    avTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+      guard let self = self, let player = self.avPlayer, let output = self.avOutput else { return }
+      let time = player.currentTime()
+      guard time.isValid, time.seconds.isFinite,
+            let pixels = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else { return }
+      let transform = player.currentItem?.asset.tracks(withMediaType: .video).first?.preferredTransform ?? .identity
+      self.framePump.danmaku.playing = player.rate > 0
+      self.framePump.submit(buffer: pixels, timestampMs: Int(time.seconds * 1000), transform: transform)
+      // Inline preparation only needs a priming frame; resume the pump on PiP start.
+      if self.controller?.isPictureInPictureActive != true && !self.starting {
+        self.avTimer?.invalidate(); self.avTimer = nil
+      }
+    }
+  }
+
   private func start(result: @escaping FlutterResult) {
     guard #available(iOS 15.0, *) else {
       result(FlutterError(code: "unsupported", message: "画中画需要 iOS 15 及以上", details: nil))
@@ -250,6 +313,7 @@ final class PipController: NSObject {
       result(FlutterError(code: "unsupported", message: "当前设备不支持画中画", details: nil))
       return
     }
+    startAvFrames()
     guard let controller else {
       // 首帧还未到达时不能请求开窗。
       result(FlutterError(
@@ -272,9 +336,9 @@ final class PipController: NSObject {
     if candidate.isPictureInPicturePossible {
       starting = true
       paused = false
-      playbackRate = avLayer?.player?.rate ?? 1
+      playbackRate = avPlayer?.rate ?? avLayer?.player?.rate ?? 1
       if playbackRate <= 0 { playbackRate = 1 }
-      avLayer?.player?.playImmediately(atRate: playbackRate)
+      (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate)
       candidate.invalidatePlaybackState()
       candidate.startPictureInPicture()
       result(nil)
@@ -319,7 +383,7 @@ extension PipController: FlutterStreamHandler {
 extension PipController: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
     starting = true
-    if let rate = avLayer?.player?.rate, rate > 0 { playbackRate = rate }
+    if let rate = (avPlayer ?? avLayer?.player)?.rate, rate > 0 { playbackRate = rate }
     paused = false
   }
   func pictureInPictureController(
@@ -332,7 +396,7 @@ extension PipController: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
     starting = false
     paused = false
-    avLayer?.player?.playImmediately(atRate: playbackRate)
+    (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate)
     controller.invalidatePlaybackState()
     emit(kind: "play", message: nil)
     emit(kind: "entered", message: nil)

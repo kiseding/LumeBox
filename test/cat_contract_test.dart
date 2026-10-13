@@ -176,6 +176,16 @@ void main() {
     await node.close(force: true);
     root.deleteSync(recursive: true);
   });
+  test('站点列数独立保存并在重启后恢复', () async {
+    await service.boot();
+    await service.setSiteColumns(3);
+    final restored = CatService.testing();
+    await restored.boot();
+    expect(restored.siteColumns, 3);
+    await restored.setSiteColumns(99);
+    expect(restored.siteColumns, 3);
+    await restored.closeForTesting();
+  });
   test('订阅持久化、校验失败保留旧包、首次失败仍保留链接供重试', () async {
     final record = await service.add(
       '包',

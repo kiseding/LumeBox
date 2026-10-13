@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 
 import '../../../core/reading/reading.dart';
 import '../../../core/session/section.dart';
@@ -19,6 +20,19 @@ class DanmakuSettings {
     this.speedScale = 1.0,
     this.strokeWidth = 1.2,
     this.maxOnScreen = 60,
+    this.rows = 3,
+    this.lineSpacing = 1.35,
+    this.bold = true,
+    this.allowColored = true,
+    this.showScroll = true,
+    this.showTop = true,
+    this.showBottom = true,
+    this.avoidSubtitles = true,
+    this.maxPerSecond = 8,
+    this.delayMs = 0,
+    this.mergeDuplicates = true,
+    this.blockedWords = const [],
+    this.pipEnabled = true,
   });
 
   /// 总开关。
@@ -41,6 +55,29 @@ class DanmakuSettings {
 
   /// 同屏最大条数 10~200（防止刷屏卡顿）。
   final int maxOnScreen;
+  final int rows;
+  final double lineSpacing;
+  final bool bold;
+  final bool allowColored;
+  final bool showScroll;
+  final bool showTop;
+  final bool showBottom;
+  final bool avoidSubtitles;
+  final int maxPerSecond;
+  final int delayMs;
+  final bool mergeDuplicates;
+  final List<String> blockedWords;
+  final bool pipEnabled;
+
+  bool accepts(DanmakuItem item) {
+    if (item.mode == DanmakuMode.scroll && !showScroll ||
+        item.mode == DanmakuMode.top && !showTop ||
+        item.mode == DanmakuMode.bottom && !showBottom) {
+      return false;
+    }
+    final text = item.text.toLowerCase();
+    return !blockedWords.any((word) => text.contains(word.toLowerCase()));
+  }
 
   static const DanmakuSettings defaults = DanmakuSettings();
 
@@ -68,6 +105,19 @@ class DanmakuSettings {
     double? speedScale,
     double? strokeWidth,
     int? maxOnScreen,
+    int? rows,
+    double? lineSpacing,
+    bool? bold,
+    bool? allowColored,
+    bool? showScroll,
+    bool? showTop,
+    bool? showBottom,
+    bool? avoidSubtitles,
+    int? maxPerSecond,
+    int? delayMs,
+    bool? mergeDuplicates,
+    List<String>? blockedWords,
+    bool? pipEnabled,
   }) {
     return DanmakuSettings(
       enabled: enabled ?? this.enabled,
@@ -77,29 +127,73 @@ class DanmakuSettings {
       speedScale: speedScale ?? this.speedScale,
       strokeWidth: strokeWidth ?? this.strokeWidth,
       maxOnScreen: maxOnScreen ?? this.maxOnScreen,
+      rows: rows ?? this.rows,
+      lineSpacing: lineSpacing ?? this.lineSpacing,
+      bold: bold ?? this.bold,
+      allowColored: allowColored ?? this.allowColored,
+      showScroll: showScroll ?? this.showScroll,
+      showTop: showTop ?? this.showTop,
+      showBottom: showBottom ?? this.showBottom,
+      avoidSubtitles: avoidSubtitles ?? this.avoidSubtitles,
+      maxPerSecond: maxPerSecond ?? this.maxPerSecond,
+      delayMs: delayMs ?? this.delayMs,
+      mergeDuplicates: mergeDuplicates ?? this.mergeDuplicates,
+      blockedWords: blockedWords ?? this.blockedWords,
+      pipEnabled: pipEnabled ?? this.pipEnabled,
     );
   }
 
   /// 收敛到合法区间（坏配置不会让渲染崩）。
   DanmakuSettings clamped() => DanmakuSettings(
-        enabled: enabled,
-        opacity: opacity.clamp(minOpacity, maxOpacity),
-        fontScale: fontScale.clamp(minFontScale, maxFontScale),
-        displayArea: displayArea.clamp(minArea, maxArea),
-        speedScale: speedScale.clamp(minSpeed, maxSpeed),
-        strokeWidth: strokeWidth.clamp(minStroke, maxStroke),
-        maxOnScreen: maxOnScreen.clamp(minOnScreen, maxOnScreenLimit),
-      );
+    enabled: enabled,
+    opacity: opacity.clamp(minOpacity, maxOpacity),
+    fontScale: fontScale.clamp(minFontScale, maxFontScale),
+    displayArea: displayArea.clamp(minArea, maxArea),
+    speedScale: speedScale.clamp(minSpeed, maxSpeed),
+    strokeWidth: strokeWidth.clamp(minStroke, maxStroke),
+    maxOnScreen: maxOnScreen.clamp(minOnScreen, maxOnScreenLimit),
+    rows: rows.clamp(0, 5),
+    lineSpacing: lineSpacing.clamp(1.0, 3.0),
+    bold: bold,
+    allowColored: allowColored,
+    showScroll: showScroll,
+    showTop: showTop,
+    showBottom: showBottom,
+    avoidSubtitles: avoidSubtitles,
+    maxPerSecond: maxPerSecond.clamp(1, 30),
+    delayMs: delayMs.clamp(-10000, 10000),
+    mergeDuplicates: mergeDuplicates,
+    blockedWords: List.unmodifiable(
+      blockedWords
+          .map((word) => word.trim())
+          .where((word) => word.isNotEmpty)
+          .take(200),
+    ),
+    pipEnabled: pipEnabled,
+  );
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'enabled': enabled,
-        'opacity': opacity,
-        'fontScale': fontScale,
-        'displayArea': displayArea,
-        'speedScale': speedScale,
-        'strokeWidth': strokeWidth,
-        'maxOnScreen': maxOnScreen,
-      };
+    'enabled': enabled,
+    'opacity': opacity,
+    'fontScale': fontScale,
+    'displayArea': displayArea,
+    'speedScale': speedScale,
+    'strokeWidth': strokeWidth,
+    'maxOnScreen': maxOnScreen,
+    'rows': rows,
+    'lineSpacing': lineSpacing,
+    'bold': bold,
+    'allowColored': allowColored,
+    'showScroll': showScroll,
+    'showTop': showTop,
+    'showBottom': showBottom,
+    'avoidSubtitles': avoidSubtitles,
+    'maxPerSecond': maxPerSecond,
+    'delayMs': delayMs,
+    'mergeDuplicates': mergeDuplicates,
+    'blockedWords': blockedWords,
+    'pipEnabled': pipEnabled,
+  };
 
   static DanmakuSettings fromJson(Object? json) {
     if (json is! Map) return defaults;
@@ -112,6 +206,33 @@ class DanmakuSettings {
       speedScale: _double(json['speedScale'], base.speedScale),
       strokeWidth: _double(json['strokeWidth'], base.strokeWidth),
       maxOnScreen: _int(json['maxOnScreen'], base.maxOnScreen),
+      rows: _int(json['rows'], base.rows),
+      lineSpacing: _double(json['lineSpacing'], base.lineSpacing),
+      bold: json['bold'] is bool ? json['bold'] as bool : base.bold,
+      allowColored: json['allowColored'] is bool
+          ? json['allowColored'] as bool
+          : base.allowColored,
+      showScroll: json['showScroll'] is bool
+          ? json['showScroll'] as bool
+          : base.showScroll,
+      showTop: json['showTop'] is bool ? json['showTop'] as bool : base.showTop,
+      showBottom: json['showBottom'] is bool
+          ? json['showBottom'] as bool
+          : base.showBottom,
+      avoidSubtitles: json['avoidSubtitles'] is bool
+          ? json['avoidSubtitles'] as bool
+          : base.avoidSubtitles,
+      maxPerSecond: _int(json['maxPerSecond'], base.maxPerSecond),
+      delayMs: _int(json['delayMs'], base.delayMs),
+      mergeDuplicates: json['mergeDuplicates'] is bool
+          ? json['mergeDuplicates'] as bool
+          : base.mergeDuplicates,
+      blockedWords: json['blockedWords'] is List
+          ? (json['blockedWords'] as List).map((value) => '$value').toList()
+          : base.blockedWords,
+      pipEnabled: json['pipEnabled'] is bool
+          ? json['pipEnabled'] as bool
+          : base.pipEnabled,
     ).clamped();
   }
 
@@ -137,18 +258,44 @@ class DanmakuSettings {
       other.displayArea == displayArea &&
       other.speedScale == speedScale &&
       other.strokeWidth == strokeWidth &&
-      other.maxOnScreen == maxOnScreen;
+      other.maxOnScreen == maxOnScreen &&
+      other.rows == rows &&
+      other.lineSpacing == lineSpacing &&
+      other.bold == bold &&
+      other.allowColored == allowColored &&
+      other.showScroll == showScroll &&
+      other.showTop == showTop &&
+      other.showBottom == showBottom &&
+      other.avoidSubtitles == avoidSubtitles &&
+      other.maxPerSecond == maxPerSecond &&
+      other.delayMs == delayMs &&
+      other.mergeDuplicates == mergeDuplicates &&
+      listEquals(other.blockedWords, blockedWords) &&
+      other.pipEnabled == pipEnabled;
 
   @override
-  int get hashCode => Object.hash(
-        enabled,
-        opacity,
-        fontScale,
-        displayArea,
-        speedScale,
-        strokeWidth,
-        maxOnScreen,
-      );
+  int get hashCode => Object.hashAll([
+    enabled,
+    opacity,
+    fontScale,
+    displayArea,
+    speedScale,
+    strokeWidth,
+    maxOnScreen,
+    rows,
+    lineSpacing,
+    bold,
+    allowColored,
+    showScroll,
+    showTop,
+    showBottom,
+    avoidSubtitles,
+    maxPerSecond,
+    delayMs,
+    mergeDuplicates,
+    pipEnabled,
+    Object.hashAll(blockedWords),
+  ]);
 }
 
 /// 弹幕设置的持久化（本板块阅读库的 `reading_setting` 表）。
@@ -158,8 +305,8 @@ class DanmakuSettingsStore {
   final ReadingLibrary _library;
 
   DanmakuSettings load() => DanmakuSettings.fromJson(
-        _decode(_library.setting(DanmakuSettings.settingKey)),
-      );
+    _decode(_library.setting(DanmakuSettings.settingKey)),
+  );
 
   void save(DanmakuSettings settings) {
     _library.setSetting(
@@ -190,8 +337,7 @@ class DanmakuCache {
 
   final Map<String, DanmakuTrack> _memory = <String, DanmakuTrack>{};
 
-  static String keyFor(String itemId, String chapterId) =>
-      '$itemId/$chapterId';
+  static String keyFor(String itemId, String chapterId) => '$itemId/$chapterId';
 
   DanmakuTrack? get(String itemId, String chapterId) =>
       _memory[keyFor(itemId, chapterId)];
@@ -216,6 +362,7 @@ class DanmakuStyle {
     required this.fontSize,
     required this.strokeWidth,
     required this.color,
+    this.bold = true,
   });
 
   /// 实际字号（像素）。
@@ -223,6 +370,7 @@ class DanmakuStyle {
 
   final double strokeWidth;
   final Color color;
+  final bool bold;
 
   /// 基准字号：设置里的 fontScale 是它的倍数。
   static const double baseFontSize = 16;
@@ -233,7 +381,8 @@ class DanmakuStyle {
     return DanmakuStyle(
       fontSize: baseFontSize * scale,
       strokeWidth: settings.strokeWidth,
-      color: Color(0xFF000000 | item.color)
+      bold: settings.bold,
+      color: Color(0xFF000000 | (settings.allowColored ? item.color : 0xFFFFFF))
           .withValues(alpha: settings.opacity.clamp(0.1, 1.0)),
     );
   }

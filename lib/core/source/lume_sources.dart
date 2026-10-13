@@ -509,13 +509,15 @@ SourceException mapSandboxFailure(SandboxError error) {
 /// 归一成 [SourceException]，沙箱类型不再向上层泄漏。运行时按需从注册表取，
 /// 因此图源被停用后重建也能立刻生效，不会持有过期引擎。
 class _EngineRuntime implements JsSourceRuntime {
-  _EngineRuntime(this._registry, this._sourceId);
+  _EngineRuntime(SourceRegistry registry, this._sourceId)
+    : _section = registry.section;
 
-  final SourceRegistry _registry;
+  final Section _section;
   final String _sourceId;
 
   @override
   Future<Set<String>> contractMethods() async {
+    final _registry = await SourceRegistry.open(_section);
     final engine = await _registry.engineFor(_sourceId);
     if (engine == null) return const <String>{};
     return await engine.contractMethods() ?? const <String>{};
@@ -523,6 +525,7 @@ class _EngineRuntime implements JsSourceRuntime {
 
   @override
   Future<Object?> call(String method, [Object? argument]) async {
+    final _registry = await SourceRegistry.open(_section);
     final engine = await _registry.engineFor(_sourceId);
     if (engine == null) {
       throw const SourceException(SourceErrorKind.notFound, '源不可用（未启用或脚本载入失败）');

@@ -28,6 +28,7 @@ class PipFramePump {
     required this.engine,
     required this.frameSource,
     this.targetFps = 30,
+    this.position,
   });
 
   /// 取帧来源（MPV / MDK）。
@@ -38,6 +39,7 @@ class PipFramePump {
 
   /// 目标帧率（仅在引擎没有帧节拍能力时用于定时器）。
   final int targetFps;
+  final Duration Function()? position;
 
   Timer? _timer;
   StreamSubscription<void>? _ticks;
@@ -85,7 +87,7 @@ class PipFramePump {
         pixels: frame.toTightBgra(),
         width: frame.width,
         height: frame.height,
-        timestamp: Duration.zero,
+        timestamp: position?.call() ?? Duration.zero,
       );
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
@@ -176,7 +178,7 @@ class PipFramePump {
         pixels: frame.toTightBgra(),
         width: frame.width,
         height: frame.height,
-        timestamp: Duration.zero,
+        timestamp: position?.call() ?? Duration.zero,
       );
     } catch (error, stackTrace) {
       // 单拍失败不中断泵（下一拍继续）。

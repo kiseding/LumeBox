@@ -61,6 +61,20 @@ class MethodChannelPipBackend implements PipBackend {
     if (ready != true) throw const PipException('系统播放器画中画内容源未就绪');
   }
 
+  Future<void> updateDanmaku(
+    Map<String, Object?> settings,
+    List<Map<String, Object?>> items,
+  ) async {
+    try {
+      await _frames.invokeMethod<void>('setDanmaku', {
+        'settings': settings,
+        'items': items,
+      });
+    } catch (error) {
+      LumeLog.info('[pip] 弹幕配置同步失败：$error');
+    }
+  }
+
   Future<void> updatePlaybackState({
     required bool playing,
     required Duration duration,

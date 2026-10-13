@@ -341,6 +341,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (player is AvPlayer) {
         final id = player.nativePlayerId;
         if (id != null) {
+          await _syncPipDanmaku();
           await backend.prepareAvPlayer(id);
           if (mounted && identical(player, _player)) _inlinePipReady = true;
         }
@@ -350,6 +351,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _framePump ??= PipFramePump(
         engine: engine,
         frameSource: backend.frameSource,
+        position: () => _player?.snapshot.value.position ?? Duration.zero,
       );
       final ready = await _framePump!.prime().timeout(
         const Duration(seconds: 3),
@@ -505,7 +507,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   int _publicDanmakuSeq = 0;
   final ValueNotifier<int> _danmakuRevision = ValueNotifier(0);
   void _notifyDanmakuSheet() {
-    if (mounted) _danmakuRevision.value++;
+    if (mounted) {
+      _danmakuRevision.value++;
+      unawaited(_syncPipDanmaku());
+    }
+  }
+
+  Future<void> _syncPipDanmaku() async {
+    final backend = _session?.backend;
+    if (backend is! MethodChannelPipBackend) return;
+    await backend.updateDanmaku(
+      {..._danmakuSettings.toJson(), 'playbackRate': _settings.speed},
+      [
+        for (final item in _danmaku.items)
+          {
+            'time': item.time.inMilliseconds,
+            'text': item.text,
+            'mode': item.mode.id,
+            'color': item.color,
+            'fontSize': item.fontSize,
+          },
+      ],
+    );
   }
 
   DanmakuTrack _combinedDanmaku() => DanmakuTrack.parse(
@@ -1891,6 +1914,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               _showToast('请等播放画面就绪');
               return;
             }
+            await _syncPipDanmaku();
             await nativeBackend.prepareAvPlayer(id);
           } else {
             final engine = _frameEngineOf(player);
@@ -1901,6 +1925,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             _framePump ??= PipFramePump(
               engine: engine,
               frameSource: nativeBackend.frameSource,
+              position: () => _player?.snapshot.value.position ?? Duration.zero,
             );
             final ready = await _framePump!.prime().timeout(
               const Duration(seconds: 3),
@@ -1987,6 +2012,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _framePump ??= PipFramePump(
       engine: engine,
       frameSource: backend.frameSource,
+      position: () => _player?.snapshot.value.position ?? Duration.zero,
     );
     _framePump!.start();
     _framePump!.setBackground(_lifecycle != AppLifecycleState.resumed);
@@ -2341,7 +2367,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 读完盘立刻补写——绝不静默丢掉用户这一次点击（见 [_danmakuSettingsDirty]）。
   void _applyDanmakuSettings(DanmakuSettings next) {
     _danmakuSettingsDirty = true;
-    setState(() => _danmakuSettings = next);
+    setState(() => _danmakuSettings = next.clamped());
+    _notifyDanmakuSheet();
     final library = _library;
     if (library == null) {
       _pendingDanmakuSave = next;

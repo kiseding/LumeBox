@@ -113,6 +113,52 @@ class DanmakuSettingsPanel extends StatefulWidget {
 class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
   late DanmakuSettings _settings = widget.settings;
 
+  @override
+  void didUpdateWidget(covariant DanmakuSettingsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings != widget.settings) _settings = widget.settings;
+  }
+
+  Future<void> _editBlockedWords() async {
+    final controller = TextEditingController(
+      text: _settings.blockedWords.join('\n'),
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('关键词屏蔽'),
+        content: TextField(
+          controller: controller,
+          minLines: 3,
+          maxLines: 8,
+          decoration: const InputDecoration(hintText: '每行一个词，包含该词的弹幕不显示'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('应用'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result != null && mounted) {
+      _update(_settings.copyWith(blockedWords: result.split('\n')));
+    }
+  }
+
+  Widget _switch(String title, bool value, ValueChanged<bool> onChanged) =>
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(title, style: const TextStyle(fontSize: 14)),
+        value: value,
+        onChanged: onChanged,
+      );
+
   void _update(DanmakuSettings next) {
     final clamped = next.clamped();
     setState(() => _settings = clamped);
@@ -177,17 +223,45 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             value: _settings.fontScale,
             min: DanmakuSettings.minFontScale,
             max: DanmakuSettings.maxFontScale,
-            display: _settings.fontScale.toStringAsFixed(2),
+            display:
+                '${(DanmakuStyle.baseFontSize * _settings.fontScale).round()} 号',
             onChanged: (value) => _update(_settings.copyWith(fontScale: value)),
           ),
-          _slider(
-            label: '显示区域',
-            value: _settings.displayArea,
-            min: DanmakuSettings.minArea,
-            max: DanmakuSettings.maxArea,
-            display: '${(_settings.displayArea * 100).round()}%',
-            onChanged: (value) =>
-                _update(_settings.copyWith(displayArea: value)),
+          const Text('显示范围', style: TextStyle(fontSize: 14)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final rows in [1, 2, 3, 4, 5])
+                ChoiceChip(
+                  label: Text('$rows排'),
+                  selected: _settings.rows == rows,
+                  onSelected: (_) => _update(_settings.copyWith(rows: rows)),
+                ),
+              ChoiceChip(
+                label: const Text('半屏'),
+                selected: _settings.rows == 0 && _settings.displayArea == .5,
+                onSelected: (_) =>
+                    _update(_settings.copyWith(rows: 0, displayArea: .5)),
+              ),
+              ChoiceChip(
+                label: const Text('全屏'),
+                selected: _settings.rows == 0 && _settings.displayArea == 1,
+                onSelected: (_) =>
+                    _update(_settings.copyWith(rows: 0, displayArea: 1)),
+              ),
+            ],
+          ),
+          _switch(
+            '避让底部字幕',
+            _settings.avoidSubtitles,
+            (value) => _update(_settings.copyWith(avoidSubtitles: value)),
+          ),
+          _switch(
+            '画中画显示弹幕',
+            _settings.pipEnabled,
+            (value) => _update(_settings.copyWith(pipEnabled: value)),
           ),
           _slider(
             label: '滚动速度',
@@ -198,27 +272,100 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             onChanged: (value) =>
                 _update(_settings.copyWith(speedScale: value)),
           ),
-          _slider(
-            label: '描边',
-            value: _settings.strokeWidth,
-            min: DanmakuSettings.minStroke,
-            max: DanmakuSettings.maxStroke,
-            display: _settings.strokeWidth.toStringAsFixed(1),
-            onChanged: (value) =>
-                _update(_settings.copyWith(strokeWidth: value)),
-          ),
-          _slider(
-            label: '同屏上限',
-            value: _settings.maxOnScreen.toDouble(),
-            min: DanmakuSettings.minOnScreen.toDouble(),
-            max: DanmakuSettings.maxOnScreenLimit.toDouble(),
-            display: '${_settings.maxOnScreen} 条',
-            divisions:
-                (DanmakuSettings.maxOnScreenLimit -
-                    DanmakuSettings.minOnScreen) ~/
-                10,
-            onChanged: (value) =>
-                _update(_settings.copyWith(maxOnScreen: value.round())),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('高级设置', style: TextStyle(fontSize: 14)),
+            children: [
+              _switch(
+                '彩色弹幕',
+                _settings.allowColored,
+                (value) => _update(_settings.copyWith(allowColored: value)),
+              ),
+              _switch(
+                '字体加粗',
+                _settings.bold,
+                (value) => _update(_settings.copyWith(bold: value)),
+              ),
+              _switch(
+                '显示滚动弹幕',
+                _settings.showScroll,
+                (value) => _update(_settings.copyWith(showScroll: value)),
+              ),
+              _switch(
+                '显示顶部弹幕',
+                _settings.showTop,
+                (value) => _update(_settings.copyWith(showTop: value)),
+              ),
+              _switch(
+                '显示底部弹幕',
+                _settings.showBottom,
+                (value) => _update(_settings.copyWith(showBottom: value)),
+              ),
+              _switch(
+                '合并重复弹幕',
+                _settings.mergeDuplicates,
+                (value) => _update(_settings.copyWith(mergeDuplicates: value)),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('关键词屏蔽'),
+                trailing: Text('${_settings.blockedWords.length} 个'),
+                onTap: _editBlockedWords,
+              ),
+              _slider(
+                label: '行间距',
+                value: _settings.lineSpacing,
+                min: 1,
+                max: 3,
+                display: _settings.lineSpacing.toStringAsFixed(2),
+                onChanged: (value) =>
+                    _update(_settings.copyWith(lineSpacing: value)),
+              ),
+              _slider(
+                label: '每秒上限',
+                value: _settings.maxPerSecond.toDouble(),
+                min: 1,
+                max: 30,
+                divisions: 29,
+                display: '${_settings.maxPerSecond} 条/秒',
+                onChanged: (value) =>
+                    _update(_settings.copyWith(maxPerSecond: value.round())),
+              ),
+              _slider(
+                label: '时间校准',
+                value: _settings.delayMs / 1000,
+                min: -10,
+                max: 10,
+                divisions: 40,
+                display: '${(_settings.delayMs / 1000).toStringAsFixed(1)} 秒',
+                onChanged: (value) => _update(
+                  _settings.copyWith(delayMs: (value * 1000).round()),
+                ),
+              ),
+              const Text('正值延后，负值提前', style: TextStyle(fontSize: 12)),
+              _slider(
+                label: '描边',
+                value: _settings.strokeWidth,
+                min: DanmakuSettings.minStroke,
+                max: DanmakuSettings.maxStroke,
+                display: _settings.strokeWidth.toStringAsFixed(1),
+                onChanged: (value) =>
+                    _update(_settings.copyWith(strokeWidth: value)),
+              ),
+              _slider(
+                label: '同屏上限',
+                value: _settings.maxOnScreen.toDouble(),
+                min: DanmakuSettings.minOnScreen.toDouble(),
+                max: DanmakuSettings.maxOnScreenLimit.toDouble(),
+                display: '${_settings.maxOnScreen} 条',
+                divisions:
+                    (DanmakuSettings.maxOnScreenLimit -
+                        DanmakuSettings.minOnScreen) ~/
+                    10,
+                onChanged: (value) =>
+                    _update(_settings.copyWith(maxOnScreen: value.round())),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           TextButton.icon(
