@@ -1872,7 +1872,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     library.saveProgress(
       VideoProgress(
-        section: Section.video,
+        section: library.section,
         itemId: target.itemId,
         chapterIndex: target.chapterIndex,
         chapterId: target.chapterId,
@@ -1904,6 +1904,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _backgroundPlaying = true;
         final nativeBackend = session.backend;
         if (nativeBackend is MethodChannelPipBackend) {
+          await _syncPipDanmaku();
           await nativeBackend.updatePlaybackState(
             playing: true,
             duration: player.snapshot.value.duration,

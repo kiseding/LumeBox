@@ -23,11 +23,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_reading');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
   });
 
   tearDown(() async {
@@ -37,39 +37,87 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test('猫源按内容类型保存进度，重开后视频漫画小说均可续读', () async {
+    final library = await ReadingLibrary.open(Section.cat);
+    final now = DateTime.now();
+    library.saveProgress(
+      VideoProgress(
+        section: Section.cat,
+        itemId: 'video',
+        chapterIndex: 1,
+        chapterId: 'line-a-2',
+        chapterTitle: '第二集',
+        updatedAt: now,
+        position: const Duration(seconds: 90),
+        duration: const Duration(minutes: 40),
+      ),
+    );
+    library.saveProgress(
+      ComicProgress(
+        section: Section.cat,
+        itemId: 'comic',
+        chapterIndex: 2,
+        chapterId: 'chapter3',
+        chapterTitle: '第三话',
+        updatedAt: now,
+        page: 7,
+        pageFraction: .25,
+      ),
+    );
+    library.saveProgress(
+      NovelProgress(
+        section: Section.cat,
+        itemId: 'novel',
+        chapterIndex: 3,
+        chapterId: 'chapter4',
+        chapterTitle: '第四章',
+        updatedAt: now,
+        charOffset: 600,
+        chapterLength: 3000,
+      ),
+    );
+    ReadingLibrary.close(Section.cat);
+    final restored = await ReadingLibrary.open(Section.cat);
+    expect(
+      restored.videoProgress('video')?.position,
+      const Duration(seconds: 90),
+    );
+    expect(restored.progress('comic'), isA<ComicProgress>());
+    expect((restored.progress('novel') as NovelProgress).charOffset, 600);
+    expect(restored.progress('video')?.section, Section.cat);
+  });
+
   ComicProgress comicProgress({
     String itemId = 'book',
     int chapterIndex = 2,
     int page = 5,
     double fraction = 0.4,
-  }) =>
-      ComicProgress(
-        section: Section.comic,
-        itemId: itemId,
-        chapterIndex: chapterIndex,
-        chapterId: 'c$chapterIndex',
-        chapterTitle: '第 ${chapterIndex + 1} 章',
-        updatedAt: DateTime.now(),
-        page: page,
-        pageFraction: fraction,
-      );
+  }) => ComicProgress(
+    section: Section.comic,
+    itemId: itemId,
+    chapterIndex: chapterIndex,
+    chapterId: 'c$chapterIndex',
+    chapterTitle: '第 ${chapterIndex + 1} 章',
+    updatedAt: DateTime.now(),
+    page: page,
+    pageFraction: fraction,
+  );
 
   NovelProgress novelProgress({
     String itemId = 'book',
     int chapterIndex = 2,
     int charOffset = 1200,
     int chapterLength = 4800,
-  }) =>
-      NovelProgress(
-        section: Section.novel,
-        itemId: itemId,
-        chapterIndex: chapterIndex,
-        chapterId: 'c$chapterIndex',
-        chapterTitle: '第 ${chapterIndex + 1} 章',
-        updatedAt: DateTime.now(),
-        charOffset: charOffset,
-        chapterLength: chapterLength,
-      );
+  }) => NovelProgress(
+    section: Section.novel,
+    itemId: itemId,
+    chapterIndex: chapterIndex,
+    chapterId: 'c$chapterIndex',
+    chapterTitle: '第 ${chapterIndex + 1} 章',
+    updatedAt: DateTime.now(),
+    charOffset: charOffset,
+    chapterLength: chapterLength,
+  );
 
   group('板块隔离', () {
     test('阅读库与图源库分文件，且落在本板块目录下', () async {
@@ -290,7 +338,11 @@ void main() {
         title: '小说',
         chapterCount: 10,
       );
-      final saved = novelProgress(itemId: 'n', charOffset: 600, chapterLength: 2400);
+      final saved = novelProgress(
+        itemId: 'n',
+        charOffset: 600,
+        chapterLength: 2400,
+      );
       library.saveProgress(saved);
 
       final loaded = library.novelProgress('n')!;
@@ -370,7 +422,8 @@ void main() {
 
     test('清理缓存只删图片缓存，不动用户保存的图片', () async {
       final library = await ReadingLibrary.open(Section.comic);
-      File('${library.imageCacheDir}/cached.img').writeAsBytesSync(<int>[1, 2, 3]);
+      File('${library.imageCacheDir}/cached.img')
+          .writeAsBytesSync(<int>[1, 2, 3]);
       final saved = library.saveImage(
         'page1.jpg',
         Uint8List.fromList(<int>[9, 9, 9]),

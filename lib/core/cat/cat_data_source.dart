@@ -24,9 +24,10 @@ String catUnescape(String value) {
 
 class CatDataSource
     implements DataSource, HomeCapable, FilterCapable, ContextualFilterCapable {
-  CatDataSource(this.service, this.site);
+  CatDataSource(this.service, this.site, {this.chapterFlag});
   final CatService service;
   final CatSite site;
+  final String? chapterFlag;
   Map<String, dynamic>? _home;
   final _details = <String, Map<String, dynamic>>{};
   final _folders = <String>{};
@@ -279,8 +280,39 @@ class CatDataSource
   }
 
   @override
-  Future<List<SourceChapter>> chapters(String itemId) async =>
-      parseChapters(await rawDetail(itemId));
+  Future<List<SourceChapter>> chapters(String itemId) async {
+    final chapters = parseChapters(await rawDetail(itemId));
+    return chapterFlag == null
+        ? chapters
+        : chapters.where((chapter) => flagOf(chapter) == chapterFlag).toList();
+  }
+
+  static String flagOf(SourceChapter chapter) {
+    try {
+      return catText(catMap(jsonDecode(chapter.id))['flag']);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  static String labelOf(SourceChapter chapter) {
+    final flag = flagOf(chapter);
+    final prefix = '$flag · ';
+    return flag.isNotEmpty && chapter.title.startsWith(prefix)
+        ? chapter.title.substring(prefix.length)
+        : chapter.title;
+  }
+
+  static Map<String, List<SourceChapter>> episodeLines(
+    List<SourceChapter> chapters,
+  ) {
+    final lines = <String, List<SourceChapter>>{};
+    for (final chapter in chapters) {
+      (lines[flagOf(chapter)] ??= []).add(chapter);
+    }
+    return lines;
+  }
+
   @override
   Future<ChapterContent?> content({
     required String itemId,
@@ -339,14 +371,16 @@ class CatDataSource
 /// The player/readers use this port to reopen their own Cat site. Management is
 /// handled by Cat subscription UI, never the ordinary QuickJS source registry.
 class CatSourceManager implements SourceManager {
-  CatSourceManager(this.service, this.site);
+  CatSourceManager(this.service, this.site, {this.chapterFlag});
   final CatService service;
   final CatSite site;
+  final String? chapterFlag;
   @override
   bool get runtimeAvailable => true;
   @override
-  Future<DataSource?> open(String sourceId) async =>
-      sourceId == site.id ? CatDataSource(service, site) : null;
+  Future<DataSource?> open(String sourceId) async => sourceId == site.id
+      ? CatDataSource(service, site, chapterFlag: chapterFlag)
+      : null;
   @override
   Future<List<SourceDescriptor>> list() async => [
     SourceDescriptor(

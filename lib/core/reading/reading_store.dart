@@ -30,7 +30,7 @@ class ReadingStore {
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
 
-  static const int _schemaVersion = 1;
+  static const int _schemaVersion = 2;
 
   /// 板块内阅读数据根目录（相对板块根）。
   static const String cacheRootName = 'reading_cache';
@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS reading_progress (
   position       INTEGER NOT NULL DEFAULT 0,
   fraction       REAL NOT NULL DEFAULT 0,
   chapter_length INTEGER NOT NULL DEFAULT 0,
+  progress_kind  TEXT NOT NULL DEFAULT '',
   updated_at     INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS reading_setting (
@@ -81,13 +82,16 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   /// 库已释放时返回 true。
   bool get isClosed => _closed;
 
-
   /// 打开（必要时创建）板块阅读库。同一板块重复调用返回同一实例。
   static Future<ReadingStore> open(Section section) async {
     final existing = _opened[section.id];
     if (existing != null) return existing;
     final scope = await SectionScope.open(section);
-    final store = ReadingStore._(section, scope, sqlite3.open(_readingDbPath(scope)));
+    final store = ReadingStore._(
+      section,
+      scope,
+      sqlite3.open(_readingDbPath(scope)),
+    );
     try {
       store._migrate();
       store._prepareDirectories();
@@ -126,6 +130,14 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     if (version < 1) {
       _db.execute(_schema);
     }
+    if (version < 2 &&
+        !_db
+            .select('PRAGMA table_info(reading_progress)')
+            .any((row) => row['name'] == 'progress_kind')) {
+      _db.execute(
+        "ALTER TABLE reading_progress ADD COLUMN progress_kind TEXT NOT NULL DEFAULT ''",
+      );
+    }
     if (version < _schemaVersion) {
       _db.execute('PRAGMA user_version = $_schemaVersion');
     }
@@ -140,9 +152,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       return;
     }
     if (owner != section.id) {
-      throw StateError(
-        '阅读库归属不符：库中标记为「$owner」，不能以「${section.id}」打开',
-      );
+      throw StateError('阅读库归属不符：库中标记为「$owner」，不能以「${section.id}」打开');
     }
   }
 
@@ -227,11 +237,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
 
   /// 记「已读到第几章」。只前进不回退：回翻旧章节不会让未读角标重新涨起来，
   /// 同时刷新排序时间，让它回到书架最前。
-  void markChapterRead(
-    String itemId,
-    int chapterIndex, {
-    DateTime? at,
-  }) {
+  void markChapterRead(String itemId, int chapterIndex, {DateTime? at}) {
     if (_closed || chapterIndex < 0) return;
     _db.execute(
       'UPDATE library_item SET '
@@ -264,19 +270,31 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     _requireOwn(progress.section);
     // position 的含义按形状而定：漫画是页序号、小说是字符偏移、视频是播放毫秒。
     final (position, fraction, chapterLength) = switch (progress) {
-      ComicProgress(:final page, :final pageFraction) => (page, pageFraction, 0),
-      NovelProgress(:final charOffset, :final chapterLength) =>
-        (charOffset, 0.0, chapterLength),
+      ComicProgress(:final page, :final pageFraction) => (
+        page,
+        pageFraction,
+        0,
+      ),
+      NovelProgress(:final charOffset, :final chapterLength) => (
+        charOffset,
+        0.0,
+        chapterLength,
+      ),
       VideoProgress(:final position, :final duration) => (
-          position.inMilliseconds,
-          duration.inMilliseconds.toDouble(),
-          0,
-        ),
+        position.inMilliseconds,
+        duration.inMilliseconds.toDouble(),
+        0,
+      ),
+    };
+    final kind = switch (progress) {
+      ComicProgress() => 'comic',
+      NovelProgress() => 'novel',
+      VideoProgress() => 'video',
     };
     _db.execute(
       'INSERT INTO reading_progress (item_id, section, chapter_index, '
       'chapter_id, chapter_title, position, fraction, chapter_length, '
-      'updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'progress_kind, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(item_id) DO UPDATE SET '
       'section = excluded.section, '
       'chapter_index = excluded.chapter_index, '
@@ -285,6 +303,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       'position = excluded.position, '
       'fraction = excluded.fraction, '
       'chapter_length = excluded.chapter_length, '
+      'progress_kind = excluded.progress_kind, '
       'updated_at = excluded.updated_at',
       <Object?>[
         progress.itemId,
@@ -295,6 +314,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         position,
         fraction,
         chapterLength,
+        kind,
         progress.updatedAt.millisecondsSinceEpoch,
       ],
     );
@@ -312,8 +332,9 @@ CREATE TABLE IF NOT EXISTS reading_setting (
 
   String? setting(String key) {
     if (_closed) return null;
-    final rows =
-        _db.select('SELECT value FROM reading_setting WHERE key = ?', [key]);
+    final rows = _db.select('SELECT value FROM reading_setting WHERE key = ?', [
+      key,
+    ]);
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
 
@@ -376,8 +397,13 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     var target = File(p.join(exportDir, safe));
     var index = 1;
     while (target.existsSync()) {
-      target = File(p.join(exportDir, '${p.basenameWithoutExtension(safe)}'
-          '_$index${p.extension(safe)}'));
+      target = File(
+        p.join(
+          exportDir,
+          '${p.basenameWithoutExtension(safe)}'
+          '_$index${p.extension(safe)}',
+        ),
+      );
       index++;
     }
     target.createSync(recursive: true);
@@ -460,9 +486,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
 
   void _requireOwn(Section other) {
     if (other.id != section.id) {
-      throw ArgumentError(
-        '拒绝跨板块写入阅读库：记录归属「${other.id}」，本库属于「${section.id}」',
-      );
+      throw ArgumentError('拒绝跨板块写入阅读库：记录归属「${other.id}」，本库属于「${section.id}」');
     }
   }
 
@@ -487,8 +511,9 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       );
       return null;
     }
-    final updatedAt =
-        DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int);
+    final updatedAt = DateTime.fromMillisecondsSinceEpoch(
+      row['updated_at'] as int,
+    );
     final common = (
       itemId: row['item_id'] as String,
       chapterIndex: row['chapter_index'] as int,
@@ -497,42 +522,43 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       updatedAt: updatedAt,
     );
     // 进度形状由板块决定：漫画存页位置，小说存字符偏移。
-    return switch (section) {
+    final kind = section == Section.cat
+        ? sectionFromId(row['progress_kind'] as String)
+        : section;
+    return switch (kind) {
       Section.comic => ComicProgress(
-          section: section,
-          itemId: common.itemId,
-          chapterIndex: common.chapterIndex,
-          chapterId: common.chapterId,
-          chapterTitle: common.chapterTitle,
-          updatedAt: common.updatedAt,
-          page: row['position'] as int,
-          pageFraction: (row['fraction'] as num).toDouble(),
-        ),
+        section: section,
+        itemId: common.itemId,
+        chapterIndex: common.chapterIndex,
+        chapterId: common.chapterId,
+        chapterTitle: common.chapterTitle,
+        updatedAt: common.updatedAt,
+        page: row['position'] as int,
+        pageFraction: (row['fraction'] as num).toDouble(),
+      ),
       Section.novel => NovelProgress(
-          section: section,
-          itemId: common.itemId,
-          chapterIndex: common.chapterIndex,
-          chapterId: common.chapterId,
-          chapterTitle: common.chapterTitle,
-          updatedAt: common.updatedAt,
-          charOffset: row['position'] as int,
-          chapterLength: row['chapter_length'] as int,
-        ),
+        section: section,
+        itemId: common.itemId,
+        chapterIndex: common.chapterIndex,
+        chapterId: common.chapterId,
+        chapterTitle: common.chapterTitle,
+        updatedAt: common.updatedAt,
+        charOffset: row['position'] as int,
+        chapterLength: row['chapter_length'] as int,
+      ),
       Section.video => VideoProgress(
-          section: section,
-          itemId: common.itemId,
-          chapterIndex: common.chapterIndex,
-          chapterId: common.chapterId,
-          chapterTitle: common.chapterTitle,
-          updatedAt: common.updatedAt,
-          position: Duration(milliseconds: row['position'] as int),
-          // 时长借 fraction 列存（该列在视频口径下不再表示页内比例）。
-          duration: Duration(
-            milliseconds: (row['fraction'] as num).round(),
-          ),
-        ),
+        section: section,
+        itemId: common.itemId,
+        chapterIndex: common.chapterIndex,
+        chapterId: common.chapterId,
+        chapterTitle: common.chapterTitle,
+        updatedAt: common.updatedAt,
+        position: Duration(milliseconds: row['position'] as int),
+        // 时长借 fraction 列存（该列在视频口径下不再表示页内比例）。
+        duration: Duration(milliseconds: (row['fraction'] as num).round()),
+      ),
       // 猫源板块的进度形状尚未定义（站点切换等形态未定），如实返回 null。
-      Section.cat => null,
+      Section.cat || null => null,
     };
   }
 

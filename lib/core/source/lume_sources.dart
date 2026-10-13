@@ -517,16 +517,16 @@ class _EngineRuntime implements JsSourceRuntime {
 
   @override
   Future<Set<String>> contractMethods() async {
-    final _registry = await SourceRegistry.open(_section);
-    final engine = await _registry.engineFor(_sourceId);
+    final registry = await SourceRegistry.open(_section);
+    final engine = await registry.engineFor(_sourceId);
     if (engine == null) return const <String>{};
     return await engine.contractMethods() ?? const <String>{};
   }
 
   @override
   Future<Object?> call(String method, [Object? argument]) async {
-    final _registry = await SourceRegistry.open(_section);
-    final engine = await _registry.engineFor(_sourceId);
+    final registry = await SourceRegistry.open(_section);
+    final engine = await registry.engineFor(_sourceId);
     if (engine == null) {
       throw const SourceException(SourceErrorKind.notFound, '源不可用（未启用或脚本载入失败）');
     }

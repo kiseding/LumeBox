@@ -568,10 +568,11 @@ class VideoQuality {
   int get resolutionRank {
     if (height > 0) return height;
     final text = label.toLowerCase();
-    final size = RegExp(r'(\d{3,5})\s*[x×]\s*(\d{3,5})').firstMatch(text);
+    final size = RegExp(r'(\d{3,5})\s*[x×*]\s*(\d{3,5})').firstMatch(text);
     if (size != null) return int.parse(size.group(2)!);
     final pixels = RegExp(r'(\d{3,5})\s*p').firstMatch(text);
     if (pixels != null) return int.parse(pixels.group(1)!);
+    if (RegExp(r'^\d{3,5}$').hasMatch(text)) return int.parse(text);
     if (text.contains('8k')) return 4320;
     if (text.contains('4k') || text.contains('uhd')) return 2160;
     if (text.contains('2k')) return 1440;

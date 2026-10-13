@@ -335,6 +335,7 @@ final class PipController: NSObject {
     }
     if candidate.isPictureInPicturePossible {
       starting = true
+      startAvFrames()
       paused = false
       playbackRate = avPlayer?.rate ?? avLayer?.player?.rate ?? 1
       if playbackRate <= 0 { playbackRate = 1 }
@@ -383,6 +384,7 @@ extension PipController: FlutterStreamHandler {
 extension PipController: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
     starting = true
+    startAvFrames()
     if let rate = (avPlayer ?? avLayer?.player)?.rate, rate > 0 { playbackRate = rate }
     paused = false
   }

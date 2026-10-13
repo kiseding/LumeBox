@@ -284,7 +284,7 @@ final class PipDanmakuRenderer {
       let x = mode == "scroll" ? Double(width) - (Double(width) + Double(measured.width)) * age / duration : (Double(width) - Double(measured.width)) / 2
       let y = Double(lane) * rowHeight
       if Double(measured.height) > rowHeight { continue }
-      label.draw(at: CGPoint(x: x, y: y))
+      label.draw(at: CGPoint(x: x.rounded(), y: y.rounded()))
     }
   }
 }

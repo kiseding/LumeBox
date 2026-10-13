@@ -1,0 +1,124 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/cat/cat_data_source.dart';
+import 'package:lume_box/core/cat/cat_service.dart';
+import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/features/cat/cat_detail_page.dart';
+
+class FixtureCat extends CatDataSource {
+  FixtureCat(super.service, super.site, {super.chapterFlag});
+  @override
+  Future<Map<String, dynamic>> rawDetail(String itemId) async => {
+    'vod_id': 'movie',
+    'vod_name': '测试影片',
+    'vod_pic': '',
+    'vod_year': '2026',
+    'vod_area': '大陆',
+    'vod_actor': '演员甲,演员乙',
+    'vod_content': '这是一段测试简介。' * 30,
+    'vod_play_from': r'夸克原画$$$UC原画',
+    'vod_play_url': [
+      for (final count in [14, 3])
+        [for (var i = 1; i <= count; i++) '第$i集\$https://video.test/$count/$i']
+            .join('#'),
+    ].join(r'$$$'),
+  };
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory root;
+  late CatService service;
+  late FixtureCat source;
+  late ReadingLibrary library;
+  const site = CatSite(
+    subscriptionId: 'test',
+    key: 'test',
+    name: '测试站点',
+    api: '/spider/test',
+    kind: 'video',
+  );
+  setUp(() async {
+    root = Directory.systemTemp.createTempSync('cat_detail');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => root.path,
+        );
+    service = CatService.testing();
+    source = FixtureCat(service, site);
+    library = await ReadingLibrary.open(Section.cat);
+  });
+  tearDown(() async {
+    ReadingLibrary.disposeAll();
+    ReadingStore.disposeAll();
+    await SectionScope.closeAll();
+    await service.closeForTesting();
+    root.deleteSync(recursive: true);
+  });
+  test('线路分组保持章节身份，播放器只能连续播放所选线路', () async {
+    final chapters = await source.chapters('movie');
+    final groups = CatDataSource.episodeLines(chapters);
+    expect(groups['夸克原画']?.length, 14);
+    expect(groups['UC原画']?.length, 3);
+    final filtered = await FixtureCat(
+      service,
+      site,
+      chapterFlag: 'UC原画',
+    ).chapters('movie');
+    expect(filtered.length, 3);
+    expect(
+      filtered.every((chapter) => CatDataSource.flagOf(chapter) == 'UC原画'),
+      true,
+    );
+    expect(CatDataSource.labelOf(filtered.first), '第1集');
+    expect(filtered.first.id, groups['UC原画']!.first.id);
+  });
+  for (final width in [320.0, 390.0]) {
+    testWidgets('猫源详情$width宽按线路显示与完整选集，简介可收起', (tester) async {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final item = source.item(await source.rawDetail('movie'))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CatDetailPage(source: source, item: item, library: library),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('测试影片'), findsOneWidget);
+      expect(find.text('全部 14 集'), findsOneWidget);
+      expect(find.text('剧集与线路（17）'), findsNothing);
+      await tester.ensureVisible(find.text('全部 14 集'));
+      await tester.tap(find.text('全部 14 集'));
+      await tester.pumpAndSettle();
+      expect(find.text('选集'), findsOneWidget);
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('UC原画').last);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(CatEpisodePicker),
+          matching: find.text('第1集'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(CatEpisodePicker),
+          matching: find.text('第4集'),
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+}
