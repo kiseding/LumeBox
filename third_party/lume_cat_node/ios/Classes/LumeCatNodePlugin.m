@@ -46,8 +46,8 @@
     result(@YES); return;
   }
   if ([call.method isEqualToString:@"readSecret"] || [call.method isEqualToString:@"writeSecret"]) {
-    NSString *key = args[@"key"];
-    if (!key) { result(nil); return; }
+    NSString *key = [args[@"key"] isKindOfClass:NSString.class] ? args[@"key"] : nil;
+    if (!key) { result([FlutterError errorWithCode:@"arguments" message:@"凭证名称不完整" details:nil]); return; }
     NSMutableDictionary *query = [@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,
       (__bridge id)kSecAttrService:@"com.lumebox.cat", (__bridge id)kSecAttrAccount:key} mutableCopy];
     if ([call.method isEqualToString:@"readSecret"]) {
@@ -58,7 +58,8 @@
       else if (status == errSecItemNotFound) { result(nil); }
       else { result([FlutterError errorWithCode:@"keychain" message:@"无法读取订阅凭证" details:nil]); }
     } else {
-      NSString *value = args[@"value"];
+      // Flutter's codec represents null dictionary values as NSNull.
+      NSString *value = [args[@"value"] isKindOfClass:NSString.class] ? args[@"value"] : nil;
       if (!value) { SecItemDelete((__bridge CFDictionaryRef)query); result(nil); return; }
       NSDictionary *update = @{(__bridge id)kSecValueData:[value dataUsingEncoding:NSUTF8StringEncoding]};
       OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)update);
