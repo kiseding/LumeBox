@@ -33,7 +33,11 @@ import 'player_capabilities.dart';
 /// 句柄（`ctx`）做成了公开字段**，libmpv 的客户端 API 又是线程安全的，
 /// 因此这一层可以直接调用 `mpv_set_property_string`——不 fork、不反射、不猜。
 class MediaKitMpvEngine
-    implements MpvEngine, FrameTickCapable, EnginePropertyCapable, TrackCapable {
+    implements
+        MpvEngine,
+        FrameTickCapable,
+        EnginePropertyCapable,
+        TrackCapable {
   /// 私有构造：只接受**已经**建好的 Player。
   ///
   /// 外部只能走 [create]——它保证 media_kit 先初始化、再碰任何 media_kit API。
@@ -57,7 +61,7 @@ class MediaKitMpvEngine
   ///
   /// 顺序是硬性的：media_kit 的 `Player` / `VideoController` 在未初始化时直接抛
   /// 「MediaKit.ensureInitialized must be called before using any API from
-  /// package:media_kit.」（真机实测到的就是这个异常，栈顶在 
+  /// package:media_kit.」（真机实测到的就是这个异常，栈顶在
   /// `NativeLibrary.path` ← `new NativePlayer`）。因此这里在任何 media_kit API
   /// 之前先初始化（装载 libmpv 原生库），再建 Player 与视频控制器。
   ///
@@ -143,8 +147,10 @@ class MediaKitMpvEngine
   /// `demuxer-readahead-secs` 与两个缓存上限（先攒多少数据）。
   /// 写不进去只记日志，不影响播放。
   Future<void> _applyBufferingProperties() async {
+    if (_appliedBuffering == _bufferingConfig) return;
     final properties = MpvProperties.buffering(_bufferingConfig);
     final accepted = await _setProperties(properties);
+    if (accepted == properties.length) _appliedBuffering = _bufferingConfig;
     LumeLog.info('[mpv] 缓冲参数已写入 $accepted/${properties.length} 项');
   }
 
@@ -153,6 +159,7 @@ class MediaKitMpvEngine
   /// 命名带 Config 后缀：本类已有一个 `_buffering` 是**播放状态**（是否正在缓冲），
   /// 两者含义完全不同，不能同名。
   BufferingConfig _bufferingConfig = BufferingConfig.defaults;
+  BufferingConfig? _appliedBuffering;
 
   @override
   Future<void> setBuffering(BufferingConfig config) async {
@@ -241,7 +248,9 @@ class MediaKitMpvEngine
     _hardwareDecoding = enabled;
     // hwdec 是 libmpv 的**解码链初始化期**属性：这里写进去，对随后打开的媒体生效
     // （正在播的这一集要等切集后才换解码链——libmpv 的既有口径，不是本层的取舍）。
-    final accepted = await _setProperties(MpvProperties.hardwareDecoding(enabled));
+    final accepted = await _setProperties(
+      MpvProperties.hardwareDecoding(enabled),
+    );
     if (accepted == 0) {
       LumeLog.warn('[mpv] 硬解开关（${enabled ? '开' : '关'}）未能写入内核');
     }
@@ -266,8 +275,13 @@ class MediaKitMpvEngine
       for (var index = 0; index < tracks.length; index++)
         PlayerTrack(
           id: tracks[index].id,
-          label: _trackLabel(tracks[index].title, tracks[index].language,
-              tracks[index].codec, '音轨', index),
+          label: _trackLabel(
+            tracks[index].title,
+            tracks[index].language,
+            tracks[index].codec,
+            '音轨',
+            index,
+          ),
           language: tracks[index].language,
           selected: tracks[index].id == selected,
         ),
@@ -284,8 +298,13 @@ class MediaKitMpvEngine
       for (var index = 0; index < tracks.length; index++)
         PlayerTrack(
           id: tracks[index].id,
-          label: _trackLabel(tracks[index].title, tracks[index].language,
-              tracks[index].codec, '字幕', index),
+          label: _trackLabel(
+            tracks[index].title,
+            tracks[index].language,
+            tracks[index].codec,
+            '字幕',
+            index,
+          ),
           language: tracks[index].language,
           selected: tracks[index].id == selected,
         ),
@@ -303,7 +322,9 @@ class MediaKitMpvEngine
     final name = title?.trim();
     if (name != null && name.isNotEmpty) return name;
     final lang = language?.trim();
-    if (lang != null && lang.isNotEmpty && lang != 'und') return '$prefix ${lang.toUpperCase()}';
+    if (lang != null && lang.isNotEmpty && lang != 'und') {
+      return '$prefix ${lang.toUpperCase()}';
+    }
     final code = codec?.trim();
     if (code != null && code.isNotEmpty) return '$prefix ${code.toUpperCase()}';
     return '$prefix ${index + 1}';
@@ -466,13 +487,13 @@ class MediaKitMpvEngine
       // 若原生库将来改成带 stride，这里会通过字节数校验暴露出来。
       final expected = width * height * 4;
       if (raw.length < expected) {
-        LumeLog.warn(
-          '[mpv] 帧尺寸不符（${raw.length} < $expected），跳过本帧',
-        );
+        LumeLog.warn('[mpv] 帧尺寸不符（${raw.length} < $expected），跳过本帧');
         return null;
       }
       return MpvVideoFrame(
-        pixels: raw.length == expected ? raw : Uint8List.sublistView(raw, 0, expected),
+        pixels: raw.length == expected
+            ? raw
+            : Uint8List.sublistView(raw, 0, expected),
         width: width,
         height: height,
         stride: width * 4,
@@ -500,20 +521,20 @@ class MediaKitMpvEngine
 
   @override
   Widget buildView() => ValueListenableBuilder<int>(
-        valueListenable: _styleRevision,
-        builder: (context, revision, _) => Video(
-          key: ValueKey<int>(revision),
-          controller: _video,
-          // 控制栏由上层画：内核不自带 UI（换内核上层零改动的前提）。
-          controls: NoVideoControls,
-          fit: BoxFit.contain,
-          fill: Colors.black,
-          wakelock: true,
-          // 字幕样式：media_kit 的字幕层是 Flutter Widget，收一个完整 TextStyle，
-          // 因此字号 / 颜色 / 描边都真实生效（描边用多层阴影模拟）。
-          subtitleViewConfiguration: _subtitleConfiguration(),
-        ),
-      );
+    valueListenable: _styleRevision,
+    builder: (context, revision, _) => Video(
+      key: ValueKey<int>(revision),
+      controller: _video,
+      // 控制栏由上层画：内核不自带 UI（换内核上层零改动的前提）。
+      controls: NoVideoControls,
+      fit: BoxFit.contain,
+      fill: Colors.black,
+      wakelock: true,
+      // 字幕样式：media_kit 的字幕层是 Flutter Widget，收一个完整 TextStyle，
+      // 因此字号 / 颜色 / 描边都真实生效（描边用多层阴影模拟）。
+      subtitleViewConfiguration: _subtitleConfiguration(),
+    ),
+  );
 
   /// 把 [SubtitleStyle] 翻成 media_kit 的字幕样式。
   ///
@@ -524,8 +545,8 @@ class MediaKitMpvEngine
     final base = 32.0 * style.fontScale;
     final outline = style.outlineWidth;
     // 底色：把「不透明度」翻成 ARGB 的 alpha 通道（0 = 完全透明，不画底色）。
-    final backgroundAlpha =
-        (style.backgroundOpacity.clamp(0.0, 1.0) * 255).round();
+    final backgroundAlpha = (style.backgroundOpacity.clamp(0.0, 1.0) * 255)
+        .round();
     // 阴影强度 → 单向柔和投影（与四向描边叠加；强度 0 时不加）。
     final shadow = style.shadowStrength.clamp(0.0, 1.0);
     final fontFamily = style.fontFamily.trim();
@@ -533,7 +554,9 @@ class MediaKitMpvEngine
       visible: _subtitlesEnabled,
       textScaler: TextScaler.noScaling,
       // 垂直偏移：改字幕层到底边的距离。正偏移 = 离底边更远（视觉上移）。
-      padding: EdgeInsets.only(bottom: 24 + style.offsetY.clamp(-1.0, 1.0) * 120),
+      padding: EdgeInsets.only(
+        bottom: 24 + style.offsetY.clamp(-1.0, 1.0) * 120,
+      ),
       style: TextStyle(
         height: 1.4,
         fontSize: base,
@@ -551,22 +574,10 @@ class MediaKitMpvEngine
               blurRadius: shadow * 6,
             ),
           if (outline > 0) ...<Shadow>[
-            Shadow(
-              color: const Color(0xFF000000),
-              offset: Offset(-outline, 0),
-            ),
-            Shadow(
-              color: const Color(0xFF000000),
-              offset: Offset(outline, 0),
-            ),
-            Shadow(
-              color: const Color(0xFF000000),
-              offset: Offset(0, -outline),
-            ),
-            Shadow(
-              color: const Color(0xFF000000),
-              offset: Offset(0, outline),
-            ),
+            Shadow(color: const Color(0xFF000000), offset: Offset(-outline, 0)),
+            Shadow(color: const Color(0xFF000000), offset: Offset(outline, 0)),
+            Shadow(color: const Color(0xFF000000), offset: Offset(0, -outline)),
+            Shadow(color: const Color(0xFF000000), offset: Offset(0, outline)),
           ],
         ],
       ),

@@ -1,0 +1,187 @@
+import 'package:flutter/material.dart';
+
+import '../../core/session/section.dart';
+import '../../core/source/source.dart';
+import '../../core/source/source_subscription_sync.dart';
+import '../../shared/widgets/glass_card.dart';
+
+class SourceSubscriptionPage extends StatefulWidget {
+  const SourceSubscriptionPage({
+    super.key,
+    required this.section,
+    this.manager,
+  });
+  final Section section;
+  final SourceManager? manager;
+  @override
+  State<SourceSubscriptionPage> createState() => _SourceSubscriptionPageState();
+}
+
+class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
+  SourceSubscriptionSync? _service;
+  final _url = TextEditingController();
+  bool _busy = false;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      await SourceSubscriptionSync.waitForIdle(widget.section);
+      final service = await SourceSubscriptionSync.open(
+        widget.section,
+        manager: widget.manager,
+      );
+      if (mounted) setState(() => _service = service);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _add() async {
+    final service = _service;
+    if (service == null || _url.text.trim().isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await SourceSubscriptionSync.remember(widget.section, [
+        _url.text,
+      ], manager: widget.manager);
+      _url.clear();
+      await _sync();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _sync() async {
+    setState(() => _busy = true);
+    try {
+      final result = await SourceSubscriptionSync.refresh(
+        widget.section,
+        force: true,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(result.summary)));
+      await _load();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _change(
+    SavedSourceSubscription record, {
+    bool? enabled,
+    bool remove = false,
+  }) async {
+    await SourceSubscriptionSync.waitForIdle(widget.section);
+    final service = await SourceSubscriptionSync.open(
+      widget.section,
+      manager: widget.manager,
+    );
+    if (remove) {
+      service.subscriptions.removeWhere((s) => s.url == record.url);
+    } else {
+      for (final saved in service.subscriptions.where(
+        (s) => s.url == record.url,
+      )) {
+        saved.enabled = enabled!;
+      }
+    }
+    await service.save();
+    if (mounted) setState(() => _service = service);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = _service;
+    return GlassScaffold(
+      title: '${widget.section.label} · 订阅管理',
+      actions: [
+        IconButton(
+          tooltip: '同步订阅',
+          onPressed: _busy ? null : _sync,
+          icon: const Icon(Icons.sync),
+        ),
+      ],
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            '订阅地址保存后，启动、回到前台和进入板块时会自动检查。正常间隔 6 小时，失败后 30 分钟可重试。同步新增、更新和移除，保留手动导入的源。',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _url,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+              labelText: '添加订阅地址',
+              hintText: 'https://…/sources.txt',
+            ),
+            keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: _busy ? null : _add,
+            child: const Text('保存并同步'),
+          ),
+          if (_busy) const LinearProgressIndicator(),
+          if (_error != null)
+            Padding(padding: const EdgeInsets.all(8), child: Text(_error!)),
+          if (service == null)
+            const Center(child: CircularProgressIndicator())
+          else if (service.subscriptions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('暂无订阅。添加一次后不必重复填写。'),
+            )
+          else
+            for (final record in service.subscriptions)
+              Card(
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      title: Text(
+                        record.url,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      subtitle: Text(
+                        record.error.isNotEmpty
+                            ? record.error
+                            : record.checkedAt == null
+                            ? '尚未同步'
+                            : '上次同步：${record.checkedAt!.toLocal().toString().split('.').first}',
+                      ),
+                      value: record.enabled,
+                      onChanged: _busy
+                          ? null
+                          : (value) => _change(record, enabled: value),
+                    ),
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => _change(record, remove: true),
+                      child: const Text('取消订阅（保留已导入源）'),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}

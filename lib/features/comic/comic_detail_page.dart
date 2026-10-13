@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
+import '../../core/net/network_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/chapter_tile.dart';
@@ -45,11 +46,13 @@ class ComicDetailPage extends StatefulWidget {
 }
 
 class _ComicDetailPageState extends State<ComicDetailPage> {
+  NetworkProfile _sourceNetwork = NetworkProfile.none;
   late final SectionImagePipeline _pipeline = SectionImagePipeline(
     cacheDir: widget.library.imageCacheDir,
+    network: _sourceNetwork,
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
-          // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
-          maxConcurrent: SectionImagePipeline.coverConcurrency,
+    // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
+    maxConcurrent: SectionImagePipeline.coverConcurrency,
     // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）。
     diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
   );
@@ -94,6 +97,13 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
       _failure = null;
     });
     try {
+      final descriptors = await widget.manager.list();
+      _sourceNetwork =
+          descriptors
+              .where((source) => source.id == widget.target.sourceId)
+              .firstOrNull
+              ?.network ??
+          NetworkProfile.none;
       final source = await widget.manager.open(widget.target.sourceId);
       if (!mounted) return;
       if (source == null) {
@@ -106,6 +116,9 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
       final detail = await source.detail(widget.target.itemId);
       final chapters = await source.chapters(widget.target.itemId);
       if (!mounted) return;
+      if (detail?.cover != null) {
+        _pipeline.configureImageHeaders({detail!.cover!: detail.coverHeaders});
+      }
       setState(() {
         _source = source;
         _detail = detail;
@@ -151,10 +164,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     });
     if (!silent) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          duration: Duration(seconds: 1),
-          content: Text('已加入书架'),
-        ),
+        const SnackBar(duration: Duration(seconds: 1), content: Text('已加入书架')),
       );
     }
   }
@@ -200,6 +210,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
           initialChapterIndex: index,
           initialPage: page,
           runtimeAvailable: widget.runtimeAvailable,
+          network: _sourceNetwork,
         ),
       ),
     );
@@ -236,6 +247,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
       works: _detail?.title ?? widget.target.title,
       library: widget.library,
       fetch: _pipeline.fetch,
+      configureImageHeaders: _pipeline.configureImageHeaders,
     );
   }
 
@@ -273,10 +285,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     await Clipboard.setData(ClipboardData(text: path));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 1),
-        content: Text('已复制下载目录'),
-      ),
+      const SnackBar(duration: Duration(seconds: 1), content: Text('已复制下载目录')),
     );
   }
 
@@ -291,10 +300,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: DecoratedBox(
-        decoration: LumeTheme.background,
-        child: _buildBody(),
-      ),
+      body: DecoratedBox(decoration: LumeTheme.background, child: _buildBody()),
     );
   }
 
@@ -330,7 +336,9 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
             sliver: SliverList.builder(
               itemCount: _chapters.length,
               itemBuilder: (context, position) {
-                final index = _descending ? _chapters.length - 1 - position : position;
+                final index = _descending
+                    ? _chapters.length - 1 - position
+                    : position;
                 return ChapterTile(
                   title: _chapters[index].title,
                   read: _isRead(index),
@@ -395,7 +403,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                             color: LumeTheme.textPrimary,
                           ),
                         ),
-                        if ((detail?.subtitle ?? widget.target.subtitle) != null)
+                        if ((detail?.subtitle ?? widget.target.subtitle) !=
+                            null)
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
@@ -563,7 +572,9 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
   /// 进阅读器，回来时这张卡还在原处。
   Widget _buildDownloadCard() {
     final downloader = _downloader;
-    if (downloader == null || _downloadCardHidden) return const SizedBox.shrink();
+    if (downloader == null || _downloadCardHidden) {
+      return const SizedBox.shrink();
+    }
     return ListenableBuilder(
       listenable: downloader,
       builder: (context, _) {
@@ -658,20 +669,15 @@ class _DownloadScopeSheet extends StatelessWidget {
                         color: LumeTheme.textPrimary,
                       ),
                     ),
-                    subtitle: Text(
-                      switch (scope) {
-                        ComicDownloadScope.all => '整部作品，共 $count 章',
-                        ComicDownloadScope.unread =>
-                          count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
-                        ComicDownloadScope.current => count == 0
+                    subtitle: Text(switch (scope) {
+                      ComicDownloadScope.all => '整部作品，共 $count 章',
+                      ComicDownloadScope.unread =>
+                        count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
+                      ComicDownloadScope.current =>
+                        count == 0
                             ? '暂无可下载章节'
                             : '只下第 ${(readChapterIndex ?? 0) + 1} 章',
-                      },
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: LumeTheme.muted,
-                      ),
-                    ),
+                    }, style: TextStyle(fontSize: 12, color: LumeTheme.muted)),
                     trailing: count > 0
                         ? Icon(Icons.chevron_right, color: LumeTheme.muted)
                         : null,
@@ -714,8 +720,8 @@ class _DownloadCard extends StatelessWidget {
                 running
                     ? Icons.downloading
                     : (progress.status == ComicDownloadStatus.done
-                        ? Icons.check_circle_outline
-                        : Icons.cancel_outlined),
+                          ? Icons.check_circle_outline
+                          : Icons.cancel_outlined),
                 size: 18,
                 color: LumeTheme.muted,
               ),
@@ -765,10 +771,7 @@ class _DownloadCard extends StatelessWidget {
                   failure,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: LumeTheme.danger,
-                  ),
+                  style: TextStyle(fontSize: 12, color: LumeTheme.danger),
                 ),
               ),
             if (progress.failures.length > 3)
@@ -831,4 +834,3 @@ class _DownloadCard extends StatelessWidget {
     return parts.join(' · ');
   }
 }
-

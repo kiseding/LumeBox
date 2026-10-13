@@ -14,6 +14,11 @@ class SectionScope {
   final Directory root;
 
   static final Map<Section, SectionScope> _opened = {};
+  static final Map<Object, Future<void> Function()> _shutdownHooks = {};
+
+  static void registerShutdownHook(Object token, Future<void> Function() hook) {
+    _shutdownHooks[token] = hook;
+  }
 
   static Future<SectionScope> open(Section section) async {
     final existing = _opened[section];
@@ -51,6 +56,9 @@ class SectionScope {
 
   /// 仅供进程退出或测试隔离使用。
   static Future<void> closeAll() async {
+    for (final hook in _shutdownHooks.values.toList()) {
+      await hook();
+    }
     _opened.clear();
   }
 }

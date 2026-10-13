@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
 import '../net/network_queue.dart';
+import '../net/network_settings.dart';
 import '../session/section.dart';
 import '../util/lume_log.dart';
 import 'reading_store.dart';
@@ -40,9 +41,10 @@ class SectionImagePipeline {
     this.timeout = const Duration(seconds: 30),
     this.diskCache = true,
     int maxRetries = 3,
-  })  : _client = client ?? http.Client(),
-        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
-        _memory = ImageMemoryCache(memoryBudgetBytes);
+    this.network = NetworkProfile.none,
+  }) : _client = client ?? http.Client(),
+       _maxRetries = maxRetries < 0 ? 0 : maxRetries,
+       _memory = ImageMemoryCache(memoryBudgetBytes);
 
   /// 阅读器默认内存预算。漫画长图按屏宽解码，64MB 约对应十余页。
   static const int defaultMemoryBudgetBytes = 64 * 1024 * 1024;
@@ -53,6 +55,45 @@ class SectionImagePipeline {
   /// 板块内的图片缓存目录（调用方从 ReadingLibrary.imageCacheDir 取得）。
   final String cacheDir;
   final http.Client _client;
+  final NetworkProfile network;
+  final Map<String, Map<String, String>> _imageHeaders = {};
+
+  /// 图片请求头只能绑定到该源明确给出的 URL，不向其他域名或图片扩散。
+  void configureImageHeaders(Map<String, Map<String, String>> headers) {
+    for (final entry in headers.entries) {
+      _imageHeaders[upgradeToHttps(normalizeTransform(entry.key))] = Map.of(
+        entry.value,
+      );
+    }
+  }
+
+  final Map<String, SectionImagePipeline> _sourcePipelines = {};
+
+  /// 封面沿用该源的 UA、代理与显式证书选项；缓存与客户端按源隔离。
+  /// Cookie 不发给独立图床，避免把源站会话泄漏到第三方域名。
+  SectionImagePipeline forSource(
+    Section section,
+    String sourceId,
+    NetworkProfile profile,
+  ) {
+    final key =
+        '${section.id}:$sourceId:${profile.userAgent}:${profile.proxy}:${profile.allowBadCertificate}';
+    return _sourcePipelines.putIfAbsent(
+      key,
+      () => SectionImagePipeline(
+        cacheDir: p.join(
+          cacheDir,
+          ReadingStore.cacheKey('${section.id}:$sourceId'),
+        ),
+        memoryBudgetBytes: memoryBudgetBytes,
+        maxConcurrent: maxConcurrent,
+        timeout: timeout,
+        diskCache: diskCache,
+        maxRetries: maxRetries,
+        network: profile,
+      ),
+    );
+  }
 
   /// 是否使用**磁盘**缓存（读与写都算）。
   ///
@@ -219,6 +260,11 @@ class SectionImagePipeline {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    for (final pipeline in _sourcePipelines.values) {
+      pipeline.dispose();
+    }
+    _sourcePipelines.clear();
+    _imageHeaders.clear();
     // 取消在飞请求：关闭客户端是 package:http 提供的取消入口。
     try {
       _client.close();
@@ -365,7 +411,9 @@ class SectionImagePipeline {
         if (!outcome.retryable || attempt == _maxRetries) break;
         // 退避：300ms、600ms、1200ms。图片是**可见内容**，等太久不如让用户先
         // 看到缺口再自己重试——因此次数仍克制（默认 3 次，弱网多给一次机会）。
-        await Future<void>.delayed(Duration(milliseconds: 300 * (1 << attempt)));
+        await Future<void>.delayed(
+          Duration(milliseconds: 300 * (1 << attempt)),
+        );
       }
       if (handled403) LumeLog.info('图片防盗链：两种 Referer 都没放行 $url');
       return null;
@@ -416,9 +464,17 @@ class SectionImagePipeline {
       final response = await LumeNet.queue.send(
         NetworkRequest(
           url: url,
-          headers: imageRequestHeaders(url, withReferer: withReferer),
+          headers: {
+            ...imageRequestHeaders(url, withReferer: withReferer),
+            if (network.userAgent.trim().isNotEmpty)
+              'User-Agent': network.userAgent.trim(),
+            ...?_imageHeaders[url],
+          },
           source: '图片缓存',
-          proxy: LumeNet.settings.proxy,
+          proxy: network.proxy.trim().isEmpty
+              ? LumeNet.settings.proxy
+              : network.proxy.trim(),
+          allowBadCertificate: network.allowBadCertificate,
         ),
       );
       if (_disposed) {
@@ -431,7 +487,11 @@ class SectionImagePipeline {
           LumeLog.warn('图片响应为空: $url');
           return (bytes: null, retryable: true, forbidden: false);
         }
-        return (bytes: Uint8List.fromList(bytes), retryable: false, forbidden: false);
+        return (
+          bytes: Uint8List.fromList(bytes),
+          retryable: false,
+          forbidden: false,
+        );
       }
       // 4xx 是「这张图本身有问题」（链接失效 / 防盗链），重试不会变好——例外两类：
       // · **429 / 408**：限流与超时，正是「有时能出、有时空白」的典型（真机反馈），
@@ -446,8 +506,9 @@ class SectionImagePipeline {
       if (_disposed) {
         return (bytes: null, retryable: false, forbidden: false);
       }
-      LumeLog.warn('图片请求异常(将重试): $url ($error)');
-      return (bytes: null, retryable: true, forbidden: false);
+      final retryable = !NetworkQueue.isCertificateFailure(error);
+      LumeLog.warn('图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)');
+      return (bytes: null, retryable: retryable, forbidden: false);
     }
   }
 

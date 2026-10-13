@@ -61,7 +61,9 @@ class NetworkResponse {
 }
 
 /// 真正的发送动作。队列只负责「何时发、发几次」，发送实现由调用方给。
-typedef NetworkSender = Future<NetworkResponse> Function(NetworkRequest request);
+typedef NetworkSender = Future<NetworkResponse> Function(
+  NetworkRequest request,
+);
 
 /// 读响应体；[maxBytes] 非空时读满上限就**取消订阅（连接随之断开）**，
 /// 不再把剩下的内容拉下来。
@@ -72,10 +74,7 @@ typedef NetworkSender = Future<NetworkResponse> Function(NetworkRequest request)
 /// 「越测越卡」）。有了上限，探测多读一个块就收手。
 ///
 /// 只有「探测型」请求该传 [maxBytes]；正常业务请求一律读全（null）。
-Future<Uint8List> readResponseBody(
-  Stream<List<int>> stream, {
-  int? maxBytes,
-}) {
+Future<Uint8List> readResponseBody(Stream<List<int>> stream, {int? maxBytes}) {
   if (maxBytes == null || maxBytes <= 0) return _readAll(stream);
   final collected = BytesBuilder(copy: false);
   final completer = Completer<Uint8List>();
@@ -134,11 +133,8 @@ Future<Uint8List> _readAll(Stream<List<int>> stream) async {
 /// 释放都会唤醒全部等待者重新检查。这样不会出现「先占全局额度再等域名额度」
 /// 导致的额度囤积（那会让某个大站把全局额度全占住，饿死其他域名）。
 class NetworkQueue {
-  NetworkQueue({
-    required this.settings,
-    required this.sender,
-    Random? random,
-  }) : _random = random ?? Random();
+  NetworkQueue({required this.settings, required this.sender, Random? random})
+    : _random = random ?? Random();
 
   /// 生效的网络设置（并发、重试、UA、代理都在这里）。
   final NetworkSettings settings;
@@ -181,7 +177,9 @@ class NetworkQueue {
         response = await sender(request);
       } catch (error) {
         _release(host);
-        if (!request.retryOn || attempt >= settings.maxRetries) {
+        if (!request.retryOn ||
+            isCertificateFailure(error) ||
+            attempt >= settings.maxRetries) {
           watch.stop();
           _record(request, host, watch.elapsed, status: 0, error: '$error');
           rethrow;
@@ -209,7 +207,13 @@ class NetworkQueue {
         return response;
       }
       final delay = retryAfterOf(response) ?? _backoff(attempt);
-      _logRetry(request, host, 'HTTP ${response.statusCode}', delay, attempt + 1);
+      _logRetry(
+        request,
+        host,
+        'HTTP ${response.statusCode}',
+        delay,
+        attempt + 1,
+      );
       await Future<void>.delayed(delay);
       attempt++;
     }
@@ -225,12 +229,13 @@ class NetworkQueue {
   /// 状态码是否需要退避重试：429（限流）与 503（服务暂不可用）。
   ///
   /// 刻意不重试其余 4xx：地址错了、要鉴权，重试只是徒劳地多打几次目标站。
-  static bool isRetryable(int statusCode) => statusCode == 429 || statusCode == 503;
+  static bool isRetryable(int statusCode) =>
+      statusCode == 429 || statusCode == 503;
 
   /// 服务器给的 `Retry-After`（秒或 HTTP 日期），上限 [maxRetryAfter]。
   static Duration? retryAfterOf(NetworkResponse response) {
-    final raw = response.headers['retry-after'] ??
-        response.headers['Retry-After'];
+    final raw =
+        response.headers['retry-after'] ?? response.headers['Retry-After'];
     final value = raw?.trim() ?? '';
     if (value.isEmpty) return null;
 
@@ -245,6 +250,10 @@ class NetworkQueue {
     if (delay.isNegative) return Duration.zero;
     return delay > maxRetryAfter ? maxRetryAfter : delay;
   }
+
+  /// 证书验证失败重试不会改变结果，立即释放下载额度。
+  static bool isCertificateFailure(Object error) =>
+      '$error'.contains('CERTIFICATE_VERIFY_FAILED');
 
   /// 解析 HTTP 日期（`Retry-After` 的日期写法）。解析失败返回 null。
   static DateTime? _tryParseHttpDate(String value) {
@@ -316,8 +325,7 @@ class NetworkQueue {
   Future<void> _acquire(String host) async {
     while (true) {
       final globalOk = _activeGlobal < settings.globalConcurrency;
-      final hostOk =
-          (_activePerHost[host] ?? 0) < settings.perHostConcurrency;
+      final hostOk = (_activePerHost[host] ?? 0) < settings.perHostConcurrency;
       if (globalOk && hostOk) {
         _activeGlobal++;
         _activePerHost[host] = (_activePerHost[host] ?? 0) + 1;

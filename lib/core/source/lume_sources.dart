@@ -70,14 +70,17 @@ class LumeSources {
     Section section,
     String script, {
     String originUrl = '',
+    bool preserveLocalSources = false,
   }) async {
     if (!runtimeAvailableFor(section)) {
-      return const SourceImportResult.failure(
-        '当前平台不提供源运行时',
-      );
+      return const SourceImportResult.failure('当前平台不提供源运行时');
     }
     final registry = await SourceRegistry.open(section);
-    final outcome = await registry.import(script, originUrl: originUrl);
+    final outcome = await registry.import(
+      script,
+      originUrl: originUrl,
+      preserveLocalSources: preserveLocalSources,
+    );
     final record = outcome.record;
     if (record == null) {
       return SourceImportResult.failure(outcome.message ?? '源导入失败');
@@ -168,10 +171,7 @@ class LumeSources {
   }
 
   /// 导出图源脚本原文（备份用）；图源不存在或跨板块时返回 null。
-  static Future<String?> exportScript(
-    Section section,
-    String sourceId,
-  ) async {
+  static Future<String?> exportScript(Section section, String sourceId) async {
     if (!runtimeAvailableFor(section)) return null;
     final registry = await SourceRegistry.open(section);
     return registry.scriptOf(sourceId);
@@ -232,18 +232,18 @@ class LumeSources {
       return const SourceUpdateResult.failed('源不存在或不属于本板块');
     }
     if (!record.isSubscribed) {
-      return const SourceUpdateResult.skipped(
-        '本地导入的源没有订阅地址，无法更新（可重新导入新脚本）',
-      );
+      return const SourceUpdateResult.skipped('本地导入的源没有订阅地址，无法更新（可重新导入新脚本）');
     }
 
     final skipped = <String>[];
-    final resolver = subscription ??
+    final resolver =
+        subscription ??
         SourceSubscription.viaHttp(
           // 清单里别的条目拉不到（脚本被删）不该挡住这一个源的更新：
           // 记下来，更新完在结果里如实说明。
-          onSkip: (url, error) =>
-              skipped.add('${Uri.tryParse(url)?.pathSegments.last ?? url}（$error）'),
+          onSkip: (url, error) => skipped.add(
+            '${Uri.tryParse(url)?.pathSegments.last ?? url}（$error）',
+          ),
         );
     final List<String> scripts;
     try {
@@ -373,24 +373,24 @@ class LumeSources {
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
-        id: record.id,
-        // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
-        name: SourceDisplayNames.of(record.id, record.name),
-        version: record.version,
-        enabled: record.enabled,
-        network: record.network,
-        originUrl: record.originUrl,
-        group: record.group,
-        failureCount: record.failureCount,
-        broken: record.isBroken,
-      );
+    id: record.id,
+    // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
+    name: SourceDisplayNames.of(record.id, record.name),
+    version: record.version,
+    enabled: record.enabled,
+    network: record.network,
+    originUrl: record.originUrl,
+    group: record.group,
+    failureCount: record.failureCount,
+    broken: record.isBroken,
+  );
 }
 
 /// [SourceManager] 的正式实现：把端口方法逐个委托给 [LumeSources] 的静态入口。
 ///
 /// 它不新增任何能力，也不缓存状态——运行时、数据库与沙箱仍在注册表层，
 /// 因此停用、删除、导入之后的行为与直接调用门面完全一致。
-class _LumeSourceManager implements SourceManager {
+class _LumeSourceManager implements SourceManager, SubscriptionImportManager {
   _LumeSourceManager(this._section);
 
   final Section _section;
@@ -409,8 +409,21 @@ class _LumeSourceManager implements SourceManager {
       LumeSources.selectSource(_section, sourceId);
 
   @override
-  Future<SourceImportResult> importScript(String script, {String originUrl = ''}) =>
-      LumeSources.importScript(_section, script, originUrl: originUrl);
+  Future<SourceImportResult> importScript(
+    String script, {
+    String originUrl = '',
+  }) => LumeSources.importScript(_section, script, originUrl: originUrl);
+
+  @override
+  Future<SourceImportResult> importSubscription(
+    String script, {
+    required String originUrl,
+  }) => LumeSources.importScript(
+    _section,
+    script,
+    originUrl: originUrl,
+    preserveLocalSources: true,
+  );
 
   @override
   Future<void> setEnabled(String sourceId, bool enabled) =>
@@ -424,16 +437,15 @@ class _LumeSourceManager implements SourceManager {
     required String proxy,
     String bridge = '',
     bool allowBadCertificate = false,
-  }) =>
-      LumeSources.setNetwork(
-        _section,
-        sourceId,
-        userAgent: userAgent,
-        cookie: cookie,
-        proxy: proxy,
-        bridge: bridge,
-        allowBadCertificate: allowBadCertificate,
-      );
+  }) => LumeSources.setNetwork(
+    _section,
+    sourceId,
+    userAgent: userAgent,
+    cookie: cookie,
+    proxy: proxy,
+    bridge: bridge,
+    allowBadCertificate: allowBadCertificate,
+  );
 
   @override
   Future<void> rename(String sourceId, String name) =>
@@ -452,7 +464,8 @@ class _LumeSourceManager implements SourceManager {
       LumeSources.exportScript(_section, sourceId);
 
   @override
-  Future<void> remove(String sourceId) => LumeSources.remove(_section, sourceId);
+  Future<void> remove(String sourceId) =>
+      LumeSources.remove(_section, sourceId);
 
   @override
   Future<DataSource?> open(String sourceId) =>
@@ -480,9 +493,10 @@ SourceException mapSandboxFailure(SandboxError error) {
   final kind = switch (error.kind) {
     SandboxErrorKind.disposed => SourceErrorKind.notFound,
     SandboxErrorKind.unsupported => SourceErrorKind.notFound,
-    _ => error.message.contains(LumeSourceHost.networkFailureMarker)
-        ? SourceErrorKind.network
-        : SourceErrorKind.callFailed,
+    _ =>
+      error.message.contains(LumeSourceHost.networkFailureMarker)
+          ? SourceErrorKind.network
+          : SourceErrorKind.callFailed,
   };
   return SourceException(kind, error.toString());
 }
@@ -509,10 +523,7 @@ class _EngineRuntime implements JsSourceRuntime {
   Future<Object?> call(String method, [Object? argument]) async {
     final engine = await _registry.engineFor(_sourceId);
     if (engine == null) {
-      throw const SourceException(
-        SourceErrorKind.notFound,
-        '源不可用（未启用或脚本载入失败）',
-      );
+      throw const SourceException(SourceErrorKind.notFound, '源不可用（未启用或脚本载入失败）');
     }
     final result = await engine.callResult(method, argument);
     if (result.isOk) return result.value;

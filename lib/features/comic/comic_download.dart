@@ -107,8 +107,9 @@ class ComicDownloadProgress {
   /// 进度才是连续走的。
   double get fraction {
     if (chapterTotal == 0) return 0;
-    final within =
-        currentImageTotal == 0 ? 0.0 : currentImageDone / currentImageTotal;
+    final within = currentImageTotal == 0
+        ? 0.0
+        : currentImageDone / currentImageTotal;
     return ((chapterDone + within) / chapterTotal).clamp(0.0, 1.0);
   }
 
@@ -164,6 +165,7 @@ class ComicDownloader extends ChangeNotifier {
     required this.works,
     required this.library,
     required this.fetch,
+    this.configureImageHeaders,
     this.maxConcurrentImages = 4,
   });
 
@@ -178,6 +180,8 @@ class ComicDownloader extends ChangeNotifier {
 
   /// 取字节。返回 null 表示这一张失败（请求失败、超时等）。
   final Future<Uint8List?> Function(String url) fetch;
+  final void Function(Map<String, Map<String, String>> headers)?
+  configureImageHeaders;
 
   /// 章节内同时取图的张数上限。
   final int maxConcurrentImages;
@@ -203,9 +207,9 @@ class ComicDownloader extends ChangeNotifier {
   /// 与 [_one] 判断「这张已下过」用的是同一个函数——算出来的路径与写下去的
   /// 路径必然一致。
   String chapterFolder(int index, String title) => p.join(
-        worksFolder,
-        ReadingStore.safeFolderName('${_number(index)}_$title'),
-      );
+    worksFolder,
+    ReadingStore.safeFolderName('${_number(index)}_$title'),
+  );
 
   /// 开始下载。[indices] 为正序章节下标，[chapters] 为详情页当前的章节列表。
   ///
@@ -267,8 +271,14 @@ class ComicDownloader extends ChangeNotifier {
     _notify();
     List<String> urls;
     try {
-      final content = await dataSource.content(itemId: itemId, chapterId: chapter.id);
+      final content = await dataSource.content(
+        itemId: itemId,
+        chapterId: chapter.id,
+      );
       urls = content is ImageContent ? content.images : const <String>[];
+      if (content is ImageContent) {
+        configureImageHeaders?.call(content.imageHeaders);
+      }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (_cancelled || _disposed) return;
@@ -283,8 +293,11 @@ class ComicDownloader extends ChangeNotifier {
     final folder = chapterFolder(index, chapter.title);
     _progress = _progress.copyWith(currentImageTotal: urls.length);
     _notify();
-    final failed =
-        await _downloadImages(urls: urls, folder: folder, label: label);
+    final failed = await _downloadImages(
+      urls: urls,
+      folder: folder,
+      label: label,
+    );
     if (_cancelled || _disposed) return;
     if (failed > 0) {
       _fail('$label：$failed 张图片未能取到');
@@ -332,8 +345,9 @@ class ComicDownloader extends ChangeNotifier {
       final fileName = comicImageFileName(url, index);
       final file = File(p.join(library.exportDir, folder, fileName));
       if (file.existsSync() && file.lengthSync() > 0) {
-        _progress =
-            _progress.copyWith(imageSkipped: _progress.imageSkipped + 1);
+        _progress = _progress.copyWith(
+          imageSkipped: _progress.imageSkipped + 1,
+        );
         return _ImageOutcome.skipped;
       }
       final bytes = await fetch(url);

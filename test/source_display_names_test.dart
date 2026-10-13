@@ -19,6 +19,7 @@ void main() {
     expect(SourceDisplayNames.of('xnovel_novel', '夜读小说'), '夜读小说');
     expect(SourceDisplayNames.of('jpyy2_video', '金牌影院'), '金牌影院');
     expect(SourceDisplayNames.of('vv3nwjk_video', '金牌影院'), '金牌影院');
+    expect(SourceDisplayNames.of('xanimu_video', 'XAnimu'), 'XAnimu');
   });
 
   test('表里没有的 id 原样用脚本自报的名字（新源导入即有名）', () {

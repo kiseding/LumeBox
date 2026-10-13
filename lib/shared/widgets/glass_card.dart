@@ -207,7 +207,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
               child: GlassPanel(
                 radius: 24,
-                color: LumeTheme.glass.withValues(alpha: .60),
+                color: LumeTheme.glass.withValues(alpha: .38),
                 child: const SizedBox.expand(),
               ),
             )

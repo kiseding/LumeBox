@@ -14,6 +14,7 @@ import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import 'source_import_flow.dart';
+import '../../core/source/source_subscription_sync.dart';
 
 /// 一次导入请求：目标板块 + 待导入条目 + 没能进链路的条目 + 过程说明。
 class SourceImportRequest {
@@ -22,6 +23,7 @@ class SourceImportRequest {
     required this.items,
     this.skipped = const <SourceImportSkip>[],
     this.notes = const <String>[],
+    this.subscriptionUrls = const [],
   });
 
   /// 目标板块（图源只写这里）。
@@ -34,6 +36,7 @@ class SourceImportRequest {
 
   /// 过程说明（清单被截断、文件数超上限等）。
   final List<String> notes;
+  final List<String> subscriptionUrls;
 }
 
 /// 打开「添加源」弹窗并执行导入；返回是否至少成功导入一条。
@@ -56,13 +59,23 @@ Future<bool> runSourceImport(
     ),
   );
   if (request == null || !context.mounted) return false;
-  return importSources(
+  final imported = await importSources(
     context,
     manager: manager,
     items: request.items,
     skipped: request.skipped,
     notes: request.notes,
   );
+  if (imported &&
+      request.subscriptionUrls.isNotEmpty &&
+      manager is SubscriptionImportManager) {
+    await SourceSubscriptionSync.remember(
+      request.section,
+      request.subscriptionUrls,
+      manager: manager,
+    );
+  }
+  return imported;
 }
 
 /// 添加源弹窗：本地文件 / 订阅链接 / 剪贴板三条通道，导入的源归属目标板块。
@@ -123,7 +136,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       <({String name, SourceImportInput input})>[];
 
   _ImportMode _mode = _ImportMode.local;
-  late Section _section = widget.initialSection ??
+  late Section _section =
+      widget.initialSection ??
       widget.section ??
       widget.sections?.first ??
       Section.novel;
@@ -147,7 +161,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     ],
   );
 
-  bool get _hasSectionPicker => widget.sections != null && widget.sections!.length > 1;
+  bool get _hasSectionPicker =>
+      widget.sections != null && widget.sections!.length > 1;
 
   @override
   void dispose() {
@@ -159,9 +174,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(
-        _hasSectionPicker ? '导入源' : '添加源 · ${_section.label}',
-      ),
+      title: Text(_hasSectionPicker ? '导入源' : '添加源 · ${_section.label}'),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(
@@ -171,9 +184,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
             children: <Widget>[
               if (_hasSectionPicker) ..._buildSectionPicker(),
               Text(
-                _hasSectionPicker
-                    ? '源只写入所选板块，不会跨板块共用。'
-                    : '源只写入当前板块，不会跨板块共用。',
+                _hasSectionPicker ? '源只写入所选板块，不会跨板块共用。' : '源只写入当前板块，不会跨板块共用。',
                 style: TextStyle(fontSize: 12, color: LumeTheme.muted),
               ),
               const SizedBox(height: 12),
@@ -194,12 +205,14 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
                 onSelectionChanged: _busy
                     ? null
                     : (selection) => setState(() {
-                          _mode = selection.first;
-                          _error = null;
-                        }),
+                        _mode = selection.first;
+                        _error = null;
+                      }),
               ),
               const SizedBox(height: 12),
-              ...(_mode == _ImportMode.local ? _buildLocal() : _buildSubscription()),
+              ...(_mode == _ImportMode.local
+                  ? _buildLocal()
+                  : _buildSubscription()),
               if (_progress != null) ...<Widget>[
                 const SizedBox(height: 8),
                 Row(
@@ -258,77 +271,77 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   }
 
   List<Widget> _buildSectionPicker() => <Widget>[
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            for (final section in widget.sections!)
-              ChoiceChip(
-                label: Text(section.label),
-                selected: _section == section,
-                onSelected: _busy
-                    ? null
-                    : (_) => setState(() => _section = section),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-      ];
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        for (final section in widget.sections!)
+          ChoiceChip(
+            label: Text(section.label),
+            selected: _section == section,
+            onSelected: _busy
+                ? null
+                : (_) => setState(() => _section = section),
+          ),
+      ],
+    ),
+    const SizedBox(height: 8),
+  ];
 
   List<Widget> _buildLocal() => <Widget>[
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            FilledButton.tonalIcon(
-              onPressed: _busy ? null : _pickLocal,
-              icon: const Icon(Icons.folder_open_outlined, size: 18),
-              label: const Text('选择本地文件'),
-            ),
-            TextButton.icon(
-              onPressed: _busy ? null : _fromClipboard,
-              icon: const Icon(Icons.content_paste, size: 18),
-              label: const Text('从剪贴板'),
-            ),
-          ],
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        FilledButton.tonalIcon(
+          onPressed: _busy ? null : _pickLocal,
+          icon: const Icon(Icons.folder_open_outlined, size: 18),
+          label: const Text('选择本地文件'),
         ),
-        if (_files.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              Text(
-                '已选 ${_files.length} 个文件',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: _busy ? null : () => setState(_files.clear),
-                child: const Text('清空'),
-              ),
-            ],
+        TextButton.icon(
+          onPressed: _busy ? null : _fromClipboard,
+          icon: const Icon(Icons.content_paste, size: 18),
+          label: const Text('从剪贴板'),
+        ),
+      ],
+    ),
+    if (_files.isNotEmpty) ...<Widget>[
+      const SizedBox(height: 8),
+      Row(
+        children: <Widget>[
+          Text(
+            '已选 ${_files.length} 个文件',
+            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
           ),
-          for (final file in _files) _buildFileRow(file),
-          const SizedBox(height: 4),
-        ] else
-          const SizedBox(height: 12),
-        TextField(
-          controller: _script,
-          maxLines: 6,
-          enabled: !_busy,
-          decoration: const InputDecoration(
-            hintText: '或直接粘贴源脚本内容',
-            border: OutlineInputBorder(),
+          const Spacer(),
+          TextButton(
+            onPressed: _busy ? null : () => setState(_files.clear),
+            child: const Text('清空'),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '脚本头部写一行「// LumeSource: {"id":"…","name":"…"}」即可被识别；'
-          '只写顶层函数（getList(page) 等）的脚本同样支持。'
-          '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
-          '会按订阅逐个拉取并记下来源地址。',
-          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-        ),
-      ];
+        ],
+      ),
+      for (final file in _files) _buildFileRow(file),
+      const SizedBox(height: 4),
+    ] else
+      const SizedBox(height: 12),
+    TextField(
+      controller: _script,
+      maxLines: 6,
+      enabled: !_busy,
+      decoration: const InputDecoration(
+        hintText: '或直接粘贴源脚本内容',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 8),
+    Text(
+      '脚本头部写一行「// LumeSource: {"id":"…","name":"…"}」即可被识别；'
+      '只写顶层函数（getList(page) 等）的脚本同样支持。'
+      '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
+      '会按订阅逐个拉取并记下来源地址。',
+      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+    ),
+  ];
 
   /// 单个已选文件：文件名 + 识别结论（认不出的当场标红，不用等提交）。
   Widget _buildFileRow(({String name, SourceImportInput input}) file) {
@@ -364,30 +377,30 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   }
 
   List<Widget> _buildSubscription() => <Widget>[
-        TextField(
-          controller: _url,
-          enabled: !_busy,
-          // 订阅可以是一行一个脚本地址的清单，所以允许多行粘贴。
-          maxLines: 3,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
-            hintText: '订阅地址（http / https）',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextButton.icon(
-          onPressed: _busy ? null : _fromClipboard,
-          icon: const Icon(Icons.content_paste, size: 18),
-          label: const Text('从剪贴板'),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '订阅返回单个脚本时直接导入；返回「一行一个脚本地址」的清单时逐个拉取；'
-          '返回 MD5 校验值（.js.md5）时，去掉 .md5 后缀取脚本并校验后再导入。',
-          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-        ),
-      ];
+    TextField(
+      controller: _url,
+      enabled: !_busy,
+      // 订阅可以是一行一个脚本地址的清单，所以允许多行粘贴。
+      maxLines: 3,
+      keyboardType: TextInputType.url,
+      decoration: const InputDecoration(
+        hintText: '订阅地址（http / https）',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 8),
+    TextButton.icon(
+      onPressed: _busy ? null : _fromClipboard,
+      icon: const Icon(Icons.content_paste, size: 18),
+      label: const Text('从剪贴板'),
+    ),
+    const SizedBox(height: 4),
+    Text(
+      '订阅返回单个脚本时直接导入；返回「一行一个脚本地址」的清单时逐个拉取；'
+      '返回 MD5 校验值（.js.md5）时，去掉 .md5 后缀取脚本并校验后再导入。',
+      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+    ),
+  ];
 
   /// 内置示例脚本：新用户先跑通「导入 → 浏览」这套动作的最低门槛。
   ///
@@ -406,8 +419,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       _error = null;
       _hint = isCat
           ? '这是「薄壳桥接」示例：在你的电脑 / NAS 上启动那个聚合服务端（node index.js），'
-              '导入后再到「源管理 → 网络配置 → 桥接服务地址」填它的地址（如 '
-              'http://192.168.1.5:9988，手机与服务在同一局域网）。'
+                '导入后再到「源管理 → 网络配置 → 桥接服务地址」填它的地址（如 '
+                'http://192.168.1.5:9988，手机与服务在同一局域网）。'
           : null;
     });
   }
@@ -428,7 +441,9 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         var added = 0;
         for (final file in picked) {
           if (_files.length >= widget.maxLocalFiles) break;
-          if (_files.any((item) => item.name == file.name && item.input.text == file.text)) {
+          if (_files.any(
+            (item) => item.name == file.name && item.input.text == file.text,
+          )) {
             continue;
           }
           _files.add((
@@ -456,7 +471,9 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
 
   /// 默认本地读取：系统文件选择器（多选）→ 字节 → UTF-8 解码 → 剥 BOM。
   static Future<List<({String name, String text})>> _readLocalScripts() async {
-    final files = await openFiles(acceptedTypeGroups: <XTypeGroup>[_scriptTypeGroup]);
+    final files = await openFiles(
+      acceptedTypeGroups: <XTypeGroup>[_scriptTypeGroup],
+    );
     final result = <({String name, String text})>[];
     for (final file in files) {
       final bytes = await file.readAsBytes();
@@ -527,7 +544,9 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         case SourceImportInputKind.checksum:
         case SourceImportInputKind.backup:
         case SourceImportInputKind.unknown:
-          skipped.add(SourceImportSkip(label: label, message: input.describeFailure));
+          skipped.add(
+            SourceImportSkip(label: label, message: input.describeFailure),
+          );
       }
     }
 
@@ -563,7 +582,10 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         take(input, '订阅');
       }
       // 清单比上限长时如实说明：截断是防地址风暴的设计，但不该让用户以为漏导入。
-      final probe = SourceSubscription.urlsIn(raw, limit: widget.maxScripts + 1);
+      final probe = SourceSubscription.urlsIn(
+        raw,
+        limit: widget.maxScripts + 1,
+      );
       if (probe.length > widget.maxScripts) {
         notes.add('清单较长，本次只处理前 ${widget.maxScripts} 条地址。');
       }
@@ -637,6 +659,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           items: items,
           skipped: skipped,
           notes: notes,
+          subscriptionUrls: urls,
         ),
       );
     } catch (error, stackTrace) {

@@ -252,8 +252,8 @@ class LumeSourceHost implements SandboxHost {
     required this.section,
     required this.sourceId,
     SandboxStore? store,
-  })  : _store = store ?? SandboxStore(),
-        expectedSandboxId = sandboxIdFor(section, sourceId);
+  }) : _store = store ?? SandboxStore(),
+       expectedSandboxId = sandboxIdFor(section, sourceId);
 
   /// 网络失败的稳定标记。请求没能完成时打在异常文本前面，上层据此把
   /// 「网络异常」从「脚本报错」里分出来（见数据源层的沙箱失败归一）。
@@ -290,7 +290,8 @@ class LumeSourceHost implements SandboxHost {
   Future<Object?> invoke(SandboxHostRequest request) async {
     // 身份先于能力：声明与宿主不符即拒绝，且不触达 http 与 store。
     if (request.sandboxId != expectedSandboxId) {
-      final message = '拒绝跨沙箱宿主调用：请求声明「${request.sandboxId}」，'
+      final message =
+          '拒绝跨沙箱宿主调用：请求声明「${request.sandboxId}」，'
           '本宿主服务「$expectedSandboxId」（${section.label}板块）。';
       LumeLog.warn('[${section.id}] $message');
       throw SandboxHostException(message);
@@ -303,9 +304,13 @@ class LumeSourceHost implements SandboxHost {
       case SandboxHostMethods.storeWrite:
         return _storeWrite(request.payload);
       case SandboxHostMethods.storeHas:
-        return <String, Object?>{'exists': _store.containsKey(_key(request.payload))};
+        return <String, Object?>{
+          'exists': _store.containsKey(_key(request.payload)),
+        };
       case SandboxHostMethods.storeRemove:
-        return <String, Object?>{'removed': _store.remove(_key(request.payload))};
+        return <String, Object?>{
+          'removed': _store.remove(_key(request.payload)),
+        };
       case SandboxHostMethods.storeKeys:
         return <String, Object?>{'keys': _store.keys()};
       case SandboxHostMethods.utilDigest:
@@ -366,9 +371,7 @@ class LumeSourceHost implements SandboxHost {
         }
         return <String, Object?>{'digest': buffer.toString()};
       default:
-        throw SandboxHostException(
-          '暂不支持的摘要算法：$algorithm（当前支持：md5）',
-        );
+        throw SandboxHostException('暂不支持的摘要算法：$algorithm（当前支持：md5）');
     }
   }
 
@@ -397,6 +400,7 @@ class LumeSourceHost implements SandboxHost {
       'status': response.statusCode,
       'headers': response.headers,
       'body': response.text,
+      if (payload['binary'] == true) 'bodyBase64': base64Encode(response.body),
     };
   }
 
@@ -431,13 +435,11 @@ class LumeSourcePolyfills {
   /// 于是小说 / 视频板块的导入会走既有的跨板块校验被拦下；
   /// 若只在漫画板块注入，误导入的报错会是「ComicSource is not defined」——
   /// 用户看不出这是板块问题。猫源有自己的登记表，拿不到这一层。
-  static final PolyfillRegistry registry = PolyfillRegistry(
-    <SandboxPolyfill>[
-      const _FetchPolyfill(),
-      const LumeSourceBridgePolyfill(),
-      const VeneraComicSourcePolyfill(),
-    ],
-  );
+  static final PolyfillRegistry registry = PolyfillRegistry(<SandboxPolyfill>[
+    const _FetchPolyfill(),
+    const LumeSourceBridgePolyfill(),
+    const VeneraComicSourcePolyfill(),
+  ]);
 
   /// 猫源沙箱的垫片登记表：通用垫片之上叠加猫源环境垫片
   /// （process / Buffer / 基础 require / console 补全 / 定时器补全），

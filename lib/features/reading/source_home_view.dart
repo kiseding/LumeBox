@@ -69,7 +69,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   void didUpdateWidget(SourceHomeView oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 换图源：重新取首页（代号作废在飞结果）。
-    if (oldWidget.source.id != widget.source.id) _load();
+    if (!identical(oldWidget.source, widget.source)) {
+      _load();
+    } else if (!identical(oldWidget.pipeline, widget.pipeline) &&
+        _home != null) {
+      _preloadFirstScreen(_home!);
+    }
   }
 
   Future<void> _load() async {
@@ -116,7 +121,10 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     for (final item in items) {
       if (urls.length >= 12) break;
       final cover = (item.cover ?? '').trim();
-      if (cover.isNotEmpty) urls.add(cover);
+      if (cover.isNotEmpty) {
+        pipeline.configureImageHeaders({cover: item.coverHeaders});
+        urls.add(cover);
+      }
     }
     pipeline.preload(urls, targetWidth: _HomeCard.coverWidth);
   }
@@ -389,6 +397,7 @@ class _HomeCard extends StatelessWidget {
           : SectionImage(
               pipeline: pipeline!,
               url: item.cover ?? '',
+              headers: item.coverHeaders,
               targetWidth: coverWidth,
               fit: BoxFit.cover,
             ),
@@ -476,7 +485,10 @@ class _SourceHomeMorePageState extends State<SourceHomeMorePage> {
     for (final item in items) {
       if (urls.length >= limit) break;
       final cover = (item.cover ?? '').trim();
-      if (cover.isNotEmpty) urls.add(cover);
+      if (cover.isNotEmpty) {
+        pipeline.configureImageHeaders({cover: item.coverHeaders});
+        urls.add(cover);
+      }
     }
     pipeline.preload(urls, targetWidth: _HomeCard.coverWidth);
   }

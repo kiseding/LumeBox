@@ -77,47 +77,47 @@ class PosterCard extends StatelessWidget {
                 ],
               )
             : Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: LumeTheme.hairline),
-                boxShadow: LumeTheme.cardShadow,
-              ),
-            ),
-            child,
-            if (footnote != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    // 真机反馈「卡片底部标题看不清」：原来的遮罩又短又浅
-                    //（0xCC），浅色封面上压不住文字。这里把暗色区拉长、加深，
-                    // 并在中段补一档，标题那两行始终落在**深底**上。
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: <double>[0.0, 0.45, 1.0],
-                      colors: <Color>[
-                        Colors.transparent,
-                        Color(0x8A000000),
-                        Color(0xE6000000),
-                      ],
+                fit: StackFit.expand,
+                children: <Widget>[
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: LumeTheme.hairline),
+                      boxShadow: LumeTheme.cardShadow,
                     ),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 22, 8, 7),
-                    child: footnote,
-                  ),
-                ),
+                  child,
+                  if (footnote != null)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(
+                          // 真机反馈「卡片底部标题看不清」：原来的遮罩又短又浅
+                          //（0xCC），浅色封面上压不住文字。这里把暗色区拉长、加深，
+                          // 并在中段补一档，标题那两行始终落在**深底**上。
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: <double>[0.0, 0.45, 1.0],
+                            colors: <Color>[
+                              Colors.transparent,
+                              Color(0x8A000000),
+                              Color(0xE6000000),
+                            ],
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 22, 8, 7),
+                          child: footnote,
+                        ),
+                      ),
+                    ),
+                  if (badge != null)
+                    Positioned(top: 6, right: 6, child: badge!),
+                ],
               ),
-            if (badge != null)
-              Positioned(top: 6, right: 6, child: badge!),
-          ],
-        ),
       ),
     );
   }
@@ -165,9 +165,11 @@ class PosterCover extends StatelessWidget {
     required this.pipeline,
     required this.url,
     this.width = 300,
+    this.headers = const {},
   });
 
   final SectionImagePipeline pipeline;
+  final Map<String, String> headers;
 
   final String? url;
 
@@ -176,11 +178,12 @@ class PosterCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SectionImage(
-        pipeline: pipeline,
-        url: url ?? '',
-        targetWidth: width,
-        fit: BoxFit.cover,
-      );
+    pipeline: pipeline,
+    url: url ?? '',
+    headers: headers,
+    targetWidth: width,
+    fit: BoxFit.cover,
+  );
 }
 
 /// 书架空态卡片（两个板块共用文案结构）。
@@ -310,7 +313,12 @@ class PosterTile extends StatelessWidget {
           ],
         ],
       ),
-      child: CoverThumb(pipeline: pipeline, url: item.cover, width: 300),
+      child: CoverThumb(
+        pipeline: pipeline,
+        url: item.cover,
+        width: 300,
+        headers: item.coverHeaders,
+      ),
     );
   }
 }
@@ -322,11 +330,13 @@ class CoverThumb extends StatelessWidget {
     required this.pipeline,
     required this.url,
     required this.width,
+    this.headers = const {},
   });
 
   final SectionImagePipeline? pipeline;
   final String? url;
   final int width;
+  final Map<String, String> headers;
 
   @override
   Widget build(BuildContext context) {
@@ -340,6 +350,11 @@ class CoverThumb extends StatelessWidget {
         child: Icon(Icons.image_outlined, size: 18, color: LumeTheme.muted),
       );
     }
-    return PosterCover(pipeline: pipeline, url: url, width: width);
+    return PosterCover(
+      pipeline: pipeline,
+      url: url,
+      width: width,
+      headers: headers,
+    );
   }
 }

@@ -11,6 +11,7 @@ import '../../shared/widgets/notice_card.dart';
 import '../../shared/widgets/state_view.dart';
 import 'browse_page.dart';
 import 'source_import_dialog.dart';
+import '../../core/source/source_subscription_sync.dart';
 import 'source_import_flow.dart';
 
 /// 全局图源总管理页：一个页面汇总四个板块的图源，逐个板块执行管理操作。
@@ -73,7 +74,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   final Set<String> _refreshing = <String>{};
 
   /// 测试结论：sourceId → 结果（只存内存，退出即丢）。
-  final Map<String, SourceTestResult> _testResults = <String, SourceTestResult>{};
+  final Map<String, SourceTestResult> _testResults =
+      <String, SourceTestResult>{};
 
   /// 当前筛选的板块；null 表示「全部」。
   Section? _filter;
@@ -129,15 +131,11 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   int _enabledCount(Section section) =>
       _listOf(section).where((source) => source.enabled).length;
 
-  int get _totalCount => Section.values.fold(
-        0,
-        (sum, section) => sum + _listOf(section).length,
-      );
+  int get _totalCount =>
+      Section.values.fold(0, (sum, section) => sum + _listOf(section).length);
 
-  int get _enabledTotal => Section.values.fold(
-        0,
-        (sum, section) => sum + _enabledCount(section),
-      );
+  int get _enabledTotal =>
+      Section.values.fold(0, (sum, section) => sum + _enabledCount(section));
 
   /// 导入：先选目标板块，再走「本地文件 / 订阅链接 / 剪贴板」三条通道之一；
   /// 只写所选板块的库（与板块页共用同一个弹窗与同一套覆盖确认）。
@@ -163,7 +161,17 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       sectionLabel: section.label,
     );
     if (!mounted) return;
-    if (imported) await _reloadSection(section);
+    if (imported) {
+      if (request.subscriptionUrls.isNotEmpty &&
+          _managers[section] is SubscriptionImportManager) {
+        await SourceSubscriptionSync.remember(
+          section,
+          request.subscriptionUrls,
+          manager: _managers[section],
+        );
+      }
+      await _reloadSection(section);
+    }
   }
 
   /// 导出备份：四个板块的全部图源（只含脚本与配置，不含 Cookie / 缓存）。
@@ -172,9 +180,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     if (!mounted) return;
 
     if (backup.totalCount == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('四个板块都没有源可备份')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('四个板块都没有源可备份')));
       return;
     }
 
@@ -222,9 +229,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       ),
     );
     if (copied && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已复制 ${backup.totalCount} 个源的备份')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已复制 ${backup.totalCount} 个源的备份')));
     }
   }
 
@@ -241,9 +248,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       backup = SourceBackup.decode(text);
     } on FormatException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('备份无法识别：${error.message}')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('备份无法识别：${error.message}')));
       return;
     }
     if (!mounted) return;
@@ -275,9 +281,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     if (!mounted) return;
     await _reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result.describe())),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(result.describe())));
   }
 
   static String _formatTime(DateTime time) {
@@ -326,8 +331,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
           tested == 0
               ? '没有已启用的源可测试'
               : '测试完成（$tested 个）：可用 $ok'
-                  '${empty > 0 ? ' · 无内容 $empty' : ''}'
-                  '${failed > 0 ? ' · 不可用 $failed' : ''}',
+                    '${empty > 0 ? ' · 无内容 $empty' : ''}'
+                    '${failed > 0 ? ' · 不可用 $failed' : ''}',
         ),
       ),
     );
@@ -351,9 +356,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     }
 
     if (targets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('四个板块都没有订阅源可刷新')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('四个板块都没有订阅源可刷新')));
       return;
     }
 
@@ -390,8 +394,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       if (!mounted) return;
       setState(() => _refreshing.add(target.source.id));
       try {
-        final result = await _managers[target.section]!
-            .updateFromSubscription(target.source.id);
+        final result = await _managers[target.section]!.updateFromSubscription(
+          target.source.id,
+        );
         touchedSections.add(target.section);
         switch (result.status) {
           case SourceUpdateStatus.updated:
@@ -419,11 +424,13 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     }
     if (!mounted) return;
 
-    final summary = '刷新完成（${targets.length} 个）：更新 $updated'
+    final summary =
+        '刷新完成（${targets.length} 个）：更新 $updated'
         '${unchanged > 0 ? ' · 已是最新 $unchanged' : ''}'
         '${failed > 0 ? ' · 失败 $failed' : ''}';
     if (failures.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(summary)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(summary)));
       return;
     }
     // 有失败就给模态弹窗：失败原因是排障要看的信息，SnackBar 几秒就没了。
@@ -503,13 +510,14 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     final dataSource = await _managers[section]!.open(source.id);
     if (!mounted) return;
     if (dataSource == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('源不可用')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('源不可用')));
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => BrowsePage(dataSource: dataSource)),
+      MaterialPageRoute<void>(
+        builder: (_) => BrowsePage(dataSource: dataSource),
+      ),
     );
   }
 
@@ -541,7 +549,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
           IconButton(
             tooltip: '批量测试连通性',
             icon: const Icon(Icons.network_check),
-            onPressed: _testing.isEmpty && _refreshing.isEmpty ? _testAll : null,
+            onPressed: _testing.isEmpty && _refreshing.isEmpty
+                ? _testAll
+                : null,
           ),
         ],
       ],
@@ -560,7 +570,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     if (!_runtimeAvailable) return const SkeletonNotice();
     if (_loading) return const SourceStateView(state: SourceStateKind.loading);
 
-    final allEmpty = Section.values.every((section) => _listOf(section).isEmpty);
+    final allEmpty = Section.values.every(
+      (section) => _listOf(section).isEmpty,
+    );
     if (allEmpty && _failed.isEmpty) {
       return NoticeCard(
         title: '四板块均无源',
@@ -572,8 +584,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       );
     }
 
-    final visible =
-        _filter == null ? Section.values : <Section>[_filter!];
+    final visible = _filter == null ? Section.values : <Section>[_filter!];
     return Column(
       children: <Widget>[
         // 筛选条不是滚动视图，自己让出玻璃顶栏的高度。
@@ -663,7 +674,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
           padding: const EdgeInsets.only(bottom: 12),
           child: _SourceTile(
             source: source,
-            testing: _testing.contains(source.id) || _refreshing.contains(source.id),
+            testing:
+                _testing.contains(source.id) || _refreshing.contains(source.id),
             testResult: _testResults[source.id],
             onToggle: (enabled) => _toggle(section, source, enabled),
             onBrowse: source.enabled ? () => _browse(section, source) : null,
@@ -688,12 +700,9 @@ class _SectionNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-        child: Text(
-          text,
-          style: TextStyle(fontSize: 13, color: LumeTheme.muted),
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+    child: Text(text, style: TextStyle(fontSize: 13, color: LumeTheme.muted)),
+  );
 }
 
 /// 图源条目：名称版本 + 启停 / 浏览 / 删除。
@@ -755,10 +764,7 @@ class _SourceTile extends StatelessWidget {
                       source.version.isEmpty
                           ? LumeTheme.appName
                           : source.version,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: LumeTheme.muted,
-                      ),
+                      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
                     ),
                     if (!source.enabled)
                       Text(
@@ -867,10 +873,7 @@ class _RestoreDialogState extends State<_RestoreDialog> {
         ),
       ),
       actions: <Widget>[
-        TextButton(
-          onPressed: _paste,
-          child: const Text('从剪贴板读取'),
-        ),
+        TextButton(onPressed: _paste, child: const Text('从剪贴板读取')),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('取消'),

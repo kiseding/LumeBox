@@ -34,6 +34,7 @@ class SourceDisplayNames {
     'luttt_video': '北觅影视',
     'vv3nwjk_video': '金牌影院',
     'jpyy2_video': '金牌影院',
+    'xanimu_video': 'XAnimu',
   };
 
   /// 这个图源在界面上该显示什么名字。[fallback] 是脚本自报的名字。
@@ -44,5 +45,6 @@ class SourceDisplayNames {
   }
 
   /// 仅测试用：表里有哪些 id（钉住「映射不改 id」这条口径）。
-  static Map<String, String> get table => Map<String, String>.unmodifiable(_names);
+  static Map<String, String> get table =>
+      Map<String, String>.unmodifiable(_names);
 }

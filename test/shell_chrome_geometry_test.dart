@@ -217,7 +217,7 @@ void main() {
     final gap = height - capsule.bottom;
     expect(
       gap,
-      closeTo(bottomInset + 4, 0.01),
+      closeTo(bottomInset, 0.01),
       reason: '胶囊要悬浮在屏幕底边之上（约 12pt），实测 $gap',
     );
     // 用户口径第十二次：五个页签左右两侧**稍微加宽**——胶囊按「最大宽度 360、
@@ -293,7 +293,7 @@ void main() {
     final capsule = tester.getRect(dockCapsule());
     expect(capsule.left, closeTo(59 + 16, 0.01));
     expect(956 - capsule.right, closeTo(59 + 16, 0.01));
-    expect(440 - capsule.bottom, closeTo(21 + 4, 0.01));
+    expect(440 - capsule.bottom, closeTo(21, 0.01));
     expect(capsule.height, closeTo(56, 0.01));
   });
 
@@ -313,7 +313,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       height - tester.getRect(dockCapsule()).bottom,
-      closeTo(bottomInset + 4, 0.01),
+      closeTo(bottomInset, 0.01),
     );
   });
 

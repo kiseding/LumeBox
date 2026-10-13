@@ -82,7 +82,7 @@ class VeneraDemoJson extends ComicSource {
     const digest = await Convert.md5('abc');
     let unsupported = '';
     try {
-      Convert.sha256('abc');
+      Convert.sha512('abc');
     } catch (error) {
       unsupported = String(error.message || error);
     }

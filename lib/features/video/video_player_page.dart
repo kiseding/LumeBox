@@ -673,10 +673,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   Future<void> _boot() async {
+    // 两套设置共用视频阅读库：只打开一次，避免冷启动时重复建库。
+    final libraryFuture = widget.library == null
+        ? ReadingLibrary.open(Section.video)
+        : Future.value(widget.library!);
+    final settingsFuture = libraryFuture.then(VideoPlayerSettingsStore.new);
+    // 立即订阅错误，防止阅读库仍在打开时出现未处理的异步异常。
+    final settingsResult = settingsFuture.then<Object>(
+      (store) => store,
+      onError: (Object error, StackTrace stack) => error,
+    );
     // 阅读库（进度）与播放器设置库分开打开：前者失败不该拦住播放。
     try {
-      final library =
-          widget.library ?? await ReadingLibrary.open(Section.video);
+      final library = await libraryFuture;
       if (!mounted) return;
       final store = DanmakuSettingsStore(library);
       // 用户在库就绪前改过弹幕设置：以他改的那一份为准，并把待写值补落库
@@ -702,7 +711,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       LumeLog.warn('[player] 阅读库打不开，本次不记录播放进度');
     }
     try {
-      final store = await VideoPlayerSettingsStore.open();
+      final result = await settingsResult;
+      if (result is! VideoPlayerSettingsStore) throw result;
+      final store = result;
       if (!mounted) {
         store.close();
         return;

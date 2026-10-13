@@ -34,6 +34,7 @@ class SourceSubscription {
     required this.fetch,
     this.maxScripts = 20,
     this.onSkip,
+    this.strictManifest = false,
   });
 
   /// 拉取动作（URL → 字节 + 文本）。默认走宿主网络层。
@@ -41,6 +42,8 @@ class SourceSubscription {
 
   /// 单次订阅最多收多少份脚本（防止清单无限展开）。
   final int maxScripts;
+  final bool strictManifest;
+  bool complete = true;
 
   /// 清单里的**某一条**拉不到时的回调（地址 + 原因）。
   ///
@@ -81,7 +84,9 @@ class SourceSubscription {
 
   /// 地址清单 → 脚本清单。
   Future<List<String>> resolve(List<String> urls) async =>
-      (await resolveRefs(urls)).map((ref) => ref.script).toList(growable: false);
+      (await resolveRefs(urls))
+          .map((ref) => ref.script)
+          .toList(growable: false);
 
   /// 地址清单 → 「脚本 + 它自己的来源地址」清单。
   ///
@@ -89,10 +94,14 @@ class SourceSubscription {
   /// 而「更新订阅源」是**按图源**去重取它自己那一份的。以前每条都记清单地址，
   /// 更新时只能拿到清单里的第一条 → 第二个源永远更新不了（真机报「换了源 id」）。
   Future<List<SourceScriptRef>> resolveRefs(List<String> urls) async {
+    complete = true;
     final refs = <SourceScriptRef>[];
     final visited = <String>{};
     for (final url in urls) {
-      if (refs.length >= maxScripts) break;
+      if (refs.length >= maxScripts) {
+        complete = false;
+        break;
+      }
       refs.addAll(await scriptRefsAt(url, visited));
     }
     return refs;
@@ -100,9 +109,10 @@ class SourceSubscription {
 
   /// 单个订阅地址 → 脚本清单（0..n 条）。
   Future<List<String>> scriptsAt(String url, Set<String> visited) async =>
-      (await scriptRefsAt(url, visited))
-          .map((ref) => ref.script)
-          .toList(growable: false);
+      (await scriptRefsAt(
+        url,
+        visited,
+      )).map((ref) => ref.script).toList(growable: false);
 
   /// 单个订阅地址 → 「脚本 + 来源地址」清单。
   ///
@@ -113,7 +123,9 @@ class SourceSubscription {
     String url,
     Set<String> visited,
   ) async {
-    if (!visited.add(url) || visited.length > maxScripts * 2) {
+    if (!visited.add(url)) return const <SourceScriptRef>[];
+    if (visited.length > maxScripts * 2) {
+      complete = false;
       return const <SourceScriptRef>[];
     }
     final download = await fetch(url);
@@ -135,17 +147,37 @@ class SourceSubscription {
 
     // 形态二：正文就是脚本。
     if (looksLikeScript(download.text)) {
-      return <SourceScriptRef>[SourceScriptRef(script: download.text, url: url)];
+      return <SourceScriptRef>[
+        SourceScriptRef(script: download.text, url: url),
+      ];
     }
 
     // 形态三：地址清单，逐个再拉。
     final refs = <SourceScriptRef>[];
-    final nested = urlsIn(download.text, limit: maxScripts);
+    if (strictManifest) {
+      for (final raw in const LineSplitter().convert(download.text)) {
+        final line = raw.trim();
+        if (line.isEmpty || line.startsWith('#')) continue;
+        final uri = Uri.tryParse(line);
+        if (uri == null ||
+            !['http', 'https'].contains(uri.scheme) ||
+            uri.host.isEmpty ||
+            line.contains(' ')) {
+          throw const FormatException('订阅清单包含非地址内容，保留现有源');
+        }
+      }
+    }
+    final nested = urlsIn(download.text, limit: maxScripts + 1);
+    if (nested.length > maxScripts) complete = false;
     for (final item in nested) {
-      if (refs.length >= maxScripts) break;
+      if (refs.length >= maxScripts) {
+        complete = false;
+        break;
+      }
       try {
         refs.addAll(await scriptRefsAt(item, visited));
       } catch (error) {
+        complete = false;
         // 这一条拉不到（脚本被删 / 地址写错 / 临时 404）：跳过它，其余照常。
         onSkip?.call(item, error);
         LumeLog.warn('订阅条目拉取失败，已跳过：$item（$error）');

@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
+import '../../core/net/network_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -37,6 +38,7 @@ class ComicReaderPage extends StatefulWidget {
     required this.initialChapterIndex,
     this.initialPage = 0,
     this.runtimeAvailable,
+    this.network = NetworkProfile.none,
   });
 
   final ReadingLibrary library;
@@ -64,6 +66,7 @@ class ComicReaderPage extends StatefulWidget {
   /// 用全局的 `LumeSources.runtimeAvailable` 会漏掉「猫源在 Android 上有引擎」
   /// 这类板块差异，也会让测试在无运行时的开发机上被误拦。
   final bool? runtimeAvailable;
+  final NetworkProfile network;
 
   @override
   State<ComicReaderPage> createState() => _ComicReaderPageState();
@@ -121,6 +124,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     super.initState();
     _pipeline = SectionImagePipeline(
       cacheDir: widget.library.imageCacheDir,
+      network: widget.network,
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
       // 只是这一话跨会话再看会重新下载（内存缓存与管线复用仍在）。
       diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
@@ -221,7 +225,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             _loading = false;
             _images = const <String>[];
           });
-        case ImageContent(:final images):
+        case ImageContent(:final images, :final imageHeaders):
+          _pipeline.configureImageHeaders(imageHeaders);
           // 目标页优先（书签跳转要落在指定页上），其次才是续读位置。
           final start = targetPage ?? (resume ? widget.initialPage : 0);
           setState(() {
@@ -318,10 +323,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       final controller = _scrollController;
       if (controller == null || !controller.hasClients) return;
       if ((controller.offset - target).abs() < 0.5) return;
-      controller.jumpTo(target.clamp(
-        controller.position.minScrollExtent,
-        controller.position.maxScrollExtent,
-      ));
+      controller.jumpTo(
+        target.clamp(
+          controller.position.minScrollExtent,
+          controller.position.maxScrollExtent,
+        ),
+      );
     });
   }
 
@@ -362,13 +369,13 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     final urls = <String>[for (final index in window) _images[index]];
     _pipeline.retain(urls, targetWidth: _decodeWidth);
     final ahead = <String>[
-      for (int i = _page + radius + 1;
-          i <= _page + radius * 2 && i < _images.length;
-          i++)
+      for (
+        int i = _page + radius + 1;
+        i <= _page + radius * 2 && i < _images.length;
+        i++
+      )
         _images[i],
-      for (int i = _page - radius - 1;
-          i >= _page - radius * 2 && i >= 0;
-          i--)
+      for (int i = _page - radius - 1; i >= _page - radius * 2 && i >= 0; i--)
         _images[i],
     ];
     _pipeline.preload(ahead, targetWidth: _decodeWidth);
@@ -408,6 +415,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         chapterId: chapterId,
       );
       if (!mounted || content is! ImageContent) return;
+      _pipeline.configureImageHeaders(content.imageHeaders);
       final head = content.images.take(_nextChapterPrefetchCount);
       _pipeline.preload(head, targetWidth: _decodeWidth);
     } catch (error) {
@@ -468,8 +476,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         final index = _waterfallIndexFor(controller.offset);
         final height = _itemHeight(index);
         final start = _waterfallOffsetFor(index);
-        final fraction =
-            height <= 0 ? 0.0 : ((controller.offset - start) / height).clamp(0.0, 1.0);
+        final fraction = height <= 0
+            ? 0.0
+            : ((controller.offset - start) / height).clamp(0.0, 1.0);
         if (index != _page || (fraction - _fraction).abs() > 0.01) {
           setState(() {
             _page = index;
@@ -517,7 +526,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// - 期间若发生**双击放大**，这次呼出直接作废（放大是用户的本意，不是要面板）；
   /// - 翻页那两区**不等**：翻页要跟手，延时会让它发木。
   void _onTapUp(TapUpDetails details, Size size) {
-    final zones = _settings.tapAction == ComicTapAction.pageTurn &&
+    final zones =
+        _settings.tapAction == ComicTapAction.pageTurn &&
         _settings.mode != ComicReadingMode.waterfall;
     if (!zones) {
       _scheduleToolbarToggle();
@@ -625,10 +635,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       _settings = _settings.copyWith(mode: mode);
       // 双页模式按跨页折算，保证切换后仍停在同一个作品位置。
       _page = mode == ComicReadingMode.doublePage
-          ? _settings.imagesOfSpread(
-              _settings.spreadIndexOf(_page),
-              _images.length,
-            ).$1
+          ? _settings
+                .imagesOfSpread(_settings.spreadIndexOf(_page), _images.length)
+                .$1
           : _page;
     });
     _settings.save(widget.library);
@@ -645,11 +654,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// 当前页是否已加书签。
   bool get _bookmarkedHere =>
-      ComicBookmarks.at(
-        _bookmarks,
-        chapterIndex: _chapterIndex,
-        page: _page,
-      ) !=
+      ComicBookmarks.at(_bookmarks, chapterIndex: _chapterIndex, page: _page) !=
       null;
 
   /// 加 / 移除当前页的书签（按作品落库）。
@@ -701,10 +706,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _BookmarkSheet(
-        bookmarks: _bookmarks,
-        onRemove: _removeBookmark,
-      ),
+      builder: (_) =>
+          _BookmarkSheet(bookmarks: _bookmarks, onRemove: _removeBookmark),
     );
     if (selected == null || !mounted) return;
     if (selected.chapterIndex == _chapterIndex) {
@@ -715,7 +718,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   }
 
   Future<void> _openChapter(int index, {int? targetPage}) async {
-    if (index < 0 || index >= _chapters.length || index == _chapterIndex) return;
+    if (index < 0 || index >= _chapters.length || index == _chapterIndex) {
+      return;
+    }
     // 加载中不再受理换章：越界手势会连续触发，而 `_chapterIndex` 在加载**开始**时
     // 就已经改掉了，第二次通知会拿新章的边界再判一次，可能一路连跳好几章。
     if (_loading) return;
@@ -735,10 +740,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _ChapterSheet(
-        chapters: _chapters,
-        currentIndex: _chapterIndex,
-      ),
+      builder: (_) =>
+          _ChapterSheet(chapters: _chapters, currentIndex: _chapterIndex),
     );
     if (selected == null || !mounted) return;
     await _openChapter(selected);
@@ -779,25 +782,18 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     _saving = true;
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 1),
-        content: Text('正在保存图片…'),
-      ),
+      const SnackBar(duration: Duration(seconds: 1), content: Text('正在保存图片…')),
     );
     try {
       final url = _images[index];
       final bytes = await _pipeline.bytes(url);
       if (!mounted) return;
       if (bytes == null) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('保存失败：图片未能取到')),
-        );
+        messenger.showSnackBar(const SnackBar(content: Text('保存失败：图片未能取到')));
         return;
       }
       final file = widget.library.saveImage(_fileNameFor(url, index), bytes);
-      messenger.showSnackBar(
-        SnackBar(content: Text('已保存到 ${file.path}')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('已保存到 ${file.path}')));
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       messenger.showSnackBar(const SnackBar(content: Text('保存失败')));
@@ -835,10 +831,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ),
             ),
           ),
-          if (_toolbar) ...<Widget>[
-            _buildTopBar(),
-            _buildBottomPanel(),
-          ],
+          if (_toolbar) ...<Widget>[_buildTopBar(), _buildBottomPanel()],
         ],
       ),
     );
@@ -905,8 +898,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// 设大一点则像翻纸质分镜。空隙不占 itemExtent 之外的高度——它算在每项的
   /// 高度里，否则滚动定位会整体偏移。
   Widget _buildWaterfall() {
-    final margin = _settings
-        .marginOf(MediaQuery.maybeSizeOf(context)?.width ?? 400);
+    final margin = _settings.marginOf(
+      MediaQuery.maybeSizeOf(context)?.width ?? 400,
+    );
     final gap = _settings.pageGap;
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
@@ -970,8 +964,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                     index: page,
                     decodeWidth: _decodeWidth,
                     doubleTapZoom: _settings.doubleTapZoom,
-            // 双击放大 = 用户要的是放大，不是面板：把待呼出的那次撤掉。
-            onDoubleTapZoom: _cancelToolbarToggle,
+                    // 双击放大 = 用户要的是放大，不是面板：把待呼出的那次撤掉。
+                    onDoubleTapZoom: _cancelToolbarToggle,
                     onLongPress: () => _onImageLongPress(page),
                   ),
           );
@@ -990,10 +984,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     final tiles = <Widget>[
       Expanded(child: _tileFor(first)),
       SizedBox(width: gap),
-      if (second > first)
-        Expanded(child: _tileFor(second))
-      else
-        const Spacer(),
+      if (second > first) Expanded(child: _tileFor(second)) else const Spacer(),
     ];
     // 从右往左时整屏镜像：两张图的左右顺序也跟着换，否则跨页内容是反的。
     return Row(
@@ -1004,13 +995,13 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   }
 
   Widget _tileFor(int index) => _ComicImageTile(
-        pipeline: _pipeline,
-        url: _images[index],
-        index: index,
-        decodeWidth: _decodeWidth,
-        doubleTapZoom: _settings.doubleTapZoom,
-        onLongPress: () => _onImageLongPress(index),
-      );
+    pipeline: _pipeline,
+    url: _images[index],
+    index: index,
+    decodeWidth: _decodeWidth,
+    doubleTapZoom: _settings.doubleTapZoom,
+    onLongPress: () => _onImageLongPress(index),
+  );
 
   Widget _buildTopBar() {
     final chapter = _chapters.isEmpty ? null : _chapters[_chapterIndex];
@@ -1022,9 +1013,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         // 阅读器顶栏是压在画面上的浮层：用玻璃（半透明白 + 模糊）而不是实色块，
         // 图片会从栏下隐约透出来；底色与全局顶栏同一套。
         color: LumeTheme.glassStrong,
-        border: Border(
-          bottom: BorderSide(color: LumeTheme.hairline),
-        ),
+        border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
         child: SafeArea(
           bottom: false,
           child: Row(
@@ -1151,7 +1140,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                             width: 46,
                             child: Text(
                               '侧边距',
-                              style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: LumeTheme.textSecondary,
+                              ),
                             ),
                           ),
                           Expanded(
@@ -1187,7 +1179,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                             width: 46,
                             child: Text(
                               '页间距',
-                              style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: LumeTheme.textSecondary,
+                              ),
                             ),
                           ),
                           Expanded(
@@ -1393,15 +1388,17 @@ class _ComicImageTileState extends State<_ComicImageTile>
     final target = zoomed
         ? Matrix4.identity()
         : (Matrix4.identity()
-          ..translateByDouble(
-            _zoomPoint.dx * (1 - 2.0),
-            _zoomPoint.dy * (1 - 2.0),
-            0,
-            1,
-          )
-          ..scaleByDouble(2.0, 2.0, 1, 1));
-    _zoomTween = Matrix4Tween(begin: _transform.value, end: target)
-        .animate(CurvedAnimation(parent: _zoomAnimation, curve: Curves.easeOut));
+            ..translateByDouble(
+              _zoomPoint.dx * (1 - 2.0),
+              _zoomPoint.dy * (1 - 2.0),
+              0,
+              1,
+            )
+            ..scaleByDouble(2.0, 2.0, 1, 1));
+    _zoomTween = Matrix4Tween(
+      begin: _transform.value,
+      end: target,
+    ).animate(CurvedAnimation(parent: _zoomAnimation, curve: Curves.easeOut));
     _zoomAnimation.forward(from: 0);
   }
 
@@ -1444,23 +1441,23 @@ class _ComicImageTileState extends State<_ComicImageTile>
   }
 
   Widget _buildPlaceholder() => ColoredBox(
-        color: LumeTheme.fill,
-        child: const Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
+    color: LumeTheme.fill,
+    child: const Center(
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    ),
+  );
 
   Widget _buildFailure() => Center(
-        child: TextButton.icon(
-          onPressed: _resolve,
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('加载失败，点击重试'),
-        ),
-      );
+    child: TextButton.icon(
+      onPressed: _resolve,
+      icon: const Icon(Icons.refresh, size: 18),
+      label: const Text('加载失败，点击重试'),
+    ),
+  );
 }
 
 /// 章节目录面板：阅读器内直接跳章，不必退回详情页。
@@ -1567,8 +1564,9 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                               color: current
                                   ? LumeTheme.textPrimary
                                   : LumeTheme.textSecondary,
-                              fontWeight:
-                                  current ? FontWeight.w600 : FontWeight.w400,
+                              fontWeight: current
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                             ),
                           ),
                           trailing: current
@@ -1608,10 +1606,7 @@ class _ImageActionSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               ListTile(
-                leading: Icon(
-                  Icons.download,
-                  color: LumeTheme.textSecondary,
-                ),
+                leading: Icon(Icons.download, color: LumeTheme.textSecondary),
                 title: Text(
                   '保存图片',
                   style: TextStyle(color: LumeTheme.textPrimary),
@@ -1623,10 +1618,7 @@ class _ImageActionSheet extends StatelessWidget {
                 onTap: () => Navigator.of(context).pop(_ImageAction.save),
               ),
               ListTile(
-                leading: Icon(
-                  Icons.link,
-                  color: LumeTheme.textSecondary,
-                ),
+                leading: Icon(Icons.link, color: LumeTheme.textSecondary),
                 title: Text(
                   '复制图片地址',
                   style: TextStyle(color: LumeTheme.textPrimary),

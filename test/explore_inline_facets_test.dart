@@ -85,6 +85,12 @@ void main() {
     );
     await show(tester, manager);
     expect(find.byTooltip('筛选'), findsNothing);
+    expect(find.text('筛选'), findsOneWidget);
+    expect(find.text('打开筛选'), findsOneWidget);
+    expect(
+      tester.getCenter(find.text('源A')).dy,
+      lessThan(tester.getCenter(find.text('网站大分类')).dy),
+    );
     expect(
       tester.getCenter(find.text('网站大分类')).dy,
       lessThan(tester.getCenter(find.text('网站选项')).dy),

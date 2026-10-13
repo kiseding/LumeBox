@@ -16,6 +16,8 @@ import 'add_source_button.dart';
 import 'browse_page.dart';
 import 'source_editor_page.dart';
 import 'source_import_dialog.dart';
+import 'source_subscription_page.dart';
+import '../../core/source/source_subscription_sync.dart';
 
 /// 板块页面：图源管理 + 浏览入口。
 ///
@@ -58,7 +60,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   /// 测试结论：sourceId → 结果。只存在内存里，退出页面即丢（每次测试都要
   /// 反映当下状态，缓存旧结论会误导）。
-  final Map<String, SourceTestResult> _testResults = <String, SourceTestResult>{};
+  final Map<String, SourceTestResult> _testResults =
+      <String, SourceTestResult>{};
 
   @override
   void initState() {
@@ -128,13 +131,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     final dataSource = await _manager.open(source.id);
     if (!mounted) return;
     if (dataSource == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('源不可用')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('源不可用')));
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => BrowsePage(dataSource: dataSource)),
+      MaterialPageRoute<void>(
+        builder: (_) => BrowsePage(dataSource: dataSource),
+      ),
     );
   }
 
@@ -148,9 +152,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     await _manager.rename(source.id, name);
     await _reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已重命名为：${name.trim()}')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('已重命名为：${name.trim()}')));
   }
 
   /// 设置分组：只改展示归类，不改变归属板块。
@@ -161,10 +164,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   Future<void> _setGroup(SourceDescriptor source) async {
     final group = await showDialog<String>(
       context: context,
-      builder: (_) => _GroupDialog(
-        initialGroup: source.group,
-        knownGroups: _knownGroups(),
-      ),
+      builder: (_) =>
+          _GroupDialog(initialGroup: source.group, knownGroups: _knownGroups()),
     );
     if (group == null || !mounted) return;
     await _manager.setGroup(source.id, group);
@@ -173,7 +174,9 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     final trimmed = group.trim();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(trimmed.isEmpty ? '已取消「${source.name}」的分组' : '已归入分组：$trimmed'),
+        content: Text(
+          trimmed.isEmpty ? '已取消「${source.name}」的分组' : '已归入分组：$trimmed',
+        ),
       ),
     );
   }
@@ -216,18 +219,16 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     await _manager.clearFailure(source.id);
     await _reload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已恢复「${source.name}」')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('已恢复「${source.name}」')));
   }
 
   /// 打开可视化编辑器：表单生成脚本 → 导入（走与「+」相同的校验路径）。
-  Future<void> _openEditor() async {    final imported = await Navigator.of(context).push<bool>(
+  Future<void> _openEditor() async {
+    final imported = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) => SourceEditorPage(
-          section: widget.section,
-          manager: widget.manager,
-        ),
+        builder: (_) =>
+            SourceEditorPage(section: widget.section, manager: widget.manager),
       ),
     );
     if (imported == true && mounted) await _reload();
@@ -256,16 +257,15 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            switch (result.status) {
-              SourceUpdateStatus.updated => result.message.isEmpty
+          content: Text(switch (result.status) {
+            SourceUpdateStatus.updated =>
+              result.message.isEmpty
                   ? '「${source.name}」已更新到最新脚本'
                   : '「${source.name}」已更新到最新脚本（${result.message}）',
-              SourceUpdateStatus.unchanged => '「${source.name}」已是最新',
-              SourceUpdateStatus.skipped => '跳过：${result.message}',
-              SourceUpdateStatus.failed => '更新失败：${result.message}',
-            },
-          ),
+            SourceUpdateStatus.unchanged => '「${source.name}」已是最新',
+            SourceUpdateStatus.skipped => '跳过：${result.message}',
+            SourceUpdateStatus.failed => '更新失败：${result.message}',
+          }),
         ),
       );
     } finally {
@@ -275,13 +275,24 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   /// 批量刷新本板块的全部订阅源。
   Future<void> _updateAllSubscriptions() async {
+    if (widget.manager == null) {
+      final result = await SourceSubscriptionSync.refresh(
+        widget.section,
+        force: true,
+      );
+      await _reload();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(result.summary)));
+      }
+      return;
+    }
     final targets = (_sources ?? const <SourceDescriptor>[])
         .where((source) => source.subscribed)
         .toList(growable: false);
     if (targets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('本板块没有订阅导入的源')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('本板块没有订阅导入的源')));
       return;
     }
 
@@ -340,10 +351,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => _TestResultDialog(
-          sourceName: source.name,
-          result: result,
-        ),
+        builder: (_) =>
+            _TestResultDialog(sourceName: source.name, result: result),
       );
     } finally {
       if (mounted && _testing.contains(source.id)) {
@@ -361,9 +370,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         .where((source) => source.enabled)
         .toList(growable: false);
     if (sources.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('没有已启用的源可测试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('没有已启用的源可测试')));
       return;
     }
 
@@ -439,9 +447,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     final script = await _manager.exportScript(source.id);
     if (!mounted) return;
     if (script == null || script.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('读不到该源的脚本')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('读不到该源的脚本')));
       return;
     }
     var copied = false;
@@ -452,10 +459,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         content: SizedBox(
           width: 460,
           child: SingleChildScrollView(
-            child: SelectableText(
-              script,
-              style: const TextStyle(fontSize: 12),
-            ),
+            child: SelectableText(script, style: const TextStyle(fontSize: 12)),
           ),
         ),
         actions: <Widget>[
@@ -475,9 +479,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       ),
     );
     if (copied && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已复制「${source.name}」的脚本全文')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已复制「${source.name}」的脚本全文')));
     }
   }
 
@@ -498,6 +501,21 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       behindBar: true,
       title: '${widget.section.label} · 源管理',
       actions: <Widget>[
+        IconButton(
+          tooltip: '订阅管理',
+          icon: const Icon(Icons.rss_feed),
+          onPressed: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SourceSubscriptionPage(
+                  section: widget.section,
+                  manager: _manager,
+                ),
+              ),
+            );
+            if (mounted) await _reload();
+          },
+        ),
         IconButton(
           tooltip: '可视化编辑器',
           icon: const Icon(Icons.edit_note),
@@ -532,11 +550,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       ],
       child: sources == null
           ? (_failed
-              ? const NoticeCard(
-                  title: '源存储不可用',
-                  subtitle: LumeTheme.appName,
-                )
-              : const SourceStateView(state: SourceStateKind.loading))
+                ? const NoticeCard(title: '源存储不可用', subtitle: LumeTheme.appName)
+                : const SourceStateView(state: SourceStateKind.loading))
           : _buildSources(sources),
     );
   }
@@ -575,7 +590,9 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           onToggle: (enabled) => _toggle(source, enabled),
           onBrowse: source.enabled ? () => _browse(source) : null,
           onTest: () => _test(source),
-          onUpdate: source.subscribed ? () => _updateSubscription(source) : null,
+          onUpdate: source.subscribed
+              ? () => _updateSubscription(source)
+              : null,
           onRename: () => _rename(source),
           onGroup: () => _setGroup(source),
           onRecover: source.broken ? () => _recover(source) : null,
@@ -692,10 +709,7 @@ class _SourceTile extends StatelessWidget {
                       source.version.isEmpty
                           ? LumeTheme.appName
                           : source.version,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: LumeTheme.muted,
-                      ),
+                      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
                     ),
                     if (!source.enabled) ...<Widget>[
                       Text(
@@ -706,19 +720,13 @@ class _SourceTile extends StatelessWidget {
                     if (source.broken) ...<Widget>[
                       Text(
                         '已失效（连错 ${source.failureCount} 次）',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _disabledColor,
-                        ),
+                        style: TextStyle(fontSize: 12, color: _disabledColor),
                       ),
                     ],
                     if (source.hasGroup) ...<Widget>[
                       Text(
                         source.group,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _accentColor,
-                        ),
+                        style: TextStyle(fontSize: 12, color: _accentColor),
                       ),
                     ],
                     if (source.subscribed) ...<Widget>[
@@ -861,8 +869,9 @@ class _TestResultDialog extends StatelessWidget {
           _InfoRow(
             label: '状态',
             value: result.status.label,
-            valueColor:
-                result.status == SourceTestStatus.ok ? _okColor : _disabledColor,
+            valueColor: result.status == SourceTestStatus.ok
+                ? _okColor
+                : _disabledColor,
           ),
           _InfoRow(label: '耗时', value: _elapsedText(result.elapsed)),
           _InfoRow(label: '日志', value: _logText(result)),
@@ -944,8 +953,9 @@ class _RenameDialog extends StatefulWidget {
 }
 
 class _RenameDialogState extends State<_RenameDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialName,
+  );
 
   @override
   void dispose() {
@@ -998,8 +1008,9 @@ class _GroupDialog extends StatefulWidget {
 }
 
 class _GroupDialogState extends State<_GroupDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialGroup);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialGroup,
+  );
 
   @override
   void dispose() {
@@ -1080,14 +1091,18 @@ class _NetworkDialog extends StatefulWidget {
 }
 
 class _NetworkDialogState extends State<_NetworkDialog> {
-  late final TextEditingController _ua =
-      TextEditingController(text: widget.source.network.userAgent);
-  late final TextEditingController _cookie =
-      TextEditingController(text: widget.source.network.cookie);
-  late final TextEditingController _proxy =
-      TextEditingController(text: widget.source.network.proxy);
-  late final TextEditingController _bridge =
-      TextEditingController(text: widget.source.network.bridge);
+  late final TextEditingController _ua = TextEditingController(
+    text: widget.source.network.userAgent,
+  );
+  late final TextEditingController _cookie = TextEditingController(
+    text: widget.source.network.cookie,
+  );
+  late final TextEditingController _proxy = TextEditingController(
+    text: widget.source.network.proxy,
+  );
+  late final TextEditingController _bridge = TextEditingController(
+    text: widget.source.network.bridge,
+  );
 
   /// 「忽略证书错误」：按源开放，默认关闭（值从该源当前配置读，不会自己变开）。
   late bool _allowBadCertificate = widget.source.network.allowBadCertificate;

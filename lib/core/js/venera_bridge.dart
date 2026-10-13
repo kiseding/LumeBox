@@ -35,9 +35,9 @@ import 'source_bridge.dart';
 /// - **支持**：JSON / GraphQL 型源（`Network.*` + `JSON.parse`）、
 ///   `explore` / `categoryComics` / `search` / `loadInfo` / `loadEp`、
 ///   `loadData` / `saveData` / `deleteData`（落在按图源隔离的沙盒存储）、
-///   `HtmlDocument` 的**常用选择器子集**（见下）、`Convert` 的编码与 md5；
+///   `HtmlDocument` 的**常用选择器子集**（见下）、`Convert` 的二进制编码、md5 / sha1 / sha256 / HMAC；
 /// - **不支持并明确报错**：账号登录（`login*` / `logout`）、收藏夹、评论、
-///   排序 / 点赞、`Convert` 的 sha*/hmac/AES/RSA、HTML 的伪类与兄弟选择器。
+///   排序 / 点赞、`Convert` 的 sha512/AES/RSA、HTML 的伪类与兄弟选择器。
 ///   报错文案会点名「哪一项没接、当前支持什么」，而不是静默返回空结果。
 ///
 /// 注入时机与其它垫片一致（脚本执行前），因此 `class X extends ComicSource`
@@ -68,7 +68,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
   function unsupported(feature) {
     return new Error('Venera 源的这个能力尚未接入：' + feature
       + '（当前支持：搜索 / 分类 / 详情 / 章节 / 图片、Network、'
-      + 'HtmlDocument 常用选择器、Convert 编码与 md5）');
+      + 'HtmlDocument 常用选择器、Convert 编码 / md5 / sha1 / sha256 / HMAC）');
   }
 
   function toBytes(text) {
@@ -143,7 +143,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       if (c2 >= 0) bytes.push(((c1 << 4) | (c2 >> 2)) & 0xff);
       if (c3 >= 0) bytes.push(((c2 << 6) | c3) & 0xff);
     }
-    return fromBytes(bytes);
+    return new Uint8Array(bytes).buffer;
   }
 
   function hexEncode(text) {
@@ -155,36 +155,258 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     return out;
   }
 
+  function rotl(value, count) {
+    return ((value << count) | (value >>> (32 - count))) >>> 0;
+  }
+
+  // -------------------------------------------------------------------- MD5
+  var MD5_K = [
+    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+    0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+    0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+    0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+    0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+    0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
+  ];
+  var MD5_S = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+  ];
+
+  function md5Digest(message) {
+    var bytes = message.slice();
+    var bitLength = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    // 注意：JS 的 `>>>` 只取移位量低 5 位（`>>> 32` 等于 `>>> 0`），
+    // 写 64 位长度必须用除法，否则长度字段会被重复写一遍。
+    for (var i = 0; i < 8; i++) {
+      bytes.push(Math.floor(bitLength / Math.pow(2, 8 * i)) & 0xff);
+    }
+
+    var h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476;
+    for (var chunk = 0; chunk < bytes.length; chunk += 64) {
+      var words = [];
+      for (var w = 0; w < 16; w++) {
+        words.push(
+          bytes[chunk + w * 4] |
+          (bytes[chunk + w * 4 + 1] << 8) |
+          (bytes[chunk + w * 4 + 2] << 16) |
+          (bytes[chunk + w * 4 + 3] << 24)
+        );
+      }
+      var a = h0, b = h1, c = h2, d = h3;
+      for (var step = 0; step < 64; step++) {
+        var f, g;
+        if (step < 16) {
+          f = (b & c) | (~b & d); g = step;
+        } else if (step < 32) {
+          f = (d & b) | (~d & c); g = (5 * step + 1) % 16;
+        } else if (step < 48) {
+          f = b ^ c ^ d; g = (3 * step + 5) % 16;
+        } else {
+          f = c ^ (b | ~d); g = (7 * step) % 16;
+        }
+        var tmp = d;
+        d = c;
+        c = b;
+        b = (b + rotl((a + f + MD5_K[step] + words[g]) >>> 0, MD5_S[step])) >>> 0;
+        a = tmp;
+      }
+      h0 = (h0 + a) >>> 0;
+      h1 = (h1 + b) >>> 0;
+      h2 = (h2 + c) >>> 0;
+      h3 = (h3 + d) >>> 0;
+    }
+    var out = [];
+    [h0, h1, h2, h3].forEach(function (word) {
+      for (var i = 0; i < 4; i++) out.push((word >>> (8 * i)) & 0xff);
+    });
+    return out;
+  }
+
+  // ------------------------------------------------------------------- SHA-1
+  function sha1Digest(message) {
+    var bytes = message.slice();
+    var bitLength = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (var i = 7; i >= 0; i--) bytes.push(Math.floor(bitLength / Math.pow(2, 8 * i)) & 0xff);
+
+    var h = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
+    for (var chunk = 0; chunk < bytes.length; chunk += 64) {
+      var w = [];
+      for (var j = 0; j < 16; j++) {
+        w.push(
+          (bytes[chunk + j * 4] << 24) |
+          (bytes[chunk + j * 4 + 1] << 16) |
+          (bytes[chunk + j * 4 + 2] << 8) |
+          bytes[chunk + j * 4 + 3]
+        );
+      }
+      for (var k = 16; k < 80; k++) {
+        w.push(rotl(w[k - 3] ^ w[k - 8] ^ w[k - 14] ^ w[k - 16], 1));
+      }
+      var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+      for (var step = 0; step < 80; step++) {
+        var f, kk;
+        if (step < 20) {
+          f = (b & c) | (~b & d); kk = 0x5a827999;
+        } else if (step < 40) {
+          f = b ^ c ^ d; kk = 0x6ed9eba1;
+        } else if (step < 60) {
+          f = (b & c) | (b & d) | (c & d); kk = 0x8f1bbcdc;
+        } else {
+          f = b ^ c ^ d; kk = 0xca62c1d6;
+        }
+        var temp = (rotl(a, 5) + f + e + kk + w[step]) >>> 0;
+        e = d;
+        d = c;
+        c = rotl(b, 30);
+        b = a;
+        a = temp;
+      }
+      h[0] = (h[0] + a) >>> 0;
+      h[1] = (h[1] + b) >>> 0;
+      h[2] = (h[2] + c) >>> 0;
+      h[3] = (h[3] + d) >>> 0;
+      h[4] = (h[4] + e) >>> 0;
+    }
+    var out = [];
+    h.forEach(function (word) {
+      out.push((word >>> 24) & 0xff, (word >>> 16) & 0xff, (word >>> 8) & 0xff, word & 0xff);
+    });
+    return out;
+  }
+
+  // ----------------------------------------------------------------- SHA-256
+  var SHA256_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+
+  function rotr(value, count) {
+    return ((value >>> count) | (value << (32 - count))) >>> 0;
+  }
+
+  function sha256Digest(message) {
+    var bytes = message.slice();
+    var bitLength = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (var i = 7; i >= 0; i--) bytes.push(Math.floor(bitLength / Math.pow(2, 8 * i)) & 0xff);
+
+    var h = [
+      0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    ];
+    for (var chunk = 0; chunk < bytes.length; chunk += 64) {
+      var w = [];
+      for (var j = 0; j < 16; j++) {
+        w.push(
+          (bytes[chunk + j * 4] << 24) |
+          (bytes[chunk + j * 4 + 1] << 16) |
+          (bytes[chunk + j * 4 + 2] << 8) |
+          bytes[chunk + j * 4 + 3]
+        );
+      }
+      for (var k = 16; k < 64; k++) {
+        var s0 = rotr(w[k - 15], 7) ^ rotr(w[k - 15], 18) ^ (w[k - 15] >>> 3);
+        var s1 = rotr(w[k - 2], 17) ^ rotr(w[k - 2], 19) ^ (w[k - 2] >>> 10);
+        w.push((w[k - 16] + s0 + w[k - 7] + s1) >>> 0);
+      }
+      var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+      for (var step = 0; step < 64; step++) {
+        var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var temp1 = (hh + S1 + ch + SHA256_K[step] + w[step]) >>> 0;
+        var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var temp2 = (S0 + maj) >>> 0;
+        hh = g; g = f; f = e;
+        e = (d + temp1) >>> 0;
+        d = c; c = b; b = a;
+        a = (temp1 + temp2) >>> 0;
+      }
+      h[0] = (h[0] + a) >>> 0; h[1] = (h[1] + b) >>> 0;
+      h[2] = (h[2] + c) >>> 0; h[3] = (h[3] + d) >>> 0;
+      h[4] = (h[4] + e) >>> 0; h[5] = (h[5] + f) >>> 0;
+      h[6] = (h[6] + g) >>> 0; h[7] = (h[7] + hh) >>> 0;
+    }
+    var out = [];
+    h.forEach(function (word) {
+      out.push((word >>> 24) & 0xff, (word >>> 16) & 0xff, (word >>> 8) & 0xff, word & 0xff);
+    });
+    return out;
+  }
+
+  function binaryBytes(value) {
+    if (typeof value === 'string') return toBytes(value);
+    if (value instanceof ArrayBuffer) return Array.from(new Uint8Array(value));
+    if (ArrayBuffer.isView(value)) return Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return Array.from(value || []);
+  }
+  function byteHex(bytes) {
+    return bytes.map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  function hashBytes(value, algorithm) {
+    var bytes = binaryBytes(value);
+    if (algorithm === 'md5') return md5Digest(bytes);
+    if (algorithm === 'sha1') return sha1Digest(bytes);
+    if (algorithm === 'sha256') return sha256Digest(bytes);
+    throw unsupported('Convert hash ' + algorithm);
+  }
+  function hmacBytes(key, value, algorithm) {
+    var bytes = binaryBytes(key);
+    if (bytes.length > 64) bytes = hashBytes(bytes, algorithm);
+    while (bytes.length < 64) bytes.push(0);
+    return hashBytes(bytes.map(function (b) { return b ^ 0x5c; }).concat(
+      hashBytes(bytes.map(function (b) { return b ^ 0x36; }).concat(binaryBytes(value)), algorithm)), algorithm);
+  }
+
   // ------------------------------------------------------------------ Convert
   var Convert = {
-    encodeUtf8: function (text) { return toBytes(text); },
-    decodeUtf8: function (bytes) { return fromBytes(bytes || []); },
-    encodeBase64: function (text) { return base64Encode(text); },
+    encodeUtf8: function (text) { return new Uint8Array(toBytes(text)).buffer; },
+    decodeUtf8: function (bytes) { return fromBytes(binaryBytes(bytes)); },
+    encodeBase64: function (value) {
+      var bytes = binaryBytes(value), out = '';
+      for (var i = 0; i < bytes.length; i += 3) {
+        var b0 = bytes[i], b1 = bytes[i + 1] || 0, b2 = bytes[i + 2] || 0;
+        out += B64[b0 >> 2] + B64[((b0 & 3) << 4) | (b1 >> 4)];
+        out += i + 1 < bytes.length ? B64[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+        out += i + 2 < bytes.length ? B64[b2 & 63] : '=';
+      }
+      return out;
+    },
     decodeBase64: function (text) { return base64Decode(text); },
-    hexEncode: function (text) { return hexEncode(text); },
+    hexEncode: function (text) { return byteHex(binaryBytes(text)); },
     hexDecode: function (text) {
       var clean = String(text == null ? '' : text);
       var bytes = [];
       for (var i = 0; i + 1 < clean.length; i += 2) {
         bytes.push(parseInt(clean.substring(i, i + 2), 16));
       }
-      return fromBytes(bytes);
+      return new Uint8Array(bytes).buffer;
     },
-    // md5 走宿主：Dart 侧已有一份经过标准向量验证的实现（core/util/md5.dart），
-    // 不必在 JS 里再写一份。
     md5: function (data) {
-      return globalThis.LumeBridge.invoke('util.digest', {
-        algorithm: 'md5',
-        data: typeof data === 'string' ? data : fromBytes(data || [])
-      }).then(function (reply) {
-        return (reply && reply.digest) || '';
-      });
+      var bytes = hashBytes(data, 'md5');
+      return typeof data === 'string' ? byteHex(bytes) : new Uint8Array(bytes).buffer;
     },
-    sha1: function () { throw unsupported('Convert.sha1'); },
-    sha256: function () { throw unsupported('Convert.sha256'); },
+    sha1: function (data) { return new Uint8Array(hashBytes(data, 'sha1')).buffer; },
+    sha256: function (data) { return new Uint8Array(hashBytes(data, 'sha256')).buffer; },
     sha512: function () { throw unsupported('Convert.sha512'); },
-    hmac: function () { throw unsupported('Convert.hmac'); },
-    hmacString: function () { throw unsupported('Convert.hmacString'); },
+    hmac: function (key, value, hash) { return new Uint8Array(hmacBytes(key, value, hash)).buffer; },
+    hmacString: function (key, value, hash) { return byteHex(hmacBytes(key, value, hash)); },
     decryptAesEcb: function () { throw unsupported('Convert.decryptAesEcb'); },
     decryptAesCbc: function () { throw unsupported('Convert.decryptAesCbc'); },
     decryptAesCfb: function () { throw unsupported('Convert.decryptAesCfb'); },
@@ -204,7 +426,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
 
   function request(method, url, headers, body) {
     var options = { method: method, headers: headersOf(headers) };
-    if (body != null) options.body = typeof body === 'string' ? body : JSON.stringify(body);
+    if (body != null) options.body = typeof body === 'string' ? body : (body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? fromBytes(binaryBytes(body)) : JSON.stringify(body));
     return globalThis.fetch(String(url), options).then(function (response) {
       // Venera 的 Network 返回 { status, headers, body }，body 是字符串；
       // 我们的 fetch 已经是这个形状（多给了 text()/json()，Venera 源用不到）。
@@ -218,9 +440,17 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     put: function (url, headers, body) { return request('PUT', url, headers, body); },
     delete: function (url, headers, body) { return request('DELETE', url, headers, body); },
     patch: function (url, headers, body) { return request('PATCH', url, headers, body); },
-    fetchBytes: function (url, headers) {
-      return request('GET', url, headers).then(function (response) {
-        return { status: response.status, headers: response.headers, body: toBytes(response.body) };
+    sendRequest: function (method, url, headers, body) { return request(method, url, headers, body); },
+    fetchBytes: function (method, url, headers, body) {
+      if (!/^(GET|POST|PUT|DELETE|PATCH|HEAD)$/i.test(String(method))) {
+        headers = url; url = method; method = 'GET';
+      }
+      return globalThis.LumeBridge.invoke('http.fetch', {
+        method: method, url: String(url), headers: headersOf(headers),
+        body: body == null ? null : (typeof body === 'string' ? body : fromBytes(binaryBytes(body))),
+        binary: true
+      }).then(function (reply) {
+        return { status: reply.status, headers: reply.headers, body: base64Decode(reply.bodyBase64 || '') };
       });
     },
     // Cookie 是宿主网络层的事（全局 UA / 单源覆盖在那边配），脚本侧不单独持有。
@@ -710,6 +940,12 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
   ComicSource.prototype.registerWebsite = function () { throw unsupported('registerWebsite'); };
   ComicSource.sources = {};
 
+  ['Comic', 'ComicDetails', 'ImageLoadingConfig', 'Cookie'].forEach(function (name) {
+    if (!globalThis[name]) globalThis[name] = function (data) {
+      Object.assign(this, data || {});
+      if (this.subtitle == null && this.subTitle != null) this.subtitle = this.subTitle;
+    };
+  });
   globalThis.ComicSource = ComicSource;
   globalThis.Network = Network;
   globalThis.Convert = Convert;
@@ -734,6 +970,14 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     if (value && typeof value === 'object') {
       if (Array.isArray(value.comics)) comics = value.comics;
       else if (Array.isArray(value)) comics = value;
+      else if (Array.isArray(value.data)) comics = value.data;
+      var flattened = [];
+      comics.forEach(function (entry) {
+        if (Array.isArray(entry)) flattened = flattened.concat(entry);
+        else if (entry && Array.isArray(entry.comics)) flattened = flattened.concat(entry.comics);
+        else flattened.push(entry);
+      });
+      comics = flattened;
       if (typeof value.maxPage === 'number') maxPage = value.maxPage;
     } else if (Array.isArray(value)) {
       comics = value;
@@ -782,6 +1026,67 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     return result;
   }
 
+  function optionValue(value) {
+    var text = String(value == null ? '' : value);
+    var at = text.indexOf('-');
+    return { id: at < 0 ? text : text.slice(0, at), title: at < 0 ? text : text.slice(at + 1) };
+  }
+  function filterOptions(groups, selected) {
+    return (groups || []).map(function (group, index) {
+      var values = group.options || [];
+      var fallback = values[typeof group.default === 'number' ? group.default : 0];
+      return selected && selected['venera:' + index] != null
+        ? selected['venera:' + index] : optionValue(fallback).id;
+    });
+  }
+  function thumbnailItems(items) {
+    var instance = instanceOrThrow();
+    var comic = instance.comic || instance;
+    if (typeof comic.onThumbnailLoad !== 'function') return Promise.resolve(items);
+    return Promise.all(items.map(function (item) {
+      if (!item.cover) return item;
+      return Promise.resolve(comic.onThumbnailLoad.call(comic, item.cover)).then(function (config) {
+        config = config || {};
+        if (config.onResponse) throw unsupported('封面响应自定义变换');
+        item.cover = String(config.url || item.cover);
+        item.coverHeaders = headersOf(config.headers);
+        return item;
+      });
+    }));
+  }
+  function filters() {
+    var instance = instanceOrThrow();
+    var groups = instance.categoryComics && instance.categoryComics.optionList || [];
+    return groups.map(function (group, index) {
+      return { id: 'venera:' + index, title: group.label || group.title || ('选项 ' + (index + 1)),
+        options: (group.options || []).map(optionValue) };
+    });
+  }
+  function home() {
+    var instance = instanceOrThrow();
+    var pages = instance.explore || [];
+    return Promise.all(pages.map(function (page, index) {
+      if (typeof page.load !== 'function') return [];
+      var argument = page.type === 'multiPartPage' ? null : page.type === 'mixed' ? 0 : 1;
+      return Promise.resolve(page.load(argument)).then(function (result) {
+        var blocks = page.type === 'multiPartPage' ? result : page.type === 'mixed' ? result.data : null;
+        if (Array.isArray(blocks)) {
+          return blocks.map(function (block) {
+            var comics = Array.isArray(block) ? block : block.comics || [];
+            return { title: block.title || page.title, items: comics.map(toItem).filter(Boolean),
+              moreUrl: 'explore:' + index };
+          });
+        }
+        return [{ title: page.title, items: listEnvelope(result).comics.map(toItem).filter(Boolean),
+          moreUrl: 'explore:' + index }];
+      });
+    })).then(function (groups) {
+      var boards = [].concat.apply([], groups);
+      return Promise.all(boards.map(function (board) { return thumbnailItems(board.items).then(function (items) { board.items = items; return board; }); }))
+        .then(function (ready) { return { boards: ready }; });
+    });
+  }
+
   function list(argument) {
     var instance = instanceOrThrow();
     var options = argument && typeof argument === 'object' ? argument : {};
@@ -794,7 +1099,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       if (!instance.search || typeof instance.search.load !== 'function') {
         return Promise.reject(new Error('该 Venera 源没有提供 search，无法搜索'));
       }
-      pending = instance.search.load(keyword, searchOptions(instance), page);
+      pending = instance.search.load(keyword, filterOptions(instance.search.optionList, options.filters), page);
     } else if (categoryId.indexOf('category:') === 0) {
       var parts = categoryId.split(':');
       var partIndex = Number(parts[1]);
@@ -805,14 +1110,14 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       var categoryName = entry && typeof entry === 'object'
         ? (entry.id || entry.title || entry.name) : entry;
       var param = category && Array.isArray(category.categoryParams)
-        ? category.categoryParams[Number(parts[2])] : null;
+        ? category.categoryParams[Number(parts[2])] : (category && category.groupParam || null);
       if (!instance.categoryComics || typeof instance.categoryComics.load !== 'function') {
         return Promise.reject(new Error('该 Venera 源没有提供 categoryComics，无法按分类浏览'));
       }
       pending = instance.categoryComics.load(
         categoryName == null ? '' : String(categoryName),
         param == null ? null : String(param),
-        [],
+        filterOptions(instance.categoryComics.optionList, options.filters),
         page
       );
     } else if (categoryId.indexOf('explore:') === 0) {
@@ -821,14 +1126,14 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       if (!page_ || typeof page_.load !== 'function') {
         return Promise.reject(new Error('该 Venera 源没有这个探索页：' + categoryId));
       }
-      pending = page_.load(page);
+      pending = page_.load(page_.type === 'multiPartPage' ? null : page_.type === 'mixed' ? page - 1 : page);
     } else {
       // 没有指定范围：优先第一个探索页（等价于 Venera 首页），否则搜索空串。
       var first = instance.explore && instance.explore[0];
       if (first && typeof first.load === 'function') {
-        pending = first.load(page);
+        pending = first.load(first.type === 'multiPartPage' ? null : first.type === 'mixed' ? page - 1 : page);
       } else if (instance.search && typeof instance.search.load === 'function') {
-        pending = instance.search.load('', searchOptions(instance), page);
+        pending = instance.search.load('', filterOptions(instance.search.optionList, options.filters), page);
       } else {
         return Promise.reject(new Error('该 Venera 源既没有 explore 也没有 search，无法出列表'));
       }
@@ -841,10 +1146,9 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
         var item = toItem(envelope.comics[i]);
         if (item) items.push(item);
       }
-      return {
-        items: items,
-        hasMore: envelope.maxPage !== null && page < envelope.maxPage
-      };
+      return thumbnailItems(items).then(function (ready) {
+        return { items: ready, hasMore: envelope.maxPage !== null && page < envelope.maxPage };
+      });
     });
   }
 
@@ -865,10 +1169,11 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     var instance = instanceOrThrow();
     var id = argument && argument.id ? String(argument.id) : '';
     if (!id) return Promise.resolve(null);
-    if (typeof instance.loadInfo !== 'function') {
+    var comic = typeof instance.loadInfo === 'function' ? instance : (instance.comic || {});
+    if (typeof comic.loadInfo !== 'function') {
       return Promise.reject(new Error('该 Venera 源没有提供 loadInfo，无法取详情'));
     }
-    return Promise.resolve(instance.loadInfo(id)).then(function (info) {
+    return Promise.resolve(comic.loadInfo(id)).then(function (info) {
       if (!info || typeof info !== 'object') return null;
       var result = {
         id: id,
@@ -884,17 +1189,18 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       }
       if (subtitle) result.subtitle = String(subtitle);
       if (info.description) result.description = String(info.description);
-      return result;
+      return thumbnailItems([result]).then(function (items) { return items[0]; });
     });
   }
 
   function chapters(argument) {
     var instance = instanceOrThrow();
     var id = argument && argument.id ? String(argument.id) : '';
-    if (typeof instance.loadInfo !== 'function') {
+    var comic = typeof instance.loadInfo === 'function' ? instance : (instance.comic || {});
+    if (typeof comic.loadInfo !== 'function') {
       return Promise.reject(new Error('该 Venera 源没有提供 loadInfo，无法取章节'));
     }
-    return Promise.resolve(instance.loadInfo(id)).then(function (info) {
+    return Promise.resolve(comic.loadInfo(id)).then(function (info) {
       var raw = info && info.chapters;
       var result = [];
       if (!raw) return result;
@@ -929,34 +1235,36 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     var instance = instanceOrThrow();
     var id = argument && argument.id ? String(argument.id) : '';
     var chapterId = argument && argument.chapterId ? String(argument.chapterId) : '';
-    if (typeof instance.loadEp !== 'function') {
+    var comic = typeof instance.loadEp === 'function' ? instance : (instance.comic || {});
+    if (typeof comic.loadEp !== 'function') {
       return Promise.reject(new Error('该 Venera 源没有提供 loadEp，无法取图片'));
     }
-    return Promise.resolve(instance.loadEp(id, chapterId)).then(function (ep) {
+    return Promise.resolve(comic.loadEp(id, chapterId)).then(function (ep) {
       var raw = ep && (ep.images || ep.pages || ep);
       if (!Array.isArray(raw)) {
         throw new Error('该章返回的内容里没有图片列表（loadEp 需要返回 { images: [...] }）');
       }
-      var images = [];
-      var needsHeaders = false;
-      for (var i = 0; i < raw.length; i++) {
-        var entry = raw[i];
-        if (entry == null) continue;
-        if (typeof entry === 'string') { images.push(entry); continue; }
-        var url = entry.url || entry.src;
-        if (!url) continue;
-        if (entry.headers && Object.keys(entry.headers).length > 0) needsHeaders = true;
-        images.push(String(url));
-      }
-      if (images.length === 0) {
-        throw new Error('该章没有可用图片（loadEp 返回了空列表）');
-      }
-      if (needsHeaders) {
-        // 本项目当前只给图片管线一个地址（没有逐图请求头的位置）。如实记一条日志，
-        // 让「图片打不开」有据可查，而不是让用户以为是源坏了。
-        console.log('[venera] 该章图片带了自定义请求头，本项目暂不透传（若图片 403 与此有关）');
-      }
-      return { kind: 'images', images: images };
+      return Promise.all(raw.map(function (entry) {
+        if (entry == null) return null;
+        var url = typeof entry === 'string' ? entry : entry.url || entry.src;
+        if (!url) return null;
+        var config = typeof comic.onImageLoad === 'function'
+          ? comic.onImageLoad.call(comic, String(url), id, chapterId) : {};
+        return Promise.resolve(config).then(function (options) {
+          options = options || {};
+          if (options.method && String(options.method).toUpperCase() !== 'GET') throw unsupported('图片非 GET 请求');
+          if (options.onResponse || options.modifyImage) throw unsupported('图片响应自定义变换');
+          return {url: String(options.url || url), headers: headersOf(options.headers || (entry && entry.headers))};
+        });
+      })).then(function (configured) {
+        var images = [], imageHeaders = {};
+        configured.forEach(function (entry) {
+          if (!entry) return;
+          images.push(entry.url); imageHeaders[entry.url] = entry.headers;
+        });
+        if (!images.length) throw new Error('该章没有可用图片（loadEp 返回了空列表）');
+        return { kind: 'images', images: images, imageHeaders: imageHeaders };
+      });
     });
   }
 
@@ -1004,6 +1312,8 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       bridge.detail = detail;
       bridge.chapters = chapters;
       bridge.content = content;
+      bridge.filters = filters;
+      if (Array.isArray(instance.explore) && instance.explore.length) bridge.home = home;
 
       // 脚本自己写的其它方法（`async probe() {}` 这类）也挂上去：
       // 契约之外的可选能力（例如将来的弹幕方法）与调试探针都靠这条路，

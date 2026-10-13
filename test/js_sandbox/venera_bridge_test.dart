@@ -20,7 +20,7 @@ import 'support/js_sandbox_support.dart';
 /// 2. 契约映射：explore / search / loadInfo / loadEp 各自翻译到
 ///    分类 / 列表 / 详情 / 章节 / 图片，返回值形状按本项目契约归一；
 /// 3. 能力边界：支持项（Network、loadData/saveData、Convert.md5、HtmlDocument
-///    子集）真的能用；未支持项（sha256、登录）给出**点名到能力**的可读错误。
+///    子集）真的能用；未支持项（sha512、登录）给出**点名到能力**的可读错误。
 ///
 /// 原生桥缺失时整组跳过（Windows 需先 `flutter build windows`）。
 void main() {
@@ -37,9 +37,9 @@ void main() {
 
   /// 脚本里的 BASE_URL 指到本地示例站点（等价于用户填自己的站点地址）。
   String scriptFor(String file) => fixture(file).replaceFirst(
-        "var BASE_URL = 'http://127.0.0.1:8080';",
-        "var BASE_URL = '${site.baseUrl}';",
-      );
+    "var BASE_URL = 'http://127.0.0.1:8080';",
+    "var BASE_URL = '${site.baseUrl}';",
+  );
 
   Future<DataSource> importAndOpen(String file, Section section) async {
     await ensureSectionScope(section);
@@ -97,7 +97,9 @@ void main() {
       () async {
         await ensureSectionScope(Section.comic);
         final manager = LumeSources.manager(Section.comic);
-        final result = await manager.importScript(scriptFor('venera_demo_json.js'));
+        final result = await manager.importScript(
+          scriptFor('venera_demo_json.js'),
+        );
 
         expect(result.isSuccess, isTrue, reason: result.message ?? '');
         expect(result.descriptor!.id, 'venera-demo-json');
@@ -107,8 +109,9 @@ void main() {
         // 跨板块导入照样被拦：垫片把板块自报写成了 comic。
         await ensureSectionScope(Section.novel);
         final novel = LumeSources.manager(Section.novel);
-        final rejected =
-            await novel.importScript(scriptFor('venera_demo_json.js'));
+        final rejected = await novel.importScript(
+          scriptFor('venera_demo_json.js'),
+        );
         expect(rejected.isSuccess, isFalse, reason: 'Venera 源属于漫画，不许进小说板块');
         expect(rejected.message, contains('跨板块'));
       },
@@ -119,8 +122,10 @@ void main() {
     test(
       '分类（explore）/ 列表 / 搜索 / 详情 / 章节 / 图片 全链路',
       () async {
-        final source =
-            await importAndOpen('venera_demo_json.js', Section.comic);
+        final source = await importAndOpen(
+          'venera_demo_json.js',
+          Section.comic,
+        );
 
         // 分类来自 explore 的标题（Venera 的首页就是个列表页）。
         final categories = await source.categories();
@@ -155,7 +160,10 @@ void main() {
 
         // 章节：映射里的 key 就是章节 id。
         final chapters = await source.chapters('12');
-        expect(chapters.map((item) => item.id), containsAll(<String>['ch-1', 'ch-2']));
+        expect(
+          chapters.map((item) => item.id),
+          containsAll(<String>['ch-1', 'ch-2']),
+        );
         expect(chapters.first.title, '第 1 话');
 
         // 正文：loadEp → {images} → 本项目的图片内容。
@@ -168,20 +176,24 @@ void main() {
       skip: skipReason,
       timeout: const Timeout(Duration(seconds: 90)),
     );
-
   });
 
   group('HTML 型 Venera 源：HtmlDocument 子集', () {
     test(
       '列表页用 querySelectorAll 抓取，详情与图片走 JSON',
       () async {
-        final source =
-            await importAndOpen('venera_demo_html.js', Section.comic);
+        final source = await importAndOpen(
+          'venera_demo_html.js',
+          Section.comic,
+        );
 
         final categories = await source.categories();
         expect(categories.first.title, '列表页');
 
-        final list = await source.list(categoryId: categories.first.id, page: 1);
+        final list = await source.list(
+          categoryId: categories.first.id,
+          page: 1,
+        );
         expect(list.items, hasLength(2), reason: '列页面上的两条');
         expect(list.items.first.id, '12');
         expect(list.items.first.title, '示例漫画 A', reason: '标题取自 img 的 alt');
@@ -238,8 +250,9 @@ void main() {
       () async {
         await ensureSectionScope(Section.comic);
         final manager = LumeSources.manager(Section.comic);
-        final result =
-            await manager.importScript(scriptFor('venera_getter_settings.js'));
+        final result = await manager.importScript(
+          scriptFor('venera_getter_settings.js'),
+        );
 
         expect(result.isSuccess, isTrue, reason: result.message ?? '导入应成功');
         expect(result.descriptor!.id, 'venera-getter-settings');
@@ -305,7 +318,7 @@ void main() {
     );
 
     test(
-      'Convert.md5 走宿主实现（标准向量）；sha256 / 登录点名报错；沙盒存储可读写',
+      'Convert.md5 走宿主实现（标准向量）；sha512 / 登录点名报错；沙盒存储可读写',
       () async {
         // 同一个引擎里：先读一次详情（脚本会 saveData），再跑探针读回来。
         final engine = await openEngine(
@@ -327,7 +340,7 @@ void main() {
         );
         expect(
           value['unsupported'],
-          allOf(contains('尚未接入'), contains('sha256')),
+          allOf(contains('尚未接入'), contains('sha512')),
           reason: '未接入的算法要指名道姓',
         );
         expect(

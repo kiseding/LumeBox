@@ -21,6 +21,7 @@ import '../source/waf_webview_page.dart';
 import '../video/video_page.dart';
 import 'section_preloader.dart';
 import 'shell_dock.dart';
+import '../../core/source/source_subscription_sync.dart';
 
 /// 主导航：五个页签（小说 / 漫画 / 视频 / 猫源 / 设置）。
 ///
@@ -63,7 +64,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late final ShellDockController _controller =
       widget.controller ?? ShellDockController();
 
@@ -82,7 +83,7 @@ class _AppShellState extends State<AppShell> {
   static const double _dockHeight = 56;
   static const double _dockMargin = 16;
   static const double _dockInnerPadding = 6;
-  static const double _dockBottomMargin = 4;
+  static const double _dockBottomMargin = 0;
   static const double _dockSpacing = 8;
 
   static double dockMarginFor(double availableWidth) => _dockMargin;
@@ -182,6 +183,8 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _syncSubscriptions();
     _shellSettings.addListener(_onShellSettingsChanged);
     // 装上「自动过 WAF 校验」的钩子（用户口径 2 / 3 / 4）：脚本抛
     // NEED_WEBVIEW_VERIFY 时，引擎层（没有 BuildContext）回调到这里，由壳层弹那个
@@ -220,9 +223,23 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _shellSettings.removeListener(_onShellSettingsChanged);
     if (_ownsController) _controller.dispose();
     super.dispose();
+  }
+
+  void _syncSubscriptions() {
+    for (final section in Section.values) {
+      if (LumeSources.runtimeAvailableFor(section)) {
+        unawaited(SourceSubscriptionSync.refresh(section));
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _syncSubscriptions();
   }
 
   void _onShellSettingsChanged() {
@@ -557,7 +574,7 @@ class _DockBar extends StatelessWidget {
                       filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: LumeTheme.glass.withValues(alpha: .62),
+                          color: LumeTheme.glass.withValues(alpha: .38),
                           borderRadius: BorderRadius.circular(
                             capsuleHeight / 2,
                           ),

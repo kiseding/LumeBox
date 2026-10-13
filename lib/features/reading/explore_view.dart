@@ -8,6 +8,7 @@ import '../../core/js/source_registry.dart';
 import '../../core/session/section.dart';
 import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
+import '../../core/source/source_subscription_sync.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -122,6 +123,13 @@ class _ExploreViewState extends State<ExploreView> {
   SourceDescriptor? _current;
   DataSource? _source;
 
+  SectionImagePipeline? get _imagePipeline {
+    final current = _current;
+    final pipeline = widget.pipeline;
+    if (current == null || pipeline == null) return pipeline;
+    return pipeline.forSource(widget.section, current.id, current.network);
+  }
+
   SourceStateKind _state = SourceStateKind.loading;
   String? _title;
   String? _detail;
@@ -206,11 +214,22 @@ class _ExploreViewState extends State<ExploreView> {
   void initState() {
     super.initState();
     _layoutSettings.addListener(_onLayoutChanged);
+    if (widget.manager == null) {
+      SourceSubscriptionSync.revision(widget.section)
+          .addListener(_onSubscriptionsChanged);
+      if (_manager.runtimeAvailable) {
+        unawaited(SourceSubscriptionSync.refresh(widget.section));
+      }
+    }
     if (_manager.runtimeAvailable) _bootstrap();
   }
 
   void _onLayoutChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onSubscriptionsChanged() {
+    if (mounted) unawaited(_bootstrap());
   }
 
   @override
@@ -225,6 +244,8 @@ class _ExploreViewState extends State<ExploreView> {
   @override
   void dispose() {
     _layoutSettings.removeListener(_onLayoutChanged);
+    SourceSubscriptionSync.revision(widget.section)
+        .removeListener(_onSubscriptionsChanged);
     // 离开页面即作废在飞请求的结果（回来的数据直接丢，不再 setState），
     // 也不让它们继续占着网络队列拖慢下一个页面。
     _requestSeq++;
@@ -428,6 +449,17 @@ class _ExploreViewState extends State<ExploreView> {
     mainAxisSize: MainAxisSize.min,
     children: [
       if (_categories.isNotEmpty)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8, top: 4),
+            child: Text(
+              '分类',
+              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            ),
+          ),
+        ),
+      if (_categories.isNotEmpty)
         SizedBox(
           height: 44,
           child: ListView(
@@ -444,6 +476,20 @@ class _ExploreViewState extends State<ExploreView> {
                 }),
             ],
           ),
+        ),
+      if (_source != null)
+        Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                '筛选',
+                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              ),
+            ),
+            const Spacer(),
+            TextButton(onPressed: _openFilters, child: const Text('打开筛选')),
+          ],
         ),
       if (_filterGroups.isNotEmpty) ...[
         for (final group
@@ -507,6 +553,39 @@ class _ExploreViewState extends State<ExploreView> {
       ],
     ],
   );
+
+  Future<void> _openFilters() async {
+    final source = _source;
+    if (source == null) return;
+    final selection = await showModalBottomSheet<SourceFilterSelection>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .85,
+        child: SourceFilterPage(
+          source: source,
+          cache: _inlineFilterCache,
+          categoryId: _categoryId,
+          initial: _facetFilters,
+          originUrl: _current?.originUrl ?? '',
+          pipeline: _imagePipeline,
+          onOpenItem: (item) {
+            Navigator.of(context).pop();
+            widget.onOpenItem(
+              ExploreSelection(sourceId: source.id, item: item),
+            );
+          },
+        ),
+      ),
+    );
+    if (!mounted || selection == null || !identical(source, _source)) return;
+    setState(() {
+      _categoryId = selection.categoryId.isEmpty ? null : selection.categoryId;
+      _facetFilters = selection.filters;
+    });
+    await _refresh();
+  }
 
   Widget _facetChip(String title, bool selected, VoidCallback onTap) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
@@ -676,7 +755,7 @@ class _ExploreViewState extends State<ExploreView> {
   /// 是这种自己人打自己人。后面的条目靠 tile 自己进视口时再取（`GridView.builder`
   /// 只建可见的那些）。
   void _preloadCovers(List<SourceItem> items, {bool more = false}) {
-    final pipeline = widget.pipeline;
+    final pipeline = _imagePipeline;
     if (pipeline == null) return;
     // 翻页追加时，用户正停在列表末尾：接下来会看到的是新这批的开头几条。
     final limit = more ? 8 : 12;
@@ -684,7 +763,10 @@ class _ExploreViewState extends State<ExploreView> {
     for (final item in items) {
       if (urls.length >= limit) break;
       final cover = (item.cover ?? '').trim();
-      if (cover.isNotEmpty) urls.add(cover);
+      if (cover.isNotEmpty) {
+        pipeline.configureImageHeaders({cover: item.coverHeaders});
+        urls.add(cover);
+      }
     }
     pipeline.preload(urls, targetWidth: _coverWidth);
   }
@@ -849,7 +931,7 @@ class _ExploreViewState extends State<ExploreView> {
             mode: _searchMode,
             sourceId: _current?.id,
             manager: widget.manager,
-            pipeline: widget.pipeline,
+            pipeline: _imagePipeline,
             onOpenItem: (selection) => _openFromSource(selection),
           ),
         ),
@@ -926,7 +1008,7 @@ class _ExploreViewState extends State<ExploreView> {
                     child: GlassPanel(
                       key: _floatingHeaderKey,
                       radius: 24,
-                      color: LumeTheme.glass.withValues(alpha: .65),
+                      color: LumeTheme.glass.withValues(alpha: .38),
                       blur: 18,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -936,8 +1018,8 @@ class _ExploreViewState extends State<ExploreView> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (!_searching) _buildInlineFacets(),
                             _searching ? _buildSearchField() : _buildHeader(),
+                            if (!_searching) _buildInlineFacets(),
                           ],
                         ),
                       ),
@@ -1122,7 +1204,7 @@ class _ExploreViewState extends State<ExploreView> {
         topInset: _contentTop,
         bottomInset: ShellDockScope.bottomInset(context),
         onRefreshMetadata: _loadCategories,
-        pipeline: widget.pipeline,
+        pipeline: _imagePipeline,
         originUrl: _current?.originUrl ?? '',
         onOpenItem: _open,
         onOpenMore: (title, moreUrl) => Navigator.of(context).push(
@@ -1131,7 +1213,7 @@ class _ExploreViewState extends State<ExploreView> {
               source: _source!,
               title: title,
               moreUrl: moreUrl,
-              pipeline: widget.pipeline,
+              pipeline: _imagePipeline,
               onOpenItem: _open,
             ),
           ),
@@ -1244,7 +1326,7 @@ class _ExploreViewState extends State<ExploreView> {
             final item = items[index];
             return PosterTile(
               item: item,
-              pipeline: widget.pipeline,
+              pipeline: _imagePipeline,
               onTap: () => _open(item),
             );
           },
@@ -1289,8 +1371,9 @@ class _ExploreViewState extends State<ExploreView> {
                     width: 56,
                     height: 76,
                     child: CoverThumb(
-                      pipeline: widget.pipeline,
+                      pipeline: _imagePipeline,
                       url: item.cover,
+                      headers: item.coverHeaders,
                       width: 160,
                     ),
                   ),

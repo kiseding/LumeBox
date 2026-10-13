@@ -26,7 +26,10 @@ abstract interface class SourceManager {
   /// 导入图源脚本：成功返回描述符，失败返回可读原因。
   /// 导入图源脚本。[originUrl] 非空表示来自订阅链接（记下来供「更新订阅源」
   /// 重新拉取）；本地导入留空。
-  Future<SourceImportResult> importScript(String script, {String originUrl = ''});
+  Future<SourceImportResult> importScript(
+    String script, {
+    String originUrl = '',
+  });
 
   /// 启用 / 停用图源。停用即释放它的运行时。
   Future<void> setEnabled(String sourceId, bool enabled);
@@ -80,6 +83,14 @@ abstract interface class SourceManager {
   void close();
 }
 
+/// 自动订阅同步使用的导入端口：不覆盖用户手动导入的同名源。
+abstract interface class SubscriptionImportManager {
+  Future<SourceImportResult> importSubscription(
+    String script, {
+    required String originUrl,
+  });
+}
+
 /// 订阅更新的结论。
 class SourceUpdateResult {
   const SourceUpdateResult._({
@@ -90,29 +101,27 @@ class SourceUpdateResult {
 
   /// [note] 是成功时的**附带说明**（例如「订阅里另有 1 条拉不到」）：
   /// 状态仍是 updated，界面照常报成功，只是把这件事如实写出来。
-  const SourceUpdateResult.updated(SourceDescriptor descriptor, {String note = ''})
-      : this._(
-          status: SourceUpdateStatus.updated,
-          message: note,
-          descriptor: descriptor,
-        );
+  const SourceUpdateResult.updated(
+    SourceDescriptor descriptor, {
+    String note = '',
+  }) : this._(
+         status: SourceUpdateStatus.updated,
+         message: note,
+         descriptor: descriptor,
+       );
 
   const SourceUpdateResult.unchanged(SourceDescriptor descriptor)
-      : this._(
-          status: SourceUpdateStatus.unchanged,
-          message: '',
-          descriptor: descriptor,
-        );
+    : this._(
+        status: SourceUpdateStatus.unchanged,
+        message: '',
+        descriptor: descriptor,
+      );
 
-  const SourceUpdateResult.skipped(String message) : this._(
-          status: SourceUpdateStatus.skipped,
-          message: message,
-        );
+  const SourceUpdateResult.skipped(String message)
+    : this._(status: SourceUpdateStatus.skipped, message: message);
 
-  const SourceUpdateResult.failed(String message) : this._(
-          status: SourceUpdateStatus.failed,
-          message: message,
-        );
+  const SourceUpdateResult.failed(String message)
+    : this._(status: SourceUpdateStatus.failed, message: message);
 
   final SourceUpdateStatus status;
 
@@ -165,26 +174,24 @@ class SourceTestResult {
     required int categoryCount,
     required Duration elapsed,
   }) : this._(
-          status: SourceTestStatus.ok,
-          message: '',
-          itemCount: itemCount,
-          categoryCount: categoryCount,
-          elapsed: elapsed,
-        );
+         status: SourceTestStatus.ok,
+         message: '',
+         itemCount: itemCount,
+         categoryCount: categoryCount,
+         elapsed: elapsed,
+       );
 
   const SourceTestResult.empty({
     required Duration elapsed,
     required String message,
   }) : this._(
-          status: SourceTestStatus.empty,
-          message: message,
-          elapsed: elapsed,
-        );
+         status: SourceTestStatus.empty,
+         message: message,
+         elapsed: elapsed,
+       );
 
-  const SourceTestResult.failed(String message) : this._(
-          status: SourceTestStatus.failed,
-          message: message,
-        );
+  const SourceTestResult.failed(String message)
+    : this._(status: SourceTestStatus.failed, message: message);
 
   final SourceTestStatus status;
 

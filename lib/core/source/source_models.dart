@@ -38,7 +38,10 @@ abstract interface class HomeCapable {
 
 /// 首页数据：要么是若干板块（横滑），要么是一份平铺列表（旧兼容）。
 class SourceHome {
-  const SourceHome({this.boards = const <SourceHomeBoard>[], this.items = const <SourceItem>[]});
+  const SourceHome({
+    this.boards = const <SourceHomeBoard>[],
+    this.items = const <SourceItem>[],
+  });
 
   /// 多板块模式的内容（为空表示不是这一种）。
   final List<SourceHomeBoard> boards;
@@ -59,13 +62,19 @@ class SourceHome {
   static SourceHome parse(Object? json) {
     Object? raw = json;
     if (raw is Map) {
-      raw = raw['boards'] ?? raw['home'] ?? raw['sections'] ?? raw['list'] ?? raw['items'];
+      raw =
+          raw['boards'] ??
+          raw['home'] ??
+          raw['sections'] ??
+          raw['list'] ??
+          raw['items'];
     }
     if (raw is! List) return const SourceHome();
 
     // 识别：只要有一个元素「像板块」，整份就按板块解析（避免半吊子混排）。
     final looksBoards = raw.any(
-      (entry) => entry is Map && (entry['items'] is List || entry['videos'] is List),
+      (entry) =>
+          entry is Map && (entry['items'] is List || entry['videos'] is List),
     );
     if (looksBoards) {
       final boards = <SourceHomeBoard>[];
@@ -104,7 +113,8 @@ class SourceHomeBoard {
     final rawItems = json['items'] ?? json['videos'] ?? json['list'];
     final items = parseItems(rawItems is List ? rawItems : const <Object?>[]);
     if (items.isEmpty) return null;
-    final more = '${json['moreUrl'] ?? json['more'] ?? json['more_url'] ?? ''}'.trim();
+    final more = '${json['moreUrl'] ?? json['more'] ?? json['more_url'] ?? ''}'
+        .trim();
     return SourceHomeBoard(
       title: title,
       moreUrl: more.isEmpty ? null : more,
@@ -192,7 +202,8 @@ class SourceFilterOption {
   static SourceFilterOption? parse(Object? json) {
     if (json is Map) {
       final id = '${json['id'] ?? json['value'] ?? ''}'.trim();
-      final title = '${json['title'] ?? json['name'] ?? json['label'] ?? ''}'.trim();
+      final title = '${json['title'] ?? json['name'] ?? json['label'] ?? ''}'
+          .trim();
       if (title.isEmpty) return null;
       return SourceFilterOption(id: id.isEmpty ? title : id, title: title);
     }
@@ -228,6 +239,7 @@ class SourceItem {
     required this.id,
     required this.title,
     this.cover,
+    this.coverHeaders = const {},
     this.subtitle,
     this.duration,
     this.updatedAt,
@@ -236,6 +248,7 @@ class SourceItem {
   final String id;
   final String title;
   final String? cover;
+  final Map<String, String> coverHeaders;
   final String? subtitle;
 
   /// 时长（可选能力）：视频类图源常给（搜索结果里要显示「时长」）。
@@ -257,7 +270,12 @@ class SourceItem {
     return SourceItem(
       id: id,
       title: title,
-      cover: _text(json['cover']),
+      coverHeaders: _stringMap(json['coverHeaders']),
+      cover:
+          _text(json['cover']) ??
+          _text(json['thumbnail']) ??
+          _text(json['image']) ??
+          _text(json['poster']),
       subtitle: _text(json['subtitle']),
       duration: parseDuration(
         json['duration'] ?? json['时长'] ?? json['length'] ?? json['runtime'],
@@ -302,7 +320,8 @@ class SourceItem {
     // 「1小时20分」这类中文写法：只认「小时/分/秒」三种单位。
     final chinese = RegExp(r'(?:(\d+)\s*小时)?\s*(?:(\d+)\s*分)?\s*(?:(\d+)\s*秒)?')
         .firstMatch(text);
-    if (chinese != null && (chinese.group(1) ?? chinese.group(2) ?? chinese.group(3)) != null) {
+    if (chinese != null &&
+        (chinese.group(1) ?? chinese.group(2) ?? chinese.group(3)) != null) {
       final hours = int.tryParse(chinese.group(1) ?? '') ?? 0;
       final minutes = int.tryParse(chinese.group(2) ?? '') ?? 0;
       final seconds = int.tryParse(chinese.group(3) ?? '') ?? 0;
@@ -317,7 +336,9 @@ class SourceItem {
     if (value == null) return null;
     if (value is num) {
       if (value <= 0) return null;
-      final milliseconds = value > 100000000000 ? value.round() : value.round() * 1000;
+      final milliseconds = value > 100000000000
+          ? value.round()
+          : value.round() * 1000;
       return DateTime.fromMillisecondsSinceEpoch(milliseconds);
     }
     final text = '$value'.trim();
@@ -335,6 +356,7 @@ class SourceDetail {
     required this.id,
     required this.title,
     this.cover,
+    this.coverHeaders = const {},
     this.subtitle,
     this.description,
   });
@@ -342,6 +364,7 @@ class SourceDetail {
   final String id;
   final String title;
   final String? cover;
+  final Map<String, String> coverHeaders;
   final String? subtitle;
   final String? description;
 
@@ -354,6 +377,7 @@ class SourceDetail {
       id: id,
       title: title,
       cover: _text(json['cover']),
+      coverHeaders: _stringMap(json['coverHeaders']),
       subtitle: _text(json['subtitle']),
       description: _text(json['description']),
     );
@@ -386,7 +410,10 @@ class SourceChapter {
       id: id,
       title: title.isEmpty ? id : title,
       publishedAt: _parseTime(
-        json['publishedAt'] ?? json['published'] ?? json['updatedAt'] ?? json['date'],
+        json['publishedAt'] ??
+            json['published'] ??
+            json['updatedAt'] ??
+            json['date'],
       ),
     );
   }
@@ -395,7 +422,9 @@ class SourceChapter {
   static DateTime? _parseTime(Object? value) {
     if (value == null) return null;
     if (value is num) {
-      final millis = value > 100000000000 ? value.toInt() : (value * 1000).round();
+      final millis = value > 100000000000
+          ? value.toInt()
+          : (value * 1000).round();
       return DateTime.fromMillisecondsSinceEpoch(millis);
     }
     final text = '$value'.trim();
@@ -441,7 +470,16 @@ sealed class ChapterContent {
       case 'images':
       case 'image':
         final images = _imageList(json['images']);
-        return images.isEmpty ? null : ImageContent(images);
+        final imageHeaders = <String, Map<String, String>>{};
+        final rawHeaders = json['imageHeaders'];
+        if (rawHeaders is Map) {
+          for (final entry in rawHeaders.entries) {
+            imageHeaders['${entry.key}'] = _stringMap(entry.value);
+          }
+        }
+        return images.isEmpty
+            ? null
+            : ImageContent(images, imageHeaders: imageHeaders);
       case 'video':
         // 宽容口径：多线路脚本可能只给 qualities 不给 url——那就用第一条当默认。
         final qualities = _qualityList(json['qualities'] ?? json['levels']);
@@ -473,9 +511,10 @@ final class TextContent extends ChapterContent {
 
 /// 图片列表（漫画 / 图集类）。
 final class ImageContent extends ChapterContent {
-  const ImageContent(this.images);
+  const ImageContent(this.images, {this.imageHeaders = const {}});
 
   final List<String> images;
+  final Map<String, Map<String, String>> imageHeaders;
 }
 
 /// 视频地址（视频 / 猫源类）。
@@ -531,12 +570,12 @@ class VideoQuality {
 
   @override
   int get hashCode => Object.hash(
-        label,
-        url,
-        Object.hashAllUnordered(
-          headers.entries.map((entry) => Object.hash(entry.key, entry.value)),
-        ),
-      );
+    label,
+    url,
+    Object.hashAllUnordered(
+      headers.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
+  );
 
   @override
   String toString() => 'VideoQuality($label → $url)';
@@ -554,14 +593,16 @@ List<VideoQuality> _qualityList(Object? value) {
   final qualities = <VideoQuality>[];
   for (final entry in value) {
     if (entry is! Map) continue;
-    final url = _text(entry['url']) ??
+    final url =
+        _text(entry['url']) ??
         _text(entry['playUrl']) ??
         _text(entry['src']) ??
         _text(entry['address']);
     if (url == null) continue;
     final uri = Uri.tryParse(url);
     if (uri == null || !uri.hasScheme) continue;
-    final label = _text(entry['label']) ??
+    final label =
+        _text(entry['label']) ??
         _text(entry['name']) ??
         _text(entry['quality']) ??
         _text(entry['title']) ??

@@ -1,20 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/net/waf.dart';
 import '../../core/net/waf_auto_verify.dart';
 import '../../core/source/source.dart';
+import '../../core/reading/reading.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
 import '../source/waf_webview_page.dart';
+import 'poster_card.dart';
 
 /// 分页筛选：一次选择的结果（一级分类 + 各组选中的标签）。三板块共用。
 ///
 /// 组内多选时，选中的 id 以英文逗号相连交给脚本（`{type: '1,3', area: '2'}`）——
 /// 脚本自己决定怎么拼站点查询串（各站点的参数名与分隔符都不一样）。
 class SourceFilterSelection {
-  const SourceFilterSelection({required this.categoryId, required this.categoryTitle, required this.filters});
+  const SourceFilterSelection({
+    required this.categoryId,
+    required this.categoryTitle,
+    required this.filters,
+  });
 
   final String categoryId;
   final String categoryTitle;
@@ -39,8 +47,10 @@ class SourceFilterSelection {
 /// 几分钟内不会变，而每次进退筛选页都抓一遍纯属浪费。刷新（下拉）时按
 /// [invalidate] 作废。
 class SourceFilterCache {
-  SourceFilterCache({this.ttl = const Duration(minutes: 5), DateTime Function()? clock})
-      : _clock = clock ?? DateTime.now;
+  SourceFilterCache({
+    this.ttl = const Duration(minutes: 5),
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final Duration ttl;
   final DateTime Function() _clock;
@@ -48,7 +58,8 @@ class SourceFilterCache {
   /// 应用级单例：`loadSourceFilters` 与筛选页都用它，避免各板块各存一份。
   static final SourceFilterCache instance = SourceFilterCache();
 
-  final Map<String, ({List<SourceFilterGroup> groups, DateTime at})> _entries = {};
+  final Map<String, ({List<SourceFilterGroup> groups, DateTime at})> _entries =
+      {};
 
   List<SourceFilterGroup>? read(String sourceId) {
     final entry = _entries[sourceId];
@@ -132,6 +143,8 @@ class SourceFilterPage extends StatefulWidget {
     this.categoryTitle,
     this.initial = const <String, String>{},
     this.originUrl = '',
+    this.pipeline,
+    this.onOpenItem,
   });
 
   final DataSource source;
@@ -146,6 +159,8 @@ class SourceFilterPage extends StatefulWidget {
   final String? categoryTitle;
 
   final SourceFilterCache cache;
+  final SectionImagePipeline? pipeline;
+  final ValueChanged<SourceItem>? onOpenItem;
 
   /// 进入时已有的选择（重进筛选页时保持已选项）。
   final Map<String, String> initial;
@@ -158,6 +173,56 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
   List<SourceFilterGroup>? _groups;
   List<SourceCategory> _categories = const <SourceCategory>[];
   Object? _error;
+  List<SourceItem> _preview = const [];
+  Object? _previewError;
+  bool _previewLoading = false;
+  int _previewSeq = 0;
+  Timer? _previewDebounce;
+
+  void _schedulePreview() {
+    if (widget.pipeline == null) return;
+    _previewSeq++;
+    _previewDebounce?.cancel();
+    setState(() {
+      _previewLoading = true;
+      _previewError = null;
+      _preview = const [];
+    });
+    _previewDebounce = Timer(const Duration(milliseconds: 250), _loadPreview);
+  }
+
+  Future<void> _loadPreview() async {
+    if (widget.pipeline == null) return;
+    final seq = ++_previewSeq;
+    setState(() {
+      _previewLoading = true;
+      _previewError = null;
+    });
+    try {
+      final result = await widget.source.list(
+        categoryId: _categoryId,
+        filters: _filters,
+      );
+      if (!mounted || seq != _previewSeq) return;
+      setState(() {
+        _preview = result.items.take(12).toList();
+        _previewLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || seq != _previewSeq) return;
+      setState(() {
+        _previewError = error;
+        _previewLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _previewDebounce?.cancel();
+    _previewSeq++;
+    super.dispose();
+  }
 
   /// 已选分类（点「应用」时一起回传）。
   String? _categoryId;
@@ -177,6 +242,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
       if (ids.isNotEmpty) _selected[groupId] = ids.toSet();
     });
     _load();
+    unawaited(_loadPreview());
   }
 
   Future<void> _load({bool force = false}) async {
@@ -211,12 +277,16 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
       if (!set.remove(optionId)) set.add(optionId);
       if (set.isEmpty) _selected.remove(groupId);
     });
+    _schedulePreview();
   }
 
-  void _reset() => setState(() {
-        _selected.clear();
-        _categoryId = null;
-      });
+  void _reset() {
+    setState(() {
+      _selected.clear();
+      _categoryId = null;
+    });
+    _schedulePreview();
+  }
 
   /// 分类标题（回传给宿主做提示 / 结果页标题）。
   String _titleOf(String? id) {
@@ -253,9 +323,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
         return;
       case WafWebViewOutcome.emptySession:
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('没取到会话：等验证通过、站点页面真正显示出来后再点 ✕ 关闭'),
-          ),
+          const SnackBar(content: Text('没取到会话：等验证通过、站点页面真正显示出来后再点 ✕ 关闭')),
         );
         return;
       case WafWebViewOutcome.collected:
@@ -264,9 +332,9 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
   }
 
   Map<String, String> get _filters => <String, String>{
-        for (final entry in _selected.entries)
-          if (entry.value.isNotEmpty) entry.key: entry.value.join(','),
-      };
+    for (final entry in _selected.entries)
+      if (entry.value.isNotEmpty) entry.key: entry.value.join(','),
+  };
 
   /// 卡片末尾追加的「将打开哪个站」（用户口径：报错信息里要能看出拿到了源站地址）。
   /// 解析不出时返回空串——点击时的地址输入框会兜住，卡片上不写空话。
@@ -291,14 +359,14 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
         children: <Widget>[
           Expanded(
             child: ListView(
-              padding: GlassScaffold.barInset(context).add(
-                const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              ),
+              padding: GlassScaffold.barInset(context)
+                  .add(const EdgeInsets.fromLTRB(16, 8, 16, 16)),
               children: <Widget>[
                 if (_error != null) ...<Widget>[
                   NoticeCard(
                     title: '筛选标签没取到',
-                    subtitle: '${_error!}\n（筛选项来自源站；被防护拦下时点【重试】——'
+                    subtitle:
+                        '${_error!}\n（筛选项来自源站；被防护拦下时点【重试】——'
                         '仍被拦会弹出校验窗，也可以直接点「网页视图」自己过一下'
                         '人机校验）${_targetHint()}',
                   ),
@@ -325,17 +393,19 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
                       ],
                     ),
                   ),
-                ]
-                else if (groups == null)
+                ] else if (groups == null)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
                   )
                 else if (groups.isEmpty && _categories.isEmpty)
                   // 用户口径 3：这里就是那句点名的提示。
                   const NoticeCard(
                     title: '本源未提供筛选标签',
-                    subtitle: '图源脚本没有给出可筛选的维度。\n'
+                    subtitle:
+                        '图源脚本没有给出可筛选的维度。\n'
                         '不影响浏览与搜索，直接返回即可。',
                   )
                 else ...<Widget>[
@@ -347,11 +417,13 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
                   if (groups.isEmpty)
                     const NoticeCard(
                       title: '本源未提供筛选标签',
-                      subtitle: '这个图源只给了分类，没有更细的筛选维度。\n'
+                      subtitle:
+                          '这个图源只给了分类，没有更细的筛选维度。\n'
                           '点上面的分类即可浏览。',
                     )
                   else
                     for (final group in groups) _buildGroup(group),
+                  if (widget.pipeline != null) _buildPreview(),
                 ],
               ],
             ),
@@ -392,9 +464,10 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
                 return ChoiceChip(
                   label: Text(category.title),
                   selected: on,
-                  onSelected: (_) => setState(
-                    () => _categoryId = on ? null : category.id,
-                  ),
+                  onSelected: (_) {
+                    setState(() => _categoryId = on ? null : category.id);
+                    _schedulePreview();
+                  },
                 );
               },
             ),
@@ -405,6 +478,57 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
   }
 
   /// 一组标签：标题 + 一行横向可滚动标签（多选）。
+  Widget _buildPreview() {
+    if (_previewLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (_previewError != null) {
+      return Column(
+        children: [
+          NoticeCard(title: '筛选结果加载失败', subtitle: '$_previewError'),
+          TextButton(onPressed: _loadPreview, child: const Text('重试结果')),
+        ],
+      );
+    }
+    if (_preview.isEmpty) {
+      return const NoticeCard(title: '暂无筛选结果', subtitle: '换个分类或筛选条件试试');
+    }
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(top: 16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 10,
+        childAspectRatio: .62,
+      ),
+      itemCount: _preview.length,
+      itemBuilder: (context, index) {
+        final item = _preview[index];
+        return PosterCard(
+          onTap: widget.onOpenItem == null
+              ? null
+              : () => widget.onOpenItem!(item),
+          footnote: Text(
+            item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+          child: PosterCover(
+            pipeline: widget.pipeline!,
+            url: item.cover ?? '',
+            headers: item.coverHeaders,
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildGroup(SourceFilterGroup group) {
     final selected = _selected[group.id] ?? const <String>{};
     return Padding(
@@ -452,10 +576,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
         child: Row(
           children: <Widget>[
-            OutlinedButton(
-              onPressed: _reset,
-              child: const Text('重置'),
-            ),
+            OutlinedButton(onPressed: _reset, child: const Text('重置')),
             const SizedBox(width: 10),
             Expanded(
               child: FilledButton(
@@ -483,7 +604,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
 ///
 /// 宿主拿到的结果直接喂给 `DataSource.list(categoryId:, filters:)`。
 Future<({String? categoryId, Map<String, String> filters})?>
-    openSourceFacetFilter({
+openSourceFacetFilter({
   required BuildContext context,
   required DataSource source,
   String? currentCategoryId,

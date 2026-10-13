@@ -139,8 +139,9 @@ class SourceRegistry {
   ///
   /// 图源被停用或删除后不会留下脏值——选择失效即自动回退。
   SourceRecord? currentSource() {
-    final enabled =
-        sources.where((record) => record.enabled).toList(growable: false);
+    final enabled = sources
+        .where((record) => record.enabled)
+        .toList(growable: false);
     if (enabled.isEmpty) return null;
     final selected = _database.setting(currentSourceKey);
     if (selected != null) {
@@ -166,7 +167,11 @@ class SourceRegistry {
   ///
   /// 失败返回带可读原因的失败结果：平台无引擎、脚本载入失败（语法错误或运行
   /// 异常）、脚本缺少 `LumeSource` 元信息（id / name）或 id 非法。
-  Future<SourceImportOutcome> import(String script, {String originUrl = ''}) async {
+  Future<SourceImportOutcome> import(
+    String script, {
+    String originUrl = '',
+    bool preserveLocalSources = false,
+  }) async {
     if (!_engineAvailable) {
       LumeLog.warn('[${section.id}] 当前平台不提供源引擎');
       return const SourceImportOutcome.failure('当前平台不提供源引擎');
@@ -221,6 +226,14 @@ class SourceRegistry {
       if (mismatch != null) {
         LumeLog.warn('[${section.id}] 拒绝跨板块源 ${metadata.id}：$mismatch');
         return SourceImportOutcome.failure(mismatch);
+      }
+      final previous = source(metadata.id);
+      if (preserveLocalSources &&
+          previous != null &&
+          previous.originUrl.isEmpty) {
+        return SourceImportOutcome.failure(
+          '订阅源 ${metadata.id} 与手动导入的源同名，已保留手动源',
+        );
       }
       _database.upsertSource(
         id: metadata.id,
@@ -481,9 +494,7 @@ class SourceRegistry {
   /// 记录是否归属本板块。不符的记一条告警，调用方按「不存在」处理。
   bool _belongs(SourceRecord record) {
     if (record.section == section.id) return true;
-    LumeLog.warn(
-      '[${section.id}] 拒绝跨板块记录: ${record.id} 归属「${record.section}」',
-    );
+    LumeLog.warn('[${section.id}] 拒绝跨板块记录: ${record.id} 归属「${record.section}」');
     return false;
   }
 

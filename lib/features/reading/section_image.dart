@@ -22,9 +22,11 @@ class SectionImage extends StatefulWidget {
     this.targetWidth,
     this.fit = BoxFit.cover,
     this.borderRadius,
+    this.headers = const {},
   });
 
   final SectionImagePipeline pipeline;
+  final Map<String, String> headers;
 
   /// 图片地址。为空字符串时直接显示占位。
   final String url;
@@ -77,7 +79,11 @@ class _SectionImageState extends State<SectionImage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
         oldWidget.targetWidth != widget.targetWidth ||
+        !identical(oldWidget.headers, widget.headers) ||
         !identical(oldWidget.pipeline, widget.pipeline)) {
+      _retryTimer?.cancel();
+      _retries = 0;
+      _failed = false;
       _release();
       _resolve();
     }
@@ -97,16 +103,24 @@ class _SectionImageState extends State<SectionImage> {
   /// 已经是新图，照它释放会把旧图的引用漏掉（被钉住到管线销毁为止）。
   String? _heldUrl;
   int? _heldWidth;
+  SectionImagePipeline? _heldPipeline;
+  int _resolveSeq = 0;
 
   void _release() {
     if (_image == null) return;
-    widget.pipeline.release(_heldUrl ?? widget.url, targetWidth: _heldWidth);
+    _heldPipeline?.release(_heldUrl ?? widget.url, targetWidth: _heldWidth);
     _image = null;
     _heldUrl = null;
     _heldWidth = null;
+    _heldPipeline = null;
   }
 
   Future<void> _resolve() async {
+    final seq = ++_resolveSeq;
+    final pipeline = widget.pipeline;
+    if (widget.headers.isNotEmpty) {
+      pipeline.configureImageHeaders({widget.url: widget.headers});
+    }
     final url = widget.url.trim();
     if (url.isEmpty) {
       if (mounted) setState(() => _failed = true);
@@ -114,10 +128,10 @@ class _SectionImageState extends State<SectionImage> {
     }
     final width = widget.targetWidth;
     // image() 返回的图自带一次引用（见管线的引用契约），由 _release 归还。
-    final image = await widget.pipeline.image(url, targetWidth: width);
-    if (!mounted) {
+    final image = await pipeline.image(url, targetWidth: width);
+    if (!mounted || seq != _resolveSeq) {
       // 页面已退出：立刻把这次引用还回去，别把它钉在管线上。
-      if (image != null) widget.pipeline.release(url, targetWidth: width);
+      if (image != null) pipeline.release(url, targetWidth: width);
       return;
     }
     if (image == null) {
@@ -136,6 +150,7 @@ class _SectionImageState extends State<SectionImage> {
     }
     _heldUrl = url;
     _heldWidth = width;
+    _heldPipeline = pipeline;
     _retryTimer?.cancel();
     _retryTimer = null;
     setState(() {
@@ -158,7 +173,9 @@ class _SectionImageState extends State<SectionImage> {
       child = _Placeholder(failed: _failed);
     }
     final radius = widget.borderRadius;
-    return radius == null ? child : ClipRRect(borderRadius: radius, child: child);
+    return radius == null
+        ? child
+        : ClipRRect(borderRadius: radius, child: child);
   }
 }
 
