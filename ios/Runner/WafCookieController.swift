@@ -84,7 +84,10 @@ private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
       self.session.dataTask(with: request) { data, response, error in
         DispatchQueue.main.async {
           if let error = error {
-            result(FlutterError(code: "image_network", message: error.localizedDescription, details: nil)); return
+            let native = error as NSError
+            let certificate = native.domain == NSURLErrorDomain && [-1201, -1202, -1203, -1204].contains(native.code)
+            let message = (certificate ? "CERTIFICATE_VERIFY_FAILED: " : "") + error.localizedDescription
+            result(FlutterError(code: "image_network", message: message, details: nil)); return
           }
           guard let response = response as? HTTPURLResponse else {
             result(FlutterError(code: "image_response", message: "Missing HTTP response", details: nil)); return

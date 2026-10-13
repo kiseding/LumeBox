@@ -37,6 +37,31 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test('版本一阅读库迁移保留原有视频进度', () async {
+    final library = await ReadingLibrary.open(Section.video);
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'legacy',
+        chapterIndex: 0,
+        chapterId: 'old',
+        chapterTitle: '旧集',
+        updatedAt: DateTime.now(),
+        position: const Duration(seconds: 60),
+      ),
+    );
+    final scope = await SectionScope.open(Section.video);
+    ReadingLibrary.close(Section.video);
+    final database = sqlite3.open(scope.resolve('reading.db'));
+    database.execute('ALTER TABLE reading_progress DROP COLUMN progress_kind');
+    database.execute('PRAGMA user_version=1');
+    database.dispose();
+    final restored = await ReadingLibrary.open(Section.video);
+    expect(
+      restored.videoProgress('legacy')?.position,
+      const Duration(seconds: 60),
+    );
+  });
   test('猫源按内容类型保存进度，重开后视频漫画小说均可续读', () async {
     final library = await ReadingLibrary.open(Section.cat);
     final now = DateTime.now();

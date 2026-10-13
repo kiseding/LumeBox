@@ -442,7 +442,16 @@ class SectionImagePipeline {
           : null;
       var requestedUrl = url;
       var triedAlternate = false;
-      final budget = _maxRetries + (alternate == null ? 0 : 1);
+      final publicFallback = publicThumbnailFallback(
+        url,
+        headers: _imageHeaders[url] ?? {},
+      );
+      var triedPublicFallback = false;
+      var retries = 0;
+      final budget =
+          _maxRetries +
+          (alternate == null ? 0 : 1) +
+          (publicFallback == null ? 0 : 1);
       for (var attempt = 0; attempt <= budget; attempt++) {
         if (_disposed) return null;
         final outcome = await _fetchOnce(
@@ -459,12 +468,23 @@ class SectionImagePipeline {
           bareReferer = false;
           continue;
         }
+        if (publicFallback != null &&
+            !triedPublicFallback &&
+            _failures[requestedUrl] == '证书异常') {
+          requestedUrl = publicFallback;
+          triedPublicFallback = true;
+          bareReferer = true;
+          LumeLog.info('[$sourceLabel] 公开缩略图启用定向兼容地址：imgcdn01.dycp444.com');
+          continue;
+        }
         if (outcome.forbidden && !bareReferer) {
           bareReferer = true;
           handled403 = true;
           continue;
         }
-        if (!outcome.retryable || attempt == budget) break;
+        if (!outcome.retryable || attempt == budget || retries >= _maxRetries)
+          break;
+        retries++;
         // 退避：300ms、600ms、1200ms。图片是**可见内容**，等太久不如让用户先
         // 看到缺口再自己重试——因此次数仍克制（默认 3 次，弱网多给一次机会）。
         await Future<void>.delayed(
@@ -476,6 +496,33 @@ class SectionImagePipeline {
     } finally {
       _releaseSlot();
     }
+  }
+
+  /// Verified public thumbnails on this CDN remain available over HTTP while
+  /// its TLS certificate is expired. Never downgrade authenticated URLs.
+  @visibleForTesting
+  static String? publicThumbnailFallback(
+    String url, {
+    Map<String, String> headers = const {},
+  }) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'imgcdn01.dycp444.com' ||
+        uri.hasQuery ||
+        uri.userInfo.isNotEmpty ||
+        headers.keys.any(
+          (key) => {
+            'cookie',
+            'authorization',
+            'proxy-authorization',
+          }.contains(key.toLowerCase()),
+        ) ||
+        !RegExp(r'^/pic8/[0-9a-f]/[0-9a-f]/[0-9a-f]{32}\.\d+\.\d+\.jpg$')
+            .hasMatch(uri.path)) {
+      return null;
+    }
+    return uri.replace(scheme: 'http').toString();
   }
 
   /// 一次图片请求要带的头（[withReferer] 为假时**不带 Referer**）。

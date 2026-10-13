@@ -10,6 +10,16 @@
 		     只作用于 Web 内容：App 自己的 Dart 网络请求不受影响。 -->
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>imgcdn01.dycp444.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+		</dict>
 	</dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

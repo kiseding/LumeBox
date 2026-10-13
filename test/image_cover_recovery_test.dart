@@ -11,6 +11,59 @@ void main() {
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('cover-recovery'));
   tearDown(() => root.deleteSync(recursive: true));
+  test('证书过期仅兼容已验证的公开缩略图，不携带凭证且沿用原缓存键', () async {
+    const url =
+        'https://imgcdn01.dycp444.com/pic8/e/9/e9a9905693e273094531d96d935fc330.320.255.jpg';
+    final requests = <NetworkRequest>[];
+    final pipeline = SectionImagePipeline(
+      cacheDir: root.path,
+      maxRetries: 0,
+      requestSender: (request) async {
+        requests.add(request);
+        if (request.url.startsWith('https:'))
+          throw const HandshakeException('CERTIFICATE_VERIFY_FAILED: expired');
+        return const NetworkResponse(
+          statusCode: 200,
+          body: [1, 2, 3],
+          headers: {},
+        );
+      },
+    );
+    addTearDown(pipeline.dispose);
+    pipeline.configureImageHeaders({
+      url: {'X-Image-Token': 'private'},
+    });
+    expect(await pipeline.bytes(url), [1, 2, 3]);
+    expect(requests.length, 2);
+    expect(requests.last.url, url.replaceFirst('https:', 'http:'));
+    expect(requests.last.headers.containsKey('X-Image-Token'), false);
+    expect(requests.last.headers.containsKey('Cookie'), false);
+    expect(File(pipeline.cachePathFor(url)).existsSync(), true);
+    expect(pipeline.failureFor(url), isNull);
+    expect(
+      SectionImagePipeline.publicThumbnailFallback(
+        url,
+        headers: {'Authorization': 'private'},
+      ),
+      isNull,
+    );
+    expect(
+      SectionImagePipeline.publicThumbnailFallback('$url?token=private'),
+      isNull,
+    );
+    expect(
+      SectionImagePipeline.publicThumbnailFallback(
+        url.replaceFirst('imgcdn01.dycp444.com', 'cdn.example'),
+      ),
+      isNull,
+    );
+    expect(
+      SectionImagePipeline.publicThumbnailFallback(
+        'https://imgcdn01.dycp444.com/account/profile.jpg',
+      ),
+      isNull,
+    );
+  });
   test('TMDB 图片域名失败时使用官方备用域名，缓存仍归原地址且不透传认证头', () async {
     final requests = <NetworkRequest>[];
     final pipeline = SectionImagePipeline(
