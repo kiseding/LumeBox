@@ -385,40 +385,20 @@ void main() {
       expect(find.text('停用源'), findsNothing);
     });
 
-    testWidgets('筛选：点按钮走独立筛选页（旧的分类抽屉已下线）', (tester) async {
+    testWidgets('分类由源提供并直接显示，右上角不再有筛选按钮', (tester) async {
       final library = comicLibrary;
       final pipeline = createPipeline(library);
       addTearDown(pipeline.dispose);
-
-      final manager = FakeSourceManager(
-        sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'a', name: '启用源', version: '1.0', enabled: true),
-        ],
-        opened: <String, DataSource>{
-          'a': FakeReadingDataSource(section: Section.comic),
-        },
-      );
-
-      await pump(
-        tester,
-        ComicExplorePage(
-          library: library,
-          pipeline: pipeline,
-          manager: manager,
-        ),
-      );
-
-      // 用户口径：点「筛选」**直接进多行横向标签页**（不再有分类列表那一层，
-      // 也不弹旧抽屉）。分类本身是页面里的第一行标签。
-      await tester.tap(find.byIcon(Icons.filter_list));
-      await tester.pumpAndSettle();
-      expect(find.byType(SourceFilterPage), findsOneWidget);
-      expect(find.text('分类'), findsOneWidget, reason: '分类是其中一行标签');
+      final manager = FakeSourceManager(sources: const [
+        SourceDescriptor(id: 'a', name: '启用源', version: '1.0', enabled: true),
+      ], opened: {'a': FakeReadingDataSource(section: Section.comic)});
+      await pump(tester, ComicExplorePage(library: library, pipeline: pipeline, manager: manager));
+      expect(find.byIcon(Icons.filter_list), findsNothing);
+      expect(find.byType(SourceFilterPage), findsNothing);
       expect(find.text('分类一'), findsOneWidget);
-      // 用户口径：源没给筛选标签时如实说一句（即使分类那一行有内容）——
-      // 这句话以前只在「分类和标签都空」时出现，真机上老脚本（只写 categories）
-      // 的表现是干脆报一条脚本错误，现在是这句提示 + 分类照旧可用。
-      expect(find.text('本源未提供筛选标签'), findsOneWidget);
+      await tester.tap(find.text('分类一'));
+      await tester.pumpAndSettle();
+      expect(find.text('分类一'), findsOneWidget);
     });
   });
 

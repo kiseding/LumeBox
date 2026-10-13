@@ -23,9 +23,9 @@ class MethodChannelPipBackend implements PipBackend {
     MethodChannel? methodChannel,
     EventChannel? eventChannel,
     MethodChannel? frameChannel,
-  })  : _methods = methodChannel ?? const MethodChannel(methodChannelName),
-        _events = eventChannel ?? const EventChannel(eventChannelName),
-        _frames = frameChannel ?? const MethodChannel(frameChannelName);
+  }) : _methods = methodChannel ?? const MethodChannel(methodChannelName),
+       _events = eventChannel ?? const EventChannel(eventChannelName),
+       _frames = frameChannel ?? const MethodChannel(frameChannelName);
 
   static const String methodChannelName = 'lumebox/pip';
   static const String eventChannelName = 'lumebox/pip/events';
@@ -56,10 +56,14 @@ class MethodChannelPipBackend implements PipBackend {
   @override
   Future<void> stop() => _invoke('stop');
 
-  Future<void> updatePlaybackState({required bool playing, required Duration duration}) async {
+  Future<void> updatePlaybackState({
+    required bool playing,
+    required Duration duration,
+  }) async {
     try {
       await _methods.invokeMethod<void>('updateState', {
-        'playing': playing, 'durationMs': duration.inMilliseconds.toDouble(),
+        'playing': playing,
+        'durationMs': duration.inMilliseconds.toDouble(),
       });
     } catch (error) {
       LumeLog.info('[pip] 同步播放状态失败：$error');
@@ -104,6 +108,12 @@ class MethodChannelPipBackend implements PipBackend {
   /// 释放原生帧泵（退出画中画 / 页面销毁）。
   Future<void> teardownFrames() async {
     frameSource.detach();
+    await resetFrames();
+  }
+
+  /// Clear an obsolete media source while retaining the reusable Dart channel.
+  Future<void> resetFrames() async {
+    frameSource.resetStats();
     try {
       await _frames.invokeMethod<void>('teardown');
     } catch (_) {

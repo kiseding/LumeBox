@@ -217,7 +217,7 @@ void main() {
     final gap = height - capsule.bottom;
     expect(
       gap,
-      closeTo(bottomInset + 8, 0.01),
+      closeTo(bottomInset + 4, 0.01),
       reason: '胶囊要悬浮在屏幕底边之上（约 12pt），实测 $gap',
     );
     // 用户口径第十二次：五个页签左右两侧**稍微加宽**——胶囊按「最大宽度 360、
@@ -293,7 +293,7 @@ void main() {
     final capsule = tester.getRect(dockCapsule());
     expect(capsule.left, closeTo(59 + 16, 0.01));
     expect(956 - capsule.right, closeTo(59 + 16, 0.01));
-    expect(440 - capsule.bottom, closeTo(21 + 8, 0.01));
+    expect(440 - capsule.bottom, closeTo(21 + 4, 0.01));
     expect(capsule.height, closeTo(56, 0.01));
   });
 
@@ -313,7 +313,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       height - tester.getRect(dockCapsule()).bottom,
-      closeTo(bottomInset + 8, 0.01),
+      closeTo(bottomInset + 4, 0.01),
     );
   });
 
@@ -440,8 +440,8 @@ void main() {
           .first,
     );
     final radius = clip.borderRadius as BorderRadius;
-    expect(radius.topLeft.x, 0, reason: '上沿贴着屏幕顶端，保持直角');
-    expect(radius.topRight.x, 0);
+    expect(radius.topLeft.x, 24, reason: '首页顶栏为悬浮胶囊');
+    expect(radius.topRight.x, 24);
     expect(
       radius.bottomLeft.x,
       greaterThanOrEqualTo(16.0),

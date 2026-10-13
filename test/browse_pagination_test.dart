@@ -70,7 +70,7 @@ void main() {
   /// 往下滑到底（触发触底加载）。
   Future<void> scrollDown(WidgetTester tester, {int times = 1}) async {
     for (var index = 0; index < times; index++) {
-      await tester.drag(find.byType(Scrollable).last, const Offset(0, -900));
+      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, -900));
       await tester.pumpAndSettle();
     }
   }
@@ -113,7 +113,7 @@ void main() {
 
       // 连续猛滑：同一页只应发一次请求。
       for (var index = 0; index < 6; index++) {
-        await tester.drag(find.byType(Scrollable).last, const Offset(0, -600));
+        await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, -600));
         await tester.pump(const Duration(milliseconds: 10));
       }
       await tester.pumpAndSettle();
@@ -134,7 +134,7 @@ void main() {
       expect(find.text('条目 source-a-2-1'), findsOneWidget);
 
       // 下拉刷新。
-      await tester.drag(find.byType(Scrollable).last, const Offset(0, 600));
+      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, 600));
       await tester.pumpAndSettle();
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
@@ -267,7 +267,7 @@ void main() {
       await scrollDown(tester);
       expect(find.text('条目 source-a-2-1'), findsOneWidget);
 
-      await tester.drag(find.byType(Scrollable).last, const Offset(0, 700));
+      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, 700));
       await tester.pumpAndSettle();
       await tester.pumpAndSettle(const Duration(seconds: 1));
 

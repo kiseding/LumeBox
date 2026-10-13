@@ -296,11 +296,12 @@ void main() {
 
       expect(find.byTooltip('前进 10 秒'), findsOneWidget);
       expect(find.byTooltip('后退 10 秒'), findsOneWidget);
-      expect(find.byTooltip('清晰度'), findsOneWidget);
+      expect(find.byTooltip('清晰度'), findsNothing);
+      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget);
       expect(find.byTooltip('全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       // 用户要求：长播放链接不再铺在控制栏上，改成右侧的小信息图标（弹窗里看 / 换）。
-      expect(find.byTooltip('播放源'), findsOneWidget, reason: '播放源入口（地址与线路）');
+      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget, reason: '播放源入口（地址与线路）');
       expect(find.byType(TextField), findsNothing, reason: '控制栏不再直接展示长链接');
     });
 
@@ -309,14 +310,14 @@ void main() {
       expect(find.widgetWithText(TextButton, '播放器'), findsNothing);
       expect(find.widgetWithText(TextButton, '字幕'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
-      expect(find.byTooltip('播放源'), findsOneWidget);
+      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
       expect(find.byType(BottomSheet), findsWidgets);
     });
 
     testWidgets('旧的 0.75x 不影响新播放，画面默认按原比例适应', (tester) async {
-      final library = ReadingLibrary.find(Section.video)!;
+      final library = await ReadingLibrary.open(Section.video);
       VideoPlayerSettingsStore(library).save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
       final players = await pump(tester);
       players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
@@ -357,7 +358,7 @@ void main() {
         ],
       );
 
-      await tester.tap(find.byTooltip('播放源'));
+      await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
 
       // 弹窗里能看到当前地址（可选中复制），并有复制按钮。
@@ -380,7 +381,7 @@ void main() {
     testWidgets('播放源弹窗：手动贴地址起播；地址无效就地报错不关面板', (tester) async {
       final players = await pump(tester);
 
-      await tester.tap(find.byTooltip('播放源'));
+      await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byType(TextField),
@@ -393,7 +394,7 @@ void main() {
       expect(find.byType(PlayerSourceSheet), findsNothing, reason: '交出去了就关面板');
 
       // 空地址：就地报错，面板留在原地。
-      await tester.tap(find.byTooltip('播放源'));
+      await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '   ');
       await tester.tap(find.text('播放这个地址'));
@@ -404,7 +405,7 @@ void main() {
 
     testWidgets('单线路：点清晰度弹提示，不弹菜单（按钮仍在）', (tester) async {
       await pump(tester);
-      await tester.tap(find.byTooltip('清晰度'));
+      await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
 
       expect(find.text('当前图源不提供多清晰度选项'), findsOneWidget);
@@ -420,7 +421,7 @@ void main() {
       );
       expect(players.single.media?.uri.toString(), 'https://example.com/a.mp4');
 
-      await tester.tap(find.byTooltip('清晰度'));
+      await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
       expect(find.text('1080P'), findsOneWidget);
       expect(find.text('720P'), findsOneWidget);
@@ -571,8 +572,8 @@ void main() {
       expect(padding.bottom, VideoPlayerPage.controlBottomGap);
       expect(
         VideoPlayerPage.controlTopGap,
-        greaterThan(52),
-        reason: '比原先「地址行(≈52) + 信息行」那段距离还大：进度条与画面的空白变大',
+        lessThanOrEqualTo(16),
+        reason: '控制区紧接画面，不再预留大块空白',
       );
       expect(
         VideoPlayerPage.controlBottomGap,
@@ -623,7 +624,7 @@ void main() {
       expect(find.byKey(VideoPlayerPage.controlPanelKey), findsOneWidget);
     });
 
-    testWidgets('全屏顶栏按用户口径排布，投屏是明确不可用', (tester) async {
+    testWidgets('全屏顶栏只有一个锁，移除未接入的投屏入口', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -636,21 +637,14 @@ void main() {
           );
 
       expect(find.byTooltip('关闭（退出全屏）'), findsWidgets);
-      expect(find.byTooltip('投屏（本版本未接入）'), findsWidgets);
+      expect(find.byTooltip('投屏（本版本未接入）'), findsNothing);
       expect(tipContains('旋转（当前：'), findsWidgets);
       expect(tipContains('画面比例（当前：'), findsWidgets);
       expect(tipContains('弹幕：'), findsWidgets);
       expect(tipContains('倍速（当前 '), findsWidgets);
       expect(find.byTooltip('锁定（防误触）'), findsWidgets);
 
-      // 投屏：点了要**说明原因**（明确不可用），不是按了没反应。
-      await tester.tap(find.byTooltip('投屏（本版本未接入）').first);
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('本版本未接入投屏'),
-        findsWidgets,
-        reason: '投屏要做成明确不可用并给出原因',
-      );
+      expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
 
       // 旋转/比例/倍速三个循环按钮当场改档位并给回执。
       // 点一下旋转：档位当场往后走一档（提示里的「当前」值跟着变，这就是回执）。
@@ -868,20 +862,12 @@ void main() {
     final stop = tester.getCenter(find.byTooltip('停止'));
     expect(slider.bottom, lessThan(stop.dy), reason: '进度条在按钮组上方');
 
-    // 左下角一组：传输控制 + 媒体类；右下角一组：窗口与信息类。
     final leftMost = tester.getCenter(find.byTooltip('后退 10 秒')).dx;
-    final leftDanmaku = tester.getCenter(find.byTooltip('弹幕设置')).dx;
-    final rightSource = tester.getCenter(find.byTooltip('播放源')).dx;
     final rightSettings = tester.getCenter(find.byTooltip('播放器设置')).dx;
-    expect(leftMost, lessThan(leftDanmaku), reason: '左组按顺序排开');
-    expect(
-      leftDanmaku,
-      lessThan(rightSource),
-      reason: '媒体类在左、信息类在右（不再全挤中间）',
-    );
-    expect(rightSource, lessThan(rightSettings));
-    expect(rightSettings, greaterThan(450), reason: '右组落在屏幕右半边');
-    expect(leftMost, lessThan(450), reason: '左组落在屏幕左半边');
+    expect(rightSettings, greaterThan(450));
+    expect(leftMost, lessThan(450));
+    expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
+
   });
 
   testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
@@ -1145,4 +1131,11 @@ class _CountingClient extends http.BaseClient {
       headers: const <String, String>{'content-range': 'bytes 0-262143/99999999'},
     );
   }
+}
+
+Future<void> openPlayerAction(WidgetTester tester, String action) async {
+  await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）').first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(action));
+  await tester.pumpAndSettle();
 }

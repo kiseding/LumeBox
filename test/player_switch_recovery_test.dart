@@ -99,7 +99,7 @@ void main() {
       // 板块顶栏那排入口（追剧日历 / 源管理）现在在**浏览页**上，与播放器状态
       // 无关；播放器页这边钉住的是「控制栏与播放源入口不会被失败态收走」。
       expect(
-        find.byTooltip('播放源'),
+        find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'),
         findsOneWidget,
         reason: '播放源入口也要能重新贴地址（地址现在收在它的弹窗里）',
       );
@@ -153,7 +153,7 @@ void main() {
       expect(find.text('播放器准备失败'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget, reason: '设置入口不受切换影响');
       expect(
-        find.byTooltip('播放源'),
+        find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'),
         findsOneWidget,
         reason: '播放源入口不受切换影响（失败时还能改地址或换内核）',
       );

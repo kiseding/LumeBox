@@ -89,12 +89,12 @@ class PlayerStats {
     if (buffering) return '缓冲中';
     final value = buffered;
     if (value == null || value <= Duration.zero) return null;
-    final seconds = value.inMilliseconds / 1000;
+    final seconds = (value.inMilliseconds / 1000).round();
     if (seconds >= 60) {
       final minutes = seconds ~/ 60;
-      return '缓冲 ${minutes}m${(seconds - minutes * 60).round()}s';
+      return '缓冲 ${minutes}m${seconds % 60}s';
     }
-    return '缓冲 ${seconds.round()}s';
+    return '缓冲 ${seconds}s';
   }
 
   /// HUD 展示片段：固定顺序「编码 / 分辨率 / 帧率 / 码率 / 缓冲」，

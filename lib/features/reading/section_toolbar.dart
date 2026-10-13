@@ -274,10 +274,11 @@ class SectionToolbar extends StatelessWidget {
     required this.layoutMode,
     required this.onLayoutChanged,
     required this.onSearch,
-    required this.onFilter,
+    this.onFilter,
     this.showSort = true,
     this.filterActive = false,
     this.busy = false,
+    this.floating = false,
   });
 
   /// 本板块已启用的源。
@@ -288,6 +289,7 @@ class SectionToolbar extends StatelessWidget {
   /// 打开图源管理；为空时图源条里不显示这个入口（宿主顶栏已经有了）。
   final VoidCallback? onManage;
   final bool busy;
+  final bool floating;
 
   final BrowseSort sort;
   final ValueChanged<BrowseSort> onSortChanged;
@@ -299,7 +301,7 @@ class SectionToolbar extends StatelessWidget {
   final VoidCallback onSearch;
 
   /// 点「筛选」：由宿主打开筛选抽屉。
-  final VoidCallback onFilter;
+  final VoidCallback? onFilter;
 
   /// 是否显示「排序」按钮。
   ///
@@ -320,6 +322,7 @@ class SectionToolbar extends StatelessWidget {
             sources: sources,
             currentId: currentId,
             busy: busy,
+            floating: floating,
             onSelect: onSelect,
             onManage: onManage ?? () {},
             showManage: onManage != null,
@@ -330,6 +333,7 @@ class SectionToolbar extends StatelessWidget {
         //    小说 / 漫画两块按用户要求不显示它（见 [showSort]）。
         if (showSort)
           _ToolbarAction(
+            floating: floating,
             icon: Icons.sort,
             tooltip: '排序',
             highlighted: sort != BrowseSort.none,
@@ -337,6 +341,7 @@ class SectionToolbar extends StatelessWidget {
           ),
         // 3) 布局切换
         _ToolbarAction(
+          floating: floating,
           icon: switch (layoutMode) {
             BrowseLayoutMode.list => Icons.view_list_outlined,
             BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
@@ -349,18 +354,16 @@ class SectionToolbar extends StatelessWidget {
           onTap: () => _pickLayout(context),
         ),
         // 4) 搜索
-        _ToolbarAction(
-          icon: Icons.search,
-          tooltip: '搜索',
-          onTap: onSearch,
-        ),
+        _ToolbarAction(icon: Icons.search, tooltip: '搜索', onTap: onSearch),
         // 5) 筛选
-        _ToolbarAction(
-          icon: Icons.filter_list,
-          tooltip: '筛选',
-          highlighted: filterActive,
-          onTap: onFilter,
-        ),
+        if (onFilter != null)
+          _ToolbarAction(
+            floating: floating,
+            icon: Icons.filter_list,
+            tooltip: '筛选',
+            highlighted: filterActive,
+            onTap: onFilter!,
+          ),
       ],
     );
   }
@@ -404,34 +407,43 @@ class _ToolbarAction extends StatelessWidget {
     required this.tooltip,
     required this.onTap,
     this.highlighted = false,
+    this.floating = false,
   });
-
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  final bool highlighted;
-
+  final bool highlighted, floating;
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 6),
-      child: GlassCard(
-        radius: 12,
-        padding: EdgeInsets.zero,
-        onTap: onTap,
-        child: Tooltip(
-          message: tooltip,
-          child: SizedBox(
-            width: 42,
-            height: 42,
-            child: Icon(
-              icon,
-              size: 20,
-              color: highlighted ? LumeTheme.accent : LumeTheme.textSecondary,
-            ),
-          ),
+    final content = Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: Icon(
+          icon,
+          size: 20,
+          color: highlighted ? LumeTheme.accent : LumeTheme.textSecondary,
         ),
       ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: floating
+          ? Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(21),
+                child: content,
+              ),
+            )
+          : GlassCard(
+              radius: 12,
+              padding: EdgeInsets.zero,
+              onTap: onTap,
+              child: content,
+            ),
     );
   }
 }
@@ -545,7 +557,6 @@ class _ToolbarSheet<T> extends StatelessWidget {
     );
   }
 }
-
 
 /// 打开「搜索模式」选择菜单（用户点名的两种模式）。
 ///

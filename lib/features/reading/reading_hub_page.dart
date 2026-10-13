@@ -53,6 +53,7 @@ class ReadingHubPage extends StatelessWidget {
         actions: actions,
         bottom: const BoardTabHeader(labels: tabLabels),
         behindBar: true,
+        floatingBar: true,
         // 顺序与 tabLabels 一一对应：探索在前。
         child: BoardTabs(children: <Widget>[explore, shelf]),
       ),

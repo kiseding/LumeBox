@@ -17,6 +17,7 @@ class ReadingSourceBar extends StatelessWidget {
     required this.onManage,
     this.showManage = true,
     this.busy = false,
+    this.floating = false,
   });
 
   /// 本板块已启用的图源。
@@ -33,68 +34,65 @@ class ReadingSourceBar extends StatelessWidget {
 
   /// 切换中：期间禁止再次下拉，避免连点触发多次切换。
   final bool busy;
+  final bool floating;
 
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
-      radius: 14,
-      padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: currentId,
-                isExpanded: true,
-                dropdownColor: LumeTheme.surface,
-                borderRadius: BorderRadius.circular(14),
+    final content = Row(
+      children: <Widget>[
+        Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
+        const SizedBox(width: 8),
+        Expanded(
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: currentId,
+              isExpanded: true,
+              dropdownColor: LumeTheme.surface,
+              borderRadius: BorderRadius.circular(14),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: LumeTheme.textPrimary,
+              ),
+              icon: Icon(Icons.expand_more, size: 18, color: LumeTheme.muted),
+              hint: Text(
+                '未选择源',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: LumeTheme.textPrimary,
-                ),
-                icon: Icon(
-                  Icons.expand_more,
-                  size: 18,
                   color: LumeTheme.muted,
                 ),
-                hint: Text(
-                  '未选择源',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.muted,
-                  ),
-                ),
-                items: <DropdownMenuItem<String>>[
-                  for (final source in sources)
-                    DropdownMenuItem<String>(
-                      value: source.id,
-                      child: Text(
-                        source.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                onChanged: busy
-                    ? null
-                    : (value) {
-                        if (value != null) onSelect(value);
-                      },
               ),
+              items: <DropdownMenuItem<String>>[
+                for (final source in sources)
+                  DropdownMenuItem<String>(
+                    value: source.id,
+                    child: Text(
+                      source.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: busy
+                  ? null
+                  : (value) {
+                      if (value != null) onSelect(value);
+                    },
             ),
           ),
-          if (showManage)
-            IconButton(
-              tooltip: '源管理',
-              icon: const Icon(Icons.tune, size: 20),
-              onPressed: onManage,
-            ),
-        ],
-      ),
+        ),
+        if (showManage)
+          IconButton(
+            tooltip: '源管理',
+            icon: const Icon(Icons.tune, size: 20),
+            onPressed: onManage,
+          ),
+      ],
     );
+    const padding = EdgeInsets.fromLTRB(12, 2, 4, 2);
+    return floating
+        ? Padding(padding: padding, child: content)
+        : GlassCard(radius: 14, padding: padding, child: content);
   }
 }

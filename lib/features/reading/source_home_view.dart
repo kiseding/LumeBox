@@ -30,9 +30,15 @@ class SourceHomeView extends StatefulWidget {
     required this.onOpenItem,
     this.onOpenMore,
     this.originUrl = '',
+    this.topInset = 8,
+    this.bottomInset = 0,
+    this.onRefreshMetadata,
   });
 
   final DataSource source;
+  final double topInset;
+  final double bottomInset;
+  final Future<void> Function()? onRefreshMetadata;
 
   /// 图源的订阅地址（可选）：过 WAF 时用它兜底拿站点 origin。
   final String originUrl;
@@ -138,9 +144,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         return;
       case WafWebViewOutcome.emptySession:
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('没取到会话：等验证通过、站点页面真正显示出来后再点 ✕ 关闭'),
-          ),
+          const SnackBar(content: Text('没取到会话：等验证通过、站点页面真正显示出来后再点 ✕ 关闭')),
         );
         return;
       case WafWebViewOutcome.collected:
@@ -221,7 +225,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       );
     }
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () async {
+        await Future.wait([
+          _load(),
+          if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
+        ]);
+      },
       child: home.isBoards ? _buildBoards(home.boards) : _buildFlat(home.items),
     );
   }
@@ -230,7 +239,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   Widget _buildBoards(List<SourceHomeBoard> boards) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+      padding: EdgeInsets.fromLTRB(
+        0,
+        widget.topInset,
+        0,
+        16 + widget.bottomInset,
+      ),
       itemCount: boards.length,
       itemBuilder: (context, index) => _buildBoard(boards[index]),
     );
@@ -261,7 +275,8 @@ class _SourceHomeViewState extends State<SourceHomeView> {
                 // moreUrl 为空 / null 时**不显示**「更多」按钮（用户口径任务 3.2）。
                 if (board.moreUrl != null && widget.onOpenMore != null)
                   TextButton(
-                    onPressed: () => widget.onOpenMore!(board.title, board.moreUrl!),
+                    onPressed: () =>
+                        widget.onOpenMore!(board.title, board.moreUrl!),
                     child: const Text('更多'),
                   ),
               ],
@@ -293,7 +308,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   Widget _buildFlat(List<SourceItem> items) {
     return GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        widget.topInset,
+        16,
+        16 + widget.bottomInset,
+      ),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         mainAxisSpacing: 12,
@@ -472,9 +492,8 @@ class _SourceHomeMorePageState extends State<SourceHomeMorePage> {
           return false;
         },
         child: GridView.builder(
-          padding: GlassScaffold.barInset(context).add(
-            const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          ),
+          padding: GlassScaffold.barInset(context)
+              .add(const EdgeInsets.fromLTRB(16, 8, 16, 16)),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             mainAxisSpacing: 12,

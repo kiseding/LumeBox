@@ -55,3 +55,11 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+
+### 公共弹幕服务
+
+播放器同时保留源弹幕，并支持[弹弹play开放弹幕网络](https://www.dandanplay.com/)及兼容 API。
+在播放器“更多 → 弹幕服务地址”中选择 Cynn、Wenjian、官方服务或自定义 HTTPS 部署前缀；支持 [danmu_api](https://github.com/huangxd-/danmu_api) 的搜索与弹幕接口。默认使用用户指定的 Cynn 地址；服务无结果或不稳定时可换服务。匹配不唯一时使用“匹配公共弹幕”选择对应作品和集数。
+
+官方服务须按[官方接入说明](https://doc.dandanplay.com/open/)申请应用凭证。iOS 配置保存在设备钥匙串，签名仅发到官方主机；第三方兼容服务不接收官方凭证。没有对应弹幕的作品不生成模拟弹幕。

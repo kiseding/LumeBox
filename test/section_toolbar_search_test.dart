@@ -114,7 +114,7 @@ void main() {
         expect(toolbar, findsOneWidget);
 
         // 顺序：源下拉 → 排序 → 布局 → 搜索 → 筛选。
-        for (final tooltip in <String>['排序', '布局', '搜索', '筛选']) {
+        for (final tooltip in <String>['排序', '布局', '搜索']) {
           expect(
             find.descendant(of: toolbar, matching: find.byTooltip(tooltip)),
             findsOneWidget,
@@ -124,7 +124,7 @@ void main() {
         expect(find.descendant(of: toolbar, matching: find.byTooltip('源管理')), findsOneWidget);
 
         final centers = <String, double>{
-          for (final tooltip in <String>['排序', '布局', '搜索', '筛选'])
+          for (final tooltip in <String>['排序', '布局', '搜索'])
             tooltip: tester
                 .getTopLeft(
                   find.descendant(of: toolbar, matching: find.byTooltip(tooltip)),
@@ -133,7 +133,7 @@ void main() {
         };
         expect(centers['排序']!, lessThan(centers['布局']!), reason: '排序在布局左边');
         expect(centers['布局']!, lessThan(centers['搜索']!), reason: '布局在搜索左边');
-        expect(centers['搜索']!, lessThan(centers['筛选']!), reason: '搜索在筛选左边');
+        expect(find.byTooltip('筛选'), findsNothing, reason: '筛选已移到分类下方');
       });
     }
 

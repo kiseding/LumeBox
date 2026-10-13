@@ -14,6 +14,10 @@ class DanmakuSettingsSheet extends StatefulWidget {
     required this.settings,
     required this.onChanged,
     this.danmakuCount,
+    this.status,
+    this.onMatch,
+    this.onConfigureService,
+    this.onReload,
   });
 
   final DanmakuSettings settings;
@@ -22,6 +26,10 @@ class DanmakuSettingsSheet extends StatefulWidget {
 
   /// 本集弹幕条数（展示用）；为空时不显示这一行。
   final int? danmakuCount;
+  final String? status;
+  final VoidCallback? onMatch;
+  final VoidCallback? onConfigureService;
+  final VoidCallback? onReload;
 
   @override
   State<DanmakuSettingsSheet> createState() => _DanmakuSettingsSheetState();
@@ -39,11 +47,36 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
           // 面板内容与「播放器设置 → 弹幕」共用同一份（[DanmakuSettingsPanel]），
           // 两处不各写一套控件，免得改了这边忘了那边。
           child: SingleChildScrollView(
-            child: DanmakuSettingsPanel(
-              settings: widget.settings,
-              onChanged: widget.onChanged,
-              danmakuCount: widget.danmakuCount,
-              showTitle: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.status != null)
+                  ListTile(title: Text(widget.status!)),
+                if (widget.onMatch != null)
+                  ListTile(
+                    leading: const Icon(Icons.search),
+                    title: const Text('匹配公共弹幕'),
+                    onTap: widget.onMatch,
+                  ),
+                if (widget.onConfigureService != null)
+                  ListTile(
+                    leading: const Icon(Icons.cloud_outlined),
+                    title: const Text('弹幕服务地址'),
+                    onTap: widget.onConfigureService,
+                  ),
+                if (widget.onReload != null)
+                  ListTile(
+                    leading: const Icon(Icons.refresh),
+                    title: const Text('重新加载弹幕'),
+                    onTap: widget.onReload,
+                  ),
+                DanmakuSettingsPanel(
+                  settings: widget.settings,
+                  onChanged: widget.onChanged,
+                  danmakuCount: widget.danmakuCount,
+                  showTitle: true,
+                ),
+              ],
             ),
           ),
         ),
@@ -94,107 +127,105 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-                if (widget.showTitle) ...<Widget>[
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          '弹幕设置',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (widget.danmakuCount != null)
-                        Text(
-                          '本集 ${widget.danmakuCount} 条',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: LumeTheme.muted,
-                          ),
-                        ),
-                    ],
+          if (widget.showTitle) ...<Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '弹幕设置',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: LumeTheme.textPrimary,
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                ] else if (widget.danmakuCount != null) ...<Widget>[
+                ),
+                if (widget.danmakuCount != null)
                   Text(
                     '本集 ${widget.danmakuCount} 条',
                     style: TextStyle(fontSize: 12, color: LumeTheme.muted),
                   ),
-                  const SizedBox(height: 4),
-                ],
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    '显示弹幕',
-                    style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
-                  ),
-                  value: _settings.enabled,
-                  onChanged: (value) => _update(_settings.copyWith(enabled: value)),
-                ),
-                _slider(
-                  label: '不透明度',
-                  value: _settings.opacity,
-                  min: DanmakuSettings.minOpacity,
-                  max: DanmakuSettings.maxOpacity,
-                  display: '${(_settings.opacity * 100).round()}%',
-                  onChanged: (value) => _update(_settings.copyWith(opacity: value)),
-                ),
-                _slider(
-                  label: '字号',
-                  value: _settings.fontScale,
-                  min: DanmakuSettings.minFontScale,
-                  max: DanmakuSettings.maxFontScale,
-                  display: _settings.fontScale.toStringAsFixed(2),
-                  onChanged: (value) => _update(_settings.copyWith(fontScale: value)),
-                ),
-                _slider(
-                  label: '显示区域',
-                  value: _settings.displayArea,
-                  min: DanmakuSettings.minArea,
-                  max: DanmakuSettings.maxArea,
-                  display: '${(_settings.displayArea * 100).round()}%',
-                  onChanged: (value) =>
-                      _update(_settings.copyWith(displayArea: value)),
-                ),
-                _slider(
-                  label: '滚动速度',
-                  value: _settings.speedScale,
-                  min: DanmakuSettings.minSpeed,
-                  max: DanmakuSettings.maxSpeed,
-                  display: '${_settings.speedScale.toStringAsFixed(1)}x',
-                  onChanged: (value) =>
-                      _update(_settings.copyWith(speedScale: value)),
-                ),
-                _slider(
-                  label: '描边',
-                  value: _settings.strokeWidth,
-                  min: DanmakuSettings.minStroke,
-                  max: DanmakuSettings.maxStroke,
-                  display: _settings.strokeWidth.toStringAsFixed(1),
-                  onChanged: (value) =>
-                      _update(_settings.copyWith(strokeWidth: value)),
-                ),
-                _slider(
-                  label: '同屏上限',
-                  value: _settings.maxOnScreen.toDouble(),
-                  min: DanmakuSettings.minOnScreen.toDouble(),
-                  max: DanmakuSettings.maxOnScreenLimit.toDouble(),
-                  display: '${_settings.maxOnScreen} 条',
-                  divisions: (DanmakuSettings.maxOnScreenLimit -
-                          DanmakuSettings.minOnScreen) ~/
-                      10,
-                  onChanged: (value) =>
-                      _update(_settings.copyWith(maxOnScreen: value.round())),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () => _update(DanmakuSettings.defaults),
-                  icon: const Icon(Icons.restart_alt, size: 18),
-                  label: const Text('恢复默认'),
-                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+          ] else if (widget.danmakuCount != null) ...<Widget>[
+            Text(
+              '本集 ${widget.danmakuCount} 条',
+              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            ),
+            const SizedBox(height: 4),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              '显示弹幕',
+              style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+            ),
+            value: _settings.enabled,
+            onChanged: (value) => _update(_settings.copyWith(enabled: value)),
+          ),
+          _slider(
+            label: '不透明度',
+            value: _settings.opacity,
+            min: DanmakuSettings.minOpacity,
+            max: DanmakuSettings.maxOpacity,
+            display: '${(_settings.opacity * 100).round()}%',
+            onChanged: (value) => _update(_settings.copyWith(opacity: value)),
+          ),
+          _slider(
+            label: '字号',
+            value: _settings.fontScale,
+            min: DanmakuSettings.minFontScale,
+            max: DanmakuSettings.maxFontScale,
+            display: _settings.fontScale.toStringAsFixed(2),
+            onChanged: (value) => _update(_settings.copyWith(fontScale: value)),
+          ),
+          _slider(
+            label: '显示区域',
+            value: _settings.displayArea,
+            min: DanmakuSettings.minArea,
+            max: DanmakuSettings.maxArea,
+            display: '${(_settings.displayArea * 100).round()}%',
+            onChanged: (value) =>
+                _update(_settings.copyWith(displayArea: value)),
+          ),
+          _slider(
+            label: '滚动速度',
+            value: _settings.speedScale,
+            min: DanmakuSettings.minSpeed,
+            max: DanmakuSettings.maxSpeed,
+            display: '${_settings.speedScale.toStringAsFixed(1)}x',
+            onChanged: (value) =>
+                _update(_settings.copyWith(speedScale: value)),
+          ),
+          _slider(
+            label: '描边',
+            value: _settings.strokeWidth,
+            min: DanmakuSettings.minStroke,
+            max: DanmakuSettings.maxStroke,
+            display: _settings.strokeWidth.toStringAsFixed(1),
+            onChanged: (value) =>
+                _update(_settings.copyWith(strokeWidth: value)),
+          ),
+          _slider(
+            label: '同屏上限',
+            value: _settings.maxOnScreen.toDouble(),
+            min: DanmakuSettings.minOnScreen.toDouble(),
+            max: DanmakuSettings.maxOnScreenLimit.toDouble(),
+            display: '${_settings.maxOnScreen} 条',
+            divisions:
+                (DanmakuSettings.maxOnScreenLimit -
+                    DanmakuSettings.minOnScreen) ~/
+                10,
+            onChanged: (value) =>
+                _update(_settings.copyWith(maxOnScreen: value.round())),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => _update(DanmakuSettings.defaults),
+            icon: const Icon(Icons.restart_alt, size: 18),
+            label: const Text('恢复默认'),
+          ),
         ],
       ),
     );

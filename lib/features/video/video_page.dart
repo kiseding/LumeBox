@@ -83,8 +83,6 @@ class _VideoPageState extends State<VideoPage> {
   /// 浏览列表的封面图管线：**本板块自己**的（缓存落在 sections/video 之下）。
   SectionImagePipeline? _pipeline;
 
-
-
   /// 浏览面换代：从图源管理页返回后 +1，重挂浏览面（列表与当前图源重算）。
   int _browseRevision = 0;
 
@@ -138,7 +136,8 @@ class _VideoPageState extends State<VideoPage> {
 
   Future<void> _boot() async {
     try {
-      final library = widget.library ?? await ReadingLibrary.open(Section.video);
+      final library =
+          widget.library ?? await ReadingLibrary.open(Section.video);
       if (!mounted) return;
       setState(() {
         _library = library;
@@ -468,7 +467,9 @@ class _VideoPageState extends State<VideoPage> {
     }
 
     // 优先按剧集 id 找；找不到再按序号；都没有就用第一集。
-    var index = chapters.indexWhere((chapter) => chapter.id == progress.chapterId);
+    var index = chapters.indexWhere(
+      (chapter) => chapter.id == progress.chapterId,
+    );
     if (index < 0 && progress.chapterIndex < chapters.length) {
       index = progress.chapterIndex;
     }
@@ -548,9 +549,8 @@ class _VideoPageState extends State<VideoPage> {
   /// 可读提示（不冒泡异常）。
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   // ------------------------------------------------------------------ 构建
@@ -560,37 +560,38 @@ class _VideoPageState extends State<VideoPage> {
   ///
   /// 播放器设置不在这里——它属于播放器本身，在播放器页的控制栏齿轮上。
   List<Widget> _buildActions() => <Widget>[
-        IconButton(
-          tooltip: '播放历史',
-          icon: const Icon(Icons.history),
-          onPressed: _openHistory,
-        ),
-        IconButton(
-          tooltip: '源管理',
-          icon: const Icon(Icons.source_outlined),
-          onPressed: _manageSources,
-        ),
-        // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
-        AddSourceButton(
-          section: Section.video,
-          manager: widget.sourceManager,
-          onImported: _onSourcesChanged,
-        ),
-      ];
+    IconButton(
+      tooltip: '播放历史',
+      icon: const Icon(Icons.history),
+      onPressed: _openHistory,
+    ),
+    IconButton(
+      tooltip: '源管理',
+      icon: const Icon(Icons.source_outlined),
+      onPressed: _manageSources,
+    ),
+    // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
+    AddSourceButton(
+      section: Section.video,
+      manager: widget.sourceManager,
+      onImported: _onSourcesChanged,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return GlassScaffold(
-        // **不随键盘收缩**：板块内容区（ExploreView）自己处理键盘内边距
-        // （列表底部让出键盘高度）。外层若跟着收缩，固定的工具栏 / 搜索行会被
-        // 挤出屏幕——真机反馈过两次「键盘弹起后搜索框不见了」。
-        resizeToAvoidBottomInset: false,
-        title: Section.video.label,
-        actions: _buildActions(),
-        // **不再有页签条**（用户口径：删掉顶部那个「浏览」文字，内容直接往上顶，
-        // 与猫源板块的顶部一致）。视频页本来也只剩一个浏览面——播放是独立的
-        // 播放器页，页签条只是白占一条高度。
+      // **不随键盘收缩**：板块内容区（ExploreView）自己处理键盘内边距
+      // （列表底部让出键盘高度）。外层若跟着收缩，固定的工具栏 / 搜索行会被
+      // 挤出屏幕——真机反馈过两次「键盘弹起后搜索框不见了」。
+      resizeToAvoidBottomInset: false,
+      title: Section.video.label,
+      actions: _buildActions(),
+      // **不再有页签条**（用户口径：删掉顶部那个「浏览」文字，内容直接往上顶，
+      // 与猫源板块的顶部一致）。视频页本来也只剩一个浏览面——播放是独立的
+      // 播放器页，页签条只是白占一条高度。
       behindBar: true,
+      floatingBar: true,
       child: _buildBrowseTab(),
     );
   }
@@ -735,7 +736,10 @@ class _ChapterSheet extends StatelessWidget {
                             title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: LumeTheme.muted,
+                            ),
                           ),
                         ],
                       ),

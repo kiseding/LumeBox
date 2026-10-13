@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import Flutter
 import UIKit
+import Security
 
 /// 画中画的原生实现（iOS）。
 ///
@@ -25,6 +26,7 @@ final class PipController: NSObject {
   private var eventSink: FlutterEventSink?
   private var controller: AVPictureInPictureController?
   private var frameLayer: AVSampleBufferDisplayLayer?
+  private var frameHost: UIView?
   private var paused = false
   private var durationSeconds: Double = 0
 
@@ -36,6 +38,43 @@ final class PipController: NSObject {
 
 
   func register(with messenger: FlutterBinaryMessenger) {
+    let credentials = FlutterMethodChannel(name: "lumebox/danmaku_credentials", binaryMessenger: messenger)
+    credentials.setMethodCallHandler { call, result in
+      let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "com.lumebox.dandanplay",
+        kSecAttrAccount as String: "application"
+      ]
+      switch call.method {
+      case "read":
+        var readQuery = query
+        readQuery[kSecReturnData as String] = true
+        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(readQuery as CFDictionary, &item)
+        if status == errSecSuccess, let data = item as? Data,
+           let value = try? JSONSerialization.jsonObject(with: data) {
+          result(value)
+        } else if status == errSecItemNotFound { result(nil) }
+        else { result(FlutterError(code: "keychain", message: "无法读取弹幕服务凭证", details: nil)) }
+      case "write":
+        guard let args = call.arguments as? [String: String],
+              let data = try? JSONSerialization.data(withJSONObject: args) else {
+          result(FlutterError(code: "invalid", message: "凭证格式无效", details: nil)); return
+        }
+        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+          var insert = query
+          insert[kSecValueData as String] = data
+          insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+          status = SecItemAdd(insert as CFDictionary, nil)
+        }
+        if status == errSecSuccess { result(nil) }
+        else { result(FlutterError(code: "keychain", message: "无法保存弹幕服务凭证", details: nil)) }
+      default: result(FlutterMethodNotImplemented)
+      }
+    }
+
     let methods = FlutterMethodChannel(name: methodChannelName, binaryMessenger: messenger)
     methods.setMethodCallHandler { [weak self] call, result in
       self?.handle(call, result: result)
@@ -55,7 +94,12 @@ final class PipController: NSObject {
       case "submitFrame":
         self.handleFrame(call, result: result)
       case "teardown":
+        self.controller?.delegate = nil
+        self.controller?.canStartPictureInPictureAutomaticallyFromInline = false
+        self.controller?.stopPictureInPicture()
         self.framePump.teardown()
+        self.frameHost?.removeFromSuperview()
+        self.frameHost = nil
         self.frameLayer = nil
         self.controller = nil
         result(nil)
@@ -134,8 +178,16 @@ final class PipController: NSObject {
     if let host = UIApplication.shared.connectedScenes
       .compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows })
       .first(where: { $0.isKeyWindow })?.rootViewController?.view {
-      layer.frame = host.bounds
-      host.layer.insertSublayer(layer, at: 0)
+      // Flutter's root layer must remain the only visible inline renderer.
+      // A sibling below it keeps the PiP source attached without painting over
+      // Flutter textures or retaining an obsolete full-screen frame.
+      if let parent = host.superview {
+        let sourceView = PipSourceView(frame: host.frame, displayLayer: layer)
+        sourceView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        sourceView.isUserInteractionEnabled = false
+        parent.insertSubview(sourceView, belowSubview: host)
+        frameHost = sourceView
+      }
     }
     let source = AVPictureInPictureController.ContentSource(
       sampleBufferDisplayLayer: layer,
@@ -143,6 +195,7 @@ final class PipController: NSObject {
     )
     let controller = AVPictureInPictureController(contentSource: source)
     controller.delegate = self
+    controller.canStartPictureInPictureAutomaticallyFromInline = true
     self.controller = controller
   }
 
@@ -216,6 +269,13 @@ extension PipController: FlutterStreamHandler {
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PipController: AVPictureInPictureControllerDelegate {
+  func pictureInPictureController(
+    _ controller: AVPictureInPictureController,
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+  ) {
+    emit(kind: "restored", message: nil)
+    completionHandler(true)
+  }
   func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
     emit(kind: "entered", message: nil)
   }
@@ -229,6 +289,28 @@ extension PipController: AVPictureInPictureControllerDelegate {
     failedToStartPictureInPictureWithError error: Error
   ) {
     emit(kind: "failed", message: error.localizedDescription)
+  }
+}
+
+private final class PipSourceView: UIView {
+  private let displayLayer: AVSampleBufferDisplayLayer
+
+  init(frame: CGRect, displayLayer: AVSampleBufferDisplayLayer) {
+    self.displayLayer = displayLayer
+    super.init(frame: frame)
+    backgroundColor = .black
+    layer.addSublayer(displayLayer)
+    displayLayer.frame = bounds
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    displayLayer.frame = bounds
+    CATransaction.commit()
   }
 }
 

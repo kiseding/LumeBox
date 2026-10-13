@@ -29,6 +29,7 @@ Future<void> showPlayerSettingsSheet({
   DanmakuSettings? danmaku,
   ValueChanged<DanmakuSettings>? onDanmakuChanged,
   int? danmakuCount,
+  Widget? extraControls,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -48,6 +49,7 @@ Future<void> showPlayerSettingsSheet({
       danmaku: danmaku,
       onDanmakuChanged: onDanmakuChanged,
       danmakuCount: danmakuCount,
+      extraControls: extraControls,
     ),
   );
 }
@@ -82,6 +84,7 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.onDanmakuChanged,
     this.danmakuCount,
     this.embedded = false,
+    this.extraControls,
   });
 
   /// 当前设置（受控）。
@@ -132,6 +135,7 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 是否作为**内嵌内容**使用（全局设置页）：不画拖拽把手与关闭按钮，
   /// 也不限高（由外层滚动容器负责）。
   final bool embedded;
+  final Widget? extraControls;
 
   @override
   State<PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
@@ -176,67 +180,65 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[
-                      _section(
-                        '播放内核',
-                        '切换播放内核；倍速、画面与字幕设置分别保存',
-                      ),
-                      PlayerKernelPicker(
-                        selected: settings.kernel,
-                        catalog: catalog,
-                        onChanged: (kernel) =>
-                            _update(settings.copyWith(kernel: kernel)),
-                        retryKernel: PlayerFactory.mpvInitFailed
-                            ? PlayerKernel.mpv
-                            : null,
-                        onRetry: () {
-                          PlayerFactory.clearMpvInitFailure();
-                          // 列表重新评估：宿主在下一帧重建面板。
-                          _update(settings);
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
-                      _speedSlider(context),
-                      const SizedBox(height: 20),
-                      _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
-                      _pictureCard(context),
-                      const SizedBox(height: 20),
-                      if (widget.onOrientationChanged != null) ...<Widget>[
-                        _section(
-                          '方向锁定',
-                          '全屏时的屏幕方向：自动 = 按视频比例判断'
-                          '（竖屏短剧竖屏全屏、横片横屏全屏）',
-                        ),
-                        _orientationCard(context),
-                        const SizedBox(height: 20),
-                      ],
-                      _section(
-                        '字幕',
-                        '开关 / 字号 / 颜色 / 描边 / 底色 / 延迟；'
-                        '外挂字幕与内置字幕轨',
-                      ),
-                      _subtitleCard(context),
-                      const SizedBox(height: 20),
-                      _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
-                      _audioCard(context),
-                      if (_danmaku != null) ...<Widget>[
-                        const SizedBox(height: 20),
-                        _section(
-                          '弹幕',
-                          '开关 / 不透明度 / 字号 / 显示区域 / 速度 / 描边 / '
-                          '同屏上限 / 屏蔽词',
-                        ),
-                        DanmakuSettingsPanel(
-                          settings: _danmaku!,
-                          danmakuCount: widget.danmakuCount,
-                          // 外层已经有「弹幕」这一节标题，面板不再重复。
-                          showTitle: false,
-                          onChanged: _updateDanmaku,
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
-                      _decodingCard(context),
+      _section('播放内核', '切换播放内核；倍速、画面与字幕设置分别保存'),
+      PlayerKernelPicker(
+        selected: settings.kernel,
+        catalog: catalog,
+        onChanged: (kernel) => _update(settings.copyWith(kernel: kernel)),
+        retryKernel: PlayerFactory.mpvInitFailed ? PlayerKernel.mpv : null,
+        onRetry: () {
+          PlayerFactory.clearMpvInitFailure();
+          // 列表重新评估：宿主在下一帧重建面板。
+          _update(settings);
+        },
+      ),
+      const SizedBox(height: 20),
+      _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
+      _speedSlider(context),
+      const SizedBox(height: 20),
+      _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
+      _pictureCard(context),
+      const SizedBox(height: 20),
+      if (widget.onOrientationChanged != null) ...<Widget>[
+        _section(
+          '方向锁定',
+          '全屏时的屏幕方向：自动 = 按视频比例判断'
+              '（竖屏短剧竖屏全屏、横片横屏全屏）',
+        ),
+        _orientationCard(context),
+        const SizedBox(height: 20),
+      ],
+      _section(
+        '字幕',
+        '开关 / 字号 / 颜色 / 描边 / 底色 / 延迟；'
+            '外挂字幕与内置字幕轨',
+      ),
+      _subtitleCard(context),
+      const SizedBox(height: 20),
+      _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
+      _audioCard(context),
+      if (_danmaku != null) ...<Widget>[
+        const SizedBox(height: 20),
+        _section(
+          '弹幕',
+          '开关 / 不透明度 / 字号 / 显示区域 / 速度 / 描边 / '
+              '同屏上限 / 屏蔽词',
+        ),
+        DanmakuSettingsPanel(
+          settings: _danmaku!,
+          danmakuCount: widget.danmakuCount,
+          // 外层已经有「弹幕」这一节标题，面板不再重复。
+          showTitle: false,
+          onChanged: _updateDanmaku,
+        ),
+      ],
+      const SizedBox(height: 20),
+      if (widget.extraControls != null) ...[
+        widget.extraControls!,
+        const SizedBox(height: 20),
+      ],
+      _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
+      _decodingCard(context),
     ];
 
     // 内嵌模式（全局设置页）：**返回 Column 而不是 ListView**。
@@ -339,7 +341,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Slider(
-            value: speed.clamp(PlayerSettings.minSpeed, PlayerSettings.maxSpeed),
+            value: speed.clamp(
+              PlayerSettings.minSpeed,
+              PlayerSettings.maxSpeed,
+            ),
             min: PlayerSettings.minSpeed,
             max: PlayerSettings.maxSpeed,
             divisions: PlayerSettings.speeds.length - 1,
@@ -400,8 +405,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 ChoiceChip(
                   label: Text(mode.label),
                   selected: prefs.rotation == mode,
-                  onSelected: (_) =>
-                      _update(settings.copyWith(rotation: mode)),
+                  onSelected: (_) => _update(settings.copyWith(rotation: mode)),
                 ),
             ],
           ),
@@ -473,8 +477,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             _orientation == PlaybackOrientation.portrait
                 ? '竖屏全屏（竖屏短剧想一直竖着看，或横片也想竖着看时选它）'
                 : (_orientation == PlaybackOrientation.landscape
-                    ? '全屏一律横屏；全局设置里的「横屏播放」开关就是这一档'
-                    : '按视频比例判断：竖屏短剧竖屏全屏，普通横片横屏全屏'),
+                      ? '全屏一律横屏；全局设置里的「横屏播放」开关就是这一档'
+                      : '按视频比例判断：竖屏短剧竖屏全屏，普通横片横屏全屏'),
             style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
           ),
         ],
@@ -568,7 +572,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                     selected: prefs.subtitleColor == color,
                     onSelected: enabled
                         ? (_) =>
-                            _update(settings.copyWith(subtitleColor: color))
+                              _update(settings.copyWith(subtitleColor: color))
                         : null,
                   ),
               ],
@@ -590,8 +594,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                     selected: prefs.subtitleOutline == outline,
                     onSelected: enabled
                         ? (_) => _update(
-                              settings.copyWith(subtitleOutline: outline),
-                            )
+                            settings.copyWith(subtitleOutline: outline),
+                          )
                         : null,
                   ),
               ],
@@ -622,17 +626,14 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                     selected: prefs.subtitleFont == font.$1,
                     onSelected: enabled
                         ? (_) =>
-                            _update(settings.copyWith(subtitleFont: font.$1))
+                              _update(settings.copyWith(subtitleFont: font.$1))
                         : null,
                   ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          _label(
-            '阴影 ${(prefs.subtitleShadow * 100).round()}%',
-            dim: !enabled,
-          ),
+          _label('阴影 ${(prefs.subtitleShadow * 100).round()}%', dim: !enabled),
           _gated(
             context,
             supported: style,
@@ -659,16 +660,15 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               divisions: 20,
               label: (prefs.subtitleOffsetY * 100).round().toString(),
               onChanged: enabled
-                  ? (value) => _update(settings.copyWith(subtitleOffsetY: value))
+                  ? (value) =>
+                        _update(settings.copyWith(subtitleOffsetY: value))
                   : null,
             ),
           ),
           const SizedBox(height: 12),
           // 手势灵敏度（用户口径：在播放器设置里可自定义）。
           // 只作用于**亮度 / 音量**的垂直滑动：一屏高度对应「100% × 灵敏度」。
-          _label(
-            '手势灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×',
-          ),
+          _label('手势灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
           Slider(
             value: settings.gestureSensitivity,
             min: PlayerSettings.minGestureSensitivity,
@@ -686,7 +686,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             ),
           ),
           const SizedBox(height: 12),
-          _label('底色 ${(prefs.subtitleBackground * 100).round()}%', dim: !enabled),
+          _label(
+            '底色 ${(prefs.subtitleBackground * 100).round()}%',
+            dim: !enabled,
+          ),
           _gated(
             context,
             supported: style,
@@ -696,13 +699,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               label: '${(prefs.subtitleBackground * 100).round()}%',
               onChanged: enabled
                   ? (value) =>
-                      _update(settings.copyWith(subtitleBackground: value))
+                        _update(settings.copyWith(subtitleBackground: value))
                   : null,
             ),
           ),
           const SizedBox(height: 4),
-          _label('延迟 ${_formatDelay(settings.subtitleDelay)}',
-              dim: !enabled),
+          _label('延迟 ${_formatDelay(settings.subtitleDelay)}', dim: !enabled),
           _gated(
             context,
             supported: capabilities.subtitleDelay,
@@ -714,10 +716,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               label: _formatDelay(settings.subtitleDelay),
               onChanged: enabled
                   ? (value) => _update(
-                        settings.copyWith(
-                          subtitleDelay: Duration(milliseconds: value.round()),
-                        ),
-                      )
+                      settings.copyWith(
+                        subtitleDelay: Duration(milliseconds: value.round()),
+                      ),
+                    )
                   : null,
             ),
           ),
@@ -803,8 +805,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           Text(
             capabilities.hardwareDecoding
                 ? (enabled
-                    ? '开启（默认）：优先硬解，省电且流畅；对随后打开的媒体生效'
-                    : '关闭：走软解；对随后打开的媒体生效')
+                      ? '开启（默认）：优先硬解，省电且流畅；对随后打开的媒体生效'
+                      : '关闭：走软解；对随后打开的媒体生效')
                 : '当前内核没有切换解码链的通道（点击看提示与可换的内核）',
             style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
           ),
@@ -832,7 +834,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       text,
       style: TextStyle(
         fontSize: 12,
-        color: dim ? LumeTheme.muted.withValues(alpha: 0.5) : LumeTheme.textSecondary,
+        color: dim
+            ? LumeTheme.muted.withValues(alpha: 0.5)
+            : LumeTheme.textSecondary,
       ),
     );
   }
@@ -845,7 +849,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       handler(message);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// `15%` / `-1.5s` / `0s`。

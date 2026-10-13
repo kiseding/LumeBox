@@ -11,22 +11,22 @@ void main() {
   });
 
   test('分辨率：只有宽高都拿到且为正才显示', () {
-    expect(const PlayerStats(width: 1920, height: 1080).resolutionText, '1920×1080');
+    expect(
+      const PlayerStats(width: 1920, height: 1080).resolutionText,
+      '1920×1080',
+    );
     expect(const PlayerStats(width: 1920).resolutionText, isNull);
     expect(const PlayerStats(width: 0, height: 1080).resolutionText, isNull);
   });
 
   test('码率：视频优先，kbps 与 Mbps 两种口径', () {
+    expect(const PlayerStats(videoBitrateKbps: 1800).bitrateText, '1.8Mbps');
+    expect(const PlayerStats(audioBitrateKbps: 320).bitrateText, '320kbps');
     expect(
-      const PlayerStats(videoBitrateKbps: 1800).bitrateText,
-      '1.8Mbps',
-    );
-    expect(
-      const PlayerStats(audioBitrateKbps: 320).bitrateText,
-      '320kbps',
-    );
-    expect(
-      const PlayerStats(videoBitrateKbps: 2200, audioBitrateKbps: 128).bitrateText,
+      const PlayerStats(
+        videoBitrateKbps: 2200,
+        audioBitrateKbps: 128,
+      ).bitrateText,
       '2.2Mbps',
       reason: '视频码率优先于音频',
     );
@@ -59,6 +59,14 @@ void main() {
       '缓冲 1m30s',
     );
     expect(const PlayerStats(buffered: Duration.zero).bufferText, isNull);
+    expect(
+      const PlayerStats(buffered: Duration(milliseconds: 59960)).bufferText,
+      '缓冲 1m0s',
+    );
+    expect(
+      const PlayerStats(buffered: Duration(milliseconds: 179960)).bufferText,
+      '缓冲 3m0s',
+    );
   });
 
   test('chips：固定顺序「内核 / 编码 / 分辨率 / 帧率 / 码率 / 缓冲」，缺项省略', () {

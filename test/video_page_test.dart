@@ -19,7 +19,6 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 
-
 /// 播放器页（独立页面）接线的验证：设置加载与生效、打开媒体、画中画按钮与事件、
 /// 运行时切换内核（拆旧建新 + 位置接回 + 落库）、退出时的资源顺序。
 ///
@@ -38,11 +37,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_video');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 库必须在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await ReadingLibrary.open(Section.video);
   });
@@ -102,7 +101,7 @@ void main() {
 
     Future<void> openMedia(WidgetTester tester) async {
       // 地址入口现在收在「播放源」弹窗里（用户要求：控制栏不再铺长链接）。
-      await tester.tap(find.byTooltip('播放源'));
+      await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byType(TextField),
@@ -111,6 +110,49 @@ void main() {
       await tester.tap(find.text('播放这个地址'));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('后台连接中断后返回：保留中断进度、原播放状态和全屏', (tester) async {
+      final pip = _FakePipBackend();
+      addTearDown(pip.close);
+      final players = await pumpVideo(
+        tester,
+        available: {PlayerKernel.mpv},
+        pip: pip,
+      );
+      final player = players.single;
+      player.setPosition(const Duration(seconds: 74), playing: true);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      player.fail('tcp: ffurl_read returned 0xffffffc4');
+      await tester.pump();
+      final loads = player.calls.where((call) => call == 'load').length;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(player.calls.where((call) => call == 'load').length, loads + 1);
+      expect(player.seeks.last, const Duration(seconds: 74));
+      expect(player.calls.last, 'play');
+      expect(find.byTooltip('退出全屏'), findsOneWidget);
+      expect(find.text('播放连接中断'), findsNothing);
+    });
+
+    testWidgets('后台前已暂停：返回时不擅自播放', (tester) async {
+      final players = await pumpVideo(
+        tester,
+        available: {PlayerKernel.avplayer},
+      );
+      final player = players.single;
+      player.setPosition(const Duration(seconds: 38), playing: false);
+      final plays = player.calls.where((call) => call == 'play').length;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      player.fail('connection closed');
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(player.seeks.last, const Duration(seconds: 38));
+      expect(player.calls.where((call) => call == 'play').length, plays);
+    });
 
     testWidgets('启动：按本板块设置创建内核并立即应用设置', (tester) async {
       final store = await VideoPlayerSettingsStore.open();
@@ -144,9 +186,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('画中画需要 MPV 内核'), findsOneWidget);
       expect(pip.started, 0, reason: '内核切换本身不进画中画');
-      ScaffoldMessenger.of(
-        tester.element(find.byType(VideoPlayerPage)),
-      ).clearSnackBars();
+      ScaffoldMessenger.of(tester.element(find.byType(VideoPlayerPage)))
+          .clearSnackBars();
       await tester.pumpAndSettle();
 
       await tester.tap(find.byTooltip('进入画中画'));
@@ -154,9 +195,8 @@ void main() {
       expect(find.text('媒体尚未就绪'), findsOneWidget);
       expect(pip.started, 0);
       // 清掉这条提示：SnackBar 串行展示，后面的断言才不会被它排在前面。
-      ScaffoldMessenger.of(
-        tester.element(find.byType(VideoPlayerPage)),
-      ).clearSnackBars();
+      ScaffoldMessenger.of(tester.element(find.byType(VideoPlayerPage)))
+          .clearSnackBars();
       await tester.pumpAndSettle();
 
       await openMedia(tester);
@@ -188,8 +228,7 @@ void main() {
 
       await openMedia(tester);
       expect(created.single.media?.uri.toString(), 'https://example.com/a.mp4');
-      created.single
-          .setPosition(const Duration(seconds: 30), playing: true);
+      created.single.setPosition(const Duration(seconds: 30), playing: true);
       await tester.pump();
 
       await tester.tap(find.byTooltip('播放器设置'));
@@ -261,7 +300,11 @@ void main() {
         isTrue,
         reason: 'MPV 从未被真正采用（创建阶段就失败了）',
       );
-      expect(created.last.kernel, PlayerKernel.avplayer, reason: '页面回退到 AVPlayer');
+      expect(
+        created.last.kernel,
+        PlayerKernel.avplayer,
+        reason: '页面回退到 AVPlayer',
+      );
 
       // 关键约束：失败的那次绝不写进库，避免下次进来又卡。
       final store = await VideoPlayerSettingsStore.open();
@@ -280,12 +323,14 @@ void main() {
       await openMedia(tester);
 
       // AVPlayer 内核：只有它拿得到的项（分辨率 + 缓冲）。
-      created.single.pushStats(const PlayerStats(
-        engineLabel: 'AVPlayer',
-        width: 1280,
-        height: 720,
-        buffered: Duration(seconds: 4),
-      ));
+      created.single.pushStats(
+        const PlayerStats(
+          engineLabel: 'AVPlayer',
+          width: 1280,
+          height: 720,
+          buffered: Duration(seconds: 4),
+        ),
+      );
       await tester.pump();
       expect(find.text('AVPlayer'), findsOneWidget);
       expect(find.text('1280×720'), findsOneWidget);
@@ -301,15 +346,17 @@ void main() {
       await tester.pumpAndSettle();
 
       final mpv = created[1];
-      mpv.pushStats(const PlayerStats(
-        engineLabel: 'MPV',
-        videoCodec: 'hevc',
-        videoBitrateKbps: 1800,
-        fps: 30,
-        width: 1920,
-        height: 1080,
-        buffered: Duration(seconds: 9),
-      ));
+      mpv.pushStats(
+        const PlayerStats(
+          engineLabel: 'MPV',
+          videoCodec: 'hevc',
+          videoBitrateKbps: 1800,
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          buffered: Duration(seconds: 9),
+        ),
+      );
       await tester.pump();
       expect(find.text('MPV'), findsWidgets);
       expect(find.text('HEVC'), findsOneWidget);
@@ -435,10 +482,7 @@ void main() {
     });
 
     testWidgets('手势：调暗后画面上真的盖了遮罩（亮度要看得见）', (tester) async {
-      await pumpVideo(
-        tester,
-        available: <PlayerKernel>{PlayerKernel.avplayer},
-      );
+      await pumpVideo(tester, available: <PlayerKernel>{PlayerKernel.avplayer});
       await openMedia(tester);
 
       ColoredBox? overlay() {
@@ -451,7 +495,9 @@ void main() {
               widget.color.g == 0 &&
               widget.color.b == 0,
         );
-        return found.evaluate().isEmpty ? null : found.evaluate().first.widget as ColoredBox;
+        return found.evaluate().isEmpty
+            ? null
+            : found.evaluate().first.widget as ColoredBox;
       }
 
       expect(overlay(), isNull, reason: '默认亮度不该有遮罩');
@@ -492,11 +538,7 @@ void main() {
         closeTo(0.4, 0.08),
         reason: '从 0.6 下滑 1/5 屏 → 约 0.4',
       );
-      expect(
-        _brightnessMask(tester),
-        isNull,
-        reason: '系统亮度生效时不该再叠遮罩（否则暗两次）',
-      );
+      expect(_brightnessMask(tester), isNull, reason: '系统亮度生效时不该再叠遮罩（否则暗两次）');
     });
 
     testWidgets('亮度：不支持系统亮度时回退为遮罩（画面确实变暗）', (tester) async {
@@ -598,59 +640,52 @@ void main() {
     await SectionScope.closeAll();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => null,
+        );
 
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var created = 0;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: LumeTheme.build(),
-          home: VideoPlayerPage(
-            media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
-            catalog: _FakeCatalog(const <PlayerKernel>{PlayerKernel.avplayer}),
-            playerFactory: (kernel) {
-              created++;
-              return _FakePlayer(kernel, <String>[]);
-            },
-            pipBackend: _FakePipBackend(),
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: VideoPlayerPage(
+          media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+          catalog: _FakeCatalog(const <PlayerKernel>{PlayerKernel.avplayer}),
+          playerFactory: (kernel) {
+            created++;
+            return _FakePlayer(kernel, <String>[]);
+          },
+          pipBackend: _FakePipBackend(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('播放器设置库不可用'), findsOneWidget);
-      expect(created, 0);
-    });
+    expect(find.text('播放器设置库不可用'), findsOneWidget);
+    expect(created, 0);
+  });
 
-  testWidgets(
-    '非 iOS（平台目录）：渲染 UI 骨架占位，不接线播放与画中画',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(900, 1400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: LumeTheme.build(),
-          // 平台目录（真实现）：非 iOS 上三套内核都不可用 → 骨架占位。
-          home: VideoPlayerPage(
-            media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
-          ),
+  testWidgets('非 iOS（平台目录）：渲染 UI 骨架占位，不接线播放与画中画', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        // 平台目录（真实现）：非 iOS 上三套内核都不可用 → 骨架占位。
+        home: VideoPlayerPage(
+          media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('当前平台在 Phase1 仅保留页面骨架'), findsOneWidget);
-      expect(
-        find.text('播放器设置与画中画为 iOS 专属模块：本平台仅 UI 骨架占位'),
-        findsOneWidget,
-      );
-      expect(find.byTooltip('播放器设置'), findsNothing);
-      expect(find.byType(TextField), findsNothing);
-    },
-    skip: Platform.isIOS,
-  );
+    expect(find.text('当前平台在 Phase1 仅保留页面骨架'), findsOneWidget);
+    expect(find.text('播放器设置与画中画为 iOS 专属模块：本平台仅 UI 骨架占位'), findsOneWidget);
+    expect(find.byTooltip('播放器设置'), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+  }, skip: Platform.isIOS);
 }
 
 /// 手势层覆盖的画面区域（用于按比例计算拖拽位移）。
@@ -770,8 +805,9 @@ class _FakePlayer extends AbstractPlayer {
   final PlayerKernel kernel;
   final List<String> log;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
 
   /// 测试可控的 HUD 参数：验证「上层只吃 PlayerStats」。
   final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
@@ -835,6 +871,8 @@ class _FakePlayer extends AbstractPlayer {
     _snapshot.dispose();
   }
 
+  void fail(String message) => _snapshot.value = PlayerSnapshot(error: message);
+
   void setPosition(Duration position, {bool playing = false}) {
     _snapshot.value = PlayerSnapshot(
       position: position,
@@ -842,4 +880,11 @@ class _FakePlayer extends AbstractPlayer {
       playing: playing,
     );
   }
+}
+
+Future<void> openPlayerAction(WidgetTester tester, String action) async {
+  await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）').first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(action));
+  await tester.pumpAndSettle();
 }

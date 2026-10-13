@@ -202,7 +202,9 @@ void main() {
       findsNothing,
       reason: '控制栏不直接展示长链接',
     );
-    await tester.tap(find.byTooltip('播放源'));
+    await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放源 / 更换线路'));
     await tester.pumpAndSettle();
     expect(find.text('https://example.com/demo.mp4'), findsWidgets);
   });

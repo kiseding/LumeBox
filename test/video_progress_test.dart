@@ -381,6 +381,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'));
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('音轨 / 跳过片头片尾 / 连播'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('跳过片头片尾'), findsOneWidget);
     // 面板限高 70% 屏高且可滚动：「记片头」可能落在可视区外，先把面板内容上拖。
     // （拖动目标本身可能已经在可视区之外，miss 属正常，不必告警。）
@@ -699,9 +703,13 @@ void main() {
 
       // 控制栏在独立播放器页里（点条目时已经压栈）。
       // 关掉连播开关（按图标点，避免 tooltip 在窄屏上不可见）。
-      await tester.tap(find.byIcon(Icons.skip_next));
+      await tester.tap(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('自动连播：关'), findsOneWidget);
+      await tester.tap(find.text('音轨 / 跳过片头片尾 / 连播'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(created.single.media, isNotNull);
 
       created.single.emit(
         position: const Duration(minutes: 45),

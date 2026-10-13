@@ -82,7 +82,7 @@ class _AppShellState extends State<AppShell> {
   static const double _dockHeight = 56;
   static const double _dockMargin = 16;
   static const double _dockInnerPadding = 6;
-  static const double _dockBottomMargin = 8;
+  static const double _dockBottomMargin = 4;
   static const double _dockSpacing = 8;
 
   static double dockMarginFor(double availableWidth) => _dockMargin;
@@ -557,7 +557,7 @@ class _DockBar extends StatelessWidget {
                       filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: LumeTheme.glass,
+                          color: LumeTheme.glass.withValues(alpha: .62),
                           borderRadius: BorderRadius.circular(
                             capsuleHeight / 2,
                           ),

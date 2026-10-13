@@ -143,6 +143,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.automaticallyImplyLeading,
     this.toolbarHeight,
     this.centerTitle,
+    this.floating = false,
   });
 
   final Widget? title;
@@ -152,12 +153,12 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool? automaticallyImplyLeading;
   final double? toolbarHeight;
   final bool? centerTitle;
+  final bool floating;
 
   @override
   Size get preferredSize => Size.fromHeight(
-        (toolbarHeight ?? kLumeToolbarHeight) +
-        (bottom?.preferredSize.height ?? 0),
-      );
+    (toolbarHeight ?? kLumeToolbarHeight) + (bottom?.preferredSize.height ?? 0),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -179,10 +180,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: actions!,
-                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: actions!),
               ),
             ],
       bottom: bottom,
@@ -199,18 +197,29 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
-      flexibleSpace: ClipRRect(
-        // 顶栏容器圆角（用户口径：容器加圆角、控件尺寸不变）——只圆下沿两角，
-        // 上沿贴着屏幕顶端保持直角。16 → 20：第三次口径要的是「大圆角」，这个
-        // 半径在 36 高的工具栏 + 38 高的页签条上已经明显看得出两个圆角。
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-        child: GlassPanel(
-          border: Border(
-            bottom: BorderSide(color: LumeTheme.hairline),
-          ),
-          child: SizedBox.expand(),
-        ),
-      ),
+      flexibleSpace: floating
+          ? Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                MediaQuery.viewPaddingOf(context).top,
+                16,
+                0,
+              ),
+              child: GlassPanel(
+                radius: 24,
+                color: LumeTheme.glass.withValues(alpha: .60),
+                child: const SizedBox.expand(),
+              ),
+            )
+          : ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(20),
+              ),
+              child: GlassPanel(
+                border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
+                child: const SizedBox.expand(),
+              ),
+            ),
     );
   }
 }
@@ -281,6 +290,7 @@ class GlassScaffold extends StatelessWidget {
     this.leading,
     this.floatingActionButton,
     this.behindBar = false,
+    this.floatingBar = false,
     this.resizeToAvoidBottomInset,
   });
 
@@ -299,6 +309,7 @@ class GlassScaffold extends StatelessWidget {
 
   /// 内容是否铺到顶栏之下（见类文档）。
   final bool behindBar;
+  final bool floatingBar;
 
   final bool? resizeToAvoidBottomInset;
 
@@ -315,8 +326,8 @@ class GlassScaffold extends StatelessWidget {
   /// MediaQuery 内边距（这是它保证「内容不被顶栏遮住」的机制），
   /// 在内容区里这么算就会把顶栏高度加两遍——这正是下面这个获取点的用途。
   static double barHeight(BuildContext context, {double extra = 0}) {
-    final provided =
-        context.dependOnInheritedWidgetOfExactType<_GlassBarHeight>();
+    final provided = context
+        .dependOnInheritedWidgetOfExactType<_GlassBarHeight>();
     if (provided != null) return provided.height;
     return trimmedTopInset(MediaQuery.paddingOf(context).top) +
         kLumeToolbarHeight +
@@ -355,15 +366,8 @@ class GlassScaffold extends StatelessWidget {
         child: _GlassBarHeight(
           height: height,
           child: behindBar
-              ? SafeArea(
-                  top: false,
-                  bottom: _reservesBottom(context),
-                  child: child,
-                )
-              : SafeArea(
-                  bottom: _reservesBottom(context),
-                  child: child,
-                ),
+              ? SafeArea(top: false, bottom: false, child: child)
+              : SafeArea(bottom: _reservesBottom(context), child: child),
         ),
       ),
     );
@@ -374,11 +378,12 @@ class GlassScaffold extends StatelessWidget {
 
   /// 顶栏本体（外框是否整体上移由 [build] 决定）。
   GlassAppBar _buildBar() => GlassAppBar(
-        title: Text(title ?? LumeTheme.appName),
-        actions: actions,
-        bottom: bottom,
-        leading: leading,
-      );
+    title: Text(title ?? LumeTheme.appName),
+    actions: actions,
+    bottom: bottom,
+    leading: leading,
+    floating: floatingBar,
+  );
 }
 
 /// 底部安全区是否让出：**只在导航壳里让**。

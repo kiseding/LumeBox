@@ -25,6 +25,22 @@ void main() {
       ..setMockMethodCallHandler(events, null);
   });
 
+  test('换媒体清理原生层后仍可送帧，退出页面才解绑通道', () async {
+    final calls = <String>[];
+    messenger().setMockMethodCallHandler(frames, (call) async {
+      calls.add(call.method);
+      return call.method == 'submitFrame' ? true : null;
+    });
+    final backend = MethodChannelPipBackend();
+    await backend.resetFrames();
+    expect(backend.frameSource.isReady, isTrue);
+    expect(await backend.frameSource.submitFrame(pixels: Uint8List(4), width: 1,
+      height: 1, timestamp: Duration.zero), isTrue);
+    await backend.teardownFrames();
+    expect(backend.frameSource.isReady, isFalse);
+    expect(calls, ['teardown', 'submitFrame', 'teardown']);
+  });
+
   test('原生拒收帧时不会增加成功送帧计数', () async {
     messenger().setMockMethodCallHandler(frames, (_) async => false);
     final backend = MethodChannelPipBackend();
