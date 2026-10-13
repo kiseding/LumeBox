@@ -69,7 +69,8 @@ class _AppShellState extends State<AppShell> {
 
   /// 底部导航栏配置（逐项开关 + 顺序）。壳层监听它：改完立刻生效，
   /// 不必等用户切页签或重启。
-  final ShellSettingsController _shellSettings = ShellSettingsController.instance;
+  final ShellSettingsController _shellSettings =
+      ShellSettingsController.instance;
 
   /// 自建的控制器要自己释放；外部传进来的由外部负责。
   late final bool _ownsController = widget.controller == null;
@@ -77,62 +78,17 @@ class _AppShellState extends State<AppShell> {
   /// 当前页签的**标识**（不是下标：顺序会变、页签会隐藏）。
   String _activeId = _pageCatalog.first.id;
 
-  /// Dock 容器高度（用户口径：收窄容器、图标与文字尺寸不变）。
-  ///
-  /// 64 → 56 → **48**：只收「内容条」里的上下留白；图标 20、文字 11 与选中态
-  /// 底座尺寸一律不动（48 仍容得下 20 + 3 + 15 = 38 的内容）。这是**内容那一条**
-  /// 的高度，不含手势条避让。
-  static const double _dockHeight = 48;
-  /// Dock 与屏幕左右的留白（**下限**：窄屏兜底用）。
-  static const double _dockMargin = 12;
-
-  /// 悬浮胶囊的**最大宽度**（左右两侧留白由它决定；胶囊始终居中）。
-  ///
-  /// 胶囊铺满整个屏宽会显得笨重，也和「悬浮」的观感不符：这里给宽度封顶、居中，
-  /// 两侧留白 =（屏幕宽 − 它）÷ 2 —— 440pt 的机器上是 40、393pt 的机器上是 16.5。
-  ///
-  /// 320 → **360**（用户口径第十二次反馈：底部五个页签左右两侧**稍微加宽一点**）。
-  /// 只放宽两侧留白：内容条高度、图标与文字尺寸、页签顺序与间距都不动；五个页签
-  /// 各分到的宽度从约 61 涨到约 70（`Expanded` 平分，再减掉胶囊内那 6pt 的横向
-  /// 内边距），触达更宽松。上限还在——再宽就退回「铺满屏宽」那种笨重观感，
-  /// 而那正是前面几轮刚收掉的。
-  static const double _dockMaxWidth = 360;
-
-  /// 胶囊里的横向内边距：让首尾项离胶囊圆角留一档，五项之间的净间距也更紧。
+  // 手机导航条使用完整安全区避让；玻璃胶囊内只摆图标与文字。
+  static const double _dockHeight = 56;
+  static const double _dockMargin = 16;
   static const double _dockInnerPadding = 6;
-
-  /// 胶囊左右两侧的实际留白：宽屏按「居中 + 最大宽度」，窄屏退回 [_dockMargin]。
-  ///
-  /// 用**布局给的实际宽度**算，不要用 `MediaQuery.sizeOf`：正常手机上两者一致，
-  /// 但「父级给的宽度 ≠ 视图宽度」的场合（测试里的 `setSurfaceSize`、将来的分屏 /
-  /// 浮窗宿主）就会错位——实测错位时胶囊整体偏出屏幕右缘、五个页签挤成 0 宽。
-  static double dockMarginFor(double availableWidth) {
-    final margin = (availableWidth - _dockMaxWidth) / 2;
-    return margin > _dockMargin ? margin : _dockMargin;
-  }
-
-  /// 胶囊外框与屏幕**底边**的距离：**保留一小段悬浮留白**。
-  ///
-  /// 用户口径（第八次反馈）：整套（胶囊 + 底部留白）一起收紧、往下收，但**仍然要
-  /// 留一小段**空白，不许贴死（悬浮感要有）。8 → 6。
-  ///
-  /// 用户口径（第十一次反馈）：整体**再往上抬一小段**，别贴死屏幕底边。6 → 12。
-  /// 抬的是胶囊外框：外框下沿离屏幕底边 12，内容那一条的位置由
-  /// [dockContentInset] 反向补偿，**内容离底边的总净空仍是 20**（手势条那块不变）。
-  static const double _dockBottomMargin = 12;
+  static const double _dockBottomMargin = 8;
   static const double _dockSpacing = 8;
 
-  /// 胶囊**内部**内容要让出的底部高度（手势条避让）。
-  ///
-  /// 「内容离屏幕底边」的总净空 = 外框留白 + 这一段，固定按 20 留：
-  /// 安全区（刘海机 34）里画的正是那根 Home Indicator（约 5pt 高、离底边约 8pt），
-  /// 20 的净空不会被它压住，也不会像「整体套安全区」那样把胶囊抬到 34 那么高。
-  /// 因此胶囊越贴近底边，内部这一段就越大——总净空不变。
-  static double dockContentInset(BuildContext context) {
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    final inset = bottom - 14 - _dockBottomMargin;
-    return inset > 0 ? inset : 0;
-  }
+  static double dockMarginFor(double availableWidth) => _dockMargin;
+  static double dockContentInset(BuildContext context) => 0;
+  static double dockBottomOffset(BuildContext context) =>
+      MediaQuery.viewPaddingOf(context).bottom + _dockBottomMargin;
 
   /// 页签目录：标识 + 展示文案 + 两个图标 + 页面构造。
   ///
@@ -177,17 +133,17 @@ class _AppShellState extends State<AppShell> {
   ];
 
   static _ShellTab _pageOf(String id) => _pageCatalog.firstWhere(
-        (tab) => tab.id == id,
-        // 配置里出现目录之外的标识理论上不会发生（fromJson 会过滤），
-        // 兜底回第一个页签，绝不让壳层因为一份坏配置打不开。
-        orElse: () => _pageCatalog.first,
-      );
+    (tab) => tab.id == id,
+    // 配置里出现目录之外的标识理论上不会发生（fromJson 会过滤），
+    // 兜底回第一个页签，绝不让壳层因为一份坏配置打不开。
+    orElse: () => _pageCatalog.first,
+  );
 
   /// 可见页签（按用户配置的顺序）——移动端 Dock 用。
   List<_ShellTab> get _visibleTabs => <_ShellTab>[
-        for (final config in _shellSettings.settings.visibleTabs)
-          _pageOf(config.id),
-      ];
+    for (final config in _shellSettings.settings.visibleTabs)
+      _pageOf(config.id),
+  ];
 
   /// 全部页签（按用户配置的顺序）——桌面端左侧栏用。
   ///
@@ -196,8 +152,8 @@ class _AppShellState extends State<AppShell> {
   /// 若这里也按可见性过滤，「隐藏设置」就会把桌面用户彻底锁死——设置页是导航栏
   /// 管理自己的入口，藏起来之后再也进不去（见 [ShellSettings] 硬约束 2）。
   List<_ShellTab> get _orderedTabs => <_ShellTab>[
-        for (final config in _shellSettings.tabs) _pageOf(config.id),
-      ];
+    for (final config in _shellSettings.tabs) _pageOf(config.id),
+  ];
 
   /// 当前布局**实际渲染 / 实际可达**的页签集合。
   ///
@@ -230,38 +186,36 @@ class _AppShellState extends State<AppShell> {
     // 装上「自动过 WAF 校验」的钩子（用户口径 2 / 3 / 4）：脚本抛
     // NEED_WEBVIEW_VERIFY 时，引擎层（没有 BuildContext）回调到这里，由壳层弹那个
     // 小悬浮窗；拿到 Cookie 后引擎自动重试刚才那次调用，用户基本无感。
-    WafAutoVerify.install(
-      ({
-        required Section section,
-        required String sourceId,
-        required String sourceName,
-        required String url,
-      }) {
-        // 引擎层已经走过四层兜底链；这里再兜一次，是为了那些「只把脚本原文递上来」
-        // 的调用点（老脚本的标记文案里没有 URL）：没有地址就弹不出窗口，
-        // 而「弹不出来」正是用户反馈的「点/报错之后什么也没发生」。
-        final target = url.trim().isEmpty
-            ? resolveWebViewOrigin(sourceId: sourceId)
-            : url.trim();
-        if (target == null || target.isEmpty) {
-          LumeLog.warn('[waf] $sourceId 自动校验拿不到站址，交给页面上的手动出口');
-          return Future<bool>.value(false);
-        }
-        // 验证窗与 API 请求用同一个 UA：`cf_clearance` 绑 IP + UA；而且 WKWebView
-        // 默认 UA 不带 `Safari/…`，CF 会给一张渲染不出勾选框的白页。
-        return LumeSources.userAgentFor(section, sourceId).then((userAgent) {
-          if (!mounted) return false;
-          return showWafAutoVerify(
-            context: context,
-            section: section,
-            sourceId: sourceId,
-            sourceName: sourceName,
-            url: target,
-            userAgentOverride: userAgent,
-          );
-        });
-      },
-    );
+    WafAutoVerify.install(({
+      required Section section,
+      required String sourceId,
+      required String sourceName,
+      required String url,
+    }) {
+      // 引擎层已经走过四层兜底链；这里再兜一次，是为了那些「只把脚本原文递上来」
+      // 的调用点（老脚本的标记文案里没有 URL）：没有地址就弹不出窗口，
+      // 而「弹不出来」正是用户反馈的「点/报错之后什么也没发生」。
+      final target = url.trim().isEmpty
+          ? resolveWebViewOrigin(sourceId: sourceId)
+          : url.trim();
+      if (target == null || target.isEmpty) {
+        LumeLog.warn('[waf] $sourceId 自动校验拿不到站址，交给页面上的手动出口');
+        return Future<bool>.value(false);
+      }
+      // 验证窗与 API 请求用同一个 UA：`cf_clearance` 绑 IP + UA；而且 WKWebView
+      // 默认 UA 不带 `Safari/…`，CF 会给一张渲染不出勾选框的白页。
+      return LumeSources.userAgentFor(section, sourceId).then((userAgent) {
+        if (!mounted) return false;
+        return showWafAutoVerify(
+          context: context,
+          section: section,
+          sourceId: sourceId,
+          sourceName: sourceName,
+          url: target,
+          userAgentOverride: userAgent,
+        );
+      });
+    });
   }
 
   @override
@@ -279,7 +233,8 @@ class _AppShellState extends State<AppShell> {
       // 却在底部找不到自己在哪里。桌面端 Rail 不过滤可见性（见 [_reachableTabs]），
       // 因此桌面端不会因为「隐藏」把用户从当前页面赶走。
       final reachable = _reachableTabs;
-      if (reachable.isNotEmpty && !reachable.any((tab) => tab.id == _activeId)) {
+      if (reachable.isNotEmpty &&
+          !reachable.any((tab) => tab.id == _activeId)) {
         _activeId = reachable.first.id;
       }
     });
@@ -321,10 +276,10 @@ class _AppShellState extends State<AppShell> {
     // 固定留一大块底部空白，没滚到底时也空着（用户口径：改成动态边距）。
     final dockInset = rail
         ? 0.0
-        : _dockBottomMargin +
-            _dockHeight +
-            dockContentInset(context) +
-            _dockSpacing;
+        : dockBottomOffset(context) +
+              _dockHeight +
+              dockContentInset(context) +
+              _dockSpacing;
     return ShellDockScope(
       controller: _controller,
       dockInset: dockInset,
@@ -360,7 +315,8 @@ class _AppShellState extends State<AppShell> {
       left: 0,
       right: 0,
       // 落在 Dock 上方一档。
-      bottom: _dockBottomMargin +
+      bottom:
+          dockBottomOffset(context) +
           _dockHeight +
           dockContentInset(context) +
           _dockSpacing,
@@ -369,9 +325,16 @@ class _AppShellState extends State<AppShell> {
         builder: (context, constraints) => Align(
           alignment: Alignment.centerLeft,
           child: Padding(
-            padding: EdgeInsets.only(left: dockMarginFor(constraints.maxWidth)),
+            padding: EdgeInsets.only(
+              left:
+                  dockMarginFor(constraints.maxWidth) +
+                  MediaQuery.viewPaddingOf(context).left,
+            ),
             child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: visible ? 0 : _entryHideTravel),
+              tween: Tween<double>(
+                begin: 0,
+                end: visible ? 0 : _entryHideTravel,
+              ),
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
               builder: (context, dy, child) =>
@@ -422,8 +385,11 @@ class _AppShellState extends State<AppShell> {
             // 恢复入口一并收起。
             AnimatedBuilder(
               animation: _controller,
-              builder: (context, _) =>
-                  _buildSettingsEntry(visible: _controller.visible),
+              builder: (context, _) => _buildSettingsEntry(
+                visible:
+                    _controller.visible &&
+                    MediaQuery.viewInsetsOf(context).bottom == 0,
+              ),
             ),
         ],
       ),
@@ -434,10 +400,12 @@ class _AppShellState extends State<AppShell> {
           tabs: tabs,
           activeId: _activeId,
           onSelect: _select,
-          visible: _controller.visible,
+          visible:
+              _controller.visible &&
+              MediaQuery.viewInsetsOf(context).bottom == 0,
           height: _dockHeight,
           contentInset: contentInset,
-          bottomMargin: _dockBottomMargin,
+          bottomMargin: dockBottomOffset(context),
         ),
       ),
     );
@@ -492,9 +460,9 @@ class _AppShellState extends State<AppShell> {
   ///   文字却是深色主题的浅色，糊成一片）。代价：切主题会重建当前页签，
   ///   页内滚动位置等局部状态归零——这是静态色名架构下的取舍。
   Widget _buildPage() => KeyedSubtree(
-        key: ValueKey<String>('$_activeId·${LumeTheme.themeId}'),
-        child: _pageOf(_activeId).builder(),
-      );
+    key: ValueKey<String>('$_activeId·${LumeTheme.themeId}'),
+    child: _pageOf(_activeId).builder(),
+  );
 }
 
 /// 一个页签：标识 + 展示文案 + 两个图标（未选中 / 选中）+ 页面构造。
@@ -555,57 +523,71 @@ class _DockBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 左右留白按**布局宽度**算（见 [_AppShellState.dockMarginFor]）：收窄 + 居中。
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final margin = _AppShellState.dockMarginFor(constraints.maxWidth);
-        // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
-        return AnimatedSlide(
-          offset: visible ? Offset.zero : const Offset(0, 1.2),
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
-          // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(margin, 0, margin, bottomMargin),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
-                borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                boxShadow: LumeTheme.floatShadow,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: LumeTheme.glass,
-                      borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                      border: Border.all(color: LumeTheme.hairline),
-                    ),
-                    child: SizedBox(
-                      height: capsuleHeight,
-                      child: Padding(
-                        // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                        // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                        padding: EdgeInsets.only(bottom: contentInset),
-                        // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                        // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: _AppShellState._dockInnerPadding,
+    return IgnorePointer(
+      ignoring: !visible,
+      child: ExcludeSemantics(
+        excluding: !visible,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final margin = _AppShellState.dockMarginFor(constraints.maxWidth);
+            final safe = MediaQuery.viewPaddingOf(context);
+            // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
+            return AnimatedSlide(
+              offset: visible ? Offset.zero : const Offset(0, 1.2),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
+              // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  margin + safe.left,
+                  0,
+                  margin + safe.right,
+                  bottomMargin,
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
+                    borderRadius: BorderRadius.circular(capsuleHeight / 2),
+                    boxShadow: LumeTheme.floatShadow,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(capsuleHeight / 2),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: LumeTheme.glass,
+                          borderRadius: BorderRadius.circular(
+                            capsuleHeight / 2,
                           ),
-                          child: Row(
-                            children: <Widget>[
-                              for (final tab in tabs)
-                                Expanded(
-                                  child: _DockItem(
-                                    tab: tab,
-                                    selected: tab.id == activeId,
-                                    onTap: () => onSelect(tab.id),
-                                  ),
-                                ),
-                            ],
+                          border: Border.all(color: LumeTheme.hairline),
+                        ),
+                        child: SizedBox(
+                          height: capsuleHeight,
+                          child: Padding(
+                            // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                            // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                            padding: EdgeInsets.only(bottom: contentInset),
+                            // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                            // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: _AppShellState._dockInnerPadding,
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  for (final tab in tabs)
+                                    Expanded(
+                                      child: _DockItem(
+                                        tab: tab,
+                                        selected: tab.id == activeId,
+                                        onTap: () => onSelect(tab.id),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -613,10 +595,10 @@ class _DockBar extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -648,7 +630,10 @@ class _DockItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 2,
+                ),
                 child: Icon(tab.selectedIcon, size: 20, color: color),
               ),
             )

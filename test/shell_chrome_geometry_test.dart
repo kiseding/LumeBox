@@ -44,11 +44,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_chrome');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     LumeJsEngine.debugSupportedOverride = true;
     controller = ShellDockController();
     for (final section in Section.values) {
@@ -68,6 +68,10 @@ void main() {
   Future<void> pumpShell(WidgetTester tester) async {
     tester.view.physicalSize = const Size(width * 3, height * 3);
     tester.view.devicePixelRatio = 3.0;
+    tester.view.viewPadding = const FakeViewPadding(
+      top: statusInset * 3,
+      bottom: bottomInset * 3,
+    );
     tester.view.padding = const FakeViewPadding(
       top: statusInset * 3,
       bottom: bottomInset * 3,
@@ -85,13 +89,20 @@ void main() {
 
   /// Dock 胶囊本体（Dock 的 key 挂在外层容器上，量它量不到圆角条）。
   Finder dockCapsule() => find
-      .descendant(of: find.byKey(AppShell.dockKey), matching: find.byType(ClipRRect))
+      .descendant(
+        of: find.byKey(AppShell.dockKey),
+        matching: find.byType(ClipRRect),
+      )
       .first;
 
   /// 挂一个**真实板块页**（视频：标题 + 右上角图标 + 书架/探索页签）。
   Future<void> pumpBoard(WidgetTester tester) async {
     tester.view.physicalSize = const Size(width * 3, height * 3);
     tester.view.devicePixelRatio = 3.0;
+    tester.view.viewPadding = const FakeViewPadding(
+      top: statusInset * 3,
+      bottom: bottomInset * 3,
+    );
     tester.view.padding = const FakeViewPadding(
       top: statusInset * 3,
       bottom: bottomInset * 3,
@@ -104,7 +115,12 @@ void main() {
           catalog: const _NoKernelCatalog(),
           sourceManager: FakeSourceManager(
             sources: const <SourceDescriptor>[
-              SourceDescriptor(id: 'a', name: '示例源', version: '1.0', enabled: true),
+              SourceDescriptor(
+                id: 'a',
+                name: '示例源',
+                version: '1.0',
+                enabled: true,
+              ),
             ],
           ),
         ),
@@ -119,8 +135,11 @@ void main() {
     final appBar = tester.getRect(find.byType(AppBar));
     // 用户口径 6：外框**向上顶**——整条上移一档（让出来的状态栏那一段被屏幕裁掉），
     // 所以 top 是负的、玻璃依然铺满状态栏区域。
-    expect(appBar.top, closeTo(-kLumeTopInsetTrim, 0.01),
-        reason: '顶栏要向上顶一档：外框贴近屏幕顶端，只让内容避让状态栏');
+    expect(
+      appBar.top,
+      closeTo(-kLumeTopInsetTrim, 0.01),
+      reason: '顶栏要向上顶一档：外框贴近屏幕顶端，只让内容避让状态栏',
+    );
 
     // 视频页现在**没有页签条**（用户口径：删掉「浏览」，内容直接顶上去），
     // 因此这里量的是「避让后的状态栏 + 工具栏」；页签条的常量单独钉在下面。
@@ -128,7 +147,8 @@ void main() {
     expect(
       appBar.bottom,
       closeTo(chromeHeight, 2),
-      reason: '顶栏下沿应为「避让后的状态栏 + 工具栏」=$chromeHeight，'
+      reason:
+          '顶栏下沿应为「避让后的状态栏 + 工具栏」=$chromeHeight，'
           '实测 ${appBar.bottom}（比状态栏原值高出一档才对）',
     );
     expect(
@@ -180,14 +200,15 @@ void main() {
       );
       expect(
         rect.top + rect.height,
-        lessThanOrEqualTo(statusInset - kLumeTopInsetTrim + kLumeToolbarHeight + 1),
+        lessThanOrEqualTo(
+          statusInset - kLumeTopInsetTrim + kLumeToolbarHeight + 1,
+        ),
         reason: '图标仍要在工具栏之内',
       );
     }
   });
 
-  testWidgets('底部 Dock 悬浮在屏幕底边之上 + 左右宽度（用户口径第十二次）',
-      (tester) async {
+  testWidgets('底部 Dock 悬浮在屏幕底边之上 + 左右宽度（用户口径第十二次）', (tester) async {
     await pumpShell(tester);
 
     final capsule = tester.getRect(dockCapsule());
@@ -196,16 +217,16 @@ void main() {
     final gap = height - capsule.bottom;
     expect(
       gap,
-      inInclusiveRange(10.0, 16.0),
+      closeTo(bottomInset + 8, 0.01),
       reason: '胶囊要悬浮在屏幕底边之上（约 12pt），实测 $gap',
     );
     // 用户口径第十二次：五个页签左右两侧**稍微加宽**——胶囊按「最大宽度 360、
     // 居中」摆放，440pt 的屏幕上两侧各留 (440-360)/2 = 40（第十一次收窄到 320
     // 时是 60，这一轮往回收一点，但仍不铺满屏宽）。
-    expect(capsule.width, closeTo(360, 0.01), reason: '胶囊总宽度按 360 摆放');
+    expect(capsule.width, closeTo(width - 32, 0.01), reason: '胶囊按屏宽减左右留边摆放');
     expect(
       capsule.left,
-      closeTo((width - 360) / 2, 0.01),
+      closeTo(16, 0.01),
       reason: '胶囊居中：左侧留白 =（屏宽 − 最大宽度）÷ 2',
     );
     // 加宽是**稍微**：两侧仍要留白（不铺满屏宽）。
@@ -214,7 +235,10 @@ void main() {
 
     // 收窄容器**不许收窄点击区域**：五项平分之后每项仍要够手指点（≥44）。
     final items = find
-        .descendant(of: find.byKey(AppShell.dockKey), matching: find.byType(InkWell))
+        .descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.byType(InkWell),
+        )
         .evaluate()
         .toList();
     expect(items, isNotEmpty);
@@ -236,16 +260,60 @@ void main() {
     // 「内容离屏幕底边」的总净空固定 20（外框留白 + 内部避让）。
     const inset = 20.0;
     final item = tester.getRect(
-      find.descendant(
-        of: find.byKey(AppShell.dockKey),
-        matching: find.text(Section.novel.label),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.text(Section.novel.label),
+          )
+          .first,
     );
     expect(
       height - item.bottom,
       greaterThanOrEqualTo(inset),
-      reason: '胶囊里的文字要避开系统手势条（至少离底边 ${inset}pt，'
+      reason:
+          '胶囊里的文字要避开系统手势条（至少离底边 ${inset}pt，'
           '实测 ${height - item.bottom}）',
+    );
+  });
+
+  testWidgets('横屏安全区：胶囊避开左右刘海并保持居中', (tester) async {
+    await pumpShell(tester);
+    tester.view.physicalSize = const Size(956 * 3, 440 * 3);
+    tester.view.viewPadding = const FakeViewPadding(
+      left: 59 * 3,
+      right: 59 * 3,
+      bottom: 21 * 3,
+    );
+    tester.view.padding = const FakeViewPadding(
+      left: 59 * 3,
+      right: 59 * 3,
+      bottom: 21 * 3,
+    );
+    await tester.pumpAndSettle();
+    final capsule = tester.getRect(dockCapsule());
+    expect(capsule.left, closeTo(59 + 16, 0.01));
+    expect(956 - capsule.right, closeTo(59 + 16, 0.01));
+    expect(440 - capsule.bottom, closeTo(21 + 8, 0.01));
+    expect(capsule.height, closeTo(56, 0.01));
+  });
+
+  testWidgets('键盘弹出时隐藏胶囊且取消列表底部导航避让', (tester) async {
+    await pumpShell(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320 * 3);
+    tester.view.padding = const FakeViewPadding(top: statusInset * 3);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(dockCapsule()).top, greaterThan(height));
+    final dockContext = tester.element(find.byKey(AppShell.dockKey));
+    expect(ShellDockScope.bottomInset(dockContext), 0);
+    tester.view.viewInsets = const FakeViewPadding();
+    tester.view.padding = const FakeViewPadding(
+      top: statusInset * 3,
+      bottom: bottomInset * 3,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      height - tester.getRect(dockCapsule()).bottom,
+      closeTo(bottomInset + 8, 0.01),
     );
   });
 
@@ -258,11 +326,14 @@ void main() {
     // 内容往上缩），所以外框比内容条高。
     final item = tester.getRect(
       find
-          .descendant(of: find.byKey(AppShell.dockKey), matching: find.byType(InkWell))
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.byType(InkWell),
+          )
           .first,
     );
     // 内容条 64 → 56 → 48：只收留白；下限 44 是留给「图标 20 + 间距 3 + 文字 15」的。
-    expect(item.height, lessThanOrEqualTo(50.0), reason: '内容条还没收窄（应 ≤48）');
+    expect(item.height, closeTo(56, 0.01), reason: '内容条保持统一高度');
     expect(item.height, greaterThanOrEqualTo(44.0), reason: '别压到里面的控件');
 
     final radius = tester.widget<ClipRRect>(dockCapsule()).borderRadius;
@@ -274,7 +345,12 @@ void main() {
 
     // 控件尺寸一如既往：选中态的图标与文字都没被缩放。
     final icon = tester.widget<Icon>(
-      find.descendant(of: find.byKey(AppShell.dockKey), matching: find.byType(Icon)).first,
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.byType(Icon),
+          )
+          .first,
     );
     expect(icon.size, 20, reason: '底栏图标尺寸不许随容器收窄而变小');
     final label = tester.widget<Text>(
@@ -291,6 +367,10 @@ void main() {
   testWidgets('二级页（push 出来的）不留底部白条：内容一路铺到屏幕底边', (tester) async {
     tester.view.physicalSize = const Size(width * 3, height * 3);
     tester.view.devicePixelRatio = 3.0;
+    tester.view.viewPadding = const FakeViewPadding(
+      top: statusInset * 3,
+      bottom: bottomInset * 3,
+    );
     tester.view.padding = const FakeViewPadding(
       top: statusInset * 3,
       bottom: bottomInset * 3,
@@ -330,8 +410,7 @@ void main() {
     );
   });
 
-  testWidgets('壳里的底部安全区仍然让出：宽度正好是 Dock 的脚印（所以看不见）',
-      (tester) async {
+  testWidgets('壳里的底部安全区仍然让出：宽度正好是 Dock 的脚印（所以看不见）', (tester) async {
     await pumpShell(tester);
 
     final capsule = tester.getRect(dockCapsule());
@@ -345,7 +424,8 @@ void main() {
     expect(
       reserved,
       closeTo(dockBand, 0.01),
-      reason: '壳里让出的底部安全区（$reserved）必须等于 Dock 占的那一段'
+      reason:
+          '壳里让出的底部安全区（$reserved）必须等于 Dock 占的那一段'
           '（胶囊上沿到屏幕底边 = $dockBand）',
     );
     expect(reserved, greaterThan(bottomInset), reason: '壳里让的是 Dock 脚印，不是系统手势条');
@@ -381,24 +461,17 @@ void main() {
     expect(
       content.bottom,
       closeTo(height, 1),
-      reason: '内容一路铺到屏幕底边（本用例把板块页单独挂载，树里没有 Dock 壳，'
+      reason:
+          '内容一路铺到屏幕底边（本用例把板块页单独挂载，树里没有 Dock 壳，'
           '按二级页口径不让底部安全区，实测 ${content.bottom}）',
     );
     // 顶栏下沿到第一条内容（图源条）之间只隔一档常规间距，不是一整条空白。
     final firstRow = tester.getRect(find.text('示例源'));
     final gap = firstRow.top - appBar.bottom;
-    expect(
-      gap,
-      greaterThanOrEqualTo(0.0),
-      reason: '图源条不该被顶栏压住（gap=$gap）',
-    );
+    expect(gap, greaterThanOrEqualTo(0.0), reason: '图源条不该被顶栏压住（gap=$gap）');
     // 31pt = 列表 12 的顶部内边距 + 源选择卡片自己的内边距 + 文字基线：
     // 都是一档常规间距，不是「一整条空白」（以前这里会出现半个栏高）。
-    expect(
-      gap,
-      lessThanOrEqualTo(36.0),
-      reason: '顶栏与第一条内容之间只该留常规间距（实测 $gap）',
-    );
+    expect(gap, lessThanOrEqualTo(36.0), reason: '顶栏与第一条内容之间只该留常规间距（实测 $gap）');
   });
 }
 
@@ -415,12 +488,9 @@ class _SecondaryGlassPage extends StatelessWidget {
       title: '二级页',
       child: ListView(
         key: listKey,
-        padding: GlassScaffold.barInset(context).add(
-          const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        ),
-        children: const <Widget>[
-          SizedBox(height: 2000, child: Text('内容')),
-        ],
+        padding: GlassScaffold.barInset(context)
+            .add(const EdgeInsets.fromLTRB(16, 12, 16, 24)),
+        children: const <Widget>[SizedBox(height: 2000, child: Text('内容'))],
       ),
     );
   }

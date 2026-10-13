@@ -47,6 +47,10 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   /// Dock 占用的底部高度；不在壳里（或没有 Dock）时为 0。
   static double bottomInset(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<ShellDockScope>();
+    if (scope?.notifier?.visible != true ||
+        MediaQuery.viewInsetsOf(context).bottom > 0) {
+      return 0;
+    }
     return scope?.dockInset ?? 0;
   }
 }
