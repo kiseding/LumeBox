@@ -21,15 +21,19 @@ class SourceDisplayNames {
     'seyoumanhua_comic': '色友漫画',
     'nnhanman_comic': '鸟鸟韩漫',
     'jm18_comic': '18禁漫',
+    'xman6_comic': 'X漫',
+    'jcomic_comic': 'JComic',
     // 小说
     '99xs_novel': 'CA小说',
     'xchina_novel': '小黄书小说',
     'xxiaoshuo_novel': 'X小说',
+    'xnovel_novel': '夜读小说',
     // 视频
     'gztv5_video': '瓜子影视',
     'dage_video': '大哥视频',
     'luttt_video': '北觅影视',
     'vv3nwjk_video': '金牌影院',
+    'jpyy2_video': '金牌影院',
   };
 
   /// 这个图源在界面上该显示什么名字。[fallback] 是脚本自报的名字。

@@ -12,6 +12,13 @@ void main() {
     expect(SourceDisplayNames.of('xchina_novel', 'xChina 小说'), '小黄书小说');
     expect(SourceDisplayNames.of('mh92_comic', '92漫画'), '92漫画');
     expect(SourceDisplayNames.of('gztv5_video', '瓜子影视'), '瓜子影视');
+    // 本轮新增的四个源：X漫 / JComic / 夜读小说 / 金牌影院（jpyy2 与 vv3nwjk
+    // 是同一站的镜域，两个 id 都指向同一个展示名）。
+    expect(SourceDisplayNames.of('xman6_comic', 'X漫'), 'X漫');
+    expect(SourceDisplayNames.of('jcomic_comic', 'JComic'), 'JComic');
+    expect(SourceDisplayNames.of('xnovel_novel', '夜读小说'), '夜读小说');
+    expect(SourceDisplayNames.of('jpyy2_video', '金牌影院'), '金牌影院');
+    expect(SourceDisplayNames.of('vv3nwjk_video', '金牌影院'), '金牌影院');
   });
 
   test('表里没有的 id 原样用脚本自报的名字（新源导入即有名）', () {

@@ -8,6 +8,18 @@
 
 ## 未发布
 
+### 2026-10-13：新增四个图源（X漫 / JComic / 夜读小说 / 金牌影院）
+
+- 源脚本放在源仓库（LumeBox-Sources），清单已更新：漫画加 X漫（xman6.com）、JComic（jcomic.net），
+  小说加 夜读小说（x-novel.com），视频加 金牌影院（jpyy2.com）。App 里重新粘贴对应板块的订阅链接即可导入。
+- 展示名字典同步四个 id（xman6_comic / jcomic_comic / xnovel_novel / jpyy2_video）。
+- jpyy2.com 与 vv3nwjk.com 是同一站：主域挂在 reCAPTCHA v3 WAF 后面（521），脚本改走实测没有 WAF 的
+  手机域 m.vv3nwjk.com；三个候选域全被拦才抛 WAF 标记提示配置桥接。分页参数是 pageNum（传 page 会被忽略）。
+- JComic 的正文图是加密串（JCOMIC_TRAPS_ 倒序 base64），脚本内解码；该站图片直链是 60 秒签名的 S3 地址，
+  超时后需要重进章节（站点限制，已写进脚本头部说明）。
+- 四个源的解析规则都有站点快照 + Node 回归用例（源仓库 `node --test tools/snapshot_test.js`），
+  并在真实 QuickJS 沙箱里对着真站逐个跑通五个契约方法。
+
 ### 2026-10-13：播放器恢复、双来源弹幕与首页悬浮布局
 
 - 画中画原生层移到 Flutter 视图下方的独立宿主，避免旧视频覆盖页面；换媒体、换内核和销毁页面清理旧内容源。
