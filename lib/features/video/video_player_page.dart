@@ -604,6 +604,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _cancelAutoHide();
       }
     }
+    if (snapshot?.error != null) _cancelAutoHide();
     _wasPlaying = playing;
     if (snapshot != null) {
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
@@ -720,7 +721,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (!mounted) return;
     _session = PipSession(
       backend: widget.pipBackend ?? createPlatformPipBackend(),
-      canEnter: () => _loaded && _player != null,
+      canEnter: () =>
+          _loaded && _player != null && _player!.snapshot.value.error == null,
       onEvent: _onPipEvent,
     );
     _commandSubscription = _playback.commands.listen(_onPlaybackCommand);
@@ -1742,6 +1744,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   // ---------------------------------------------------------------- 画中画
 
   Future<void> _togglePip() async {
+    if (_player?.snapshot.value.error != null) {
+      _showToast('请先重试播放，再开启画中画');
+      return;
+    }
     if (_pipPreparing) return;
     _pipPreparing = true;
     try {
@@ -2337,7 +2343,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // - 锁屏：防误触就是要挡住这些；
     // - 全屏：标准控制栏换成压在画面上的浮层（点画面切换显隐）。
     if (_locked || _fullscreen) {
-      return Column(children: <Widget>[Expanded(child: _buildStage(player))]);
+      return Stack(
+        children: [
+          Positioned.fill(child: _buildStage(player)),
+          if (_locked && !_fullscreen)
+            Align(alignment: Alignment.topRight, child: _buildUnlockButton()),
+        ],
+      );
     }
     return Column(
       children: <Widget>[
@@ -2368,11 +2380,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (!_fullscreen || _locked) return;
     if (_accessibleNavigation) return;
     if (!_settings.autoHideControls) return;
-    if (!(_player?.snapshot.value.playing ?? false)) return;
+    if (!(_player?.snapshot.value.playing ?? false) ||
+        _player?.snapshot.value.error != null) {
+      return;
+    }
     _autoHideTimer = Timer(_autoHideDelay, () {
       if (!mounted || !_fullscreen || _locked) return;
       if (_accessibleNavigation) return;
-      if (!(_player?.snapshot.value.playing ?? false)) return;
+      if (!(_player?.snapshot.value.playing ?? false) ||
+          _player?.snapshot.value.error != null) {
+        return;
+      }
       setState(() => _overlayVisible = false);
     });
   }
@@ -2496,15 +2514,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       children: <Widget>[
         Positioned.fill(child: body),
         if (_locked)
-          Align(
-            alignment: Alignment.topRight,
-            child: _topIcon(
-              icon: Icons.lock,
-              tooltip: '解除锁定',
-              onPressed: () => setState(() {
-                _locked = false;
-                _overlayVisible = true;
-              }),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: _buildUnlockButton(),
             ),
           ),
         if (_overlayVisible && !_locked)
@@ -2524,6 +2537,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       ],
     );
   }
+
+  Widget _buildUnlockButton() => Padding(
+    padding: const EdgeInsets.all(4),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: _topIcon(
+        icon: Icons.lock,
+        tooltip: '解除锁定',
+        onPressed: () {
+          setState(() {
+            _locked = false;
+            _overlayVisible = true;
+          });
+          _scheduleAutoHide();
+        },
+      ),
+    ),
+  );
 
   /// 全屏浮层顶栏（用户口径的排布）：
   ///
@@ -2877,7 +2911,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   ),
                 ),
               // 锁屏开关：锁定时只留它，其余控制全收起。
-              if (!_fullscreen)
+              if (!_fullscreen && !_locked)
                 Align(
                   alignment: Alignment.topRight,
                   child: Padding(
@@ -3180,6 +3214,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 全屏浮层把它们放到**左下角那一组**（用户要求按钮分组摆放）。
   List<Widget> _primaryActions(PlayerSnapshot snapshot) {
     final player = _player;
+    final playing = snapshot.playing && snapshot.error == null;
     return <Widget>[
       IconButton(
         iconSize: 28,
@@ -3193,9 +3228,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       IconButton(
         iconSize: 38,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        tooltip: snapshot.playing ? '暂停' : '播放',
+        tooltip: playing ? '暂停' : '播放',
         icon: Icon(
-          snapshot.playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+          playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
         ),
         onPressed: player == null
             ? null

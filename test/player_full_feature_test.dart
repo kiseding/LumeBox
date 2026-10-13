@@ -24,6 +24,7 @@ import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_overlay.dart';
+
 import 'support/fake_source_manager.dart';
 
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
@@ -40,11 +41,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_player_full');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     await SectionScope.open(Section.video);
     await ReadingLibrary.open(Section.video);
   });
@@ -104,10 +105,7 @@ void main() {
     });
 
     test('统一提示文案（用户点名的口径）', () {
-      expect(
-        PlayerCapabilities.unsupportedMessage,
-        '当前播放器内核不支持该功能，请切换其它播放器',
-      );
+      expect(PlayerCapabilities.unsupportedMessage, '当前播放器内核不支持该功能，请切换其它播放器');
     });
 
     test('替身播放器默认「什么都不支持」：能力必须显式声明', () {
@@ -210,18 +208,16 @@ void main() {
   group('设置持久化：每内核一格 + 老库迁移', () {
     test('写库后按内核各读各的', () async {
       final store = await VideoPlayerSettingsStore.open();
-      var settings = const PlayerSettings()
-          .copyWith(kernel: PlayerKernel.avplayer, speed: 1.5);
+      var settings = const PlayerSettings().copyWith(
+        kernel: PlayerKernel.avplayer,
+        speed: 1.5,
+      );
       settings = settings.copyWith(kernel: PlayerKernel.mpv, speed: 2.0);
       store.save(settings);
 
       final reloaded = store.load();
       expect(reloaded.kernel, PlayerKernel.mpv);
-      expect(
-        reloaded.speed,
-        2.0,
-        reason: 'MPV 那一格是自己存进去的',
-      );
+      expect(reloaded.speed, 2.0, reason: 'MPV 那一格是自己存进去的');
       expect(
         reloaded.copyWith(kernel: PlayerKernel.avplayer).speed,
         1.5,
@@ -234,10 +230,7 @@ void main() {
       library.setSetting(VideoPlayerSettingsStore.keyKernel, 'avplayer');
       library.setSetting(VideoPlayerSettingsStore.keySpeed, '1.75');
       library.setSetting(VideoPlayerSettingsStore.keySubtitleSize, 'large');
-      library.setSetting(
-        VideoPlayerSettingsStore.keySubtitleDelay,
-        '-2000',
-      );
+      library.setSetting(VideoPlayerSettingsStore.keySubtitleDelay, '-2000');
 
       final store = VideoPlayerSettingsStore(library);
       final loaded = store.load();
@@ -250,7 +243,9 @@ void main() {
       store.save(loaded);
       expect(library.setting(VideoPlayerSettingsStore.keySpeed), '1.75');
       expect(
-        library.setting(VideoPlayerSettingsStore.keyPrefsFor(PlayerKernel.avplayer)),
+        library.setting(
+          VideoPlayerSettingsStore.keyPrefsFor(PlayerKernel.avplayer),
+        ),
         isNotNull,
       );
     });
@@ -301,7 +296,11 @@ void main() {
       expect(find.byTooltip('全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       // 用户要求：长播放链接不再铺在控制栏上，改成右侧的小信息图标（弹窗里看 / 换）。
-      expect(find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'), findsOneWidget, reason: '播放源入口（地址与线路）');
+      expect(
+        find.byTooltip('更多（清晰度 / 音轨 / 跳过片头片尾 / 连播）'),
+        findsOneWidget,
+        reason: '播放源入口（地址与线路）',
+      );
       expect(find.byType(TextField), findsNothing, reason: '控制栏不再直接展示长链接');
     });
 
@@ -318,7 +317,8 @@ void main() {
 
     testWidgets('旧的 0.75x 不影响新播放，画面默认按原比例适应', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
-      VideoPlayerSettingsStore(library).save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
+      VideoPlayerSettingsStore(library)
+          .save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
       final players = await pump(tester);
       players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
       await tester.pumpAndSettle();
@@ -329,11 +329,23 @@ void main() {
 
     testWidgets('弹幕关闭时发送本机弹幕：自动开启且新弹幕留在画面轨道', (tester) async {
       final player = _FakePlayer();
-      await pump(tester, player: player,
-        target: const VideoPlayTarget(sourceId: 'local', itemId: 'i', title: '片名',
-          chapterIndex: 0, chapterId: 'c', chapterTitle: '第一集'),
-        sourceManager: FakeSourceManager(sources: const []));
-      player.emit(position: const Duration(seconds: 20), duration: const Duration(minutes: 10));
+      await pump(
+        tester,
+        player: player,
+        target: const VideoPlayTarget(
+          sourceId: 'local',
+          itemId: 'i',
+          title: '片名',
+          chapterIndex: 0,
+          chapterId: 'c',
+          chapterTitle: '第一集',
+        ),
+        sourceManager: FakeSourceManager(sources: const []),
+      );
+      player.emit(
+        position: const Duration(seconds: 20),
+        duration: const Duration(minutes: 10),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('弹幕：开'));
       await tester.pumpAndSettle();
@@ -343,7 +355,9 @@ void main() {
       player.emit(position: const Duration(seconds: 25));
       await tester.tap(find.text('发送'));
       await tester.pumpAndSettle();
-      final overlay = tester.widget<DanmakuOverlay>(find.byType(DanmakuOverlay));
+      final overlay = tester.widget<DanmakuOverlay>(
+        find.byType(DanmakuOverlay),
+      );
       expect(overlay.settings.enabled, isTrue);
       expect(overlay.track.items.single.text, '本机弹幕测试');
       expect(overlay.track.items.single.time, const Duration(seconds: 25));
@@ -353,8 +367,14 @@ void main() {
       final players = await pump(
         tester,
         qualities: <VideoQuality>[
-          VideoQuality(label: '1080P', url: Uri.parse('https://example.com/1080.mp4')),
-          VideoQuality(label: '720P', url: Uri.parse('https://example.com/720.mp4')),
+          VideoQuality(
+            label: '1080P',
+            url: Uri.parse('https://example.com/1080.mp4'),
+          ),
+          VideoQuality(
+            label: '720P',
+            url: Uri.parse('https://example.com/720.mp4'),
+          ),
         ],
       );
 
@@ -374,7 +394,10 @@ void main() {
       expect(find.text('线路（切换后从当前位置继续）'), findsOneWidget);
       await tester.tap(find.text('720P'));
       await tester.pumpAndSettle();
-      expect(players.single.media?.uri.toString(), 'https://example.com/720.mp4');
+      expect(
+        players.single.media?.uri.toString(),
+        'https://example.com/720.mp4',
+      );
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
     });
 
@@ -390,7 +413,10 @@ void main() {
       await tester.tap(find.text('播放这个地址'));
       await tester.pumpAndSettle();
 
-      expect(players.single.media?.uri.toString(), 'https://example.com/manual.mp4');
+      expect(
+        players.single.media?.uri.toString(),
+        'https://example.com/manual.mp4',
+      );
       expect(find.byType(PlayerSourceSheet), findsNothing, reason: '交出去了就关面板');
 
       // 空地址：就地报错，面板留在原地。
@@ -415,8 +441,14 @@ void main() {
       final players = await pump(
         tester,
         qualities: <VideoQuality>[
-          VideoQuality(label: '1080P', url: Uri.parse('https://example.com/1080.mp4')),
-          VideoQuality(label: '720P', url: Uri.parse('https://example.com/720.mp4')),
+          VideoQuality(
+            label: '1080P',
+            url: Uri.parse('https://example.com/1080.mp4'),
+          ),
+          VideoQuality(
+            label: '720P',
+            url: Uri.parse('https://example.com/720.mp4'),
+          ),
         ],
       );
       expect(players.single.media?.uri.toString(), 'https://example.com/a.mp4');
@@ -429,7 +461,10 @@ void main() {
       await tester.tap(find.text('720P'));
       await tester.pumpAndSettle();
 
-      expect(players.single.media?.uri.toString(), 'https://example.com/720.mp4');
+      expect(
+        players.single.media?.uri.toString(),
+        'https://example.com/720.mp4',
+      );
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
     });
 
@@ -545,7 +580,10 @@ void main() {
       // 画面框的宽高比 = 视频原始比例（9:16），不是被拉伸去填满播放区。
       final box = tester.getSize(
         find
-            .ancestor(of: find.text('fake-view'), matching: find.byType(SizedBox))
+            .ancestor(
+              of: find.text('fake-view'),
+              matching: find.byType(SizedBox),
+            )
             .first,
       );
       expect(box.width / box.height, closeTo(1080 / 1920, 0.01));
@@ -587,6 +625,56 @@ void main() {
       final buttonY = tester.getCenter(find.byTooltip('播放器设置')).dy;
       expect(infoY, lessThan(sliderY));
       expect(sliderY, lessThan(buttonY));
+    });
+
+    testWidgets('播放错误时控制栏保持可见，允许重试与退出全屏', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      players.single.emit(
+        playing: true,
+        error: 'tcp: ffurl_read returned 0xffffffc4',
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 10));
+      expect(find.text('重试播放'), findsOneWidget);
+      expect(find.byTooltip('退出全屏'), findsOneWidget);
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
+    });
+
+    testWidgets('全屏锁定后解锁按钮避让顶部和右侧系统安全区', (tester) async {
+      final ratio = tester.view.devicePixelRatio;
+      tester.view.viewPadding = FakeViewPadding(
+        top: 59 * ratio,
+        right: 44 * ratio,
+      );
+      tester.view.padding = FakeViewPadding(top: 59 * ratio, right: 44 * ratio);
+      addTearDown(tester.view.reset);
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('锁定（防误触）'));
+      await tester.pumpAndSettle();
+      final unlock = find.byTooltip('解除锁定');
+      expect(unlock, findsOneWidget);
+      final rect = tester.getRect(unlock);
+      expect(rect.top, greaterThanOrEqualTo(59));
+      expect(rect.right, lessThanOrEqualTo(900 - 44));
+      await tester.tap(unlock);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('退出全屏'), findsOneWidget);
+    });
+
+    testWidgets('竖屏锁定时播放报错仍能解锁，恢复设置入口', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('锁定（防误触）'));
+      await tester.pumpAndSettle();
+      players.single.emit(error: 'connection closed');
+      await tester.pump();
+      expect(find.byTooltip('解除锁定'), findsOneWidget);
+      await tester.tap(find.byTooltip('解除锁定'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
     });
 
     testWidgets('删除测速入口与自动探测，不再与视频争用网络', (tester) async {
@@ -632,9 +720,9 @@ void main() {
       // 左：关闭(X) / 投屏 / 旋转 / 比例；右：弹幕 / 倍速 / 锁定；中：标题。
       // 提示文案在 Tooltip.message 上（不是 Text 节点），动态项用谓词匹配。
       Finder tipContains(String part) => find.byWidgetPredicate(
-            (widget) => widget is Tooltip && (widget.message ?? '').contains(part),
-            description: 'Tooltip 含「$part」',
-          );
+        (widget) => widget is Tooltip && (widget.message ?? '').contains(part),
+        description: 'Tooltip 含「$part」',
+      );
 
       expect(find.byTooltip('关闭（退出全屏）'), findsWidgets);
       expect(find.byTooltip('投屏（本版本未接入）'), findsNothing);
@@ -659,20 +747,16 @@ void main() {
       // 同理：比例从「适应」走到「填充」。
       await tester.tap(tipContains('画面比例（当前：').first);
       await tester.pumpAndSettle();
-      expect(
-        tipContains('画面比例（当前：填充）'),
-        findsWidgets,
-        reason: '比例档位也真的变了',
-      );
+      expect(tipContains('画面比例（当前：填充）'), findsWidgets, reason: '比例档位也真的变了');
     });
 
     testWidgets('全屏：锁横屏；退出全屏：还原竖屏（用户要求）', (tester) async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-        calls.add(call);
-        return null;
-      });
+            calls.add(call);
+            return null;
+          });
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -687,7 +771,10 @@ void main() {
       );
       expect(
         landscape.arguments,
-        containsAll(<String>['DeviceOrientation.landscapeLeft', 'DeviceOrientation.landscapeRight']),
+        containsAll(<String>[
+          'DeviceOrientation.landscapeLeft',
+          'DeviceOrientation.landscapeRight',
+        ]),
         reason: '进全屏自动横屏（左右都收）',
       );
 
@@ -710,11 +797,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-      expect(
-        _lastOrientations(calls),
-        <String>['DeviceOrientation.portraitUp'],
-        reason: '竖屏短剧（宽 < 高）进全屏就是竖屏全屏',
-      );
+      expect(_lastOrientations(calls), <String>[
+        'DeviceOrientation.portraitUp',
+      ], reason: '竖屏短剧（宽 < 高）进全屏就是竖屏全屏');
 
       await tester.tap(find.byTooltip('退出全屏').first);
       await tester.pumpAndSettle();
@@ -738,8 +823,9 @@ void main() {
 
     testWidgets('方向锁定：强制横屏 / 强制竖屏覆盖自动判断（用户要求）', (tester) async {
       final calls = _captureOrientations(tester);
-      PlaybackOrientationController.instance
-          .apply(PlaybackOrientation.landscape);
+      PlaybackOrientationController.instance.apply(
+        PlaybackOrientation.landscape,
+      );
       addTearDown(PlaybackOrientationController.instance.resetForTesting);
 
       final players = await pump(tester);
@@ -759,10 +845,13 @@ void main() {
       );
 
       // 改成强制竖屏：当场换回竖屏（不必退出全屏重进）。
-      PlaybackOrientationController.instance
-          .apply(PlaybackOrientation.portrait);
+      PlaybackOrientationController.instance.apply(
+        PlaybackOrientation.portrait,
+      );
       await tester.pumpAndSettle();
-      expect(_lastOrientations(calls), <String>['DeviceOrientation.portraitUp']);
+      expect(_lastOrientations(calls), <String>[
+        'DeviceOrientation.portraitUp',
+      ]);
     });
 
     testWidgets('锁屏：收起控制栏，只剩解锁按钮；再点回来', (tester) async {
@@ -842,8 +931,11 @@ void main() {
     testWidgets('跳转被内核拒绝：给出失败提示，保持暂停状态', (tester) async {
       final player = _FakePlayer()..seekError = StateError('seek rejected');
       await pump(tester, player: player);
-      player.emit(position: const Duration(seconds: 74),
-          duration: const Duration(minutes: 10), playing: false);
+      player.emit(
+        position: const Duration(seconds: 74),
+        duration: const Duration(minutes: 10),
+        playing: false,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('前进 10 秒'));
       await tester.pump();
@@ -853,146 +945,136 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-  testWidgets('全屏浮层：进度条贴底、按钮分左下 / 右下两组（用户要求）', (tester) async {
-    await pump(tester);
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pumpAndSettle();
+    testWidgets('全屏浮层：进度条贴底、按钮分左下 / 右下两组（用户要求）', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
 
-    final slider = tester.getRect(find.byType(Slider).first);
-    final stop = tester.getCenter(find.byTooltip('停止'));
-    expect(slider.bottom, lessThan(stop.dy), reason: '进度条在按钮组上方');
+      final slider = tester.getRect(find.byType(Slider).first);
+      final stop = tester.getCenter(find.byTooltip('停止'));
+      expect(slider.bottom, lessThan(stop.dy), reason: '进度条在按钮组上方');
 
-    final leftMost = tester.getCenter(find.byTooltip('后退 10 秒')).dx;
-    final rightSettings = tester.getCenter(find.byTooltip('播放器设置')).dx;
-    expect(rightSettings, greaterThan(450));
-    expect(leftMost, lessThan(450));
-    expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
+      final leftMost = tester.getCenter(find.byTooltip('后退 10 秒')).dx;
+      final rightSettings = tester.getCenter(find.byTooltip('播放器设置')).dx;
+      expect(rightSettings, greaterThan(450));
+      expect(leftMost, lessThan(450));
+      expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
+    });
 
-  });
+    testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsOneWidget, reason: '刚进全屏控制栏可见');
 
-  testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
-    final players = await pump(tester);
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsOneWidget, reason: '刚进全屏控制栏可见');
+      players.single.emit(
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 10),
+        playing: true,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsNothing, reason: '无操作 4 秒后控制栏自动隐藏');
 
-    players.single.emit(
-      position: const Duration(minutes: 1),
-      duration: const Duration(minutes: 10),
-      playing: true,
-    );
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pumpAndSettle();
-    expect(
-      find.byType(Slider),
-      findsNothing,
-      reason: '无操作 4 秒后控制栏自动隐藏',
-    );
+      await tester.tap(find.byType(Scaffold).first);
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsOneWidget, reason: '点屏幕再显示');
+    });
 
-    await tester.tap(find.byType(Scaffold).first);
-    await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsOneWidget, reason: '点屏幕再显示');
-  });
+    testWidgets('无障碍导航：播放中全屏控制栏保持可访问', (tester) async {
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: true);
+      addTearDown(
+        tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      players.single.emit(playing: true, duration: const Duration(minutes: 10));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.byTooltip('前进 10 秒'), findsOneWidget);
+      expect(find.byTooltip('退出全屏'), findsWidgets);
+    });
 
-  testWidgets('无障碍导航：播放中全屏控制栏保持可访问', (tester) async {
-    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
-        const FakeAccessibilityFeatures(accessibleNavigation: true);
-    addTearDown(tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue);
-    final players = await pump(tester);
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pumpAndSettle();
-    players.single.emit(playing: true, duration: const Duration(minutes: 10));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    expect(find.byType(Slider), findsOneWidget);
-    expect(find.byTooltip('前进 10 秒'), findsOneWidget);
-    expect(find.byTooltip('退出全屏'), findsWidgets);
-  });
+    testWidgets('播放中开启无障碍导航：恢复隐藏的控制栏并取消计时', (tester) async {
+      addTearDown(
+        tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      players.single.emit(playing: true, duration: const Duration(minutes: 10));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.byType(Slider), findsNothing);
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: true);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.byType(Slider), findsOneWidget);
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: false);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.byType(Slider), findsNothing);
+    });
 
-  testWidgets('播放中开启无障碍导航：恢复隐藏的控制栏并取消计时', (tester) async {
-    addTearDown(tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue);
-    final players = await pump(tester);
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pumpAndSettle();
-    players.single.emit(playing: true, duration: const Duration(minutes: 10));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    expect(find.byType(Slider), findsNothing);
-    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
-        const FakeAccessibilityFeatures(accessibleNavigation: true);
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(seconds: 5));
-    expect(find.byType(Slider), findsOneWidget);
-    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
-        const FakeAccessibilityFeatures(accessibleNavigation: false);
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    expect(find.byType(Slider), findsNothing);
-  });
+    testWidgets('关掉「自动隐藏控制栏」后：怎么放着都不收起', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
 
-  testWidgets('关掉「自动隐藏控制栏」后：怎么放着都不收起', (tester) async {
-    final players = await pump(tester);
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.text('自动隐藏控制栏'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(Row, '自动隐藏控制栏'),
+          matching: find.byType(Switch),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放器设置'));
-    await tester.pumpAndSettle();
-    await tester.dragUntilVisible(
-      find.text('自动隐藏控制栏'),
-      find.byType(PlayerSettingsSheet),
-      const Offset(0, -200),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.widgetWithText(Row, '自动隐藏控制栏'),
-        matching: find.byType(Switch),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pumpAndSettle();
+      players.single.emit(
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 10),
+        playing: true,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 8));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsOneWidget, reason: '关掉自动隐藏后控制栏一直显示');
+    });
+    testWidgets('画中画：非 MPV 内核点时先切到 MPV（否则按钮点了没反应）', (tester) async {
+      final created = await pump(tester); // 默认 AVPlayer
+      expect(created.single.kernel, PlayerKernel.avplayer);
 
-    players.single.emit(
-      position: const Duration(minutes: 1),
-      duration: const Duration(minutes: 10),
-      playing: true,
-    );
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 8));
-    await tester.pumpAndSettle();
-    expect(
-      find.byType(Slider),
-      findsOneWidget,
-      reason: '关掉自动隐藏后控制栏一直显示',
-    );
-  });
-  testWidgets('画中画：非 MPV 内核点时先切到 MPV（否则按钮点了没反应）', (tester) async {
-    final created = await pump(tester); // 默认 AVPlayer
-    expect(created.single.kernel, PlayerKernel.avplayer);
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放器设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pumpAndSettle();
-
-    // 直接点画中画按钮：应当给一句说明并切到 MPV（本机三内核都可用）。
-    await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
-    await tester.pumpAndSettle();
-    expect(
-      find.textContaining('画中画需要 MPV 内核'),
-      findsOneWidget,
-      reason: '要说明为什么要换内核，而不是静默切换',
-    );
-    expect(
-      created.length,
-      greaterThan(1),
-      reason: '换内核会重建播放器（新实例是 MPV）',
-    );
-    expect(created.last.kernel, PlayerKernel.mpv);
-  });
-
+      // 直接点画中画按钮：应当给一句说明并切到 MPV（本机三内核都可用）。
+      await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('画中画需要 MPV 内核'),
+        findsOneWidget,
+        reason: '要说明为什么要换内核，而不是静默切换',
+      );
+      expect(created.length, greaterThan(1), reason: '换内核会重建播放器（新实例是 MPV）');
+      expect(created.last.kernel, PlayerKernel.mpv);
+    });
   });
 }
 
@@ -1001,9 +1083,9 @@ List<MethodCall> _captureOrientations(WidgetTester tester) {
   final calls = <MethodCall>[];
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-    calls.add(call);
-    return null;
-  });
+        calls.add(call);
+        return null;
+      });
   addTearDown(
     () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -1020,7 +1102,8 @@ List<String> _lastOrientations(List<MethodCall> calls) {
 }
 
 /// 三套内核都可用。
-class _AllKernelsCatalog implements PlayerKernelCatalog {  const _AllKernelsCatalog();
+class _AllKernelsCatalog implements PlayerKernelCatalog {
+  const _AllKernelsCatalog();
 
   @override
   bool isAvailable(PlayerKernel kernel) => true;
@@ -1047,8 +1130,9 @@ class _FakePlayer extends AbstractPlayer {
 
   final PlayerKernel? kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
   final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
     PlayerStats(engineLabel: 'fake'),
   );
@@ -1066,7 +1150,12 @@ class _FakePlayer extends AbstractPlayer {
 
   void pushStats(PlayerStats next) => _stats.value = next;
 
-  void emit({Duration? position, Duration? duration, bool? playing, String? error}) {
+  void emit({
+    Duration? position,
+    Duration? duration,
+    bool? playing,
+    String? error,
+  }) {
     _snapshot.value = PlayerSnapshot(
       position: position ?? _snapshot.value.position,
       duration: duration ?? _snapshot.value.duration,
@@ -1128,7 +1217,9 @@ class _CountingClient extends http.BaseClient {
     return http.StreamedResponse(
       Stream<List<int>>.value(List<int>.filled(bytes, 0)),
       206,
-      headers: const <String, String>{'content-range': 'bytes 0-262143/99999999'},
+      headers: const <String, String>{
+        'content-range': 'bytes 0-262143/99999999',
+      },
     );
   }
 }
