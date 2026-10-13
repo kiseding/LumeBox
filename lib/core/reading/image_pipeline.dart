@@ -433,16 +433,38 @@ class SectionImagePipeline {
       // 「只能加载一部分封面」，这是除明文地址外最常见的一条）。
       var bareReferer = false;
       var handled403 = false;
-      for (var attempt = 0; attempt <= _maxRetries; attempt++) {
+      final uri = Uri.tryParse(url);
+      final alternate =
+          uri != null &&
+              uri.host == 'image.tmdb.org' &&
+              uri.path.startsWith('/t/p/')
+          ? uri.replace(host: 'media.themoviedb.org', userInfo: '').toString()
+          : null;
+      var requestedUrl = url;
+      var triedAlternate = false;
+      final budget = _maxRetries + (alternate == null ? 0 : 1);
+      for (var attempt = 0; attempt <= budget; attempt++) {
         if (_disposed) return null;
-        final outcome = await _fetchOnce(url, withReferer: !bareReferer);
-        if (outcome.bytes != null) return outcome.bytes;
+        final outcome = await _fetchOnce(
+          requestedUrl,
+          withReferer: !bareReferer,
+        );
+        if (outcome.bytes != null) {
+          _failures.remove(url);
+          return outcome.bytes;
+        }
+        if (alternate != null && !triedAlternate) {
+          requestedUrl = alternate;
+          triedAlternate = true;
+          bareReferer = false;
+          continue;
+        }
         if (outcome.forbidden && !bareReferer) {
           bareReferer = true;
           handled403 = true;
           continue;
         }
-        if (!outcome.retryable || attempt == _maxRetries) break;
+        if (!outcome.retryable || attempt == budget) break;
         // 退避：300ms、600ms、1200ms。图片是**可见内容**，等太久不如让用户先
         // 看到缺口再自己重试——因此次数仍克制（默认 3 次，弱网多给一次机会）。
         await Future<void>.delayed(

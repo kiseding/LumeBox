@@ -582,6 +582,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   @override
   void dispose() {
+    _rebuildSeq++;
     WidgetsBinding.instance.removeObserver(this);
     _danmakuLoadSeq++;
     for (final client in _danmakuClients) {
@@ -618,13 +619,34 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       );
     }
     unawaited(_commandSubscription?.cancel());
-    // 资源边界：先退画中画再释放播放器，最后关库（顺序不能反）。
+    // Silence immediately; PiP teardown must never delay or prevent player release.
+    _stopFrameForwarding();
     unawaited(() async {
-      await session?.dispose();
-      _stopFrameForwarding();
+      try {
+        await player?.pause().timeout(const Duration(seconds: 2));
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+      }
+      try {
+        await player?.stop().timeout(const Duration(seconds: 2));
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+      }
+      try {
+        await session?.dispose().timeout(const Duration(seconds: 3));
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+      }
       final backend = session?.backend;
-      if (backend is MethodChannelPipBackend) await backend.teardownFrames();
-      await player?.dispose();
+      try {
+        if (backend is MethodChannelPipBackend) {
+          await backend.teardownFrames().timeout(const Duration(seconds: 2));
+        }
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+      } finally {
+        if (player != null) await _disposeQuietly(player, '退出播放页');
+      }
     }());
     // 预启动的实例没人接手（页面没起播就退了 / 内核库打不开）：就地释放，
     // 绝不留下一个还在后台活着、谁也拿不到的播放器。
@@ -972,12 +994,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       // 缓冲参数要先于装载落定（见 [AbstractPlayer.setBuffering]）：模块设置里的
       // 「前向缓冲」就是经这里真正生效的（0 = 交给内核自动决定）。
       await player.setBuffering(_buffering);
+      if (!mounted || !identical(player, _player)) return;
       await player.applySettings(_settings);
+      if (!mounted || !identical(player, _player)) return;
       final media = _media;
       if (media != null) await _loadMedia(media);
+      if (!mounted || !identical(player, _player)) return;
       if (resume != null && !resume.isAtStart) {
         await player.seek(resume.position);
-        if (resume.playing) await player.play();
+        if (resume.playing && mounted && identical(player, _player)) {
+          await player.play();
+        }
       }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);

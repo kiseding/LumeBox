@@ -1094,6 +1094,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.stopped, 1);
     });
+    testWidgets('退出播放页立即暂停并停止，画中画退出失败也释放播放器', (tester) async {
+      final backend = _TestPipBackend()..stopFailure = true;
+      addTearDown(backend.close);
+      final created = await pump(tester, pipBackend: backend);
+      await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
+      await tester.pumpAndSettle();
+      final player = created.single;
+      expect(player.snapshot.value.playing, true);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(player.snapshot.value.playing, false);
+      expect(player.pauses, greaterThan(0));
+      expect(player.stops, greaterThan(0));
+      expect(player.disposals, 1);
+    });
   });
 }
 
@@ -1159,7 +1174,7 @@ class _FakePlayer extends AbstractPlayer {
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
   Object? seekError;
-  int plays = 0;
+  int plays = 0, pauses = 0, stops = 0, disposals = 0;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -1195,7 +1210,10 @@ class _FakePlayer extends AbstractPlayer {
   }
 
   @override
-  Future<void> pause() async => emit(playing: false);
+  Future<void> pause() async {
+    pauses++;
+    emit(playing: false);
+  }
 
   @override
   Future<void> seek(Duration position) async {
@@ -1204,7 +1222,10 @@ class _FakePlayer extends AbstractPlayer {
   }
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stops++;
+    emit(playing: false);
+  }
 
   @override
   Future<void> setVolume(double volume) async {}
@@ -1216,7 +1237,9 @@ class _FakePlayer extends AbstractPlayer {
   Widget buildView() => const Text('fake-view');
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    disposals++;
+  }
 }
 
 /// 假 HTTP 客户端：返回固定体积的响应，用于网速表计时（真实等待极短）。
@@ -1253,6 +1276,7 @@ Future<void> openPlayerAction(WidgetTester tester, String action) async {
 class _TestPipBackend implements PipBackend {
   final _events = StreamController<PipEvent>.broadcast();
   int started = 0, stopped = 0;
+  bool stopFailure = false;
   @override
   Future<bool> isSupported() async => true;
   @override
@@ -1266,6 +1290,7 @@ class _TestPipBackend implements PipBackend {
   @override
   Future<void> stop() async {
     stopped++;
+    if (stopFailure) throw StateError('fixture PiP teardown failure');
     _events.add(const PipEvent(PipEventKind.exited));
   }
 

@@ -47,10 +47,10 @@ void main() {
       }),
     );
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .12);
+    expect(controller.style(FloatingModule.home).opacity, .72);
     expect(controller.style(FloatingModule.home).offset.dx, 8);
     expect(controller.style(FloatingModule.home).offset.dy, 19);
-    expect(controller.style(FloatingModule.home).blur, 3);
+    expect(controller.style(FloatingModule.home).blur, 6);
     // Once migrated, newly chosen opacity remains under the user's control.
     controller.set(FloatingModule.home, const FloatingStyle(opacity: .4));
     controller.save();

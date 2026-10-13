@@ -16,7 +16,7 @@ class GlassPanel extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 0,
-    this.blur = 3,
+    this.blur = 6,
     this.color,
     this.border,
     this.padding,
@@ -539,4 +539,3 @@ class HomeHeaderScope extends InheritedWidget {
   bool updateShouldNotify(HomeHeaderScope oldWidget) =>
       header != oldWidget.header;
 }
-

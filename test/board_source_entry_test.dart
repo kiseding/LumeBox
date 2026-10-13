@@ -152,7 +152,11 @@ void main() {
     // 猫源没有独立的业务页：板块页即图源管理页，标题与其他板块同一口径。
     expect(find.text('猫源'), findsOneWidget);
     expect(find.byTooltip('订阅'), findsOneWidget);
-    expect(find.byTooltip('网盘登录 / 配置中心'), findsOneWidget);
+    expect(find.byTooltip('网盘登录 / 配置中心'), findsNothing);
+    await tester.tap(find.byTooltip('订阅'));
+    await tester.pumpAndSettle();
+    expect(find.text('猫源配置中心'), findsOneWidget);
+    expect(find.byTooltip('添加订阅'), findsOneWidget);
   });
 
   testWidgets('图源管理页：导入的源可见、可启停，操作收进「更多」', (tester) async {

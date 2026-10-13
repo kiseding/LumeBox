@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/cat/cat_service.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -65,15 +66,20 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                   labelText: 'index.js.md5 订阅链接',
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: username,
-                decoration: const InputDecoration(labelText: '用户名（需要认证时填写）'),
-              ),
-              TextField(
-                controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: '密码（可选）'),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('订阅认证（可选）'),
+                children: [
+                  TextField(
+                    controller: username,
+                    decoration: const InputDecoration(labelText: '用户名'),
+                  ),
+                  TextField(
+                    controller: password,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: '密码'),
+                  ),
+                ],
               ),
               const Text('保存后自动检查更新，无需再次粘贴链接。'),
             ],
@@ -115,9 +121,61 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     }
   }
 
+  Future<void> configure(CatSubscription record) => run(() async {
+    final url = await service.configurationUrl(record);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => CatWebPage(url: url)),
+    );
+    await service.refreshSites(record);
+  });
+
+  Future<void> more(CatSubscription record, String action) => run(() async {
+    if (action == 'update') await service.update(record);
+    if (action == 'automatic') {
+      record.automatic = !record.automatic;
+      await service.save();
+    }
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: record.url));
+    }
+    if (action == 'remove') await service.remove(record);
+    if (action == 'info' && mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(record.name),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('订阅地址'),
+                SelectableText(record.url),
+                const SizedBox(height: 12),
+                Text(
+                  record.error.isEmpty
+                      ? '订阅正常，${record.automatic ? '自动更新已开启' : '自动更新已关闭'}'
+                      : record.error,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      );
+    }
+  });
+
   @override
   Widget build(BuildContext context) => GlassScaffold(
-    title: '猫源订阅',
+    title: '猫源配置中心',
     actions: [
       IconButton(
         tooltip: '添加订阅',
@@ -130,7 +188,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('订阅包内的站点在首页选择。开启自动更新后，每次打开会检查到期订阅；下载或校验失败时保留旧包。'),
+          const Text('订阅地址会保留并自动更新，网盘登录和站点设置在对应订阅内完成。'),
           if (working || service.busy) ...[
             const LinearProgressIndicator(),
             Text(service.status),
@@ -140,86 +198,94 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
           for (final record in service.subscriptions)
             GlassCard(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(record.name),
+                    title: Text(
+                      record.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     subtitle: Text(
-                      '${record.sites.length} 个站点 · ${record.checked == 0 ? '未更新' : DateTime.fromMillisecondsSinceEpoch(record.checked).toString().substring(0, 16)}\n${record.url}',
+                      '${record.sites.length} 个站点 · ${record.automatic ? '自动更新' : '手动更新'}',
                     ),
-                    trailing: Switch(
-                      value: record.enabled,
-                      onChanged: working
-                          ? null
-                          : (enabled) => run(() async {
-                              record.enabled = enabled;
-                              await service.save();
-                            }),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Switch(
+                          value: record.enabled,
+                          onChanged: working || service.busy
+                              ? null
+                              : (value) => run(() async {
+                                  record.enabled = value;
+                                  await service.save();
+                                }),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: '更多',
+                          enabled: !working && !service.busy,
+                          onSelected: (action) => more(record, action),
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'update',
+                              child: Text('立即更新'),
+                            ),
+                            CheckedPopupMenuItem(
+                              value: 'automatic',
+                              checked: record.automatic,
+                              child: const Text('自动更新'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'info',
+                              child: Text('订阅信息'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'copy',
+                              child: Text('复制订阅链接'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Text('移除订阅'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('自动拉取更新'),
-                    value: record.automatic,
-                    onChanged: working
+                  if (record.error.isNotEmpty)
+                    Text(
+                      record.error,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  TextButton.icon(
+                    onPressed: working || service.busy || !record.enabled
                         ? null
-                        : (automatic) => run(() async {
-                            record.automatic = automatic;
-                            await service.save();
-                          }),
-                  ),
-                  if (record.error.isNotEmpty) Text(record.error),
-                  Wrap(
-                    children: [
-                      TextButton.icon(
-                        onPressed: working
-                            ? null
-                            : () => run(() => service.update(record)),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('立即更新'),
-                      ),
-                      TextButton.icon(
-                        onPressed: working
-                            ? null
-                            : () => run(() async {
-                                final url = await service.configurationUrl(
-                                  record,
-                                );
-                                if (!context.mounted) return;
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => CatWebPage(url: url),
-                                  ),
-                                );
-                                await service.refreshSites(record);
-                              }),
-                        icon: const Icon(Icons.cloud_outlined),
-                        label: const Text('网盘登录 / 配置'),
-                      ),
-                      TextButton(
-                        onPressed: working
-                            ? null
-                            : () => run(() => service.remove(record)),
-                        child: const Text('移除订阅'),
-                      ),
-                    ],
+                        : () => configure(record),
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: const Text('网盘登录 · 站点配置'),
                   ),
                 ],
               ),
             ),
           const SizedBox(height: 20),
-          const Text('常用订阅'),
-          Wrap(
-            spacing: 8,
+          ExpansionTile(
+            title: const Text('添加常用订阅'),
+            initiallyExpanded: service.subscriptions.isEmpty,
             children: [
-              for (final preset in catSubscriptionPresets.entries)
-                ActionChip(
-                  label: Text(preset.key),
-                  onPressed: working
-                      ? null
-                      : () => add(name: preset.key, url: preset.value),
-                ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final preset in catSubscriptionPresets.entries)
+                    ActionChip(
+                      label: Text(preset.key),
+                      onPressed: working
+                          ? null
+                          : () => add(name: preset.key, url: preset.value),
+                    ),
+                ],
+              ),
             ],
           ),
         ],

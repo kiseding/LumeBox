@@ -559,21 +559,24 @@ class _VideoPageState extends State<VideoPage> {
       onPressed: () => _openHistory(favorites: true),
     ),
     // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
-    IconButton(
-      tooltip: '订阅',
-      icon: const Icon(Icons.rss_feed),
-      onPressed: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-            builder: (_) => SourceSubscriptionPage(
-              section: Section.video,
-              manager: widget.sourceManager,
+    Tooltip(
+      message: '订阅',
+      child: TextButton.icon(
+        label: const Text('订阅'),
+        icon: const Icon(Icons.rss_feed),
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => SourceSubscriptionPage(
+                section: Section.video,
+                manager: widget.sourceManager,
+              ),
             ),
-          ),
-        );
-        if (mounted) _onSourcesChanged();
-      },
+          );
+          if (mounted) _onSourcesChanged();
+        },
+      ),
     ),
   ];
 

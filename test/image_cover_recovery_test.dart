@@ -11,6 +11,38 @@ void main() {
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('cover-recovery'));
   tearDown(() => root.deleteSync(recursive: true));
+  test('TMDB 图片域名失败时使用官方备用域名，缓存仍归原地址且不透传认证头', () async {
+    final requests = <NetworkRequest>[];
+    final pipeline = SectionImagePipeline(
+      cacheDir: root.path,
+      maxRetries: 0,
+      requestSender: (request) async {
+        requests.add(request);
+        if (Uri.parse(request.url).host == 'image.tmdb.org') {
+          throw const SocketException('fixture blocked domain');
+        }
+        return const NetworkResponse(
+          statusCode: 200,
+          body: [1, 2, 3],
+          headers: {},
+        );
+      },
+    );
+    addTearDown(pipeline.dispose);
+    const url = 'https://image.tmdb.org/t/p/w300/cover.jpg';
+    pipeline.configureImageHeaders({
+      url: {'Cookie': 'private', 'Authorization': 'private'},
+    });
+    expect(await pipeline.bytes(url), [1, 2, 3]);
+    expect(
+      requests.last.url,
+      'https://media.themoviedb.org/t/p/w300/cover.jpg',
+    );
+    expect(requests.last.headers.containsKey('Cookie'), false);
+    expect(requests.last.headers.containsKey('Authorization'), false);
+    expect(File(pipeline.cachePathFor(url)).existsSync(), true);
+    expect(pipeline.failureFor(url), isNull);
+  });
   test('403 后确实移除源指定的 Referer，不重复发送同一请求头', () async {
     final requests = <NetworkRequest>[];
     final pipeline = SectionImagePipeline(

@@ -13,7 +13,7 @@ class FloatingSettingsPage extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('悬浮胶囊采用高透明度与微磨砂效果。透明度、磨砂强度和位置实时生效，返回后自动保留。'),
+          const Text('默认采用浅色磨砂，优先保证文字清楚。透明度、磨砂强度和位置可自行调整，返回后自动保留。'),
           for (final module in FloatingModule.values) _module(context, module),
         ],
       ),

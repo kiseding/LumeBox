@@ -73,27 +73,30 @@ class ReadingHubPage extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            tooltip: '订阅',
-            icon: const Icon(Icons.rss_feed),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => SourceSubscriptionPage(
-                    section: section,
-                    manager: manager,
-                    extraActions:
-                        actions
-                            ?.whereType<IconButton>()
-                            .where((action) => action.tooltip == '扩展仓库')
-                            .toList() ??
-                        const [],
+          Tooltip(
+            message: '订阅',
+            child: TextButton.icon(
+              label: const Text('订阅'),
+              icon: const Icon(Icons.rss_feed),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => SourceSubscriptionPage(
+                      section: section,
+                      manager: manager,
+                      extraActions:
+                          actions
+                              ?.whereType<IconButton>()
+                              .where((action) => action.tooltip == '扩展仓库')
+                              .toList() ??
+                          const [],
+                    ),
                   ),
-                ),
-              );
-              if (context.mounted) onSubscriptionsClosed?.call();
-            },
+                );
+                if (context.mounted) onSubscriptionsClosed?.call();
+              },
+            ),
           ),
         ],
         behindBar: true,

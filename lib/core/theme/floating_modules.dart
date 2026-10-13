@@ -18,10 +18,10 @@ enum FloatingModule {
 
 class FloatingStyle {
   const FloatingStyle({
-    this.opacity = .12,
+    this.opacity = .72,
     this.x = 0,
     this.y = 0,
-    this.blur = 3,
+    this.blur = 6,
   });
   final double opacity, x, y, blur;
   Offset get offset => Offset(x, y);
@@ -51,10 +51,10 @@ class FloatingStyle {
     }
 
     return FloatingStyle(
-      opacity: read('opacity', .12, 0, 1),
+      opacity: read('opacity', .72, 0, 1),
       x: read('x', 0, -40, 40),
       y: read('y', 0, -40, 80),
-      blur: read('blur', 3, 0, 6),
+      blur: read('blur', 6, 0, 6),
     );
   }
 }
@@ -78,12 +78,9 @@ class FloatingModules extends ChangeNotifier {
             final raw = data[module.name];
             if (raw is Map) {
               final previous = FloatingStyle.fromJson(raw);
-              _styles[module] = data['_microGlassVersion'] == 1
+              _styles[module] = data['_readableGlassVersion'] == 1
                   ? previous
-                  : previous.copyWith(
-                      opacity: previous.opacity.clamp(0, .12),
-                      blur: 3,
-                    );
+                  : previous.copyWith(opacity: .72, blur: 6);
             }
           }
         }
@@ -113,6 +110,7 @@ class FloatingModules extends ChangeNotifier {
         jsonEncode({
           '_clearGlassVersion': 1,
           '_microGlassVersion': 1,
+          '_readableGlassVersion': 1,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

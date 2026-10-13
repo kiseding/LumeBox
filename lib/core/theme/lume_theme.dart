@@ -92,8 +92,8 @@ class LumePalette {
     base: Color(0xFFF7F7F9),
     surface: Color(0xFFFFFFFF),
     surfaceAlt: Color(0xFFFBFBFC),
-    glass: Color(0x1FFFFFFF),
-    glassStrong: Color(0x33FFFFFF),
+    glass: Color(0xB8FFFFFF),
+    glassStrong: Color(0xF2FFFFFF),
     textPrimary: Color(0xFF1A1A1A),
     textSecondary: Color(0xFF707076),
     textHint: Color(0xFF99999F),
@@ -129,8 +129,8 @@ class LumePalette {
     base: Color(0xFF121214),
     surface: Color(0xFF1C1C1F),
     surfaceAlt: Color(0xFF242428),
-    glass: Color(0x1F1C1C1F),
-    glassStrong: Color(0x332A2A2F),
+    glass: Color(0xB81C1C1F),
+    glassStrong: Color(0xF22A2A2F),
     textPrimary: Color(0xFFF2F2F4),
     textSecondary: Color(0xFFA0A0A8),
     textHint: Color(0xFF7A7A82),
@@ -166,31 +166,31 @@ class LumePalette {
   /// 由主色算法推导出来的底色/文字色在 11 种颜色下未必都够读。锁住结构、
   /// 只换主色，是「换主题色不牺牲可读性」的稳妥做法。
   LumePalette withAccent(ThemeAccent accent) => LumePalette(
-        brightness: brightness,
-        accent: accent.colorFor(brightness),
-        base: base,
-        surface: surface,
-        surfaceAlt: surfaceAlt,
-        glass: glass,
-        glassStrong: glassStrong,
-        textPrimary: textPrimary,
-        textSecondary: textSecondary,
-        textHint: textHint,
-        divider: divider,
-        hairline: hairline,
-        fill: fill,
-        fillStrong: fillStrong,
-        success: success,
-        danger: danger,
-        warning: warning,
-        info: info,
-        cardShadow: cardShadow,
-        floatShadow: floatShadow,
-        backgroundGradient: backgroundGradient,
-        overlayStyle: overlayStyle,
-        snackBar: snackBar,
-        onAccent: onAccent,
-      );
+    brightness: brightness,
+    accent: accent.colorFor(brightness),
+    base: base,
+    surface: surface,
+    surfaceAlt: surfaceAlt,
+    glass: glass,
+    glassStrong: glassStrong,
+    textPrimary: textPrimary,
+    textSecondary: textSecondary,
+    textHint: textHint,
+    divider: divider,
+    hairline: hairline,
+    fill: fill,
+    fillStrong: fillStrong,
+    success: success,
+    danger: danger,
+    warning: warning,
+    info: info,
+    cardShadow: cardShadow,
+    floatShadow: floatShadow,
+    backgroundGradient: backgroundGradient,
+    overlayStyle: overlayStyle,
+    snackBar: snackBar,
+    onAccent: onAccent,
+  );
 }
 
 /// 全局主题：分层底 + 清透玻璃 + 极淡阴影，**浅色与深色两套**。
@@ -330,12 +330,12 @@ class LumeTheme {
 
   /// 页面统一背景：带一层几乎看不见的渐变（避免大色块死板）。
   static BoxDecoration get background => BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: palette.backgroundGradient,
-        ),
-      );
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: palette.backgroundGradient,
+    ),
+  );
 
   // ------------------------------------------------------------------ 主题
 
@@ -349,19 +349,20 @@ class LumeTheme {
     // 局部别名：下面所有裸 `accent` 要的都是**颜色**，而参数是档位。
     final accentColor = accent.colorFor(brightness);
     final isDark = brightness == Brightness.dark;
-    final scheme = ColorScheme.fromSeed(
-      seedColor: accentColor,
-      brightness: brightness,
-    ).copyWith(
-      primary: accentColor,
-      onPrimary: onAccent,
-      surface: surface,
-      onSurface: textPrimary,
-      onSurfaceVariant: textSecondary,
-      outline: hairline,
-      outlineVariant: divider,
-      error: danger,
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: accentColor,
+          brightness: brightness,
+        ).copyWith(
+          primary: accentColor,
+          onPrimary: onAccent,
+          surface: surface,
+          onSurface: textPrimary,
+          onSurfaceVariant: textSecondary,
+          outline: hairline,
+          outlineVariant: divider,
+          error: danger,
+        );
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -369,11 +370,7 @@ class LumeTheme {
       scaffoldBackgroundColor: base,
       canvasColor: surface,
       dividerColor: divider,
-      dividerTheme: DividerThemeData(
-        color: divider,
-        thickness: 1,
-        space: 1,
-      ),
+      dividerTheme: DividerThemeData(color: divider, thickness: 1, space: 1),
       splashColor: accentColor.withValues(alpha: 0.06),
       highlightColor: accentColor.withValues(alpha: 0.04),
       appBarTheme: AppBarTheme(
@@ -396,7 +393,7 @@ class LumeTheme {
         actionsIconTheme: IconThemeData(color: textPrimary),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: glassStrong,
+        backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontSize: 17,
@@ -406,11 +403,12 @@ class LumeTheme {
         contentTextStyle: TextStyle(fontSize: 14, color: textSecondary),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: glassStrong,
+        backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
-        modalBackgroundColor: glassStrong,
-        modalBarrierColor:
-            isDark ? const Color(0x99000000) : const Color(0x33101018),
+        modalBackgroundColor: surface,
+        modalBarrierColor: isDark
+            ? const Color(0x99000000)
+            : const Color(0x33101018),
       ),
       listTileTheme: ListTileThemeData(
         textColor: textPrimary,
@@ -432,12 +430,18 @@ class LumeTheme {
         thumbColor: accentColor,
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((states) =>
-            states.contains(WidgetState.selected) ? onAccent : surface),
-        trackColor: WidgetStateProperty.resolveWith((states) =>
-            states.contains(WidgetState.selected) ? accentColor : fillStrong),
-        trackOutlineColor: WidgetStateProperty.resolveWith((states) =>
-            states.contains(WidgetState.selected) ? accentColor : hairline),
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? onAccent : surface,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? accentColor : fillStrong,
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? accentColor : hairline,
+        ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(foregroundColor: accentColor),
@@ -487,24 +491,24 @@ class LumeTheme {
         backgroundColor: palette.snackBar,
         contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: glassStrong,
+        color: surface,
         surfaceTintColor: Colors.transparent,
         textStyle: TextStyle(color: textPrimary, fontSize: 14),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
-          foregroundColor: WidgetStateProperty.resolveWith((states) =>
-              states.contains(WidgetState.selected) ? accentColor : textSecondary),
-          backgroundColor: WidgetStateProperty.resolveWith((states) =>
-              states.contains(WidgetState.selected) ? fill : surface),
-          side: WidgetStatePropertyAll<BorderSide>(
-            BorderSide(color: hairline),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? accentColor
+                : textSecondary,
           ),
+          backgroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected) ? fill : surface,
+          ),
+          side: WidgetStatePropertyAll<BorderSide>(BorderSide(color: hairline)),
         ),
       ),
       tabBarTheme: TabBarThemeData(

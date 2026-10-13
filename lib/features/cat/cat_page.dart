@@ -307,13 +307,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                   ),
               ],
               ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('当前订阅的配置与网盘账号'),
-                onTap: () => Navigator.pop(context, 'config'),
-              ),
-              ListTile(
                 leading: const Icon(Icons.add),
-                title: const Text('管理订阅'),
+                title: const Text('猫源配置中心'),
                 onTap: () => Navigator.pop(context, 'subscriptions'),
               ),
             ],
@@ -330,32 +325,6 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       }
       if (selected == 'subscriptions') await subscriptions();
       if (!mounted) return;
-      if (selected == 'config') {
-        await openConfiguration();
-      }
-    } catch (failure) {
-      toast('$failure');
-    }
-  }
-
-  Future<void> openConfiguration() async {
-    final site = source?.site;
-    if (site == null) {
-      await subscriptions();
-      return;
-    }
-    try {
-      final record = service.subscriptions.firstWhere(
-        (s) => s.id == site.subscriptionId,
-      );
-      final url = await service.configurationUrl(record);
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(builder: (_) => CatWebPage(url: url)),
-      );
-      await service.refreshSites(record);
-      if (mounted) await refresh();
     } catch (failure) {
       toast('$failure');
     }
@@ -535,10 +504,13 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
               onPressed: () => collection(true),
               icon: const Icon(Icons.bookmark_outline),
             ),
-            IconButton(
-              tooltip: '订阅',
-              onPressed: subscriptions,
-              icon: const Icon(Icons.rss_feed),
+            Tooltip(
+              message: '订阅',
+              child: TextButton.icon(
+                label: const Text('订阅'),
+                onPressed: subscriptions,
+                icon: const Icon(Icons.rss_feed),
+              ),
             ),
           ],
         ),
@@ -566,11 +538,6 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
               tooltip: '搜索',
               onPressed: source == null ? null : search,
               icon: const Icon(Icons.search),
-            ),
-            IconButton(
-              tooltip: '网盘登录 / 配置中心',
-              onPressed: service.busy ? null : openConfiguration,
-              icon: const Icon(Icons.cloud_outlined),
             ),
           ],
         ),
