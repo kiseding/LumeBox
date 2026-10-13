@@ -7,6 +7,7 @@ import 'package:http/io_client.dart';
 import '../util/lume_log.dart';
 import 'network_queue.dart';
 import 'network_settings.dart';
+import 'ios_image_network.dart';
 
 /// 全局网络层入口：**一个队列、一份设置**，四个板块共用。
 ///
@@ -81,6 +82,13 @@ class LumeNet {
   /// 客户端，因此每请求按代理配置决定：直连用默认客户端，配了代理就套一层。
   static Future<NetworkResponse> sendDirect(NetworkRequest request) async {
     final proxy = request.proxy.trim();
+    if (Platform.isIOS &&
+        proxy.isEmpty &&
+        !request.allowBadCertificate &&
+        request.method == 'GET' &&
+        (request.source.startsWith('封面:') || request.source == '图片缓存')) {
+      return IosImageNetwork.send(request);
+    }
     // 客户端**复用**（见 [_proxyClient]）：这里不再「用完就关」——每次新建再关闭
     // 等于每个请求都重新做一次 TCP + TLS 握手，开了代理之后尤其明显
     // （真机反馈「即使开启代理速度依然不理想」，根因之一就是它）。
@@ -116,7 +124,8 @@ class LumeNet {
   ///
   /// 与普通客户端分开缓存：**绝不**污染共享客户端——那是全 App 都在用的通道，
   /// 只因为某一个源证书过期就全局放宽校验，等于把所有源都摊开给中间人。
-  static final Map<String, http.Client> _relaxedClients = <String, http.Client>{};
+  static final Map<String, http.Client> _relaxedClients =
+      <String, http.Client>{};
 
   static http.Client _sharedClient() => _shared ??= _newClient();
 
@@ -134,8 +143,12 @@ class LumeNet {
         return true;
       };
       final uri = Uri.tryParse(proxy);
-      if (uri != null && uri.host.isNotEmpty && !uri.scheme.toLowerCase().startsWith('socks')) {
-        final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+      if (uri != null &&
+          uri.host.isNotEmpty &&
+          !uri.scheme.toLowerCase().startsWith('socks')) {
+        final port = uri.hasPort
+            ? uri.port
+            : (uri.scheme == 'https' ? 443 : 80);
         inner.findProxy = (target) => 'PROXY ${uri.host}:$port';
       }
       return IOClient(inner);

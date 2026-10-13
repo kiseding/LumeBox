@@ -480,7 +480,9 @@ class _LumeSourceManager implements SourceManager, SubscriptionImportManager {
       LumeSources.updateFromSubscription(_section, sourceId);
 
   @override
-  void close() => LumeSources.close(_section);
+  // This facade borrows a shared section runtime. A page cannot own its lifetime.
+  // Explicit app-level teardown remains available through LumeSources.close.
+  void close() {}
 }
 
 /// 沙箱失败 → 数据源异常：把底层失败归一成展示层认识的三类。

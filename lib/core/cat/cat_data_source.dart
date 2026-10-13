@@ -327,7 +327,12 @@ class CatDataSource
         !['http', 'https', 'rtmp', 'rtsp'].contains(uri.scheme)) {
       throw StateError('站点未返回可播放地址');
     }
-    return VideoContent(url: uri, headers: requestHeaders);
+    return ChapterContent.parse({
+      'kind': 'video',
+      'url': uri.toString(),
+      'headers': requestHeaders,
+      'qualities': data['qualities'] ?? data['levels'],
+    })!;
   }
 }
 

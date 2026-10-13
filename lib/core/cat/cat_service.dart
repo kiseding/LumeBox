@@ -167,6 +167,12 @@ class CatService extends ChangeNotifier {
   Future<void> _operation = Future.value();
   bool _nodeStarted = false;
   String? selectedSiteId;
+  int siteColumns = 1;
+  Future<void> setSiteColumns(int value) async {
+    siteColumns = value.clamp(1, 3);
+    await save();
+  }
+
   String status = '';
   bool busy = false;
   final String _token = List.generate(
@@ -192,6 +198,7 @@ class CatService extends ChangeNotifier {
           _bookmarks['${entry['site']}|${entry['id']}'] = entry;
         }
         selectedSiteId = raw['selectedSiteId'] as String?;
+        siteColumns = ((raw['siteColumns'] as num?)?.toInt() ?? 1).clamp(1, 3);
       } catch (error) {
         LumeLog.warn('[cat] 订阅记录读取失败: $error');
       }
@@ -213,6 +220,7 @@ class CatService extends ChangeNotifier {
         'history': history.take(100).toList(),
         'bookmarks': _bookmarks.values.toList(),
         'selectedSiteId': selectedSiteId,
+        'siteColumns': siteColumns,
       }),
       flush: true,
     );

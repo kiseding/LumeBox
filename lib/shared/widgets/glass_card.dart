@@ -409,8 +409,8 @@ class GlassScaffold extends StatelessWidget {
           child: _GlassBarHeight(
             height: merge ? trimmedTopInset(statusInset) : height,
             child: HomeHeaderScope(
-              header: merge
-                  ? Column(
+              builder: merge
+                  ? (navigation) => Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         SizedBox(
@@ -419,11 +419,22 @@ class GlassScaffold extends StatelessWidget {
                             children: [
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(
-                                  title ?? LumeTheme.appName,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        title ?? LumeTheme.appName,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      ?navigation,
+                                    ],
                                   ),
                                 ),
                               ),
@@ -529,13 +540,18 @@ class _GlassBarHeight extends InheritedWidget {
 class HomeHeaderScope extends InheritedWidget {
   const HomeHeaderScope({
     super.key,
-    required this.header,
+    this.header,
+    this.builder,
     required super.child,
   });
   final Widget? header;
-  static Widget? headerOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<HomeHeaderScope>()?.header;
+  final Widget Function(Widget? navigation)? builder;
+  static Widget? headerOf(BuildContext context, {Widget? navigation}) {
+    final scope = context.dependOnInheritedWidgetOfExactType<HomeHeaderScope>();
+    return scope?.builder?.call(navigation) ?? scope?.header;
+  }
+
   @override
   bool updateShouldNotify(HomeHeaderScope oldWidget) =>
-      header != oldWidget.header;
+      header != oldWidget.header || builder != oldWidget.builder;
 }

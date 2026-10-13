@@ -1,3 +1,6 @@
+import '../../core/source/home_browse_mode.dart';
+import '../../shared/widgets/home_browse_navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -37,6 +40,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   Map<String, String> filters = {};
   String? category, error;
   String query = '';
+  String? browseMode;
   bool loading = true, more = false, loadingMore = false;
   int page = 1, sequence = 0;
   StreamSubscription<Map<String, dynamic>>? messages;
@@ -148,6 +152,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       groups = [];
       filters = {};
       category = null;
+      browseMode = null;
       query = '';
     });
     await service.select(site);
@@ -270,48 +275,90 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     }
   }
 
+  void selectBrowseMode(String mode) {
+    final target = homeBrowseTarget(mode, categories, groups);
+    if (target == null) {
+      toast('当前站点未提供$mode分类或排序');
+      return;
+    }
+    setState(() {
+      browseMode = mode;
+      if (target.category != null) {
+        category = target.category;
+        filters = {};
+      } else {
+        filters = Map.of(filters)..[target.group!] = target.option!;
+      }
+      query = '';
+    });
+    unawaited(refresh());
+  }
+
   Future<void> sitePicker() async {
     final selected = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * .7,
-          child: ListView(
-            children: [
-              const ListTile(title: Text('选择站点')),
-              for (final record in service.subscriptions.where(
-                (s) => s.enabled,
-              )) ...[
+      builder: (context) => ListenableBuilder(
+        listenable: service,
+        builder: (context, _) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .7,
+            child: ListView(
+              children: [
                 ListTile(
-                  title: Text(record.name),
-                  subtitle: const Text('加载或刷新包内站点'),
-                  trailing: const Icon(Icons.refresh),
-                  onTap: () => Navigator.pop(context, record),
-                ),
-                for (final site in record.sites)
-                  ListTile(
-                    dense: true,
-                    title: Text(site.name),
-                    subtitle: Text(
-                      {
-                            'video': '视频',
-                            'comic': '漫画',
-                            'novel': '小说',
-                            'live': '直播',
-                          }[site.kind] ??
-                          site.kind,
-                    ),
-                    selected: site.id == source?.site.id,
-                    onTap: () => Navigator.pop(context, site),
+                  title: const Text('选择站点'),
+                  trailing: SegmentedButton<int>(
+                    segments: [
+                      for (final count in [1, 2, 3])
+                        ButtonSegment(value: count, label: Text('$count列')),
+                    ],
+                    selected: {service.siteColumns},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (values) =>
+                        unawaited(service.setSiteColumns(values.first)),
                   ),
+                ),
+                for (final record in service.subscriptions.where(
+                  (s) => s.enabled,
+                )) ...[
+                  ListTile(
+                    title: Text(record.name),
+                    subtitle: const Text('加载或刷新包内站点'),
+                    trailing: const Icon(Icons.refresh),
+                    onTap: () => Navigator.pop(context, record),
+                  ),
+                  GridView.count(
+                    crossAxisCount: service.siteColumns,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    mainAxisExtent: 62,
+                    children: [
+                      for (final site in record.sites)
+                        ListTile(
+                          dense: true,
+                          title: Text(
+                            site.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          selected: site.id == source?.site.id,
+                          selectedTileColor: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: .1),
+                          onTap: () => Navigator.pop(context, site),
+                        ),
+                    ],
+                  ),
+                ],
+                ListTile(
+                  leading: const Icon(Icons.add),
+                  title: const Text('猫源配置中心'),
+                  onTap: () => Navigator.pop(context, 'subscriptions'),
+                ),
               ],
-              ListTile(
-                leading: const Icon(Icons.add),
-                title: const Text('猫源配置中心'),
-                onTap: () => Navigator.pop(context, 'subscriptions'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -488,10 +535,27 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       children: [
         Row(
           children: [
-            const Expanded(
-              child: Text(
-                '猫源',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '猫源',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    HomeBrowseNavigation(
+                      selected: browseMode,
+                      onSelect: selectBrowseMode,
+                    ),
+                  ],
+                ),
               ),
             ),
             IconButton(
@@ -545,6 +609,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           row([
             chip('全部', category == null, () {
               setState(() {
+                browseMode = null;
                 category = null;
                 filters = {};
                 query = '';
@@ -554,6 +619,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
             for (final entry in categories)
               chip(entry.title, category == entry.id, () {
                 setState(() {
+                  browseMode = null;
                   category = entry.id;
                   filters = {};
                   query = '';
@@ -565,7 +631,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           row([
             if (!group.options.any((option) => option.title == '全部'))
               chip('全部', !filters.containsKey(group.id), () {
-                setState(() => filters.remove(group.id));
+                setState(() {
+                  browseMode = null;
+                  filters.remove(group.id);
+                });
                 unawaited(refresh());
               }),
             for (final option in group.options)
@@ -578,7 +647,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                             ?.id)) ==
                     option.id,
                 () {
-                  setState(() => filters[group.id] = option.id);
+                  setState(() {
+                    browseMode = null;
+                    filters[group.id] = option.id;
+                  });
                   unawaited(refresh());
                 },
               ),
@@ -591,6 +663,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: LumeTheme.base,
     body: SafeArea(
+      top: false,
       bottom: false,
       child: RefreshIndicator(
         onRefresh: refresh,
@@ -599,7 +672,12 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                trimmedTopInset(MediaQuery.paddingOf(context).top),
+                16,
+                12,
+              ),
               sliver: SliverToBoxAdapter(child: header()),
             ),
             if (service.busy)

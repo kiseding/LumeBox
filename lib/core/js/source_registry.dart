@@ -463,7 +463,11 @@ class SourceRegistry {
   /// 调用方（数据源适配层）只依赖 [SourceEngine] 的四套能力。
   Future<SourceEngine?> engineFor(String sourceId) async {
     final existing = _engines[sourceId];
-    if (existing != null) return existing;
+    if (existing is QuickJsSourceEngine && existing.engine.isPoisoned) {
+      release(sourceId);
+    } else if (existing != null) {
+      return existing;
+    }
     final record = _database.source(sourceId);
     if (record == null || !_belongs(record) || !record.enabled) return null;
     if (!_engineAvailable) return null;

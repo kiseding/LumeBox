@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/source/home_browse_mode.dart';
+
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
 import '../../core/net/waf.dart';
@@ -33,9 +35,11 @@ class SourceHomeView extends StatefulWidget {
     this.topInset = 8,
     this.bottomInset = 0,
     this.onRefreshMetadata,
+    this.browseMode,
   });
 
   final DataSource source;
+  final String? browseMode;
   final double topInset;
   final double bottomInset;
   final Future<void> Function()? onRefreshMetadata;
@@ -232,6 +236,22 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         ),
       );
     }
+    final boards = widget.browseMode == null
+        ? home.boards
+        : home.boards
+              .where(
+                (board) =>
+                    homeBrowsePattern(widget.browseMode!).hasMatch(board.title),
+              )
+              .toList();
+    if (widget.browseMode != null && boards.isEmpty) {
+      return Center(
+        child: NoticeCard(
+          title: '当前源未提供${widget.browseMode}内容',
+          subtitle: '请选择源提供的分类，或切换站点。',
+        ),
+      );
+    }
     return RefreshIndicator(
       onRefresh: () async {
         await Future.wait([
@@ -242,7 +262,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       child: _buildFlat(
         home.isBoards
             ? {
-                for (final board in home.boards)
+                for (final board in boards)
                   for (final item in board.items) item.id: item,
               }.values.toList()
             : home.items,

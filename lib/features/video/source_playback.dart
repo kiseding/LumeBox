@@ -33,8 +33,22 @@ class SourcePlayback {
   }
 
   /// 章节内容 → 可播放地址（只有视频载荷可播，文本 / 图片返回 null）。
-  static Uri? contentAddress(ChapterContent? content) =>
-      content is VideoContent ? content.url : null;
+  static Uri? contentAddress(ChapterContent? content) => content is VideoContent
+      ? highestQuality(content)?.url ?? content.url
+      : null;
+
+  static VideoQuality? highestQuality(VideoContent content) {
+    VideoQuality? best;
+    var rank = 0;
+    for (final quality in contentQualities(content)) {
+      final score = quality.resolutionRank;
+      if (score > rank) {
+        best = quality;
+        rank = score;
+      }
+    }
+    return best;
+  }
 
   /// 播放时要带的请求头（`VideoContent.headers`，防盗链用的 Referer / UA 等）。
   ///
@@ -43,7 +57,9 @@ class SourcePlayback {
   /// 反复重试，累积起来正是那个量级。此前两处起播点都只取了地址、把请求头留在了
   /// `VideoContent` 里（AVPlayer 与 MPV 两条内核通路本来都支持携带它们）。
   static Map<String, String> contentHeaders(ChapterContent? content) =>
-      content is VideoContent ? content.headers : const <String, String>{};
+      content is VideoContent
+      ? highestQuality(content)?.headers ?? content.headers
+      : const <String, String>{};
 
   /// 候选清晰度线路（图源给了多条时才非空）。
   ///
@@ -55,7 +71,12 @@ class SourcePlayback {
     return <VideoQuality>[
       for (final quality in content.qualities)
         quality.headers.isEmpty
-            ? VideoQuality(label: quality.label, url: quality.url, headers: base)
+            ? VideoQuality(
+                label: quality.label,
+                url: quality.url,
+                headers: base,
+                height: quality.height,
+              )
             : quality,
     ];
   }

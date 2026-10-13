@@ -1,3 +1,5 @@
+import '../video/source_playback.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/cat/cat_data_source.dart';
@@ -93,8 +95,8 @@ class _CatDetailPageState extends State<CatDetailPage> {
         MaterialPageRoute<void>(
           builder: (_) => VideoPlayerPage(
             media: PlayerMedia(
-              uri: content.url,
-              headers: content.headers,
+              uri: SourcePlayback.contentAddress(content)!,
+              headers: SourcePlayback.contentHeaders(content),
               title: '${widget.item.title} · ${chapter.title}',
             ),
             library: widget.library,
@@ -103,7 +105,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
               widget.source.site,
             ),
             sourceId: widget.source.id,
-            qualities: content.qualities,
+            qualities: SourcePlayback.contentQualities(content),
             target: VideoPlayTarget(
               sourceId: widget.source.id,
               itemId: widget.item.id,

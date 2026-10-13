@@ -20,6 +20,7 @@ final class WafCookieController: NSObject {
   private let channelName = "lumebox/webview"
 
   func register(with messenger: FlutterBinaryMessenger) {
+    imageNetwork.register(with: messenger)
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
@@ -30,6 +31,8 @@ final class WafCookieController: NSObject {
       }
     }
   }
+
+  private let imageNetwork = ImageNetworkController()
 
   /// 枚举默认数据仓里的全部 Cookie；`WKHTTPCookieStore` 是异步回调接口。
   ///
@@ -50,5 +53,64 @@ final class WafCookieController: NSObject {
       }
       DispatchQueue.main.async { result(list) }
     }
+  }
+}
+
+/// Use Apple's TLS and HTTP stack for covers on iOS. No shared login cookies.
+private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
+  private lazy var session: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.httpCookieStorage = nil
+    config.httpShouldSetCookies = false
+    config.urlCache = nil
+    config.timeoutIntervalForRequest = 30
+    config.timeoutIntervalForResource = 45
+    config.httpMaximumConnectionsPerHost = 2
+    return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+  }()
+
+  func register(with messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: "lumebox/image_network", binaryMessenger: messenger)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "get" else { result(FlutterMethodNotImplemented); return }
+      guard let args = call.arguments as? [String: Any],
+            let address = args["url"] as? String, let url = URL(string: address),
+            ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+        result(FlutterError(code: "bad_url", message: "Invalid image URL", details: nil)); return
+      }
+      guard let self = self else { return }
+      var request = URLRequest(url: url)
+      request.allHTTPHeaderFields = args["headers"] as? [String: String]
+      self.session.dataTask(with: request) { data, response, error in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(FlutterError(code: "image_network", message: error.localizedDescription, details: nil)); return
+          }
+          guard let response = response as? HTTPURLResponse else {
+            result(FlutterError(code: "image_response", message: "Missing HTTP response", details: nil)); return
+          }
+          var headers: [String: String] = [:]
+          for (key, value) in response.allHeaderFields { headers[String(describing: key)] = String(describing: value) }
+          result(["status": response.statusCode, "headers": headers,
+                  "body": FlutterStandardTypedData(bytes: data ?? Data())])
+        }
+      }.resume()
+    }
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask,
+                  willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest,
+                  completionHandler: @escaping (URLRequest?) -> Void) {
+    guard let url = request.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+      completionHandler(nil); return
+    }
+    var redirected = request
+    let old = response.url
+    if old?.host != url.host || old?.scheme != url.scheme || old?.port != url.port {
+      redirected.setValue(nil, forHTTPHeaderField: "Cookie")
+      redirected.setValue(nil, forHTTPHeaderField: "Authorization")
+    }
+    completionHandler(redirected)
   }
 }

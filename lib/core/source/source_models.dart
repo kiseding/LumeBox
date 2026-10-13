@@ -558,10 +558,29 @@ class VideoQuality {
     required this.label,
     required this.url,
     this.headers = const <String, String>{},
+    this.height = 0,
   });
 
   /// 展示名（图源给的原始标签）。
   final String label;
+  final int height;
+
+  int get resolutionRank {
+    if (height > 0) return height;
+    final text = label.toLowerCase();
+    final size = RegExp(r'(\d{3,5})\s*[x×]\s*(\d{3,5})').firstMatch(text);
+    if (size != null) return int.parse(size.group(2)!);
+    final pixels = RegExp(r'(\d{3,5})\s*p').firstMatch(text);
+    if (pixels != null) return int.parse(pixels.group(1)!);
+    if (text.contains('8k')) return 4320;
+    if (text.contains('4k') || text.contains('uhd')) return 2160;
+    if (text.contains('2k')) return 1440;
+    if (text.contains('蓝光') || text.contains('原画')) return 1080;
+    if (text.contains('超清')) return 1080;
+    if (text.contains('高清')) return 720;
+    if (text.contains('标清')) return 480;
+    return 0;
+  }
 
   final Uri url;
 
@@ -573,6 +592,7 @@ class VideoQuality {
       other is VideoQuality &&
       other.label == label &&
       other.url == url &&
+      other.height == height &&
       other.headers.length == headers.length &&
       other.headers.entries.every((entry) => headers[entry.key] == entry.value);
 
@@ -580,6 +600,7 @@ class VideoQuality {
   int get hashCode => Object.hash(
     label,
     url,
+    height,
     Object.hashAllUnordered(
       headers.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),
@@ -621,6 +642,7 @@ List<VideoQuality> _qualityList(Object? value) {
         label: label,
         url: uri,
         headers: _stringMap(entry['headers']),
+        height: (entry['height'] as num?)?.toInt() ?? 0,
       ),
     );
   }
