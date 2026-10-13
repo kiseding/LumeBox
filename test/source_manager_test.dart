@@ -42,7 +42,6 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-
   testWidgets('列表：展示图源名称与版本', (tester) async {
     final manager = FakeSourceManager(
       sources: const <SourceDescriptor>[
@@ -74,7 +73,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget, reason: '打开的是同一个导入弹窗');
 
-    await tester.enterText(find.byType(TextField), 'var LumeSource = {id: "lume.new"};');
+    await tester.enterText(
+      find.byType(TextField),
+      'var LumeSource = {id: "lume.new"};',
+    );
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
     expect(manager.imported.single, contains('LumeSource'));
@@ -94,7 +96,12 @@ void main() {
   testWidgets('导入：同 id 覆盖时提示已覆盖', (tester) async {
     final manager = FakeSourceManager(
       sources: const <SourceDescriptor>[
-        SourceDescriptor(id: 'lume.new', name: '旧名字', version: '1.0.0', enabled: true),
+        SourceDescriptor(
+          id: 'lume.new',
+          name: '旧名字',
+          version: '1.0.0',
+          enabled: true,
+        ),
       ],
     );
     await pumpPage(tester, manager);
@@ -105,17 +112,13 @@ void main() {
   });
 
   testWidgets('导入失败：提示具体原因，列表不变', (tester) async {
-    final manager = FakeSourceManager()
-      ..importFailure = '脚本载入失败：语法错误或运行异常';
+    final manager = FakeSourceManager()..importFailure = '脚本载入失败：语法错误或运行异常';
     await pumpPage(tester, manager);
 
     await importScript(tester, 'var LumeSource = (');
 
     // 失败走结果弹窗：逐条列出、可复制，比一闪而过的 Toast 好读。
-    expect(
-      find.text('导入失败：粘贴 — 脚本载入失败：语法错误或运行异常'),
-      findsOneWidget,
-    );
+    expect(find.text('导入失败：粘贴 — 脚本载入失败：语法错误或运行异常'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     expect(find.text('暂无源'), findsOneWidget);
@@ -243,11 +246,12 @@ void main() {
     String? copied;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied = (call.arguments as Map<Object?, Object?>)['text'] as String?;
-      }
-      return null;
-    });
+          if (call.method == 'Clipboard.setData') {
+            copied =
+                (call.arguments as Map<Object?, Object?>)['text'] as String?;
+          }
+          return null;
+        });
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -283,13 +287,13 @@ void main() {
     expect(manager.imported, isEmpty);
   });
 
-  testWidgets('页面退出：释放板块资源', (tester) async {
+  testWidgets('页面退出：保留宿主注入的管理器', (tester) async {
     final manager = FakeSourceManager();
     await pumpPage(tester, manager);
     expect(manager.closed, isFalse);
 
     await tester.pumpWidget(const SizedBox());
-    expect(manager.closed, isTrue);
+    expect(manager.closed, isFalse);
   });
 
   // ==========================================================================
@@ -300,7 +304,12 @@ void main() {
     testWidgets('设置分组：写回管理器，列表上显示分组名', (tester) async {
       final manager = FakeSourceManager(
         sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'a', name: '示例源', version: '1.0.0', enabled: true),
+          SourceDescriptor(
+            id: 'a',
+            name: '示例源',
+            version: '1.0.0',
+            enabled: true,
+          ),
         ],
       );
       await pumpPage(tester, manager);
@@ -361,7 +370,12 @@ void main() {
             enabled: true,
             group: '备用',
           ),
-          SourceDescriptor(id: 'c', name: '丙源', version: '1.0.0', enabled: true),
+          SourceDescriptor(
+            id: 'c',
+            name: '丙源',
+            version: '1.0.0',
+            enabled: true,
+          ),
         ],
       );
       await pumpPage(tester, manager);
@@ -420,7 +434,12 @@ void main() {
     testWidgets('正常的源没有「恢复」菜单项', (tester) async {
       final manager = FakeSourceManager(
         sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'a', name: '好源', version: '1.0.0', enabled: true),
+          SourceDescriptor(
+            id: 'a',
+            name: '好源',
+            version: '1.0.0',
+            enabled: true,
+          ),
         ],
       );
       await pumpPage(tester, manager);

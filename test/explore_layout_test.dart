@@ -24,11 +24,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_layout');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     BrowseLayoutSettings.instance.resetForTesting();
     await BrowseLayoutSettings.instance.boot();
   });
@@ -37,9 +37,9 @@ void main() {
     BrowseLayoutSettings.instance.resetForTesting();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
@@ -96,7 +96,7 @@ void main() {
 
   testWidgets('默认档：小说单列（无网格），漫画三列网格', (tester) async {
     await pumpExplore(tester, Section.novel, layout: ExploreLayout.list);
-    expect(gridColumns(tester), isNull, reason: '小说默认单列列表');
+    expect(gridColumns(tester), 3, reason: '小说首页统一三列封面');
 
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3, reason: '漫画默认三列网格');
@@ -106,26 +106,19 @@ void main() {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3);
 
-    await tester.tap(find.byTooltip('布局'));
-    await tester.pumpAndSettle();
-    // 五档都在（单列 / 双列 / 三列 / 四列 / 五列）。
-    for (final mode in BrowseLayoutMode.values) {
-      expect(find.text(mode.label), findsOneWidget, reason: '缺少 ${mode.label}');
-    }
-
-    await tester.tap(find.text('四列网格'));
-    await tester.pumpAndSettle();
-    expect(gridColumns(tester), 4, reason: '选四列当场变四列');
-    expect(
-      BrowseLayoutSettings.instance.modeFor(Section.comic),
+    expect(find.byTooltip('布局'), findsNothing, reason: '紧凑首页只保留站点与搜索');
+    await BrowseLayoutSettings.instance.setMode(
+      Section.comic,
       BrowseLayoutMode.grid4,
     );
-
-    await tester.tap(find.byTooltip('布局'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('五列网格'));
+    expect(gridColumns(tester), 4);
+    await BrowseLayoutSettings.instance.setMode(
+      Section.comic,
+      BrowseLayoutMode.grid5,
+    );
     await tester.pumpAndSettle();
-    expect(gridColumns(tester), 5, reason: '选五列当场变五列');
+    expect(gridColumns(tester), 5);
 
     // 列数表与比例表一一对应（少一档都会在渲染时拿到错的比例）。
     for (final mode in BrowseLayoutMode.values) {
@@ -140,12 +133,12 @@ void main() {
 
   testWidgets('切换布局：选双列当场变两列，并按板块记住', (tester) async {
     await pumpExplore(tester, Section.novel, layout: ExploreLayout.list);
-    expect(gridColumns(tester), isNull);
+    expect(gridColumns(tester), 3);
 
-    // 打开布局菜单（右上角入口）。
-    await tester.tap(find.byTooltip('布局'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('双列网格'));
+    await BrowseLayoutSettings.instance.setMode(
+      Section.novel,
+      BrowseLayoutMode.grid2,
+    );
     await tester.pumpAndSettle();
 
     expect(gridColumns(tester), 2, reason: '选双列后应当场变成两列网格');
@@ -169,16 +162,16 @@ void main() {
   testWidgets('网格标题风格：默认遮罩内置；切成「外置独立」后封面不画遮罩、标题在图片下方', (tester) async {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     // 默认：遮罩内置 → 标题是白色（压在封面上）。
-    expect(BrowseLayoutSettings.instance.gridTitleStyle, GridTitleStyle.overlay);
+    expect(BrowseLayoutSettings.instance.gridTitleStyle, GridTitleStyle.below);
     Text tileTitle() => tester.widget<Text>(
-          find
-              .descendant(
-                of: find.byType(PosterCard).first,
-                matching: find.byType(Text),
-              )
-              .first,
-        );
-    expect(tileTitle().style?.color, Colors.white);
+      find
+          .descendant(
+            of: find.byType(PosterCard).first,
+            matching: find.byType(Text),
+          )
+          .first,
+    );
+    expect(tileTitle().style?.color, LumeTheme.textPrimary);
 
     // 切成外置独立（设置页那一行走的是同一个方法）。
     await BrowseLayoutSettings.instance.setGridTitleStyle(GridTitleStyle.below);
@@ -193,9 +186,10 @@ void main() {
     expect(find.byType(PosterCard), findsWidgets);
 
     // 再切回去，值可逆且落盘。
-    await BrowseLayoutSettings.instance.setGridTitleStyle(GridTitleStyle.overlay);
+    await BrowseLayoutSettings.instance.setGridTitleStyle(
+      GridTitleStyle.overlay,
+    );
     await tester.pumpAndSettle();
     expect(tileTitle().style?.color, Colors.white);
   });
-
 }

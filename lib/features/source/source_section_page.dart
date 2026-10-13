@@ -73,7 +73,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   @override
   void dispose() {
-    _manager.close();
+    if (widget.manager == null) _manager.close();
     super.dispose();
   }
 

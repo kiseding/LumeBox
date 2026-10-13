@@ -167,7 +167,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       final nextCategories = await current.categories();
       final nextGroups = await current.filtersFor(categoryId: category);
       final results = query.isEmpty && category == null && filters.isEmpty
-          ? SourceList(items: (await current.home()).items, hasMore: false)
+          ? await current.homeList()
           : await current.list(
               categoryId: category,
               keyword: query,

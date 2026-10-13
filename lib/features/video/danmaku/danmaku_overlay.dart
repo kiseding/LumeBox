@@ -1,4 +1,5 @@
-import 'dart:async';
+import 'package:flutter/scheduler.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class DanmakuOverlay extends StatefulWidget {
     required this.playing,
     required this.track,
     required this.settings,
+    this.playbackRate = 1.0,
     this.tickInterval = const Duration(milliseconds: 16),
   });
 
@@ -33,6 +35,7 @@ class DanmakuOverlay extends StatefulWidget {
 
   /// 是否正在播放（暂停时弹幕静止）。
   final bool playing;
+  final double playbackRate;
 
   /// 本集弹幕。
   final DanmakuTrack track;
@@ -46,7 +49,8 @@ class DanmakuOverlay extends StatefulWidget {
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
 }
 
-class _DanmakuOverlayState extends State<DanmakuOverlay> {
+class _DanmakuOverlayState extends State<DanmakuOverlay>
+    with SingleTickerProviderStateMixin {
   /// 屏幕上的弹幕实例（含各自的出现时刻与轨道）。
   final List<_ActiveDanmaku> _active = <_ActiveDanmaku>[];
 
@@ -61,12 +65,39 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
   final Map<int, Duration> _topLanes = <int, Duration>{};
   final Map<int, Duration> _bottomLanes = <int, Duration>{};
 
-  Timer? _ticker;
+  late final Ticker _ticker;
+  Duration _elapsed = Duration.zero;
+  Duration _anchor = Duration.zero;
+  Duration _lastFrame = Duration.zero;
+  Duration _renderPosition = Duration.zero;
+  bool get _animate =>
+      widget.playing && widget.settings.enabled && !widget.track.isEmpty;
+  void _frame(Duration elapsed) {
+    _elapsed = elapsed;
+    if (widget.tickInterval > const Duration(milliseconds: 16) &&
+        elapsed - _lastFrame < widget.tickInterval) {
+      return;
+    }
+    _lastFrame = elapsed;
+    _onTick();
+  }
+
+  void _syncTicker() {
+    if (_animate && !_ticker.isActive) {
+      _elapsed = _anchor = _lastFrame = Duration.zero;
+      _ticker.start();
+    } else if (!_animate && _ticker.isActive) {
+      _ticker.stop();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _ticker = Timer.periodic(widget.tickInterval, (_) => _onTick());
+    _ticker = createTicker(_frame);
+    _renderPosition = widget.position;
+    _syncTicker();
+    _onTick();
   }
 
   @override
@@ -74,38 +105,63 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     super.didUpdateWidget(oldWidget);
     // 换集 / 换弹幕源：整层重置。
     if (!identical(oldWidget.track, widget.track)) _reset();
+    if (oldWidget.position != widget.position ||
+        oldWidget.playing != widget.playing ||
+        oldWidget.playbackRate != widget.playbackRate) {
+      _anchor = _elapsed;
+    }
+    _syncTicker();
+    _onTick();
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _ticker.dispose();
+    _reset();
     super.dispose();
   }
 
   /// 每帧推进：投放新弹幕 + 清理过期弹幕。
   void _onTick() {
     if (!mounted) return;
-    final position = widget.position;
+    // Interpolate between engine reports, but never run far ahead during a stall.
+    final advance = _animate
+        ? (_elapsed - _anchor).inMicroseconds.clamp(0, 500000)
+        : 0;
+    final position =
+        widget.position +
+        Duration(microseconds: (advance * widget.playbackRate).round());
+    _renderPosition = position;
 
     // 跳转检测：位置倒退（seek 回去 / 换集）或大幅前跳 → 重置。
-    final delta = position - _lastPosition;
+    final delta = widget.position - _lastPosition;
     if (delta.isNegative || delta > const Duration(seconds: 2)) {
-      _reset(keepCursorAt: position);
+      _reset(keepCursorAt: widget.position);
     }
-    _lastPosition = position;
+    _lastPosition = widget.position;
 
     if (!widget.settings.enabled || widget.track.isEmpty) {
-      if (_active.isNotEmpty) setState(_active.clear);
+      if (_active.isNotEmpty) {
+        _reset();
+        setState(() {});
+      }
       return;
     }
 
+    final previousCount = _active.length;
     _spawn(position);
     _expire(position);
-    if (mounted) setState(() {});
+    if (mounted &&
+        (_active.isNotEmpty || previousCount != _active.length || !_animate)) {
+      setState(() {});
+    }
   }
 
   /// 重置：清屏、清轨道、把游标对齐到当前时间。
   void _reset({Duration? keepCursorAt}) {
+    for (final entry in _active) {
+      entry.dispose();
+    }
     _active.clear();
     _scrollLanes.clear();
     _topLanes.clear();
@@ -146,7 +202,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
 
   /// 清理已经离开屏幕的弹幕，并释放轨道。
   void _expire(Duration position) {
-    _active.removeWhere((entry) => entry.isGone(position, widget.settings));
+    _active.removeWhere((entry) {
+      if (!entry.isGone(position, widget.settings)) return false;
+      entry.dispose();
+      return true;
+    });
   }
 
   /// 分配轨道：同一条弹幕按位置类型进不同轨道池。
@@ -157,7 +217,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
       DanmakuMode.bottom => _bottomLanes,
     };
     final needed = item.mode == DanmakuMode.scroll
-        ? DanmakuLayout.scrollDuration.inMilliseconds ~/ widget.settings.speedScale
+        ? DanmakuLayout.scrollDuration.inMilliseconds ~/
+              widget.settings.speedScale
         : DanmakuLayout.fixedDuration.inMilliseconds;
 
     // 找第一条「上一批已经离开」的轨道。
@@ -177,14 +238,19 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
       return const SizedBox.shrink();
     }
     return IgnorePointer(
-      child: CustomPaint(
-        painter: _DanmakuPainter(
-          entries: List<_ActiveDanmaku>.of(_active),
-          position: widget.position,
-          settings: widget.settings,
-          playing: widget.playing,
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _DanmakuPainter(
+            entries: List<_ActiveDanmaku>.of(_active),
+            position: _renderPosition,
+            settings: widget.settings,
+            playing: widget.playing,
+            pixelRatio: MediaQuery.devicePixelRatioOf(context),
+          ),
+          size: Size.infinite,
+          isComplex: true,
+          willChange: widget.playing,
         ),
-        size: Size.infinite,
       ),
     );
   }
@@ -209,17 +275,43 @@ class DanmakuLayout {
 
 /// 屏幕上的一条弹幕。
 class _ActiveDanmaku {
-  _ActiveDanmaku({required this.item, required this.lane, required this.bornAt});
+  _ActiveDanmaku({
+    required this.item,
+    required this.lane,
+    required this.bornAt,
+  });
 
   final DanmakuItem item;
   final int lane;
+  TextPainter? fill, outline;
+  DanmakuStyle? cachedStyle;
+  void dispose() {
+    fill?.dispose();
+    outline?.dispose();
+    fill = outline = null;
+  }
+
+  void layout(DanmakuStyle style) {
+    if (cachedStyle?.fontSize == style.fontSize &&
+        cachedStyle?.color == style.color &&
+        cachedStyle?.strokeWidth == style.strokeWidth) {
+      return;
+    }
+    dispose();
+    cachedStyle = style;
+    fill = _DanmakuPainter.textPainter(item.text, style);
+    if (style.strokeWidth > 0) {
+      outline = _DanmakuPainter.textPainter(item.text, style, stroke: true);
+    }
+  }
 
   /// 上屏时刻（视频时间轴）。
   final Duration bornAt;
 
   /// 滚动进度 0..1（0 = 刚进右边缘，1 = 完全离开左边缘）。
   double progress(Duration position, DanmakuSettings settings) {
-    final span = DanmakuLayout.scrollDuration.inMilliseconds / settings.speedScale;
+    final span =
+        DanmakuLayout.scrollDuration.inMilliseconds / settings.speedScale;
     if (span <= 0) return 1;
     final elapsed = (position - bornAt).inMilliseconds.toDouble();
     return (elapsed / span).clamp(0.0, 1.0);
@@ -247,21 +339,27 @@ class _DanmakuPainter extends CustomPainter {
     required this.position,
     required this.settings,
     required this.playing,
+    required this.pixelRatio,
   });
 
   final List<_ActiveDanmaku> entries;
   final Duration position;
   final DanmakuSettings settings;
   final bool playing;
+  final double pixelRatio;
 
   @override
   void paint(Canvas canvas, Size size) {
     final maxHeight = size.height * settings.displayArea;
-    final laneCount = (maxHeight / DanmakuLayout.laneHeight).floor().clamp(1, 64);
+    final laneCount = (maxHeight / DanmakuLayout.laneHeight).floor().clamp(
+      1,
+      64,
+    );
 
     for (final entry in entries) {
       final style = DanmakuStyle.of(entry.item, settings);
-      final painter = _textPainter(entry.item.text, style);
+      entry.layout(style);
+      final painter = entry.fill!;
 
       double? dx;
       double? dy;
@@ -276,8 +374,7 @@ class _DanmakuPainter extends CustomPainter {
           dy = entry.lane * DanmakuLayout.laneHeight;
         case DanmakuMode.bottom:
           dx = (size.width - painter.width) / 2;
-          dy = size.height -
-              (entry.lane + 1) * DanmakuLayout.laneHeight;
+          dy = size.height - (entry.lane + 1) * DanmakuLayout.laneHeight;
       }
 
       // 越界（固定弹幕轨道超区）就不画。
@@ -290,11 +387,21 @@ class _DanmakuPainter extends CustomPainter {
       canvas.save();
       if (opacity < 1) {
         canvas.saveLayer(
-          Offset.zero & size,
+          Rect.fromLTWH(
+            dx - style.strokeWidth,
+            dy - style.strokeWidth,
+            painter.width + style.strokeWidth * 2,
+            painter.height + style.strokeWidth * 2,
+          ),
           Paint()..color = Colors.white.withValues(alpha: opacity),
         );
       }
-      painter.paint(canvas, Offset(dx, dy));
+      final offset = Offset(
+        (dx * pixelRatio).round() / pixelRatio,
+        (dy * pixelRatio).round() / pixelRatio,
+      );
+      entry.outline?.paint(canvas, offset);
+      painter.paint(canvas, offset);
       if (opacity < 1) canvas.restore();
       canvas.restore();
     }
@@ -303,23 +410,24 @@ class _DanmakuPainter extends CustomPainter {
   }
 
   /// 文本绘制：先描边再填充（浅色画面下也看得清）。
-  static TextPainter _textPainter(String text, DanmakuStyle style) {
+  static TextPainter textPainter(
+    String text,
+    DanmakuStyle style, {
+    bool stroke = false,
+  }) {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
           fontSize: style.fontSize,
-          color: style.color,
           fontWeight: FontWeight.w600,
-          shadows: style.strokeWidth > 0
-              ? <Shadow>[
-                  Shadow(
-                    color: Colors.black.withValues(
-                      alpha: style.color.a * 0.9,
-                    ),
-                    blurRadius: style.strokeWidth,
-                  ),
-                ]
+          color: stroke ? null : style.color,
+          foreground: stroke
+              ? (Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = style.strokeWidth
+                  ..strokeJoin = StrokeJoin.round
+                  ..color = Colors.black.withValues(alpha: style.color.a * .9))
               : null,
         ),
       ),
@@ -333,5 +441,10 @@ class _DanmakuPainter extends CustomPainter {
   bool shouldRepaint(covariant _DanmakuPainter oldDelegate) =>
       oldDelegate.position != position ||
       oldDelegate.entries.length != entries.length ||
-      oldDelegate.settings != settings;
+      entries.asMap().entries.any(
+        (entry) => !identical(entry.value, oldDelegate.entries[entry.key]),
+      ) ||
+      oldDelegate.settings != settings ||
+      oldDelegate.pixelRatio != pixelRatio ||
+      oldDelegate.playing != playing;
 }

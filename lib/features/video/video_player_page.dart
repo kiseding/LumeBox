@@ -3007,7 +3007,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     valueListenable: player.snapshot,
                     builder: (context, snapshot, _) => DanmakuOverlay(
                       position: snapshot.position,
-                      playing: snapshot.playing,
+                      playing: snapshot.playing && !snapshot.buffering,
+                      playbackRate: _settings.speed,
                       track: _danmaku,
                       settings: _danmakuSettings,
                     ),

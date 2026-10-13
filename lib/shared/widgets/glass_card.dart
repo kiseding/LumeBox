@@ -6,7 +6,7 @@ import '../../core/theme/lume_theme.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../features/shell/shell_dock.dart';
 
-/// 清透玻璃层：低透明底色 + 极浅描边，不模糊背景。
+/// 清透微磨砂玻璃层：低透明底色、极浅描边与可调的轻微背景模糊。
 ///
 /// 用在「浮在内容之上」的表面上（顶部栏 / 底部栏 / 覆盖面板）——它下面有东西
 /// 可透，才谈得上玻璃。直接铺在页面底色上的卡片不要用它（模糊一层纯色等于没
@@ -539,3 +539,4 @@ class HomeHeaderScope extends InheritedWidget {
   bool updateShouldNotify(HomeHeaderScope oldWidget) =>
       header != oldWidget.header;
 }
+

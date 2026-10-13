@@ -37,7 +37,10 @@ void main() {
       expect(home.boards.length, 2);
       expect(home.boards.first.title, '近期必看');
       expect(home.boards.first.moreUrl, 'hot');
-      expect(home.boards.first.items.map((item) => item.title), <String>['片子一', '片子二']);
+      expect(home.boards.first.items.map((item) => item.title), <String>[
+        '片子一',
+        '片子二',
+      ]);
       expect(home.boards.last.moreUrl, isNull, reason: '没给 moreUrl 就是 null');
     });
 
@@ -72,8 +75,11 @@ void main() {
   });
 
   group('渲染', () {
-    Future<void> pump(WidgetTester tester, DataSource source,
-        {void Function(String title, String moreUrl)? onOpenMore}) async {
+    Future<void> pump(
+      WidgetTester tester,
+      DataSource source, {
+      void Function(String title, String moreUrl)? onOpenMore,
+    }) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
@@ -97,43 +103,52 @@ void main() {
       await pump(
         tester,
         _HomeSource(
-          const SourceHome(boards: <SourceHomeBoard>[
-            SourceHomeBoard(
-              title: '近期必看',
-              moreUrl: 'hot',
-              items: <SourceItem>[
-                SourceItem(id: '1', title: '片子一'),
-                SourceItem(id: '2', title: '片子二'),
-              ],
-            ),
-            SourceHomeBoard(
-              title: '猜你喜欢',
-              items: <SourceItem>[
-                SourceItem(id: '3', title: '片子三'),
-              ],
-            ),
-          ]),
+          const SourceHome(
+            boards: <SourceHomeBoard>[
+              SourceHomeBoard(
+                title: '近期必看',
+                moreUrl: 'hot',
+                items: <SourceItem>[
+                  SourceItem(id: '1', title: '片子一'),
+                  SourceItem(id: '2', title: '片子二'),
+                ],
+              ),
+              SourceHomeBoard(
+                title: '猜你喜欢',
+                items: <SourceItem>[SourceItem(id: '3', title: '片子三')],
+              ),
+            ],
+          ),
         ),
         onOpenMore: (title, moreUrl) => moreArgs = '$title|$moreUrl',
       );
 
-      expect(find.text('近期必看'), findsOneWidget);
-      expect(find.text('猜你喜欢'), findsOneWidget);
-      expect(find.text('更多'), findsOneWidget, reason: '只有带 moreUrl 的那块有「更多」');
-      expect(find.text('片子一'), findsOneWidget);
-
-      await tester.tap(find.text('更多'));
-      await tester.pumpAndSettle();
-      expect(moreArgs, '近期必看|hot', reason: '把 moreUrl 交给宿主去加载分页');
+      expect(find.text('近期必看'), findsNothing);
+      expect(find.text('猜你喜欢'), findsNothing);
+      expect(find.text('更多'), findsNothing);
+      for (final title in ['片子一', '片子二', '片子三']) {
+        expect(find.text(title), findsOneWidget);
+      }
+      expect(moreArgs, isEmpty);
+      final grid = tester.widget<GridView>(find.byType(GridView));
+      expect(
+        (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+            .crossAxisCount,
+        3,
+      );
     });
 
     testWidgets('旧兼容：平铺数组渲染成网格，不出现「更多」等板块元素', (tester) async {
       await pump(
         tester,
-        _HomeSource(const SourceHome(items: <SourceItem>[
-          SourceItem(id: '1', title: '条目一'),
-          SourceItem(id: '2', title: '条目二'),
-        ])),
+        _HomeSource(
+          const SourceHome(
+            items: <SourceItem>[
+              SourceItem(id: '1', title: '条目一'),
+              SourceItem(id: '2', title: '条目二'),
+            ],
+          ),
+        ),
       );
 
       expect(find.text('条目一'), findsOneWidget);
@@ -188,8 +203,7 @@ class _HomeSource implements DataSource, HomeCapable {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      const SourceList(items: <SourceItem>[], hasMore: false);
+  }) async => const SourceList(items: <SourceItem>[], hasMore: false);
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -202,8 +216,7 @@ class _HomeSource implements DataSource, HomeCapable {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 /// 老图源：没有 home()（接口存在但探测为 false）。
@@ -222,8 +235,7 @@ class _NoHomeSource implements DataSource, HomeCapable {
   Future<bool> supportsHome() async => false;
 
   @override
-  Future<SourceHome> home() async =>
-      throw StateError('老脚本没有 home()，不该被调用');
+  Future<SourceHome> home() async => throw StateError('老脚本没有 home()，不该被调用');
 
   @override
   Future<List<SourceCategory>> categories() async => const <SourceCategory>[];
@@ -234,8 +246,7 @@ class _NoHomeSource implements DataSource, HomeCapable {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      const SourceList(items: <SourceItem>[], hasMore: false);
+  }) async => const SourceList(items: <SourceItem>[], hasMore: false);
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -248,6 +259,5 @@ class _NoHomeSource implements DataSource, HomeCapable {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }

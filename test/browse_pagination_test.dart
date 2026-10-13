@@ -33,11 +33,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_paging');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     for (final section in Section.values) {
       await SectionScope.open(section);
     }
@@ -62,7 +62,10 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MaterialApp(theme: LumeTheme.build(), home: Scaffold(body: child)),
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: Scaffold(body: child),
+      ),
     );
     await tester.pumpAndSettle();
   }
@@ -70,7 +73,15 @@ void main() {
   /// 往下滑到底（触发触底加载）。
   Future<void> scrollDown(WidgetTester tester, {int times = 1}) async {
     for (var index = 0; index < times; index++) {
-      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, -900));
+      await tester.drag(
+        find
+            .descendant(
+              of: find.byType(RefreshIndicator).first,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+        const Offset(0, -900),
+      );
       await tester.pumpAndSettle();
     }
   }
@@ -78,10 +89,7 @@ void main() {
   group('视频板块首页列表（BrowseView）', () {
     testWidgets('触底持续加载：第 1 页 → 第 2 页 → 第 3 页', (tester) async {
       final source = _PagedSource(section: Section.video, totalPages: 3);
-      await pump(
-        tester,
-        BrowseView(dataSource: source, onItemTap: (_) {}),
-      );
+      await pump(tester, BrowseView(dataSource: source, onItemTap: (_) {}));
 
       expect(find.text('条目 source-a-1-1'), findsOneWidget);
       expect(source.requests, <int>[1]);
@@ -91,7 +99,11 @@ void main() {
       expect(source.requests, contains(2));
 
       await scrollDown(tester);
-      expect(find.text('条目 source-a-3-1'), findsOneWidget, reason: '继续触底加载第 3 页');
+      expect(
+        find.text('条目 source-a-3-1'),
+        findsOneWidget,
+        reason: '继续触底加载第 3 页',
+      );
       expect(source.requests, contains(3));
 
       // 到底了：不再请求第 4 页，尾部给出「没有更多了」。
@@ -106,14 +118,19 @@ void main() {
         totalPages: 5,
         delay: const Duration(milliseconds: 50),
       );
-      await pump(
-        tester,
-        BrowseView(dataSource: source, onItemTap: (_) {}),
-      );
+      await pump(tester, BrowseView(dataSource: source, onItemTap: (_) {}));
 
       // 连续猛滑：同一页只应发一次请求。
       for (var index = 0; index < 6; index++) {
-        await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, -600));
+        await tester.drag(
+          find
+              .descendant(
+                of: find.byType(RefreshIndicator).first,
+                matching: find.byType(Scrollable),
+              )
+              .first,
+          const Offset(0, -600),
+        );
         await tester.pump(const Duration(milliseconds: 10));
       }
       await tester.pumpAndSettle();
@@ -126,15 +143,20 @@ void main() {
 
     testWidgets('下拉刷新：重置页码与列表，刷新后还能继续加载', (tester) async {
       final source = _PagedSource(section: Section.video, totalPages: 3);
-      await pump(
-        tester,
-        BrowseView(dataSource: source, onItemTap: (_) {}),
-      );
+      await pump(tester, BrowseView(dataSource: source, onItemTap: (_) {}));
       await scrollDown(tester);
       expect(find.text('条目 source-a-2-1'), findsOneWidget);
 
       // 下拉刷新。
-      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, 600));
+      await tester.drag(
+        find
+            .descendant(
+              of: find.byType(RefreshIndicator).first,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+        const Offset(0, 600),
+      );
       await tester.pumpAndSettle();
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
@@ -150,10 +172,7 @@ void main() {
     testWidgets('加载下一页失败：不清「还有更多」，可点击重试', (tester) async {
       final source = _PagedSource(section: Section.video, totalPages: 3)
         ..failPages.add(2);
-      await pump(
-        tester,
-        BrowseView(dataSource: source, onItemTap: (_) {}),
-      );
+      await pump(tester, BrowseView(dataSource: source, onItemTap: (_) {}));
 
       await scrollDown(tester);
       expect(find.text('加载失败，点击重试'), findsOneWidget);
@@ -166,7 +185,11 @@ void main() {
       source.failPages.clear();
       await tester.tap(find.text('加载失败，点击重试'));
       await tester.pumpAndSettle();
-      expect(find.text('条目 source-a-2-1'), findsOneWidget, reason: '重试真的取到了第 2 页');
+      expect(
+        find.text('条目 source-a-2-1'),
+        findsOneWidget,
+        reason: '重试真的取到了第 2 页',
+      );
     });
   });
 
@@ -213,13 +236,27 @@ void main() {
 
         expect(find.text('条目 source-a-1-1'), findsOneWidget);
         await scrollDown(tester);
-        expect(find.text('条目 source-a-2-1'), findsOneWidget, reason: '${section.label} 触底加载第 2 页');
+        expect(
+          find.text('条目 source-a-2-1'),
+          findsOneWidget,
+          reason: '${section.label} 触底加载第 2 页',
+        );
 
         // 换图源：旧分页数据清空，从第 1 页重新开始。
         //
         // 先记下切换瞬间旧源的请求序列：滑到底时的连续预加载（1→2→3→4）发生在
         // 切换**之前**，因此判据是「切换之后旧源不再被请求」，而不是「旧源只请求过 1、2」。
         final firstRequestsBefore = List<int>.of(first.requests);
+        await tester.drag(
+          find
+              .descendant(
+                of: find.byType(RefreshIndicator).first,
+                matching: find.byType(Scrollable),
+              )
+              .first,
+          const Offset(0, 5000),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.text('第一个源'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('第二个源').last);
@@ -267,15 +304,37 @@ void main() {
       await scrollDown(tester);
       expect(find.text('条目 source-a-2-1'), findsOneWidget);
 
-      await tester.drag(find.descendant(of: find.byType(RefreshIndicator).first, matching: find.byType(Scrollable)).first, const Offset(0, 700));
+      await tester.drag(
+        find
+            .descendant(
+              of: find.byType(RefreshIndicator).first,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+        const Offset(0, 5000),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find
+            .descendant(
+              of: find.byType(RefreshIndicator).first,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+        const Offset(0, 700),
+      );
       await tester.pumpAndSettle();
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expect(source.requests.last, 1);
+      expect(
+        source.requests.where((p) => p == 1).length,
+        greaterThanOrEqualTo(2),
+        reason: '三列网格刷新后会继续补满视口',
+      );
       expect(
         find.text('条目 source-a-2-1'),
         findsNothing,
-        reason: '刷新后列表回到第 1 页',
+        reason: '刷新清空旧分页数据',
       );
     });
   });
@@ -352,6 +411,5 @@ class _PagedSource implements DataSource {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }

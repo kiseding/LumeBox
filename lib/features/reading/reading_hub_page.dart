@@ -21,6 +21,7 @@ class ReadingHubPage extends StatelessWidget {
     required this.explore,
     this.actions,
     this.manager,
+    this.onSubscriptionsClosed,
   });
 
   final Section section;
@@ -33,6 +34,7 @@ class ReadingHubPage extends StatelessWidget {
 
   final List<Widget>? actions;
   final SourceManager? manager;
+  final VoidCallback? onSubscriptionsClosed;
 
   /// 页签文案（用户要求：**探索在前、书架在后**）。
   ///
@@ -74,13 +76,18 @@ class ReadingHubPage extends StatelessWidget {
           IconButton(
             tooltip: '订阅',
             icon: const Icon(Icons.rss_feed),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    SourceSubscriptionPage(section: section, manager: manager),
-              ),
-            ),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => SourceSubscriptionPage(
+                    section: section,
+                    manager: manager,
+                  ),
+                ),
+              );
+              if (context.mounted) onSubscriptionsClosed?.call();
+            },
           ),
         ],
         behindBar: true,

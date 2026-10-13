@@ -154,6 +154,10 @@ class CatDataSource
           .toList();
   @override
   Future<SourceHome> home() async {
+    return SourceHome(items: (await homeList()).items);
+  }
+
+  Future<SourceList> homeList() async {
     final data = await homeData();
     var found = items(data);
     if (found.isEmpty) {
@@ -163,8 +167,8 @@ class CatDataSource
         /* Some sources only provide category(). */
       }
     }
-    if (found.isEmpty) found = (await list()).items;
-    return SourceHome(items: found);
+    if (found.isEmpty) return list();
+    return SourceList(items: found, hasMore: false);
   }
 
   @override

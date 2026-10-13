@@ -18,6 +18,9 @@ import 'package:lume_box/features/video/video_page.dart';
 
 import 'support/fake_source_manager.dart';
 
+import 'package:lume_box/core/cat/cat_service.dart';
+import 'package:lume_box/features/source/source_section_page.dart';
+
 /// 板块页右上角入口的回归：**「图源管理」必须打开本板块专属的图源管理页**。
 ///
 /// 背景（用户反馈的 UI 路由 Bug）：视频页右上角原来放的是「播放器设置」，
@@ -32,17 +35,19 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_board_entry');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     await SectionScope.open(Section.novel);
     await SectionScope.open(Section.comic);
     await SectionScope.open(Section.video);
     // 阅读库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await ReadingLibrary.open(Section.novel);
     await ReadingLibrary.open(Section.comic);
+    await ReadingLibrary.open(Section.cat);
+    await CatService.instance.boot();
   });
 
   tearDown(() async {
@@ -55,9 +60,13 @@ void main() {
   Future<void> pumpBoard(WidgetTester tester, Widget page) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(theme: LumeTheme.build(), home: page),
-    );
+    await tester.pumpWidget(MaterialApp(theme: LumeTheme.build(), home: page));
+    for (var n = 0; n < 8; n++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
     await tester.pumpAndSettle();
   }
 
@@ -67,7 +76,12 @@ void main() {
       NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
     );
 
-    expect(find.byTooltip('源管理'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsOneWidget);
+    await tester.tap(find.byTooltip('订阅'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
@@ -81,11 +95,16 @@ void main() {
       ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
     );
 
-    expect(find.byTooltip('源管理'), findsOneWidget);
-    expect(find.byTooltip('扩展仓库'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.byTooltip('收藏'), findsOneWidget);
     // 「图片缓存」入口已按用户要求移除（缓存本体的管理在设置 → 缓存管理）。
     expect(find.byTooltip('图片缓存'), findsNothing);
 
+    await tester.tap(find.byTooltip('订阅'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
@@ -96,7 +115,7 @@ void main() {
     await pumpBoard(tester, const VideoPage(catalog: _NoKernelCatalog()));
 
     // 关键回归：右上角不再有「播放器设置」。
-    expect(find.byTooltip('源管理'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsOneWidget);
     expect(
       find.descendant(
         of: find.byType(AppBar),
@@ -110,6 +129,11 @@ void main() {
       expect(find.byTooltip('添加源'), findsOneWidget);
     }
 
+    await tester.tap(find.byTooltip('订阅'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
@@ -121,7 +145,9 @@ void main() {
     await pumpBoard(tester, const CatPage());
 
     // 猫源没有独立的业务页：板块页即图源管理页，标题与其他板块同一口径。
-    expect(find.widgetWithText(AppBar, '猫源 · 源管理'), findsOneWidget);
+    expect(find.text('猫源'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.byTooltip('网盘登录 / 配置中心'), findsOneWidget);
   });
 
   testWidgets('图源管理页：导入的源可见、可启停，操作收进「更多」', (tester) async {
@@ -137,10 +163,8 @@ void main() {
     );
     await pumpBoard(
       tester,
-      NovelPage(runtimeAvailable: true, manager: manager),
+      SourceSectionPage(section: Section.novel, manager: manager),
     );
-    await tester.tap(find.byTooltip('源管理'));
-    await tester.pumpAndSettle();
 
     expect(find.text('公开样片测试源'), findsOneWidget);
     expect(find.text('已停用'), findsOneWidget);

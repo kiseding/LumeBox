@@ -7,6 +7,7 @@ import '../../core/player/abstract_player.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../video/video_player_page.dart';
 import '../video/video_play_target.dart';
+import '../reading/section_image.dart';
 
 class CatDetailPage extends StatefulWidget {
   const CatDetailPage({
@@ -23,6 +24,11 @@ class CatDetailPage extends StatefulWidget {
 }
 
 class _CatDetailPageState extends State<CatDetailPage> {
+  late final pipeline = SectionImagePipeline(
+    cacheDir: widget.library.imageCacheDir,
+    memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
+    maxConcurrent: SectionImagePipeline.coverConcurrency,
+  );
   SourceDetail? detail;
   List<SourceChapter> chapters = [];
   String? error;
@@ -31,6 +37,12 @@ class _CatDetailPageState extends State<CatDetailPage> {
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    pipeline.dispose();
+    super.dispose();
   }
 
   Future<void> load() async {
@@ -153,6 +165,19 @@ class _CatDetailPageState extends State<CatDetailPage> {
         : ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              Center(
+                child: SizedBox(
+                  width: 140,
+                  height: 200,
+                  child: SectionImage(
+                    pipeline: pipeline,
+                    url: detail?.cover ?? widget.item.cover ?? '',
+                    headers: detail?.coverHeaders ?? widget.item.coverHeaders,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               if (detail?.description?.isNotEmpty == true)
                 GlassCard(child: Text(detail!.description!)),
               const SizedBox(height: 12),

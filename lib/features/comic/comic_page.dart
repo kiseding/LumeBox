@@ -145,6 +145,7 @@ class _ComicPageState extends State<ComicPage> {
     return ReadingHubPage(
       section: Section.comic,
       manager: widget.manager,
+      onSubscriptionsClosed: _onSourcesChanged,
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 小说同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(

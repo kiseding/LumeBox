@@ -41,11 +41,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_video_home');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 视频板块的设置库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await ReadingLibrary.open(video);
     source = _VideoSource();
@@ -104,7 +104,7 @@ void main() {
     expect(find.byTooltip('播放器设置'), findsNothing);
 
     // 图源管理入口只有右上角一个（图源条不再重复一个同名入口）。
-    expect(find.byTooltip('源管理'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsOneWidget);
   });
 
   testWidgets('列表条目展示封面 / 标题 / 简介：只有带封面的条目占图位', (tester) async {
@@ -121,7 +121,7 @@ void main() {
 
     // 标题与简介照常展示。
     expect(find.text('示例影片'), findsOneWidget);
-    expect(find.text('科幻 · 2026'), findsOneWidget);
+    expect(find.text('科幻 · 2026'), findsNothing, reason: '紧凑海报只显示下方标题');
 
     // 封面走本板块的图片管线（与小说 / 漫画列表同一套纪律）；测试环境取不到
     // 图时显示主题占位，图位本身照常在，不影响断言。
@@ -131,7 +131,8 @@ void main() {
     expect(
       covers,
       hasLength(2),
-      reason: '浏览列表与小说 / 漫画同一套卡片：每条都占封面位'
+      reason:
+          '浏览列表与小说 / 漫画同一套卡片：每条都占封面位'
           '（没封面的显示主题占位，与小说明 / 漫画列表一致）',
     );
     expect(
@@ -160,6 +161,13 @@ void main() {
     expect(find.text('暂无源'), findsOneWidget, reason: '起步是空板块');
 
     // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
+    await tester.tap(find.byTooltip('订阅'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('源管理'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('添加源'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -169,6 +177,10 @@ void main() {
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
 
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(manager.imported, hasLength(1));
     // 自动刷新：空态消失，图源条换成新图源，列表直接出现（无需点「重试」）。
     expect(find.text('暂无源'), findsNothing, reason: '导入完成即重挂浏览面');
@@ -192,7 +204,10 @@ void main() {
     // 起播：唤起独立播放器页，媒体交给播放器。
     expect(find.byType(VideoPlayerPage), findsOneWidget, reason: '点条目唤起播放器页');
     expect(created, hasLength(1));
-    expect(created.single.media?.uri.toString(), 'https://example.com/demo.mp4');
+    expect(
+      created.single.media?.uri.toString(),
+      'https://example.com/demo.mp4',
+    );
     expect(created.single.media?.title, '测试视频');
     expect(source.chapterCalls, isEmpty, reason: '自带地址不必再去问剧集');
     expect(find.byTooltip('播放器设置'), findsWidgets, reason: '播放器页带设置入口');
@@ -210,9 +225,7 @@ void main() {
   });
 
   testWidgets('条目没有地址：走剧集链路，选一集后起播取到的视频地址', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
       SourceChapter(id: 'movie-1-e2', title: '第 2 集'),
@@ -236,9 +249,7 @@ void main() {
   });
 
   testWidgets('只有一集时不弹选择面板', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
@@ -256,9 +267,7 @@ void main() {
   });
 
   testWidgets('脚本没实现剧集：如实提示缺哪个函数，不静默失败', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'movie-1', title: '示例影片'),
-    ];
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chaptersFailure = const SourceException(
       SourceErrorKind.callFailed,
       '源脚本没有实现 chapters 方法：请定义顶层函数 getChapters',
@@ -321,8 +330,7 @@ class _VideoSource implements DataSource {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      SourceList(items: items, hasMore: false);
+  }) async => SourceList(items: items, hasMore: false);
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -365,8 +373,9 @@ class _FakePlayer extends AbstractPlayer {
 
   final PlayerKernel kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
 
   PlayerMedia? media;
 

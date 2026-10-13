@@ -125,6 +125,7 @@ class _NovelPageState extends State<NovelPage> {
     return ReadingHubPage(
       section: Section.novel,
       manager: widget.manager,
+      onSubscriptionsClosed: _onSourcesChanged,
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 漫画同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(

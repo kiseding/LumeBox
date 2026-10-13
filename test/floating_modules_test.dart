@@ -40,7 +40,7 @@ void main() {
     expect(clamped.opacity, 0);
     expect(clamped.x, 40);
     expect(clamped.y, -40);
-    expect(clamped.blur, 0);
+    expect(clamped.blur, 6);
     File('${root.path}/floating_modules.json').writeAsStringSync(
       jsonEncode({
         'home': {'opacity': .7, 'x': 8, 'y': 19, 'blur': 24},
@@ -50,7 +50,7 @@ void main() {
     expect(controller.style(FloatingModule.home).opacity, .12);
     expect(controller.style(FloatingModule.home).offset.dx, 8);
     expect(controller.style(FloatingModule.home).offset.dy, 19);
-    expect(controller.style(FloatingModule.home).blur, 0);
+    expect(controller.style(FloatingModule.home).blur, 3);
     // Once migrated, newly chosen opacity remains under the user's control.
     controller.set(FloatingModule.home, const FloatingStyle(opacity: .4));
     controller.save();

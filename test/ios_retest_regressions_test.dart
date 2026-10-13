@@ -40,11 +40,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_ios_retest');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 阅读库在**真实时钟**里先打开：testWidgets 的 fake-async 里等不到真实 IO。
     await ReadingLibrary.open(Section.comic);
   });
@@ -99,10 +99,14 @@ void main() {
       // 曾经的写法用 `ValueKey(revision)` 重挂探索页：新实例的首次解析会同步拿到
       // 旧的板块注册表，同一帧末尾旧实例 dispose 把它连同数据库一起关掉，新实例
       // 在飞的那条读就报「数据库已关闭」（真机在漫画导入订阅后复现）。
+      await tester.tap(find.byTooltip('订阅'));
+      await advance(tester);
       await tester.tap(find.byTooltip('源管理'));
       await advance(tester);
       expect(find.widgetWithText(AppBar, '漫画 · 源管理'), findsOneWidget);
 
+      await tester.pageBack();
+      await advance(tester);
       await tester.pageBack();
       await advance(tester);
 
@@ -123,11 +127,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await advance(tester);
 
-      expect(
-        manager.closed,
-        isFalse,
-        reason: '板块共享的图源管理器由板块页收尾（与阅读库同一条纪律）',
-      );
+      expect(manager.closed, isFalse, reason: '板块共享的图源管理器由板块页收尾（与阅读库同一条纪律）');
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
 
@@ -179,11 +179,7 @@ void main() {
         reason: '页面的阅读库应当已经打开（否则这条用例测不到读盘之后的行为）',
       );
 
-      expect(
-        find.byTooltip('弹幕：关'),
-        findsWidgets,
-        reason: '读盘回来不得盖掉用户刚改的那一份',
-      );
+      expect(find.byTooltip('弹幕：关'), findsWidgets, reason: '读盘回来不得盖掉用户刚改的那一份');
       expect(find.byTooltip('弹幕：开'), findsNothing);
 
       // 而且真的落库了：下次进播放页读出来就是「关」。
@@ -229,7 +225,6 @@ void main() {
       await advance(tester);
       expect(find.textContaining('测速'), findsNothing);
     }, timeout: const Timeout(Duration(seconds: 60)));
-
   });
 
   // ------------------------------------------------------------------ P0-1
@@ -255,7 +250,8 @@ void main() {
       expect(
         code.contains('_video.platform'),
         isFalse,
-        reason: '视频输出的收尾只能由 media_kit 自己按序做：'
+        reason:
+            '视频输出的收尾只能由 media_kit 自己按序做：'
             '引擎里出现 _video.platform（再配一次 dispose）就会重现真机的 SIGABRT',
       );
       expect(
@@ -284,10 +280,12 @@ class _SilentPlayer extends AbstractPlayer {
 
   final PlayerKernel kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
-  late final ValueNotifier<PlayerStats> _stats =
-      ValueNotifier<PlayerStats>(PlayerStats(engineLabel: kernel.label));
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
+  late final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
+    PlayerStats(engineLabel: kernel.label),
+  );
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;

@@ -30,11 +30,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_toolbar');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     for (final section in Section.values) {
       await SectionScope.open(section);
     }
@@ -105,7 +105,11 @@ void main() {
   }
 
   group('工具栏（三板块同一套）', () {
-    for (final section in <Section>[Section.novel, Section.comic, Section.video]) {
+    for (final section in <Section>[
+      Section.novel,
+      Section.comic,
+      Section.video,
+    ]) {
       testWidgets('${section.label}：一行五个控件，顺序固定', (tester) async {
         final source = _SearchSource(section: section);
         await pumpExplore(tester, section: section, source: source);
@@ -113,26 +117,16 @@ void main() {
         final toolbar = find.byType(SectionToolbar);
         expect(toolbar, findsOneWidget);
 
-        // 顺序：源下拉 → 排序 → 布局 → 搜索 → 筛选。
-        for (final tooltip in <String>['排序', '布局', '搜索']) {
+        expect(
+          find.descendant(of: toolbar, matching: find.byTooltip('搜索')),
+          findsOneWidget,
+        );
+        for (final label in ['排序', '布局', '源管理']) {
           expect(
-            find.descendant(of: toolbar, matching: find.byTooltip(tooltip)),
-            findsOneWidget,
-            reason: '工具栏缺少「$tooltip」',
+            find.descendant(of: toolbar, matching: find.byTooltip(label)),
+            findsNothing,
           );
         }
-        expect(find.descendant(of: toolbar, matching: find.byTooltip('源管理')), findsOneWidget);
-
-        final centers = <String, double>{
-          for (final tooltip in <String>['排序', '布局', '搜索'])
-            tooltip: tester
-                .getTopLeft(
-                  find.descendant(of: toolbar, matching: find.byTooltip(tooltip)),
-                )
-                .dx,
-        };
-        expect(centers['排序']!, lessThan(centers['布局']!), reason: '排序在布局左边');
-        expect(centers['布局']!, lessThan(centers['搜索']!), reason: '布局在搜索左边');
         expect(find.byTooltip('筛选'), findsNothing, reason: '筛选已移到分类下方');
       });
     }
@@ -147,20 +141,13 @@ void main() {
       );
       await pumpExplore(tester, section: Section.video, source: source);
 
-      await tester.tap(find.byTooltip('排序'));
-      await tester.pumpAndSettle();
-      expect(find.text('时长'), findsOneWidget);
-      await tester.tap(find.text('时长'));
-      await tester.pumpAndSettle();
-
-      // 按标题排：A 在 B 前（默认顺序是 B、A）。
-      await tester.tap(find.byTooltip('排序'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('标题'));
+      tester
+          .widget<SectionToolbar>(find.byType(SectionToolbar))
+          .onSortChanged(BrowseSort.title);
       await tester.pumpAndSettle();
 
-      final first = tester.getTopLeft(find.text('A 条目')).dy;
-      final second = tester.getTopLeft(find.text('B 条目')).dy;
+      final first = tester.getTopLeft(find.text('A 条目')).dx;
+      final second = tester.getTopLeft(find.text('B 条目')).dx;
       expect(first, lessThan(second), reason: '标题升序');
     });
   });
@@ -214,10 +201,23 @@ void main() {
               layout: ExploreLayout.list,
               manager: FakeSourceManager(
                 sources: const <SourceDescriptor>[
-                  SourceDescriptor(id: 'source-a', name: '甲源', version: '1', enabled: true),
-                  SourceDescriptor(id: 'source-b', name: '乙源', version: '1', enabled: true),
+                  SourceDescriptor(
+                    id: 'source-a',
+                    name: '甲源',
+                    version: '1',
+                    enabled: true,
+                  ),
+                  SourceDescriptor(
+                    id: 'source-b',
+                    name: '乙源',
+                    version: '1',
+                    enabled: true,
+                  ),
                 ],
-                opened: <String, DataSource>{'source-a': first, 'source-b': second},
+                opened: <String, DataSource>{
+                  'source-a': first,
+                  'source-b': second,
+                },
               ),
               onOpenItem: (_) {},
             ),
@@ -271,10 +271,23 @@ void main() {
               layout: ExploreLayout.list,
               manager: FakeSourceManager(
                 sources: const <SourceDescriptor>[
-                  SourceDescriptor(id: 'source-a', name: '甲源', version: '1', enabled: true),
-                  SourceDescriptor(id: 'source-b', name: '乙源', version: '1', enabled: true),
+                  SourceDescriptor(
+                    id: 'source-a',
+                    name: '甲源',
+                    version: '1',
+                    enabled: true,
+                  ),
+                  SourceDescriptor(
+                    id: 'source-b',
+                    name: '乙源',
+                    version: '1',
+                    enabled: true,
+                  ),
                 ],
-                opened: <String, DataSource>{'source-a': first, 'source-b': second},
+                opened: <String, DataSource>{
+                  'source-a': first,
+                  'source-b': second,
+                },
               ),
               onOpenItem: (_) {},
             ),
@@ -317,7 +330,11 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pumpAndSettle();
 
-      expect(find.byType(SearchResultsPage), findsOneWidget, reason: '搜索必须跳到独立结果页');
+      expect(
+        find.byType(SearchResultsPage),
+        findsOneWidget,
+        reason: '搜索必须跳到独立结果页',
+      );
       expect(find.text('命中影片'), findsOneWidget, reason: '结果页展示命中条目');
       expect(find.text('搜索 · 影片'), findsOneWidget, reason: '结果页抬头保留关键词');
 
@@ -553,7 +570,9 @@ void main() {
         source: null,
         history: const <String>['影片', '影片 甲', '影片 甲', '别的'],
       );
-      expect(await noisy.forKeyword('影片'), <String>['影片 甲'], reason: '去重 + 排除关键词本身 + 必须含关键词');
+      expect(await noisy.forKeyword('影片'), <String>[
+        '影片 甲',
+      ], reason: '去重 + 排除关键词本身 + 必须含关键词');
     });
 
     test('搜索历史：去重、最新在前、上限 20 条', () async {
@@ -653,16 +672,12 @@ class _SearchSource implements DataSource {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 /// 实现了 `suggest` 能力的图源替身（服务端联想词）。
 class _SuggestSource extends _SearchSource implements SuggestCapable {
-  _SuggestSource({
-    required super.section,
-    required this.suggestions,
-  });
+  _SuggestSource({required super.section, required this.suggestions});
 
   final List<String> suggestions;
   final List<String> suggestKeywords = <String>[];

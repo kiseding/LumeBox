@@ -364,7 +364,10 @@ class CatService extends ChangeNotifier {
             .timeout(const Duration(seconds: 20));
         request.followRedirects = false;
         request.headers.set('User-Agent', 'LumeBox/1 CatPaw');
-        if (auth != null && target.host == uri.host) {
+        if (auth != null &&
+            target.host == uri.host &&
+            target.port == uri.port &&
+            target.scheme == uri.scheme) {
           request.headers.set(
             'Authorization',
             'Basic ${base64Encode(utf8.encode(Uri.decodeComponent(auth)))}',
@@ -400,6 +403,7 @@ class CatService extends ChangeNotifier {
 
   Future<void> checkUpdates() => _serial(() async {
     await boot();
+    if (subscriptions.isEmpty) return;
     for (final subscription
         in subscriptions.where((s) => s.enabled && s.automatic).toList()) {
       if (DateTime.now().millisecondsSinceEpoch - subscription.checked <
@@ -550,6 +554,11 @@ class CatService extends ChangeNotifier {
         final waiter = _waiters[id];
         if (base != null &&
             base.host == '127.0.0.1' &&
+            subscriptions.any((s) => s.id == id)) {
+          _bases[id] = base;
+        }
+        if (base != null &&
+            base.host == '127.0.0.1' &&
             waiter != null &&
             !waiter.isCompleted) {
           waiter.complete(base);
@@ -562,11 +571,11 @@ class CatService extends ChangeNotifier {
         }
       }
       if (action == 'saveProfile' || action == 'queryProfile') {
-        final profiles = _profiles[id] ??= catMap(
+        var profiles = _profiles[id] ??= catMap(
           jsonDecode(await secret('profile:$id') ?? '{}'),
         );
         if (action == 'saveProfile') {
-          profiles.addAll(opt);
+          profiles = _profiles[id] = opt;
           await _saveSecret('profile:$id', jsonEncode(profiles));
         }
         reply = profiles;

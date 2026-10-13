@@ -353,7 +353,7 @@ async function startSource(source) {
       throw new Error('Node bundle does not export start()')
     }
     console.log(`[bootstrap] 启动源 ${source.id}（${path.basename(path.dirname(source.index))}）`)
-    await runtime.start(config)
+    await sourceContext.run(source.id, () => runtime.start(config))
     const address = await waitForListen(entry, 60000)
     if (!address) {
       const message = 'start() 返回了，但始终没有监听任何端口（多数是这份 bundle 已经在这个进程里跑过）'

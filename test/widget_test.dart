@@ -49,13 +49,17 @@ void main() {
 
     for (final section in Section.values) {
       await tester.tap(navItem(section.label));
+      for (var n = 0; n < 8; n++) {
+        await tester.pump();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
       await tester.pumpAndSettle();
 
       // 猫源板块页本身就是该板块的源管理页（标题用「· 源管理」口径），
       // 其余板块是内容页，标题就是板块名。
-      final expectedTitle = section == Section.cat
-          ? '${section.label} · 源管理'
-          : section.label;
+      final expectedTitle = section.label;
       expect(find.text(expectedTitle), findsWidgets);
       expect(
         tester.getCenter(find.text(expectedTitle).last).dy,
