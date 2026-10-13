@@ -239,75 +239,13 @@ class _SourceHomeViewState extends State<SourceHomeView> {
           if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
         ]);
       },
-      child: home.isBoards ? _buildBoards(home.boards) : _buildFlat(home.items),
-    );
-  }
-
-  /// 多板块模式：一块一行横向滑动。
-  Widget _buildBoards(List<SourceHomeBoard> boards) {
-    return ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(
-        0,
-        widget.topInset,
-        0,
-        16 + widget.bottomInset,
-      ),
-      itemCount: boards.length,
-      itemBuilder: (context, index) => _buildBoard(boards[index]),
-    );
-  }
-
-  Widget _buildBoard(SourceHomeBoard board) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    board.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
-                    ),
-                  ),
-                ),
-                // moreUrl 为空 / null 时**不显示**「更多」按钮（用户口径任务 3.2）。
-                if (board.moreUrl != null && widget.onOpenMore != null)
-                  TextButton(
-                    onPressed: () =>
-                        widget.onOpenMore!(board.title, board.moreUrl!),
-                    child: const Text('更多'),
-                  ),
-              ],
-            ),
-          ),
-          SizedBox(
-            height: 176,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: board.items.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (context, index) => SizedBox(
-                width: 104,
-                child: _HomeCard(
-                  item: board.items[index],
-                  pipeline: widget.pipeline,
-                  onTap: () => widget.onOpenItem(board.items[index]),
-                ),
-              ),
-            ),
-          ),
-        ],
+      child: _buildFlat(
+        home.isBoards
+            ? {
+                for (final board in home.boards)
+                  for (final item in board.items) item.id: item,
+              }.values.toList()
+            : home.items,
       ),
     );
   }

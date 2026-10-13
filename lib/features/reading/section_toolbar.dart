@@ -325,13 +325,13 @@ class SectionToolbar extends StatelessWidget {
             floating: floating,
             onSelect: onSelect,
             onManage: onManage ?? () {},
-            showManage: onManage != null,
+            showManage: !floating && onManage != null,
           ),
         ),
         const SizedBox(width: 8),
         // 2) 排序（当前档位在弹窗里选中；这里靠高亮表示「不是默认」）
         //    小说 / 漫画两块按用户要求不显示它（见 [showSort]）。
-        if (showSort)
+        if (showSort && !floating)
           _ToolbarAction(
             floating: floating,
             icon: Icons.sort,
@@ -340,19 +340,20 @@ class SectionToolbar extends StatelessWidget {
             onTap: () => _pickSort(context),
           ),
         // 3) 布局切换
-        _ToolbarAction(
-          floating: floating,
-          icon: switch (layoutMode) {
-            BrowseLayoutMode.list => Icons.view_list_outlined,
-            BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
-            BrowseLayoutMode.grid3 => Icons.apps_outlined,
-            BrowseLayoutMode.grid4 => Icons.grid_on_outlined,
-            BrowseLayoutMode.grid5 => Icons.density_small_outlined,
-          },
-          tooltip: '布局',
-          highlighted: layoutMode != BrowseLayoutMode.grid3,
-          onTap: () => _pickLayout(context),
-        ),
+        if (!floating)
+          _ToolbarAction(
+            floating: floating,
+            icon: switch (layoutMode) {
+              BrowseLayoutMode.list => Icons.view_list_outlined,
+              BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
+              BrowseLayoutMode.grid3 => Icons.apps_outlined,
+              BrowseLayoutMode.grid4 => Icons.grid_on_outlined,
+              BrowseLayoutMode.grid5 => Icons.density_small_outlined,
+            },
+            tooltip: '布局',
+            highlighted: layoutMode != BrowseLayoutMode.grid3,
+            onTap: () => _pickLayout(context),
+          ),
         // 4) 搜索
         _ToolbarAction(icon: Icons.search, tooltip: '搜索', onTap: onSearch),
         // 5) 筛选

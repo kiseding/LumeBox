@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/lume_theme.dart';
@@ -14,7 +16,7 @@ class GlassPanel extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 0,
-    this.blur = 0,
+    this.blur = 3,
     this.color,
     this.border,
     this.padding,
@@ -52,19 +54,29 @@ class GlassPanel extends StatelessWidget {
             : Offset.zero,
         child: ClipRRect(
           borderRadius: borderRadius,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: module == null
-                  ? (color ?? LumeTheme.glass)
-                  : (color ?? LumeTheme.glass).withValues(
-                      alpha: FloatingModules.instance.style(module!).opacity,
-                    ),
-              borderRadius: borderRadius,
-              border: border ?? Border.all(color: LumeTheme.hairline),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(
+              sigmaX: module == null
+                  ? blur
+                  : FloatingModules.instance.style(module!).blur,
+              sigmaY: module == null
+                  ? blur
+                  : FloatingModules.instance.style(module!).blur,
             ),
-            child: padding == null
-                ? child
-                : Padding(padding: padding!, child: child),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: module == null
+                    ? (color ?? LumeTheme.glass)
+                    : (color ?? LumeTheme.glass).withValues(
+                        alpha: FloatingModules.instance.style(module!).opacity,
+                      ),
+                borderRadius: borderRadius,
+                border: border ?? Border.all(color: LumeTheme.hairline),
+              ),
+              child: padding == null
+                  ? child
+                  : Padding(padding: padding!, child: child),
+            ),
           ),
         ),
       ),

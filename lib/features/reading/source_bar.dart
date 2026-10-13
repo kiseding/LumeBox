@@ -47,7 +47,7 @@ class ReadingSourceBar extends StatelessWidget {
             child: DropdownButton<String>(
               value: currentId,
               isExpanded: true,
-              dropdownColor: LumeTheme.surface,
+              dropdownColor: LumeTheme.glassStrong,
               borderRadius: BorderRadius.circular(14),
               style: TextStyle(
                 fontSize: 14,

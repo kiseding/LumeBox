@@ -1200,9 +1200,7 @@ class _ExploreViewState extends State<ExploreView> {
   /// （小说默认单列、漫画默认三列网格——由板块页传进来的 [ExploreLayout] 决定）。
   BrowseLayoutMode get _mode =>
       BrowseLayoutSettings.instance.modeFor(widget.section) ??
-      (widget.layout == ExploreLayout.grid
-          ? BrowseLayoutMode.grid3
-          : BrowseLayoutMode.list);
+      BrowseLayoutMode.grid3;
 
   /// 排序后的条目（排序是客户端行为，只作用于已加载的这批）。
   List<SourceItem> get _sortedItems => _sort.apply(_items);

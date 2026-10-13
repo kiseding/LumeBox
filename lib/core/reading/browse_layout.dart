@@ -41,24 +41,24 @@ enum BrowseLayoutMode {
 
   /// 网格列数；列表档返回 0（调用方按列表渲染）。
   int get columns => switch (this) {
-        BrowseLayoutMode.list => 0,
-        BrowseLayoutMode.grid2 => 2,
-        BrowseLayoutMode.grid3 => 3,
-        BrowseLayoutMode.grid4 => 4,
-        BrowseLayoutMode.grid5 => 5,
-      };
+    BrowseLayoutMode.list => 0,
+    BrowseLayoutMode.grid2 => 2,
+    BrowseLayoutMode.grid3 => 3,
+    BrowseLayoutMode.grid4 => 4,
+    BrowseLayoutMode.grid5 => 5,
+  };
 
   /// 网格单元的宽高比（宽 / 高）。
   ///
   /// 列越多、单元越窄，而标题那两行文字的高度不缩——因此比例要跟着收窄，
   /// 否则窄单元里的封面会被文字挤没。数值是「封面 1.5 倍宽 + 文字预留」反推的。
   double get tileAspectRatio => switch (this) {
-        BrowseLayoutMode.list => 1,
-        BrowseLayoutMode.grid2 => 0.72,
-        BrowseLayoutMode.grid3 => 0.62,
-        BrowseLayoutMode.grid4 => 0.52,
-        BrowseLayoutMode.grid5 => 0.46,
-      };
+    BrowseLayoutMode.list => 1,
+    BrowseLayoutMode.grid2 => 0.72,
+    BrowseLayoutMode.grid3 => 0.62,
+    BrowseLayoutMode.grid4 => 0.52,
+    BrowseLayoutMode.grid5 => 0.46,
+  };
 
   static BrowseLayoutMode? fromId(String? id) {
     for (final mode in values) {
@@ -108,7 +108,7 @@ class BrowseLayoutSettings extends ChangeNotifier {
   final Map<String, BrowseLayoutMode> _modes = <String, BrowseLayoutMode>{};
 
   /// 网格标题风格（全局一个值；与布局档位存在同一个文件里）。
-  GridTitleStyle _titleStyle = GridTitleStyle.overlay;
+  GridTitleStyle _titleStyle = GridTitleStyle.below;
 
   /// 落盘时用的保留键（不是板块 id，读的时候会被跳过）。
   static const String titleStyleKey = 'gridTitleStyle';
@@ -156,6 +156,13 @@ class BrowseLayoutSettings extends ChangeNotifier {
         final mode = BrowseLayoutMode.fromId('$value');
         if (mode != null) _modes['$key'] = mode;
       });
+      if (decoded['compactHomeV1'] != '1') {
+        for (final section in [Section.novel, Section.comic, Section.video]) {
+          _modes[section.id] = BrowseLayoutMode.grid3;
+        }
+        _titleStyle = GridTitleStyle.below;
+        await _persist();
+      }
       notifyListeners();
     } catch (error, stackTrace) {
       LumeLog.warn('浏览页布局偏好读取失败，按默认处理: $error');
@@ -173,6 +180,7 @@ class BrowseLayoutSettings extends ChangeNotifier {
       // 直接编码 _modes 会抛「Converting object to an encodable object failed」，
       // 而这句异常会被下面的 catch 吞掉——表现成「设置看着生效了，重启就丢」。
       final payload = <String, String>{
+        'compactHomeV1': '1',
         ..._modes.map((key, mode) => MapEntry(key, mode.id)),
         titleStyleKey: _titleStyle.id,
       };

@@ -25,7 +25,12 @@ import 'comic_shelf_page.dart';
 /// 隔离：阅读库、缓存目录、图源都只属于漫画板块；小说板块走同一套代码，
 /// 但拿到的 Section 不同，因此两边数据、缓存、图源完全不交叉。
 class ComicPage extends StatefulWidget {
-  const ComicPage({super.key, this.library, this.manager, this.runtimeAvailable});
+  const ComicPage({
+    super.key,
+    this.library,
+    this.manager,
+    this.runtimeAvailable,
+  });
 
   /// 阅读库；为空时按板块打开正式实现（测试可注入）。
   final ReadingLibrary? library;
@@ -80,7 +85,8 @@ class _ComicPageState extends State<ComicPage> {
 
   Future<void> _boot() async {
     try {
-      final library = widget.library ?? await ReadingLibrary.open(Section.comic);
+      final library =
+          widget.library ?? await ReadingLibrary.open(Section.comic);
       if (!mounted) return;
       setState(() {
         _library = library;
@@ -138,6 +144,7 @@ class _ComicPageState extends State<ComicPage> {
     final sourceManager = widget.manager ?? LumeSources.manager(Section.comic);
     return ReadingHubPage(
       section: Section.comic,
+      manager: widget.manager,
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 小说同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(
@@ -194,7 +201,10 @@ class _ComicPageState extends State<ComicPage> {
   ///
   /// 两条路径共用同一个「打开详情」动作：记录里点条目 = 续读，收藏里点一条
   /// 还没读过的 = 直接进详情页（用户点名：历史图标里要有收藏记录）。
-  Future<void> _openHistory(ReadingLibrary library, SourceManager manager) async {
+  Future<void> _openHistory(
+    ReadingLibrary library,
+    SourceManager manager,
+  ) async {
     void openDetail(LibraryItem item) {
       Navigator.of(context).pop();
       Navigator.of(context).push(
@@ -227,10 +237,8 @@ class _ComicPageState extends State<ComicPage> {
   Future<void> _manageSources() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SourceSectionPage(
-          section: Section.comic,
-          manager: widget.manager,
-        ),
+        builder: (_) =>
+            SourceSectionPage(section: Section.comic, manager: widget.manager),
       ),
     );
     if (!mounted) return;

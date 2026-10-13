@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/session/section.dart';
+import '../../core/source/source.dart';
 import '../../shared/widgets/glass_card.dart';
-import '../shell/board_tabs.dart';
+import '../source/source_subscription_page.dart';
 
 /// 板块阅读外壳：探索 / 书架两个页签（顺序见 [tabLabels]）。
 ///
@@ -19,6 +20,7 @@ class ReadingHubPage extends StatelessWidget {
     required this.shelf,
     required this.explore,
     this.actions,
+    this.manager,
   });
 
   final Section section;
@@ -30,6 +32,7 @@ class ReadingHubPage extends StatelessWidget {
   final Widget explore;
 
   final List<Widget>? actions;
+  final SourceManager? manager;
 
   /// 页签文案（用户要求：**探索在前、书架在后**）。
   ///
@@ -50,13 +53,41 @@ class ReadingHubPage extends StatelessWidget {
         // 会把固定工具栏 / 搜索行挤出屏幕（真机反馈过两次「搜索框不见了」）。
         resizeToAvoidBottomInset: false,
         title: section.label,
-        actions: actions,
-        bottom: const BoardTabHeader(labels: tabLabels),
+        actions: [
+          if (actions?.isNotEmpty == true) actions!.first,
+          IconButton(
+            tooltip: '收藏',
+            icon: const Icon(Icons.bookmark_outline),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => DefaultTabController(
+                  length: 2,
+                  child: GlassScaffold(
+                    title: '${section.label}收藏',
+                    child: shelf,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: '订阅',
+            icon: const Icon(Icons.rss_feed),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    SourceSubscriptionPage(section: section, manager: manager),
+              ),
+            ),
+          ),
+        ],
         behindBar: true,
         floatingBar: true,
         mergeHomeHeader: true,
         // 顺序与 tabLabels 一一对应：探索在前。
-        child: BoardTabs(children: <Widget>[explore, shelf]),
+        child: explore,
       ),
     );
   }

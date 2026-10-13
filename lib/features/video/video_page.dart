@@ -17,8 +17,7 @@ import '../../shared/widgets/chapter_tile.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../reading/explore_view.dart';
 import '../reading/history_sheet.dart';
-import '../source/add_source_button.dart';
-import '../source/source_section_page.dart';
+import '../source/source_subscription_page.dart';
 import 'source_playback.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
@@ -158,20 +157,6 @@ class _VideoPageState extends State<VideoPage> {
 
   /// 图源变更后重挂浏览面：列表与当前图源重新解析。
   void _onSourcesChanged() => setState(() => _browseRevision++);
-
-  /// 打开本板块的图源管理页（启用 / 禁用 / 重命名 / 导出 / 删除都在那里）。
-  Future<void> _manageSources() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SourceSectionPage(
-          section: Section.video,
-          manager: widget.sourceManager,
-        ),
-      ),
-    );
-    if (!mounted) return;
-    _onSourcesChanged();
-  }
 
   // ------------------------------------------------------ 图源条目 → 独立播放器
 
@@ -530,13 +515,16 @@ class _VideoPageState extends State<VideoPage> {
   /// 真机反馈：时钟图标点进来是「随手看一眼就回去」，因此**不新开全屏页面**。
   /// 首页不再有「继续观看」区块（用户要求删除），因此抽屉是播放记录的**唯一**
   /// 入口：删单条 / 清空也都在里面（视频的记录就是它的「书架」，清掉不丢别的）。
-  Future<void> _openHistory() async {
+  Future<void> _openHistory({bool favorites = false}) async {
     final library = _library;
     if (library == null) return;
     await showReadingHistorySheet(
       context: context,
       section: Section.video,
       library: library,
+      initialTab: favorites
+          ? HistoryDrawerTab.favorites
+          : HistoryDrawerTab.records,
       onResume: (item, progress) {
         if (progress is! VideoProgress) return;
         Navigator.of(context).pop();
@@ -566,15 +554,26 @@ class _VideoPageState extends State<VideoPage> {
       onPressed: _openHistory,
     ),
     IconButton(
-      tooltip: '源管理',
-      icon: const Icon(Icons.source_outlined),
-      onPressed: _manageSources,
+      tooltip: '收藏',
+      icon: const Icon(Icons.bookmark_outline),
+      onPressed: () => _openHistory(favorites: true),
     ),
     // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
-    AddSourceButton(
-      section: Section.video,
-      manager: widget.sourceManager,
-      onImported: _onSourcesChanged,
+    IconButton(
+      tooltip: '订阅',
+      icon: const Icon(Icons.rss_feed),
+      onPressed: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => SourceSubscriptionPage(
+              section: Section.video,
+              manager: widget.sourceManager,
+            ),
+          ),
+        );
+        if (mounted) _onSourcesChanged();
+      },
     ),
   ];
 

@@ -21,7 +21,12 @@ import 'novel_shelf_page.dart';
 /// Section 是小说，因此阅读库、缓存目录、图源全部落在 `sections/novel/` 之下，
 /// 与漫画互不可见。小说不需要图片缓存（正文是文本），因此不挂缓存管理入口。
 class NovelPage extends StatefulWidget {
-  const NovelPage({super.key, this.library, this.manager, this.runtimeAvailable});
+  const NovelPage({
+    super.key,
+    this.library,
+    this.manager,
+    this.runtimeAvailable,
+  });
 
   /// 阅读库；为空时按板块打开正式实现（测试可注入）。
   final ReadingLibrary? library;
@@ -72,7 +77,8 @@ class _NovelPageState extends State<NovelPage> {
 
   Future<void> _boot() async {
     try {
-      final library = widget.library ?? await ReadingLibrary.open(Section.novel);
+      final library =
+          widget.library ?? await ReadingLibrary.open(Section.novel);
       if (!mounted) return;
       setState(() {
         _library = library;
@@ -118,6 +124,7 @@ class _NovelPageState extends State<NovelPage> {
     final manager = widget.manager ?? LumeSources.manager(Section.novel);
     return ReadingHubPage(
       section: Section.novel,
+      manager: widget.manager,
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 漫画同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(
@@ -202,10 +209,8 @@ class _NovelPageState extends State<NovelPage> {
   Future<void> _manageSources() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SourceSectionPage(
-          section: Section.novel,
-          manager: widget.manager,
-        ),
+        builder: (_) =>
+            SourceSectionPage(section: Section.novel, manager: widget.manager),
       ),
     );
     if (!mounted) return;

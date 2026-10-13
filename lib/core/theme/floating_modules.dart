@@ -21,7 +21,7 @@ class FloatingStyle {
     this.opacity = .12,
     this.x = 0,
     this.y = 0,
-    this.blur = 0,
+    this.blur = 3,
   });
   final double opacity, x, y, blur;
   Offset get offset => Offset(x, y);
@@ -54,7 +54,7 @@ class FloatingStyle {
       opacity: read('opacity', .12, 0, 1),
       x: read('x', 0, -40, 40),
       y: read('y', 0, -40, 80),
-      blur: 0,
+      blur: read('blur', 3, 0, 6),
     );
   }
 }
@@ -78,11 +78,11 @@ class FloatingModules extends ChangeNotifier {
             final raw = data[module.name];
             if (raw is Map) {
               final previous = FloatingStyle.fromJson(raw);
-              _styles[module] = data['_clearGlassVersion'] == 1
+              _styles[module] = data['_microGlassVersion'] == 1
                   ? previous
                   : previous.copyWith(
                       opacity: previous.opacity.clamp(0, .12),
-                      blur: 0,
+                      blur: 3,
                     );
             }
           }
@@ -96,7 +96,7 @@ class FloatingModules extends ChangeNotifier {
   }
 
   void set(FloatingModule module, FloatingStyle value) {
-    value = value.copyWith(blur: 0);
+    value = value.copyWith(blur: value.blur.clamp(0, 6));
     _styles[module] = module == FloatingModule.dock
         ? value.copyWith(y: value.y.clamp(-40, 20))
         : value;
@@ -112,6 +112,7 @@ class FloatingModules extends ChangeNotifier {
       temp.writeAsStringSync(
         jsonEncode({
           '_clearGlassVersion': 1,
+          '_microGlassVersion': 1,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

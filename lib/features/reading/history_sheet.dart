@@ -31,6 +31,7 @@ Future<void> showReadingHistorySheet({
   required void Function(LibraryItem item, ReadingProgress progress) onResume,
   void Function(LibraryItem item)? onOpenItem,
   DateTime Function()? clock,
+  HistoryDrawerTab initialTab = HistoryDrawerTab.records,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -42,6 +43,7 @@ Future<void> showReadingHistorySheet({
       onResume: onResume,
       onOpenItem: onOpenItem,
       clock: clock,
+      initialTab: initialTab,
     ),
   );
 }
@@ -55,6 +57,7 @@ class ReadingHistorySheet extends StatefulWidget {
     required this.onResume,
     this.onOpenItem,
     this.clock,
+    this.initialTab = HistoryDrawerTab.records,
   });
 
   final Section section;
@@ -70,6 +73,7 @@ class ReadingHistorySheet extends StatefulWidget {
 
   /// 测试用时钟（相对时间的基准）；为空时取当前时间。
   final DateTime Function()? clock;
+  final HistoryDrawerTab initialTab;
 
   /// 记录条数上限（本地库，量级有限）。
   static const int maxEntries = 500;
@@ -89,7 +93,7 @@ enum HistoryDrawerTab {
 }
 
 class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
-  HistoryDrawerTab _tab = HistoryDrawerTab.records;
+  late HistoryDrawerTab _tab = widget.initialTab;
 
   List<({LibraryItem item, ReadingProgress progress})> _entries = const [];
 
@@ -362,10 +366,10 @@ class HistoryEntryTile extends StatelessWidget {
 
   /// 进度条比例：只有算得出比例的形状才画（漫画是页位置，没有总页数）。
   static double? ratioOf(ReadingProgress progress) => switch (progress) {
-        VideoProgress p => p.ratio,
-        NovelProgress p => p.chapterLength > 0 ? p.chapterRatio : null,
-        ComicProgress _ => null,
-      };
+    VideoProgress p => p.ratio,
+    NovelProgress p => p.chapterLength > 0 ? p.chapterRatio : null,
+    ComicProgress _ => null,
+  };
 
   /// 是否已看完（只有视频有「看完」这个明确口径）。
   static bool isFinished(ReadingProgress progress) =>

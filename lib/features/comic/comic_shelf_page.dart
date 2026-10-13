@@ -110,7 +110,13 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
         title: '书架还是空的',
         subtitle: '去探索页找一本，进详情即会留在书架上',
         action: FilledButton(
-          onPressed: () => DefaultTabController.of(context).animateTo(1),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              DefaultTabController.of(context).animateTo(0);
+            }
+          },
           child: const Text('去探索'),
         ),
       );
@@ -119,15 +125,16 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
       onRefresh: () async => _reload(),
       child: GridView.builder(
         // 让出玻璃顶栏（标题 + 页签条）：内边距随内容滚走，列表从栏下穿过。
-        padding: GlassScaffold.barInset(context, extra: BoardTabHeader.height).add(
-          EdgeInsets.fromLTRB(
-            16,
-            12,
-            16,
-            // 滚到最末才真正让出悬浮 Dock 那一段（没滚到底不预留）。
-            24 + ShellDockScope.bottomInset(context),
-          ),
-        ),
+        padding: GlassScaffold.barInset(context, extra: BoardTabHeader.height)
+            .add(
+              EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                // 滚到最末才真正让出悬浮 Dock 那一段（没滚到底不预留）。
+                24 + ShellDockScope.bottomInset(context),
+              ),
+            ),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           mainAxisSpacing: 14,
@@ -161,10 +168,7 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
                   progress?.describe() ?? '共 ${item.chapterCount} 章',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: LumeTheme.muted,
-                  ),
+                  style: TextStyle(fontSize: 10, color: LumeTheme.muted),
                 ),
               ],
             ),

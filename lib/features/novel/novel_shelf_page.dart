@@ -152,7 +152,13 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
         title: '书架还是空的',
         subtitle: '去探索页找一本，进详情即会留在书架上',
         action: FilledButton(
-          onPressed: () => DefaultTabController.of(context).animateTo(1),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              DefaultTabController.of(context).animateTo(0);
+            }
+          },
           child: const Text('去探索'),
         ),
       );
@@ -195,7 +201,9 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                     ? Icons.grid_view_rounded
                     : Icons.view_list_rounded,
                 size: 20,
-                color: _viewMode == mode ? LumeTheme.accent : LumeTheme.textSecondary,
+                color: _viewMode == mode
+                    ? LumeTheme.accent
+                    : LumeTheme.textSecondary,
               ),
               onPressed: () => _setViewMode(mode),
             ),
@@ -314,10 +322,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                         progress?.describe() ?? '共 ${item.chapterCount} 章',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: LumeTheme.muted,
-                        ),
+                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
                       ),
                     ],
                   ),
