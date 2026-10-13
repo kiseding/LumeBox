@@ -223,22 +223,13 @@ void main() {
       return meter;
     }
 
-    testWidgets('测不到读数：按钮显示「测速失败」，与「还没测」区分开', (tester) async {
+    testWidgets('原测速失败入口已删除', (tester) async {
       final meter = await pumpPlayer(tester);
-      expect(find.text('测速'), findsOneWidget, reason: '还没测时是「测速」');
-
-      await tester.tap(find.text('测速'));
+      meter.failed.value = true;
       await advance(tester);
-
-      expect(meter.kbps.value, isNull, reason: '没读到有效数据就没有读数');
-      expect(meter.failed.value, isTrue, reason: '失败要被如实标记');
-      expect(
-        find.textContaining('测速失败'),
-        findsOneWidget,
-        reason: '失败要当场说出来（真机反馈：以前点了只像没反应）',
-      );
-      expect(find.text('测速'), findsNothing);
+      expect(find.textContaining('测速'), findsNothing);
     }, timeout: const Timeout(Duration(seconds: 60)));
+
   });
 
   // ------------------------------------------------------------------ P0-1

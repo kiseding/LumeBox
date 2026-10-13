@@ -32,6 +32,9 @@ enum PipState {
 
 /// 原生画中画事件类型。
 enum PipEventKind {
+  play('play'),
+  pause('pause'),
+  skip('skip'),
   /// 已进入画中画。
   entered('entered'),
 
@@ -311,6 +314,10 @@ class PipSession {
   void _onBackendEvent(PipEvent event) {
     if (_destroyed) return;
     switch (event.kind) {
+      case PipEventKind.play:
+      case PipEventKind.pause:
+      case PipEventKind.skip:
+        _notify(event);
       case PipEventKind.entered:
         _cancelWatch();
         _emit(const PipSnapshot(state: PipState.active));

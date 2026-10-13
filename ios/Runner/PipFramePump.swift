@@ -41,6 +41,7 @@ final class PipFramePump {
   /// 释放显示层与缓冲池（退出画中画 / 页面销毁时调用）。
   func teardown() {
     displayLayer?.flushAndRemoveImage()
+    displayLayer?.removeFromSuperlayer()
     displayLayer = nil
     pool = nil
     poolWidth = 0
@@ -67,7 +68,8 @@ final class PipFramePump {
       droppedFrames += 1
       return false
     }
-    guard ensureDisplayLayer(), let layer = displayLayer else { return false }
+    ensureDisplayLayer()
+    guard let layer = displayLayer else { return false }
     guard let buffer = makePixelBuffer(width: width, height: height) else {
       droppedFrames += 1
       return false
@@ -94,6 +96,10 @@ final class PipFramePump {
     guard let sample = makeSampleBuffer(from: buffer, timestampMs: timestampMs) else {
       droppedFrames += 1
       return false
+    }
+    if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true)
+      as? [NSMutableDictionary], let attachment = attachments.first {
+      attachment[kCMSampleBufferAttachmentKey_DisplayImmediately as String] = true
     }
 
     // 层可能处于「需要重启」状态（切后台回来常见）：先 flush 再入队。

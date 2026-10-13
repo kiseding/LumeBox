@@ -59,6 +59,27 @@ class PipFramePump {
   /// 取帧失败次数（诊断）。
   int get captureFailures => _captureFailures;
 
+  /// 开窗之前先送一帧建立原生内容源，暂停播放时也能准备。
+  Future<bool> prime() async {
+    if (_pumping) return false;
+    _running = true;
+    _pumping = true;
+    frameSource.resetStats();
+    try {
+      final frame = await engine.captureFrame();
+      if (!_running || frame == null) return false;
+      return await frameSource.submitFrame(
+        pixels: frame.toTightBgra(), width: frame.width, height: frame.height,
+        timestamp: Duration.zero,
+      );
+    } catch (error, stackTrace) {
+      LumeLog.error(error, stackTrace);
+      return false;
+    } finally {
+      _pumping = false;
+    }
+  }
+
   /// 开始转发。
   void start() {
     if (isPumping) return;

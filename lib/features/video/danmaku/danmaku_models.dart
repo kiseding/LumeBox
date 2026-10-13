@@ -32,6 +32,7 @@ class DanmakuItem {
   /// 时间接受三种写法：`time`（毫秒）、`t`（毫秒）、`timeSeconds`（秒，带小数）。
   /// 无法识别时返回 null——坏条目跳过，不让它污染整份弹幕。
   static DanmakuItem? parse(Object? json) {
+    if (json is DanmakuItem) return json;
     if (json is! Map) return null;
     final text = '${json['text'] ?? json['content'] ?? json['m'] ?? ''}'.trim();
     if (text.isEmpty) return null;

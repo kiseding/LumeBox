@@ -56,6 +56,27 @@ void main() {
   });
 
   group('帧泵节拍', () {
+    test('开窗前主动送首帧，不依赖播放节拍或已进入事件', () async {
+      final engine = engineWith([frame(), frame()]);
+      final received = <Map<String, Object?>>[];
+      final source = PipFrameSource()..attach((frame) async => received.add(frame));
+      final pump = PipFramePump(engine: engine, frameSource: source);
+      addTearDown(pump.stop);
+      expect(await pump.prime(), isTrue);
+      expect(received, hasLength(1));
+      expect(pump.isPumping, isFalse);
+      expect(await pump.prime(), isTrue);
+      expect(received, hasLength(2));
+    });
+
+    test('原生拒收首帧时不宣告就绪', () async {
+      final source = PipFrameSource()..attach((_) async => throw StateError('rejected'));
+      final pump = PipFramePump(engine: engineWith([frame()]), frameSource: source);
+      addTearDown(pump.stop);
+      expect(await pump.prime(), isFalse);
+      expect(source.submittedFrames, 0);
+    });
+
     test('未启动时不取帧', () async {
       final engine = engineWith(<MpvVideoFrame>[frame()]);
       final pump = PipFramePump(engine: engine, frameSource: PipFrameSource());

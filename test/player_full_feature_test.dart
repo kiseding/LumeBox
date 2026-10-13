@@ -22,6 +22,9 @@ import 'package:lume_box/features/video/player_source_sheet.dart';
 import 'package:lume_box/features/video/player_speed_meter.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_overlay.dart';
+import 'support/fake_source_manager.dart';
 
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
 /// 统一控制面板、清晰度切换、统一提示。
@@ -260,6 +263,8 @@ void main() {
       List<VideoQuality> qualities = const <VideoQuality>[],
       _FakePlayer? player,
       PlaybackSpeedMeter? speedMeter,
+      VideoPlayTarget? target,
+      SourceManager? sourceManager,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -272,6 +277,8 @@ void main() {
             qualities: qualities,
             catalog: catalog ?? const _AllKernelsCatalog(),
             speedMeter: speedMeter,
+            target: target,
+            sourceManager: sourceManager,
             playerFactory: (kernel) {
               final created_ = player ?? _FakePlayer(kernel: kernel);
               created.add(created_);
@@ -297,35 +304,48 @@ void main() {
       expect(find.byType(TextField), findsNothing, reason: '控制栏不再直接展示长链接');
     });
 
-    testWidgets('进度条右下两个文字入口：播放器 / 字幕（用户点名）', (tester) async {
+    testWidgets('控制栏只保留一处设置入口，删除重复文字按钮', (tester) async {
       await pump(tester);
-
-      // 两个入口是**文字按钮**（不是又两颗图标），文案就是那两个字。
-      // 两套布局（全屏浮层右下角 / 常规面板右排）共用同一份入口，因此至少一颗；
-      // 屏幕小的档位另一套会收起，不在这里断言具体数量。
-      expect(
-        find.byTooltip('播放器设置（内核 / 画面 / 手势 / 控制栏）'),
-        findsWidgets,
-        reason: '「播放器」文字入口',
-      );
-      expect(
-        find.byTooltip('字幕设置（开关 / 字号 / 颜色 / 描边 / 阴影 / 垂直偏移 / 延迟）'),
-        findsWidgets,
-        reason: '「字幕」文字入口',
-      );
-      expect(find.widgetWithText(TextButton, '播放器'), findsWidgets);
-      expect(find.widgetWithText(TextButton, '字幕'), findsWidgets);
-
-      // 点「字幕」要真的把设置面板打开（字幕段就在那个面板里）。
-      await tester.tap(find.widgetWithText(TextButton, '字幕').first);
+      expect(find.widgetWithText(TextButton, '播放器'), findsNothing);
+      expect(find.widgetWithText(TextButton, '字幕'), findsNothing);
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
+      expect(find.byTooltip('播放源'), findsOneWidget);
+      await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      // 面板确实打开了（字幕段就在这个面板里，其内容由 player_settings_page_test
-      // 与字幕三项的单测覆盖；这里只钉「文字入口点了有反应」）。
-      expect(
-        find.byType(BottomSheet),
-        findsWidgets,
-        reason: '点「字幕」要弹出设置面板',
-      );
+      expect(find.byType(BottomSheet), findsWidgets);
+    });
+
+    testWidgets('旧的 0.75x 不影响新播放，画面默认按原比例适应', (tester) async {
+      final library = ReadingLibrary.find(Section.video)!;
+      VideoPlayerSettingsStore(library).save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
+      final players = await pump(tester);
+      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
+      await tester.pumpAndSettle();
+      final picture = tester.getRect(find.text('fake-view'));
+      expect(picture.width, closeTo(900, 1));
+      expect(picture.width / picture.height, closeTo(16 / 9, 0.01));
+    });
+
+    testWidgets('弹幕关闭时发送本机弹幕：自动开启且新弹幕留在画面轨道', (tester) async {
+      final player = _FakePlayer();
+      await pump(tester, player: player,
+        target: const VideoPlayTarget(sourceId: 'local', itemId: 'i', title: '片名',
+          chapterIndex: 0, chapterId: 'c', chapterTitle: '第一集'),
+        sourceManager: FakeSourceManager(sources: const []));
+      player.emit(position: const Duration(seconds: 20), duration: const Duration(minutes: 10));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('弹幕：开'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('发弹幕'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '本机弹幕测试');
+      player.emit(position: const Duration(seconds: 25));
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+      final overlay = tester.widget<DanmakuOverlay>(find.byType(DanmakuOverlay));
+      expect(overlay.settings.enabled, isTrue);
+      expect(overlay.track.items.single.text, '本机弹幕测试');
+      expect(overlay.track.items.single.time, const Duration(seconds: 25));
     });
 
     testWidgets('播放源弹窗：展示当前地址、复制、按线路切换、手动贴地址', (tester) async {
@@ -568,39 +588,20 @@ void main() {
       expect(sliderY, lessThan(buttonY));
     });
 
-    testWidgets('网速：点「测速」实测播放地址，读数显示在信息行', (tester) async {
+    testWidgets('删除测速入口与自动探测，不再与视频争用网络', (tester) async {
       final client = _CountingClient(bytes: 256 * 1024);
-      final meter = PlaybackSpeedMeter(
-        http: LumeHttp(client: client, source: '测速'),
-      );
+      final meter = PlaybackSpeedMeter(http: LumeHttp(client: client));
       addTearDown(meter.dispose);
       final players = await pump(tester, speedMeter: meter);
-
-      // 测速**不在起播关键路径上**（用户口径：别与首帧抢带宽，也别把播放器自己的
-      // 下载算进读数）：起播那一刻不测。
-      expect(client.urls, isEmpty, reason: '首帧之前不测速');
-
-      // 第一帧画出来（playing 且不在缓冲）之后，还要过一档宽限才测。
-      players.single.emit(playing: true);
-      await tester.pump();
-      expect(client.urls, isEmpty, reason: '刚出首帧也不立刻测，先让画面稳下来');
-
-      await tester.pump(const Duration(seconds: 4));
+      players.single.emit(playing: true, duration: const Duration(minutes: 10));
+      await tester.pump(const Duration(seconds: 10));
+      expect(client.urls, isEmpty);
+      expect(find.textContaining('测速'), findsNothing);
+      await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-      expect(client.urls, hasLength(1), reason: '首帧之后自动测一次（同一地址不重复测）');
-      expect(
-        client.headers.first['Range'],
-        startsWith('bytes=0-'),
-        reason: '用 Range 只取前一段，不把整片视频拉下来',
-      );
-      expect(meter.kbps.value, isNotNull, reason: '读数已经出来了');
-      expect(find.textContaining('网速'), findsOneWidget, reason: '信息行显示实测网速');
-
-      // 点一下强制重测。
-      await tester.tap(find.byIcon(Icons.speed));
-      await tester.pumpAndSettle();
-      expect(client.urls, hasLength(2), reason: '点「网速」可强制重测');
-      expect(find.textContaining('网速'), findsOneWidget);
+      expect(find.textContaining('测速'), findsNothing);
+      expect(find.widgetWithText(TextButton, '播放器'), findsNothing);
+      expect(find.widgetWithText(TextButton, '字幕'), findsNothing);
     });
 
     testWidgets('全屏：收起控制栏与顶栏，点画面唤回', (tester) async {

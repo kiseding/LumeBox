@@ -178,8 +178,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     final children = <Widget>[
                       _section(
                         '播放内核',
-                        '三套内核运行时可切换（各有独立解码链）；'
-                        '倍速、画面与字幕设置**按内核分别记住**',
+                        '切换播放内核；倍速、画面与字幕设置分别保存',
                       ),
                       PlayerKernelPicker(
                         selected: settings.kernel,

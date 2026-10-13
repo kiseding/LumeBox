@@ -265,18 +265,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   /// 进度条拖动预览的目标位置（拖动中显示，松手才真 seek）。
   Duration? _previewTarget;
 
-  /// 网速表：按播放地址实测（三套内核都适用，见 [PlaybackSpeedMeter]）。
-  late final PlaybackSpeedMeter _speed = widget.speedMeter ?? PlaybackSpeedMeter();
-
-  /// 起播自动测速的排期（见 [_scheduleSpeedProbe]）；换媒体与退出页面都会取消。
-  Timer? _speedProbeTimer;
-
-  /// 当前这条媒体是否已经测过（同一地址不重复自动测；手动「测速」仍可强制重测）。
-  bool _speedProbeFired = false;
-
-  /// 首帧之后再等多久才测速。
-  static const Duration _speedProbeGrace = Duration(seconds: 3);
-
   /// 进度落盘节流：播放中每 5 秒写一次，暂停 / 切集 / 退出时立即写。
   Timer? _progressTimer;
   static const Duration _progressInterval = Duration(seconds: 5);
@@ -296,6 +284,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   /// 画中画帧转发泵：画中画激活期间按帧率节拍取帧并转发（仅 MPV 内核）。
   PipFramePump? _framePump;
+  bool? _pipPlaying;
+  Duration? _pipDuration;
+  bool _pipPreparing = false;
 
   /// 手势进行态（亮度 / 音量 / 进度 / 长按倍速）。
   PlayerGestureState _gesture = PlayerGestureState.idle;
@@ -409,9 +400,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _progressTimer = null;
     _autoHideTimer?.cancel();
     _autoHideTimer = null;
-    // 起播测速的排期（见 [_scheduleSpeedProbe]）：页面走了就不再测。
-    _speedProbeTimer?.cancel();
-    _speedProbeTimer = null;
     _saveProgress(force: true);
 
     PlaybackOrientationController.instance
@@ -435,6 +423,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     // 资源边界：先退画中画再释放播放器，最后关库（顺序不能反）。
     unawaited(() async {
       await session?.dispose();
+      _stopFrameForwarding();
+      final backend = session?.backend;
+      if (backend is MethodChannelPipBackend) await backend.teardownFrames();
       await player?.dispose();
     }());
     // 预启动的实例没人接手（页面没起播就退了 / 内核库打不开）：就地释放，
@@ -447,12 +438,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _input.dispose();
     _idleSnapshot.dispose();
     // 注入进来的网速表由调用方释放。
-    if (widget.speedMeter == null) _speed.dispose();
     super.dispose();
   }
 
   /// 播放状态变化：在「从播放转为非播放」时立即落盘进度，并检查是否播完。
   void _onSnapshotChanged() {
+    _syncPipPlaybackState();
     final snapshot = _player?.snapshot.value;
     final playing = snapshot?.playing ?? false;
     if (_wasPlaying && !playing && !_suppressProgressSave) {
@@ -468,8 +459,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _wasPlaying = playing;
     if (snapshot != null) {
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
-      // [_scheduleSpeedProbe]）。
-      if (playing && !snapshot.buffering) _scheduleSpeedProbe();
       // 片头片尾：每次快照变化判一次（判定本身是纯函数，跳过一次后不再重复）。
       _maybeSkip(_skipMarks, snapshot.position, snapshot.duration);
       // 锁屏播放条跟随播放状态（进度在会话内部节流，不必在这里省）。
@@ -567,7 +556,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         return;
       }
       _store = store;
-      _settings = store.load();
+      // 新播放默认按媒体比例适应，旧的缩小档位不影响新播放。
+      _settings = store.load().copyWith(zoom: ZoomMode.fit);
       if (mounted) setState(() {});
     } catch (error, stackTrace) {
       // 本板块的库打不开：起不了播放器，页面给出可读提示。
@@ -627,6 +617,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   /// 3. **落库失败不拖垮播放**：写设置库失败只记日志并提示。
   Future<void> _rebuildPlayer() async {
     final seq = ++_rebuildSeq;
+    if (_session?.state == PipState.active || _session?.state == PipState.entering) {
+      await _session?.exit();
+      if (!mounted || seq != _rebuildSeq) return;
+    }
+    _stopFrameForwarding();
     // 先落盘：此刻旧播放器还活着，位置是准的。随后整个重建期间抑制自动落盘
     //（见 [_suppressProgressSave]）。
     _saveProgress(force: true);
@@ -785,13 +780,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final player = _player;
     if (player == null) return;
     _media = media;
-    // 换媒体（换集 / 换线路）即作废上一条的测速排期：等这一集的**首帧**再重新排。
-    _speedProbeTimer?.cancel();
-    _speedProbeTimer = null;
-    _speedProbeFired = false;
     if (mounted) setState(() => _loaded = false);
     await player.load(media);
-    // 测速**不在起播路径上**：等首帧（见 [_scheduleSpeedProbe]）。
     // 起播那几秒里同一个 CDN 域名上多一条 256KB 探测，就是和首帧缓冲抢带宽。
     if (!mounted) return;
     setState(() => _loaded = player.snapshot.value.error == null);
@@ -1143,17 +1133,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (result == null || !mounted) return;
 
     final item = DanmakuItem(
-      time: snapshot.position,
+      time: _player?.snapshot.value.position ?? snapshot.position,
       text: result.text,
       mode: result.mode,
     );
 
     final outcome = await _postDanmaku(target, item);
     if (!mounted) return;
+    if (!(_target?.isSameEpisode(target) ?? false)) return;
+    if (!_danmakuSettings.enabled) {
+      _applyDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
+    }
 
     final merged = DanmakuTrack.parse(<Object?>[
       for (final existing in _danmaku.items) existing,
-      item,
+      DanmakuItem(time: _player?.snapshot.value.position ?? item.time,
+          text: item.text, mode: item.mode, color: item.color, fontSize: item.fontSize),
     ]);
     _danmakuCache.put(target.itemId, target.chapterId, merged);
     setState(() => _danmaku = merged);
@@ -1374,6 +1369,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   // ---------------------------------------------------------------- 画中画
 
   Future<void> _togglePip() async {
+    if (_pipPreparing) return;
+    _pipPreparing = true;
+    try {
     final session = _session;
     if (session == null) return;
 
@@ -1392,19 +1390,57 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       if (!mounted) return;
     }
 
+    if (session.state != PipState.active) {
+      final backend = widget.pipBackend;
+      if (backend == null || backend is MethodChannelPipBackend) {
+        final engine = _mpvEngineOf(_player);
+        final nativeBackend = session.backend;
+        if (engine == null || nativeBackend is! MethodChannelPipBackend) {
+          _showToast('当前内核无法提供画中画视频帧');
+          return;
+        }
+        _framePump ??= PipFramePump(engine: engine, frameSource: nativeBackend.frameSource);
+        final snapshot = _player?.snapshot.value;
+        if (snapshot != null) {
+          await nativeBackend.updatePlaybackState(playing: snapshot.playing, duration: snapshot.duration);
+        }
+        final ready = await _framePump!.prime().timeout(
+          const Duration(seconds: 3), onTimeout: () => false,
+        );
+        if (!mounted) return;
+        if (!ready) {
+          _stopFrameForwarding();
+          _showToast('画中画视频帧未就绪，请等画面出现后重试');
+          return;
+        }
+      }
+    }
     final outcome = session.state == PipState.active
         ? await session.exit()
         : await session.enter();
     if (!mounted) return;
     final rejection = outcome.rejection;
-    if (rejection != null) _showToast(rejection);
+    if (rejection != null) {
+      _stopFrameForwarding();
+      _showToast(rejection);
+    }
+    } finally {
+      _pipPreparing = false;
+    }
   }
 
   /// 画中画事件回调：原生失败给可读提示；进入 / 退出时开关帧转发。
   void _onPipEvent(PipEvent event) {
     if (!mounted) return;
     switch (event.kind) {
+      case PipEventKind.play:
+        unawaited(_player?.play());
+      case PipEventKind.pause:
+        unawaited(_player?.pause());
+      case PipEventKind.skip:
+        unawaited(_seekBy(Duration(milliseconds: int.tryParse(event.message ?? '') ?? 0)));
       case PipEventKind.failed:
+        _stopFrameForwarding();
         _showToast(event.message ?? '画中画失败');
       case PipEventKind.entered:
         _startFrameForwarding();
@@ -1418,7 +1454,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   /// 开始帧转发（仅 MPV 内核需要：AVPlayer 走原生 `AVPlayerLayer` 通路）。
   void _startFrameForwarding() {
     final player = _player;
-    final backend = widget.pipBackend ?? createPlatformPipBackend();
+    final backend = _session?.backend;
     final engine = _mpvEngineOf(player);
     if (player == null || backend is! MethodChannelPipBackend) {
       LumeLog.info('[player] 当前内核不需要帧转发（或画中画后端非原生）');
@@ -1437,6 +1473,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _stopFrameForwarding() {
     _framePump?.stop();
+    _framePump = null;
+  }
+
+  void _syncPipPlaybackState() {
+    final backend = _session?.backend;
+    final snapshot = _player?.snapshot.value;
+    if (backend is! MethodChannelPipBackend || snapshot == null) return;
+    if (_pipPlaying == snapshot.playing && _pipDuration == snapshot.duration) return;
+    _pipPlaying = snapshot.playing;
+    _pipDuration = snapshot.duration;
+    unawaited(backend.updatePlaybackState(playing: snapshot.playing, duration: snapshot.duration));
+  }
+
+  void _toggleDanmaku() {
+    final enabled = !_danmakuSettings.enabled;
+    _applyDanmakuSettings(_danmakuSettings.copyWith(enabled: enabled));
+    if (enabled && _danmaku.isEmpty) _showToast('本集暂无弹幕，可以发送本机弹幕');
   }
 
   /// 取播放器背后的 MPV 引擎（非 MPV 内核返回 null）。
@@ -1975,39 +2028,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         padding: const EdgeInsets.fromLTRB(4, 4, 8, 12),
         child: Row(
           children: <Widget>[
-            // 最左角：实时下载网速（点一下重测）。测速失败时显示「测速」而不是编个数。
-            ValueListenableBuilder<int?>(
-              valueListenable: _speed.kbps,
-              builder: (context, kbps, _) => ValueListenableBuilder<bool>(
-                valueListenable: _speed.busy,
-                builder: (context, busy, _) => ValueListenableBuilder<bool>(
-                  valueListenable: _speed.failed,
-                  builder: (context, failed, _) => TextButton(
-                    onPressed: _measureSpeed,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(40, 36),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: Text(
-                      // 失败如实说「测速失败」：以前失败和「还没测」都显示「测速」，
-                      // 用户点了只觉得没反应（真机反馈）。
-                      busy
-                          ? '…'
-                          : (PlaybackSpeedMeter.describe(kbps) ??
-                              (failed ? '测速失败' : '测速')),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        shadows: <Shadow>[Shadow(color: Colors.black54, blurRadius: 6)],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
             _topIcon(
               icon: Icons.close,
               tooltip: '关闭（退出全屏）',
@@ -2053,9 +2073,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               icon: Icons.subtitles_outlined,
               tooltip: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
               highlighted: _danmakuSettings.enabled,
-              onPressed: () => _applyDanmakuSettings(
-                _danmakuSettings.copyWith(enabled: !_danmakuSettings.enabled),
-              ),
+              onPressed: _toggleDanmaku,
             ),
             // 倍速：小按钮留在顶栏（用户点名不藏进弹窗）。
             _topIcon(
@@ -2533,34 +2551,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     ),
                   ),
           ),
-          ValueListenableBuilder<int?>(
-            valueListenable: _speed.kbps,
-            builder: (context, kbps, _) => ValueListenableBuilder<bool>(
-              valueListenable: _speed.busy,
-              builder: (context, busy, _) => ValueListenableBuilder<bool>(
-                valueListenable: _speed.failed,
-                builder: (context, failed, _) => TextButton.icon(
-                  onPressed: _measureSpeed,
-                  icon: busy
-                      ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.speed, size: 16),
-                  label: Text(
-                    // 三态分开：测速中 / 读数 / （失败 · 未测）。
-                    busy
-                        ? '测速中'
-                        : (PlaybackSpeedMeter.describe(kbps) == null
-                            ? (failed ? '测速失败（可重试）' : '测速')
-                            : '网速 ${PlaybackSpeedMeter.describe(kbps)}'),
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              ),
-            ),
-          ),
+
         ],
       ),
     );
@@ -2576,38 +2567,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       if (stats.bufferText != null) stats.bufferText!,
     ];
     return pieces.isEmpty ? '等待视频参数…' : pieces.join(' · ');
-  }
-
-  /// 手动测速（同一地址强制重测一次）。
-  void _measureSpeed() {
-    final media = _media;
-    if (media == null || !media.isNetwork) {
-      _showToast('当前不是网络地址，无需测速');
-      return;
-    }
-    unawaited(_speed.measure(media.uri, headers: media.headers, force: true));
-  }
-
-  /// 排一次自动测速：**首帧之后**（[playing] 且不在缓冲）再等 [_speedProbeGrace]
-  /// 才真正发探测。
-  ///
-  /// 为什么不能跟着 `load` 一起发（此前的做法）：探测是对**同一个 CDN 域名**再开
-  /// 一条连接要 256KB，而此刻播放器正在为首帧抢带宽——谁慢谁背锅，真机上就是
-  /// 「起播越等越久」；测速本身也测不准（读数里混着播放器的下载）。首帧之后
-  /// 再等几秒，播放器那阵最凶的预取已经过去，读数才是「这条线路的带宽」。
-  ///
-  /// 每条媒体只自动测一次（同一地址 [PlaybackSpeedMeter] 内还会再挡一层）；
-  /// 想立刻要看读数，信息行上的「测速」按钮仍是强制重测的入口。
-  void _scheduleSpeedProbe() {
-    if (_speedProbeTimer != null || _speedProbeFired) return;
-    final media = _media;
-    if (media == null || !media.isNetwork) return;
-    _speedProbeTimer = Timer(_speedProbeGrace, () {
-      _speedProbeTimer = null;
-      if (!mounted) return;
-      _speedProbeFired = true;
-      unawaited(_speed.measure(media.uri, headers: media.headers));
-    });
   }
 
   /// 进度条：拖动中显示预览（松手才真 seek），两端是时间。
@@ -2734,9 +2693,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           icon: Icons.subtitles_outlined,
           tooltip: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
           highlighted: _danmakuSettings.enabled,
-          onPressed: () => _applyDanmakuSettings(
-            _danmakuSettings.copyWith(enabled: !_danmakuSettings.enabled),
-          ),
+          onPressed: _toggleDanmaku,
         ),
         _compactIcon(
           icon: Icons.chat_bubble_outline,
@@ -2753,24 +2710,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           tooltip: _autoNext ? '自动连播：开' : '自动连播：关',
           highlighted: _autoNext,
           onPressed: () => _setAutoNext(!_autoNext),
-        ),
-      ];
-
-  /// 「播放器」「字幕」两个文字入口（用户点名：放在进度条右下方）。
-  ///
-  /// 两处布局（全屏浮层右下角 / 常规面板右排）共用这一份，避免以后一处改了
-  /// 另一处漂移；两者都打开同一个设置面板——字幕段就在那个面板里。
-  List<Widget> _settingsEntryActions() => <Widget>[
-        _textAction(
-          '播放器',
-          tooltip: '播放器设置（内核 / 画面 / 手势 / 控制栏）',
-          onPressed: _openSettings,
-        ),
-        _textAction(
-          '字幕',
-          tooltip: '字幕设置（开关 / 字号 / 颜色 / 描边 / 阴影 / 垂直偏移 / 延迟）',
-          onPressed: _openSettings,
-          highlighted: !_settings.subtitlesEnabled,
         ),
       ];
 
@@ -2805,7 +2744,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           tooltip: '播放器设置',
           onPressed: _openSettings,
         ),
-        ..._settingsEntryActions(),
 
       ];
 
@@ -2881,35 +2819,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             onPressed: _openSourceSheet,
           ),
           // 用户口径：进度条右下方两个**文字**入口（与全屏右下角共用一份）。
-          ..._settingsEntryActions(),
-        ],
-      ),
-    );
-  }
-
-  /// 紧凑的**文字按钮**（用户口径：进度条右下方两个文字入口「播放器」「字幕」）。
-  ///
-  /// 与 [_compactIcon] 同一套配色与高度口径（未选中用 muted、40 高），只是把图标
-  /// 换成文字——用户明确要的是文字按钮，不是又两颗图标。
-  Widget _textAction(
-    String label, {
-    required String tooltip,
-    required VoidCallback? onPressed,
-    bool highlighted = false,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          minimumSize: const Size(44, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
-          foregroundColor: highlighted ? LumeTheme.textPrimary : LumeTheme.muted,
-          textStyle: const TextStyle(fontSize: 13),
-        ),
-        child: Text(label),
+          ],
       ),
     );
   }

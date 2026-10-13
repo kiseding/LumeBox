@@ -13,6 +13,7 @@ void main() {
 
   const methods = MethodChannel(MethodChannelPipBackend.methodChannelName);
   const events = MethodChannel(MethodChannelPipBackend.eventChannelName);
+  const frames = MethodChannel(MethodChannelPipBackend.frameChannelName);
 
   TestDefaultBinaryMessenger messenger() =>
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -20,7 +21,30 @@ void main() {
   tearDown(() {
     messenger()
       ..setMockMethodCallHandler(methods, null)
+      ..setMockMethodCallHandler(frames, null)
       ..setMockMethodCallHandler(events, null);
+  });
+
+  test('原生拒收帧时不会增加成功送帧计数', () async {
+    messenger().setMockMethodCallHandler(frames, (_) async => false);
+    final backend = MethodChannelPipBackend();
+    await expectLater(backend.frameSource.submitFrame(
+      pixels: Uint8List(4), width: 1, height: 1, timestamp: Duration.zero,
+    ), throwsA(isA<PipException>()));
+    expect(backend.frameSource.submittedFrames, 0);
+  });
+
+  test('暂停状态与实际时长传到系统画中画', () async {
+    MethodCall? received;
+    messenger().setMockMethodCallHandler(methods, (call) async {
+      received = call;
+      return null;
+    });
+    await MethodChannelPipBackend().updatePlaybackState(
+      playing: false, duration: const Duration(seconds: 484),
+    );
+    expect(received?.method, 'updateState');
+    expect(received?.arguments, {'playing': false, 'durationMs': 484000.0});
   });
 
   test('原生未接入：isSupported 如实降级为 false，不抛异常', () async {

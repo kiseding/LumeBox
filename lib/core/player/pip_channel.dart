@@ -56,6 +56,16 @@ class MethodChannelPipBackend implements PipBackend {
   @override
   Future<void> stop() => _invoke('stop');
 
+  Future<void> updatePlaybackState({required bool playing, required Duration duration}) async {
+    try {
+      await _methods.invokeMethod<void>('updateState', {
+        'playing': playing, 'durationMs': duration.inMilliseconds.toDouble(),
+      });
+    } catch (error) {
+      LumeLog.info('[pip] 同步播放状态失败：$error');
+    }
+  }
+
   /// 调用原生并把 [PlatformException] 转成可读的 [PipException]。
   ///
   /// 原生会用 `code` / `message` 说明为什么开不了（系统版本、设备能力、内容源
@@ -80,12 +90,14 @@ class MethodChannelPipBackend implements PipBackend {
   /// 把一帧送到原生（失败只记日志：画中画是增强功能，不该影响播放）。
   Future<void> _submitFrame(Map<String, Object?> frame) async {
     try {
-      await _frames.invokeMethod<bool>('submitFrame', frame);
+      final accepted = await _frames.invokeMethod<bool>('submitFrame', frame);
+      if (accepted != true) throw const PipException('原生画中画未接收视频帧');
     } on MissingPluginException {
-      // 原生帧泵未接入：帧源会一直丢弃，`isReady` 语义由调用方判断。
+      throw const PipException('原生画中画帧通道未接入');
     } catch (error, stackTrace) {
       LumeLog.warn('[pip] 帧提交失败: $error');
       LumeLog.error(error, stackTrace);
+      rethrow;
     }
   }
 
