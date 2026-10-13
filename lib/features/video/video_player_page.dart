@@ -2690,65 +2690,57 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     ),
   );
 
-  /// 全屏浮层顶栏（用户口径的排布）：
-  ///
-  /// 返回、旋转与比例在左，标题居中，倍速与唯一锁定按钮在右。
+  // 只给文字和图标投影，避免安全区内的面板背景形成矩形边界。
+  static const _controlShadows = <Shadow>[
+    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
+  ];
+
+  /// 返回、旋转与比例在左，标题居中，唯一锁定按钮在右。
   Widget _buildImmersiveTopBar() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            Colors.black.withValues(alpha: 0.22),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(4, 4, 8, 12),
-        child: Row(
-          children: <Widget>[
-            _topIcon(
-              icon: Icons.close,
-              tooltip: '关闭（退出全屏）',
-              onPressed: () => _setFullscreen(false),
-            ),
-            // 旋转：按「不旋转 → 90° → 180° → 270°」循环，当前角度在提示里。
-            _topIcon(
-              icon: Icons.screen_rotation,
-              tooltip: '旋转（当前：${_settings.rotation.label}）',
-              highlighted: _settings.rotation != RotationMode.none,
-              onPressed: _cycleRotation,
-            ),
-            // 比例：按缩放模式循环（适应 / 填充 / 0.75x / 1.0x / 1.25x / 1.5x）。
-            _topIcon(
-              icon: Icons.aspect_ratio,
-              tooltip: '画面比例（当前：${_settings.zoom.label}）',
-              highlighted: _settings.zoom != ZoomMode.fit,
-              onPressed: _cycleZoom,
-            ),
-            Expanded(
-              child: Text(
-                widget.title ?? _target?.title ?? '播放',
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 8, 12),
+      child: Row(
+        children: <Widget>[
+          _topIcon(
+            icon: Icons.close,
+            tooltip: '关闭（退出全屏）',
+            onPressed: () => _setFullscreen(false),
+          ),
+          // 旋转：按「不旋转 → 90° → 180° → 270°」循环，当前角度在提示里。
+          _topIcon(
+            icon: Icons.screen_rotation,
+            tooltip: '旋转（当前：${_settings.rotation.label}）',
+            highlighted: _settings.rotation != RotationMode.none,
+            onPressed: _cycleRotation,
+          ),
+          // 比例：按缩放模式循环（适应 / 填充 / 0.75x / 1.0x / 1.25x / 1.5x）。
+          _topIcon(
+            icon: Icons.aspect_ratio,
+            tooltip: '画面比例（当前：${_settings.zoom.label}）',
+            highlighted: _settings.zoom != ZoomMode.fit,
+            onPressed: _cycleZoom,
+          ),
+          Expanded(
+            child: Text(
+              widget.title ?? _target?.title ?? '播放',
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                shadows: _controlShadows,
               ),
             ),
-            _topIcon(
-              icon: _locked ? Icons.lock : Icons.lock_open,
-              tooltip: _locked ? '解除锁定' : '锁定（防误触）',
-              highlighted: _locked,
-              onPressed: () => setState(() => _locked = !_locked),
-            ),
-          ],
-        ),
+          ),
+          _topIcon(
+            icon: _locked ? Icons.lock : Icons.lock_open,
+            tooltip: _locked ? '解除锁定' : '锁定（防误触）',
+            highlighted: _locked,
+            onPressed: () => setState(() => _locked = !_locked),
+          ),
+        ],
       ),
     );
   }
@@ -2767,7 +2759,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       padding: EdgeInsets.zero,
       color: highlighted ? Colors.white : Colors.white70,
       tooltip: tooltip,
-      icon: Icon(icon),
+      icon: Icon(icon, shadows: _fullscreen ? _controlShadows : null),
       onPressed: onPressed,
     );
   }
@@ -2830,33 +2822,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏浮层控制栏：进度 + 主要控制 + 次级控制（退出全屏与设置都在里面）。
   Widget _buildFloatingControls() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: <Color>[
-            Colors.black.withValues(alpha: 0.22),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      // 进度条与按钮整体贴底（底部留白 8 → 4，用户要求「进度条挪到更靠近屏幕底部」）；
-      // 任何操作都重新计时，免得手还在点、控制栏先自己收起来。
-      child: Listener(
-        onPointerDown: (_) => _scheduleAutoHide(),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: ValueListenableBuilder<PlayerSnapshot>(
-            valueListenable: _player?.snapshot ?? _idleSnapshot,
-            builder: (context, snapshot, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                _buildProgress(snapshot),
-                const SizedBox(height: 2),
-                _buildFloatingSplitControls(snapshot),
-              ],
-            ),
+    return Listener(
+      onPointerDown: (_) => _scheduleAutoHide(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: ValueListenableBuilder<PlayerSnapshot>(
+          valueListenable: _player?.snapshot ?? _idleSnapshot,
+          builder: (context, snapshot, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _buildProgress(snapshot),
+              const SizedBox(height: 2),
+              _buildFloatingSplitControls(snapshot),
+            ],
           ),
         ),
       ),
@@ -2906,9 +2884,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           padding: EdgeInsets.zero,
           foregroundColor: _fullscreen ? Colors.white : null,
         ),
-        child: const Text(
+        child: Text(
           '弹',
-          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            shadows: _fullscreen ? _controlShadows : null,
+          ),
         ),
       ),
     ),
@@ -3268,6 +3250,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     '等待播放器就绪…',
                     style: TextStyle(
                       fontSize: 12,
+                      shadows: _fullscreen ? _controlShadows : null,
                       color: _fullscreen ? Colors.white70 : LumeTheme.muted,
                     ),
                   )
@@ -3279,6 +3262,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
+                        shadows: _fullscreen ? _controlShadows : null,
                         color: _fullscreen ? Colors.white70 : LumeTheme.muted,
                       ),
                     ),
@@ -3337,6 +3321,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 _format(shown),
                 style: TextStyle(
                   fontSize: 12,
+                  shadows: _fullscreen ? _controlShadows : null,
                   // 拖动预览用高亮色：一眼能看出「这不是当前位置」。
                   color: _fullscreen
                       ? Colors.white70
@@ -3354,6 +3339,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 _format(snapshot.duration),
                 style: TextStyle(
                   fontSize: 12,
+                  shadows: _fullscreen ? _controlShadows : null,
                   color: _fullscreen ? Colors.white70 : LumeTheme.muted,
                 ),
               ),
@@ -3382,7 +3368,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         iconSize: 28,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '后退 10 秒',
-        icon: const Icon(Icons.replay_10),
+        icon: Icon(
+          Icons.replay_10,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
         onPressed: player == null
             ? null
             : () => _seekBy(const Duration(seconds: -10)),
@@ -3393,6 +3382,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         tooltip: playing ? '暂停' : '播放',
         icon: Icon(
           playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+          shadows: _fullscreen ? _controlShadows : null,
         ),
         onPressed: player == null
             ? null
@@ -3404,12 +3394,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         iconSize: 28,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '停止',
-        icon: const Icon(Icons.stop_circle),
+        icon: Icon(
+          Icons.stop_circle,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
         onPressed: player?.stop,
       ),
       IconButton(
         tooltip: '播放速度（${_settings.speed}x）',
-        icon: const Icon(Icons.speed),
+        icon: Icon(Icons.speed, shadows: _fullscreen ? _controlShadows : null),
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         onPressed: _showSpeedPicker,
       ),
@@ -3417,7 +3410,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         iconSize: 28,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '前进 10 秒',
-        icon: const Icon(Icons.forward_10),
+        icon: Icon(
+          Icons.forward_10,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
         onPressed: player == null
             ? null
             : () => _seekBy(const Duration(seconds: 10)),
@@ -3482,7 +3478,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? (highlighted ? Colors.white : Colors.white70)
           : (highlighted ? LumeTheme.textPrimary : LumeTheme.muted),
       tooltip: tooltip,
-      icon: Icon(icon),
+      icon: Icon(icon, shadows: _fullscreen ? _controlShadows : null),
       onPressed: onPressed,
     );
   }
