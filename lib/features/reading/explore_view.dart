@@ -522,7 +522,13 @@ class _ExploreViewState extends State<ExploreView> {
                     for (final option in group.options)
                       _facetChip(
                         option.title,
-                        (_facetFilters[group.id] ?? group.options.first.id) ==
+                        (_facetFilters[group.id] ??
+                                (group.id == 'tid' &&
+                                        group.options.any(
+                                          (o) => o.id == _categoryId,
+                                        )
+                                    ? _categoryId
+                                    : group.options.first.id)) ==
                             option.id,
                         () {
                           setState(() {

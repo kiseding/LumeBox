@@ -143,6 +143,29 @@ void main() {
     expect(find.byType(AppBar), findsNothing);
   });
 
+  testWidgets('分类指定类型时，筛选类型的高亮和实际请求一致', (tester) async {
+    final source = _TypedFilterSource();
+    await show(
+      tester,
+      FakeSourceManager(
+        sources: const [
+          SourceDescriptor(id: 'a', name: '源A', version: '1', enabled: true),
+        ],
+        opened: {'a': source},
+      ),
+    );
+    await tester.tap(find.text('电影分类'));
+    await tester.pumpAndSettle();
+    final button = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, '电影类型'),
+    );
+    expect(
+      button.style!.backgroundColor!.resolve({}),
+      LumeTheme.accent.withValues(alpha: .15),
+    );
+    expect(source.requests.last.$1, '1');
+  });
+
   testWidgets('切源后旧源晚返回的分类和筛选不能覆盖新源', (tester) async {
     final old = _FilterSource('a', '旧分类', '旧筛选', '旧选项')
       ..pendingCategories = Completer<List<SourceCategory>>();
@@ -200,6 +223,25 @@ class _ManyFilterSource extends _FilterSource {
         title: '网站第$i行',
         options: [SourceFilterOption(id: 'pick$i', title: '第五组条件$i')],
       ),
+  ];
+}
+
+class _TypedFilterSource extends _FilterSource {
+  _TypedFilterSource() : super('a', '电影分类', '类型', '电影类型');
+  @override
+  Future<List<SourceCategory>> categories() async => const [
+    SourceCategory(id: '1', title: '电影分类'),
+  ];
+  @override
+  Future<List<SourceFilterGroup>> filters() async => const [
+    SourceFilterGroup(
+      id: 'tid',
+      title: '类型',
+      options: [
+        SourceFilterOption(id: '0', title: '全部'),
+        SourceFilterOption(id: '1', title: '电影类型'),
+      ],
+    ),
   ];
 }
 
