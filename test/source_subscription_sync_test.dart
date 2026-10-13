@@ -91,6 +91,23 @@ void main() {
     expect(manager.sources.map((s) => s.id), containsAll(['a', 'c', 'local']));
     expect(manager.sources.firstWhere((s) => s.id == 'a').enabled, false);
   });
+  test('清单注释两种写法都认（# 与 //）——源仓库的 sources.js 用的是 //', () async {
+    // 真机踩过：严格清单只跳过 `#` 注释，而源仓库三份清单是 `.js`、注释用 `//`，
+    // 于是同步把整份清单判成「非地址内容」→ 新增源一个都进不来（推送了也看不到）。
+    remote[manifest] = [
+      '// LumeBox 订阅清单（本行是 // 注释）',
+      'https://repo.example/a.js',
+      '# 本行是 # 注释',
+      'https://repo.example/b.js',
+    ].join('\n');
+    remote['https://repo.example/a.js'] = script('a', 1);
+    remote['https://repo.example/b.js'] = script('b', 1);
+    final result = await service.sync(force: true);
+    expect(result.errors, isEmpty);
+    expect(result.added, 2);
+    expect(manager.sources.map((s) => s.id).toList()..sort(), ['a', 'b']);
+  });
+
   test('拉取部分失败不把暂时取不到的源误删；健康检查六小时内去重', () async {
     remote[manifest] = 'https://repo.example/a.js\nhttps://repo.example/b.js';
     remote['https://repo.example/a.js'] = script('a', 1);
