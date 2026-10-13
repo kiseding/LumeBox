@@ -134,7 +134,11 @@ class SourceSubscriptionSync {
     if (_migrated) return;
     const prefix =
         'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/';
-    for (final source in await manager.list()) {
+    // Saved roots already define ownership. Recover script URLs only when no roots exist.
+    for (final source
+        in subscriptions.isEmpty
+            ? await manager.list()
+            : const <SourceDescriptor>[]) {
       // 旧版本只保存脚本地址，官方清单可确定恢复；自定义清单需要首次保存根地址。
       if (!source.subscribed || !_validUrl(source.originUrl)) continue;
       final url = source.originUrl.startsWith('$prefix${section.id}/')

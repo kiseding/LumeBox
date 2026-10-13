@@ -132,6 +132,27 @@ void main() {
     expect((await service.sync(force: true)).errors, isEmpty);
     expect(manager.imported, isEmpty);
   });
+  test('升级保留已保存根订阅，不额外恢复成员地址，立即拉取新版脚本', () async {
+    const scriptUrl = 'https://repo.example/a.js';
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'a',
+        name: 'a',
+        version: '1',
+        enabled: true,
+        originUrl: scriptUrl,
+      ),
+    );
+    service.subscriptions.single.members['a'] = scriptUrl;
+    service.subscriptions.single.checkedAt = now;
+    remote[manifest] = scriptUrl;
+    remote[scriptUrl] = script('a', 2);
+    await service.save();
+    expect((await service.sync()).updated, 1);
+    expect(service.subscriptions.map((s) => s.url), [manifest]);
+    expect(manager.sources.single.version, '2');
+  });
+
   testWidgets('常驻订阅入口：添加一次、返回重进保留链接、无需粘贴即可更新', (tester) async {
     await tester.runAsync(
       () => SourceSubscriptionSync.open(Section.video, manager: manager),
