@@ -76,7 +76,8 @@ class CatSite {
     this.ext = '',
     this.searchable = true,
   });
-  final String subscriptionId, key, name, api, kind, ext;
+  final String subscriptionId, key, name, api, kind;
+  final Object? ext;
   final bool searchable;
   String get id => '$subscriptionId|$kind|$key';
   Map<String, dynamic> toJson() => {
@@ -95,7 +96,10 @@ class CatSite {
     final key = catText(raw['key']).replaceFirst(RegExp(r'^nodejs_'), '');
     var api = catText(raw['api']);
     if (api.startsWith('node:')) api = api.substring(5);
-    if (api.startsWith('http')) api = Uri.parse(api).path;
+    if (api.startsWith('http')) {
+      final uri = Uri.parse(api);
+      api = '${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+    }
     if (api.isEmpty) {
       api = '/spider/${Uri.encodeComponent(key)}/${raw['type'] ?? 3}';
     }
@@ -106,7 +110,7 @@ class CatSite {
       name: catText(raw['name']).isEmpty ? key : catText(raw['name']),
       api: api,
       kind: kind ?? catText(raw['kind']),
-      ext: catText(raw['ext']),
+      ext: raw['ext'] ?? '',
       searchable: raw['searchable'] != false && raw['searchable'] != 0,
     );
   }

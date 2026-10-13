@@ -256,6 +256,18 @@ void main() {
     expect(stored, isNot(contains('account-one')));
   });
   test('播放线路先分隔后还原网址，集数与站点身份不串', () {
+    final configured = CatSite.fromJson('config', {
+      'key': 'nodejs_configured',
+      'name': '有配置的站点',
+      'api': 'http://127.0.0.1:9988/spider/configured/3?mode=local',
+      'ext': {
+        'headers': {'User-Agent': 'fixture'},
+        'enabled': true,
+      },
+    });
+    expect(configured.ext, isA<Map>());
+    expect(configured.api, '/spider/configured/3?mode=local');
+    expect(CatSite.fromJson('config', configured.toJson()).ext, configured.ext);
     final chapters = CatDataSource.parseChapters({
       'vod_play_from': '线路一',
       'vod_play_url':
