@@ -310,6 +310,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                     child: PosterCover(
                       pipeline: _pipeline,
                       url: detail?.cover ?? widget.target.cover,
+                      title: detail?.title ?? widget.target.title,
                       width: 300,
                     ),
                   ),

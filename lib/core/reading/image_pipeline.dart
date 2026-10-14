@@ -1,3 +1,5 @@
+import '../source/source_preferences.dart';
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
@@ -18,6 +20,7 @@ import '../session/section.dart';
 import '../source/data_source.dart';
 import '../util/lume_log.dart';
 import 'reading_store.dart';
+import 'image_bytes_decoder.dart';
 
 /// 图片管线：网络 → 板块磁盘缓存 → 解码 → 内存缓存。
 ///
@@ -71,6 +74,8 @@ class SectionImagePipeline {
   final Map<String, Map<String, String>> _imageHeaders = {};
   Future<String?> Function(String, String)? _refreshImage;
   DataSource? _boundSource;
+  Section get section =>
+      _boundSource?.section ?? _sessionSection ?? Section.comic;
   void bindSource(DataSource? source) {
     _boundSource = source;
     _refreshImage = source is RefreshingImageCapable
@@ -678,27 +683,44 @@ class SectionImagePipeline {
       );
       // 图片同样走全局网络队列：单域名并发（2~3）保护图床，429/503 自动退避。
       // 队列管「什么时候发」，这里只管「拿到字节后怎么用」。
+      final prefs = SourcePreferences.read(
+        section,
+        bound?.id ?? _sessionSourceId ?? '',
+      );
+      final target = prefs.rewrite(url);
+      final outgoingHeaders = <String, String>{
+        ...imageRequestHeaders(url, withReferer: withReferer),
+        if (network.userAgent.trim().isNotEmpty)
+          'User-Agent': network.userAgent.trim(),
+        for (final entry in explicitHeaders.entries)
+          if (withReferer || entry.key.toLowerCase() != 'referer')
+            if (!entry.key.toLowerCase().startsWith('x-lume-image-'))
+              entry.key: entry.value,
+        if (session != null && !hasExplicitCookie) 'Cookie': session.cookies,
+        // 会话的 UA 压过一切：`cf_clearance` 绑 IP + UA，换 UA 等于没验。
+        if (session != null && session.userAgent.isNotEmpty)
+          'User-Agent': session.userAgent,
+        if (verifiedUa.isNotEmpty) 'User-Agent': verifiedUa,
+      };
+      if (target != url) {
+        outgoingHeaders.removeWhere(
+          (key, _) =>
+              const {'cookie', 'authorization'}.contains(key.toLowerCase()),
+        );
+        final refKey = outgoingHeaders.keys
+            .where((key) => key.toLowerCase() == 'referer')
+            .firstOrNull;
+        if (refKey != null) {
+          outgoingHeaders[refKey] = prefs.rewrite(outgoingHeaders[refKey]!);
+        }
+      }
       final response = await (requestSender ?? LumeNet.queue.send)(
         NetworkRequest(
-          url: url,
-          headers: {
-            ...imageRequestHeaders(url, withReferer: withReferer),
-            if (network.userAgent.trim().isNotEmpty)
-              'User-Agent': network.userAgent.trim(),
-            for (final entry in explicitHeaders.entries)
-              if (withReferer || entry.key.toLowerCase() != 'referer')
-                if (!entry.key.toLowerCase().startsWith('x-lume-image-'))
-                  entry.key: entry.value,
-            if (session != null && !hasExplicitCookie)
-              'Cookie': session.cookies,
-            // 会话的 UA 压过一切：`cf_clearance` 绑 IP + UA，换 UA 等于没验。
-            if (session != null && session.userAgent.isNotEmpty)
-              'User-Agent': session.userAgent,
-            if (verifiedUa.isNotEmpty) 'User-Agent': verifiedUa,
-          },
+          url: target,
+          headers: outgoingHeaders,
           source: sourceLabel,
           timeout: timeout,
-          reuseVerifiedSession: verifiedUa.isNotEmpty,
+          reuseVerifiedSession: verifiedUa.isNotEmpty || target != url,
           proxy: network.proxy.trim().isEmpty
               ? LumeNet.settings.proxy
               : network.proxy.trim(),
@@ -725,7 +747,7 @@ class SectionImagePipeline {
         }
         _failures.remove(url);
         return (
-          bytes: Uint8List.fromList(bytes),
+          bytes: decodeSourceImage(Uint8List.fromList(bytes), explicitHeaders),
           retryable: false,
           forbidden: false,
         );
@@ -750,7 +772,8 @@ class SectionImagePipeline {
       if (_disposed) {
         return (bytes: null, retryable: false, forbidden: false);
       }
-      final retryable = !NetworkQueue.isCertificateFailure(error);
+      final retryable = error is! FormatException &&
+          error is! ArgumentError && !NetworkQueue.isCertificateFailure(error);
       _failures[url] = retryable ? '网络异常' : '证书异常';
       LumeLog.warn(
         '[$sourceLabel] 图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)',

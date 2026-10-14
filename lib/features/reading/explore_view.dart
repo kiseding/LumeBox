@@ -1510,6 +1510,7 @@ class _ExploreViewState extends State<ExploreView> {
                     child: CoverThumb(
                       pipeline: _imagePipeline,
                       url: item.cover,
+                    title: item.title,
                       headers: item.coverHeaders,
                       width: 160,
                     ),

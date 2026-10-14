@@ -410,6 +410,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                   child: CoverThumb(
                     pipeline: widget.pipeline,
                     url: row.item.cover,
+                    title: row.item.title,
                     width: 160,
                   ),
                 ),

@@ -1,3 +1,5 @@
+import '../../core/source/source_preferences.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -77,6 +79,10 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
   @override
   void initState() {
     super.initState();
+    _descending = SourcePreferences.read(
+      widget.library.section,
+      widget.target.sourceId,
+    ).newestFirst;
     _load();
   }
 
@@ -389,6 +395,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                     child: PosterCover(
                       pipeline: _pipeline,
                       url: detail?.cover ?? widget.target.cover,
+                      title: detail?.title ?? widget.target.title,
                       width: 320,
                     ),
                   ),

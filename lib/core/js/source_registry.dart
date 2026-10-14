@@ -1,3 +1,4 @@
+import '../source/source_preferences.dart';
 import '../cache/section_memory_cache.dart';
 import '../db/section_database.dart';
 import '../db/source_record.dart';
@@ -98,6 +99,8 @@ class SourceRegistry {
     final record = source(sourceId);
     final client = LumeHttp(
       profile: record?.network ?? NetworkProfile.none,
+      rewriteUrl: (url) =>
+          SourcePreferences.read(section, sourceId).rewrite(url),
       source: sourceId,
       // 「网页视图」过完 Cloudflare 校验后存下的会话 Cookie：该图源的所有请求
       // 自动带上（用户口径第 4 条）。没存过就是 null，行为与从前完全一致。

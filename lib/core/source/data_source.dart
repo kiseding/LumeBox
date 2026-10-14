@@ -121,6 +121,9 @@ class SourceDescriptor {
     required this.enabled,
     this.network = NetworkProfile.none,
     this.originUrl = '',
+    this.siteUrl = '',
+    this.iconUrl = '',
+    this.section,
     this.group = '',
     this.failureCount = 0,
     this.broken = false,
@@ -139,6 +142,9 @@ class SourceDescriptor {
 
   /// 订阅来源地址；本地导入为空。
   final String originUrl;
+  final String siteUrl;
+  final String iconUrl;
+  final Section? section;
 
   /// 是否来自订阅（管理页据此标「订阅」并允许「更新订阅源」）。
   bool get subscribed => originUrl.trim().isNotEmpty;

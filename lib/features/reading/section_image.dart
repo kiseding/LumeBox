@@ -24,8 +24,10 @@ class SectionImage extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.borderRadius,
     this.headers = const {},
+    this.placeholder,
   });
 
+  final Widget? placeholder;
   final SectionImagePipeline pipeline;
   final Map<String, String> headers;
 
@@ -180,10 +182,10 @@ class _SectionImageState extends State<SectionImage> {
                   _retryTimer?.cancel();
                   unawaited(_resolve());
                 },
-                child: const _Placeholder(failed: true),
+                child: widget.placeholder ?? const _Placeholder(failed: true),
               ),
             )
-          : const _Placeholder(failed: false);
+          : widget.placeholder ?? const _Placeholder(failed: false);
     }
     final radius = widget.borderRadius;
     return radius == null

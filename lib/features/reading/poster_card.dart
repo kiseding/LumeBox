@@ -1,3 +1,5 @@
+import '../../shared/widgets/missing_cover.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/browse_layout.dart';
@@ -166,12 +168,14 @@ class PosterCover extends StatelessWidget {
     required this.url,
     this.width = 300,
     this.headers = const {},
+    this.title = 'LumeBox',
   });
 
   final SectionImagePipeline pipeline;
   final Map<String, String> headers;
 
   final String? url;
+  final String title;
 
   /// 解码目标宽度，按卡片实际显示宽度给。
   final int width;
@@ -179,6 +183,7 @@ class PosterCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SectionImage(
     pipeline: pipeline,
+    placeholder: MissingCover(title: title, section: pipeline.section),
     url: url ?? '',
     headers: headers,
     targetWidth: width,
@@ -314,6 +319,7 @@ class PosterTile extends StatelessWidget {
         ],
       ),
       child: CoverThumb(
+        title: item.title,
         pipeline: pipeline,
         url: item.cover,
         width: 300,
@@ -331,10 +337,12 @@ class CoverThumb extends StatelessWidget {
     required this.url,
     required this.width,
     this.headers = const {},
+    this.title = 'LumeBox',
   });
 
   final SectionImagePipeline? pipeline;
   final String? url;
+  final String title;
   final int width;
   final Map<String, String> headers;
 
@@ -353,6 +361,7 @@ class CoverThumb extends StatelessWidget {
     return PosterCover(
       pipeline: pipeline,
       url: url,
+      title: title,
       width: width,
       headers: headers,
     );

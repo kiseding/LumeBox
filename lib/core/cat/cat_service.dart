@@ -75,10 +75,13 @@ class CatSite {
     this.kind = 'video',
     this.ext = '',
     this.searchable = true,
+    this.iconUrl = '',
+    this.siteUrl = '',
   });
   final String subscriptionId, key, name, api, kind;
   final Object? ext;
   final bool searchable;
+  final String iconUrl, siteUrl;
   String get id => '$subscriptionId|$kind|$key';
   Map<String, dynamic> toJson() => {
     'key': key,
@@ -87,6 +90,8 @@ class CatSite {
     'kind': kind,
     'ext': ext,
     'searchable': searchable,
+    if (iconUrl.isNotEmpty) 'icon': iconUrl,
+    if (siteUrl.isNotEmpty) 'siteUrl': siteUrl,
   };
   factory CatSite.fromJson(
     String subscriptionId,
@@ -112,8 +117,20 @@ class CatSite {
       kind: kind ?? catText(raw['kind']),
       ext: raw['ext'] ?? '',
       searchable: raw['searchable'] != false && raw['searchable'] != 0,
+      iconUrl: _publicUrl(raw['icon'] ?? raw['logo']),
+      siteUrl: _publicUrl(raw['siteUrl'] ?? raw['home'] ?? raw['url']),
     );
   }
+  static String _publicUrl(Object? value) {
+    final uri = Uri.tryParse(catText(value));
+    return uri != null &&
+            {'https', 'http'}.contains(uri.scheme) &&
+            uri.host.isNotEmpty &&
+            uri.userInfo.isEmpty
+        ? uri.toString()
+        : '';
+  }
+
   static List<CatSite> parseConfig(
     String subscriptionId,
     Map<String, dynamic> payload,

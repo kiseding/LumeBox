@@ -1,3 +1,5 @@
+import '../../core/source/source_preferences.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -40,7 +42,10 @@ class NovelCatalogPage extends StatefulWidget {
 }
 
 class _NovelCatalogPageState extends State<NovelCatalogPage> {
-  bool _descending = false;
+  late bool _descending = SourcePreferences.read(
+    widget.library.section,
+    widget.target.sourceId,
+  ).newestFirst;
 
   /// 搜索开关与关键词。搜索框默认收起：目录页的主用途是「翻到某一章」，
   /// 一进来就占一行输入框会挤掉本就有限的目录可视区。
@@ -144,7 +149,9 @@ class _NovelCatalogPageState extends State<NovelCatalogPage> {
         decoration: LumeTheme.background,
         child: Column(
           children: <Widget>[
-            SizedBox(height: kToolbarHeight + MediaQuery.paddingOf(context).top),
+            SizedBox(
+              height: kToolbarHeight + MediaQuery.paddingOf(context).top,
+            ),
             if (_searching) _buildSearchField(),
             Expanded(
               child: widget.chapters.isEmpty
@@ -153,24 +160,24 @@ class _NovelCatalogPageState extends State<NovelCatalogPage> {
                       detail: kNoChaptersHint,
                     )
                   : visible.isEmpty
-                      ? const SourceStateView(
-                          state: SourceStateKind.empty,
-                          detail: '没有匹配的章节',
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                          itemCount: visible.length,
-                          itemBuilder: (context, position) {
-                            final index = visible[position];
-                            return ChapterTile(
-                              title: widget.chapters[index].title,
-                              current: index == _current,
-                              // 当前章之前的都算已读（与阅读器的进度口径一致）。
-                              read: index < _current,
-                              onTap: () => _open(index),
-                            );
-                          },
-                        ),
+                  ? const SourceStateView(
+                      state: SourceStateKind.empty,
+                      detail: '没有匹配的章节',
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      itemCount: visible.length,
+                      itemBuilder: (context, position) {
+                        final index = visible[position];
+                        return ChapterTile(
+                          title: widget.chapters[index].title,
+                          current: index == _current,
+                          // 当前章之前的都算已读（与阅读器的进度口径一致）。
+                          read: index < _current,
+                          onTap: () => _open(index),
+                        );
+                      },
+                    ),
             ),
           ],
         ),

@@ -261,6 +261,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
           child: PosterCover(
             pipeline: widget.pipeline,
             url: item.cover,
+                    title: item.title,
             width: 300,
           ),
         );
@@ -298,6 +299,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                   child: PosterCover(
                     pipeline: widget.pipeline,
                     url: item.cover,
+                    title: item.title,
                     width: 160,
                   ),
                 ),

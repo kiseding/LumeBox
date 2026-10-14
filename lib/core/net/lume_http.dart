@@ -66,6 +66,7 @@ class LumeHttp {
     String? Function()? sessionCookies,
     String? Function()? sessionUserAgent,
     String bridge = '',
+    String Function(String)? rewriteUrl,
   }) : _client = client ?? http.Client(),
        _clientInjected = client != null,
        _settings = (settings ?? const NetworkSettings()).clamped(),
@@ -74,7 +75,9 @@ class LumeHttp {
        _sessionCookies = sessionCookies,
        // ignore: prefer_initializing_formals
        _sessionUserAgent = sessionUserAgent,
-       _bridge = bridge.trim();
+       _bridge = bridge.trim(),
+       // ignore: prefer_initializing_formals
+       _rewriteUrl = rewriteUrl;
 
   static const Duration defaultTimeout = NetworkSettings.defaultTimeout;
 
@@ -82,6 +85,7 @@ class LumeHttp {
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+  final String Function(String)? _rewriteUrl;
   final http.Client _client;
 
   /// 调用方是否显式注入了客户端（决定发送路径，见 [_effectiveQueue]）。
@@ -199,12 +203,29 @@ class LumeHttp {
     int? maxBytes,
     bool followRedirects = true,
   }) async {
+    final target = _rewriteUrl?.call(url) ?? url;
+    final outgoingHeaders = _headersFor(headers);
+    if (target != url) {
+      outgoingHeaders.removeWhere(
+        (key, _) =>
+            const {'cookie', 'authorization'}.contains(key.toLowerCase()),
+      );
+      final refererKey = outgoingHeaders.keys
+          .where((key) => key.toLowerCase() == 'referer')
+          .firstOrNull;
+      if (refererKey != null) {
+        outgoingHeaders[refererKey] = _rewriteUrl!(
+          outgoingHeaders[refererKey]!,
+        );
+      }
+    }
     final request = NetworkRequest(
-      url: url,
+      url: target,
+      reuseVerifiedSession: target != url,
       method: method.toUpperCase(),
       followRedirects: followRedirects,
       timeout: timeout ?? _settings.timeout,
-      headers: _headersFor(headers),
+      headers: outgoingHeaders,
       body: body,
       source: _source,
       // 只有幂等方法参与重试：POST 重试可能造成重复提交。
@@ -220,7 +241,7 @@ class LumeHttp {
     // 避免把正常退避误判成超时。
     // 记住「这个源最近请求过的地址」：脚本抛 WAF 标记时用它兜底弹验证窗
     //（老脚本的报错文案里没有 URL，粘贴导入的源也没有订阅地址）。
-    SourceRequestLog.record(_source, url);
+    SourceRequestLog.record(_source, target);
 
     final budget = (timeout ?? _settings.timeout) * (_settings.maxRetries + 1);
     NetworkResponse response;

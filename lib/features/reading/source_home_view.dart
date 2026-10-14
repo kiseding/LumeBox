@@ -1,3 +1,5 @@
+import '../../shared/widgets/missing_cover.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/source/home_browse_mode.dart';
@@ -371,6 +373,10 @@ class _HomeCard extends StatelessWidget {
           : SectionImage(
               pipeline: pipeline!,
               url: item.cover ?? '',
+              placeholder: MissingCover(
+                title: item.title,
+                section: pipeline!.section,
+              ),
               headers: item.coverHeaders,
               targetWidth: coverWidth,
               fit: BoxFit.cover,

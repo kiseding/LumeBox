@@ -33,7 +33,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(PopupMenuItem<String>, '导入源'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), script);
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      script,
+    );
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
   }
@@ -76,7 +82,10 @@ void main() {
     expect(find.byType(AlertDialog), findsOneWidget, reason: '打开的是同一个导入弹窗');
 
     await tester.enterText(
-      find.byType(TextField),
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
       'var LumeSource = {id: "lume.new"};',
     );
     await tester.tap(find.text('导入'));
@@ -136,7 +145,12 @@ void main() {
     await tester.tap(find.text('载入内置示例'));
     await tester.pumpAndSettle();
 
-    final field = tester.widget<TextField>(find.byType(TextField));
+    final field = tester.widget<TextField>(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+    );
     expect(field.controller!.text, contains('LumeSource'));
   });
 
@@ -217,7 +231,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('重命名源'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), '新名字');
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '新名字',
+    );
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pumpAndSettle();
 
@@ -238,7 +258,13 @@ void main() {
     await openMenu(tester);
     await tester.tap(find.text('重命名'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '   ');
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '   ',
+    );
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pumpAndSettle();
 
@@ -322,7 +348,13 @@ void main() {
       await tester.tap(find.text('设置分组'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), '主力');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '主力',
+      );
       await tester.tap(find.widgetWithText(FilledButton, '保存'));
       await tester.pumpAndSettle();
 
@@ -349,7 +381,13 @@ void main() {
       await openMenu(tester);
       await tester.tap(find.text('设置分组'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '',
+      );
       await tester.tap(find.widgetWithText(FilledButton, '保存'));
       await tester.pumpAndSettle();
 

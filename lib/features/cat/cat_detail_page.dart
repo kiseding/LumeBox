@@ -1,3 +1,5 @@
+import '../../shared/widgets/missing_cover.dart';
+
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -224,6 +226,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
 
   Widget image({int? width, BorderRadius? radius}) => SectionImage(
     pipeline: pipeline,
+    placeholder: MissingCover(
+      title: widget.item.title,
+      section: pipeline.section,
+    ),
     url: cover,
     headers: coverHeaders,
     targetWidth: width,

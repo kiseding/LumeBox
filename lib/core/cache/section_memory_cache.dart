@@ -6,9 +6,7 @@ import '../session/section.dart';
 class MemoryCacheUsage {
   const MemoryCacheUsage({required this.entries, required this.bytes});
 
-  const MemoryCacheUsage.empty()
-      : entries = 0,
-        bytes = 0;
+  const MemoryCacheUsage.empty() : entries = 0, bytes = 0;
 
   /// 条目数。
   final int entries;
@@ -71,8 +69,10 @@ class SectionMemoryCache implements SourceReadCache {
 
   @override
   void write(Section section, String sourceId, String key, Object value) {
-    final store =
-        _stores.putIfAbsent(section, LinkedHashMap<String, _Entry>.new);
+    final store = _stores.putIfAbsent(
+      section,
+      LinkedHashMap<String, _Entry>.new,
+    );
     store[_cacheKey(sourceId, key)] = _Entry(value, estimateBytes(value));
   }
 
@@ -98,7 +98,7 @@ class SectionMemoryCache implements SourceReadCache {
   int removeSource(Section section, String sourceId) {
     final store = _stores[section];
     if (store == null) return 0;
-    final prefix = '$sourceId|';
+    final prefix = '${sourceId.length}:$sourceId|';
     final stale = store.keys.where((key) => key.startsWith(prefix)).toList();
     for (final key in stale) {
       store.remove(key);
@@ -110,7 +110,8 @@ class SectionMemoryCache implements SourceReadCache {
   /// 清空四个板块（测试隔离用；界面上的入口是分板块清空）。
   void clearAll() => _stores.clear();
 
-  static String _cacheKey(String sourceId, String key) => '$sourceId|$key';
+  static String _cacheKey(String sourceId, String key) =>
+      '${sourceId.length}:$sourceId|$key';
 
   /// 估算一份读结果的字节数。
   ///

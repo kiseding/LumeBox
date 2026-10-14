@@ -175,6 +175,7 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
             child: PosterCover(
               pipeline: widget.pipeline,
               url: item.cover,
+                    title: item.title,
               width: 300,
             ),
           );

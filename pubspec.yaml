@@ -61,6 +61,7 @@ dependencies:
   crypto: 3.0.7
   lume_cat_node:
     path: third_party/lume_cat_node
+  pointycastle: ^4.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

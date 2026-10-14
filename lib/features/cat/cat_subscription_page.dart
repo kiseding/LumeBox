@@ -1,3 +1,9 @@
+import '../../core/reading/reading_library.dart';
+import '../../core/session/section.dart';
+import '../../core/source/source_preferences.dart';
+import '../../shared/widgets/source_icon.dart';
+import '../source/source_preferences_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,6 +32,37 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
   final service = CatService.instance;
   String? error;
   bool working = false;
+  String sourceQuery = '';
+  bool enabledOnly = false;
+  @override
+  void initState() {
+    super.initState();
+    ReadingLibrary.open(Section.cat).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  List<CatSubscription> get visibleSubscriptions {
+    final list = service.subscriptions
+        .where(
+          (s) =>
+              (!enabledOnly || s.enabled) &&
+              (sourceQuery.isEmpty ||
+                  s.name.toLowerCase().contains(sourceQuery.toLowerCase())),
+        )
+        .toList();
+    list.sort((a, b) {
+      final pa = SourcePreferences.read(Section.cat, a.id).pinned,
+          pb = SourcePreferences.read(Section.cat, b.id).pinned;
+      return pa == pb
+          ? a.name.compareTo(b.name)
+          : pa
+          ? -1
+          : 1;
+    });
+    return list;
+  }
+
   Future<void> run(Future<void> Function() operation) async {
     if (working) return;
     setState(() {
@@ -139,6 +176,23 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
   });
 
   Future<void> more(CatSubscription record, String action) => run(() async {
+    if (action == 'pin') {
+      final prefs = SourcePreferences.read(Section.cat, record.id);
+      await prefs.copyWith(pinned: !prefs.pinned).save(Section.cat, record.id);
+    }
+    if (action == 'preferences' && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => SourcePreferencesPage(
+            section: Section.cat,
+            sourceId: record.id,
+            name: record.name,
+            onNetwork: () => configure(record),
+          ),
+        ),
+      );
+    }
     if (action == 'update') {
       await service.update(record);
       if (record.enabled) await service.refreshSites(record);
@@ -199,20 +253,40 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('订阅地址会保留并自动更新，网盘登录和站点设置在对应订阅内完成。'),
+          TextField(
+            onChanged: (value) => setState(() => sourceQuery = value),
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: '搜索猫源订阅',
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('只显示已启用'),
+            value: enabledOnly,
+            onChanged: (value) => setState(() => enabledOnly = value),
+          ),
+
           if (working || service.busy) ...[
             const LinearProgressIndicator(),
             Text(service.status),
           ],
           if (error != null)
             Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
-          for (final record in service.subscriptions)
+          for (final record in visibleSubscriptions)
             GlassCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
+                    leading: SourceIcon(
+                      name: record.name,
+                      iconUrl: SourcePreferences.read(
+                        Section.cat,
+                        record.id,
+                      ).iconUrl,
+                    ),
                     title: Text(
                       record.name,
                       maxLines: 1,
@@ -248,6 +322,22 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                           enabled: !working && !service.busy,
                           onSelected: (action) => more(record, action),
                           itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'pin',
+                              child: Text(
+                                SourcePreferences.read(
+                                      Section.cat,
+                                      record.id,
+                                    ).pinned
+                                    ? '取消置顶'
+                                    : '置顶此源',
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'preferences',
+                              child: Text('源设置'),
+                            ),
+
                             const PopupMenuItem(
                               value: 'update',
                               child: Text('立即更新'),

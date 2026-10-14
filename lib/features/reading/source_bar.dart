@@ -1,3 +1,6 @@
+import '../../core/source/source_preferences.dart';
+import '../../shared/widgets/source_icon.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/source/source.dart';
@@ -38,6 +41,13 @@ class ReadingSourceBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    bool pinned(SourceDescriptor s) =>
+        s.section != null && SourcePreferences.read(s.section!, s.id).pinned;
+    final ordered = List<SourceDescriptor>.of(sources)
+      ..sort((a, b) {
+        if (pinned(a) != pinned(b)) return pinned(a) ? -1 : 1;
+        return sources.indexOf(a).compareTo(sources.indexOf(b));
+      });
     final content = Row(
       children: <Widget>[
         if (!floating) ...[
@@ -67,14 +77,46 @@ class ReadingSourceBar extends StatelessWidget {
                   color: LumeTheme.muted,
                 ),
               ),
-              items: <DropdownMenuItem<String>>[
-                for (final source in sources)
-                  DropdownMenuItem<String>(
-                    value: source.id,
+              selectedItemBuilder: (_) => [
+                for (final source in ordered)
+                  Align(
+                    alignment: Alignment.centerLeft,
                     child: Text(
                       source.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              items: <DropdownMenuItem<String>>[
+                for (final source in ordered)
+                  DropdownMenuItem<String>(
+                    value: source.id,
+                    child: Row(
+                      children: [
+                        SourceIcon(
+                          name: source.name,
+                          siteUrl: source.siteUrl,
+                          siteIcon: source.iconUrl,
+                          size: 24,
+                          iconUrl: source.section == null
+                              ? ''
+                              : SourcePreferences.read(
+                                  source.section!,
+                                  source.id,
+                                ).iconUrl,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            source.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (pinned(source))
+                          const Icon(Icons.push_pin, size: 12),
+                      ],
                     ),
                   ),
               ],

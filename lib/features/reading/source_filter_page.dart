@@ -538,6 +538,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
           child: PosterCover(
             pipeline: widget.pipeline!,
             url: item.cover ?? '',
+            title: item.title,
             headers: item.coverHeaders,
           ),
         );

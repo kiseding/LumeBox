@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../cache/section_memory_cache.dart';
 import '../db/source_record.dart';
 import '../js/cat_engines.dart';
@@ -372,6 +374,16 @@ class LumeSources {
   /// 管理界面默认用它；注入替身的场景（测试）不经过本方法。
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
+  static String _siteUrl(String script) {
+    final match = RegExp(
+      r'''(?:BASE_URL|BASE|H\.base)\s*=\s*['"](https?://[^'"]+)''',
+    ).firstMatch(script);
+    final uri = Uri.tryParse(match?.group(1) ?? '');
+    return uri != null && uri.host.isNotEmpty && uri.userInfo.isEmpty
+        ? uri.origin
+        : '';
+  }
+
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
     id: record.id,
     // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
@@ -380,10 +392,35 @@ class LumeSources {
     enabled: record.enabled,
     network: record.network,
     originUrl: record.originUrl,
+    siteUrl: _siteUrl(record.script),
+    iconUrl: _iconUrl(record.script),
+    section: Section.values.where((s) => s.id == record.section).firstOrNull,
     group: record.group,
     failureCount: record.failureCount,
     broken: record.isBroken,
   );
+
+  static String _iconUrl(String script) {
+    final match = RegExp(
+      r'^//\s*LumeSource:\s*(\{[^\n]+\})',
+      multiLine: true,
+    ).firstMatch(script);
+    if (match == null) return '';
+    try {
+      final metadata = jsonDecode(match.group(1)!) as Map<String, dynamic>;
+      final value = metadata['icon'];
+      if (value is! String) return '';
+      final uri = Uri.tryParse(value);
+      return uri != null &&
+              {'http', 'https'}.contains(uri.scheme) &&
+              uri.host.isNotEmpty &&
+              uri.userInfo.isEmpty
+          ? value
+          : '';
+    } on Object {
+      return '';
+    }
+  }
 }
 
 /// [SourceManager] 的正式实现：把端口方法逐个委托给 [LumeSources] 的静态入口。

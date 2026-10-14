@@ -124,7 +124,9 @@ void main() {
         ),
       ),
     );
-    expectNormalGap(tester, '板块源管理');
+    final gap = tester.getRect(find.byType(TextField).first).top -
+        tester.getRect(find.byType(AppBar)).bottom;
+    expect(gap, inInclusiveRange(0, 32), reason: '搜索源入口应紧接顶栏');
   });
 
   testWidgets('底部导航栏管理（对照组，本来就传了 behindBar）', (tester) async {

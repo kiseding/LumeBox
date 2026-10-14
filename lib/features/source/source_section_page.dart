@@ -1,3 +1,7 @@
+import '../../core/reading/reading_library.dart';
+import '../../core/source/source_preferences.dart';
+import '../../shared/widgets/source_icon.dart';
+import 'source_preferences_page.dart';
 import '../../core/source/source_subscription_sync.dart';
 
 import 'package:flutter/material.dart';
@@ -55,6 +59,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   List<SourceDescriptor>? _sources;
   bool _failed = false;
+  String _sourceQuery = '';
+  int _sourceFilter = 0;
 
   /// 正在测试的图源 id（按钮转圈用）。
   final Set<String> _testing = <String>{};
@@ -91,6 +97,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   Future<void> _reload() async {
     try {
+      if (widget.manager == null) await ReadingLibrary.open(widget.section);
       final sources = await _manager.list();
       if (!mounted) return;
       setState(() {
@@ -102,6 +109,28 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       if (!mounted) return;
       setState(() => _failed = true);
     }
+  }
+
+  Future<void> _pin(SourceDescriptor source) async {
+    final prefs = SourcePreferences.read(widget.section, source.id);
+    await prefs.copyWith(pinned: !prefs.pinned).save(widget.section, source.id);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _preferences(SourceDescriptor source) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => SourcePreferencesPage(
+          section: widget.section,
+          sourceId: source.id,
+          name: source.name,
+          siteUrl: source.siteUrl,
+          onNetwork: () => _editNetwork(source),
+        ),
+      ),
+    );
+    if (mounted) await _reload();
   }
 
   Future<void> _toggle(SourceDescriptor source, bool enabled) async {
@@ -571,6 +600,25 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         ],
       );
     }
+    final query = _sourceQuery.toLowerCase().trim();
+    final visible =
+        sources
+            .where(
+              (source) =>
+                  (query.isEmpty ||
+                      '${source.name} ${source.id} ${source.group}'
+                          .toLowerCase()
+                          .contains(query)) &&
+                  (_sourceFilter == 0 ||
+                      (_sourceFilter == 1 ? source.enabled : source.broken)),
+            )
+            .toList()
+          ..sort((a, b) {
+            final pinA = SourcePreferences.read(widget.section, a.id).pinned;
+            final pinB = SourcePreferences.read(widget.section, b.id).pinned;
+            if (pinA != pinB) return pinA ? -1 : 1;
+            return sources.indexOf(a).compareTo(sources.indexOf(b));
+          });
     return ListView.separated(
       padding: GlassScaffold.barInset(context).add(
         EdgeInsets.fromLTRB(
@@ -581,12 +629,53 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           16 + ShellDockScope.bottomInset(context),
         ),
       ),
-      itemCount: sources.length,
+      itemCount: visible.length + 1,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final source = sources[index];
+        if (index == 0) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                onChanged: (value) => setState(() => _sourceQuery = value),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: '搜索源名称、ID 或分组',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final (value, label) in [
+                    (0, '全部'),
+                    (1, '已启用'),
+                    (2, '异常'),
+                  ])
+                    ChoiceChip(
+                      label: Text(label),
+                      selected: _sourceFilter == value,
+                      onSelected: (_) => setState(() => _sourceFilter = value),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text('${visible.length} 个源 · 置顶源优先'),
+              if (visible.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('没有匹配的源'),
+                ),
+            ],
+          );
+        }
+        final source = visible[index - 1];
         return _SourceTile(
           source: source,
+          pinned: SourcePreferences.read(widget.section, source.id).pinned,
+          customIcon: SourcePreferences.read(widget.section, source.id).iconUrl,
+          onPin: () => _pin(source),
+          onPreferences: () => _preferences(source),
           testing: _testing.contains(source.id),
           testResult: _testResults[source.id],
           onToggle: (enabled) => _toggle(source, enabled),
@@ -618,6 +707,8 @@ Color get _okColor => LumeTheme.success;
 
 /// 单个图源行上的操作。
 enum _SourceAction {
+  pin,
+  preferences,
   browse,
   test,
   update,
@@ -632,6 +723,10 @@ enum _SourceAction {
 class _SourceTile extends StatelessWidget {
   const _SourceTile({
     required this.source,
+    this.pinned = false,
+    this.customIcon = '',
+    required this.onPin,
+    required this.onPreferences,
     this.testing = false,
     this.testResult,
     required this.onToggle,
@@ -647,6 +742,9 @@ class _SourceTile extends StatelessWidget {
   });
 
   final SourceDescriptor source;
+  final bool pinned;
+  final String customIcon;
+  final VoidCallback onPin, onPreferences;
 
   /// 正在测试（按钮转圈）。
   final bool testing;
@@ -684,6 +782,17 @@ class _SourceTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: <Widget>[
+          SourceIcon(
+            name: source.name,
+            siteUrl: source.siteUrl,
+            iconUrl: customIcon.isEmpty ? source.iconUrl : customIcon,
+          ),
+          const SizedBox(width: 12),
+          if (pinned)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(Icons.push_pin, size: 14, color: LumeTheme.accent),
+            ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -777,6 +886,10 @@ class _SourceTile extends StatelessWidget {
             tooltip: '更多操作',
             onSelected: (action) {
               switch (action) {
+                case _SourceAction.pin:
+                  onPin();
+                case _SourceAction.preferences:
+                  onPreferences();
                 case _SourceAction.browse:
                   onBrowse?.call();
                 case _SourceAction.test:
@@ -798,6 +911,14 @@ class _SourceTile extends StatelessWidget {
               }
             },
             itemBuilder: (context) => <PopupMenuEntry<_SourceAction>>[
+              PopupMenuItem(
+                value: _SourceAction.pin,
+                child: Text(pinned ? '取消置顶' : '置顶此源'),
+              ),
+              const PopupMenuItem(
+                value: _SourceAction.preferences,
+                child: Text('源设置'),
+              ),
               PopupMenuItem<_SourceAction>(
                 value: _SourceAction.browse,
                 enabled: onBrowse != null,
