@@ -303,6 +303,30 @@ WafFailureKind? wafKindOf(String? message) {
   return looksLikeWafFailure(message) ? WafFailureKind.webView : null;
 }
 
+/// 这张错误卡要不要给「网页视图」出口。
+///
+/// 真机反馈（巴卡漫画首页超时）：卡片上写着「可点【网页视图】过校验」，按钮却不在
+/// ——因为那时的判定只看「是不是明确被 WAF 拦下」。实际上**打不开、超时、服务器
+/// 报错**这几类里，很大一部分也正是站点在拦（CF 拦到超时、回 503、空响应都常见），
+/// 用户唯一的自救手段就是自己打开站点看一眼。因此：
+/// - 明确需要验证 → 给；
+/// - 需要外部桥接（reCAPTCHA v3）→ 不给（网页视图对它无效）；
+/// - 超时 / 网络失败 / 403 / 429 / 5xx → 给（可能被拦，也可能只是慢）；
+/// - 其余（脚本错误、没有内容）→ 不给。
+bool webViewMayHelp(String? message) {
+  final kind = wafKindOf(message);
+  if (kind == WafFailureKind.bridge) return false;
+  if (kind == WafFailureKind.webView) return true;
+  final text = (message ?? '').toUpperCase();
+  if (text.contains('超时') || text.contains('TIMEOUT') || text.contains('TIMED OUT')) {
+    return true;
+  }
+  if (text.contains('网络') || text.contains('NETWORK') || text.contains('SOCKET')) {
+    return true;
+  }
+  return RegExp(r'HTTP[ /]?(?:403|429|5\d\d)(?![0-9])').hasMatch(text);
+}
+
 /// 需要外部桥接时的统一文案（用户口径 2.2.4）。
 const String wafBridgeHint =
     '该站点需要配置外部无头浏览器桥接服务，APP 无法直接访问。\n'

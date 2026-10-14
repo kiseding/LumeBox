@@ -1035,8 +1035,12 @@ Future<Map<String, String>?> showWafWebView({
 }
 
 /// WAF 判定与失败文本的桥（页面用它决定要不要显示【网页视图】）。
+///
+/// 口径见 [webViewMayHelp]：明确被拦的，以及**超时 / 网络失败 / 403 / 429 / 5xx**
+/// 这类「可能被拦、也可能只是慢」的都算。真机反馈「卡片上写着可点【网页视图】，
+/// 按钮却不在」——巴卡漫画首页超时就是这么来的（那条失败不匹配 WAF 特征）。
 bool shouldOfferWebView(String? failureMessage) =>
-    looksLikeWafFailure(failureMessage);
+    webViewMayHelp(failureMessage ?? '');
 
 /// 手动「网页视图」的结果。
 ///

@@ -1370,8 +1370,11 @@ class _ExploreViewState extends State<ExploreView> {
       final hasSession =
           _source != null &&
           WafSessions.countFor(widget.section, _source!.id) > 0;
+      // 出口与提示**同时出现或同时不出现**（真机反馈：卡片写着「可点【网页视图】
+      // 过校验」，按钮却不在——首页超时那类失败原本两边都不给，用户没处自救）。
+      final offerWebView = shouldOfferWebView(detail);
       // 站址解析结果直接写在卡片上（用户口径：报错信息里要能看出拿到了源站地址）。
-      final hint = kind == WafFailureKind.webView
+      final hint = offerWebView
           ? webViewTargetHint(
               failureMessage: detail,
               sourceId: _source?.id,
@@ -1386,7 +1389,7 @@ class _ExploreViewState extends State<ExploreView> {
             ? '$detail\n\n$wafBridgeHint'
             : (hint == null ? detail : '$detail\n\n$hint'),
         onRetry: _retry,
-        action: kind == WafFailureKind.webView && _source != null
+        action: offerWebView && _source != null
             ? OutlinedButton.icon(
                 onPressed: _openWebViewForWaf,
                 icon: const Icon(Icons.public, size: 18),

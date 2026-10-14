@@ -9,15 +9,27 @@ import 'package:lume_box/features/video/source_playback.dart';
 /// 「文件不存在」，用户就更不知道自己该改哪里了。
 void main() {
   group('条目地址判定', () {
-    test('网络与流媒体协议按原样收下', () {
+    test('网络与流媒体协议按原样收下（http 升 https，见 ATS 那条）', () {
       for (final url in <String>[
         'https://example.com/demo.mp4',
-        'http://example.com/live.m3u8',
         'rtmp://example.com/live/stream',
         'rtsp://example.com/cam',
       ]) {
         expect(SourcePlayback.directAddress(url)?.toString(), url);
       }
+      // iOS 的 ATS 拦明文加载：域名地址统一升到 https；IP / localhost 不动。
+      expect(
+        SourcePlayback.directAddress('http://example.com/live.m3u8')?.toString(),
+        'https://example.com/live.m3u8',
+      );
+      expect(
+        SourcePlayback.directAddress('http://192.168.1.9/live.m3u8')?.toString(),
+        'http://192.168.1.9/live.m3u8',
+      );
+      expect(
+        SourcePlayback.directAddress('http://localhost:8080/a.mp4')?.toString(),
+        'http://localhost:8080/a.mp4',
+      );
     });
 
     test('纯 id / 关键词不是地址', () {
@@ -58,6 +70,13 @@ void main() {
           VideoContent(url: Uri.parse('https://example.com/e1.mp4')),
         )?.toString(),
         'https://example.com/e1.mp4',
+      );
+      expect(
+        SourcePlayback.contentAddress(
+          VideoContent(url: Uri.parse('http://cdn.example/e1.mp4')),
+        )?.toString(),
+        'https://cdn.example/e1.mp4',
+        reason: '媒体地址同样升级到 https（iOS ATS 会拦明文）',
       );
       expect(SourcePlayback.contentAddress(const TextContent('正文')), isNull);
       expect(

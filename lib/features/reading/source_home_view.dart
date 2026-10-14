@@ -196,12 +196,17 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     if (error != null) {
       final detail = error is SourceException ? error.message : '$error';
       final kind = wafKindOf(detail);
+      // 「网页视图」出口与提示**必须同时出现或同时不出现**（真机反馈：卡片上写着
+      // 「可点【网页视图】过校验」却找不到按钮——首页超时这类失败原本不给按钮）。
+      final offerWebView = shouldOfferWebView(detail);
       // 站址解析结果直接写在卡片上（用户口径：报错信息里要能看出拿到了源站地址）。
-      final hint = webViewTargetHint(
-        failureMessage: detail,
-        sourceId: widget.source.id,
-        originUrl: widget.originUrl,
-      );
+      final hint = offerWebView
+          ? webViewTargetHint(
+              failureMessage: detail,
+              sourceId: widget.source.id,
+              originUrl: widget.originUrl,
+            )
+          : null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -219,7 +224,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   OutlinedButton(onPressed: _retry, child: const Text('重试')),
-                  if (kind == WafFailureKind.webView) ...<Widget>[
+                  if (offerWebView) ...<Widget>[
                     const SizedBox(width: 10),
                     // 与列表页同一个出口（用户口径 2.1）：内置网页视图过校验后自动重拉。
                     OutlinedButton.icon(
