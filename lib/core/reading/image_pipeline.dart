@@ -6,7 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
@@ -73,6 +73,11 @@ class SectionImagePipeline {
   bool canRetry(String url) =>
       !{'证书异常', '链接失效', '非图片响应', '图片需要网页验证'}.contains(failureFor(url));
   DataSource? get boundSource => _boundSource;
+  final verificationRevision = ValueNotifier<int>(0);
+  void verificationChanged() {
+    if (!_disposed) verificationRevision.value++;
+  }
+
   final Map<String, String> _verificationTargets = {};
   String? verificationTargetFor(String url) =>
       _verificationTargets[upgradeToHttps(normalizeTransform(url))];
@@ -334,6 +339,8 @@ class SectionImagePipeline {
     _sourcePipelines.clear();
     _imageHeaders.clear();
     _failures.clear();
+    _verificationTargets.clear();
+    verificationRevision.dispose();
     // 取消在飞请求：关闭客户端是 package:http 提供的取消入口。
     try {
       _client.close();

@@ -76,12 +76,19 @@ class _SectionImageState extends State<SectionImage> {
   @override
   void initState() {
     super.initState();
+    widget.pipeline.verificationRevision.addListener(_onVerificationChanged);
     _resolve();
   }
 
   @override
   void didUpdateWidget(SectionImage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.pipeline, widget.pipeline)) {
+      oldWidget.pipeline.verificationRevision.removeListener(
+        _onVerificationChanged,
+      );
+      widget.pipeline.verificationRevision.addListener(_onVerificationChanged);
+    }
     if (oldWidget.url != widget.url ||
         oldWidget.targetWidth != widget.targetWidth ||
         !mapEquals(oldWidget.headers, widget.headers) ||
@@ -96,6 +103,7 @@ class _SectionImageState extends State<SectionImage> {
 
   @override
   void dispose() {
+    widget.pipeline.verificationRevision.removeListener(_onVerificationChanged);
     _retryTimer?.cancel();
     _retryTimer = null;
     _release();
@@ -111,6 +119,12 @@ class _SectionImageState extends State<SectionImage> {
   SectionImagePipeline? _heldPipeline;
   int _resolveSeq = 0;
   bool _verifying = false;
+  void _onVerificationChanged() {
+    if (!mounted || !_failed) return;
+    _retries = 0;
+    _retryTimer?.cancel();
+    unawaited(_resolve());
+  }
 
   Future<void> _retryOrVerify() async {
     if (_verifying) return;
@@ -122,7 +136,7 @@ class _SectionImageState extends State<SectionImage> {
       try {
         // Image hosts keep their own cookies in WebKit. Never merge these
         // credentials into the source site's Cookie header.
-        await showWafWebView(
+        final cookies = await showWafWebView(
           context: context,
           url: target,
           sourceName: '${source.name} · 图片验证',
@@ -130,6 +144,16 @@ class _SectionImageState extends State<SectionImage> {
           sourceId: source.id,
           userAgent: WafSessions.userAgentFor(source.section, source.id),
         );
+        if (cookies?.isNotEmpty == true) {
+          pipeline.verificationChanged();
+          return;
+        }
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('图片验证窗口暂时无法打开，请重试')));
+        }
+        return;
       } finally {
         _verifying = false;
       }
