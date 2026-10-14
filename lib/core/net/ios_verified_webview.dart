@@ -7,6 +7,19 @@ import 'network_queue.dart';
 /// Reuses WebKit's real browsing session after the user completed verification.
 class IosVerifiedWebView {
   static const channel = MethodChannel('lumebox/webview');
+  static Future<NetworkResponse> readImage(NetworkRequest request) async {
+    final raw = await channel.invokeMapMethod<String, dynamic>(
+      'readVerifiedImage',
+      {'url': request.url, 'userAgent': request.headers['User-Agent']},
+    );
+    if (raw == null) throw StateError('网页图片会话没有返回响应');
+    return NetworkResponse(
+      statusCode: raw['status'] as int,
+      body: (raw['body'] as Uint8List).toList(),
+      headers: {'content-type': '${raw['contentType'] ?? ''}'},
+    );
+  }
+
   static Future<NetworkResponse> read(NetworkRequest request) async {
     final raw = await channel.invokeMapMethod<String, dynamic>(
       'readVerifiedPage',

@@ -25,6 +25,19 @@ final class WafCookieController: NSObject {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "readVerifiedImage":
+        guard let args = call.arguments as? [String: Any], let text = args["url"] as? String,
+              let url = URL(string: text), url.scheme == "https", url.user == nil,
+              self.imageReads.count < 4 else {
+          result(FlutterError(code: "invalid_image", message: "Image session unavailable", details: nil)); return
+        }
+        let id = UUID()
+        let task = VerifiedImageRead(url: url, userAgent: args["userAgent"] as? String) { response in
+          self.imageReads.removeValue(forKey: id)
+          result(response)
+        }
+        self.imageReads[id] = task
+        task.start()
       case "readVerifiedPage":
         guard let args = call.arguments as? [String: Any], let text = args["url"] as? String,
               let url = URL(string: text), ["https", "http"].contains(url.scheme ?? ""), url.user == nil else {
@@ -50,6 +63,7 @@ final class WafCookieController: NSObject {
 
   private let imageNetwork = ImageNetworkController()
   private var reads: [UUID: VerifiedPageRead] = [:]
+  private var imageReads: [UUID: VerifiedImageRead] = [:]
 
   /// 枚举默认数据仓里的全部 Cookie；`WKHTTPCookieStore` 是异步回调接口。
   ///
@@ -223,8 +237,14 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
       guard let self = self else { return }
       if let error = error { self.finish(FlutterError(code: "read_failed", message: error.localizedDescription, details: nil)); return }
       let document = value as? [String: Any] ?? [:]
-      if !force && document["ready"] as? String == "loading" { self.scheduleRead(); return }
       let text = document["body"] as? String ?? ""
+      // A committed challenge document is not the final navigation result.
+      // Give WebKit time to reuse the user's existing verification session.
+      let challenge = text.range(of: "cf-chl-|challenge-platform|<title[^>]*>\\s*(Just a moment|Attention Required)",
+                                 options: [.regularExpression, .caseInsensitive]) != nil
+      if document["ready"] as? String == "loading" || challenge {
+        self.scheduleRead(); return
+      }
       guard text.utf8.count <= 10 * 1024 * 1024 else {
         self.finish(FlutterError(code: "too_large", message: "Page too large", details: nil)); return
       }
@@ -244,6 +264,79 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
     poll?.cancel()
     webView.stopLoading()
     webView.navigationDelegate = nil
+    callback(value)
+  }
+}
+
+/// Fetch an image in its own WebKit origin, retaining only the browser's
+/// domain-scoped cookies and TLS identity. No source-site credentials are copied.
+private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
+  private let webView: WKWebView
+  private let url: URL
+  private var completion: ((Any) -> Void)?
+  private var timeout: DispatchWorkItem?
+  private var fetching = false
+  init(url: URL, userAgent: String?, completion: @escaping (Any) -> Void) {
+    self.url = url
+    self.completion = completion
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .default()
+    webView = WKWebView(frame: CGRect(x: -1000, y: -1000, width: 390, height: 600), configuration: configuration)
+    super.init()
+    webView.customUserAgent = userAgent
+    webView.navigationDelegate = self
+  }
+  func start() {
+    let work = DispatchWorkItem { [weak self] in
+      self?.finish(FlutterError(code: "timeout", message: "Image verification session timed out", details: nil))
+    }
+    timeout = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 18, execute: work)
+    var origin = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+    origin.path = "/"; origin.query = nil; origin.fragment = nil
+    webView.load(URLRequest(url: origin.url!))
+  }
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard completion != nil, !fetching else { return }
+    fetching = true
+    let script = """
+      const target = new URL(address);
+      if (target.origin !== location.origin) throw new Error('Image origin changed');
+      const response = await fetch(target.href, {credentials:'same-origin'});
+      const blob = await response.blob();
+      if (blob.size > 20 * 1024 * 1024) throw new Error('Image too large');
+      const data = await new Promise((resolve,reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Image read failed')); reader.readAsDataURL(blob);
+      });
+      return {status:response.status, contentType:response.headers.get('content-type') || '',
+              body:data.substring(data.indexOf(',') + 1)};
+      """
+    webView.callAsyncJavaScript(script, arguments: ["address": url.absoluteString], in: nil, contentWorld: .page) { [weak self] result in
+      guard let self = self else { return }
+      switch result {
+      case .success(let value):
+        guard var response = value as? [String: Any], let encoded = response["body"] as? String,
+              let bytes = Data(base64Encoded: encoded) else {
+          self.finish(FlutterError(code: "image_response", message: "Invalid browser image response", details: nil)); return
+        }
+        response["body"] = FlutterStandardTypedData(bytes: bytes)
+        self.finish(response)
+      case .failure(let error):
+        self.finish(FlutterError(code: "image_read", message: error.localizedDescription, details: nil))
+      }
+    }
+  }
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    finish(FlutterError(code: "image_navigation", message: error.localizedDescription, details: nil))
+  }
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    finish(FlutterError(code: "image_navigation", message: error.localizedDescription, details: nil))
+  }
+  private func finish(_ value: Any) {
+    guard let callback = completion else { return }
+    completion = nil; timeout?.cancel()
+    webView.stopLoading(); webView.navigationDelegate = nil
     callback(value)
   }
 }

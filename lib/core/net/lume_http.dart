@@ -221,7 +221,8 @@ class LumeHttp {
     }
     final request = NetworkRequest(
       url: target,
-      reuseVerifiedSession: target != url,
+      reuseVerifiedSession:
+          target != url || (_sessionUserAgent?.call()?.isNotEmpty ?? false),
       method: method.toUpperCase(),
       followRedirects: followRedirects,
       timeout: timeout ?? _settings.timeout,
@@ -251,7 +252,7 @@ class LumeHttp {
           !_clientInjected &&
           request.method == 'GET' &&
           response.statusCode == 403 &&
-          (_sessionCookies?.call()?.contains('cf_clearance=') ?? false) &&
+          (_sessionCookies?.call()?.isNotEmpty ?? false) &&
           (_sessionUserAgent?.call()?.isNotEmpty ?? false) &&
           request.proxy.isEmpty) {
         try {

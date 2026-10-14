@@ -15,12 +15,16 @@ class BrowseChoiceAccess extends StatelessWidget {
     this.selectedId,
     this.title = '分类',
     this.includeAll = true,
+    this.showAccess = true,
+    this.onOpen,
   });
   final Widget child;
   final List<SourceCategory> choices;
   final String? selectedId;
   final String title;
   final bool includeAll;
+  final bool showAccess;
+  final VoidCallback? onOpen;
   final ValueChanged<String?> onSelected;
 
   Future<void> _open(BuildContext context) async {
@@ -40,8 +44,7 @@ class BrowseChoiceAccess extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (choices.length <= 8) return child;
-    final selected = choices.where((item) => item.id == selectedId).firstOrNull;
+    if (!showAccess || (choices.length <= 8 && onOpen == null)) return child;
     return Row(
       children: [
         Expanded(child: child),
@@ -50,20 +53,11 @@ class BrowseChoiceAccess extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 112),
           child: Tooltip(
             message: '展开全部$title',
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: LumeTheme.accent,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(60, 34),
-              ),
-              onPressed: () => _open(context),
-              icon: const Icon(Icons.expand_more, size: 18),
-              iconAlignment: IconAlignment.end,
-              label: Text(
-                selected?.title ?? '全部$title',
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13),
-              ),
+            child: IconButton(
+              color: LumeTheme.accent,
+              visualDensity: VisualDensity.compact,
+              onPressed: onOpen ?? () => _open(context),
+              icon: const Icon(Icons.tune, size: 20),
             ),
           ),
         ),
@@ -204,4 +198,160 @@ class _ChoiceSheetState extends State<_ChoiceSheet> {
       ),
     );
   }
+}
+
+/// One panel for the primary category and every filter group.
+Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
+  required BuildContext context,
+  required List<SourceCategory> categories,
+  required List<SourceFilterGroup> groups,
+  required String? category,
+  required Map<String, String> filters,
+}) {
+  var chosenCategory = category;
+  var chosenFilters = Map<String, String>.of(filters);
+  var query = '';
+  return showModalBottomSheet<
+    ({String? category, Map<String, String> filters})
+  >(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setPanelState) {
+        Widget choices(
+          String title,
+          List<SourceCategory> options,
+          String? selected,
+          ValueChanged<String?> choose,
+        ) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (!options.any((o) => o.title == '全部'))
+                  ChoiceChip(
+                    label: const Text('全部'),
+                    selected: selected == null,
+                    onSelected: (_) => setPanelState(() => choose(null)),
+                  ),
+                for (final option in options.where(
+                  (o) => o.title.toLowerCase().contains(query.toLowerCase()),
+                ))
+                  ChoiceChip(
+                    label: Text(option.title),
+                    selected: selected == option.id,
+                    onSelected: (_) => setPanelState(() => choose(option.id)),
+                  ),
+              ],
+            ),
+          ],
+        );
+        return SizedBox(
+          height: MediaQuery.sizeOf(context).height * .78,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              MediaQuery.viewInsetsOf(context).bottom + 8,
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '分类与筛选',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                TextField(
+                  onChanged: (s) => setPanelState(() => query = s.trim()),
+                  decoration: const InputDecoration(
+                    hintText: '搜索分类或筛选项',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      if (categories.isNotEmpty)
+                        choices('分类', categories, chosenCategory, (id) {
+                          chosenCategory = id;
+                          chosenFilters.remove('tid');
+                          chosenFilters.remove('class');
+                        }),
+                      for (final group in groups)
+                        choices(
+                          group.title,
+                          group.options
+                              .map(
+                                (o) => SourceCategory(id: o.id, title: o.title),
+                              )
+                              .toList(),
+                          chosenFilters[group.id] ??
+                              group.options
+                                  .where((o) => o.title == '全部')
+                                  .firstOrNull
+                                  ?.id,
+                          (id) {
+                            if (id == null) {
+                              chosenFilters.remove(group.id);
+                            } else {
+                              chosenFilters[group.id] = id;
+                            }
+                            if (group.id == 'tid') {
+                              chosenFilters.remove('class');
+                            }
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => setPanelState(() {
+                        chosenCategory = null;
+                        chosenFilters.clear();
+                      }),
+                      child: const Text('重置'),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(context, (
+                        category: chosenCategory,
+                        filters: chosenFilters,
+                      )),
+                      child: const Text('应用筛选'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
 }

@@ -71,7 +71,11 @@ class SectionImagePipeline {
   String? failureFor(String url) =>
       _failures[upgradeToHttps(normalizeTransform(url))];
   bool canRetry(String url) =>
-      !{'证书异常', '链接失效', '非图片响应'}.contains(failureFor(url));
+      !{'证书异常', '链接失效', '非图片响应', '图片需要网页验证'}.contains(failureFor(url));
+  DataSource? get boundSource => _boundSource;
+  final Map<String, String> _verificationTargets = {};
+  String? verificationTargetFor(String url) =>
+      _verificationTargets[upgradeToHttps(normalizeTransform(url))];
   final Map<String, Map<String, String>> _imageHeaders = {};
   Future<String?> Function(String, String)? _refreshImage;
   DataSource? _boundSource;
@@ -532,6 +536,11 @@ class SectionImagePipeline {
           _failures.remove(url);
           return outcome.bytes;
         }
+        if (_failures[requestedUrl] == '图片需要网页验证') {
+          _failures[url] = '图片需要网页验证';
+          _verificationTargets[url] = _verificationTargets[requestedUrl]!;
+          return null;
+        }
         if (outcome.forbidden &&
             !refreshed &&
             originPage != null &&
@@ -732,6 +741,19 @@ class SectionImagePipeline {
         return (bytes: null, retryable: false, forbidden: false);
       }
       final code = response.statusCode;
+      final challengeBody = String.fromCharCodes(response.body.take(16000));
+      if (WafDetector.isChallenge(
+        statusCode: code == 200 ? 403 : code,
+        headers: response.headers,
+        body: challengeBody,
+      )) {
+        _failures[url] = '图片需要网页验证';
+        _verificationTargets[url] = target;
+        LumeLog.warn(
+          '[$sourceLabel] 图片域名需要独立网页验证：${Uri.tryParse(target)?.host}',
+        );
+        return (bytes: null, retryable: false, forbidden: false);
+      }
       if (code >= 200 && code < 300) {
         final bytes = response.body;
         if (bytes.isEmpty) {

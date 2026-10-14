@@ -47,7 +47,8 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, '分类99'));
     await tester.pumpAndSettle();
     expect(selected, '99');
-    expect(find.text('分类99'), findsOneWidget);
+    expect(find.text('分类99'), findsNothing);
+    expect(find.byIcon(Icons.tune), findsOneWidget);
     await tester.tap(find.byTooltip('展开全部分类'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('全部'));

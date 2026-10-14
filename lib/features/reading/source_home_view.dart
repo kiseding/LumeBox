@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../shared/widgets/missing_cover.dart';
 
 import 'package:flutter/material.dart';
@@ -110,7 +112,13 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       if (!mounted || seq != _seq) return;
       final home =
           SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
-          await (source as HomeCapable).home();
+          await (source as HomeCapable).home().timeout(
+            const Duration(seconds: 40),
+            onTimeout: () => throw const SourceException(
+              SourceErrorKind.network,
+              '首页请求超时，请重试或检查网页验证会话',
+            ),
+          );
       if (!mounted || seq != _seq) return;
       setState(() => _home = home);
       _preloadFirstScreen(home);

@@ -501,12 +501,40 @@ class _ExploreViewState extends State<ExploreView> {
     unawaited(_refresh());
   }
 
+  Future<void> _openCombinedFilters() async {
+    final selected = await showBrowseFilters(
+      context: context,
+      categories: _categories,
+      groups: _filterGroups,
+      category: _categoryId,
+      filters: _facetFilters,
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      _browseMode = null;
+      _homeBrowseMode = null;
+      _categoryId = selected.category;
+      _facetFilters = selected.filters;
+    });
+    await _refresh();
+  }
+
   Widget _buildInlineFacets() => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
+      if (_categories.isEmpty && _filterGroups.isNotEmpty)
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            tooltip: '展开全部筛选',
+            onPressed: _openCombinedFilters,
+            icon: const Icon(Icons.tune),
+          ),
+        ),
       if (_categories.isNotEmpty)
         BrowseChoiceAccess(
           choices: _categories,
+          onOpen: _openCombinedFilters,
           selectedId: _categoryId,
           onSelected: (id) {
             setState(() {
@@ -566,6 +594,7 @@ class _ExploreViewState extends State<ExploreView> {
             Expanded(
               child: BrowseChoiceAccess(
                 title: group.title,
+                showAccess: false,
                 choices: group.options
                     .map((o) => SourceCategory(id: o.id, title: o.title))
                     .toList(),
@@ -737,11 +766,19 @@ class _ExploreViewState extends State<ExploreView> {
     _pendingPage = page;
     final seq = _requestSeq;
     try {
-      final result = await source.list(
-        categoryId: _categoryId,
-        page: page,
-        filters: _facetFilters.isEmpty ? null : _facetFilters,
-      );
+      final result = await source
+          .list(
+            categoryId: _categoryId,
+            page: page,
+            filters: _facetFilters.isEmpty ? null : _facetFilters,
+          )
+          .timeout(
+            const Duration(seconds: 40),
+            onTimeout: () => throw const SourceException(
+              SourceErrorKind.network,
+              '列表请求超时，请重试或检查网页验证会话',
+            ),
+          );
       if (!mounted || seq != _requestSeq) return;
       // 翻页拿到「一条新条目都没有」的一页，通常是两种事：真的到底了，或者
       // 站点的分页参数写法不对（第 2 页又返回了第 1 页）。前者照常收尾；
@@ -1510,7 +1547,7 @@ class _ExploreViewState extends State<ExploreView> {
                     child: CoverThumb(
                       pipeline: _imagePipeline,
                       url: item.cover,
-                    title: item.title,
+                      title: item.title,
                       headers: item.coverHeaders,
                       width: 160,
                     ),

@@ -9,6 +9,34 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/session/section.dart';
 
 void main() {
+  test('独立图片域名CF不重复重试并保留准确验证地址', () async {
+    var calls = 0;
+    const url = 'https://images.example/cover.jpg?signature=current';
+    final dir = Directory.systemTemp.createTempSync('lume-image-cf');
+    final pipeline = SectionImagePipeline(
+      cacheDir: dir.path,
+      diskCache: false,
+      requestSender: (_) async {
+        calls++;
+        return NetworkResponse(
+          statusCode: 403,
+          body: '<html><title>Attention Required! | Cloudflare</title></html>'
+              .codeUnits,
+          headers: const {},
+        );
+      },
+    );
+    addTearDown(() {
+      pipeline.dispose();
+      dir.deleteSync(recursive: true);
+    });
+    expect(await pipeline.bytes(url), isNull);
+    expect(calls, 1);
+    expect(pipeline.failureFor(url), '图片需要网页验证');
+    expect(pipeline.canRetry(url), false);
+    expect(pipeline.verificationTargetFor(url), url);
+  });
+
   test('签名时间按UTC判定，读取前刷新即将过期的地址', () {
     final url =
         'https://images.example/a.jpg?X-Amz-Date=20261013T224940Z&X-Amz-Expires=60';

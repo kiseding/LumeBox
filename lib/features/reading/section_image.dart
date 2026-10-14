@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart' show mapEquals;
 
 import '../../core/reading/reading.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../core/net/waf.dart';
+import '../source/waf_webview_page.dart';
 
 /// 板块远程图片：走本板块的图片管线取图，负责引用计数、占位与失败态。
 ///
@@ -108,6 +110,35 @@ class _SectionImageState extends State<SectionImage> {
   int? _heldWidth;
   SectionImagePipeline? _heldPipeline;
   int _resolveSeq = 0;
+  bool _verifying = false;
+
+  Future<void> _retryOrVerify() async {
+    if (_verifying) return;
+    final pipeline = widget.pipeline;
+    final target = pipeline.verificationTargetFor(widget.url);
+    final source = pipeline.boundSource;
+    if (target != null && source != null) {
+      _verifying = true;
+      try {
+        // Image hosts keep their own cookies in WebKit. Never merge these
+        // credentials into the source site's Cookie header.
+        await showWafWebView(
+          context: context,
+          url: target,
+          sourceName: '${source.name} · 图片验证',
+          section: source.section,
+          sourceId: source.id,
+          userAgent: WafSessions.userAgentFor(source.section, source.id),
+        );
+      } finally {
+        _verifying = false;
+      }
+    }
+    if (!mounted) return;
+    _retries = 0;
+    _retryTimer?.cancel();
+    await _resolve();
+  }
 
   void _release() {
     if (_image == null) return;
@@ -177,12 +208,22 @@ class _SectionImageState extends State<SectionImage> {
           ? Tooltip(
               message: widget.pipeline.failureFor(widget.url) ?? '封面暂未加载，点击重试',
               child: GestureDetector(
-                onTap: () {
-                  _retries = 0;
-                  _retryTimer?.cancel();
-                  unawaited(_resolve());
-                },
-                child: widget.placeholder ?? const _Placeholder(failed: true),
+                onTap: () => unawaited(_retryOrVerify()),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    widget.placeholder ?? const _Placeholder(failed: true),
+                    if (widget.pipeline.verificationTargetFor(widget.url) !=
+                        null)
+                      const Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Text('点击验证图片', style: TextStyle(fontSize: 11)),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             )
           : widget.placeholder ?? const _Placeholder(failed: false);

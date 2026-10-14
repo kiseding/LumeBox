@@ -86,7 +86,10 @@ class LumeNet {
         proxy.isEmpty &&
         !request.allowBadCertificate &&
         request.method == 'GET' &&
-        (request.source.startsWith('封面:') || request.source == '图片缓存')) {
+        request.followRedirects &&
+        (request.reuseVerifiedSession ||
+            request.source.startsWith('封面:') ||
+            request.source == '图片缓存')) {
       return IosImageNetwork.send(request);
     }
     // 客户端**复用**（见 [_proxyClient]）：这里不再「用完就关」——每次新建再关闭
