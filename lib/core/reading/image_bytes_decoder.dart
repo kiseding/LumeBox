@@ -37,5 +37,9 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
           null,
         ),
       );
-  return cipher.process(bytes);
+  try {
+    return cipher.process(bytes);
+  } on Object {
+    throw const FormatException('Invalid encoded source image');
+  }
 }

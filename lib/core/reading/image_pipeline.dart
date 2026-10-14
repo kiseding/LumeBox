@@ -774,13 +774,20 @@ class SectionImagePipeline {
       if (_disposed) {
         return (bytes: null, retryable: false, forbidden: false);
       }
-      final retryable =
-          error is! FormatException &&
-          error is! ArgumentError &&
-          !NetworkQueue.isCertificateFailure(error);
-      _failures[url] = retryable ? '网络异常' : '证书异常';
+      final invalidImage = error is FormatException || error is ArgumentError;
+      final certificate = NetworkQueue.isCertificateFailure(error);
+      final retryable = !invalidImage && !certificate;
+      _failures[url] = invalidImage
+          ? '图片格式异常'
+          : certificate
+          ? '证书异常'
+          : '网络异常';
       LumeLog.warn(
-        '[$sourceLabel] 图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)',
+        '[$sourceLabel] 图片请求异常(${invalidImage
+            ? '图片格式错误，不重试'
+            : retryable
+            ? '将重试'
+            : '证书错误，不重试'}): $url ($error)',
       );
       return (bytes: null, retryable: retryable, forbidden: false);
     }

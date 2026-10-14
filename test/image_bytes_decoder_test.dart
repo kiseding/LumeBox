@@ -5,6 +5,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/reading/image_bytes_decoder.dart';
 
 void main() {
+  test('corrupt encoded image bytes report a format failure', () {
+    final bytes = base64Decode('2PYbUWttRSwkvhc43GjR7b0ZD9UVipvpW1dructvID0=');
+    bytes[bytes.length - 1] ^= 1;
+    expect(
+      () => decodeSourceImage(bytes, const {
+        'X-Lume-Image-Encoding': 'aes-cbc-pkcs7',
+        'X-Lume-Image-Key': 'my2ecret782ecret',
+        'X-Lume-Image-IV': 'my2ecret782ecret',
+      }),
+      throwsFormatException,
+    );
+  });
   test(
     'public reader AES-CBC bytes match an independent Node crypto fixture',
     () {
