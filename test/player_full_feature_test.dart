@@ -995,6 +995,104 @@ void main() {
       });
     }
 
+    testWidgets('全屏顶栏：分辨率与速率紧跟片名落在左上，不再被顶到画面中间', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      players.single.pushStats(
+        const PlayerStats(
+          width: 1920,
+          height: 1080,
+          downloadBytesPerSecond: 125000000,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final width = tester.getSize(find.byType(Scaffold).first).width;
+      final stats = tester.getRect(find.text('1920×1080'));
+      final speed = tester.getRect(find.text('125.0MB/s'));
+      expect(stats.center.dy, lessThan(120), reason: '在顶部那一行里');
+      expect(
+        stats.left,
+        lessThan(width * .45),
+        reason: '跟在片名后面（左上区域），不是画面中间',
+      );
+      expect(speed.left, greaterThanOrEqualTo(stats.right), reason: '两格横排');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('提示黑条不再长时间压着控制栏：1.6 秒、悬浮、新顶旧', (tester) async {
+      await pump(tester);
+      // 快捷记片头按钮在没有作品身份时会弹一句提示（标准 SnackBar 通路）。
+      await tester.tap(find.text('记片头'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('从源条目起播才能记片头片尾'), findsOneWidget);
+      final bar = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect(bar.duration, const Duration(milliseconds: 1600));
+      expect(bar.behavior, SnackBarBehavior.floating);
+      // 新提示顶掉旧的：连着两条不会排队压两条（用户口径）。
+      await tester.tap(find.text('记片头'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget, reason: '不排队，只有一条');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('全屏底部控制区贴住底部（用户口径：整块往下移）', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      final height = tester.getSize(find.byType(Scaffold).first).height;
+      final bottomRow = tester.getRect(find.text('选集'));
+      expect(
+        height - bottomRow.bottom,
+        lessThan(48),
+        reason: '底排按钮离底边只留安全区 + 6pt，不再悬在半空',
+      );
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('匹配公共弹幕：片名输入面板跟随键盘上移，输入框不再被挤成一条', (tester) async {
+      await pump(
+        tester,
+        target: const VideoPlayTarget(
+          sourceId: 'local',
+          itemId: 'i',
+          title: '片名',
+          chapterIndex: 0,
+          chapterId: 'c',
+          chapterTitle: '第一集',
+        ),
+      );
+      await tester.tap(find.byTooltip('弹幕：开'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('匹配公共弹幕'));
+      await tester.pumpAndSettle();
+
+      final field = find.byType(TextField);
+      expect(field, findsOneWidget);
+      final before = tester.getRect(field);
+      expect(
+        before.height,
+        greaterThan(36),
+        reason: '输入框给足高度（不再是挤在一条下划线上）',
+      );
+
+      // 键盘顶上来：面板整体上移**一个键盘的高度**（输入框与按钮都留在键盘上方）。
+      const keyboardPhysical = 800.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: keyboardPhysical);
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+      final after = tester.getRect(field);
+      final ratio = tester.view.devicePixelRatio;
+      expect(
+        before.bottom - after.bottom,
+        closeTo(keyboardPhysical / ratio, 1),
+        reason: '面板上移量等于键盘高度',
+      );
+      expect(find.text('搜索'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));

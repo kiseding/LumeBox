@@ -474,11 +474,9 @@ void main() {
       contains(const Duration(minutes: 45)),
       reason: '片尾到点：没有下一集就跳到结尾',
     );
-    // 提示是**排队显示**的：上一条「已记片头」还在屏幕上（SnackBar 默认 4 秒），
-    // 这一条要等它走完才轮到——按固定步长推进到队列清空，再断言。
-    for (var i = 0; i < 12; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
+    // 提示是**新顶旧**（用户口径：黑条不再排队压着控制栏），所以这条一到就
+    // 可以直接断言——但也不能多推时间（1.6 秒后它自己就收起了）。
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.textContaining('已跳过片尾'), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 60)));
 

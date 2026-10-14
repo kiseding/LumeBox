@@ -1175,10 +1175,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 可读提示（不冒泡异常）。
+  ///
+  /// 时长与排队按用户口径调过：默认是 4 秒一条**且排队**——像「这条视频没有可选
+  /// 音轨」这种连着来的提示，黑条会在控制栏上压完一条又一条，看着像卡住了。
+  /// 现在 1.6 秒、悬浮，并且新提示直接顶掉上一条（不排队）。
   void _showToast(String? message) {
     if (message == null || !mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1600),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------- 起播链路
@@ -1616,28 +1627,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _showToast('请先从源条目播放视频');
       return;
     }
-    var query = target.title;
-    final title = await showDialog<String>(
+    final title = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('匹配公共弹幕'),
-        content: TextFormField(
-          initialValue: query,
-          onChanged: (value) => query = value,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: '片名'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, query.trim()),
-            child: const Text('搜索'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _DanmakuMatchSheet(initial: target.title),
     );
     if (title == null || title.isEmpty || !mounted) return;
     final client = DandanplayClient(
@@ -2836,7 +2830,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               onPressed: () => _setFullscreen(false),
             ),
             const SizedBox(width: 6),
-            Expanded(
+            // `Flexible` 而不是 `Expanded`（用户口径）：片名只占自己那么宽，
+            // 分辨率 + 速率紧跟其后落在**左上角**；空白留给右侧那一组图标。
+            // 用 Expanded 时短片名后面的空白会把这两格顶到画面中间。
+            Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -2876,6 +2873,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   networkKbps: _networkSpeed.kbps,
                 ),
               ),
+            const Spacer(),
             if (wide)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),
@@ -3135,7 +3133,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Listener(
       onPointerDown: (_) => _scheduleAutoHide(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        // 底部留白 28 → 6（用户口径：整块往下移，别悬在半空）。再往下就是
+        // 安全区（home 指示条）本身留的位，按钮压不进去也不用压进去。
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
         child: ValueListenableBuilder<PlayerSnapshot>(
           valueListenable: _player?.snapshot ?? _idleSnapshot,
           builder: (context, snapshot, _) => Column(
@@ -4407,6 +4407,101 @@ class _QualitySheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「匹配公共弹幕」的片名输入：**底部面板 + 跟随键盘**（用户口径）。
+///
+/// 原来用的是 AlertDialog：真机全屏（横屏）里键盘一顶，对话框被挤到只剩一条，
+/// 输入框的标签与文字全糊在一条下划线上（用户截图）。换成底部面板后，键盘顶上来
+/// 面板跟着上移，输入框、取消 / 搜索都在键盘上方，横竖屏都不会被挤扁。
+class _DanmakuMatchSheet extends StatefulWidget {
+  const _DanmakuMatchSheet({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_DanmakuMatchSheet> createState() => _DanmakuMatchSheetState();
+}
+
+class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isEmpty) return;
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: DecoratedBox(
+        decoration: LumeTheme.background,
+        child: Padding(
+          // 键盘高度由系统的 viewInsets 给：面板整体上移，输入框不会被盖住。
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  '匹配公共弹幕',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: LumeTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _submit(),
+                  decoration: const InputDecoration(
+                    labelText: '片名',
+                    hintText: '输入要匹配的番剧名',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _submit,
+                        child: const Text('搜索'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
