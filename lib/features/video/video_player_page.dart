@@ -31,6 +31,7 @@ import '../../core/player/player_error.dart';
 import '../../core/player/skip_marks.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
+import '../../core/session/module_ui_scale.dart';
 import '../../core/session/section_module_settings.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
@@ -149,6 +150,25 @@ class VideoPlayerPage extends StatefulWidget {
   /// 这个键，而不是某个按钮的 tooltip。
   static const Key controlPanelKey = Key('player-control-panel');
 
+  /// 全屏浮层的左右内边距（用户口径）：**顶栏、进度条、底部按钮三处必须一致**，
+  /// 三处都读这一个值。
+  static const double controlHorizontalPadding = 16;
+
+  /// 进度条行与按钮行之间的固定行距（用户口径：两行给一个固定值）。
+  static const double controlRowGap = 10;
+
+  /// 控制栏里图标按钮的统一尺寸（图标 21 / 触达盒 40）：顶部与底部、横屏与
+  /// 竖屏都用它，尺寸与间距才一致（用户口径：图标尺寸统一、文字图标大小统一）。
+  /// 这里是 **100% 档**的基准值，实际取值再乘模块设置里的「控件尺寸」倍率。
+  static const double controlIconSize = 21;
+  static const double controlBox = 40;
+
+  /// 「播放内核」按钮的图标（用户口径：原来那颗不好看，换一颗）。
+  ///
+  /// 选 `change_circle_outlined`（双向循环箭头）：一眼读出「切换解码引擎」，
+  /// 比原来的 CPU 芯片（memory）更轻；三套内核共用同一颗，不随内核变。
+  static const IconData playerKernelIcon = Icons.change_circle_outlined;
+
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
 }
@@ -255,8 +275,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Timer? _autoHideTimer;
   bool _accessibleNavigation = false;
 
-  /// 无操作多久收起控制栏。
-  static const Duration _autoHideDelay = Duration(seconds: 4);
+  /// 无操作多久收起控制栏（用户口径：3 秒；画面中间那组播放控件不受影响）。
+  static const Duration _autoHideDelay = Duration(seconds: 3);
+
+  /// 设置 → 各模块独立设置 → 「控件尺寸」的倍率（真机反馈「显示模式全都没有
+  /// 生效」：这套值原来只写库、没有界面读）。控制栏的按钮盒与图标都乘它。
+  double get _controlScale => ModuleUiScale.instance.controlScale(
+    _library?.section ?? Section.video,
+  );
+
+  /// 当前生效的触达盒与图标尺寸（默认 100% 就是上面那两个常量）。
+  double get _box => VideoPlayerPage.controlBox * _controlScale;
+  double get _iconSize => VideoPlayerPage.controlIconSize * _controlScale;
+
 
   /// 方向锁定（用户要求）：自动 / 强制横屏 / 强制竖屏。
   ///
@@ -692,6 +723,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 播放状态变化：在「从播放转为非播放」时立即落盘进度，并检查是否播完。
+  /// 模块「控件尺寸」变化：控制栏按钮跟着重排一次（设置页改完当场生效）。
+  void _onModuleScaleChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onSnapshotChanged() {
     _syncPipPlaybackState();
     final snapshot = _player?.snapshot.value;
@@ -838,6 +874,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final libraryFuture = widget.library == null
         ? ReadingLibrary.open(Section.video)
         : Future.value(widget.library!);
+    // 控制栏的「控件尺寸」倍率来自本板块的模块设置：库好了就读一次并订阅变化
+    // （设置页改完当场生效；见 [ModuleUiScale] 的说明）。
+    ModuleUiScale.instance.addListener(_onModuleScaleChanged);
+    unawaited(
+      libraryFuture
+          .then((library) => ModuleUiScale.instance.ensure(library.section))
+          .catchError((Object _) {}),
+    );
     final settingsFuture = libraryFuture.then(VideoPlayerSettingsStore.new);
     // 立即订阅错误，防止阅读库仍在打开时出现未处理的异步异常。
     final settingsResult = settingsFuture.then<Object>(
@@ -2821,15 +2865,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
       final episode = _target?.chapterTitle;
       return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        // 与进度条、底部按钮同一份左右内边距（用户口径：三处对齐）。
+        padding: const EdgeInsets.symmetric(
+          horizontal: VideoPlayerPage.controlHorizontalPadding,
+          vertical: 4,
+        ),
         child: Row(
+          // 返回、片名、码率网速、右侧图标在同一根水平线上（垂直居中）。
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _topIcon(
               icon: Icons.arrow_back_ios_new,
               tooltip: '退出全屏',
               onPressed: () => _setFullscreen(false),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 2),
             // `Flexible` 而不是 `Expanded`（用户口径）：片名只占自己那么宽，
             // 分辨率 + 速率紧跟其后落在**左上角**；空白留给右侧那一组图标。
             // 用 Expanded 时短片名后面的空白会把这两格顶到画面中间。
@@ -2879,12 +2929,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 padding: EdgeInsets.symmetric(horizontal: 12),
                 child: _PlayerClock(),
               ),
-            if (wide)
-              _topIcon(
-                icon: Icons.audiotrack_outlined,
-                tooltip: '音轨',
-                onPressed: () => _openTrackQuick(audio: true),
-              ),
+            // 音轨入口已按用户口径从播放页拿掉（设置弹窗里仍可切音轨）。
             _topIcon(
               icon: Icons.subtitles_outlined,
               tooltip: '字幕',
@@ -2997,8 +3042,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 children: [
                   for (final option in <(String, String, IconData)>[
                     ('quality', '清晰度', Icons.high_quality_outlined),
-                    ('kernel', '播放内核', Icons.memory_outlined),
-                    ('audio', '音轨', Icons.audiotrack_outlined),
                     ('subtitle', '字幕', Icons.subtitles_outlined),
                     ('file', '外挂字幕', Icons.note_add_outlined),
                     ('rotation', '旋转画面', Icons.screen_rotation),
@@ -3023,10 +3066,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     switch (choice) {
       case 'quality':
         await _openQualityMenu();
-      case 'kernel':
-        await _openKernelPicker();
-      case 'audio':
-        await _openTrackQuick(audio: true);
       case 'subtitle':
         await _openTrackQuick(audio: false);
       case 'file':
@@ -3061,9 +3100,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool highlighted = false,
   }) {
     return IconButton(
-      iconSize: 20,
+      iconSize: _iconSize,
       visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+      constraints: BoxConstraints(minWidth: _box, minHeight: _box),
       padding: EdgeInsets.zero,
       color: highlighted ? Colors.white : Colors.white70,
       tooltip: tooltip,
@@ -3133,16 +3172,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Listener(
       onPointerDown: (_) => _scheduleAutoHide(),
       child: Padding(
-        // 底部留白 28 → 6（用户口径：整块往下移，别悬在半空）。再往下就是
-        // 安全区（home 指示条）本身留的位，按钮压不进去也不用压进去。
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+        // 底部留白 6（用户口径：整块往下移，靠近屏幕底边）。再往下就是安全区
+        // （home 指示条）本身留的位，按钮压不进去也不用压进去。
+        padding: const EdgeInsets.fromLTRB(
+          VideoPlayerPage.controlHorizontalPadding,
+          8,
+          VideoPlayerPage.controlHorizontalPadding,
+          6,
+        ),
         child: ValueListenableBuilder<PlayerSnapshot>(
           valueListenable: _player?.snapshot ?? _idleSnapshot,
           builder: (context, snapshot, _) => Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               _buildProgress(snapshot),
-              const SizedBox(height: 2),
+              // 两行（进度条行 / 按钮行）固定行距（用户口径）。
+              const SizedBox(height: VideoPlayerPage.controlRowGap),
               _buildFloatingSplitControls(snapshot),
             ],
           ),
@@ -3151,66 +3196,58 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 全屏浮层的底部按钮：**左下角一组 / 右下角一组**（用户要求）。
+  /// 底部按钮行（用户口径：**一行放齐、均匀分布、按钮间距固定相等**）。
   ///
-  /// 左下：传输控制（后退 / 播放暂停 / 停止 / 前进）+ 媒体类（清晰度 / 弹幕 /
-  /// 连播）；右下：窗口与信息类（画中画 / 播放源 / 全屏 / 设置）。
-  /// 按钮大小、互相间距与颜色都沿用原来那一套，只是不再全部挤在中间。
-  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
-    builder: (context, constraints) {
-      final target = _target;
-      final episodes = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _compactIcon(
-            icon: Icons.skip_previous,
-            tooltip: '上一集',
-            onPressed: target == null || target.chapterIndex <= 0
-                ? null
-                : () => _playEpisodeAt(target.chapterIndex - 1),
-          ),
-          _compactIcon(
-            icon: Icons.skip_next,
-            tooltip: '下一集',
-            onPressed: target == null
-                ? null
-                : () => _playEpisodeAt(target.chapterIndex + 1),
-          ),
-        ],
-      );
-      final actions = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _fullscreenLabel('选集', '线路 / 选集', _openSourceSheet),
-          _fullscreenLabel(
-            '${_settings.speed}x',
-            '播放速度（${_settings.speed}x）',
-            _showSpeedPicker,
-          ),
-          _fullscreenLabel(
-            _skipQuickLabel(snapshot),
-            _skipQuickTooltip(snapshot),
-            () => _markSkipFromQuick(snapshot),
-            onLongPress: _clearSkipMarksFromQuick,
-          ),
-          _fullscreenLabel(
-            '弹幕',
-            _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-            _openDanmakuSettings,
-            highlighted: _danmakuSettings.enabled,
-            onLongPress: _toggleDanmaku,
-          ),
-        ],
-      );
-      if (constraints.maxWidth < 440) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [episodes, actions],
-        );
-      }
-      return Row(children: [episodes, const Spacer(), actions]);
-    },
-  );
+  /// 顺序：上一集 / 下一集 → 选集 → 倍速 → 记片头片尾 → 播放内核 → 弹幕。
+  /// 所有按钮统一 [VideoPlayerPage.controlBox] 的触达盒（文字与图标都装进同一个盒子），
+  /// 因此 `spaceEvenly` 分出来的间距天然相等；不再分左右两组、也不窄屏折行。
+  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) {
+    final target = _target;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: <Widget>[
+        _compactIcon(
+          icon: Icons.skip_previous,
+          tooltip: '上一集',
+          onPressed: target == null || target.chapterIndex <= 0
+              ? null
+              : () => _playEpisodeAt(target.chapterIndex - 1),
+        ),
+        _compactIcon(
+          icon: Icons.skip_next,
+          tooltip: '下一集',
+          onPressed: target == null
+              ? null
+              : () => _playEpisodeAt(target.chapterIndex + 1),
+        ),
+        _fullscreenLabel('选集', '线路 / 选集', _openSourceSheet),
+        _fullscreenLabel(
+          '${_settings.speed}x',
+          '播放速度（${_settings.speed}x）',
+          _showSpeedPicker,
+        ),
+        _fullscreenLabel(
+          _skipQuickLabel(snapshot),
+          _skipQuickTooltip(snapshot),
+          () => _markSkipFromQuick(snapshot),
+          onLongPress: _clearSkipMarksFromQuick,
+        ),
+        // 播放内核切换做进控制栏（用户口径），换一颗看得顺眼的图标。
+        _compactIcon(
+          icon: VideoPlayerPage.playerKernelIcon,
+          tooltip: '播放内核',
+          onPressed: _openKernelPicker,
+        ),
+        _fullscreenLabel(
+          '弹幕',
+          _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+          _openDanmakuSettings,
+          highlighted: _danmakuSettings.enabled,
+          onLongPress: _toggleDanmaku,
+        ),
+      ],
+    );
+  }
 
   Widget _fullscreenLabel(
     String label,
@@ -3225,8 +3262,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onLongPress: onLongPress,
       style: TextButton.styleFrom(
         foregroundColor: highlighted ? LumeTheme.accent : Colors.white,
-        minimumSize: const Size(54, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        // 与图标按钮同一个触达盒（用户口径：文字与图标大小统一）。
+        minimumSize: Size(_box, _box),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: Text(
         label,
@@ -3262,49 +3301,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     },
   );
 
+  /// 竖屏（直屏）控制栏那一排（用户口径：**文字与图标对齐、大小统一**）。
+  ///
+  /// 文字按钮与图标按钮走同一个 [VideoPlayerPage.controlBox] 触达盒、同一个 13 号字，
+  /// 因此一排看上去是等高等宽的方块，而不是「文字比图标大一号」。
   List<Widget> _essentialActions() => <Widget>[
-    Tooltip(
-      message: '线路 / 选集',
-      child: TextButton(
-        onPressed: _openSourceSheet,
-        style: TextButton.styleFrom(
-          minimumSize: const Size(48, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          foregroundColor: _fullscreen ? Colors.white : LumeTheme.accent,
-        ),
-        child: Text(
-          '选集',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            shadows: _fullscreen ? _controlShadows : null,
-          ),
-        ),
-      ),
-    ),
-    Tooltip(
-      message: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-      child: TextButton(
-        onPressed: _openDanmakuSettings,
-        onLongPress: _toggleDanmaku,
-        style: TextButton.styleFrom(
-          minimumSize: const Size(40, 40),
-          padding: EdgeInsets.zero,
-          foregroundColor: _fullscreen ? Colors.white : LumeTheme.accent,
-        ),
-        child: Text(
-          '弹',
-          style: TextStyle(
-            fontSize: 19,
-            fontWeight: FontWeight.w700,
-            shadows: _fullscreen ? _controlShadows : null,
-          ),
-        ),
-      ),
+    _actionLabel('选集', '线路 / 选集', _openSourceSheet),
+    _actionLabel(
+      '弹',
+      _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+      _openDanmakuSettings,
+      onLongPress: _toggleDanmaku,
+      highlighted: _danmakuSettings.enabled,
     ),
     _skipQuickButton(),
     _buildPipButton(),
+    // 播放内核：与全屏那颗同一图标（用户口径：换个好看的图标）。
     _compactIcon(
-      icon: Icons.memory_outlined,
+      icon: VideoPlayerPage.playerKernelIcon,
       tooltip: '播放内核',
       onPressed: _openKernelPicker,
     ),
@@ -3315,6 +3329,37 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     ),
     _compactIcon(icon: Icons.tune, tooltip: '播放器设置', onPressed: _openSettings),
   ];
+
+  /// 竖屏控制栏上的文字按钮：与 [_compactIcon] 同盒同字号。
+  Widget _actionLabel(
+    String label,
+    String tooltip,
+    VoidCallback onPressed, {
+    VoidCallback? onLongPress,
+    bool highlighted = false,
+  }) => Tooltip(
+    message: tooltip,
+    child: TextButton(
+      onPressed: onPressed,
+      onLongPress: onLongPress,
+      style: TextButton.styleFrom(
+        minimumSize: Size(_box, _box),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: _fullscreen
+            ? (highlighted ? Colors.white : Colors.white70)
+            : LumeTheme.accent,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+      ),
+    ),
+  );
 
   /// 画面区：四态——设置库不可用 / 重建失败 / 正在准备 / 就绪。
   Widget _buildStage(AbstractPlayer? player) {
@@ -3802,22 +3847,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 主控制：后退 10 秒 / 播放暂停 / 停止 / 前进 10 秒。
+  /// 主控制：后退 10 秒 / 播放暂停 / 停止 / 倍速 / 前进 10 秒。
+  ///
+  /// 与上一排（选集 / 弹 / 记片头 / 内核 / 全屏 / 设置）用**同一套按钮盒与
+  /// `spaceEvenly`**：两排的图标落在同样的列上，看着才是齐的（用户口径：
+  /// 直屏播放页全部文字图标对齐、大小统一）。
   Widget _buildPrimaryControls(PlayerSnapshot snapshot) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: _primaryActions(snapshot),
     );
   }
 
-  /// 传输类按钮（后退 / 播放暂停 / 停止 / 前进）：常规面板居中放，
-  /// 全屏浮层把它们放到**左下角那一组**（用户要求按钮分组摆放）。
+  /// 传输类按钮（后退 / 播放暂停 / 停止 / 倍速 / 前进）：常规面板与全屏浮层
+  /// 中间那一组都用它，图标尺寸统一 [VideoPlayerPage.controlIconSize]。
   List<Widget> _primaryActions(PlayerSnapshot snapshot) {
     final player = _player;
     final playing = snapshot.playing && snapshot.error == null;
     return <Widget>[
       IconButton(
-        iconSize: 28,
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '后退 10 秒',
         icon: Icon(
@@ -3829,7 +3881,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             : () => _seekBy(const Duration(seconds: -10)),
       ),
       IconButton(
-        iconSize: 38,
+        // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
+        iconSize: _iconSize + 11,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        padding: EdgeInsets.zero,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: playing ? '暂停' : '播放',
         icon: Icon(
@@ -3843,7 +3899,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   : (snapshot.playing ? player.pause() : player.play()),
       ),
       IconButton(
-        iconSize: 28,
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '停止',
         icon: Icon(
@@ -3854,12 +3913,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       ),
       IconButton(
         tooltip: '播放速度（${_settings.speed}x）',
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
         icon: Icon(Icons.speed, shadows: _fullscreen ? _controlShadows : null),
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         onPressed: _showSpeedPicker,
       ),
       IconButton(
-        iconSize: 28,
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
         color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
         tooltip: '前进 10 秒',
         icon: Icon(
@@ -3896,9 +3962,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool highlighted = false,
   }) {
     return IconButton(
-      iconSize: 24,
+      iconSize: _iconSize,
       visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      constraints: BoxConstraints(minWidth: _box, minHeight: _box),
       padding: EdgeInsets.zero,
       color: _fullscreen
           ? (highlighted ? Colors.white : Colors.white70)

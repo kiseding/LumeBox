@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/reading/reading.dart';
 import '../../core/reading/browse_layout.dart';
 import '../../core/js/source_registry.dart';
+import '../../core/session/module_ui_scale.dart';
 import '../../core/session/section.dart';
 import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
@@ -216,10 +217,18 @@ class _ExploreViewState extends State<ExploreView> {
   /// 首页列表失败的原因（分类失败不算）。
   Object? _failure;
 
+  /// 板块的「控件尺寸 / 间距」倍率（设置 → 各模块独立设置 → UI 与控件）。
+  ///
+  /// 真机反馈「显示模式全都没有生效」：那套值原来只写库、没有任何界面读。
+  /// 这里把**间距**接到浏览网格 / 列表上（[ModuleUiScale] 是读取端）。
+  double get _spacingScale => ModuleUiScale.instance.spacingScale(widget.section);
+
   @override
   void initState() {
     super.initState();
     _layoutSettings.addListener(_onLayoutChanged);
+    ModuleUiScale.instance.addListener(_onLayoutChanged);
+    ModuleUiScale.instance.ensure(widget.section);
     if (widget.manager == null) {
       SourceSubscriptionSync.revision(widget.section)
           .addListener(_onSubscriptionsChanged);
@@ -249,6 +258,7 @@ class _ExploreViewState extends State<ExploreView> {
 
   @override
   void dispose() {
+    ModuleUiScale.instance.removeListener(_onLayoutChanged);
     _layoutSettings.removeListener(_onLayoutChanged);
     SourceSubscriptionSync.revision(widget.section)
         .removeListener(_onSubscriptionsChanged);
@@ -1413,9 +1423,9 @@ class _ExploreViewState extends State<ExploreView> {
           // 内容不足一屏时也要能下拉刷新。
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
-            16,
+            16 * _spacingScale,
             _contentTop,
-            16,
+            16 * _spacingScale,
             // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
             // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
             //（用户口径：不要固定预留一大块空白）。
@@ -1423,8 +1433,8 @@ class _ExploreViewState extends State<ExploreView> {
           ),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
+            mainAxisSpacing: 12 * _spacingScale,
+            crossAxisSpacing: 12 * _spacingScale,
             // 列越少封面越大，卡片比例也相应放宽（两列时标题有一行更宽的余地）——
             // 比例表在 BrowseLayoutMode.tileAspectRatio 里统一维护。
             childAspectRatio: BrowseLayoutMode.values
@@ -1463,16 +1473,17 @@ class _ExploreViewState extends State<ExploreView> {
         child: ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
-            16,
+            16 * _spacingScale,
             _contentTop,
-            16,
+            16 * _spacingScale,
             // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
             // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
             //（用户口径：不要固定预留一大块空白）。
             16 + _keyboardInset(context) + ShellDockScope.bottomInset(context),
           ),
           itemCount: _sortedItems.length + 1,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          separatorBuilder: (_, _) =>
+              SizedBox(height: 10 * _spacingScale),
           itemBuilder: (context, index) {
             final items = _sortedItems;
             if (index == items.length) return _buildFooter();

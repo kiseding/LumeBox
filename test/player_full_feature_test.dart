@@ -727,8 +727,11 @@ void main() {
       expect(tipContains('弹幕：'), findsWidgets);
       expect(tipContains('播放速度（'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
-      expect(find.byTooltip('音轨'), findsOneWidget);
+      // 音轨入口已按用户口径从播放页拿掉（设置弹窗里仍可切）。
+      expect(find.byTooltip('音轨'), findsNothing);
       expect(find.byTooltip('字幕'), findsOneWidget);
+      // 播放内核做进控制栏了（用户口径），底部那一排就有它。
+      expect(find.byTooltip('播放内核'), findsOneWidget);
       await tester.tap(find.byTooltip('更多功能'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('旋转画面'), 100);
@@ -1093,7 +1096,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
+    testWidgets('全屏控制栏自动隐藏：播放中无操作 3 秒收起，点屏幕唤回', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -1107,7 +1110,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
-      expect(find.byType(Slider), findsNothing, reason: '无操作 4 秒后控制栏自动隐藏');
+      expect(find.byType(Slider), findsNothing, reason: '无操作 3 秒后控制栏自动隐藏');
 
       await tester.tap(find.byType(Scaffold).first);
       await tester.pumpAndSettle();

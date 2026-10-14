@@ -229,26 +229,19 @@ class _SectionImageState extends State<SectionImage> {
       );
     } else {
       child = _failed
-          ? Tooltip(
-              message: widget.pipeline.failureFor(widget.url) ?? '封面暂未加载，点击重试',
-              child: GestureDetector(
-                onTap: () => unawaited(_retryOrVerify()),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    widget.placeholder ?? const _Placeholder(failed: true),
-                    if (widget.pipeline.verificationTargetFor(widget.url) !=
-                        null)
-                      const Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Padding(
-                          padding: EdgeInsets.all(6),
-                          child: Text('点击验证图片', style: TextStyle(fontSize: 11)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+          ? _FailedCover(
+              // **只有需要网页验证的图床**才把点击让给「验证 / 重试」：源根本没给
+              // 封面、404 这类失败整块卡片仍要把点击交给宿主去打开条目
+              //（真机反馈：封面点不动，「要点下面的标题才可以」）。
+              verifyLabel:
+                  widget.pipeline.verificationTargetFor(widget.url) != null
+                  ? '点击验证图片'
+                  : null,
+              tooltip: widget.pipeline.failureFor(widget.url) ?? '封面暂未加载',
+              onTap: widget.pipeline.verificationTargetFor(widget.url) != null
+                  ? () => unawaited(_retryOrVerify())
+                  : null,
+              placeholder: widget.placeholder ?? const _Placeholder(failed: true),
             )
           : widget.placeholder ?? const _Placeholder(failed: false);
     }
@@ -276,6 +269,51 @@ class _Placeholder extends StatelessWidget {
           color: LumeTheme.muted,
         ),
       ),
+    );
+  }
+}
+
+/// 加载失败的封面：**默认不吃点击**（点击要落到条目卡片上去打开作品）。
+///
+/// 只有图床明确需要网页验证时才挂上自己的点击（并显示「点击验证图片」），
+/// 否则整块封面就是一个纯展示的占位——真机反馈「点封面没反应、要点标题」。
+class _FailedCover extends StatelessWidget {
+  const _FailedCover({
+    required this.tooltip,
+    required this.placeholder,
+    this.onTap,
+    this.verifyLabel,
+  });
+
+  final String tooltip;
+  final Widget placeholder;
+  final VoidCallback? onTap;
+  final String? verifyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        placeholder,
+        if (verifyLabel != null)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(
+                verifyLabel!,
+                style: const TextStyle(fontSize: 11),
+              ),
+            ),
+          ),
+      ],
+    );
+    return Tooltip(
+      message: tooltip,
+      child: onTap == null
+          ? content
+          : GestureDetector(onTap: onTap, child: content),
     );
   }
 }

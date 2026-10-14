@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/player/player_settings.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
+import '../../core/session/module_ui_scale.dart';
 import '../../core/session/section_module_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -173,10 +174,14 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
     try {
       final library = await ReadingLibrary.open(widget.section);
       if (!mounted) return;
+      final loaded = SectionModuleSettings.load(library);
+      if (!mounted) return;
       setState(() {
         _library = library;
-        _module = SectionModuleSettings.load(library);
+        _module = loaded;
       });
+      // 打开本页时也把当前值同步给界面缓存（浏览页 / 播放页据此布局）。
+      ModuleUiScale.instance.apply(widget.section, loaded);
     } catch (error) {
       // 库打不开：界面照旧显示默认值，只记一条日志（本页是配置页，不该白屏）。
       debugPrint('[settings] ${widget.section.id} 模块设置库打不开：$error');
@@ -186,6 +191,9 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   void _update(SectionModuleSettings next) {
     setState(() => _module = next);
     _library?.let(next.save);
+    // 立刻作用到界面（浏览页间距 / 播放器控件尺寸）：真机反馈「显示模式全都
+    // 没有生效」——原因是这些值只写库、没有任何界面读它。见 [ModuleUiScale]。
+    ModuleUiScale.instance.apply(widget.section, next);
   }
 
   @override
