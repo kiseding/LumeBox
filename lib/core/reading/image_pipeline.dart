@@ -87,39 +87,6 @@ class SectionImagePipeline {
     }
   }
 
-  /// 这条管线渲染的是哪个源（[Section] + 源 id），由页面在渲染该源的封面时挂上。
-  ///
-  /// 用途只有一个：**源站自己的图片要带源站会话**（`cf_clearance` 这类）。脚本
-  /// 请求本来就带这份会话（见 `WafSessions`），所以列表 / 详情 HTML 一直取得到；
-  /// 图片请求从前一枚 Cookie 都不带，源站一上 Cloudflare 校验，正文能看、封面
-  /// 却一批批空白（真机反馈）。会话只发给**脚本自己请求过的域名**，独立图床
-  /// （脚本从不请求）一枚都不带——那是把源站凭据泄漏给第三方域名。
-  Section? _sessionSection;
-  String? _sessionSourceId;
-
-  /// 把「源站会话」挂到这条管线上；下次请求即按 [ownsHost] 判定要不要带。
-  void bindSession(Section section, String sourceId) {
-    _sessionSection = section;
-    _sessionSourceId = sourceId;
-  }
-
-  /// 这张图要不要带源站会话：源站自己的域名 → 带上会话 Cookie 与验证时的 UA。
-  ///
-  /// UA 必须跟着一起换：`cf_clearance` 绑 IP + UA，带着 Cookie 用另一个 UA 发出去
-  /// 等于没验（真机反馈过「验完还是被拦」）。没有会话时返回 null，行为与从前一致。
-  ({String cookies, String userAgent})? _sessionFor(String url) {
-    final id = _sessionSourceId;
-    final section = _sessionSection;
-    if (id == null || section == null) return null;
-    if (!SourceRequestLog.ownsHost(id, url)) return null;
-    final cookies = WafSessions.cookiesFor(section, id)?.trim() ?? '';
-    if (cookies.isEmpty) return null;
-    return (
-      cookies: cookies,
-      userAgent: WafSessions.userAgentFor(section, id)?.trim() ?? '',
-    );
-  }
-
   final Map<String, SectionImagePipeline> _sourcePipelines = {};
 
   /// 这条管线渲染的是哪个源（[Section] + 源 id），由页面在渲染该源的封面时挂上。
@@ -722,7 +689,8 @@ class SectionImagePipeline {
               if (withReferer || entry.key.toLowerCase() != 'referer')
                 if (!entry.key.toLowerCase().startsWith('x-lume-image-'))
                   entry.key: entry.value,
-            if (session != null && !hasExplicitCookie) 'Cookie': session.cookies,
+            if (session != null && !hasExplicitCookie)
+              'Cookie': session.cookies,
             // 会话的 UA 压过一切：`cf_clearance` 绑 IP + UA，换 UA 等于没验。
             if (session != null && session.userAgent.isNotEmpty)
               'User-Agent': session.userAgent,

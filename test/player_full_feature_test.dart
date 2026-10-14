@@ -580,7 +580,7 @@ void main() {
           await tester.tap(find.byTooltip('全屏'));
           await tester.pumpAndSettle();
         }
-        await tester.tap(find.text('弹'));
+        await tester.tap(find.byTooltip('弹幕：开'));
         await tester.pumpAndSettle();
         final back = find.byTooltip('返回播放');
         expect(tester.getRect(back).top, greaterThanOrEqualTo(59));
@@ -681,7 +681,7 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
       expect(find.text('重试播放'), findsOneWidget);
       expect(find.byTooltip('退出全屏'), findsOneWidget);
-      expect(find.byTooltip('播放器设置'), findsOneWidget);
+      expect(find.byTooltip('更多功能'), findsOneWidget);
     });
 
     testWidgets('全屏锁定后解锁按钮避让顶部和右侧系统安全区', (tester) async {
@@ -777,31 +777,29 @@ void main() {
         description: 'Tooltip 含「$part」',
       );
 
-      expect(find.byTooltip('关闭（退出全屏）'), findsWidgets);
+      expect(find.byTooltip('退出全屏'), findsWidgets);
       expect(find.byTooltip('投屏（本版本未接入）'), findsNothing);
-      expect(tipContains('旋转（当前：'), findsWidgets);
-      expect(tipContains('画面比例（当前：'), findsWidgets);
       expect(tipContains('弹幕：'), findsWidgets);
-      expect(tipContains('倍速（当前 '), findsNothing);
       expect(tipContains('播放速度（'), findsOneWidget);
-      expect(find.byTooltip('锁定（防误触）'), findsWidgets);
-
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
-
-      // 旋转/比例/倍速三个循环按钮当场改档位并给回执。
-      // 点一下旋转：档位当场往后走一档（提示里的「当前」值跟着变，这就是回执）。
-      await tester.tap(tipContains('旋转（当前：').first);
+      expect(find.byTooltip('音轨'), findsOneWidget);
+      expect(find.byTooltip('字幕'), findsOneWidget);
+      await tester.tap(find.byTooltip('更多功能'));
       await tester.pumpAndSettle();
-      expect(
-        tipContains('旋转（当前：顺时针 90°）'),
-        findsWidgets,
-        reason: '旋转档位真的变了（提示里的当前值跟着走）',
-      );
-
-      // 同理：比例从「适应」走到「填充」。
-      await tester.tap(tipContains('画面比例（当前：').first);
+      await tester.scrollUntilVisible(find.text('旋转画面'), 100);
+      await tester.tap(find.text('旋转画面'));
       await tester.pumpAndSettle();
-      expect(tipContains('画面比例（当前：填充）'), findsWidgets, reason: '比例档位也真的变了');
+      expect(find.text('旋转：顺时针 90°'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Scaffold).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多功能'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('画面比例'), 100);
+      await tester.tap(find.text('画面比例'));
+      await tester.pumpAndSettle();
+      expect(find.text('画面比例：填充'), findsOneWidget);
     });
 
     testWidgets('全屏：锁横屏；退出全屏：还原竖屏（用户要求）', (tester) async {
@@ -999,21 +997,51 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('全屏浮层：进度条贴底、按钮分左下 / 右下两组（用户要求）', (tester) async {
+    testWidgets('全屏：中央播放、底部时间进度与常用功能，停止收入更多', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-
-      final slider = tester.getRect(find.byType(Slider).first);
-      final stop = tester.getCenter(find.byTooltip('停止'));
-      expect(slider.bottom, lessThan(stop.dy), reason: '进度条在按钮组上方');
-
-      final leftMost = tester.getCenter(find.byTooltip('后退 10 秒')).dx;
-      final rightSettings = tester.getCenter(find.byTooltip('播放器设置')).dx;
-      expect(rightSettings, greaterThan(450));
-      expect(leftMost, lessThan(450));
+      final slider = tester.getRect(find.byType(Slider));
+      final seek = tester.getCenter(find.byTooltip('后退 10 秒'));
+      final quality = tester.getCenter(find.byTooltip('清晰度'));
+      expect(slider.top, greaterThan(seek.dy));
+      expect(quality.dy, greaterThan(slider.bottom));
+      expect(find.byTooltip('停止'), findsNothing);
+      expect(find.text('选集'), findsOneWidget);
+      expect(find.text('画质'), findsOneWidget);
+      expect(find.text('弹幕'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
+      await tester.tap(find.byTooltip('更多功能'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('停止播放'), 100);
+      expect(find.text('停止播放'), findsOneWidget);
     });
+
+    for (final size in const [Size(844, 390), Size(375, 812)]) {
+      testWidgets('全屏常用功能在安全区内且无溢出：$size', (tester) async {
+        final players = await pump(tester);
+        await tester.tap(find.byTooltip('全屏'));
+        await tester.pumpAndSettle();
+        await tester.binding.setSurfaceSize(size);
+        players.single.emit(
+          duration: const Duration(minutes: 90),
+          position: const Duration(minutes: 15),
+        );
+        await tester.pumpAndSettle();
+        for (final label in ['退出全屏', '更多功能', '清晰度', '线路 / 选集', '锁定（防误触）']) {
+          final rect = tester.getRect(find.byTooltip(label));
+          expect(rect.left, greaterThanOrEqualTo(0));
+          expect(rect.top, greaterThanOrEqualTo(0));
+          expect(rect.right, lessThanOrEqualTo(size.width));
+          expect(rect.bottom, lessThanOrEqualTo(size.height));
+        }
+        expect(tester.takeException(), isNull);
+        final slider = tester.getRect(find.byType(Slider));
+        final time = tester.getRect(find.text('15:00'));
+        expect(time.center.dy, closeTo(slider.center.dy, 2));
+        expect(slider.top, greaterThan(size.height * .65));
+      });
+    }
 
     testWidgets('全屏控制栏自动隐藏：播放中无操作 4 秒收起，点屏幕唤回', (tester) async {
       final players = await pump(tester);
@@ -1081,7 +1109,10 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.tap(find.byTooltip('更多功能'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('播放器设置'), 100);
+      await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
         find.text('自动隐藏控制栏'),

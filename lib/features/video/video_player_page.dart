@@ -2614,7 +2614,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 都取消计时并保持可见（暂停时还把控制栏收起来，用户会以为卡住了）。
   void _scheduleAutoHide() {
     _autoHideTimer?.cancel();
-    if (!_fullscreen || _locked) return;
+    if (!_fullscreen || _locked || _previewTarget != null) return;
     if (_accessibleNavigation) return;
     if (!_settings.autoHideControls) return;
     if (!(_player?.snapshot.value.playing ?? false) ||
@@ -2750,10 +2750,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Stack(
       children: <Widget>[
         Positioned.fill(child: body),
+        if (_overlayVisible && !_locked) Center(child: _buildCenterTransport()),
+        if (_overlayVisible && !_locked)
+          SafeArea(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: _topIcon(
+                  icon: Icons.lock_open,
+                  tooltip: '锁定（防误触）',
+                  onPressed: () => setState(() => _locked = true),
+                ),
+              ),
+            ),
+          ),
         if (_locked)
           SafeArea(
             child: Align(
-              alignment: Alignment.topRight,
+              alignment: Alignment.centerLeft,
               child: _buildUnlockButton(),
             ),
           ),
@@ -2801,54 +2816,184 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
   ];
 
-  /// 返回、旋转与比例在左，标题居中，唯一锁定按钮在右。
-  Widget _buildImmersiveTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 8, 12),
-      child: Row(
-        children: <Widget>[
-          _topIcon(
-            icon: Icons.close,
-            tooltip: '关闭（退出全屏）',
-            onPressed: () => _setFullscreen(false),
-          ),
-          // 旋转：按「不旋转 → 90° → 180° → 270°」循环，当前角度在提示里。
-          _topIcon(
-            icon: Icons.screen_rotation,
-            tooltip: '旋转（当前：${_settings.rotation.label}）',
-            highlighted: _settings.rotation != RotationMode.none,
-            onPressed: _cycleRotation,
-          ),
-          // 比例：按缩放模式循环（适应 / 填充 / 0.75x / 1.0x / 1.25x / 1.5x）。
-          _topIcon(
-            icon: Icons.aspect_ratio,
-            tooltip: '画面比例（当前：${_settings.zoom.label}）',
-            highlighted: _settings.zoom != ZoomMode.fit,
-            onPressed: _cycleZoom,
-          ),
-          Expanded(
-            child: Text(
-              widget.title ?? _target?.title ?? '播放',
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                shadows: _controlShadows,
+  /// 顶部保留返回、片名与媒体选项，低频操作收进更多。
+  Widget _buildImmersiveTopBar() => LayoutBuilder(
+    builder: (context, constraints) {
+      final wide = constraints.maxWidth >= 480;
+      final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
+      final episode = _target?.chapterTitle;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        child: Row(
+          children: [
+            _topIcon(
+              icon: Icons.arrow_back_ios_new,
+              tooltip: '退出全屏',
+              onPressed: () => _setFullscreen(false),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      shadows: _controlShadows,
+                    ),
+                  ),
+                  if (episode != null && episode != '播放' && episode != title)
+                    Text(
+                      episode,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white70,
+                        shadows: _controlShadows,
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          _topIcon(
-            icon: _locked ? Icons.lock : Icons.lock_open,
-            tooltip: _locked ? '解除锁定' : '锁定（防误触）',
-            highlighted: _locked,
-            onPressed: () => setState(() => _locked = !_locked),
-          ),
-        ],
+            if (wide)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: _PlayerClock(),
+              ),
+            if (wide)
+              _topIcon(
+                icon: Icons.audiotrack_outlined,
+                tooltip: '音轨',
+                onPressed: () => _openTrackQuick(audio: true),
+              ),
+            _topIcon(
+              icon: Icons.subtitles_outlined,
+              tooltip: '字幕',
+              onPressed: () => _openTrackQuick(audio: false),
+            ),
+            _buildPipButton(),
+            _topIcon(
+              icon: Icons.more_horiz,
+              tooltip: '更多功能',
+              onPressed: _openFullscreenTools,
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  Future<void> _openTrackQuick({required bool audio}) async {
+    _cancelAutoHide();
+    try {
+      final caps = _player?.capabilities ?? PlayerCapabilities.none;
+      if (audio ? !caps.audioTracks : !caps.subtitleTracks) {
+        _unsupported();
+        return;
+      }
+      if (audio) {
+        await _pickAudioTrack();
+      } else {
+        await _pickSubtitleTrack();
+      }
+    } finally {
+      _scheduleAutoHide();
+    }
+  }
+
+  Future<void> _openFullscreenTools() async {
+    _cancelAutoHide();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SizedBox(
+        height: math.min(600, MediaQuery.sizeOf(sheetContext).height * .82),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '更多功能',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final option in <(String, String, IconData)>[
+                    ('audio', '音轨', Icons.audiotrack_outlined),
+                    ('subtitle', '字幕', Icons.subtitles_outlined),
+                    ('file', '外挂字幕', Icons.note_add_outlined),
+                    ('intro', '记片头', Icons.skip_next),
+                    ('outro', '记片尾', Icons.skip_previous),
+                    ('rotation', '旋转画面', Icons.screen_rotation),
+                    ('zoom', '画面比例', Icons.aspect_ratio),
+                    ('settings', '播放器设置', Icons.tune),
+                    ('retry', '刷新播放地址', Icons.refresh),
+                    ('stop', '停止播放', Icons.stop_circle_outlined),
+                  ])
+                    ListTile(
+                      leading: Icon(option.$3),
+                      title: Text(option.$2),
+                      onTap: () => Navigator.pop(sheetContext, option.$1),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
+    if (!mounted) return;
+    switch (choice) {
+      case 'audio':
+        await _openTrackQuick(audio: true);
+      case 'subtitle':
+        await _openTrackQuick(audio: false);
+      case 'file':
+        if (_player?.capabilities.externalSubtitle == true) {
+          await _pickSubtitleFile();
+        } else {
+          _unsupported();
+        }
+      case 'intro':
+        _markSkip(intro: true);
+      case 'outro':
+        _markSkip(intro: false);
+      case 'rotation':
+        _cycleRotation();
+      case 'zoom':
+        _cycleZoom();
+      case 'settings':
+        await _openSettings();
+      case 'retry':
+        await _restoreInlinePlayback(retry: true);
+      case 'stop':
+        await _player?.stop();
+    }
+    _scheduleAutoHide();
   }
 
   /// 顶栏上的紧凑图标按钮（白字 + 投影，压在画面上也看得清）。
@@ -2861,7 +3006,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return IconButton(
       iconSize: 20,
       visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       padding: EdgeInsets.zero,
       color: highlighted ? Colors.white : Colors.white70,
       tooltip: tooltip,
@@ -2931,7 +3076,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Listener(
       onPointerDown: (_) => _scheduleAutoHide(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
         child: ValueListenableBuilder<PlayerSnapshot>(
           valueListenable: _player?.snapshot ?? _idleSnapshot,
           builder: (context, snapshot, _) => Column(
@@ -2952,27 +3097,106 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 左下：传输控制（后退 / 播放暂停 / 停止 / 前进）+ 媒体类（清晰度 / 弹幕 /
   /// 连播）；右下：窗口与信息类（画中画 / 播放源 / 全屏 / 设置）。
   /// 按钮大小、互相间距与颜色都沿用原来那一套，只是不再全部挤在中间。
-  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final transport = Row(
+  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
+    builder: (context, constraints) {
+      final target = _target;
+      final episodes = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _compactIcon(
+            icon: Icons.skip_previous,
+            tooltip: '上一集',
+            onPressed: target == null || target.chapterIndex <= 0
+                ? null
+                : () => _playEpisodeAt(target.chapterIndex - 1),
+          ),
+          _compactIcon(
+            icon: Icons.skip_next,
+            tooltip: '下一集',
+            onPressed: target == null
+                ? null
+                : () => _playEpisodeAt(target.chapterIndex + 1),
+          ),
+        ],
+      );
+      final actions = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _fullscreenLabel('选集', '线路 / 选集', _openSourceSheet),
+          _fullscreenLabel(
+            '${_settings.speed}x',
+            '播放速度（${_settings.speed}x）',
+            _showSpeedPicker,
+          ),
+          _fullscreenLabel('画质', '清晰度', _openQualityMenu),
+          _fullscreenLabel(
+            '弹幕',
+            _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+            _openDanmakuSettings,
+            highlighted: _danmakuSettings.enabled,
+            onLongPress: _toggleDanmaku,
+          ),
+        ],
+      );
+      if (constraints.maxWidth < 440) {
+        return Column(
           mainAxisSize: MainAxisSize.min,
-          children: _primaryActions(snapshot),
+          children: [episodes, actions],
         );
-        final actions = Row(
+      }
+      return Row(children: [episodes, const Spacer(), actions]);
+    },
+  );
+
+  Widget _fullscreenLabel(
+    String label,
+    String tooltip,
+    VoidCallback onPressed, {
+    bool highlighted = false,
+    VoidCallback? onLongPress,
+  }) => Tooltip(
+    message: tooltip,
+    child: TextButton(
+      onPressed: onPressed,
+      onLongPress: onLongPress,
+      style: TextButton.styleFrom(
+        foregroundColor: highlighted ? LumeTheme.accent : Colors.white,
+        minimumSize: const Size(54, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          shadows: _controlShadows,
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildCenterTransport() => ValueListenableBuilder<PlayerSnapshot>(
+    valueListenable: _player?.snapshot ?? _idleSnapshot,
+    builder: (_, snapshot, _) {
+      if (_player == null || snapshot.error != null) {
+        return const SizedBox.shrink();
+      }
+      final actions = _primaryActions(snapshot);
+      return Listener(
+        onPointerDown: (_) => _scheduleAutoHide(),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: _essentialActions(),
-        );
-        if (constraints.maxWidth < 440) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [transport, actions],
-          );
-        }
-        return Row(children: [transport, const Spacer(), actions]);
-      },
-    );
-  }
+          children: [
+            actions[0],
+            const SizedBox(width: 28),
+            actions[1],
+            const SizedBox(width: 28),
+            actions[4],
+          ],
+        ),
+      );
+    },
+  );
 
   List<Widget> _essentialActions() => <Widget>[
     Tooltip(
@@ -3161,11 +3385,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 Positioned.fill(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => _showToast('已锁定：点右上角的锁解开'),
+                    onTap: () => _showToast('已锁定：点锁图标解开'),
                   ),
                 ),
               Positioned(
-                top: _fullscreen ? MediaQuery.paddingOf(context).top + 52 : 0,
+                top: _fullscreen ? MediaQuery.paddingOf(context).top + 60 : 0,
                 left: _fullscreen ? MediaQuery.paddingOf(context).left : 0,
                 right: 48,
                 child: IgnorePointer(
@@ -3373,29 +3597,86 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final total = snapshot.duration.inMilliseconds;
     final preview = _previewTarget;
     final shown = preview ?? snapshot.position;
+    final slider = Slider(
+      value: _fraction(shown, snapshot.duration),
+      secondaryTrackValue: _fraction(
+        shown + (_player?.stats.value.buffered ?? Duration.zero),
+        snapshot.duration,
+      ),
+      onChangeStart: total == 0
+          ? null
+          : (value) {
+              _cancelAutoHide();
+              setState(
+                () => _previewTarget = _positionAt(value, snapshot.duration),
+              );
+            },
+      onChanged: total == 0
+          ? null
+          : (value) => setState(
+              () => _previewTarget = _positionAt(value, snapshot.duration),
+            ),
+      onChangeEnd: total == 0
+          ? null
+          : (value) {
+              final target = _positionAt(value, snapshot.duration);
+              setState(() => _previewTarget = null);
+              _scheduleAutoHide();
+              final player = _player;
+              if (player != null) unawaited(player.seek(target));
+            },
+    );
+    if (_fullscreen) {
+      final theme = SliderTheme.of(context).copyWith(
+        trackHeight: 3,
+        activeTrackColor: LumeTheme.accent,
+        inactiveTrackColor: Colors.white24,
+        secondaryActiveTrackColor: Colors.white54,
+        thumbColor: LumeTheme.accent,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+      );
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (preview != null)
+            Text(
+              '拖动到 ${_format(preview)}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                shadows: _controlShadows,
+              ),
+            ),
+          Row(
+            children: [
+              Text(
+                _format(shown),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  shadows: _controlShadows,
+                ),
+              ),
+              Expanded(
+                child: SliderTheme(data: theme, child: slider),
+              ),
+              Text(
+                _format(snapshot.duration),
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  shadows: _controlShadows,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
     return Column(
       children: <Widget>[
-        Slider(
-          value: _fraction(shown, snapshot.duration),
-          onChangeStart: total == 0
-              ? null
-              : (value) => setState(
-                  () => _previewTarget = _positionAt(value, snapshot.duration),
-                ),
-          onChanged: total == 0
-              ? null
-              : (value) => setState(
-                  () => _previewTarget = _positionAt(value, snapshot.duration),
-                ),
-          onChangeEnd: total == 0
-              ? null
-              : (value) {
-                  final target = _positionAt(value, snapshot.duration);
-                  setState(() => _previewTarget = null);
-                  final player = _player;
-                  if (player != null) unawaited(player.seek(target));
-                },
-        ),
+        slider,
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
@@ -3636,6 +3917,38 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 }
 
 /// 内核切换前记录的位置与播放状态（新内核加载完成后接回去）。
+class _PlayerClock extends StatefulWidget {
+  const _PlayerClock();
+  @override
+  State<_PlayerClock> createState() => _PlayerClockState();
+}
+
+class _PlayerClockState extends State<_PlayerClock> {
+  Timer? _timer;
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    return Text(
+      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+      style: const TextStyle(color: Colors.white, fontSize: 12),
+    );
+  }
+}
+
 class _ResumePoint {
   const _ResumePoint({required this.position, required this.playing});
 
