@@ -21,7 +21,8 @@ void main() {
     test('各类 HTTP 状态码给对应说法', () {
       expect(
         PlayerErrorText.describe('failed: HTTP 403 forbidden'),
-        '打开失败：服务器拒绝访问（HTTP 403）：多半需要请求头或已防盗链',
+        '打开失败：服务器拒绝访问（HTTP 403）：可能是缺防盗链请求头，'
+            '也可能是站点按网络出口（代理 / VPN 的地区）拦截——换直连或换线路再试',
       );
       expect(
         PlayerErrorText.describe('server said HTTP 500'),

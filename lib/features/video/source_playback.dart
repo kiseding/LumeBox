@@ -1,3 +1,4 @@
+import '../../core/net/source_request_log.dart';
 import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
 
@@ -69,18 +70,39 @@ class SourcePlayback {
     );
   }
 
+  /// 带上该源「验证过的会话」：验证时的 UA，以及 **源站自己域名上的** Cookie。
+  ///
+  /// 为什么 Cookie 也要带（真机反馈 hanime1 这类站「播放链接中断」）：CF 站点的
+  /// 媒体地址常常就在主站域名下，只带 UA 不带 `cf_clearance` 照样被拦；而网页
+  /// 验证拿到的会话本来就存在库里，只拿它取图片就太浪费了。
+  ///
+  /// **只发给源站自己的域名**（[SourceRequestLog.ownsHost]）：独立图床 / 媒体 CDN
+  /// 一枚都不带——把主站会话泄漏给第三方域名比拿不到画面更糟。
   static Map<String, String> _verifiedHeaders(
     Map<String, String> original,
     Uri? uri,
     DataSource? source,
   ) {
     if (source == null) return original;
+    // UA 一直跟着走（验证时的 UA 与 cf_clearance 绑定，换回脚本里那个 UA 等于没验）；
+    // Cookie 只发给源站自己的域名。
     final ua =
         WafSessions.userAgentFor(source.section, source.id)?.trim() ?? '';
-    if (ua.isEmpty) return original;
+    final owned =
+        uri != null && SourceRequestLog.ownsHost(source.id, uri.toString());
+    final cookies = owned
+        ? (WafSessions.cookiesFor(source.section, source.id)?.trim() ?? '')
+        : '';
+    if (ua.isEmpty && cookies.isEmpty) return original;
     final result = Map<String, String>.of(original);
-    result.removeWhere((key, _) => key.toLowerCase() == 'user-agent');
-    result['User-Agent'] = ua;
+    if (ua.isNotEmpty) {
+      result.removeWhere((key, _) => key.toLowerCase() == 'user-agent');
+      result['User-Agent'] = ua;
+    }
+    if (cookies.isNotEmpty &&
+        !result.keys.any((key) => key.toLowerCase() == 'cookie')) {
+      result['Cookie'] = cookies;
+    }
     return result;
   }
 

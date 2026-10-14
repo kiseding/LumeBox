@@ -39,19 +39,15 @@ class PlayerHud extends StatelessWidget {
     return ValueListenableBuilder<PlayerStats>(
       valueListenable: stats,
       builder: (context, value, _) {
-        final speed = PlaybackSpeedMeter.describe(kbps);
         final chips = <String>[
           if (showDetails && value.resolutionText != null)
             value.resolutionText!,
           if (showDetails && value.codecText != null) value.codecText!,
           if (showDetails && value.fpsText != null) value.fpsText!,
           if (showDetails && value.bitrateText != null) value.bitrateText!,
-          if (showSpeed && value.downloadBytesPerSecond != null)
-            '网速 ${PlaybackSpeedMeter.describeBytes(value.downloadBytesPerSecond!)}'
-          else if (showSpeed && speed != null)
-            '源测速 $speed'
-          else if (showSpeed)
-            '网速 —',
+          // 速率只给数字（用户口径：去掉「网速」两个字）。量不出来时留一个占位，
+          // 让这一格在采样前后不会忽然出现 / 消失。
+          if (showSpeed) PlayerStatsInline.speedText(value, kbps) ?? '—',
         ];
         if (chips.isEmpty) return const SizedBox.shrink();
         return Padding(
@@ -65,6 +61,76 @@ class PlayerHud extends StatelessWidget {
       },
     );
   }
+}
+
+/// 全屏顶栏后面那一排（用户口径）：分辨率与速率**横排**、落在片名后面，
+/// 跟着控制浮层一起出现 / 收起。
+///
+/// 与左侧 [PlayerHud] 的区别：这里只要这两格，字色走顶栏那一套（白字 + 投影），
+/// 因此不再用底色块——压在画面上已经够清楚，块状底会压住片名右侧的空间。
+class PlayerStatsInline extends StatelessWidget {
+  const PlayerStatsInline({super.key, required this.stats, this.networkKbps});
+
+  final ValueListenable<PlayerStats> stats;
+  final ValueListenable<int?>? networkKbps;
+
+  /// 速率的显示文案：真实下载量优先（内核自己统计到的），其次源测速（本地探测），
+  /// 都拿不到时返回 null（由调用方决定占位）。**不带「网速 / 源测速」前缀**。
+  static String? speedText(PlayerStats stats, int? kbps) {
+    if (stats.downloadBytesPerSecond != null) {
+      return PlaybackSpeedMeter.describeBytes(stats.downloadBytesPerSecond!);
+    }
+    return PlaybackSpeedMeter.describe(kbps);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final speed = networkKbps;
+    if (speed == null) return _build(null);
+    return ValueListenableBuilder<int?>(
+      valueListenable: speed,
+      builder: (context, kbps, _) => _build(kbps),
+    );
+  }
+
+  Widget _build(int? kbps) {
+    return ValueListenableBuilder<PlayerStats>(
+      valueListenable: stats,
+      builder: (context, value, _) {
+        final labels = <String>[
+          if (value.resolutionText != null) value.resolutionText!,
+          if (speedText(value, kbps) != null) speedText(value, kbps)!,
+        ];
+        if (labels.isEmpty) return const SizedBox.shrink();
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (var i = 0; i < labels.length; i++) ...<Widget>[
+              if (i > 0) const SizedBox(width: 10),
+              Text(
+                labels[i],
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                  shadows: PlayerHudShadows.control,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 压在画面上的文字投影（顶栏与浮层控制共用一套，避免两处各写一份）。
+class PlayerHudShadows {
+  PlayerHudShadows._();
+
+  static const List<Shadow> control = <Shadow>[
+    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
+  ];
 }
 
 /// 单个参数片段：半透明底 + 细描边，压在画面上不抢戏。

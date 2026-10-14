@@ -433,6 +433,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 site.id,
                               ).iconUrl,
                               size: 28,
+                              section: Section.cat,
+                              sourceId: site.id,
                             ),
                             onLongPress: () async {
                               await Navigator.push(

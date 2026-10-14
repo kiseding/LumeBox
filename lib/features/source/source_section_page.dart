@@ -672,6 +672,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         final source = visible[index - 1];
         return _SourceTile(
           source: source,
+          section: widget.section,
           pinned: SourcePreferences.read(widget.section, source.id).pinned,
           customIcon: SourcePreferences.read(widget.section, source.id).iconUrl,
           onPin: () => _pin(source),
@@ -723,6 +724,7 @@ enum _SourceAction {
 class _SourceTile extends StatelessWidget {
   const _SourceTile({
     required this.source,
+    required this.section,
     this.pinned = false,
     this.customIcon = '',
     required this.onPin,
@@ -742,6 +744,10 @@ class _SourceTile extends StatelessWidget {
   });
 
   final SourceDescriptor source;
+
+  /// 这个源属于哪个板块（取图标时要用该源的会话，见 [SourceIcon.section]）。
+  final Section section;
+
   final bool pinned;
   final String customIcon;
   final VoidCallback onPin, onPreferences;
@@ -786,6 +792,9 @@ class _SourceTile extends StatelessWidget {
             name: source.name,
             siteUrl: source.siteUrl,
             iconUrl: customIcon.isEmpty ? source.iconUrl : customIcon,
+            // 带上板块与源标识：Cloudflare 站要用该源验证过的会话才给图标。
+            section: section,
+            sourceId: source.id,
           ),
           const SizedBox(width: 12),
           if (pinned)

@@ -375,13 +375,26 @@ class LumeSources {
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
   static String _siteUrl(String script) {
-    final match = RegExp(
+    // 站点根有两种写法：单值（`BASE_URL = 'https://a.com'` / `H.base="https://a.com"`）
+    // 与主机列表（`var HOSTS = ['https://a.com', 'https://a.net']`，多域名备用）。
+    // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
+    // 认不出来这些源就只能永远显示首字母。
+    final single = RegExp(
       r'''(?:BASE_URL|BASE|H\.base)\s*=\s*['"](https?://[^'"]+)''',
     ).firstMatch(script);
-    final uri = Uri.tryParse(match?.group(1) ?? '');
+    final host = single?.group(1) ?? _firstHost(script);
+    final uri = Uri.tryParse(host ?? '');
     return uri != null && uri.host.isNotEmpty && uri.userInfo.isEmpty
         ? uri.origin
         : '';
+  }
+
+  /// `HOSTS = ['https://a.com', …]` / `HOSTS = ["https://a.com"]` 里的第一个主机。
+  static String? _firstHost(String script) {
+    final match = RegExp(
+      r'''HOSTS\s*=\s*\[\s*['"](https?://[^'"]+)''',
+    ).firstMatch(script);
+    return match?.group(1);
   }
 
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(

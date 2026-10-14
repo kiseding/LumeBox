@@ -155,8 +155,6 @@ class VideoPlayerPage extends StatefulWidget {
 
 class _VideoPlayerPageState extends State<VideoPlayerPage>
     with WidgetsBindingObserver {
-  final TextEditingController _input = TextEditingController();
-
   late final PlayerKernelCatalog _catalog =
       widget.catalog ?? const PlatformPlayerKernelCatalog();
 
@@ -584,7 +582,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final media = widget.media;
-    _input.text = media?.uri.toString() ?? '';
     _syncQualityIndex(media);
     // 方向偏好：读当前值并订阅变化（设置页改了「横屏播放」当场生效）。
     final orientation = PlaybackOrientationController.instance;
@@ -688,7 +685,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (prelaunch != null) unawaited(prelaunch.discard());
     _store?.close();
     if (widget.library == null) ReadingLibrary.close(Section.video);
-    _input.dispose();
     _idleSnapshot.dispose();
     if (widget.speedMeter == null) _networkSpeed.dispose();
     // 注入进来的网速表由调用方释放。
@@ -722,7 +718,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _cancelAutoHide();
       }
     }
-    if (snapshot?.error != null) _cancelAutoHide();
+    if (snapshot?.error != null) {
+      _cancelAutoHide();
+      _logPlaybackFailure(snapshot!);
+    }
     _wasPlaying = playing;
     if (snapshot != null) {
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
@@ -1182,16 +1181,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Uri? _resolve(String text) {
-    final parsed = Uri.tryParse(text);
-    if (parsed == null) return null;
-    const networkSchemes = <String>{'http', 'https', 'file'};
-    return networkSchemes.contains(parsed.scheme) ? parsed : Uri.file(text);
-  }
-
-  /// 手动贴地址起播是**播放源弹窗**里的入口（见 [_playManualAddress]）：
-  /// 控制栏不再自带地址行（用户要求把长链接收起来）。
-
   // ---------------------------------------------------------------- 起播链路
 
   /// 起播时把「当前线路」对齐到实际地址（图源给的默认地址可能是某一条线路）。
@@ -1315,7 +1304,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _loadSkipMarks(target);
     _healthyPosition = Duration.zero;
     _target = target;
-    _input.text = media.uri.toString();
     await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
     if (!mounted || !identical(media, _media)) return;
     await _restoreProgress();
@@ -1741,84 +1729,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           onMatch: _matchPublicDanmaku,
           onConfigureService: _configureDanmakuService,
           onReload: () => _loadDanmaku(_target, force: true),
-          onCompose: _composeDanmaku,
           onChanged: _applyDanmakuSettings,
         ),
       ),
     );
     if (mounted) _scheduleAutoHide();
-  }
-
-  /// 发一条弹幕：先上报图源（支持写入时），成功后再进本地。
-  Future<void> _composeDanmaku() async {
-    final target = _target;
-    final snapshot = _player?.snapshot.value;
-    if (target == null || snapshot == null) {
-      _showToast('从源条目起播才能发弹幕（手动地址没有作品身份）');
-      return;
-    }
-    final result = await showDialog<({String text, DanmakuMode mode})>(
-      context: context,
-      builder: (_) => const DanmakuComposeDialog(),
-    );
-    if (result == null || !mounted) return;
-
-    final item = DanmakuItem(
-      time: _player?.snapshot.value.position ?? snapshot.position,
-      text: result.text,
-      mode: result.mode,
-    );
-
-    final outcome = await _postDanmaku(target, item);
-    if (!mounted) return;
-    if (!(_target?.isSameEpisode(target) ?? false)) return;
-    if (!_danmakuSettings.enabled) {
-      _applyDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
-    }
-
-    _localDanmakuTrack = DanmakuTrack.parse(<Object?>[
-      for (final existing in _localDanmakuTrack.items) existing,
-      DanmakuItem(
-        time: _player?.snapshot.value.position ?? item.time,
-        text: item.text,
-        mode: item.mode,
-        color: item.color,
-        fontSize: item.fontSize,
-      ),
-    ]);
-    _danmakuCache.put(
-      _danmakuKey(target),
-      target.chapterId,
-      _localDanmakuTrack,
-    );
-    setState(() => _danmaku = _combinedDanmaku());
-    _notifyDanmakuSheet();
-    _showToast(outcome);
-  }
-
-  /// 上报一条弹幕，返回给用户看的提示文案。
-  Future<String> _postDanmaku(VideoPlayTarget target, DanmakuItem item) async {
-    final source = await _openSource();
-    if (source is! DanmakuPostCapable) {
-      return '弹幕已发送（本源不支持上报，仅本机可见）';
-    }
-    try {
-      final accepted = await (source as DanmakuPostCapable).postDanmaku(
-        itemId: target.itemId,
-        chapterId: target.chapterId,
-        text: item.text,
-        positionMs: item.time.inMilliseconds,
-        mode: item.mode.id,
-        color: item.color,
-      );
-      return accepted ? '弹幕已发送' : '弹幕已发送（本源不支持上报，仅本机可见）';
-    } on SourceException catch (error) {
-      LumeLog.warn('[player] 弹幕上报失败: ${error.message}');
-      return '上报失败（${error.message}），已记在本机';
-    } catch (error, stackTrace) {
-      LumeLog.error(error, stackTrace);
-      return '上报失败，已记在本机';
-    }
   }
 
   /// 从库里恢复上次的时间点：同一集就续播，换了集就从头。
@@ -1866,7 +1781,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final library = _library;
     final snapshot = _player?.snapshot.value;
     if (target == null || library == null || snapshot == null) {
-      _showToast('从源条目起播才能记片头片尾（手动地址没有作品身份）');
+      _showToast('从源条目起播才能记片头片尾（当前播放没有作品身份）');
       return;
     }
     final position = snapshot.position;
@@ -1899,6 +1814,70 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     setState(() => _skipMarks = SkipMarks.none);
     _showToast('已清除片头片尾标记');
   }
+
+  /// 片尾区间：剩余时间进到这里就算「在片尾」，快捷按钮随之变成「记片尾」。
+  ///
+  /// 取「2 分钟」与「总时长 8%」里**较大**的那个：十几分钟的短剧最后两分钟就能记，
+  /// 一小时上下的长片也不会在还剩十来分钟时就把按钮切成片尾（那样片头就没法记了）。
+  static const Duration _outroWindowMin = Duration(minutes: 2);
+  static const double _outroWindowFraction = 0.08;
+
+  bool _inOutroRegion(PlayerSnapshot snapshot) {
+    final total = snapshot.duration;
+    if (total <= Duration.zero) return false;
+    final scaled = total * _outroWindowFraction;
+    final window = scaled > _outroWindowMin ? scaled : _outroWindowMin;
+    return total - snapshot.position <= window;
+  }
+
+  /// 快捷按钮的文案（用户口径：片头显示「记片头」，走到片尾显示「记片尾」）。
+  String _skipQuickLabel(PlayerSnapshot snapshot) =>
+      _inOutroRegion(snapshot) ? '记片尾' : '记片头';
+
+  /// 快捷按钮的提示：把「这一下记的是哪一头、长按能清」说清楚。
+  String _skipQuickTooltip(PlayerSnapshot snapshot) =>
+      '${_skipQuickLabel(snapshot)}（长按清除标记）';
+
+  /// 快捷按钮按下去：按当前所处的区间记对应的一头。
+  void _markSkipFromQuick(PlayerSnapshot snapshot) =>
+      _markSkip(intro: !_inOutroRegion(snapshot));
+
+  /// 长按快捷按钮清标记；没记过时如实说明，别让长按像没反应。
+  void _clearSkipMarksFromQuick() {
+    if (_skipMarks.isEmpty) {
+      _showToast('还没有记过片头片尾');
+      return;
+    }
+    _clearSkipMarks();
+  }
+
+  /// 快捷智能「记片头 / 记片尾」（用户口径：就放在播放页控制栏上）。
+  ///
+  /// 文案随播放位置切换，不再需要用户自己判断「现在该记哪一头」；两个入口
+  /// （全屏浮层与竖屏控制栏）读同一份判定，行为不会各说各话。
+  Widget _skipQuickButton() => ValueListenableBuilder<PlayerSnapshot>(
+    valueListenable: _player?.snapshot ?? _idleSnapshot,
+    builder: (context, snapshot, _) => Tooltip(
+      message: _skipQuickTooltip(snapshot),
+      child: TextButton(
+        onPressed: () => _markSkipFromQuick(snapshot),
+        onLongPress: _clearSkipMarksFromQuick,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(56, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          foregroundColor: _fullscreen ? Colors.white : LumeTheme.accent,
+        ),
+        child: Text(
+          _skipQuickLabel(snapshot),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            shadows: _fullscreen ? _controlShadows : null,
+          ),
+        ),
+      ),
+    ),
+  );
 
   /// 起播时是否已经走过片头（用来判断「记片尾」后要不要重新判片头）。
   bool get _introducedAlready {
@@ -2462,15 +2441,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 update(() {});
               },
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.skip_next),
-              title: const Text('跳过片头片尾'),
-              onTap: () {
-                Navigator.of(context).pop();
-                unawaited(_openMorePanel());
-              },
-            ),
           ],
         ),
       );
@@ -2896,6 +2866,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ],
               ),
             ),
+            // 分辨率 + 速率横排接在片名后面（用户口径）：跟着浮层一起出现 / 收起，
+            // 不常驻画面（旧版把速率钉在右下角，收起控制栏后仍然压着画面）。
+            if (_player != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: PlayerStatsInline(
+                  stats: _player!.stats,
+                  networkKbps: _networkSpeed.kbps,
+                ),
+              ),
             if (wide)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),
@@ -3023,8 +3003,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     ('audio', '音轨', Icons.audiotrack_outlined),
                     ('subtitle', '字幕', Icons.subtitles_outlined),
                     ('file', '外挂字幕', Icons.note_add_outlined),
-                    ('intro', '记片头', Icons.skip_next),
-                    ('outro', '记片尾', Icons.skip_previous),
                     ('rotation', '旋转画面', Icons.screen_rotation),
                     ('zoom', '画面比例', Icons.aspect_ratio),
                     ('settings', '播放器设置', Icons.tune),
@@ -3209,7 +3187,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             '播放速度（${_settings.speed}x）',
             _showSpeedPicker,
           ),
-          _fullscreenLabel('片头片尾', '跳过片头片尾', _openMorePanel),
+          _fullscreenLabel(
+            _skipQuickLabel(snapshot),
+            _skipQuickTooltip(snapshot),
+            () => _markSkipFromQuick(snapshot),
+            onLongPress: _clearSkipMarksFromQuick,
+          ),
           _fullscreenLabel(
             '弹幕',
             _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
@@ -3318,11 +3301,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ),
       ),
     ),
-    _compactIcon(
-      icon: Icons.content_cut_outlined,
-      tooltip: '跳过片头片尾',
-      onPressed: _openMorePanel,
-    ),
+    _skipQuickButton(),
     _buildPipButton(),
     _compactIcon(
       icon: Icons.memory_outlined,
@@ -3422,6 +3401,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
+  /// 已经记过日志的那条失败文案（同一条只记一次，别每秒刷屏）。
+  String? _loggedFailure;
+
+  /// 播放失败时记一行**能定位原因**的日志：失败地址的域名 + 这次带了哪些请求头。
+  ///
+  /// 用户报「播放链接中断 / 403」时，日志里必须能看出是哪个域名在拒绝：
+  /// 源站自己的域名被拦（可以带该源验证过的会话再试）与独立媒体域名被拦
+  /// （会话按纪律不发给它）是两件完全不同的事，没有这一行只能靠猜。
+  void _logPlaybackFailure(PlayerSnapshot snapshot) {
+    final error = snapshot.error ?? '';
+    if (error.isEmpty || error == _loggedFailure) return;
+    _loggedFailure = error;
+    final media = _media;
+    final headers = media?.headers ?? const <String, String>{};
+    LumeLog.warn(
+      '[player] 播放失败：${PlayerErrorText.describe(error)}'
+      '｜地址域名 ${media?.uri.host ?? '未知'}'
+      '｜请求头 ${headers.isEmpty ? '无' : headers.keys.join(',')}',
+    );
+  }
+
   /// 就绪态的画面区：画面 + 亮度遮罩 + 弹幕层 + 手势层 + HUD（+ 锁屏开关）。
   ///
   /// 画面区铺一层**纯黑底**：竖屏短剧按原始比例居中渲染后，多出来的左右位置就是
@@ -3474,31 +3474,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     onTap: () => _showToast('已锁定：点锁图标解开'),
                   ),
                 ),
-              Positioned(
-                top: _fullscreen ? MediaQuery.paddingOf(context).top + 60 : 0,
-                left: _fullscreen ? MediaQuery.paddingOf(context).left + 48 : 0,
-                right: 48,
-                child: IgnorePointer(
-                  child: PlayerHud(
-                    stats: player.stats,
-                    showSpeed: false,
-                    showDetails: !_locked && (!_fullscreen || _overlayVisible),
+              // 全屏时这两格挪到顶栏片名后面（见 [_buildImmersiveTopBar]）；
+              // 竖屏/半屏仍然钉在画面左上与右下。
+              if (!_fullscreen)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 48,
+                  child: IgnorePointer(
+                    child: PlayerHud(
+                      stats: player.stats,
+                      showSpeed: false,
+                      showDetails: !_locked,
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                right: _fullscreen
-                    ? MediaQuery.paddingOf(context).right + 8
-                    : 0,
-                bottom: _fullscreen ? MediaQuery.paddingOf(context).bottom : 0,
-                child: IgnorePointer(
-                  child: PlayerHud(
-                    stats: player.stats,
-                    networkKbps: _networkSpeed.kbps,
-                    showDetails: false,
+              if (!_fullscreen)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    child: PlayerHud(
+                      stats: player.stats,
+                      networkKbps: _networkSpeed.kbps,
+                      showDetails: false,
+                    ),
                   ),
                 ),
-              ),
               // 锁屏开关：锁定时只留它，其余控制全收起。
               if (!_fullscreen && !_locked)
                 Align(
@@ -3636,10 +3638,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 打开播放源弹窗：看当前地址、复制、换线路、手动贴地址（用户要求）。
+  /// 打开播放源弹窗：看当前地址、复制、换线路（用户要求）。
   ///
   /// 与「清晰度」按钮共用同一个切线路回调（[_selectQuality]），两条入口的行为
-  /// 因此永远一致；手动地址走 [_playManualAddress]，与旧地址栏同一套解析逻辑。
+  /// 因此永远一致。**手动贴地址的入口已按用户口径删除**：播放页只播图源 /
+  /// 作品给的地址，不再提供「贴一条链接起播」的通道。
   Future<void> _openSourceSheet() async {
     if (!mounted) return;
     _cancelAutoHide();
@@ -3665,31 +3668,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           if (index == target.chapterIndex) return true;
           return _playEpisodeAt(index);
         },
-        address: _media?.uri.toString() ?? _input.text,
+        address: _media?.uri.toString() ?? '',
         qualities: _qualities,
         currentIndex: _qualityIndex,
         onSelectQuality: _selectQuality,
-        onPlayAddress: _playManualAddress,
       ),
     );
     if (mounted) _scheduleAutoHide();
-  }
-
-  /// 手动贴地址起播（原来的地址栏逻辑，一字未改地搬到这里）。
-  ///
-  /// 返回值：null = 已交出去；否则是给用户看的错误文案（弹窗就地展示）。
-  Future<String?> _playManualAddress(String text) async {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) return '请先填写视频地址';
-    final uri = _resolve(trimmed);
-    if (uri == null) return '地址无效';
-    final player = _player;
-    if (player == null) return '播放器还没准备好，请先重试或切回 AVPlayer';
-    // 手动地址没有作品身份：进度不记（与旧实现同口径），但连播要断开。
-    _input.text = trimmed;
-    _target = null;
-    await _startPlaybackSafely(PlayerMedia(uri: uri), target: null);
-    return null;
   }
 
   Widget _buildProgress(PlayerSnapshot snapshot) {
@@ -3883,32 +3868,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             : () => _seekBy(const Duration(seconds: 10)),
       ),
     ];
-  }
-
-  /// 打开右上角的「更多」悬浮弹窗（用户口径）：
-  /// 清晰度、音频轨道、跳过片头片尾、自动连播——四个都在这里，不再散落。
-  ///
-  /// 倍速不藏进来（用户点名）：它的小按钮留在控制栏上。
-  Future<void> _openMorePanel() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _MorePanelSheet(
-        marks: _skipMarks,
-        onMarkIntro: () {
-          Navigator.of(sheetContext).pop();
-          _markSkip(intro: true);
-        },
-        onMarkOutro: () {
-          Navigator.of(sheetContext).pop();
-          _markSkip(intro: false);
-        },
-        onClearMarks: () {
-          Navigator.of(sheetContext).pop();
-          _clearSkipMarks();
-        },
-      ),
-    );
   }
 
   /// 次级控制：清晰度 / 弹幕 / 连播 / 画中画 / 全屏 / 设置，最右侧是播放源。
@@ -4445,112 +4404,6 @@ class _QualitySheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 右上角「更多」悬浮弹窗（用户口径）：清晰度 / 音频轨道 / 跳过片头片尾 / 自动连播。
-///
-/// 倍速**不在这里**（用户点名：它的小按钮留在控制栏上）。
-class _MorePanelSheet extends StatelessWidget {
-  const _MorePanelSheet({
-    required this.marks,
-    required this.onMarkIntro,
-    required this.onMarkOutro,
-    required this.onClearMarks,
-  });
-
-  final SkipMarks marks;
-  final VoidCallback onMarkIntro;
-  final VoidCallback onMarkOutro;
-  final VoidCallback onClearMarks;
-
-  static String _time(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final hours = duration.inHours;
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
-        child: SafeArea(
-          top: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              children: <Widget>[
-                Text(
-                  '跳过片头片尾',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                GlassCard(
-                  radius: 14,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '跳过片头片尾',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: LumeTheme.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        marks.isEmpty
-                            ? '播到片头结束的位置点「记片头」，播到片尾开始的位置点'
-                                  '「记片尾」——之后每次播放自动跳过。'
-                            : '片头 ${marks.intro == null ? '未记' : _time(marks.intro!)}'
-                                  ' · 片尾 ${marks.outro == null ? '未记' : _time(marks.outro!)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          height: 1.5,
-                          color: LumeTheme.muted,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: <Widget>[
-                          OutlinedButton(
-                            onPressed: onMarkIntro,
-                            child: const Text('记片头'),
-                          ),
-                          OutlinedButton(
-                            onPressed: onMarkOutro,
-                            child: const Text('记片尾'),
-                          ),
-                          if (!marks.isEmpty)
-                            TextButton(
-                              onPressed: onClearMarks,
-                              child: const Text('清除标记'),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),

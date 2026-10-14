@@ -426,12 +426,12 @@ void main() {
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
     source.contentUrl = 'https://example.com/e1.mp4';
-    // 关掉控制栏自动隐藏：这条用例要连着开两次「更多」面板，别跟 4 秒计时器抢时机
+    // 关掉控制栏自动隐藏：这条用例要点控制栏上的快捷按钮，别跟 4 秒计时器抢时机
     //（自动隐藏本身由 player_full_feature_test 那几条覆盖）。
     final videoLibrary = await ReadingLibrary.open(Section.video);
     videoLibrary.setSetting('video.player.autoHideControls', 'false');
     // 片尾标记预先写好（走与「记片尾」按钮同一个存储）：播放器起播时读一次标记，
-    // 中途写库到不了正在播的那个实例。面板按钮本身由「记片头」那一步覆盖。
+    // 中途写库到不了正在播的那个实例。快捷按钮本身由「记片头」那一步覆盖。
     SkipMarksStore(videoLibrary)
         .save('movie-1', const SkipMarks(outro: Duration(minutes: 44)));
     final created = await pumpBoard(tester);
@@ -442,7 +442,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
 
-    // 播到 1:35（片头结束的位置）→ 「更多」里记片头。
+    // 播到 1:35（片头结束的位置）：控制栏上的快捷智能按钮这时显示「记片头」。
     created.last.emit(
       position: const Duration(minutes: 1, seconds: 35),
       duration: const Duration(minutes: 45),
@@ -451,27 +451,11 @@ void main() {
     // 播放中有常驻定时器在跑（进度落盘 / 弹幕节拍 / 跳过判定），
     // pumpAndSettle 永远等不到「无新帧」——按固定时长推进即可。
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byTooltip('播放器设置'));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.dragUntilVisible(
-      find.text('跳过片头片尾'),
-      find.byType(PlayerSettingsSheet),
-      const Offset(0, -250),
+    expect(
+      find.text('记片头'),
+      findsOneWidget,
+      reason: '离片尾还远：快捷按钮显示「记片头」',
     );
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('跳过片头片尾'));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('跳过片头片尾'), findsWidgets);
-    // 面板限高 70% 屏高且可滚动：「记片头」可能落在可视区外，先把面板内容上拖。
-    // （拖动目标本身可能已经在可视区之外，miss 属正常，不必告警。）
-    await tester.drag(
-      find.text('跳过片头片尾').last,
-      const Offset(0, -320),
-      warnIfMissed: false,
-    );
-    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('记片头'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('已记片头'), findsOneWidget);
@@ -496,6 +480,38 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
     expect(find.textContaining('已跳过片尾'), findsOneWidget);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  testWidgets('快捷智能按钮：播到片尾区间自动变成「记片尾」（用户口径）', (tester) async {
+    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
+    source.chapterList = const <SourceChapter>[
+      SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
+    ];
+    source.contentUrl = 'https://example.com/e1.mp4';
+    final videoLibrary = await ReadingLibrary.open(Section.video);
+    videoLibrary.setSetting('video.player.autoHideControls', 'false');
+    final created = await pumpBoard(tester);
+
+    await tester.tap(find.text('示例影片'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    // 45 分钟的长片播到 44:30（剩余 30 秒）→ 进片尾区间，按钮自己切成「记片尾」。
+    created.last.emit(
+      position: const Duration(minutes: 44, seconds: 30),
+      duration: const Duration(minutes: 45),
+      playing: true,
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('记片尾'), findsOneWidget, reason: '剩余不到片尾窗口：显示记片尾');
+    await tester.tap(find.text('记片尾'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('已记片尾'), findsOneWidget);
+    expect(
+      SkipMarksStore(videoLibrary).load('movie-1').outro,
+      const Duration(minutes: 44, seconds: 30),
+      reason: '记的就是当前播放位置',
+    );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   testWidgets('退出播放后再点别的视频：图源管理器不能被播放页关掉（真机报库已关闭的回归）', (tester) async {

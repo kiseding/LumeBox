@@ -57,7 +57,13 @@ class PlayerErrorText {
 
   static String _httpHint(int status) {
     if (status == 401) return '服务器要鉴权（HTTP 401）：地址可能已失效';
-    if (status == 403) return '服务器拒绝访问（HTTP 403）：多半需要请求头或已防盗链';
+    if (status == 403) {
+      // 真机反馈里 403 有两种成因：地址缺防盗链请求头，或**站点按网络出口拦截**
+      // （同一地址直连 200、走代理/VPN 就 403／567）。文案两种都要提到，
+      // 否则用户只会反复点重试。
+      return '服务器拒绝访问（HTTP 403）：可能是缺防盗链请求头，'
+          '也可能是站点按网络出口（代理 / VPN 的地区）拦截——换直连或换线路再试';
+    }
     if (status == 404 || status == 410) return '服务器上找不到这个视频（HTTP $status）';
     if (status >= 500) return '服务器出错（HTTP $status）';
     if (status >= 400) return '服务器拒绝了请求（HTTP $status）';

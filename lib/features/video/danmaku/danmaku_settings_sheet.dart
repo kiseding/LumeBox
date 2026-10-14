@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/lume_theme.dart';
-import 'danmaku_models.dart';
 import 'danmaku_settings.dart';
 
 /// 弹幕设置面板：开关、透明度、字号、显示区域、速度、描边、同屏上限。
@@ -18,7 +17,6 @@ class DanmakuSettingsSheet extends StatefulWidget {
     this.onMatch,
     this.onConfigureService,
     this.onReload,
-    this.onCompose,
   });
 
   final DanmakuSettings settings;
@@ -31,7 +29,6 @@ class DanmakuSettingsSheet extends StatefulWidget {
   final VoidCallback? onMatch;
   final VoidCallback? onConfigureService;
   final VoidCallback? onReload;
-  final VoidCallback? onCompose;
 
   @override
   State<DanmakuSettingsSheet> createState() => _DanmakuSettingsSheetState();
@@ -73,12 +70,6 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (widget.onCompose != null)
-                          ListTile(
-                            leading: const Icon(Icons.edit_outlined),
-                            title: const Text('发送弹幕'),
-                            onTap: widget.onCompose,
-                          ),
                         if (widget.status != null)
                           ListTile(title: Text(widget.status!)),
                         if (widget.onMatch != null)
@@ -446,81 +437,5 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
         ),
       ],
     );
-  }
-}
-
-/// 发弹幕的输入弹窗：文本 + 位置（滚动 / 顶部 / 底部）。
-///
-/// 只把内容交回调用方（播放页负责写进本集弹幕并在屏幕上显示）——本组件不认识
-/// 弹幕存储，也不联网。
-class DanmakuComposeDialog extends StatefulWidget {
-  const DanmakuComposeDialog({super.key});
-
-  @override
-  State<DanmakuComposeDialog> createState() => _DanmakuComposeDialogState();
-}
-
-class _DanmakuComposeDialogState extends State<DanmakuComposeDialog> {
-  final TextEditingController _controller = TextEditingController();
-  DanmakuMode _mode = DanmakuMode.scroll;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('发一条弹幕'),
-      content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              maxLength: 60,
-              decoration: const InputDecoration(
-                hintText: '说点什么…',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (value) => _submit(value),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: <Widget>[
-                for (final mode in DanmakuMode.values)
-                  ChoiceChip(
-                    label: Text(mode.label),
-                    selected: _mode == mode,
-                    onSelected: (_) => setState(() => _mode = mode),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => _submit(_controller.text),
-          child: const Text('发送'),
-        ),
-      ],
-    );
-  }
-
-  void _submit(String text) {
-    final value = text.trim();
-    if (value.isEmpty) return;
-    Navigator.of(context).pop((text: value, mode: _mode));
   }
 }

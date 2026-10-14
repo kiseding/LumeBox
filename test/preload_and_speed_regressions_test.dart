@@ -61,7 +61,7 @@ void main() {
         .setMockMethodCallHandler(AvNetworkStatistics.channel, null);
     expect(await AvNetworkStatistics.readBytes(7), isNull);
   });
-  testWidgets('HUD真实下载优先；额外请求明确标源测速；0不回退成旧测速', (tester) async {
+  testWidgets('速率只给数字（用户口径不带「网速」字样）：真实下载优先，其次源测速', (tester) async {
     final stats = ValueNotifier(const PlayerStats(downloadBytesPerSecond: 0));
     final probe = ValueNotifier<int?>(8000);
     addTearDown(stats.dispose);
@@ -71,14 +71,48 @@ void main() {
         home: PlayerHud(stats: stats, networkKbps: probe),
       ),
     );
-    expect(find.text('网速 0KB/s'), findsOneWidget);
+    // 真实下载是 0 就如实显示 0（不回退成源测速的 1.0MB/s，那是另一条链路的读数）。
+    expect(find.text('0KB/s'), findsOneWidget);
+    expect(find.textContaining('网速'), findsNothing);
     expect(find.textContaining('源测速'), findsNothing);
     stats.value = const PlayerStats(downloadBytesPerSecond: 125000000);
     await tester.pump();
-    expect(find.text('网速 125.0MB/s'), findsOneWidget);
+    expect(find.text('125.0MB/s'), findsOneWidget);
     stats.value = const PlayerStats();
     await tester.pump();
-    expect(find.text('源测速 1.0MB/s'), findsOneWidget);
+    expect(find.text('1.0MB/s'), findsOneWidget, reason: '没有真实读数时用源测速');
+  });
+
+  testWidgets('全屏顶栏那一排：分辨率与速率横排，速率不带「网速」字样', (tester) async {
+    final stats = ValueNotifier(
+      const PlayerStats(
+        width: 1920,
+        height: 1080,
+        downloadBytesPerSecond: 125000000,
+      ),
+    );
+    final probe = ValueNotifier<int?>(null);
+    addTearDown(stats.dispose);
+    addTearDown(probe.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayerStatsInline(stats: stats, networkKbps: probe),
+        ),
+      ),
+    );
+    expect(find.text('1920×1080'), findsOneWidget);
+    expect(find.text('125.0MB/s'), findsOneWidget);
+    expect(find.textContaining('网速'), findsNothing);
+    // 两格横排：速率的左边缘在分辨率右边缘之后，且同一行（dy 相同）。
+    final resolution = tester.getRect(find.text('1920×1080'));
+    final speed = tester.getRect(find.text('125.0MB/s'));
+    expect(speed.left, greaterThanOrEqualTo(resolution.right));
+    expect(speed.center.dy, closeTo(resolution.center.dy, 1));
+    // 一个读数都没有（没分辨率、没速率）时整块不渲染，不留空白。
+    stats.value = const PlayerStats();
+    await tester.pump();
+    expect(find.textContaining('MB/s'), findsNothing);
   });
 
   const target = VideoPlayTarget(

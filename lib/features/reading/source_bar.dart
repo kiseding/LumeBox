@@ -99,6 +99,8 @@ class ReadingSourceBar extends StatelessWidget {
                           siteUrl: source.siteUrl,
                           siteIcon: source.iconUrl,
                           size: 24,
+                          section: source.section,
+                          sourceId: source.id,
                           iconUrl: source.section == null
                               ? ''
                               : SourcePreferences.read(

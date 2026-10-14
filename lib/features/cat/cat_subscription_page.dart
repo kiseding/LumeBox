@@ -286,6 +286,8 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                         Section.cat,
                         record.id,
                       ).iconUrl,
+                      section: Section.cat,
+                      sourceId: record.id,
                     ),
                     title: Text(
                       record.name,

@@ -22,14 +22,11 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/player_settings_sheet.dart';
-import 'package:lume_box/features/video/player_source_sheet.dart';
 import 'package:lume_box/features/video/player_speed_meter.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
-import 'package:lume_box/features/video/danmaku/danmaku_overlay.dart';
 
-import 'support/fake_source_manager.dart';
 
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
 /// 统一控制面板、清晰度切换、统一提示。
@@ -330,46 +327,7 @@ void main() {
       expect(picture.width / picture.height, closeTo(16 / 9, 0.01));
     });
 
-    testWidgets('弹幕关闭时发送本机弹幕：自动开启且新弹幕留在画面轨道', (tester) async {
-      final player = _FakePlayer();
-      await pump(
-        tester,
-        player: player,
-        target: const VideoPlayTarget(
-          sourceId: 'local',
-          itemId: 'i',
-          title: '片名',
-          chapterIndex: 0,
-          chapterId: 'c',
-          chapterTitle: '第一集',
-        ),
-        sourceManager: FakeSourceManager(sources: const []),
-      );
-      player.emit(
-        position: const Duration(seconds: 20),
-        duration: const Duration(minutes: 10),
-      );
-      await tester.pumpAndSettle();
-      await tester.longPress(find.byTooltip('弹幕：开'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('弹幕：关'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('发送弹幕'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '本机弹幕测试');
-      player.emit(position: const Duration(seconds: 25));
-      await tester.tap(find.text('发送'));
-      // Vsync-driven danmaku continues animating while video plays.
-      await tester.pump(const Duration(milliseconds: 300));
-      final overlay = tester.widget<DanmakuOverlay>(
-        find.byType(DanmakuOverlay),
-      );
-      expect(overlay.settings.enabled, isTrue);
-      expect(overlay.track.items.single.text, '本机弹幕测试');
-      expect(overlay.track.items.single.time, const Duration(seconds: 25));
-    });
-
-    testWidgets('播放源弹窗：展示当前地址、复制、按线路切换、手动贴地址', (tester) async {
+    testWidgets('播放源弹窗：展示当前地址、复制、按线路切换（手动贴地址入口已删除）', (tester) async {
       final players = await pump(
         tester,
         qualities: <VideoQuality>[
@@ -392,9 +350,13 @@ void main() {
       expect(
         find.text('https://example.com/a.mp4'),
         findsNothing,
-        reason: '当前地址只通过复制图标获取，手动输入保持空白',
+        reason: '当前地址只通过复制图标获取，不在面板上铺长链接',
       );
       expect(find.byTooltip('复制地址'), findsOneWidget);
+      // 用户口径：手动贴地址的入口整条删除（面板里不再有输入框与播放按钮）。
+      expect(find.text('手动地址'), findsNothing);
+      expect(find.text('播放这个地址'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
 
       // 线路列表（与「清晰度」按钮同一份数据）：点一条即换源并从当前位置继续。
       expect(find.text('线路（切换后从当前位置继续）'), findsOneWidget);
@@ -405,34 +367,6 @@ void main() {
         'https://example.com/720.mp4',
       );
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
-    });
-
-    testWidgets('播放源弹窗：手动贴地址起播；地址无效就地报错不关面板', (tester) async {
-      final players = await pump(tester);
-
-      await openPlayerAction(tester, '播放源 / 更换线路');
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byType(TextField),
-        'https://example.com/manual.mp4',
-      );
-      await tester.tap(find.text('播放这个地址'));
-      await tester.pumpAndSettle();
-
-      expect(
-        players.single.media?.uri.toString(),
-        'https://example.com/manual.mp4',
-      );
-      expect(find.byType(PlayerSourceSheet), findsNothing, reason: '交出去了就关面板');
-
-      // 空地址：就地报错，面板留在原地。
-      await openPlayerAction(tester, '播放源 / 更换线路');
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '   ');
-      await tester.tap(find.text('播放这个地址'));
-      await tester.pumpAndSettle();
-      expect(find.text('请先填写视频地址'), findsOneWidget);
-      expect(find.byType(PlayerSourceSheet), findsOneWidget, reason: '出错不关面板');
     });
 
     testWidgets('单线路：点清晰度弹提示，不弹菜单（按钮仍在）', (tester) async {
@@ -554,16 +488,26 @@ void main() {
       expect(find.byTooltip('暂停'), findsOneWidget, reason: '控制栏显示为「正在播放」');
     });
 
-    testWidgets('全屏控制收起后网速常驻，分辨率唤醒才显示', (tester) async {
+    testWidgets('全屏：分辨率与速率排在片名后面，跟着控制浮层一起出现 / 收起', (tester) async {
       final players = await pump(tester);
-      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
+      players.single.pushStats(
+        const PlayerStats(
+          width: 1920,
+          height: 1080,
+          downloadBytesPerSecond: 125000000,
+        ),
+      );
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
+      // 唤出状态：片名后面那一排有分辨率与速率，速率**不带「网速」字样**。
       expect(find.text('1920×1080'), findsOneWidget);
-      expect(find.textContaining('网速'), findsOneWidget);
+      expect(find.text('125.0MB/s'), findsOneWidget);
+      expect(find.textContaining('网速'), findsNothing);
+      // 自动收起：浮层连同这一排一起走，画面上不再压着参数。
       await tester.pump(const Duration(seconds: 5));
       expect(find.text('1920×1080'), findsNothing);
-      expect(find.textContaining('网速'), findsOneWidget);
+      expect(find.text('125.0MB/s'), findsNothing);
+      // 点画面唤回。
       await tester.tap(find.text('fake-view'));
       await tester.pump();
       expect(find.text('1920×1080'), findsOneWidget);
@@ -595,7 +539,7 @@ void main() {
       });
     }
 
-    testWidgets('画面显示一份分辨率和网速，控制卡片不重复显示', (tester) async {
+    testWidgets('画面显示一份分辨率与速率（不带「网速」字样），控制卡片不重复显示', (tester) async {
       final players = await pump(tester);
       players.single.pushStats(
         const PlayerStats(
@@ -609,7 +553,7 @@ void main() {
 
       expect(find.text('1920×1080'), findsOneWidget);
       expect(find.text('1.8Mbps'), findsOneWidget);
-      expect(find.textContaining('网速'), findsOneWidget);
+      expect(find.textContaining('网速'), findsNothing);
       expect(find.textContaining('分辨率 '), findsNothing);
     });
 
@@ -1004,13 +948,13 @@ void main() {
       await tester.pumpAndSettle();
       final slider = tester.getRect(find.byType(Slider));
       final seek = tester.getCenter(find.byTooltip('后退 10 秒'));
-      final quality = tester.getCenter(find.byTooltip('跳过片头片尾'));
+      final quality = tester.getCenter(find.byTooltip('记片头（长按清除标记）'));
       expect(slider.top, greaterThan(seek.dy));
       expect(quality.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
       expect(find.text('选集'), findsOneWidget);
       expect(find.text('画质'), findsNothing);
-      expect(find.text('片头片尾'), findsOneWidget);
+      expect(find.text('记片头'), findsOneWidget, reason: '快捷智能按钮：片头区间显示「记片头」');
       expect(find.text('弹幕'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
       await tester.tap(find.byTooltip('更多功能'));
@@ -1030,7 +974,13 @@ void main() {
           position: const Duration(minutes: 15),
         );
         await tester.pumpAndSettle();
-        for (final label in ['退出全屏', '更多功能', '跳过片头片尾', '线路 / 选集', '锁定（防误触）']) {
+        for (final label in [
+          '退出全屏',
+          '更多功能',
+          '记片头（长按清除标记）',
+          '线路 / 选集',
+          '锁定（防误触）',
+        ]) {
           final rect = tester.getRect(find.byTooltip(label));
           expect(rect.left, greaterThanOrEqualTo(0));
           expect(rect.top, greaterThanOrEqualTo(0));

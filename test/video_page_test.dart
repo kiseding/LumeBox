@@ -78,9 +78,11 @@ void main() {
           home: VideoPlayerPage(
             // 默认给一个初始媒体（播放器页的真实入口是「从条目进来」）；
             // 用例传 withInitialMedia: false 即可验证「还没有媒体」的边界。
+            // 播放页的真实入口是「从条目进来」——挂载时就把媒体给它。
+            // （手动贴地址的入口已按用户口径删除，页内不再有换媒体的通道。）
             media: withInitialMedia
                 ? PlayerMedia(
-                    uri: Uri.parse('https://example.com/initial.mp4'),
+                    uri: Uri.parse('https://example.com/a.mp4'),
                     title: '初始样片',
                   )
                 : null,
@@ -97,18 +99,6 @@ void main() {
       );
       await tester.pumpAndSettle();
       return created;
-    }
-
-    Future<void> openMedia(WidgetTester tester) async {
-      // 地址入口现在收在「播放源」弹窗里（用户要求：控制栏不再铺长链接）。
-      await openPlayerAction(tester, '播放源 / 更换线路');
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byType(TextField),
-        'https://example.com/a.mp4',
-      );
-      await tester.tap(find.text('播放这个地址'));
-      await tester.pumpAndSettle();
     }
 
     testWidgets('后台连接中断后返回：保留中断进度、原播放状态和全屏', (tester) async {
@@ -191,7 +181,17 @@ void main() {
           .clearSnackBars();
       await tester.pumpAndSettle();
 
-      await openMedia(tester);
+      // 「有媒体」这一步在真实链路里是「从条目进播放页」：重新挂载一个带媒体的页
+      //（手动贴地址的入口已按用户口径删除，页内不再有换媒体的通道）。
+      // 先卸载这一页（同一位置、同一类型的 widget 只会 update 不会重建，
+      // 媒体也就不会重新读），再按真实入口挂一个带媒体的播放页。
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      await pumpVideo(
+        tester,
+        available: <PlayerKernel>{PlayerKernel.avplayer, PlayerKernel.mpv},
+        pip: pip,
+      );
       await tester.tap(find.byTooltip('进入画中画'));
       await tester.pumpAndSettle();
       expect(pip.started, 1);
@@ -218,7 +218,6 @@ void main() {
         available: <PlayerKernel>{PlayerKernel.avplayer, PlayerKernel.mpv},
       );
 
-      await openMedia(tester);
       expect(created.single.media?.uri.toString(), 'https://example.com/a.mp4');
       created.single.setPosition(const Duration(seconds: 30), playing: true);
       await tester.pump();
@@ -312,7 +311,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer, PlayerKernel.mpv},
       );
-      await openMedia(tester);
 
       // AVPlayer 内核：只有它拿得到的项（分辨率 + 缓冲）。
       created.single.pushStats(
@@ -364,7 +362,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
@@ -384,7 +381,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       // 起点在右半边 → 音量。音量初值就是 1.0（最大），因此向下滑才看得出变化。
@@ -407,7 +403,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       await _dragInSteps(
@@ -428,7 +423,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       await _dragInSteps(
@@ -446,7 +440,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
       created.single.seeks.clear();
 
       final layer = _gestureLayerRect(tester);
@@ -475,7 +468,6 @@ void main() {
 
     testWidgets('手势：调暗后画面上真的盖了遮罩（亮度要看得见）', (tester) async {
       await pumpVideo(tester, available: <PlayerKernel>{PlayerKernel.avplayer});
-      await openMedia(tester);
 
       ColoredBox? overlay() {
         final found = find.byWidgetPredicate(
@@ -514,7 +506,6 @@ void main() {
         available: <PlayerKernel>{PlayerKernel.avplayer},
         brightness: brightness,
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       // 起点在左半边 → 亮度。下滑变暗。
@@ -540,7 +531,6 @@ void main() {
         available: <PlayerKernel>{PlayerKernel.avplayer},
         brightness: brightness,
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       await _dragInSteps(
@@ -561,7 +551,6 @@ void main() {
         available: <PlayerKernel>{PlayerKernel.avplayer},
         brightness: brightness,
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       // 只下滑一点点：若起点没对齐到 0.35，结果会明显偏离。
@@ -583,7 +572,6 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
-      await openMedia(tester);
 
       final layer = _gestureLayerRect(tester);
       final gesture = await tester.startGesture(layer.center);
@@ -606,7 +594,6 @@ void main() {
         available: <PlayerKernel>{PlayerKernel.avplayer},
         pip: pip,
       );
-      await openMedia(tester);
       await tester.tap(find.byTooltip('进入画中画'));
       await tester.pumpAndSettle();
       pip.emit(PipEventKind.entered);

@@ -5,8 +5,11 @@ import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 
-/// 选集与线路面板：先列剧集并标记当前集，再提供线路与播放地址。
-/// 切集交给宿主统一处理，失败时留在面板重试；手动地址没有剧集时如实提示。
+/// 选集与线路面板：先列剧集并标记当前集，再列出线路与当前地址（可复制）。
+/// 切集交给宿主统一处理，失败时留在面板重试。
+///
+/// **手动贴地址的入口已按用户口径删除**（面板里不再有地址输入框与「播放这个
+/// 地址」按钮）：播放页只播图源给的地址，这个面板只剩「选集 / 换线路 / 复制」。
 class PlayerSourceSheet extends StatefulWidget {
   const PlayerSourceSheet({
     super.key,
@@ -14,7 +17,6 @@ class PlayerSourceSheet extends StatefulWidget {
     this.qualities = const <VideoQuality>[],
     this.currentIndex = 0,
     this.onSelectQuality,
-    required this.onPlayAddress,
     this.loadEpisodes,
     this.currentChapterId,
     this.onSelectEpisode,
@@ -32,10 +34,6 @@ class PlayerSourceSheet extends StatefulWidget {
   /// 切线路（宿主页负责重新装载并提示）。
   final ValueChanged<int>? onSelectQuality;
 
-  /// 播放手动输入的地址；返回 null 表示已交出去，否则返回给用户看的错误文案
-  /// （由本弹窗就地展示，不弹 SnackBar——用户的手还在输入框上）。
-  final Future<String?> Function(String text) onPlayAddress;
-
   final Future<List<SourceChapter>> Function()? loadEpisodes;
   final String? currentChapterId;
   final Future<bool> Function(int index)? onSelectEpisode;
@@ -45,10 +43,6 @@ class PlayerSourceSheet extends StatefulWidget {
 }
 
 class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
-  late final TextEditingController _input = TextEditingController();
-  String? _error;
-  bool _busy = false;
-
   late Future<List<SourceChapter>>? _episodes = widget.loadEpisodes?.call();
   bool _selectingEpisode = false;
   String? _episodeError;
@@ -135,28 +129,6 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       const SizedBox(height: 16),
     ],
   );
-
-  @override
-  void dispose() {
-    _input.dispose();
-    super.dispose();
-  }
-
-  Future<void> _play() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final error = await widget.onPlayAddress(_input.text);
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _error = error;
-    });
-    // 交出去了才关面板；出错就留在原地让用户改。
-    if (error == null) Navigator.of(context).pop();
-  }
 
   Future<void> _copy() async {
     final text = widget.address.trim();
@@ -283,53 +255,6 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                             ),
                           ),
                         ],
-                        const SizedBox(height: 12),
-                        GlassCard(
-                          radius: 14,
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              _label('手动地址'),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: _input,
-                                autofocus: false,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: LumeTheme.textPrimary,
-                                ),
-                                decoration: InputDecoration(
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  hintText: '视频地址或本地路径',
-                                  hintStyle: TextStyle(color: LumeTheme.muted),
-                                ),
-                                onSubmitted: (_) => _play(),
-                              ),
-                              if (_error != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    _error!,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: LumeTheme.danger,
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(height: 8),
-                              SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: _busy ? null : _play,
-                                  icon: const Icon(Icons.play_arrow, size: 18),
-                                  label: const Text('播放这个地址'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),

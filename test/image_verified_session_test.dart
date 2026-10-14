@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/net/network_queue.dart';
+import 'package:lume_box/core/net/source_request_log.dart';
 import 'package:lume_box/core/net/waf.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -68,6 +69,27 @@ void main() {
     expect(mediaHeaders['User-Agent'], 'verified-device-UA');
     expect(mediaHeaders.containsKey('Cookie'), false, reason: '主站会话不发给独立媒体CDN');
     expect(mediaHeaders.containsKey('user-agent'), false);
+
+    // 媒体地址就在**源站自己的域名**上时：验证过的 Cookie 要一起带上
+    // （CF 站点的媒体只带 UA 不带 cf_clearance 同样被拦，真机反馈的「播放链接中断」）。
+    SourceRequestLog.record(source.id, 'https://own.example/album/1');
+    final own = VideoContent(
+      url: Uri.parse('https://own.example/media/a.m3u8'),
+      headers: const <String, String>{'Referer': 'https://own.example/'},
+    );
+    final ownHeaders = SourcePlayback.contentHeaders(own, source: source);
+    expect(ownHeaders['Cookie'], 'cf_clearance=fixture-cookie');
+    expect(ownHeaders['User-Agent'], 'verified-device-UA');
+    expect(ownHeaders['Referer'], 'https://own.example/');
+    // 图源脚本自己给了 Cookie 时不覆盖（脚本更清楚这个站要什么）。
+    final scripted = VideoContent(
+      url: Uri.parse('https://own.example/media/a.m3u8'),
+      headers: const <String, String>{'Cookie': 'script=1'},
+    );
+    expect(
+      SourcePlayback.contentHeaders(scripted, source: source)['Cookie'],
+      'script=1',
+    );
     expect(
       SourcePlayback.contentQualities(video, source: source).single.headers,
       mediaHeaders,
