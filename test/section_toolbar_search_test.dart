@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/reading/browse_layout.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
@@ -75,6 +76,8 @@ void main() {
             section: section,
             pipeline: pipeline,
             layout: ExploreLayout.list,
+            // 与真板块一致：小说 / 漫画不显示排序（见 comic_explore_page 等）。
+            showSort: section == Section.video,
             manager: FakeSourceManager(
               sources: <SourceDescriptor>[
                 SourceDescriptor(
@@ -112,7 +115,7 @@ void main() {
       Section.comic,
       Section.video,
     ]) {
-      testWidgets('${section.label}：一行五个控件，顺序固定', (tester) async {
+      testWidgets('${section.label}：一行控件，顺序固定', (tester) async {
         final source = _SearchSource(section: section);
         await pumpExplore(tester, section: section, source: source);
 
@@ -123,12 +126,23 @@ void main() {
           find.descendant(of: toolbar, matching: find.byTooltip('搜索')),
           findsOneWidget,
         );
-        for (final label in ['排序', '布局', '源管理']) {
-          expect(
-            find.descendant(of: toolbar, matching: find.byTooltip(label)),
-            findsNothing,
-          );
-        }
+        // 显示模式（布局）**每个板块都要有**：真机反馈「找不到了」——悬浮顶栏
+        // 那一版把它跟着藏了，用户只能一直用默认档。
+        expect(
+          find.descendant(of: toolbar, matching: find.byTooltip('布局')),
+          findsOneWidget,
+          reason: '${section.label} 的显示模式入口',
+        );
+        expect(
+          find.descendant(of: toolbar, matching: find.byTooltip('源管理')),
+          findsNothing,
+          reason: '源管理在壳层顶栏，工具栏里不重复',
+        );
+        expect(
+          find.descendant(of: toolbar, matching: find.byTooltip('排序')),
+          section == Section.video ? findsOneWidget : findsNothing,
+          reason: '排序只在视频板块（小说 / 漫画按用户要求不显示）',
+        );
         expect(find.byTooltip('筛选'), findsNothing, reason: '筛选已移到分类下方');
       });
     }
@@ -161,6 +175,37 @@ void main() {
         expect(find.text('当前源搜索'), findsWidgets);
       });
     }
+
+    testWidgets('显示模式：顶栏可切五档，选中的档位按板块记住（真机「找不到了」回归）', (tester) async {
+      await pumpExplore(
+        tester,
+        section: Section.comic,
+        source: _SearchSource(section: Section.comic),
+      );
+      await tester.tap(find.byTooltip('布局'));
+      await tester.pumpAndSettle();
+      for (final label in <String>[
+        '单列列表',
+        '双列网格',
+        '三列网格',
+        '四列网格',
+        '五列网格',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: '五档都在菜单里');
+      }
+      await tester.tap(find.text('五列网格'));
+      await tester.pumpAndSettle();
+      expect(
+        BrowseLayoutSettings.instance.modeFor(Section.comic),
+        BrowseLayoutMode.grid5,
+        reason: '按板块记住（漫画选五列不影响别的板块）',
+      );
+      expect(
+        BrowseLayoutSettings.instance.modeFor(Section.video),
+        isNull,
+        reason: '别的板块不受影响',
+      );
+    });
 
     testWidgets('排序：菜单可选，选中后列表按该字段重排', (tester) async {
       final source = _SearchSource(

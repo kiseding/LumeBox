@@ -106,17 +106,17 @@ void main() {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3);
 
-    expect(find.byTooltip('布局'), findsNothing, reason: '紧凑首页只保留站点与搜索');
-    await BrowseLayoutSettings.instance.setMode(
-      Section.comic,
-      BrowseLayoutMode.grid4,
-    );
+    // 走顶栏的显示模式入口（真机反馈「每个版块的显示模式找不到了」：
+    // 悬浮顶栏那一版把入口藏了，这里改成从 UI 切，入口再丢就会失败）。
+    await tester.tap(find.byTooltip('布局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('四列网格'));
     await tester.pumpAndSettle();
     expect(gridColumns(tester), 4);
-    await BrowseLayoutSettings.instance.setMode(
-      Section.comic,
-      BrowseLayoutMode.grid5,
-    );
+
+    await tester.tap(find.byTooltip('布局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('五列网格'));
     await tester.pumpAndSettle();
     expect(gridColumns(tester), 5);
 

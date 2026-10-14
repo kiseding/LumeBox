@@ -372,9 +372,10 @@ class SectionToolbar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        // 2) 排序（当前档位在弹窗里选中；这里靠高亮表示「不是默认」）
-        //    小说 / 漫画两块按用户要求不显示它（见 [showSort]）。
-        if (showSort && !floating)
+        // 2) 排序（当前档位在弹窗里选中；这里靠高亮表示「不是默认」）。
+        //    小说 / 漫画两块按用户要求不显示它（见 [showSort]）——注意**不是**
+        //    因为悬浮顶栏放不下：悬浮只是样式，功能入口不该跟着消失。
+        if (showSort)
           _ToolbarAction(
             floating: floating,
             icon: Icons.sort,
@@ -382,9 +383,12 @@ class SectionToolbar extends StatelessWidget {
             highlighted: sort != BrowseSort.none,
             onTap: () => _pickSort(context),
           ),
-        // 3) 布局切换
-        if (!floating)
-          _ToolbarAction(
+        // 3) 布局切换（显示模式）。
+        //
+        // 悬浮顶栏也要有（真机反馈「每个版块的显示模式找不到了」）：早先这里跟着
+        // `!floating` 一起藏了，而探索页现在正是悬浮顶栏——于是三个板块的布局入口
+        // 全都没了，用户只能一直用默认那一档。源下拉框是 Expanded，会自动让位。
+        _ToolbarAction(
             floating: floating,
             icon: switch (layoutMode) {
               BrowseLayoutMode.list => Icons.view_list_outlined,
