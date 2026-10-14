@@ -21,6 +21,7 @@ import '../source/data_source.dart';
 import '../util/lume_log.dart';
 import 'reading_store.dart';
 import 'image_bytes_decoder.dart';
+import 'image_strip_restorer.dart';
 
 /// 图片管线：网络 → 板块磁盘缓存 → 解码 → 内存缓存。
 ///
@@ -746,11 +747,12 @@ class SectionImagePipeline {
           return (bytes: null, retryable: false, forbidden: false);
         }
         _failures.remove(url);
-        return (
-          bytes: decodeSourceImage(Uint8List.fromList(bytes), explicitHeaders),
-          retryable: false,
-          forbidden: false,
+        final decoded = await restoreSourceImageStrips(
+          decodeSourceImage(Uint8List.fromList(bytes), explicitHeaders),
+          explicitHeaders,
         );
+        if (_disposed) return (bytes: null, retryable: false, forbidden: false);
+        return (bytes: decoded, retryable: false, forbidden: false);
       }
       // 4xx 是「这张图本身有问题」（链接失效 / 防盗链），重试不会变好——例外两类：
       // · **429 / 408**：限流与超时，正是「有时能出、有时空白」的典型（真机反馈），
@@ -772,8 +774,10 @@ class SectionImagePipeline {
       if (_disposed) {
         return (bytes: null, retryable: false, forbidden: false);
       }
-      final retryable = error is! FormatException &&
-          error is! ArgumentError && !NetworkQueue.isCertificateFailure(error);
+      final retryable =
+          error is! FormatException &&
+          error is! ArgumentError &&
+          !NetworkQueue.isCertificateFailure(error);
       _failures[url] = retryable ? '网络异常' : '证书异常';
       LumeLog.warn(
         '[$sourceLabel] 图片请求异常(${retryable ? '将重试' : '证书错误，不重试'}): $url ($error)',
