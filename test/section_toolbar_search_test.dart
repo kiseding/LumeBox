@@ -134,7 +134,7 @@ void main() {
     }
 
     for (final width in [320.0, 375.0, 430.0]) {
-      testWidgets('漫画顶部 $width：短源切换、居中导航、右侧搜索', (tester) async {
+      testWidgets('漫画顶部 $width：统一源选择、右侧搜索，无热门最新导航', (tester) async {
         await pumpExplore(
           tester,
           section: Section.comic,
@@ -148,17 +148,14 @@ void main() {
         await tester.pumpAndSettle();
         final toolbar = tester.getRect(find.byType(SectionToolbar));
         final source = tester.getRect(find.byType(ReadingSourceBar));
-        final navigation = tester.getRect(find.byType(HomeBrowseNavigation));
         final search = tester.getRect(find.byTooltip('搜索'));
-        expect(source.width, lessThanOrEqualTo(toolbar.width / 3 + 1));
-        expect(navigation.center.dx, closeTo(toolbar.center.dx, 1));
-        expect(source.right, lessThanOrEqualTo(navigation.left));
-        expect(navigation.right, lessThanOrEqualTo(search.left));
-        expect(source.center.dy, closeTo(navigation.center.dy, 1));
-        expect(search.center.dy, closeTo(navigation.center.dy, 1));
+        expect(find.byType(HomeBrowseNavigation), findsNothing);
+        expect(find.text('热门'), findsNothing);
+        expect(find.text('最新'), findsNothing);
+        expect(source.right, lessThanOrEqualTo(search.left));
+        expect(source.center.dy, closeTo(search.center.dy, 1));
+        expect(toolbar.right, lessThanOrEqualTo(width));
         expect(tester.takeException(), isNull);
-        await tester.tap(find.text('热门'));
-        await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('搜索'));
         await tester.pumpAndSettle();
         expect(find.text('当前源搜索'), findsWidgets);

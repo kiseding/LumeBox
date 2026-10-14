@@ -10,6 +10,8 @@ class IosImageNetwork {
     final raw = await channel.invokeMapMethod<String, dynamic>('get', {
       'url': request.url,
       'headers': request.headers,
+      'method': request.method,
+      if (request.body != null) 'body': request.body,
       if (request.reuseVerifiedSession) 'reuseVerification': true,
       'timeoutSeconds':
           (request.timeout ?? const Duration(seconds: 15)).inMilliseconds /
@@ -24,14 +26,16 @@ class IosImageNetwork {
       ),
     );
     if (request.reuseVerifiedSession &&
-        (request.source.startsWith('封面:') || request.source == '图片缓存') &&
+        (request.source.startsWith('封面:') ||
+            request.source == '图片缓存' ||
+            request.method == 'POST') &&
         WafDetector.isChallenge(
           statusCode: response.statusCode,
           headers: response.headers,
           body: String.fromCharCodes(response.body.take(16000)),
         )) {
       try {
-        return await IosVerifiedWebView.readImage(request)
+        return await IosVerifiedWebView.readResource(request)
             .timeout(const Duration(seconds: 20));
       } catch (_) {
         // A still-blocked image remains a challenge; offer manual verification.

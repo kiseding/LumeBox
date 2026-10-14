@@ -1,3 +1,5 @@
+import 'package:lume_box/core/session/section.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -133,6 +135,10 @@ void main() {
 }
 
 class _Source implements DataSource {
+  @override
+  Section get section => Section.video;
+  @override
+  String get id => "s";
   @override
   Future<List<SourceChapter>> chapters(String id) async => const [
     SourceChapter(id: 'e1', title: '第一集'),

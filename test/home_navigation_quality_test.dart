@@ -91,6 +91,7 @@ void main() {
           expect(call.arguments, {
             'url': 'https://demo/cover',
             'headers': {'Referer': 'https://demo/'},
+            'method': 'GET',
             'timeoutSeconds': 15.0,
           });
           return {

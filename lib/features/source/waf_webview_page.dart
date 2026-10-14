@@ -132,7 +132,8 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// `Upgrade-Insecure-Requests`（老站点的 http 资源升级）。WKWebView 自己会补
   /// `Sec-Fetch-*` / `Accept-Encoding`，这里不重复造。
   static const Map<String, String> _browserHeaders = <String, String>{
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
+    'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,'
         'image/avif,image/webp,*/*;q=0.8',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'Upgrade-Insecure-Requests': '1',
@@ -379,8 +380,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// 在页面里取一次探针；读不出来返回 null（**读不出来不当白屏**，宁可不动）。
   Future<WafPageProbe?> _readProbe(String url) async {
     try {
-      final raw =
-          await _controller?.runJavaScriptReturningResult(wafPageProbeScript);
+      final raw = await _controller?.runJavaScriptReturningResult(
+        wafPageProbeScript,
+      );
       LumeLog.info('[waf] 网页视图正文摘要（$url）：$raw');
       return WafPageProbe.parse('$raw');
     } catch (error) {
@@ -401,8 +403,10 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   Future<void> _restoreChallengeIfBlanked() async {
     if (_collecting || !mounted) return;
     if (_challengeRestores >= maxChallengeRestores) {
-      LumeLog.warn('[waf] 挑战页已被跳走 $_challengeRestores 次，不再自动重开：'
-          '多半是 UA / 网络环境被识别（换网络或更新 App 版本再试）');
+      LumeLog.warn(
+        '[waf] 挑战页已被跳走 $_challengeRestores 次，不再自动重开：'
+        '多半是 UA / 网络环境被识别（换网络或更新 App 版本再试）',
+      );
       setState(() => _title = '验证页无法停留（可点右上角刷新重试）');
       return;
     }
@@ -427,7 +431,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// 判定只看 [cookieJarLooksPassed]：`__cf_bm` 在挑战**之前**就写下来了，拿它当
   /// 放行会让窗口开出 1~2 秒就自己关掉（用户看到的「一闪就没了」）。
   void _startAutoPoll() {
-    _autoPoll ??= Timer.periodic(const Duration(milliseconds: 1200), (timer) async {
+    _autoPoll ??= Timer.periodic(const Duration(milliseconds: 1200), (
+      timer,
+    ) async {
       if (!mounted || _collecting) {
         timer.cancel();
         _autoPoll = null;
@@ -435,11 +441,35 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       }
       String cookie = '';
       try {
-        cookie = '${await _controller?.runJavaScriptReturningResult('document.cookie')}';
+        cookie =
+            '${await _controller?.runJavaScriptReturningResult('document.cookie')}';
       } catch (_) {
         return;
       }
-      if (!cookieJarLooksPassed(cookie, challengeSeen: _challengeSeen)) return;
+      final current = await _controller?.currentUrl() ?? widget.url;
+      final probe = await _readProbe(current);
+      if (probe == null ||
+          probe.challenge ||
+          !probe.readyComplete ||
+          probe.blank) {
+        return;
+      }
+      try {
+        final native = await _cookieChannel.invokeMethod<List<Object?>>(
+          'allCookies',
+          {'url': current},
+        );
+        final scoped = webViewCookiesForUrl(native ?? const [], current);
+        cookie =
+            '$cookie; ${scoped.entries.map((e) => '${e.key}=${e.value}').join('; ')}';
+      } catch (_) {}
+      if (!canFinishWafVerification(
+        cookie,
+        probe: probe,
+        challengeSeen: _challengeSeen,
+      )) {
+        return;
+      }
       timer.cancel();
       _autoPoll = null;
       // 再等一拍：放行后站点往往还会写几枚别的 Cookie。
@@ -462,6 +492,39 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   Future<void> _closeAndCollect() async {
     if (_collecting) return;
     setState(() => _collecting = true);
+    final currentProbe = await _readProbe(
+      await _controller?.currentUrl() ?? widget.url,
+    );
+    if (!mounted) return;
+    if (currentProbe == null ||
+        currentProbe.challenge ||
+        !currentProbe.readyComplete ||
+        currentProbe.blank) {
+      setState(() => _collecting = false);
+      if (!widget.auto) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('网页验证尚未完成'),
+            content: const Text('当前页面仍在验证或加载。通过后应能看到站点内容；如果出现下一道验证，请继续完成。'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  Navigator.pop(context);
+                },
+                child: const Text('退出验证'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('继续验证'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
     final cookies = <String, String>{};
 
     // 1) JS 可见的那份（非 HttpOnly）。
@@ -483,7 +546,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         'allCookies',
         <String, Object?>{'url': widget.url},
       );
-      cookies.addAll(webViewCookiesForUrl(list ?? const <Object?>[], widget.url));
+      cookies.addAll(
+        webViewCookiesForUrl(list ?? const <Object?>[], widget.url),
+      );
     } on MissingPluginException {
       LumeLog.info('[waf] 当前平台没有原生 Cookie 通道，只取 JS 可见的 Cookie');
     } catch (error) {
@@ -521,7 +586,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       return;
     }
     try {
-      final rawUa = await _controller?.runJavaScriptReturningResult('navigator.userAgent');
+      final rawUa = await _controller?.runJavaScriptReturningResult(
+        'navigator.userAgent',
+      );
       widget.onUserAgent?.call('$rawUa'.replaceAll('"', '').trim());
     } catch (error) {
       LumeLog.info('[waf] 读取验证 UA 失败：$error');
@@ -545,9 +612,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
               padding: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(
                 color: LumeTheme.surface,
-                border: Border(
-                  bottom: BorderSide(color: LumeTheme.hairline),
-                ),
+                border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
               ),
               child: Row(
                 children: <Widget>[
@@ -602,7 +667,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
               ),
             Expanded(
               child: controller == null
-                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2.5))
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
                   : Stack(
                       children: <Widget>[
                         Listener(
@@ -622,8 +689,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
                       ],
                     ),
             ),
-            if (_collecting)
-              const LinearProgressIndicator(minHeight: 2),
+            if (_collecting) const LinearProgressIndicator(minHeight: 2),
           ],
         ),
       ),
@@ -707,7 +773,9 @@ String safariUserAgentFrom(String webViewUserAgent) {
   if (ua.isEmpty || ua.contains('Safari/')) return ua;
   // 版本号取 UA 里自报的 iOS 版本：`iPhone OS 18_5` → `18.5`。
   final match = RegExp(r'OS (\d+)_(\d+)').firstMatch(ua);
-  final version = match == null ? '17.0' : '${match.group(1)}.${match.group(2)}';
+  final version = match == null
+      ? '17.0'
+      : '${match.group(1)}.${match.group(2)}';
   if (ua.contains('Version/')) {
     return '$ua Safari/604.1';
   }
@@ -738,10 +806,7 @@ const String wafFallbackUserAgent =
 /// 为什么兜底也要有：真机反馈过「白屏、没有勾选框」，其中一条根因就是 UA 解析失败
 /// 后**没有设 UA**（旧实现直接跳过 `setUserAgent`），WebKit 用默认那份非 Safari
 /// 形态的 UA 去拿挑战页，CF 自然不给控件。返回空串在这条链路上没有任何意义。
-String resolveWebViewUserAgent({
-  String? configured,
-  String? webViewDefault,
-}) {
+String resolveWebViewUserAgent({String? configured, String? webViewDefault}) {
   final override = (configured ?? '').trim();
   if (override.isNotEmpty) return override;
   final device = safariUserAgentFrom((webViewDefault ?? '').trim());
@@ -768,12 +833,14 @@ bool webViewUserAgentNeedsRepair({
 const int maxChallengeRestores = 3;
 
 /// 在页面里跑的探针脚本：正文摘要 + iframe 数 + 挑战痕迹。
-const String wafPageProbeScript = 'JSON.stringify({'
+const String wafPageProbeScript =
+    'JSON.stringify({'
+    'r:document.readyState,'
     't:(document.title||"").slice(0,80),'
-    'n:((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").slice(0,160),'
+    'n:((document.body&&document.body.innerText)||([].some.call(document.images,function(i){return i.complete&&i.naturalWidth>0;})?"image-loaded":"")).replace(/\\s+/g," ").slice(0,160),'
     'f:document.querySelectorAll("iframe").length,'
-    'c:/challenges\\.cloudflare\\.com|turnstile|cf-chl|challenge-platform|just a moment|请稍候/i'
-    '.test(document.documentElement.innerHTML+document.title)'
+    'c:/just a moment|attention required|请稍候|安全验证|人机校验/i.test(document.title)'
+    '||!!document.querySelector("#challenge-running,#challenge-stage,#cf-challenge-running,form#challenge-form")'
     '})';
 
 /// 一次「页面探针」的结果。
@@ -786,6 +853,7 @@ class WafPageProbe {
     this.bodyText = '',
     this.iframeCount = 0,
     this.challenge = false,
+    this.readyComplete = true,
   });
 
   final String title;
@@ -798,6 +866,7 @@ class WafPageProbe {
 
   /// 页面上有没有 Cloudflare / Turnstile 的挑战痕迹（脚本、iframe、文案）。
   final bool challenge;
+  final bool readyComplete;
 
   /// 正文是不是空的（**注意**：这只是一次采样，不能单独作为「白屏」的结论）。
   bool get blank => bodyText.trim().isEmpty;
@@ -817,6 +886,7 @@ class WafPageProbe {
         _ => 0,
       },
       challenge: decoded['c'] == true,
+      readyComplete: decoded['r'] == 'complete',
     );
   }
 }
@@ -888,6 +958,16 @@ bool cookieJarLooksPassed(String rawCookie, {required bool challengeSeen}) {
   if (names.containsKey('cf_clearance')) return true;
   return !challengeSeen && names.containsKey('__cf_bm');
 }
+
+bool canFinishWafVerification(
+  String cookie, {
+  required WafPageProbe probe,
+  required bool challengeSeen,
+}) =>
+    probe.readyComplete &&
+    !probe.blank &&
+    !probe.challenge &&
+    (parseJsCookie(cookie)['cf_clearance']?.isNotEmpty ?? false);
 
 /// 主框架失败的白色卡片要不要压到 WebView 上（纯函数，便于单测）。
 ///
@@ -1062,7 +1142,10 @@ Future<WafWebViewOutcome> _runWafWebViewFlow({
   // 页面自己的兜底（它会在日志里写明用的是 WKWebView 默认 UA）。
   if (opener == showWafWebView) await openWafSessionStore(section);
   if (!context.mounted) return WafWebViewOutcome.notOpened;
-  final ua = await (userAgentFor ?? LumeSources.userAgentFor)(section, sourceId);
+  final ua = await (userAgentFor ?? LumeSources.userAgentFor)(
+    section,
+    sourceId,
+  );
   if (!context.mounted) return WafWebViewOutcome.notOpened;
 
   final Map<String, String>? cookies;
@@ -1122,11 +1205,10 @@ Future<String?> askWebViewOrigin({
   required BuildContext context,
   required String sourceName,
   String initial = '',
-}) =>
-    showDialog<String>(
-      context: context,
-      builder: (_) => _WafOriginDialog(sourceName: sourceName, initial: initial),
-    );
+}) => showDialog<String>(
+  context: context,
+  builder: (_) => _WafOriginDialog(sourceName: sourceName, initial: initial),
+);
 
 /// 地址输入框本体。
 ///
@@ -1145,8 +1227,9 @@ class _WafOriginDialog extends StatefulWidget {
 }
 
 class _WafOriginDialogState extends State<_WafOriginDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initial);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
   String? _error;
 
   @override

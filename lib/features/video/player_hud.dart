@@ -16,9 +16,11 @@ class PlayerHud extends StatelessWidget {
     required this.stats,
     this.networkKbps,
     this.showDetails = true,
+    this.showSpeed = true,
   });
 
   final bool showDetails;
+  final bool showSpeed;
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
 
@@ -44,11 +46,11 @@ class PlayerHud extends StatelessWidget {
           if (showDetails && value.codecText != null) value.codecText!,
           if (showDetails && value.fpsText != null) value.fpsText!,
           if (showDetails && value.bitrateText != null) value.bitrateText!,
-          if (value.downloadBytesPerSecond != null)
+          if (showSpeed && value.downloadBytesPerSecond != null)
             '网速 ${PlaybackSpeedMeter.describeBytes(value.downloadBytesPerSecond!)}'
-          else if (speed != null)
+          else if (showSpeed && speed != null)
             '源测速 $speed'
-          else
+          else if (showSpeed)
             '网速 —',
         ];
         if (chips.isEmpty) return const SizedBox.shrink();

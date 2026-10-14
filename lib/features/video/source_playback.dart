@@ -1,3 +1,4 @@
+import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
 
 /// 视频板块的「可播放地址」判定：图源条目 / 章节内容 → 播放器认识的地址。
@@ -56,28 +57,55 @@ class SourcePlayback {
   /// —— 图源给的地址多带防盗链头，丢掉它们 CDN 会回 403，随后网络队列按退避
   /// 反复重试，累积起来正是那个量级。此前两处起播点都只取了地址、把请求头留在了
   /// `VideoContent` 里（AVPlayer 与 MPV 两条内核通路本来都支持携带它们）。
-  static Map<String, String> contentHeaders(ChapterContent? content) =>
-      content is VideoContent
-      ? highestQuality(content)?.headers ?? content.headers
-      : const <String, String>{};
+  static Map<String, String> contentHeaders(
+    ChapterContent? content, {
+    DataSource? source,
+  }) {
+    if (content is! VideoContent) return const {};
+    return _verifiedHeaders(
+      highestQuality(content)?.headers ?? content.headers,
+      contentAddress(content),
+      source,
+    );
+  }
+
+  static Map<String, String> _verifiedHeaders(
+    Map<String, String> original,
+    Uri? uri,
+    DataSource? source,
+  ) {
+    if (source == null) return original;
+    final ua =
+        WafSessions.userAgentFor(source.section, source.id)?.trim() ?? '';
+    if (ua.isEmpty) return original;
+    final result = Map<String, String>.of(original);
+    result.removeWhere((key, _) => key.toLowerCase() == 'user-agent');
+    result['User-Agent'] = ua;
+    return result;
+  }
 
   /// 候选清晰度线路（图源给了多条时才非空）。
   ///
   /// 逐线路的请求头为空时**继承主 headers**：图源往往只在一处写防盗链头，
   /// 若按「线路自己的 headers 优先、没有就空」处理，切一条线路就 403。
-  static List<VideoQuality> contentQualities(ChapterContent? content) {
+  static List<VideoQuality> contentQualities(
+    ChapterContent? content, {
+    DataSource? source,
+  }) {
     if (content is! VideoContent) return const <VideoQuality>[];
     final base = content.headers;
     return <VideoQuality>[
       for (final quality in content.qualities)
-        quality.headers.isEmpty
-            ? VideoQuality(
-                label: quality.label,
-                url: quality.url,
-                headers: base,
-                height: quality.height,
-              )
-            : quality,
+        VideoQuality(
+          label: quality.label,
+          url: quality.url,
+          height: quality.height,
+          headers: _verifiedHeaders(
+            quality.headers.isEmpty ? base : quality.headers,
+            quality.url,
+            source,
+          ),
+        ),
     ];
   }
 

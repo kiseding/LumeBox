@@ -53,6 +53,8 @@ class AvPlayer extends AbstractPlayer {
   );
 
   VideoPlayerController? _controller;
+  int _loadGeneration = 0;
+  Completer<void>? _loadCancelled;
 
   // video_player is pinned; this ID resolves its existing native AVPlayer.
   // ignore: invalid_use_of_visible_for_testing_member
@@ -139,16 +141,25 @@ class AvPlayer extends AbstractPlayer {
   @override
   Future<void> load(PlayerMedia media) async {
     if (_disposed) return;
+    if (_loadCancelled?.isCompleted == false) {
+      _loadCancelled!.complete();
+    }
+    final cancelled = Completer<void>();
+    _loadCancelled = cancelled;
+    final generation = ++_loadGeneration;
     final uri = await _highestHls.resolve(media.uri, media.headers);
     if (_disposed) {
       await _highestHls.close();
       return;
     }
+    if (generation != _loadGeneration) return;
     // 缓冲参数要先落到原生侧：插件正是在下面的 initialize() 里建 AVPlayer，
     // 晚一步写就只对下一次起播生效（那正是「第一次起播慢」的那一次）。
     await _applyBufferingOnce();
     if (_disposed) return;
+    if (generation != _loadGeneration) return;
     await _releaseController();
+    if (_disposed || generation != _loadGeneration) return;
     final controller = media.isNetwork
         ? VideoPlayerController.networkUrl(
             uri,
@@ -173,15 +184,30 @@ class AvPlayer extends AbstractPlayer {
       ..start();
     controller.addListener(_sync);
     try {
-      await controller.initialize();
+      await Future.any<void>([controller.initialize(), cancelled.future]);
+      if (_disposed ||
+          generation != _loadGeneration ||
+          !identical(controller, _controller)) {
+        return;
+      }
       await _applySpeed();
       await controller.setVolume(_volume);
+      if (_disposed ||
+          generation != _loadGeneration ||
+          !identical(controller, _controller)) {
+        return;
+      }
       _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
         _sync();
         unawaited(_sampleNetwork(controller));
       });
       _sync();
     } catch (error, stackTrace) {
+      if (_disposed ||
+          generation != _loadGeneration ||
+          !identical(controller, _controller)) {
+        return;
+      }
       LumeLog.error(error, stackTrace);
       _emit(_snapshot.value, error: PlayerErrorText.describe(error));
     }
@@ -286,6 +312,9 @@ class AvPlayer extends AbstractPlayer {
 
   @override
   Future<void> dispose() async {
+    if (_loadCancelled?.isCompleted == false) {
+      _loadCancelled!.complete();
+    }
     await _highestHls.close();
     if (_disposed) return;
     _disposed = true;

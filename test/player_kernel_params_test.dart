@@ -28,6 +28,25 @@ void main() {
       VideoPlayerPlatform.instance = platform;
     });
 
+    test('旧媒体初始化未完成时换内容，新加载成功且旧Future收尾', () async {
+      platform.holdFirst = true;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      final old = player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/old.mp4')),
+      );
+      for (var i = 0; i < 20 && platform.created.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(platform.created.length, 1);
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/new.mp3')),
+      );
+      await old.timeout(const Duration(seconds: 1));
+      expect(player.snapshot.value.error, isNull);
+      expect(platform.created.length, 2);
+      await player.dispose();
+    });
+
     test('第一次起播前写一次，之后不再重复往返', () async {
       final backend = _RecordingBufferingBackend();
       final player = AvPlayer(buffering: backend);
@@ -72,16 +91,15 @@ void main() {
         ),
       );
 
-      expect(
-        platform.created.single.dataSource.httpHeaders,
-        <String, String>{'Referer': 'https://example.com/'},
-        reason: '防盗链地址丢掉 Referer 就是 CDN 403 + 退避重试（等一两分钟）',
-      );
+      expect(platform.created.single.dataSource.httpHeaders, <String, String>{
+        'Referer': 'https://example.com/',
+      }, reason: '防盗链地址丢掉 Referer 就是 CDN 403 + 退避重试（等一两分钟）');
       await player.dispose();
     });
 
     test('写通道抛错不影响起播链路（只记日志）', () async {
-      final backend = _RecordingBufferingBackend()..failure = StateError('boom');
+      final backend = _RecordingBufferingBackend()
+        ..failure = StateError('boom');
       final player = AvPlayer(buffering: backend);
 
       await player.load(
@@ -126,7 +144,8 @@ void main() {
         expect(
           PlayerFactory.supportsMediaHeaders(kernel),
           isTrue,
-          reason: '${kernel.label}：请求头通路（AVPlayer httpHeaders / '
+          reason:
+              '${kernel.label}：请求头通路（AVPlayer httpHeaders / '
               'MPV httpHeaders / MDK avio.headers）都已接通',
         );
       }
@@ -159,6 +178,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> _streams =
       <int, StreamController<VideoEvent>>{};
   int _nextId = 0;
+  bool holdFirst = false;
 
   /// 创建播放器时的钩子（用来断言「缓冲参数已经写过了」）。
   void Function()? onCreated;
@@ -178,6 +198,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     _streams[id] = stream;
     // 事件必须在 controller 订阅之后再推，否则首帧状态会丢。
     scheduleMicrotask(() {
+      if (holdFirst && id == 0) return;
       stream.add(
         VideoEvent(
           eventType: VideoEventType.initialized,
@@ -190,7 +211,8 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   }
 
   @override
-  Future<void> dispose(int playerId) async => _streams.remove(playerId)?.close();
+  Future<void> dispose(int playerId) async =>
+      _streams.remove(playerId)?.close();
 
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) => _streams[playerId]!.stream;
@@ -236,5 +258,8 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   ) async {}
 
   @override
-  Future<void> setWebOptions(int playerId, VideoPlayerWebOptions options) async {}
+  Future<void> setWebOptions(
+    int playerId,
+    VideoPlayerWebOptions options,
+  ) async {}
 }

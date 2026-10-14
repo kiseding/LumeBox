@@ -1,6 +1,3 @@
-import '../../core/source/home_browse_mode.dart';
-import '../../shared/widgets/home_browse_navigation.dart';
-
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -141,7 +138,6 @@ class _ExploreViewState extends State<ExploreView> {
   String? _detail;
 
   String? _categoryId;
-  String? _browseMode;
   String? _homeBrowseMode;
   List<SourceCategory> _categories = const [];
   List<SourceFilterGroup> _filterGroups = const [];
@@ -346,7 +342,6 @@ class _ExploreViewState extends State<ExploreView> {
           _categories = const [];
           _filterGroups = const [];
           _categoryId = null;
-          _browseMode = null;
           _homeBrowseMode = null;
           _facetFilters = const {};
           _homeSupported = false;
@@ -468,39 +463,6 @@ class _ExploreViewState extends State<ExploreView> {
     ]);
   }
 
-  void _selectBrowseMode(String mode) {
-    final target = homeBrowseTarget(mode, _categories, _filterGroups);
-    if (target == null && _homeSupported) {
-      setState(() {
-        _browseMode = mode;
-        _homeBrowseMode = mode;
-        _categoryId = null;
-        _facetFilters = {};
-        _search.clear();
-        _searching = false;
-      });
-      return;
-    }
-    if (target == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('当前源未提供$mode分类或排序')));
-      return;
-    }
-    setState(() {
-      _browseMode = mode;
-      _homeBrowseMode = null;
-      if (target.category != null) {
-        _categoryId = target.category;
-        _facetFilters = {};
-      } else {
-        _facetFilters = Map.of(_facetFilters)..[target.group!] = target.option!;
-      }
-      _search.clear();
-      _searching = false;
-    });
-    unawaited(_refresh());
-  }
-
   Future<void> _openCombinedFilters() async {
     final selected = await showBrowseFilters(
       context: context,
@@ -511,7 +473,6 @@ class _ExploreViewState extends State<ExploreView> {
     );
     if (!mounted || selected == null) return;
     setState(() {
-      _browseMode = null;
       _homeBrowseMode = null;
       _categoryId = selected.category;
       _facetFilters = selected.filters;
@@ -538,7 +499,6 @@ class _ExploreViewState extends State<ExploreView> {
           selectedId: _categoryId,
           onSelected: (id) {
             setState(() {
-              _browseMode = null;
               _homeBrowseMode = null;
               _categoryId = id;
               _facetFilters = Map.of(_facetFilters)
@@ -554,7 +514,6 @@ class _ExploreViewState extends State<ExploreView> {
               children: [
                 _facetChip('全部', _categoryId == null, () {
                   setState(() {
-                    _browseMode = null;
                     _homeBrowseMode = null;
                     _categoryId = null;
                     _facetFilters = Map.of(_facetFilters)
@@ -568,7 +527,6 @@ class _ExploreViewState extends State<ExploreView> {
                 ))
                   _facetChip(category.title, _categoryId == category.id, () {
                     setState(() {
-                      _browseMode = null;
                       _homeBrowseMode = null;
                       _categoryId = category.id;
                       _facetFilters = Map.of(_facetFilters)
@@ -604,7 +562,6 @@ class _ExploreViewState extends State<ExploreView> {
                     group.options.where((o) => o.title == '全部').firstOrNull?.id,
                 onSelected: (id) {
                   setState(() {
-                    _browseMode = null;
                     _homeBrowseMode = null;
                     _facetFilters = Map.of(_facetFilters);
                     if (id == null) {
@@ -655,7 +612,6 @@ class _ExploreViewState extends State<ExploreView> {
                               option.id,
                           () {
                             setState(() {
-                              _browseMode = null;
                               _homeBrowseMode = null;
                               _facetFilters = {
                                 ..._facetFilters,
@@ -1165,16 +1121,7 @@ class _ExploreViewState extends State<ExploreView> {
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    ?HomeHeaderScope.headerOf(
-                                      context,
-                                      navigation:
-                                          widget.section == Section.comic
-                                          ? null
-                                          : HomeBrowseNavigation(
-                                              selected: _browseMode,
-                                              onSelect: _selectBrowseMode,
-                                            ),
-                                    ),
+                                    ?HomeHeaderScope.headerOf(context),
                                     _searching
                                         ? _buildSearchField()
                                         : _buildHeader(),
@@ -1205,12 +1152,6 @@ class _ExploreViewState extends State<ExploreView> {
     final showSourceManageFlag = widget.showSourceManage;
     return SectionToolbar(
       floating: true,
-      navigation: widget.section == Section.comic
-          ? HomeBrowseNavigation(
-              selected: _browseMode,
-              onSelect: _selectBrowseMode,
-            )
-          : null,
       sources: _sources
           .where((source) => source.enabled)
           .toList(growable: false),

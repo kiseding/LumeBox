@@ -146,7 +146,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
             prelaunch: transferred,
             media: PlayerMedia(
               uri: SourcePlayback.contentAddress(content)!,
-              headers: SourcePlayback.contentHeaders(content),
+              headers: SourcePlayback.contentHeaders(
+                content,
+                source: widget.source,
+              ),
               title: '${widget.item.title} · ${chapter.title}',
             ),
             library: widget.library,
@@ -156,7 +159,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
               chapterFlag: playbackLine,
             ),
             sourceId: widget.source.id,
-            qualities: SourcePlayback.contentQualities(content),
+            qualities: SourcePlayback.contentQualities(
+              content,
+              source: widget.source,
+            ),
             target: VideoPlayTarget(
               sourceId: widget.source.id,
               itemId: widget.item.id,

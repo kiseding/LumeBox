@@ -272,10 +272,10 @@ class _VideoPageState extends State<VideoPage> {
           uri: address,
           title: '${item.title} · ${chapter.title}',
           // 图源给的防盗链头必须原样交给内核（丢 = CDN 403 + 退避重试）。
-          headers: SourcePlayback.contentHeaders(content),
+          headers: SourcePlayback.contentHeaders(content, source: source),
         );
         // 图源给了多条清晰度线路就一起带进播放器（单条 / 空表时按钮弹提示）。
-        qualities = SourcePlayback.contentQualities(content);
+        qualities = SourcePlayback.contentQualities(content, source: source);
       }
     } on SourceException catch (error) {
       _toast(error.message);
@@ -478,9 +478,9 @@ class _VideoPageState extends State<VideoPage> {
         media = PlayerMedia(
           uri: address,
           title: '${item.title} · ${chapter.title}',
-          headers: SourcePlayback.contentHeaders(content),
+          headers: SourcePlayback.contentHeaders(content, source: source),
         );
-        qualities = SourcePlayback.contentQualities(content);
+        qualities = SourcePlayback.contentQualities(content, source: source);
       }
     } on SourceException catch (error) {
       _toast(error.message);

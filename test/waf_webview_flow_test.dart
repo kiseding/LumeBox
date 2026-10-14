@@ -12,6 +12,33 @@ import 'package:lume_box/features/source/waf_webview_page.dart';
 /// 地址一定有着落（四层兜底 → 最后问用户要一次）、点了一定有反应（开窗失败也
 /// 弹窗说明）、只有真拿到 Cookie 才算过。
 void main() {
+  test('旧clearance不能让第二道挑战或未加载页面自动收窗', () {
+    expect(
+      canFinishWafVerification(
+        'cf_clearance=old',
+        probe: const WafPageProbe(bodyText: 'Just a moment', challenge: true),
+        challengeSeen: true,
+      ),
+      false,
+    );
+    expect(
+      canFinishWafVerification(
+        'cf_clearance=old',
+        probe: const WafPageProbe(bodyText: 'loading', readyComplete: false),
+        challengeSeen: true,
+      ),
+      false,
+    );
+    expect(
+      canFinishWafVerification(
+        'cf_clearance=fresh',
+        probe: const WafPageProbe(bodyText: 'normal content'),
+        challengeSeen: true,
+      ),
+      true,
+    );
+  });
+
   setUp(SourceRequestLog.resetForTesting);
   tearDown(SourceRequestLog.resetForTesting);
 

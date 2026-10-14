@@ -222,7 +222,8 @@ void main() {
     await tester.tap(find.byTooltip('线路 / 选集'));
     await tester.pumpAndSettle();
 
-    expect(find.text('https://example.com/demo.mp4'), findsWidgets);
+    expect(find.text('https://example.com/demo.mp4'), findsNothing);
+    expect(find.byTooltip('复制地址'), findsOneWidget);
   });
 
   testWidgets('条目没有地址：走剧集链路，选一集后起播取到的视频地址', (tester) async {

@@ -85,9 +85,10 @@ class LumeNet {
     if (Platform.isIOS &&
         proxy.isEmpty &&
         !request.allowBadCertificate &&
-        request.method == 'GET' &&
+        (request.method == 'GET' || request.method == 'POST') &&
         request.followRedirects &&
-        (request.reuseVerifiedSession ||
+        ((request.reuseVerifiedSession &&
+                Uri.tryParse(request.url)?.scheme == 'https') ||
             request.source.startsWith('封面:') ||
             request.source == '图片缓存')) {
       return IosImageNetwork.send(request);

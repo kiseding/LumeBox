@@ -3,7 +3,6 @@ import '../../shared/widgets/source_icon.dart';
 import '../source/source_preferences_page.dart';
 import '../../shared/widgets/missing_cover.dart';
 import '../../core/source/home_browse_mode.dart';
-import '../../shared/widgets/home_browse_navigation.dart';
 
 import 'dart:async';
 
@@ -680,9 +679,33 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         minimumSize: const Size(0, 30),
       ),
-      child: Text(text),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
     ),
   );
+  Future<void> combinedFilters() async {
+    final selected = await showBrowseFilters(
+      context: context,
+      categories: categories,
+      groups: groups,
+      category: category,
+      filters: filters,
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      browseMode = null;
+      category = selected.category;
+      filters = selected.filters;
+      query = '';
+    });
+    await refresh();
+  }
+
   Widget header() => GlassPanel(
     module: FloatingModule.home,
     radius: 28,
@@ -732,10 +755,6 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                           ),
                         ),
                         const SizedBox(width: 6),
-                        HomeBrowseNavigation(
-                          selected: browseMode,
-                          onSelect: selectBrowseMode,
-                        ),
                       ],
                     ),
                   ),
@@ -778,6 +797,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                   : CatPreloader.selectedSite(service)?.name ??
                                         '选择站点'),
                           textAlign: TextAlign.left,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: LumeTheme.textPrimary,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -798,6 +822,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         if (categories.isNotEmpty)
           BrowseChoiceAccess(
             choices: categories,
+            onOpen: combinedFilters,
             selectedId: category,
             onSelected: (id) {
               setState(() {

@@ -783,8 +783,17 @@ void main() {
         find.byType(PlayerSettingsSheet),
         const Offset(0, -250),
       );
-      await tester.tap(find.widgetWithText(SwitchListTile, '自动连播'));
+      await tester.ensureVisible(find.widgetWithText(SwitchListTile, '自动连播'));
       await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(SwitchListTile, '自动连播'));
+
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SwitchListTile>(find.widgetWithText(SwitchListTile, '自动连播'))
+            .value,
+        isFalse,
+      );
       expect(created.single.media, isNotNull);
 
       created.single.emit(

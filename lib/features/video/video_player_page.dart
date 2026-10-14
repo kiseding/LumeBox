@@ -1,3 +1,7 @@
+import 'dart:io' show Platform;
+
+import '../../core/net/ios_verified_webview.dart';
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -40,6 +44,7 @@ import 'danmaku/danmaku_settings.dart';
 import 'danmaku/danmaku_settings_sheet.dart';
 import 'player_gestures.dart';
 import 'player_hud.dart';
+import 'player_kernel_picker.dart';
 import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
 import 'player_source_sheet.dart';
@@ -433,7 +438,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         .content(itemId: target.itemId, chapterId: target.chapterId)
         .timeout(const Duration(seconds: 15));
     if (!mounted || !identical(target, _target)) return previous;
-    final qualities = SourcePlayback.contentQualities(content);
+    final qualities = SourcePlayback.contentQualities(content, source: source);
     final label = _qualityIndex < _qualities.length
         ? _qualities[_qualityIndex].label
         : null;
@@ -449,7 +454,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       title: previous.title,
       headers: selected != null && selected.headers.isNotEmpty
           ? selected.headers
-          : SourcePlayback.contentHeaders(content),
+          : SourcePlayback.contentHeaders(content, source: source),
     );
   }
 
@@ -1126,7 +1131,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _networkSpeed.reset();
     _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
-    if (!alreadyLoaded) await player.load(media);
+    if (!alreadyLoaded) {
+      final headers = Platform.isIOS && _target != null
+          ? await IosVerifiedWebView.resourceHeaders(
+              media.uri.toString(),
+              media.headers ?? const {},
+            )
+          : media.headers;
+      if (!mounted ||
+          !identical(player, _player) ||
+          !identical(media, _media)) {
+        return;
+      }
+      await player.load(
+        PlayerMedia(uri: media.uri, title: media.title, headers: headers),
+      );
+    }
+    if (!mounted || !identical(player, _player) || !identical(media, _media)) {
+      return;
+    }
     // 起播那几秒里同一个 CDN 域名上多一条 256KB 探测，就是和首帧缓冲抢带宽。
     if (!mounted) return;
     setState(() => _loaded = player.snapshot.value.error == null);
@@ -1294,6 +1317,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _target = target;
     _input.text = media.uri.toString();
     await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
+    if (!mounted || !identical(media, _media)) return;
     await _restoreProgress();
     _startProgressTicker();
     unawaited(_loadDanmaku(target));
@@ -1414,7 +1438,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
       // 换集时线路也可能完全不同：把这一集的候选线路一起换掉。
       setState(() {
-        _qualities = SourcePlayback.contentQualities(content);
+        _qualities = SourcePlayback.contentQualities(content, source: source);
         _qualityIndex = 0;
       });
       await _startPlaybackSafely(
@@ -1422,7 +1446,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           uri: address,
           title: '${target.title} · ${next.title}',
           // 连播 / 切集同样要带防盗链头（否则下一集很可能 403 卡住）。
-          headers: SourcePlayback.contentHeaders(content),
+          headers: SourcePlayback.contentHeaders(content, source: source),
         ),
         preparedPlayer: prepared?.player,
         target: VideoPlayTarget(
@@ -2419,6 +2443,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       unawaited(_player?.setBuffering(_buffering));
                     },
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.high_quality_outlined),
+              title: const Text('清晰度'),
+              subtitle: const Text('默认选择最高可用分辨率'),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_openQualityMenu());
+              },
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('自动连播'),
@@ -2908,6 +2942,47 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
+  Future<void> _openKernelPicker() async {
+    _cancelAutoHide();
+    final selected = await showModalBottomSheet<PlayerKernel>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('播放内核', style: TextStyle(fontSize: 18)),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              PlayerKernelPicker(
+                selected: _settings.kernel,
+                catalog: _catalog,
+                onChanged: (kernel) => Navigator.pop(context, kernel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (selected != null && selected != _settings.kernel) {
+      await _applySettings(_settings.copyWith(kernel: selected));
+    }
+    _scheduleAutoHide();
+  }
+
   Future<void> _openFullscreenTools() async {
     _cancelAutoHide();
     final choice = await showModalBottomSheet<String>(
@@ -2943,6 +3018,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               child: ListView(
                 children: [
                   for (final option in <(String, String, IconData)>[
+                    ('quality', '清晰度', Icons.high_quality_outlined),
+                    ('kernel', '播放内核', Icons.memory_outlined),
                     ('audio', '音轨', Icons.audiotrack_outlined),
                     ('subtitle', '字幕', Icons.subtitles_outlined),
                     ('file', '外挂字幕', Icons.note_add_outlined),
@@ -2968,6 +3045,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     if (!mounted) return;
     switch (choice) {
+      case 'quality':
+        await _openQualityMenu();
+      case 'kernel':
+        await _openKernelPicker();
       case 'audio':
         await _openTrackQuick(audio: true);
       case 'subtitle':
@@ -3076,7 +3157,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Listener(
       onPointerDown: (_) => _scheduleAutoHide(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
         child: ValueListenableBuilder<PlayerSnapshot>(
           valueListenable: _player?.snapshot ?? _idleSnapshot,
           builder: (context, snapshot, _) => Column(
@@ -3128,7 +3209,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             '播放速度（${_settings.speed}x）',
             _showSpeedPicker,
           ),
-          _fullscreenLabel('画质', '清晰度', _openQualityMenu),
+          _fullscreenLabel('片头片尾', '跳过片头片尾', _openMorePanel),
           _fullscreenLabel(
             '弹幕',
             _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
@@ -3206,7 +3287,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         style: TextButton.styleFrom(
           minimumSize: const Size(48, 40),
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          foregroundColor: _fullscreen ? Colors.white : null,
+          foregroundColor: _fullscreen ? Colors.white : LumeTheme.accent,
         ),
         child: Text(
           '选集',
@@ -3225,7 +3306,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         style: TextButton.styleFrom(
           minimumSize: const Size(40, 40),
           padding: EdgeInsets.zero,
-          foregroundColor: _fullscreen ? Colors.white : null,
+          foregroundColor: _fullscreen ? Colors.white : LumeTheme.accent,
         ),
         child: Text(
           '弹',
@@ -3238,13 +3319,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       ),
     ),
     _compactIcon(
-      icon: Icons.high_quality_outlined,
-      tooltip: '清晰度',
-      onPressed: _openQualityMenu,
+      icon: Icons.content_cut_outlined,
+      tooltip: '跳过片头片尾',
+      onPressed: _openMorePanel,
     ),
     _buildPipButton(),
     _compactIcon(
-      icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+      icon: Icons.memory_outlined,
+      tooltip: '播放内核',
+      onPressed: _openKernelPicker,
+    ),
+    _compactIcon(
+      icon: _fullscreen ? Icons.close_fullscreen : Icons.open_in_full,
       tooltip: _fullscreen ? '退出全屏' : '全屏',
       onPressed: () => _setFullscreen(!_fullscreen),
     ),
@@ -3390,13 +3476,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ),
               Positioned(
                 top: _fullscreen ? MediaQuery.paddingOf(context).top + 60 : 0,
-                left: _fullscreen ? MediaQuery.paddingOf(context).left : 0,
+                left: _fullscreen ? MediaQuery.paddingOf(context).left + 48 : 0,
                 right: 48,
                 child: IgnorePointer(
                   child: PlayerHud(
                     stats: player.stats,
-                    networkKbps: _networkSpeed.kbps,
+                    showSpeed: false,
                     showDetails: !_locked && (!_fullscreen || _overlayVisible),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: _fullscreen
+                    ? MediaQuery.paddingOf(context).right + 8
+                    : 0,
+                bottom: _fullscreen ? MediaQuery.paddingOf(context).bottom : 0,
+                child: IgnorePointer(
+                  child: PlayerHud(
+                    stats: player.stats,
+                    networkKbps: _networkSpeed.kbps,
+                    showDetails: false,
                   ),
                 ),
               ),
@@ -3841,7 +3940,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       padding: EdgeInsets.zero,
       color: _fullscreen
           ? (highlighted ? Colors.white : Colors.white70)
-          : (highlighted ? LumeTheme.textPrimary : LumeTheme.muted),
+          : LumeTheme.accent,
       tooltip: tooltip,
       icon: Icon(icon, shadows: _fullscreen ? _controlShadows : null),
       onPressed: onPressed,

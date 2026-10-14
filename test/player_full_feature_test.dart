@@ -297,7 +297,8 @@ void main() {
 
       expect(find.byTooltip('前进 10 秒'), findsOneWidget);
       expect(find.byTooltip('后退 10 秒'), findsOneWidget);
-      expect(find.byTooltip('清晰度'), findsOneWidget);
+      expect(find.byTooltip('清晰度'), findsNothing);
+      expect(find.byTooltip('播放内核'), findsOneWidget);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.byTooltip('全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
@@ -387,11 +388,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // 弹窗里能看到当前地址（可选中复制），并有复制按钮。
-      expect(find.text('当前播放地址'), findsOneWidget);
+      expect(find.text('当前播放地址'), findsNothing);
       expect(
         find.text('https://example.com/a.mp4'),
-        findsNWidgets(2),
-        reason: '当前地址展示一处 + 手动地址框预填一处',
+        findsNothing,
+        reason: '当前地址只通过复制图标获取，手动输入保持空白',
       );
       expect(find.byTooltip('复制地址'), findsOneWidget);
 
@@ -1003,12 +1004,13 @@ void main() {
       await tester.pumpAndSettle();
       final slider = tester.getRect(find.byType(Slider));
       final seek = tester.getCenter(find.byTooltip('后退 10 秒'));
-      final quality = tester.getCenter(find.byTooltip('清晰度'));
+      final quality = tester.getCenter(find.byTooltip('跳过片头片尾'));
       expect(slider.top, greaterThan(seek.dy));
       expect(quality.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
       expect(find.text('选集'), findsOneWidget);
-      expect(find.text('画质'), findsOneWidget);
+      expect(find.text('画质'), findsNothing);
+      expect(find.text('片头片尾'), findsOneWidget);
       expect(find.text('弹幕'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
       await tester.tap(find.byTooltip('更多功能'));
@@ -1028,7 +1030,7 @@ void main() {
           position: const Duration(minutes: 15),
         );
         await tester.pumpAndSettle();
-        for (final label in ['退出全屏', '更多功能', '清晰度', '线路 / 选集', '锁定（防误触）']) {
+        for (final label in ['退出全屏', '更多功能', '跳过片头片尾', '线路 / 选集', '锁定（防误触）']) {
           final rect = tester.getRect(find.byTooltip(label));
           expect(rect.left, greaterThanOrEqualTo(0));
           expect(rect.top, greaterThanOrEqualTo(0));
@@ -1111,7 +1113,13 @@ void main() {
 
       await tester.tap(find.byTooltip('更多功能'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('播放器设置'), 100);
+      await tester.scrollUntilVisible(
+        find.text('播放器设置'),
+        100,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.ensureVisible(find.text('播放器设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
@@ -1340,7 +1348,19 @@ Future<void> openPlayerAction(WidgetTester tester, String action) async {
     '弹幕设置' => '弹幕：开',
     _ => '播放器设置',
   };
-  await tester.tap(find.byTooltip(tooltip).first);
+  if (action == '清晰度') {
+    await tester.tap(find.byTooltip('播放器设置').first);
+    await tester.pumpAndSettle();
+    await tester.dragUntilVisible(
+      find.text('清晰度'),
+      find.byType(PlayerSettingsSheet),
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清晰度'));
+  } else {
+    await tester.tap(find.byTooltip(tooltip).first);
+  }
   await tester.pumpAndSettle();
 }
 

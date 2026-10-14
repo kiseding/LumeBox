@@ -25,14 +25,17 @@ final class WafCookieController: NSObject {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
-      case "readVerifiedImage":
+      case "readVerifiedResource":
         guard let args = call.arguments as? [String: Any], let text = args["url"] as? String,
               let url = URL(string: text), url.scheme == "https", url.user == nil,
               self.imageReads.count < 4 else {
           result(FlutterError(code: "invalid_image", message: "Image session unavailable", details: nil)); return
         }
         let id = UUID()
-        let task = VerifiedImageRead(url: url, userAgent: args["userAgent"] as? String) { response in
+        let task = VerifiedImageRead(url: url, userAgent: args["userAgent"] as? String,
+                                     method: args["method"] as? String ?? "GET",
+                                     headers: args["headers"] as? [String: String] ?? [:],
+                                     body: args["body"] as? String) { response in
           self.imageReads.removeValue(forKey: id)
           result(response)
         }
@@ -113,6 +116,8 @@ private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
       var request = URLRequest(url: url)
       request.timeoutInterval = min(15, max(3, args["timeoutSeconds"] as? Double ?? 15))
       request.allHTTPHeaderFields = args["headers"] as? [String: String]
+      request.httpMethod = args["method"] as? String ?? "GET"
+      if let body = args["body"] as? String { request.httpBody = body.data(using: .utf8) }
       let start: (URLRequest) -> Void = { outgoing in
       self.session.dataTask(with: outgoing) { data, response, error in
         DispatchQueue.main.async {
@@ -273,11 +278,15 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
 private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
   private let webView: WKWebView
   private let url: URL
+  private let method: String
+  private let headers: [String: String]
+  private let body: String?
   private var completion: ((Any) -> Void)?
   private var timeout: DispatchWorkItem?
   private var fetching = false
-  init(url: URL, userAgent: String?, completion: @escaping (Any) -> Void) {
+  init(url: URL, userAgent: String?, method: String, headers: [String: String], body: String?, completion: @escaping (Any) -> Void) {
     self.url = url
+    self.method = method; self.headers = headers; self.body = body
     self.completion = completion
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = .default()
@@ -302,7 +311,9 @@ private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
     let script = """
       const target = new URL(address);
       if (target.origin !== location.origin) throw new Error('Image origin changed');
-      const response = await fetch(target.href, {credentials:'same-origin'});
+      const options = {credentials:'same-origin', method, headers};
+      if (method !== 'GET' && method !== 'HEAD' && body !== null) options.body = body;
+      const response = await fetch(target.href, options);
       const blob = await response.blob();
       if (blob.size > 20 * 1024 * 1024) throw new Error('Image too large');
       const data = await new Promise((resolve,reject) => {
@@ -312,7 +323,7 @@ private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
       return {status:response.status, contentType:response.headers.get('content-type') || '',
               body:data.substring(data.indexOf(',') + 1)};
       """
-    webView.callAsyncJavaScript(script, arguments: ["address": url.absoluteString], in: nil, contentWorld: .page) { [weak self] result in
+    webView.callAsyncJavaScript(script, arguments: ["address": url.absoluteString, "method": method, "headers": headers, "body": body as Any? ?? NSNull()], in: nil, in: .page) { [weak self] result in
       guard let self = self else { return }
       switch result {
       case .success(let value):

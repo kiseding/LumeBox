@@ -1,3 +1,7 @@
+import 'dart:io' show Platform;
+
+import '../../core/net/ios_verified_webview.dart';
+
 import 'dart:async';
 
 import '../../core/player/abstract_player.dart';
@@ -72,7 +76,12 @@ class NextEpisodeBuffer {
             PlayerMedia(
               uri: uri,
               title: '${target.title} · ${chapter.title}',
-              headers: SourcePlayback.contentHeaders(content),
+              headers: Platform.isIOS
+                  ? await IosVerifiedWebView.resourceHeaders(
+                      uri.toString(),
+                      SourcePlayback.contentHeaders(content, source: source),
+                    )
+                  : SourcePlayback.contentHeaders(content, source: source),
             ),
           )
           .timeout(const Duration(seconds: 8));

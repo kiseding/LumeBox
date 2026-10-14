@@ -45,9 +45,7 @@ class PlayerSourceSheet extends StatefulWidget {
 }
 
 class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
-  late final TextEditingController _input = TextEditingController(
-    text: widget.address,
-  );
+  late final TextEditingController _input = TextEditingController();
   String? _error;
   bool _busy = false;
 
@@ -227,45 +225,13 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       children: <Widget>[
                         _buildEpisodes(),
-                        GlassCard(
-                          radius: 14,
-                          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              _label('当前播放地址'),
-                              const SizedBox(height: 6),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Expanded(
-                                    child: address.isEmpty
-                                        ? Text(
-                                            '还没有装载视频（在下面贴一个地址即可播放）',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: LumeTheme.muted,
-                                            ),
-                                          )
-                                        : SelectableText(
-                                            address,
-                                            maxLines: 4,
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              height: 1.4,
-                                              color: LumeTheme.textPrimary,
-                                            ),
-                                          ),
-                                  ),
-                                  IconButton(
-                                    tooltip: '复制地址',
-                                    iconSize: 20,
-                                    icon: const Icon(Icons.copy_outlined),
-                                    onPressed: address.isEmpty ? null : _copy,
-                                  ),
-                                ],
-                              ),
-                            ],
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: IconButton(
+                            tooltip: '复制地址',
+                            iconSize: 22,
+                            icon: const Icon(Icons.copy_outlined),
+                            onPressed: address.isEmpty ? null : _copy,
                           ),
                         ),
                         if (lines.length > 1) ...<Widget>[
