@@ -302,11 +302,7 @@ void main() {
       expect(find.byTooltip('全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       // 用户要求：长播放链接不再铺在控制栏上，改成右侧的小信息图标（弹窗里看 / 换）。
-      expect(
-        find.byTooltip('线路 / 选集'),
-        findsOneWidget,
-        reason: '播放源入口（地址与线路）',
-      );
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget, reason: '播放源入口（地址与线路）');
       expect(find.byType(TextField), findsNothing, reason: '控制栏不再直接展示长链接');
     });
 
@@ -557,7 +553,48 @@ void main() {
       expect(find.byTooltip('暂停'), findsOneWidget, reason: '控制栏显示为「正在播放」');
     });
 
-    testWidgets('信息行：分辨率 / 码率来自内核参数', (tester) async {
+    testWidgets('全屏控制收起后网速常驻，分辨率唤醒才显示', (tester) async {
+      final players = await pump(tester);
+      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      expect(find.text('1920×1080'), findsOneWidget);
+      expect(find.textContaining('网速'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.text('1920×1080'), findsNothing);
+      expect(find.textContaining('网速'), findsOneWidget);
+      await tester.tap(find.text('fake-view'));
+      await tester.pump();
+      expect(find.text('1920×1080'), findsOneWidget);
+      expect(find.text('选集'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    for (final fullscreen in [false, true]) {
+      testWidgets('弹幕设置避让状态栏，滚动后仍可返回播放：全屏=$fullscreen', (tester) async {
+        tester.view.padding = const FakeViewPadding(top: 59);
+        tester.view.viewPadding = const FakeViewPadding(top: 59);
+        addTearDown(tester.view.reset);
+        await pump(tester);
+        if (fullscreen) {
+          await tester.tap(find.byTooltip('全屏'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('弹'));
+        await tester.pumpAndSettle();
+        final back = find.byTooltip('返回播放');
+        expect(tester.getRect(back).top, greaterThanOrEqualTo(59));
+        await tester.drag(find.text('不透明度'), const Offset(0, -500));
+        await tester.pumpAndSettle();
+        expect(back.hitTestable(), findsOneWidget);
+        await tester.tap(back);
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('关闭弹幕设置'), findsNothing);
+        expect(find.text('选集'), findsOneWidget);
+      });
+    }
+
+    testWidgets('画面显示一份分辨率和网速，控制卡片不重复显示', (tester) async {
       final players = await pump(tester);
       players.single.pushStats(
         const PlayerStats(
@@ -569,8 +606,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('分辨率 1920×1080'), findsOneWidget);
-      expect(find.textContaining('码率 1.8Mbps'), findsOneWidget);
+      expect(find.text('1920×1080'), findsOneWidget);
+      expect(find.text('1.8Mbps'), findsOneWidget);
+      expect(find.textContaining('网速'), findsOneWidget);
+      expect(find.textContaining('分辨率 '), findsNothing);
     });
 
     testWidgets('竖屏短剧：按视频原始比例居中渲染，两侧留黑边（不拉伸）', (tester) async {
@@ -623,7 +662,7 @@ void main() {
       );
 
       // 顺序没变：信息行在上，进度条居中，按钮在下（只动垂直位置，不动结构）。
-      final infoY = tester.getCenter(find.textContaining('分辨率 1080×1920')).dy;
+      final infoY = tester.getCenter(find.text('1080×1920')).dy;
       final sliderY = tester.getCenter(find.byType(Slider).first).dy;
       final buttonY = tester.getCenter(find.byTooltip('播放器设置')).dy;
       expect(infoY, lessThan(sliderY));
@@ -1264,7 +1303,7 @@ class _CountingClient extends http.BaseClient {
 }
 
 Future<void> openPlayerAction(WidgetTester tester, String action) async {
-  final tooltip = switch(action) {
+  final tooltip = switch (action) {
     '播放源 / 更换线路' => '线路 / 选集',
     '清晰度' => '清晰度',
     '弹幕设置' => '弹幕：开',

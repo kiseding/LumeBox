@@ -168,10 +168,42 @@ class LumeHttp {
     String? body,
     Duration? timeout,
     int? maxBytes,
+  }) => _send(
+    url: url,
+    method: method,
+    headers: headers,
+    body: body,
+    timeout: timeout,
+    maxBytes: maxBytes,
+  );
+
+  Future<LumeHttpResponse> sendWithoutRedirects({
+    required String url,
+    Map<String, String>? headers,
+    Duration? timeout,
+    int? maxBytes,
+  }) => _send(
+    url: url,
+    headers: headers,
+    timeout: timeout,
+    maxBytes: maxBytes,
+    followRedirects: false,
+  );
+
+  Future<LumeHttpResponse> _send({
+    required String url,
+    String method = 'GET',
+    Map<String, String>? headers,
+    String? body,
+    Duration? timeout,
+    int? maxBytes,
+    bool followRedirects = true,
   }) async {
     final request = NetworkRequest(
       url: url,
       method: method.toUpperCase(),
+      followRedirects: followRedirects,
+      timeout: timeout ?? _settings.timeout,
       headers: _headersFor(headers),
       body: body,
       source: _source,
@@ -237,13 +269,16 @@ class LumeHttp {
   /// 保证「注入即生效」的既有语义不变。
   Future<NetworkResponse> _sendWithClient(NetworkRequest request) async {
     final outgoing = http.Request(request.method, Uri.parse(request.url));
+    outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
     if (request.body != null) outgoing.body = request.body!;
-    final streamed = await _client.send(outgoing).timeout(_settings.timeout);
+    final streamed = await _client
+        .send(outgoing)
+        .timeout(request.timeout ?? _settings.timeout);
     final bytes = await readResponseBody(
       streamed.stream,
       maxBytes: request.maxBytes,
-    ).timeout(_settings.timeout);
+    ).timeout(request.timeout ?? _settings.timeout);
     return NetworkResponse(
       statusCode: streamed.statusCode,
       body: bytes,

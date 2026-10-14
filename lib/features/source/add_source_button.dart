@@ -25,6 +25,8 @@ class AddSourceButton extends StatelessWidget {
     this.onImported,
     this.readLocalScripts,
     this.fetchSubscription,
+    this.onSubscriptions,
+    this.onRefreshSubscriptions,
   });
 
   /// 目标板块。源只写入本板块。
@@ -32,6 +34,8 @@ class AddSourceButton extends StatelessWidget {
 
   /// 源管理端口；为空时用本板块的正式实现。
   final SourceManager? manager;
+  final VoidCallback? onSubscriptions;
+  final VoidCallback? onRefreshSubscriptions;
 
   /// 导入全部结束且至少成功一条时回调（板块页据此刷新自己的列表 / 状态）。
   final VoidCallback? onImported;
@@ -51,6 +55,28 @@ class AddSourceButton extends StatelessWidget {
     // 平台边界：没有源运行时的平台（Android / Windows）没有可导入的目标，
     // 与板块页的骨架占位同一口径——按钮不出现。
     if (!target.runtimeAvailable) return const SizedBox.shrink();
+    if (onSubscriptions != null) {
+      return PopupMenuButton<String>(
+        tooltip: '添加源',
+        icon: const Icon(Icons.add),
+        onSelected: (value) {
+          switch (value) {
+            case 'add':
+              _open(context, target);
+            case 'subscriptions':
+              onSubscriptions!();
+            case 'refresh':
+              onRefreshSubscriptions?.call();
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'add', child: Text('导入源')),
+          const PopupMenuItem(value: 'subscriptions', child: Text('订阅管理')),
+          if (onRefreshSubscriptions != null)
+            const PopupMenuItem(value: 'refresh', child: Text('刷新已导入订阅源')),
+        ],
+      );
+    }
     return IconButton(
       tooltip: '添加源',
       icon: const Icon(Icons.add),

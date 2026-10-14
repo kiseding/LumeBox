@@ -91,6 +91,21 @@ if (!Number.isInteger(bridgePort) || !token || !spec.sources.length) {
   process.exit(2)
 }
 
+// A Node runtime shares the iOS application's process. Unhandled script failures
+// must be reported to the host instead of invoking Node's default process exit.
+function reportUnhandled(error) {
+  const id = sourceContext.getStore() || startingId || ''
+  const message = String(error && error.message || error)
+    .replace(/(https?:\/\/)[^/@\s]+@/g, '$1<redacted>@').slice(0, 400)
+  console.error(`[bootstrap] 源脚本未处理异常 (${id || 'runtime'}): ${message}`)
+  send(id ? 'sourceError' : 'nodeError', { id, message })
+}
+process.on('uncaughtException', reportUnhandled)
+process.on('unhandledRejection', reportUnhandled)
+// Source bundles run inside the application's process, not a disposable CLI.
+process.exit = (code) => { throw new Error(`源脚本请求退出运行时 (${code || 0})`) }
+process.abort = () => { throw new Error('源脚本请求中止运行时') }
+
 // ---- 0. 编译缓存（iOS 无 JIT 环境下最值钱的一笔优化）
 // 把"每次启动都要解析几 MB JS"变成"只有第一次解析"。
 // iOS 宿主会**提前**用环境变量设好 NODE_COMPILE_CACHE + NODE_COMPILE_CACHE_PORTABLE=1
@@ -211,13 +226,16 @@ globalThis.catServerFactory = (handler) => {
     console.warn(`[bootstrap] 源 ${id} 又建了一个 server（上一个已存在，保留两个）`)
   }
   const invoke = (req, res) => sourceContext.run(id, () => {
-    const failed = () => {
+    const failed = (error) => {
+      const reason = String(error && error.message || error || 'unknown')
+        .replace(/(https?:\/\/)[^/@\s]+@/g, '$1<redacted>@').slice(0, 300)
+      console.warn(`[bootstrap] 源请求失败 (${id}): ${reason}`)
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: '源请求失败，请检查网盘登录或更换站点' }))
       } else if (!res.writableEnded) res.end()
     }
-    try { Promise.resolve(handler(req, res)).catch(failed) } catch (_) { failed() }
+    try { Promise.resolve(handler(req, res)).catch(failed) } catch (error) { failed(error) }
   })
   const server = http.createServer(invoke)
   const listen = server.listen.bind(server)

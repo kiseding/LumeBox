@@ -1,7 +1,5 @@
 import '../../core/source/source_subscription_sync.dart';
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -78,8 +76,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     super.dispose();
   }
 
-  int _subscriptionCount = 0;
-
   Future<void> _openSubscriptions() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -101,27 +97,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         _sources = sources;
         _failed = false;
       });
-      if (_manager is SubscriptionImportManager) {
-        unawaited(_loadSubscriptionCount());
-      }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
       setState(() => _failed = true);
-    }
-  }
-
-  Future<void> _loadSubscriptionCount() async {
-    try {
-      final service = await SourceSubscriptionSync.open(
-        widget.section,
-        manager: _manager,
-      );
-      if (mounted) {
-        setState(() => _subscriptionCount = service.subscriptions.length);
-      }
-    } catch (error) {
-      LumeLog.warn('订阅列表读取失败：$error');
     }
   }
 
@@ -558,6 +537,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           section: widget.section,
           manager: _manager,
           onImported: _reload,
+          onSubscriptions: _openSubscriptions,
+          onRefreshSubscriptions: (_sources ?? []).any((s) => s.subscribed)
+              ? _updateAllSubscriptions
+              : null,
           readLocalScripts: widget.readLocalScripts,
           fetchSubscription: widget.fetchSubscription,
         ),
@@ -570,35 +553,12 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     );
   }
 
-  Widget _subscriptionEntry() => GlassCard(
-    padding: EdgeInsets.zero,
-    child: ListTile(
-      leading: const Icon(Icons.rss_feed),
-      title: const Text('订阅管理 · 添加订阅链接'),
-      subtitle: Text(
-        _subscriptionCount == 0
-            ? '链接保存一次，之后自动更新并导入'
-            : '已保存 $_subscriptionCount 个订阅 · 更新源无需重新粘贴',
-      ),
-      trailing: PopupMenuButton<String>(
-        tooltip: '订阅操作',
-        onSelected: (_) => _updateAllSubscriptions(),
-        itemBuilder: (_) => [
-          const PopupMenuItem(value: 'refresh', child: Text('刷新已导入订阅源')),
-        ],
-      ),
-      onTap: _openSubscriptions,
-    ),
-  );
-
   Widget _buildSources(List<SourceDescriptor> sources) {
     if (sources.isEmpty) {
       // 空态直接给按钮：新用户第一步的动作应该能点，而不是先去解读「右上角的 +」。
       return ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: [
-          _subscriptionEntry(),
-          const SizedBox(height: 12),
           NoticeCard(
             title: '暂无源',
             subtitle: '导入后即可在本板块浏览内容',
@@ -621,11 +581,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           16 + ShellDockScope.bottomInset(context),
         ),
       ),
-      itemCount: sources.length + 1,
+      itemCount: sources.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        if (index == 0) return _subscriptionEntry();
-        final source = sources[index - 1];
+        final source = sources[index];
         return _SourceTile(
           source: source,
           testing: _testing.contains(source.id),

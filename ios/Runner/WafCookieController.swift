@@ -73,16 +73,16 @@ final class WafCookieController: NSObject {
   }
 }
 
-/// Use Apple's TLS and HTTP stack for covers on iOS. No shared login cookies.
+/// Use Apple's TLS/HTTP stack. Only matching Cloudflare verification cookies may be reused.
 private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
   private lazy var session: URLSession = {
     let config = URLSessionConfiguration.ephemeral
     config.httpCookieStorage = nil
     config.httpShouldSetCookies = false
     config.urlCache = nil
-    config.timeoutIntervalForRequest = 30
-    config.timeoutIntervalForResource = 45
-    config.httpMaximumConnectionsPerHost = 2
+    config.timeoutIntervalForRequest = 15
+    config.timeoutIntervalForResource = 20
+    config.httpMaximumConnectionsPerHost = 3
     return URLSession(configuration: config, delegate: self, delegateQueue: nil)
   }()
 
@@ -97,13 +97,16 @@ private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
       }
       guard let self = self else { return }
       var request = URLRequest(url: url)
+      request.timeoutInterval = min(15, max(3, args["timeoutSeconds"] as? Double ?? 15))
       request.allHTTPHeaderFields = args["headers"] as? [String: String]
-      self.session.dataTask(with: request) { data, response, error in
+      let start: (URLRequest) -> Void = { outgoing in
+      self.session.dataTask(with: outgoing) { data, response, error in
         DispatchQueue.main.async {
           if let error = error {
             let native = error as NSError
             let certificate = native.domain == NSURLErrorDomain && [-1201, -1202, -1203, -1204].contains(native.code)
-            let message = (certificate ? "CERTIFICATE_VERIFY_FAILED: " : "") + error.localizedDescription
+            let tls = native.domain == NSURLErrorDomain && native.code == -1200
+            let message = (certificate ? "CERTIFICATE_VERIFY_FAILED: " : tls ? "TLS_HANDSHAKE_FAILED: " : "") + error.localizedDescription
             result(FlutterError(code: "image_network", message: message, details: nil)); return
           }
           guard let response = response as? HTTPURLResponse else {
@@ -115,6 +118,34 @@ private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
                   "body": FlutterStandardTypedData(bytes: data ?? Data())])
         }
       }.resume()
+      }
+      if args["reuseVerification"] as? Bool == true {
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+          let host = url.host?.lowercased() ?? ""
+          let selected = cookies.filter { cookie in
+            guard ["cf_clearance", "__cf_bm"].contains(cookie.name),
+                  cookie.expiresDate.map({ $0 > Date() }) ?? true,
+                  !cookie.isSecure || url.scheme == "https" else { return false }
+            let domain = cookie.domain.lowercased()
+            let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
+            let matches = host == bare || (domain.hasPrefix(".") && host.hasSuffix("." + bare))
+            let cookiePath = cookie.path.isEmpty ? "/" : cookie.path
+            let path = url.path.isEmpty ? "/" : url.path
+            return matches && (path == cookiePath || path.hasPrefix(cookiePath.hasSuffix("/") ? cookiePath : cookiePath + "/"))
+          }.sorted { $0.path.count > $1.path.count }
+          var scoped = request
+          var chosen: [String: String] = [:]
+          for cookie in selected where chosen[cookie.name] == nil { chosen[cookie.name] = cookie.value }
+          if !chosen.isEmpty {
+            var existing = (scoped.value(forHTTPHeaderField: "Cookie") ?? "").split(separator: ";")
+              .map { $0.trimmingCharacters(in: .whitespaces) }
+              .filter { !chosen.keys.contains(String($0.split(separator: "=", maxSplits: 1).first ?? "")) && !$0.isEmpty }
+            existing.append(contentsOf: chosen.map { "\($0.key)=\($0.value)" })
+            scoped.setValue(existing.joined(separator: "; "), forHTTPHeaderField: "Cookie")
+          }
+          start(scoped)
+        }
+      } else { start(request) }
     }
   }
 

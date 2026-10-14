@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/net/lume_http.dart';
 import '../../core/util/lume_log.dart';
 
-/// 当前视频地址的**实测网速**：向播放地址发一个 Range 探测，按字节 / 耗时算。
+/// 当前视频地址的**源测速**：向播放地址发一个 Range 探测，按字节 / 耗时算。
 ///
 /// ## 为什么是「探测」而不是「统计播放器的流量」
 ///
@@ -32,7 +32,7 @@ class PlaybackSpeedMeter {
   final LumeHttp _http;
   final bool _ownsHttp;
 
-  /// 探测体积上限（256KB）：够稳定地估出速率，又不至于明显吃流量。
+  /// 探测体积上限（256KB）：用于小样本链路探测，又不至于明显吃流量。
   static const int probeBytes = 256 * 1024;
 
   /// 单次探测的最长时间。
@@ -144,14 +144,18 @@ class PlaybackSpeedMeter {
     return kbpsValue.round();
   }
 
-  /// 展示文本：`1.8MB/s` / `640KB/s`；没有读数时 null。
+  /// Source probe throughput. This is not the player's real-time traffic.
   static String? describe(int? kbps) {
     if (kbps == null || kbps <= 0) return null;
-    final kBytesPerSecond = kbps / 8; // kbps → KB/s
-    if (kBytesPerSecond >= 1024) {
-      return '${(kBytesPerSecond / 1024).toStringAsFixed(1)}MB/s';
+    return describeBytes(kbps * 1000 / 8);
+  }
+
+  static String describeBytes(double bytesPerSecond) {
+    if (!bytesPerSecond.isFinite || bytesPerSecond < 0) return '—';
+    if (bytesPerSecond >= 1000 * 1000) {
+      return '${(bytesPerSecond / 1000000).toStringAsFixed(1)}MB/s';
     }
-    return '${kBytesPerSecond.round()}KB/s';
+    return '${(bytesPerSecond / 1000).round()}KB/s';
   }
 
   void dispose() {

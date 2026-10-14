@@ -198,8 +198,10 @@ void main() {
       ),
     );
     await settle();
-    expect(find.text('订阅管理 · 添加订阅链接'), findsOneWidget);
-    await tester.tap(find.text('订阅管理 · 添加订阅链接'));
+    expect(find.text('订阅管理 · 添加订阅链接'), findsNothing);
+    await tester.tap(find.byTooltip('添加源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('订阅管理'));
     await settle();
     await tester.enterText(find.byType(TextField), manifest);
     await tester.tap(find.text('添加订阅并导入'));
@@ -208,8 +210,10 @@ void main() {
     expect(find.text(manifest), findsOneWidget);
     await tester.pageBack();
     await settle();
-    expect(find.textContaining('已保存 1 个订阅'), findsOneWidget);
-    await tester.tap(find.text('订阅管理 · 添加订阅链接'));
+    expect(find.textContaining('已保存 1 个订阅'), findsNothing);
+    await tester.tap(find.byTooltip('添加源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('订阅管理'));
     await settle();
     expect(find.text(manifest), findsOneWidget);
     expect(

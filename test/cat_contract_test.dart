@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/cat/cat_service.dart';
 import 'package:lume_box/core/cat/cat_data_source.dart';
+import 'package:lume_box/features/cat/cat_preloader.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,6 +124,12 @@ void main() {
           }),
         );
       } else if (req.uri.path.endsWith('/category')) {
+        expect(body['id'], 'movie');
+        expect(body['page'], isA<int>());
+        expect(body['filters'], anyOf(isNull, isA<Map>()));
+        expect(body['tid'], body['id']);
+        expect(body['pg'], '${body['page']}');
+        expect(body['extend'], body['filters'] ?? {});
         req.response.write(
           jsonEncode({
             'list': [
@@ -175,6 +182,127 @@ void main() {
     await remote.close(force: true);
     await node.close(force: true);
     root.deleteSync(recursive: true);
+  });
+  test('记住最后选择的订阅与站点，正常重开精准恢复，不落到第一个订阅', () async {
+    final first = await service.add(
+      '第一',
+      remoteBase.resolve('/one.js.md5').toString(),
+    );
+    final second = await service.add(
+      '第二',
+      remoteBase.resolve('/two.js.md5').toString(),
+    );
+    await service.refreshSites(first);
+    await service.refreshSites(second);
+    await service.select(second.sites.single);
+    final restored = CatService.testing();
+    await restored.boot();
+    expect(restored.needsSiteSelection, isFalse);
+    expect(restored.selectedSiteId, second.sites.single.id);
+    expect(CatPreloader.selectedSite(restored)!.subscriptionId, second.id);
+    await restored.closeForTesting();
+  });
+  test('包丢失时自动重新下载，不留下启用但无法读取站点的状态', () async {
+    final record = await service.add(
+      '修复',
+      remoteBase.resolve('/index.js.md5').toString(),
+    );
+    final bundle = Directory(
+      '${root.path}/sections/cat/node/bundles/${record.id}/${record.hash}-${record.configHash}',
+    );
+    await bundle.delete(recursive: true);
+    expect(await service.hasBundle(record), isFalse);
+    await service.refreshSites(record);
+    expect(await service.hasBundle(record), isTrue);
+    expect(record.sites, isNotEmpty);
+    expect(record.error, isEmpty);
+  });
+  test('原生启动中断后的持久化恢复不会自动重启问题源', () async {
+    final record = await service.add(
+      '恢复',
+      remoteBase.resolve('/index.js.md5').toString(),
+    );
+    await service.refreshSites(record);
+    await service.select(record.sites.single);
+    final file = File('${root.path}/sections/cat/node/subscriptions.json');
+    final stored = catMap(jsonDecode(await file.readAsString()));
+    stored['pendingSources'] = [record.id];
+    await file.writeAsString(jsonEncode(stored));
+    final restored = CatService.testing();
+    await restored.boot();
+    expect(restored.needsSiteSelection, isTrue);
+    expect(restored.selectedSiteId, isNull);
+    expect(starts, 1, reason: '恢复只读配置，不启动Node');
+    expect(restored.subscriptions.single.error, contains('上次站点启动未完成'));
+    final recovered = catMap(jsonDecode(await file.readAsString()));
+    expect(recovered['pendingSources'], isEmpty);
+    await restored.closeForTesting();
+  });
+  test('旧版记住泥潭源的用户升级后先进入安全选择页，保留订阅', () async {
+    final record = await service.add(
+      '泥潭',
+      remoteBase.resolve('/index.js.md5').toString(),
+    );
+    await service.refreshSites(record);
+    await service.select(record.sites.single);
+    final file = File('${root.path}/sections/cat/node/subscriptions.json');
+    final stored = catMap(jsonDecode(await file.readAsString()));
+    stored.remove('startupRecoveryVersion');
+    catMaps(stored['subscriptions']);
+    (stored['subscriptions'] as List).first['url'] = 'https://ghfast.top/https://raw.githubusercontent.com/nitan-tv/nitan/refs/heads/main/js/index.js.md5';
+    await file.writeAsString(jsonEncode(stored));
+    final restored = CatService.testing();
+    await restored.boot();
+    expect(restored.needsSiteSelection, isTrue);
+    expect(
+      restored.subscriptions.single.enabled,
+      isTrue,
+      reason: '保留用户订阅，可显式重试',
+    );
+    expect(restored.selectedSiteId, isNull);
+    await restored.closeForTesting();
+  });
+  test('兔佬备用版本仅允许已核实的同作者快照和发布MD5', () {
+    final uri = Uri.parse(
+      'https://raw.githubusercontent.com/xiaobaitulele/xptv/refs/heads/main/jstv/index.js.md5',
+    );
+    expect(
+      CatService.verifiedBundleFallback(
+        uri,
+        'eae292d3319ef56fa34a57c6bc459b61',
+      )!.path,
+      contains('9d15140196c4653fc3dbdc39a648eea9b627bcb8'),
+    );
+    expect(
+      CatService.verifiedBundleFallback(
+        uri,
+        '00000000000000000000000000000000',
+      ),
+      isNull,
+    );
+    expect(
+      CatService.verifiedBundleFallback(
+        Uri.parse('https://other.example/index.js.md5'),
+        'eae292d3319ef56fa34a57c6bc459b61',
+      ),
+      isNull,
+    );
+  });
+  test('包装在data里的分类列表可解析，不误报空列表', () {
+    expect(
+      catPayload({
+        'data': {
+          'list': [
+            {'vod_id': '1'},
+          ],
+        },
+      })['list'],
+      isNotEmpty,
+    );
+    expect(
+      catPayload({'data': '{"list":[{"vod_id":"1"}]}'})['list'],
+      isNotEmpty,
+    );
   });
   test('站点列数独立保存并在重启后恢复', () async {
     await service.boot();
@@ -255,8 +383,12 @@ void main() {
       (await source.filtersFor(categoryId: 'movie')).single.options.last.id,
       'cn',
     );
-    final list = await source.list(categoryId: 'movie');
+    final list = await source.list(
+      categoryId: 'movie',
+      filters: {'area': 'cn'},
+    );
     expect(list.hasMore, true);
+    expect((await source.list(categoryId: 'movie', page: 2)).hasMore, false);
     expect(source.rawItemId(list.items.single.id), 'same');
     expect(list.items.single.cover, nodeBase.resolve('/poster.jpg').toString());
     final stored = await File(

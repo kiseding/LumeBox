@@ -21,6 +21,7 @@ import '../../shared/widgets/state_view.dart';
 import '../source/waf_webview_page.dart';
 import 'source_home_view.dart';
 import 'source_filter_page.dart';
+import 'browse_choice_access.dart';
 import '../shell/section_preloader.dart';
 import '../shell/shell_dock.dart';
 import '../source/source_section_page.dart';
@@ -131,7 +132,8 @@ class _ExploreViewState extends State<ExploreView> {
     final current = _current;
     final pipeline = widget.pipeline;
     if (current == null || pipeline == null) return pipeline;
-    return pipeline.forSource(widget.section, current.id, current.network);
+    return pipeline.forSource(widget.section, current.id, current.network)
+      ..bindSource(_source);
   }
 
   SourceStateKind _state = SourceStateKind.loading;
@@ -503,35 +505,52 @@ class _ExploreViewState extends State<ExploreView> {
     mainAxisSize: MainAxisSize.min,
     children: [
       if (_categories.isNotEmpty)
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _facetChip('全部', _categoryId == null, () {
-                setState(() {
-                  _browseMode = null;
-                  _homeBrowseMode = null;
-                  _categoryId = null;
-                  _facetFilters = Map.of(_facetFilters)
-                    ..remove('tid')
-                    ..remove('class');
-                });
-                unawaited(_refresh());
-              }),
-              for (final category in _categories.where((c) => c.title != '全部'))
-                _facetChip(category.title, _categoryId == category.id, () {
+        BrowseChoiceAccess(
+          choices: _categories,
+          selectedId: _categoryId,
+          onSelected: (id) {
+            setState(() {
+              _browseMode = null;
+              _homeBrowseMode = null;
+              _categoryId = id;
+              _facetFilters = Map.of(_facetFilters)
+                ..remove('tid')
+                ..remove('class');
+            });
+            unawaited(_refresh());
+          },
+          child: SizedBox(
+            height: 34,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _facetChip('全部', _categoryId == null, () {
                   setState(() {
                     _browseMode = null;
                     _homeBrowseMode = null;
-                    _categoryId = category.id;
+                    _categoryId = null;
                     _facetFilters = Map.of(_facetFilters)
                       ..remove('tid')
                       ..remove('class');
                   });
                   unawaited(_refresh());
                 }),
-            ],
+                for (final category in _categories.where(
+                  (c) => c.title != '全部',
+                ))
+                  _facetChip(category.title, _categoryId == category.id, () {
+                    setState(() {
+                      _browseMode = null;
+                      _homeBrowseMode = null;
+                      _categoryId = category.id;
+                      _facetFilters = Map.of(_facetFilters)
+                        ..remove('tid')
+                        ..remove('class');
+                    });
+                    unawaited(_refresh());
+                  }),
+              ],
+            ),
           ),
         ),
       for (final group in _filterGroups)
@@ -545,57 +564,83 @@ class _ExploreViewState extends State<ExploreView> {
               ),
             ),
             Expanded(
-              child: SizedBox(
-                height: 34,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    if (!group.options.any((o) => o.title == '全部'))
-                      _facetChip(
-                        '全部',
-                        !_facetFilters.containsKey(group.id),
-                        () {
-                          setState(
-                            () =>
-                                _facetFilters = Map.of(_facetFilters)
-                                  ..remove(group.id),
-                          );
-                          unawaited(_refresh());
-                        },
-                      ),
-                    for (final option in group.options)
-                      _facetChip(
-                        option.title,
-                        (_facetFilters[group.id] ??
-                                (group.id == 'tid' &&
-                                        group.options.any(
-                                          (o) => o.id == _categoryId,
-                                        )
-                                    ? _categoryId
-                                    : (group.options.any((o) => o.title == '全部')
-                                          ? group.options
-                                                .firstWhere(
-                                                  (o) => o.title == '全部',
-                                                )
-                                                .id
-                                          : null))) ==
-                            option.id,
-                        () {
-                          setState(() {
-                            _browseMode = null;
-                            _homeBrowseMode = null;
-                            _facetFilters = {
-                              ..._facetFilters,
-                              group.id: option.id,
-                            };
-                            if (group.id == 'tid') {
-                              _facetFilters.remove('class');
-                            }
-                          });
-                          unawaited(_refresh());
-                        },
-                      ),
-                  ],
+              child: BrowseChoiceAccess(
+                title: group.title,
+                choices: group.options
+                    .map((o) => SourceCategory(id: o.id, title: o.title))
+                    .toList(),
+                includeAll: !group.options.any((o) => o.title == '全部'),
+                selectedId:
+                    _facetFilters[group.id] ??
+                    group.options.where((o) => o.title == '全部').firstOrNull?.id,
+                onSelected: (id) {
+                  setState(() {
+                    _browseMode = null;
+                    _homeBrowseMode = null;
+                    _facetFilters = Map.of(_facetFilters);
+                    if (id == null) {
+                      _facetFilters.remove(group.id);
+                    } else {
+                      _facetFilters[group.id] = id;
+                    }
+                    if (group.id == 'tid') _facetFilters.remove('class');
+                  });
+                  unawaited(_refresh());
+                },
+                child: SizedBox(
+                  height: 34,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      if (!group.options.any((o) => o.title == '全部'))
+                        _facetChip(
+                          '全部',
+                          !_facetFilters.containsKey(group.id),
+                          () {
+                            setState(
+                              () =>
+                                  _facetFilters = Map.of(_facetFilters)
+                                    ..remove(group.id),
+                            );
+                            unawaited(_refresh());
+                          },
+                        ),
+                      for (final option in group.options)
+                        _facetChip(
+                          option.title,
+                          (_facetFilters[group.id] ??
+                                  (group.id == 'tid' &&
+                                          group.options.any(
+                                            (o) => o.id == _categoryId,
+                                          )
+                                      ? _categoryId
+                                      : (group.options.any(
+                                              (o) => o.title == '全部',
+                                            )
+                                            ? group.options
+                                                  .firstWhere(
+                                                    (o) => o.title == '全部',
+                                                  )
+                                                  .id
+                                            : null))) ==
+                              option.id,
+                          () {
+                            setState(() {
+                              _browseMode = null;
+                              _homeBrowseMode = null;
+                              _facetFilters = {
+                                ..._facetFilters,
+                                group.id: option.id,
+                              };
+                              if (group.id == 'tid') {
+                                _facetFilters.remove('class');
+                              }
+                            });
+                            unawaited(_refresh());
+                          },
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -667,6 +712,10 @@ class _ExploreViewState extends State<ExploreView> {
         _items.clear();
       });
       // 预热命中：直接吃切页签时提前取好的第一页（省掉一次网络往返）。
+      final warmSeq = _requestSeq;
+      _pendingPage = page;
+      await SectionPreloader.waitForWarm(widget.section);
+      if (!mounted || warmSeq != _requestSeq) return;
       final warm = SectionPreloader.takeWarmPage(
         widget.section,
         sourceId: source.id,
@@ -680,6 +729,7 @@ class _ExploreViewState extends State<ExploreView> {
           _loadingFirst = false;
           _items.addAll(warm.items);
         });
+        _pendingPage = 0;
         _preloadCovers(warm.items);
         return;
       }
@@ -1080,10 +1130,13 @@ class _ExploreViewState extends State<ExploreView> {
                                   children: [
                                     ?HomeHeaderScope.headerOf(
                                       context,
-                                      navigation: HomeBrowseNavigation(
-                                        selected: _browseMode,
-                                        onSelect: _selectBrowseMode,
-                                      ),
+                                      navigation:
+                                          widget.section == Section.comic
+                                          ? null
+                                          : HomeBrowseNavigation(
+                                              selected: _browseMode,
+                                              onSelect: _selectBrowseMode,
+                                            ),
                                     ),
                                     _searching
                                         ? _buildSearchField()
@@ -1115,6 +1168,12 @@ class _ExploreViewState extends State<ExploreView> {
     final showSourceManageFlag = widget.showSourceManage;
     return SectionToolbar(
       floating: true,
+      navigation: widget.section == Section.comic
+          ? HomeBrowseNavigation(
+              selected: _browseMode,
+              onSelect: _selectBrowseMode,
+            )
+          : null,
       sources: _sources
           .where((source) => source.enabled)
           .toList(growable: false),

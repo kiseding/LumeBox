@@ -23,6 +23,7 @@ import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
 import '../../core/player/player_settings.dart';
 import '../../core/player/player_stats.dart';
+import '../../core/player/player_error.dart';
 import '../../core/player/skip_marks.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
@@ -39,6 +40,7 @@ import 'danmaku/danmaku_settings.dart';
 import 'danmaku/danmaku_settings_sheet.dart';
 import 'player_gestures.dart';
 import 'player_hud.dart';
+import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
 import 'player_source_sheet.dart';
 import 'player_speed_meter.dart';
@@ -241,6 +243,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏（沉浸）模式：顶栏与控制栏收起，点画面切换浮层控制栏。
   bool _fullscreen = false;
+  final _nextEpisodeBuffer = NextEpisodeBuffer();
 
   /// 全屏模式下的浮层控制栏是否可见。
   bool _overlayVisible = true;
@@ -303,6 +306,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final previous = _lifecycle;
     _lifecycle = state;
+    if (state != AppLifecycleState.resumed) _nextEpisodeBuffer.discard();
     _framePump?.setBackground(state != AppLifecycleState.resumed);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -606,6 +610,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   void dispose() {
     _rebuildSeq++;
+    _nextEpisodeBuffer.discard();
     WidgetsBinding.instance.removeObserver(this);
     _danmakuLoadSeq++;
     for (final client in _danmakuClients) {
@@ -718,6 +723,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
       // 片头片尾：每次快照变化判一次（判定本身是纯函数，跳过一次后不再重复）。
       if (playing &&
+          _player?.stats.value.downloadBytesPerSecond == null &&
           !snapshot.buffering &&
           snapshot.position > Duration.zero &&
           _lifecycle == AppLifecycleState.resumed &&
@@ -733,6 +739,32 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
           );
         }
+      }
+      final remaining = snapshot.duration - snapshot.position;
+      final target = _target;
+      final buffered = _player?.stats.value.buffered ?? Duration.zero;
+      if (target != null &&
+          playing &&
+          !snapshot.buffering &&
+          snapshot.error == null &&
+          !_advancing &&
+          _autoNext &&
+          _lifecycle == AppLifecycleState.resumed &&
+          _session?.state != PipState.active &&
+          snapshot.position >= const Duration(seconds: 10) &&
+          remaining >= const Duration(seconds: 5) &&
+          remaining <= const Duration(seconds: 30) &&
+          buffered >=
+              Duration(seconds: _settings.kernel == PlayerKernel.mdk ? 3 : 8)) {
+        unawaited(
+          _nextEpisodeBuffer.prepare(
+            target,
+            _settings,
+            _openSource,
+            widget.playerFactory ??
+                ((kernel) => PlayerFactory.create(kernel: kernel)),
+          ),
+        );
       }
       _maybeSkip(_skipMarks, snapshot.position, snapshot.duration);
       // 锁屏播放条跟随播放状态（进度在会话内部节流，不必在这里省）。
@@ -906,6 +938,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 2. **实例不泄漏**：任何路径下建出来但没被采用的播放器都要 dispose；
   /// 3. **落库失败不拖垮播放**：写设置库失败只记日志并提示。
   Future<void> _rebuildPlayer() async {
+    _nextEpisodeBuffer.discard();
     final seq = ++_rebuildSeq;
     if (_session?.state == PipState.active ||
         _session?.state == PipState.entering) {
@@ -1076,7 +1109,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     await _boot();
   }
 
-  Future<void> _loadMedia(PlayerMedia media) async {
+  Future<void> _loadMedia(
+    PlayerMedia media, {
+    bool alreadyLoaded = false,
+  }) async {
+    _nextEpisodeBuffer.discard();
     final player = _player;
     if (player == null) return;
     if (_session?.state != PipState.active) {
@@ -1089,7 +1126,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _networkSpeed.reset();
     _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
-    await player.load(media);
+    if (!alreadyLoaded) await player.load(media);
     // 起播那几秒里同一个 CDN 域名上多一条 256KB 探测，就是和首帧缓冲抢带宽。
     if (!mounted) return;
     setState(() => _loaded = player.snapshot.value.error == null);
@@ -1098,6 +1135,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 设置变更：落库并立即生效；换内核走重建，其余项直接应用到当前内核。
   Future<void> _applySettings(PlayerSettings next) async {
     final kernelChanged = next.kernel != _settings.kernel;
+    _nextEpisodeBuffer.discard();
     if (!mounted) return;
     setState(() => _settings = next);
     // 关掉自动隐藏：立刻取消计时并让控制栏显形。
@@ -1200,9 +1238,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Future<void> _startPlaybackSafely(
     PlayerMedia media, {
     VideoPlayTarget? target,
+    AbstractPlayer? preparedPlayer,
   }) async {
     try {
-      await _startPlayback(media, target: target);
+      await _startPlayback(
+        media,
+        target: target,
+        preparedPlayer: preparedPlayer,
+      );
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       _showToast('起播失败：$error');
@@ -1213,6 +1256,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Future<void> _startPlayback(
     PlayerMedia media, {
     VideoPlayTarget? target,
+    AbstractPlayer? preparedPlayer,
   }) async {
     if (_player == null) {
       _showToast(_anyKernelAvailable ? '播放器还在准备，请稍后再试' : '本平台不提供播放内核');
@@ -1238,6 +1282,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 换作品 / 换集前先把上一部的进度落盘（首次起播没有「上一部」，跳过——
     // 否则会写一条位置 0 的空记录，让「继续观看」里凭空多出一部没看过的片子）。
     if (_target != null) _saveProgress(force: true);
+    if (preparedPlayer != null && !await _adoptPreparedPlayer(preparedPlayer)) {
+      return;
+    }
     // 换作品 / 换集：重新读这套片头片尾标记，并允许片头**与片尾**再判一次
     //（片尾那条同样必须复位：换集就是为了让新一集还能走到它自己的片尾）。
     _introHandled = false;
@@ -1246,7 +1293,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _healthyPosition = Duration.zero;
     _target = target;
     _input.text = media.uri.toString();
-    await _loadMedia(media);
+    await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
     await _restoreProgress();
     _startProgressTicker();
     unawaited(_loadDanmaku(target));
@@ -1271,6 +1318,48 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return _settings.kernel;
   }
 
+  Future<bool> _adoptPreparedPlayer(AbstractPlayer player) async {
+    // Configure before transferring ownership, so a failed setting update leaves
+    // the currently playing instance and its listeners intact.
+    try {
+      await player.setBuffering(_buffering);
+      await player.applySettings(_settings);
+      await player.setVolume(_gesture.volume);
+    } catch (_) {
+      await player.dispose();
+      rethrow;
+    }
+    if (!mounted) {
+      await player.dispose();
+      return false;
+    }
+    final previous = _player;
+    previous?.snapshot.removeListener(_onSnapshotChanged);
+    previous?.stats.removeListener(_onStatsChanged);
+    _stopFrameForwarding();
+    _inlinePipReady = false;
+    _nextInlinePipAttempt = null;
+    _suppressProgressSave = true;
+    try {
+      setState(() => _player = player);
+      player.snapshot.addListener(_onSnapshotChanged);
+      player.stats.addListener(_onStatsChanged);
+    } finally {
+      _suppressProgressSave = false;
+    }
+    if (previous != null) {
+      unawaited(() async {
+        try {
+          await previous.pause();
+          await previous.dispose();
+        } catch (error) {
+          LumeLog.info('[player] 切集释放旧内核失败：$error');
+        }
+      }());
+    }
+    return true;
+  }
+
   /// 自动连播下一集。
   ///
   /// 只有「从图源条目起播、且还有下一集」时才连播；手动贴地址没有剧集列表。
@@ -1289,6 +1378,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (_advancing) return false;
     final target = _target;
     final source = await _openSource();
+    if (!mounted) return false;
     if (target == null || source == null) {
       if (!auto) _showToast('手动贴地址播放时没有剧集列表');
       return false;
@@ -1296,25 +1386,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
     _advancing = true;
     try {
-      final List<SourceChapter> chapters;
+      final prepared = _session?.state == PipState.active
+          ? null
+          : _nextEpisodeBuffer.take(target, index, _settings.kernel);
+      final List<SourceChapter>? chapters;
       try {
-        chapters = await source.chapters(target.itemId);
+        chapters = prepared == null
+            ? await source.chapters(target.itemId)
+            : null;
       } on SourceException {
         return false;
       }
-      if (index < 0 || index >= chapters.length) {
+      if (index < 0 || (chapters != null && index >= chapters.length)) {
         // 越界：自动连播时安静停下（没下一集了），手动切集时如实说一句。
         if (!auto) {
           _showToast(index < 0 ? '已经是第一集' : '已经是最后一集');
         }
         return false;
       }
-      final next = chapters[index];
+      final next = prepared?.chapter ?? chapters![index];
 
-      final content = await source.content(
-        itemId: target.itemId,
-        chapterId: next.id,
-      );
+      final content =
+          prepared?.content ??
+          await source.content(itemId: target.itemId, chapterId: next.id);
       final address = SourcePlayback.contentAddress(content);
       if (address == null || !mounted) return false;
 
@@ -1330,6 +1424,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           // 连播 / 切集同样要带防盗链头（否则下一集很可能 403 卡住）。
           headers: SourcePlayback.contentHeaders(content),
         ),
+        preparedPlayer: prepared?.player,
         target: VideoPlayTarget(
           sourceId: target.sourceId,
           itemId: target.itemId,
@@ -1606,10 +1701,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 打开弹幕设置面板。
   Future<void> _openDanmakuSettings() async {
+    _cancelAutoHide();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => ValueListenableBuilder<int>(
         valueListenable: _danmakuRevision,
         builder: (_, revision, child) => DanmakuSettingsSheet(
@@ -1625,6 +1722,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ),
       ),
     );
+    if (mounted) _scheduleAutoHide();
   }
 
   /// 发一条弹幕：先上报图源（支持写入时），成功后再进本地。
@@ -2493,9 +2591,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 16 / 9,
             child: _buildStage(player),
           ),
-        Expanded(
-          child: SingleChildScrollView(child: _buildControlPanel(player)),
-        ),
+        if (_isPortraitVideo)
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .32,
+            ),
+            child: SingleChildScrollView(child: _buildControlPanel(player)),
+          )
+        else
+          Expanded(
+            child: SingleChildScrollView(child: _buildControlPanel(player)),
+          ),
       ],
     );
   }
@@ -2869,10 +2975,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   List<Widget> _essentialActions() => <Widget>[
-    _compactIcon(
-      icon: Icons.playlist_play_rounded,
-      tooltip: '线路 / 选集',
-      onPressed: _openSourceSheet,
+    Tooltip(
+      message: '线路 / 选集',
+      child: TextButton(
+        onPressed: _openSourceSheet,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          foregroundColor: _fullscreen ? Colors.white : null,
+        ),
+        child: Text(
+          '选集',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            shadows: _fullscreen ? _controlShadows : null,
+          ),
+        ),
+      ),
     ),
     Tooltip(
       message: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
@@ -2978,8 +3097,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildErrorStage(PlayerSnapshot snapshot) {
     return _PlayerStageNotice(
       icon: Icons.wifi_off_rounded,
-      title: '播放连接中断',
-      detail: '视频连接未能继续。可以从中断的位置重试，或更换播放线路。',
+      title: (snapshot.error ?? '').contains('403') ? '视频服务器拒绝访问' : '播放连接中断',
+      detail: (snapshot.error ?? '').startsWith('打开失败：')
+          ? snapshot.error!
+          : PlayerErrorText.describe(snapshot.error),
       actions: <Widget>[
         FilledButton.icon(
           onPressed: () => _restoreInlinePlayback(retry: true),
@@ -3043,18 +3164,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     onTap: () => _showToast('已锁定：点右上角的锁解开'),
                   ),
                 ),
-              if (!_fullscreen)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: PlayerHud(
-                        stats: player.stats,
-                        networkKbps: _networkSpeed.kbps,
-                      ),
-                    ),
+              Positioned(
+                top: _fullscreen ? MediaQuery.paddingOf(context).top + 52 : 0,
+                left: _fullscreen ? MediaQuery.paddingOf(context).left : 0,
+                right: 48,
+                child: IgnorePointer(
+                  child: PlayerHud(
+                    stats: player.stats,
+                    networkKbps: _networkSpeed.kbps,
+                    showDetails: !_locked && (!_fullscreen || _overlayVisible),
                   ),
                 ),
+              ),
               // 锁屏开关：锁定时只留它，其余控制全收起。
               if (!_fullscreen && !_locked)
                 Align(
@@ -3156,7 +3277,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 控制栏：信息行 + 进度（带拖动预览）+ 主控制 + 次级控制。
+  /// 控制栏：进度（带拖动预览）+ 主控制 + 次级控制。
   ///
   /// [player] 为空时传输类按钮禁用，但**设置入口与「播放源」入口照常可用**——
   /// 「播不了」不该顺带剥夺「改设置、换内核、贴地址重试」这些出路。
@@ -3176,9 +3297,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       child: GlassCard(
         child: Column(
           children: <Widget>[
-            // 当前视频的实时信息：分辨率 / 码率（内核 HUD 参数）+ 实测网速。
-            _buildInfoRow(player),
-            const SizedBox(height: 8),
             ValueListenableBuilder<PlayerSnapshot>(
               valueListenable: player?.snapshot ?? _idleSnapshot,
               builder: (context, snapshot, _) => Column(
@@ -3201,11 +3319,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 因此永远一致；手动地址走 [_playManualAddress]，与旧地址栏同一套解析逻辑。
   Future<void> _openSourceSheet() async {
     if (!mounted) return;
+    _cancelAutoHide();
+    final target = _target;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => PlayerSourceSheet(
+        loadEpisodes: target == null
+            ? null
+            : () async {
+                final source = await _openSource();
+                if (source == null) throw StateError('图源不可用，请稍后重试');
+                return source.chapters(target.itemId);
+              },
+        currentChapterId: target?.chapterId,
+        onSelectEpisode: (index) async {
+          if (target == null || _target?.isSameEpisode(target) != true) {
+            return false;
+          }
+          if (index == target.chapterIndex) return true;
+          return _playEpisodeAt(index);
+        },
         address: _media?.uri.toString() ?? _input.text,
         qualities: _qualities,
         currentIndex: _qualityIndex,
@@ -3213,6 +3349,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         onPlayAddress: _playManualAddress,
       ),
     );
+    if (mounted) _scheduleAutoHide();
   }
 
   /// 手动贴地址起播（原来的地址栏逻辑，一字未改地搬到这里）。
@@ -3232,59 +3369,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return null;
   }
 
-  /// 当前视频信息行：分辨率 · 码率 · 网速（网速点一下重测）。
-  ///
-  /// 分辨率与码率来自内核自己报的 HUD 参数（[PlayerStats]，三套内核各自填）；
-  /// 网速是本页对播放地址的**实测**读数（见 [PlaybackSpeedMeter]：
-  /// 播放器内核在原生侧取流，Dart 侧没有可统计的对象，只能自己探测）。
-  Widget _buildInfoRow(AbstractPlayer? player) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.info_outline, size: 14, color: LumeTheme.muted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: player == null
-                ? Text(
-                    '等待播放器就绪…',
-                    style: TextStyle(
-                      fontSize: 12,
-                      shadows: _fullscreen ? _controlShadows : null,
-                      color: _fullscreen ? Colors.white70 : LumeTheme.muted,
-                    ),
-                  )
-                : ValueListenableBuilder<PlayerStats>(
-                    valueListenable: player.stats,
-                    builder: (context, stats, _) => Text(
-                      _infoText(stats),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        shadows: _fullscreen ? _controlShadows : null,
-                        color: _fullscreen ? Colors.white70 : LumeTheme.muted,
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 信息行文案：分辨率 · 码率 · 缓冲（缺项自动省略，不编造）。
-  static String _infoText(PlayerStats stats) {
-    final pieces = <String>[
-      if (stats.resolutionText != null) '分辨率 ${stats.resolutionText}',
-      if (stats.bitrateText != null) '码率 ${stats.bitrateText}',
-      if (stats.codecText != null) stats.codecText!,
-      if (stats.fpsText != null) stats.fpsText!,
-    ];
-    return pieces.isEmpty ? '等待视频参数…' : pieces.join(' · ');
-  }
-
-  /// 进度条：拖动中显示预览（松手才真 seek），两端是时间。
   Widget _buildProgress(PlayerSnapshot snapshot) {
     final total = snapshot.duration.inMilliseconds;
     final preview = _previewTarget;

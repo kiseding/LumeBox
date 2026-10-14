@@ -32,6 +32,17 @@ void main() {
       : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
 
   group('真实引擎 · 四个扩展源', () {
+    test('JComic签名刷新经过真实QuickJS和宿主HTTP桥接', () async {
+      const page = 'https://jcomic.net/cat/test/1';
+      final source = await _boot(_script('jcomic_comic.js'),
+        section: Section.comic,
+        http: _SnapshotHttp(get: {page: _read('jcomic_cat.html')}, stripQuery: true));
+      addTearDown(source.dispose);
+      final list = await source.data.list(categoryId: 'test');
+      final url = list.items.first.cover!;
+      final refreshed = await source.data.refreshImage('${url.split('?').first}?expired=1', page);
+      expect(refreshed, url);
+    }, skip: _skipUnless(['jcomic_comic.js', 'jcomic_cat.html']));
     test('99xs 小说：列表 / 详情 / 分页正文', () async {
       final source = await _boot(
         _script('99xs_novel.js'),
@@ -437,11 +448,13 @@ class _BootedSource {
 
 class _SnapshotHttp extends LumeHttp {
   _SnapshotHttp({
+    this.stripQuery = false,
     this.get = const <String, String>{},
     this.post = const <String, String>{},
   }) : super();
 
   final Map<String, String> get;
+  final bool stripQuery;
   final Map<String, String> post;
 
   /// 实际发出的请求（method, url）：用来断言「同一条接口只打了一次」这类
@@ -460,7 +473,7 @@ class _SnapshotHttp extends LumeHttp {
   }) async {
     final table = method.toUpperCase() == 'POST' ? post : get;
     calls.add((method.toUpperCase(), url));
-    final response = table[url];
+    final response = table[stripQuery ? url.split('?').first : url];
     if (response == null) {
       return LumeHttpResponse(
         statusCode: 404,

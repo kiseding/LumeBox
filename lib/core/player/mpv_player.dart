@@ -48,10 +48,12 @@ class MpvPlayer extends AbstractPlayer {
   /// 内核显示名（HUD 上标明参数来自哪个内核）。
   final String engineLabel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
-  final ValueNotifier<PlayerStats> _stats =
-      ValueNotifier<PlayerStats>(PlayerStats(engineLabel: 'MPV'));
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
+  final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
+    PlayerStats(engineLabel: 'MPV'),
+  );
 
   PlayerSettings _settings = const PlayerSettings();
   double _volume = 1.0;
@@ -162,9 +164,8 @@ class MpvPlayer extends AbstractPlayer {
   // ------------------------------------------------------------ 轨道 / 字幕
 
   /// 引擎有没有轨道读写通道（替身引擎可能没有，能力就如实为「不支持」）。
-  TrackCapable? get _tracks => _engine is TrackCapable
-      ? _engine as TrackCapable
-      : null;
+  TrackCapable? get _tracks =>
+      _engine is TrackCapable ? _engine as TrackCapable : null;
 
   @override
   Future<List<PlayerTrack>> audioTracks() async =>
@@ -222,6 +223,7 @@ class MpvPlayer extends AbstractPlayer {
         audioCodec: source.audioCodec,
         videoBitrateKbps: source.videoBitrateKbps,
         audioBitrateKbps: source.audioBitrateKbps,
+        downloadBytesPerSecond: source.downloadBytesPerSecond,
         fps: source.fps,
         width: source.width,
         height: source.height,

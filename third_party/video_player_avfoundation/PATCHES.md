@@ -65,3 +65,11 @@
 | `FVPVideoPlayer.m` | +1 import、+1 调用 |
 | `FVPLumeBuffering.h` / `.m` | 新增 |
 | `pubspec.yaml` | `version: 2.12.0` 保持不变（路径覆盖在项目根 pubspec） |
+
+
+## 2026-10-14 · 原生下载统计与预加载接手
+
+`VideoPlayerPlugin.swift` 增加 `lumebox/av_network` 通道：根据对应 playerId 的
+AVPlayerItem accessLog 累计传输字节，由 Dart 按采样间隔计算下载速度；未提供
+accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffering` 更新已存在
+的播放器前向缓冲策略，用于接手下一集预加载后的正常播放。

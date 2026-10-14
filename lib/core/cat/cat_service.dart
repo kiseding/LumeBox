@@ -166,6 +166,29 @@ class CatService extends ChangeNotifier {
   Future<void>? _booting;
   Future<void> _operation = Future.value();
   bool _nodeStarted = false;
+  bool needsSiteSelection = false;
+  String recoveryMessage = '上次猫源启动未完成，已暂停自动恢复。请手动选择站点或打开配置中心。';
+  final _pendingSources = <String, int>{};
+
+  Future<T> guardStartup<T>(
+    String recordId,
+    Future<T> Function() action,
+  ) async {
+    _pendingSources[recordId] = (_pendingSources[recordId] ?? 0) + 1;
+    await save();
+    try {
+      return await action();
+    } finally {
+      final count = (_pendingSources[recordId] ?? 1) - 1;
+      if (count <= 0) {
+        _pendingSources.remove(recordId);
+      } else {
+        _pendingSources[recordId] = count;
+      }
+      await save();
+    }
+  }
+
   String? selectedSiteId;
   int siteColumns = 1;
   Future<void> setSiteColumns(int value) async {
@@ -199,6 +222,29 @@ class CatService extends ChangeNotifier {
         }
         selectedSiteId = raw['selectedSiteId'] as String?;
         siteColumns = ((raw['siteColumns'] as num?)?.toInt() ?? 1).clamp(1, 3);
+        final unfinished = (raw['pendingSources'] as List? ?? [])
+            .map(catText)
+            .toSet();
+        final migrateStartup =
+            raw['startupRecoveryVersion'] != 1 && subscriptions.isNotEmpty;
+        recoveryMessage = unfinished.isNotEmpty
+            ? '上次猫源启动未完成，已暂停自动恢复。请手动选择站点或打开配置中心。'
+            : catText(raw['recoveryMessage']).isNotEmpty
+            ? catText(raw['recoveryMessage'])
+            : '猫源宿主已更新，为避免恢复旧启动状态，请手动选择站点；原订阅与配置均已保留。';
+        needsSiteSelection =
+            raw['needsSiteSelection'] == true ||
+            unfinished.isNotEmpty ||
+            migrateStartup;
+        if (needsSiteSelection) {
+          selectedSiteId = null;
+          for (final record in subscriptions.where(
+            (r) => unfinished.contains(r.id),
+          )) {
+            record.error = '上次站点启动未完成，已暂停自动恢复；请手动选择站点或打开配置中心';
+          }
+          await save();
+        }
       } catch (error) {
         LumeLog.warn('[cat] 订阅记录读取失败: $error');
       }
@@ -221,6 +267,10 @@ class CatService extends ChangeNotifier {
         'bookmarks': _bookmarks.values.toList(),
         'selectedSiteId': selectedSiteId,
         'siteColumns': siteColumns,
+        'startupRecoveryVersion': 1,
+        'needsSiteSelection': needsSiteSelection,
+        'recoveryMessage': recoveryMessage,
+        'pendingSources': _pendingSources.keys.toList(),
       }),
       flush: true,
     );
@@ -318,53 +368,82 @@ class CatService extends ChangeNotifier {
       if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(hash)) {
         throw const FormatException('订阅校验文件不是有效 MD5');
       }
-      final config = await _download(configUri, auth, 2 * 1024 * 1024);
+      var resolvedConfig = configUri;
+      var bytes = await _download(indexUri, auth, 20 * 1024 * 1024);
+      if (md5.convert(bytes).toString() != hash) {
+        bytes = await _download(
+          indexUri.replace(
+            queryParameters: {
+              ...indexUri.queryParameters,
+              '_lume_refresh': '${DateTime.now().millisecondsSinceEpoch}',
+            },
+          ),
+          auth,
+          20 * 1024 * 1024,
+        );
+      }
+      if (md5.convert(bytes).toString() != hash) {
+        final fallback = verifiedBundleFallback(hashUri, hash);
+        if (fallback != null) {
+          final historical = await _download(fallback, null, 20 * 1024 * 1024);
+          if (md5.convert(historical).toString() == hash) {
+            bytes = historical;
+            resolvedConfig = fallback.replace(
+              path: fallback.path.replaceFirst(RegExp(r'\.js$'), '.config.js'),
+            );
+          }
+        }
+      }
+      if (md5.convert(bytes).toString() != hash) {
+        throw const FormatException('作者发布的程序包与 MD5 不一致，保留旧版本；请稍后更新或联系作者');
+      }
+      final config = await _download(resolvedConfig, auth, 2 * 1024 * 1024);
       final configHash = md5.convert(config).toString();
+      try {
+        final configMD5 = utf8
+            .decode(
+              await _download(
+                resolvedConfig.replace(path: '${resolvedConfig.path}.md5'),
+                auth,
+                4096,
+              ),
+            )
+            .trim()
+            .toLowerCase();
+        if (RegExp(r'^[0-9a-f]{32}$').hasMatch(configMD5) &&
+            configMD5 != configHash) {
+          throw const FormatException('配置 MD5 不一致，保留旧版本');
+        }
+      } on HttpException catch (error) {
+        if (!error.message.contains('404')) rethrow;
+      }
       final destination = Directory(
         '${_root!.path}/bundles/${record.id}/$hash-$configHash',
       );
       final indexFile = File('${destination.path}/index.js');
-      if (!await indexFile.exists()) {
-        var bytes = await _download(indexUri, auth, 20 * 1024 * 1024);
-        if (md5.convert(bytes).toString() != hash) {
-          bytes = await _download(
-            indexUri.replace(
-              queryParameters: {
-                ...indexUri.queryParameters,
-                '_lume_refresh': '${DateTime.now().millisecondsSinceEpoch}',
-              },
-            ),
-            auth,
-            20 * 1024 * 1024,
-          );
-        }
-        if (md5.convert(bytes).toString() != hash) {
-          throw const FormatException('程序包 MD5 不一致，保留旧版本，请稍后刷新');
-        }
-        try {
-          final configMD5 = utf8
-              .decode(
-                await _download(
-                  configUri.replace(path: '${configUri.path}.md5'),
-                  auth,
-                  4096,
-                ),
-              )
-              .trim()
-              .toLowerCase();
-          if (RegExp(r'^[0-9a-f]{32}$').hasMatch(configMD5) &&
-              configMD5 != configHash) {
-            throw const FormatException('配置 MD5 不一致，保留旧版本');
-          }
-        } on HttpException catch (error) {
-          if (!error.message.contains('404')) rethrow;
-        }
-        final staging = Directory('${destination.path}.tmp');
+      final configFile = File('${destination.path}/index.config.js');
+      final valid =
+          await indexFile.exists() &&
+          await configFile.exists() &&
+          md5.convert(await indexFile.readAsBytes()).toString() == hash &&
+          md5.convert(await configFile.readAsBytes()).toString() == configHash;
+      if (!valid) {
+        final staging = Directory(
+          '${destination.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
+        );
         await staging.create(recursive: true);
-        await File('${staging.path}/index.js').writeAsBytes(bytes, flush: true);
-        await File('${staging.path}/index.config.js')
-            .writeAsBytes(config, flush: true);
-        await staging.rename(destination.path);
+        try {
+          await File('${staging.path}/index.js')
+              .writeAsBytes(bytes, flush: true);
+          await File('${staging.path}/index.config.js')
+              .writeAsBytes(config, flush: true);
+          if (await destination.exists()) {
+            await destination.delete(recursive: true);
+          }
+          await staging.rename(destination.path);
+        } finally {
+          if (await staging.exists()) await staging.delete(recursive: true);
+        }
       }
       record.hash = hash;
       record.configHash = configHash;
@@ -452,95 +531,121 @@ class CatService extends ChangeNotifier {
     await save();
   });
 
-  Future<Uri> activate(CatSubscription record) => _serial(() async {
-    await boot();
-    if (!record.enabled) throw StateError('订阅已停用');
-    final version = '${record.hash}-${record.configHash}';
-    if (_versions[record.id] == version && _bases[record.id] != null) {
-      return _bases[record.id]!;
+  /// A supplier's published checksum can temporarily point to an older official snapshot.
+  /// Only the exact checksum we independently verified is eligible; no integrity check is skipped.
+  static Uri? verifiedBundleFallback(Uri manifest, String hash) {
+    if (manifest.host == 'raw.githubusercontent.com' &&
+        manifest.path ==
+            '/xiaobaitulele/xptv/refs/heads/main/jstv/index.js.md5' &&
+        hash == 'eae292d3319ef56fa34a57c6bc459b61') {
+      return Uri.parse(
+        'https://raw.githubusercontent.com/xiaobaitulele/xptv/9d15140196c4653fc3dbdc39a648eea9b627bcb8/jstv/index.js',
+      );
     }
-    busy = true;
-    status = '启动 ${record.name}';
-    notifyListeners();
-    try {
-      await _ensureBridge();
-      final dataRoot = Directory('${_root!.path}/profiles/${record.id}');
-      await dataRoot.create(recursive: true);
-      final bundle = '${_root!.path}/bundles/${record.id}/$version';
-      final spec = {
-        'id': record.id,
-        'index': '$bundle/index.js',
-        'config': '$bundle/index.config.js',
-        'dataRoot': dataRoot.path,
-      };
-      if (!await File('$bundle/index.js').exists()) {
-        throw StateError('订阅包尚未下载，请刷新订阅');
+    return null;
+  }
+
+  Future<bool> hasBundle(CatSubscription record) async {
+    await boot();
+    if (record.hash.isEmpty || record.configHash.isEmpty) return false;
+    final bundle =
+        '${_root!.path}/bundles/${record.id}/${record.hash}-${record.configHash}';
+    return await File('$bundle/index.js').exists() &&
+        await File('$bundle/index.config.js').exists();
+  }
+
+  Future<Uri> activate(CatSubscription record) => _serial(
+    () => guardStartup(record.id, () async {
+      await boot();
+      if (!record.enabled) throw StateError('订阅已停用');
+      if (!await hasBundle(record)) await _update(record);
+      final version = '${record.hash}-${record.configHash}';
+      if (_versions[record.id] == version && _bases[record.id] != null) {
+        return _bases[record.id]!;
       }
-      final waiter = Completer<Uri>();
-      final ready = waiter.future.timeout(const Duration(seconds: 90));
-      ready.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
-      _waiters[record.id] = waiter;
-      if (!_nodeStarted) {
-        final bootstrap = File('${_root!.path}/bootstrap.js');
-        await bootstrap.writeAsString(
-          await rootBundle.loadString('assets/cat/bootstrap.js'),
-          flush: true,
-        );
-        final specFile = File('${_root!.path}/runtime-spec.json');
-        await specFile.writeAsString(
-          jsonEncode({
-            'bridgePort': _bridge!.port,
-            'token': _token,
-            'sources': [spec],
-          }),
-        );
-        final cache = Directory('${_root!.path}/compile-cache');
-        await cache.create(recursive: true);
-        final launched = await channel.invokeMethod<bool>('start', {
-          'bootstrap': bootstrap.path,
-          'spec': specFile.path,
-          'cache': cache.path,
-        });
-        if (launched != true) throw StateError('Node 已在运行，请完整关闭 App 后重新打开');
-        _nodeStarted = true;
-      } else {
-        if (_bases.containsKey(record.id)) {
+      busy = true;
+      status = '启动 ${record.name}';
+      notifyListeners();
+      try {
+        await _ensureBridge();
+        final dataRoot = Directory('${_root!.path}/profiles/${record.id}');
+        await dataRoot.create(recursive: true);
+        final bundle = '${_root!.path}/bundles/${record.id}/$version';
+        final spec = {
+          'id': record.id,
+          'index': '$bundle/index.js',
+          'config': '$bundle/index.config.js',
+          'dataRoot': dataRoot.path,
+        };
+        if (!await File('$bundle/index.js').exists()) {
+          throw StateError('订阅包尚未下载，请刷新订阅');
+        }
+        final waiter = Completer<Uri>();
+        final ready = waiter.future.timeout(const Duration(seconds: 90));
+        ready.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+        _waiters[record.id] = waiter;
+        if (!_nodeStarted) {
+          final bootstrap = File('${_root!.path}/bootstrap.js');
+          await bootstrap.writeAsString(
+            await rootBundle.loadString('assets/cat/bootstrap.js'),
+            flush: true,
+          );
+          final specFile = File('${_root!.path}/runtime-spec.json');
+          await specFile.writeAsString(
+            jsonEncode({
+              'bridgePort': _bridge!.port,
+              'token': _token,
+              'sources': [spec],
+            }),
+          );
+          final cache = Directory('${_root!.path}/compile-cache');
+          await cache.create(recursive: true);
+          final launched = await channel.invokeMethod<bool>('start', {
+            'bootstrap': bootstrap.path,
+            'spec': specFile.path,
+            'cache': cache.path,
+          });
+          if (launched != true) throw StateError('Node 已在运行，请完整关闭 App 后重新打开');
+          _nodeStarted = true;
+        } else {
+          if (_bases.containsKey(record.id)) {
+            await request(
+              _control!,
+              '/ctl/stop',
+              body: {'id': record.id},
+              authenticated: true,
+            );
+          }
+          _bases.remove(record.id);
+          _versions.remove(record.id);
           await request(
             _control!,
-            '/ctl/stop',
-            body: {'id': record.id},
+            '/ctl/source',
+            body: spec,
             authenticated: true,
           );
         }
-        _bases.remove(record.id);
-        _versions.remove(record.id);
-        await request(
-          _control!,
-          '/ctl/source',
-          body: spec,
-          authenticated: true,
-        );
+        final base = await ready;
+        _bases[record.id] = base;
+        _versions[record.id] = version;
+        final config = await request(base, '/config');
+        record.sites = CatSite.parseConfig(record.id, config);
+        record.error = '';
+        _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
+        await save();
+        return base;
+      } catch (error) {
+        record.error = '$error';
+        await save();
+        rethrow;
+      } finally {
+        _waiters.remove(record.id);
+        busy = false;
+        status = '';
+        notifyListeners();
       }
-      final base = await ready;
-      _bases[record.id] = base;
-      _versions[record.id] = version;
-      final config = await request(base, '/config');
-      record.sites = CatSite.parseConfig(record.id, config);
-      record.error = '';
-      _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
-      await save();
-      return base;
-    } catch (error) {
-      record.error = '$error';
-      await save();
-      rethrow;
-    } finally {
-      _waiters.remove(record.id);
-      busy = false;
-      status = '';
-      notifyListeners();
-    }
-  });
+    }),
+  );
   Future<void> _ensureBridge() async {
     if (_bridge != null) return;
     _bridge = await HttpServer.bind(
@@ -594,6 +699,11 @@ class CatService extends ChangeNotifier {
         }
       }
       if (action == 'sourceError' || action == 'nodeError') {
+        final record = subscriptions.where((r) => r.id == id).firstOrNull;
+        if (record != null) {
+          record.error = catText(opt['message']);
+          await save();
+        }
         final waiter = _waiters[id] ?? _waiters.values.firstOrNull;
         if (waiter != null && !waiter.isCompleted) {
           waiter.completeError(StateError(catText(opt['message'])));
@@ -649,7 +759,18 @@ class CatService extends ChangeNotifier {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('猫源接口 HTTP ${response.statusCode}');
       }
-      return catMap(jsonDecode(utf8.decode(bytes.takeBytes())));
+      Object? decoded = jsonDecode(utf8.decode(bytes.takeBytes()));
+      if (decoded is String) decoded = jsonDecode(decoded);
+      if (decoded is! Map) throw const FormatException('猫源接口返回了非对象数据');
+      final payload = catMap(decoded);
+      final failure = payload['error'];
+      if (payload['success'] == false ||
+          (failure is String && failure.isNotEmpty)) {
+        throw StateError(
+          '猫源接口失败：${payload['message'] ?? payload['msg'] ?? failure ?? '未知原因'}',
+        );
+      }
+      return payload;
     } finally {
       client.close(force: true);
     }
@@ -661,45 +782,55 @@ class CatService extends ChangeNotifier {
     Map<String, dynamic> body = const {},
   ]) async {
     final record = subscriptions.firstWhere((s) => s.id == site.subscriptionId);
-    final base = _versions[record.id] == '${record.hash}-${record.configHash}'
-        ? (_bases[record.id] ?? await activate(record))
-        : await activate(record);
-    final api = Uri.parse(site.api);
-    String endpoint(String operation) => api
-        .replace(
-          path: '${api.path.replaceFirst(RegExp(r'/+$'), '')}/$operation',
-        )
-        .toString();
-    if (!_initialized.contains(site.id) && operation != 'init') {
-      try {
-        final init = await request(
-          base,
-          endpoint('init'),
-          body: {'ext': site.ext},
-        );
-        final upstream = catText(init['siteUrl'] ?? init['url']);
-        if (upstream.startsWith('http')) _upstreams[site.id] = upstream;
-        _initialized.add(site.id);
-      } on HttpException catch (error) {
-        if (error.message.contains('404')) {
+    return guardStartup(record.id, () async {
+      final base = _versions[record.id] == '${record.hash}-${record.configHash}'
+          ? (_bases[record.id] ?? await activate(record))
+          : await activate(record);
+      final api = Uri.parse(site.api);
+      String endpoint(String operation) => api
+          .replace(
+            path: '${api.path.replaceFirst(RegExp(r'/+$'), '')}/$operation',
+          )
+          .toString();
+      if (!_initialized.contains(site.id) && operation != 'init') {
+        try {
+          final init = await request(
+            base,
+            endpoint('init'),
+            body: {'ext': site.ext},
+          );
+          final upstream = catText(init['siteUrl'] ?? init['url']);
+          if (upstream.startsWith('http')) _upstreams[site.id] = upstream;
           _initialized.add(site.id);
-        } else {
-          rethrow;
+        } on HttpException catch (error) {
+          if (error.message.contains('404')) {
+            _initialized.add(site.id);
+          } else {
+            rethrow;
+          }
         }
       }
-    }
-    return request(base, endpoint(operation), body: body);
+      return request(base, endpoint(operation), body: body);
+    });
   }
 
   Uri? baseFor(CatSite site) => _bases[site.subscriptionId];
   Future<void> refreshSites(CatSubscription record) async {
-    final base = await activate(record);
-    record.sites = CatSite.parseConfig(
-      record.id,
-      await request(base, '/config'),
-    );
-    _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
-    await save();
+    try {
+      final base = await activate(record);
+      record.sites = CatSite.parseConfig(
+        record.id,
+        await request(base, '/config'),
+      );
+      if (record.sites.isEmpty) throw StateError('配置接口没有返回可用站点，请打开站点配置检查');
+      record.error = '';
+      _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
+      await save();
+    } catch (error) {
+      record.error = '$error';
+      await save();
+      rethrow;
+    }
   }
 
   Future<Uri> configurationUrl(CatSubscription record) async {
@@ -742,6 +873,7 @@ class CatService extends ChangeNotifier {
     await save();
   });
   Future<void> select(CatSite site) async {
+    needsSiteSelection = false;
     selectedSiteId = site.id;
     await save();
   }

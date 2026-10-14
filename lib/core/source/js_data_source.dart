@@ -87,6 +87,7 @@ class JsDataSource
         DanmakuPostCapable,
         FilterCapable,
         ContextualFilterCapable,
+        RefreshingImageCapable,
         HomeCapable {
   JsDataSource({
     required this.id,
@@ -110,6 +111,12 @@ class JsDataSource
 
   /// 读缓存（可选，按板块隔离）。为空表示不做任何缓存。
   final SourceReadCache? cache;
+
+  @override
+  Future<String?> refreshImage(String url, String page) async {
+    final value = await _invoke('refreshImage', {'url': url, 'page': page});
+    return value is String && value.isNotEmpty ? value : null;
+  }
 
   @override
   Future<List<SourceCategory>> categories() async {

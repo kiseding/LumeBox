@@ -148,6 +148,14 @@ class _StaticHttp implements LumeHttp {
   final String body;
 
   @override
+  Future<LumeHttpResponse> sendWithoutRedirects({
+    required String url,
+    Map<String, String>? headers,
+    Duration? timeout,
+    int? maxBytes,
+  }) => send(url: url, headers: headers, timeout: timeout, maxBytes: maxBytes);
+
+  @override
   Future<LumeHttpResponse> send({
     required String url,
     String method = 'GET',
@@ -439,6 +447,14 @@ class _ChallengeHttp implements LumeHttp {
   static const String _body = '<html><head><title>Just a moment...</title>'
       '<meta http-equiv="cf-mitigated" content="challenge"></head>'
       '<body>Enable JavaScript and cookies to continue</body></html>';
+
+  @override
+  Future<LumeHttpResponse> sendWithoutRedirects({
+    required String url,
+    Map<String, String>? headers,
+    Duration? timeout,
+    int? maxBytes,
+  }) => send(url: url, headers: headers, timeout: timeout, maxBytes: maxBytes);
 
   @override
   Future<LumeHttpResponse> send({

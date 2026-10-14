@@ -48,41 +48,66 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
           top: false,
           // 面板内容与「播放器设置 → 弹幕」共用同一份（[DanmakuSettingsPanel]），
           // 两处不各写一套控件，免得改了这边忘了那边。
-          child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .85,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (widget.onCompose != null)
-                  ListTile(
-                    leading: const Icon(Icons.edit_outlined),
-                    title: const Text('发送弹幕'),
-                    onTap: widget.onCompose,
+                ListTile(
+                  leading: IconButton(
+                    tooltip: '返回播放',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
-                if (widget.status != null)
-                  ListTile(title: Text(widget.status!)),
-                if (widget.onMatch != null)
-                  ListTile(
-                    leading: const Icon(Icons.search),
-                    title: const Text('匹配公共弹幕'),
-                    onTap: widget.onMatch,
+                  title: const Text('弹幕设置'),
+                  trailing: IconButton(
+                    tooltip: '关闭弹幕设置',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
-                if (widget.onConfigureService != null)
-                  ListTile(
-                    leading: const Icon(Icons.cloud_outlined),
-                    title: const Text('弹幕服务地址'),
-                    onTap: widget.onConfigureService,
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.onCompose != null)
+                          ListTile(
+                            leading: const Icon(Icons.edit_outlined),
+                            title: const Text('发送弹幕'),
+                            onTap: widget.onCompose,
+                          ),
+                        if (widget.status != null)
+                          ListTile(title: Text(widget.status!)),
+                        if (widget.onMatch != null)
+                          ListTile(
+                            leading: const Icon(Icons.search),
+                            title: const Text('匹配公共弹幕'),
+                            onTap: widget.onMatch,
+                          ),
+                        if (widget.onConfigureService != null)
+                          ListTile(
+                            leading: const Icon(Icons.cloud_outlined),
+                            title: const Text('弹幕服务地址'),
+                            onTap: widget.onConfigureService,
+                          ),
+                        if (widget.onReload != null)
+                          ListTile(
+                            leading: const Icon(Icons.refresh),
+                            title: const Text('重新加载弹幕'),
+                            onTap: widget.onReload,
+                          ),
+                        DanmakuSettingsPanel(
+                          settings: widget.settings,
+                          onChanged: widget.onChanged,
+                          danmakuCount: widget.danmakuCount,
+                          showTitle: false,
+                        ),
+                      ],
+                    ),
                   ),
-                if (widget.onReload != null)
-                  ListTile(
-                    leading: const Icon(Icons.refresh),
-                    title: const Text('重新加载弹幕'),
-                    onTap: widget.onReload,
-                  ),
-                DanmakuSettingsPanel(
-                  settings: widget.settings,
-                  onChanged: widget.onChanged,
-                  danmakuCount: widget.danmakuCount,
-                  showTitle: true,
                 ),
               ],
             ),

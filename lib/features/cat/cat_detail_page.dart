@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import '../../core/cat/cat_service.dart';
@@ -10,6 +12,10 @@ import '../../core/cat/cat_data_source.dart';
 import '../../core/source/source.dart';
 import '../../core/reading/reading.dart';
 import '../../core/player/abstract_player.dart';
+import '../../core/player/player_factory.dart';
+import '../../core/player/player_kernel_launcher.dart';
+import '../../core/player/player_settings.dart';
+import '../video/video_player_settings.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../video/video_player_page.dart';
 import '../video/video_play_target.dart';
@@ -100,7 +106,20 @@ class _CatDetailPageState extends State<CatDetailPage> {
   Future<void> play(int index) async {
     if (playing) return;
     setState(() => playing = true);
+    PlayerPrelaunch? prelaunch;
     try {
+      if (PlayerFactory.isSupported) {
+        final preferred = VideoPlayerSettingsStore(widget.library)
+            .load()
+            .kernel;
+        final kernel = PlayerFactory.isAvailable(preferred)
+            ? preferred
+            : PlayerKernel.avplayer;
+        prelaunch = PlayerPrelaunch.start(
+          kernel,
+          after: WidgetsBinding.instance.endOfFrame,
+        );
+      }
       final chapter = chapters[index];
       final playbackLine = CatDataSource.flagOf(chapter);
       final lineEpisodes = lines[playbackLine] ?? [chapter];
@@ -117,10 +136,12 @@ class _CatDetailPageState extends State<CatDetailPage> {
         'epName': chapter.title,
         'url': SourcePlayback.contentAddress(content)!.toString(),
       };
-      await Navigator.push(
+      final transferred = prelaunch;
+      final opening = Navigator.push(
         context,
         MaterialPageRoute<void>(
           builder: (_) => VideoPlayerPage(
+            prelaunch: transferred,
             media: PlayerMedia(
               uri: SourcePlayback.contentAddress(content)!,
               headers: SourcePlayback.contentHeaders(content),
@@ -148,12 +169,15 @@ class _CatDetailPageState extends State<CatDetailPage> {
           ),
         ),
       );
+      prelaunch = null;
+      await opening;
     } catch (failure) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$failure')));
       }
     } finally {
+      if (prelaunch != null) unawaited(prelaunch.discard());
       if (mounted) {
         setState(() {
           playing = false;

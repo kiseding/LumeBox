@@ -16,6 +16,52 @@ import 'package:lume_box/core/net/network_settings.dart';
 /// 同一域名的并发**绝不超过上限**、不同域名可以并行、429/503 会退避重试、
 /// 其余 4xx 不重试、Retry-After 被尊重。
 void main() {
+  test('封面下载保留前台请求额度，TLS握手错误不重复重试', () async {
+    final held = Completer<void>();
+    final entered = <String>[];
+    var tlsCalls = 0;
+    final queue = NetworkQueue(
+      settings: const NetworkSettings(
+        globalConcurrency: 6,
+        perHostConcurrency: 3,
+        maxRetries: 2,
+      ),
+      sender: (request) async {
+        entered.add(request.source);
+        if (request.source == '页面') {
+          return const NetworkResponse(statusCode: 200, body: [], headers: {});
+        }
+        if (request.source == 'TLS') {
+          tlsCalls++;
+          throw StateError('TLS_HANDSHAKE_FAILED');
+        }
+        await held.future;
+        return const NetworkResponse(statusCode: 200, body: [], headers: {});
+      },
+    );
+    final images = [
+      for (var i = 0; i < 6; i++)
+        queue.send(
+          NetworkRequest(url: 'https://host$i.example/a.jpg', source: '图片缓存'),
+        ),
+    ];
+    await Future<void>.delayed(Duration.zero);
+    expect(queue.activeGlobal, 4);
+    await queue
+        .send(const NetworkRequest(url: 'https://page.example/', source: '页面'))
+        .timeout(const Duration(seconds: 1));
+    held.complete();
+    await Future.wait(images);
+    await expectLater(
+      queue.send(
+        const NetworkRequest(url: 'https://tls.example/', source: 'TLS'),
+      ),
+      throwsStateError,
+    );
+    expect(tlsCalls, 1);
+    expect(queue.activeGlobal, 0);
+  });
+
   /// 可编程的假发送端：记录并发峰值，按脚本给应答。
   late _FakeSender sender;
 
@@ -68,11 +114,7 @@ void main() {
           queue.send(NetworkRequest(url: 'https://host$i.com/a')),
       ];
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(
-        sender.peakTotal,
-        4,
-        reason: '四个不同域名各占一个额度，应当同时开跑',
-      );
+      expect(sender.peakTotal, 4, reason: '四个不同域名各占一个额度，应当同时开跑');
       expect(sender.peakTotal, lessThanOrEqualTo(8));
 
       sender.hold!.complete();
@@ -110,7 +152,10 @@ void main() {
 
   group('退避重试', () {
     test('429 会重试，并在成功后返回 200', () async {
-      final queue = queueWith(maxRetries: 2, retryBase: const Duration(milliseconds: 5));
+      final queue = queueWith(
+        maxRetries: 2,
+        retryBase: const Duration(milliseconds: 5),
+      );
       sender.script['https://a.com/x'] = <int>[429, 200];
 
       final response = await queue.send(
@@ -121,7 +166,10 @@ void main() {
     });
 
     test('503 会重试；重试用尽后如实返回最后一次状态码', () async {
-      final queue = queueWith(maxRetries: 2, retryBase: const Duration(milliseconds: 5));
+      final queue = queueWith(
+        maxRetries: 2,
+        retryBase: const Duration(milliseconds: 5),
+      );
       sender.script['https://a.com/x'] = <int>[503, 503, 503, 200];
 
       final response = await queue.send(NetworkRequest(url: 'https://a.com/x'));
@@ -150,7 +198,10 @@ void main() {
     });
 
     test('网络异常会重试，最终抛出原始异常', () async {
-      final queue = queueWith(maxRetries: 2, retryBase: const Duration(milliseconds: 5));
+      final queue = queueWith(
+        maxRetries: 2,
+        retryBase: const Duration(milliseconds: 5),
+      );
       sender.failTimes['https://a.com/x'] = 3;
 
       await expectLater(
@@ -161,7 +212,10 @@ void main() {
     });
 
     test('网络异常在第 N 次成功即返回', () async {
-      final queue = queueWith(maxRetries: 2, retryBase: const Duration(milliseconds: 5));
+      final queue = queueWith(
+        maxRetries: 2,
+        retryBase: const Duration(milliseconds: 5),
+      );
       sender.failTimes['https://a.com/x'] = 1;
 
       final response = await queue.send(NetworkRequest(url: 'https://a.com/x'));
@@ -173,29 +227,35 @@ void main() {
   group('Retry-After', () {
     test('服务器给的秒数被尊重（且受上限约束）', () {
       expect(
-        NetworkQueue.retryAfterOf(const NetworkResponse(
-          statusCode: 429,
-          body: <int>[],
-          headers: <String, String>{'retry-after': '2'},
-        )),
+        NetworkQueue.retryAfterOf(
+          const NetworkResponse(
+            statusCode: 429,
+            body: <int>[],
+            headers: <String, String>{'retry-after': '2'},
+          ),
+        ),
         const Duration(seconds: 2),
       );
       // 超过上限即收敛到上限，不无限等。
       expect(
-        NetworkQueue.retryAfterOf(const NetworkResponse(
-          statusCode: 429,
-          body: <int>[],
-          headers: <String, String>{'retry-after': '9999'},
-        )),
+        NetworkQueue.retryAfterOf(
+          const NetworkResponse(
+            statusCode: 429,
+            body: <int>[],
+            headers: <String, String>{'retry-after': '9999'},
+          ),
+        ),
         NetworkQueue.maxRetryAfter,
       );
       // 没有该头就是 null（走指数退避）。
       expect(
-        NetworkQueue.retryAfterOf(const NetworkResponse(
-          statusCode: 429,
-          body: <int>[],
-          headers: <String, String>{},
-        )),
+        NetworkQueue.retryAfterOf(
+          const NetworkResponse(
+            statusCode: 429,
+            body: <int>[],
+            headers: <String, String>{},
+          ),
+        ),
         isNull,
       );
     });
@@ -203,11 +263,13 @@ void main() {
     test('HTTP 日期写法也能解析', () {
       final future = DateTime.now().toUtc().add(const Duration(seconds: 3));
       final value = HttpDate.format(future);
-      final parsed = NetworkQueue.retryAfterOf(NetworkResponse(
-        statusCode: 503,
-        body: <int>[],
-        headers: <String, String>{'Retry-After': value},
-      ));
+      final parsed = NetworkQueue.retryAfterOf(
+        NetworkResponse(
+          statusCode: 503,
+          body: <int>[],
+          headers: <String, String>{'Retry-After': value},
+        ),
+      );
       expect(parsed, isNotNull);
       expect(parsed!.inSeconds, inInclusiveRange(1, 4));
     });
@@ -221,15 +283,33 @@ void main() {
     });
 
     test('并发区间被强制收敛到文档范围（6~12 / 2~3）', () {
-      const tooLow = NetworkSettings(globalConcurrency: 1, perHostConcurrency: 1);
+      const tooLow = NetworkSettings(
+        globalConcurrency: 1,
+        perHostConcurrency: 1,
+      );
       final clampedLow = tooLow.clamped();
-      expect(clampedLow.globalConcurrency, NetworkSettings.minGlobalConcurrency);
-      expect(clampedLow.perHostConcurrency, NetworkSettings.minPerHostConcurrency);
+      expect(
+        clampedLow.globalConcurrency,
+        NetworkSettings.minGlobalConcurrency,
+      );
+      expect(
+        clampedLow.perHostConcurrency,
+        NetworkSettings.minPerHostConcurrency,
+      );
 
-      const tooHigh = NetworkSettings(globalConcurrency: 999, perHostConcurrency: 99);
+      const tooHigh = NetworkSettings(
+        globalConcurrency: 999,
+        perHostConcurrency: 99,
+      );
       final clampedHigh = tooHigh.clamped();
-      expect(clampedHigh.globalConcurrency, NetworkSettings.maxGlobalConcurrency);
-      expect(clampedHigh.perHostConcurrency, NetworkSettings.maxPerHostConcurrency);
+      expect(
+        clampedHigh.globalConcurrency,
+        NetworkSettings.maxGlobalConcurrency,
+      );
+      expect(
+        clampedHigh.perHostConcurrency,
+        NetworkSettings.maxPerHostConcurrency,
+      );
     });
   });
 
@@ -251,7 +331,10 @@ void main() {
     });
 
     test('全空覆盖 = 完全继承全局', () {
-      const global = NetworkSettings(userAgent: 'global-UA', proxy: 'http://p:1');
+      const global = NetworkSettings(
+        userAgent: 'global-UA',
+        proxy: 'http://p:1',
+      );
       final merged = NetworkProfile.none.mergedWith(global);
       expect(merged.userAgent, 'global-UA');
       expect(merged.proxy, 'http://p:1');
@@ -318,7 +401,10 @@ void main() {
     test('共享队列注入后按队列排队（并发额度是全局的）', () async {
       final sender = _FakeSender();
       final queue = NetworkQueue(
-        settings: const NetworkSettings(globalConcurrency: 6, perHostConcurrency: 2),
+        settings: const NetworkSettings(
+          globalConcurrency: 6,
+          perHostConcurrency: 2,
+        ),
         sender: sender.send,
       );
       final http = LumeHttp(client: _RecordingClient(), queue: queue);
@@ -380,7 +466,9 @@ class _FakeSender {
       final statuses = script[request.url];
       final status = statuses == null || statuses.isEmpty
           ? 200
-          : statuses[attempt - 1 < statuses.length ? attempt - 1 : statuses.length - 1];
+          : statuses[attempt - 1 < statuses.length
+                ? attempt - 1
+                : statuses.length - 1];
       return NetworkResponse(
         statusCode: status,
         body: utf8.encode('{"ok":true}'),

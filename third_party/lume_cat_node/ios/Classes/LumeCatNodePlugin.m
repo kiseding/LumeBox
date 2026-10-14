@@ -34,15 +34,19 @@
     setenv("NODE_COMPILE_CACHE", cache.UTF8String, 1);
     setenv("NODE_COMPILE_CACHE_PORTABLE", "1", 1);
     NSUInteger memory = NSProcessInfo.processInfo.physicalMemory / 1024 / 1024;
-    NSString *options = [NSString stringWithFormat:@"--max-old-space-size=%lu", (unsigned long)MAX(384, MIN(1024, memory / 4))];
+    NSString *options = [NSString stringWithFormat:@"--max-old-space-size=%lu", (unsigned long)MAX(256, MIN(512, memory / 8))];
     setenv("NODE_OPTIONS", options.UTF8String, 1);
     setenv("CATVOD_DISABLE_AUTOSTART", "1", 1);
-    [NSThread detachNewThreadWithBlock:^{
+    NSThread *thread = [[NSThread alloc] initWithBlock:^{
       char *argv[] = {strdup("node"), strdup(bootstrap.UTF8String), strdup(spec.UTF8String), NULL};
       node_start(3, argv);
       for (int i = 0; i < 3; i++) free(argv[i]);
       self.exited = YES;
     }];
+    thread.name = @"LumeBox.CatNode";
+    thread.stackSize = 8 * 1024 * 1024;
+    thread.qualityOfService = NSQualityOfServiceUtility;
+    [thread start];
     result(@YES); return;
   }
   if ([call.method isEqualToString:@"readSecret"] || [call.method isEqualToString:@"writeSecret"]) {

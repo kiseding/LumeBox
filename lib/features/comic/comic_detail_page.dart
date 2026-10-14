@@ -103,6 +103,10 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
               ?.network ??
           NetworkProfile.none;
       final source = await widget.manager.open(widget.target.sourceId);
+      _pipeline.bindSource(source);
+      // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么
+      // （源站上了 Cloudflare 校验而图片请求不带 cf_clearance 时，封面就是一片空白）。
+      if (source != null) _pipeline.bindSession(source.section, source.id);
       if (!mounted) return;
       if (source == null) {
         setState(() {

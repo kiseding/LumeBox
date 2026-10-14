@@ -8,6 +8,7 @@ import 'package:fvp/mdk.dart' as mdk;
 
 import '../util/lume_log.dart';
 import 'abstract_player.dart';
+import 'highest_hls.dart';
 import 'player_capabilities.dart';
 import 'player_settings.dart';
 import 'player_stats.dart';
@@ -81,6 +82,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   Duration _subtitleDelay = Duration.zero;
 
   double _volume = 1.0;
+  final _highestHls = HighestHls();
   double _speed = 1.0;
 
   /// 标记「正在收尾」：dispose 之后不再写 notifier。
@@ -268,10 +270,15 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   @override
   Future<void> load(PlayerMedia media) async {
     if (!_live) return;
+    final uri = await _highestHls.resolve(media.uri, media.headers);
+    if (!_live) {
+      await _highestHls.close();
+      return;
+    }
     _emit(error: null, clearError: true);
     _applyNetworkProperties();
     _applyHeaders(media.headers);
-    _player.media = media.uri.toString();
+    _player.media = uri.toString();
     // fvp 要求显式 prepare 才会真正起播（内部会等首个媒体信息到达）。
     await _player.prepare();
     _duration = Duration(milliseconds: _player.mediaInfo.duration);
@@ -342,7 +349,27 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     _ticker = Timer.periodic(const Duration(milliseconds: 400), (_) {
       if (!_live) return;
       final ms = _player.position;
-      final duration = _player.mediaInfo.duration;
+      final info = _player.mediaInfo;
+      final duration = info.duration;
+      final video = info.video?.firstOrNull?.codec;
+      final audio = info.audio?.firstOrNull?.codec;
+      final buffered = _player.buffered();
+      _stats.value = PlayerStats(
+        engineLabel: 'MDK',
+        width: video != null && video.width > 0 ? video.width : null,
+        height: video != null && video.height > 0 ? video.height : null,
+        videoCodec: video?.codec,
+        audioCodec: audio?.codec,
+        fps: video != null && video.frameRate > 0 ? video.frameRate : null,
+        videoBitrateKbps: video != null && video.bitRate > 0
+            ? video.bitRate / 1000
+            : null,
+        audioBitrateKbps: audio != null && audio.bitRate > 0
+            ? audio.bitRate / 1000
+            : null,
+        buffered: buffered >= 0 ? Duration(milliseconds: buffered) : null,
+        buffering: _snapshot.value.buffering,
+      );
       _emit(
         position: Duration(milliseconds: ms < 0 ? 0 : ms),
         duration: duration > 0 ? Duration(milliseconds: duration) : _duration,
@@ -502,6 +529,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
 
   @override
   Future<void> dispose() async {
+    await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
     _ticker?.cancel();

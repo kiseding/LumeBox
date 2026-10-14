@@ -12,6 +12,7 @@ class PlayerStats {
     this.audioCodec,
     this.videoBitrateKbps,
     this.audioBitrateKbps,
+    this.downloadBytesPerSecond,
     this.fps,
     this.width,
     this.height,
@@ -31,6 +32,9 @@ class PlayerStats {
   final double? videoBitrateKbps;
 
   final double? audioBitrateKbps;
+
+  /// 播放器实际输入速率（字节/秒）；0 表示当前未下载，null 表示不可用。
+  final double? downloadBytesPerSecond;
 
   /// 帧率。
   final double? fps;

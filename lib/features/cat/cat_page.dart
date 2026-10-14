@@ -15,12 +15,14 @@ import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../reading/poster_card.dart';
 import '../reading/section_image.dart';
+import '../reading/browse_choice_access.dart';
 import '../comic/comic_detail_page.dart';
 import '../novel/novel_detail_page.dart';
 import '../shell/shell_dock.dart';
 import 'cat_subscription_page.dart';
 import 'cat_detail_page.dart';
 import 'cat_web_page.dart';
+import 'cat_preloader.dart';
 
 class CatPage extends StatefulWidget {
   const CatPage({super.key});
@@ -102,6 +104,31 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> restoreSite() async {
+    if (service.needsSiteSelection) {
+      if (mounted) {
+        setState(() {
+          source = null;
+          loading = false;
+          error = service.recoveryMessage;
+        });
+      }
+      return;
+    }
+    final warm = await CatPreloader.take(service);
+    if (!mounted) return;
+    if (warm != null) {
+      setState(() {
+        source = warm.source;
+        categories = warm.categories;
+        groups = warm.groups;
+        items = warm.list.items;
+        more = warm.list.hasMore;
+        page = 1;
+        loading = false;
+      });
+      _preloadCovers(items);
+      return;
+    }
     final records = service.subscriptions.where((s) => s.enabled).toList();
     if (records.isEmpty) {
       if (mounted) {
@@ -127,7 +154,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         record.sites
             .where(
               (site) => !RegExp(
-                'config|setting|website|配置|我的网盘|日历|日期|^\\d{4}-\\d{2}-\\d{2}',
+                'config|setting|website|version|calendar|about|配置|我的网盘|日历|日期|更新日志|免责声明|公告|^\\d{4}-\\d{2}-\\d{2}',
                 caseSensitive: false,
               ).hasMatch(site.key + site.name),
             )
@@ -160,6 +187,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> refresh() async {
+    CatPreloader.discard();
     final current = source;
     if (current == null) return;
     final token = ++sequence;
@@ -187,6 +215,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         page = 1;
         loading = false;
       });
+      _preloadCovers(results.items);
       if (scroll.hasClients && scroll.offset > 0) scroll.jumpTo(0);
     } catch (failure) {
       if (mounted && token == sequence) {
@@ -196,6 +225,19 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  void _preloadCovers(List<SourceItem> entries) {
+    final images = pipeline;
+    if (images == null) return;
+    final covers = entries
+        .where((e) => e.cover?.isNotEmpty == true)
+        .take(12)
+        .toList();
+    for (final item in covers) {
+      images.configureImageHeaders({item.cover!: item.coverHeaders});
+    }
+    images.preload(covers.map((e) => e.cover!), targetWidth: 360);
   }
 
   void loadMore() {
@@ -342,7 +384,9 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          selected: site.id == source?.site.id,
+                          selected:
+                              site.id ==
+                              (source?.site.id ?? service.selectedSiteId),
                           selectedTileColor: Theme.of(context)
                               .colorScheme
                               .primary
@@ -554,11 +598,24 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          '猫源',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                        InkWell(
+                          onTap: service.busy ? null : sitePicker,
+                          borderRadius: BorderRadius.circular(12),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '猫源',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Icon(Icons.expand_more, size: 16),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -596,18 +653,25 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
             Expanded(
               child: TextButton(
                 onPressed: service.busy ? null : sitePicker,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        source?.name ?? '选择站点',
-                        textAlign: TextAlign.left,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                child: Tooltip(
+                  message: '切换站点（记住上次选择）',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          source?.name ??
+                              (service.needsSiteSelection
+                                  ? '选择站点'
+                                  : CatPreloader.selectedSite(service)?.name ??
+                                        '选择站点'),
+                          textAlign: TextAlign.left,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    const Icon(Icons.expand_more),
-                  ],
+                      const Icon(Icons.expand_more),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -619,27 +683,40 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           ],
         ),
         if (categories.isNotEmpty)
-          row([
-            chip('全部', category == null, () {
+          BrowseChoiceAccess(
+            choices: categories,
+            selectedId: category,
+            onSelected: (id) {
               setState(() {
                 browseMode = null;
-                category = null;
+                category = id;
                 filters = {};
                 query = '';
               });
               unawaited(refresh());
-            }),
-            for (final entry in categories)
-              chip(entry.title, category == entry.id, () {
+            },
+            child: row([
+              chip('全部', category == null, () {
                 setState(() {
                   browseMode = null;
-                  category = entry.id;
+                  category = null;
                   filters = {};
                   query = '';
                 });
                 unawaited(refresh());
               }),
-          ]),
+              for (final entry in categories)
+                chip(entry.title, category == entry.id, () {
+                  setState(() {
+                    browseMode = null;
+                    category = entry.id;
+                    filters = {};
+                    query = '';
+                  });
+                  unawaited(refresh());
+                }),
+            ]),
+          ),
         for (final group in groups)
           row([
             if (!group.options.any((option) => option.title == '全部'))

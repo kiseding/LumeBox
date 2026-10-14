@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'dart:async';
+
+import 'package:lume_box/core/js/source_registry.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,11 +29,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_perf');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     for (final section in Section.values) {
       await SectionScope.open(section);
     }
@@ -58,7 +61,9 @@ void main() {
       // 预热前先落盘一份（模拟「上次已经加载过」）。
       final cacheDir = Directory(library.imageCacheDir);
       cacheDir.createSync(recursive: true);
-      final bytes = Uint8List.fromList(List<int>.generate(2048, (i) => i % 251));
+      final bytes = Uint8List.fromList(
+        List<int>.generate(2048, (i) => i % 251),
+      );
       final target = pipeline.cachePathFor(url);
       File(target).parent.createSync(recursive: true);
       File(target).writeAsBytesSync(bytes);
@@ -126,8 +131,10 @@ void main() {
       // 封面会一批批地空白。这里直接钉住那两套头。
       const url = 'https://img.example.com/a/cover.jpg';
       final withReferer = SectionImagePipeline.imageRequestHeaders(url);
-      final withoutReferer =
-          SectionImagePipeline.imageRequestHeaders(url, withReferer: false);
+      final withoutReferer = SectionImagePipeline.imageRequestHeaders(
+        url,
+        withReferer: false,
+      );
 
       expect(
         withReferer['Referer'],
@@ -173,6 +180,77 @@ void main() {
         reason: '装了 connectionFactory 就等于关掉 TLS 握手：$offenders',
       );
     });
+  });
+
+  test('板块关闭等待正在执行的调用，完成后释放且重开获得新上下文', () async {
+    final registry = await SourceRegistry.open(Section.novel);
+    final gate = Completer<void>();
+    final leased = registry.withLease(() => gate.future);
+    SourceRegistry.close(Section.novel);
+    expect(registry.isDisposed, isFalse);
+    gate.complete();
+    await leased;
+    expect(registry.isDisposed, isTrue);
+    final reopened = await SourceRegistry.open(Section.novel);
+    expect(reopened, isNot(same(registry)));
+    SourceRegistry.close(Section.novel);
+  });
+
+  test('推荐首页预热与分类第一页分别复用，并发预热不重复请求', () async {
+    final source = _WarmHomeSource();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'warm-source',
+          name: '源',
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {'warm-source': source},
+    );
+    await Future.wait(
+      List.generate(
+        4,
+        (_) => SectionPreloader.warm(Section.video, manager: manager),
+      ),
+    );
+    expect(source.homeCalls, 1);
+    expect(source.listCalls, isEmpty);
+    expect(
+      SectionPreloader.takeWarmHome(
+        Section.video,
+        sourceId: source.id,
+      )!.items.single.id,
+      'home',
+    );
+    expect(
+      SectionPreloader.takeWarmHome(Section.video, sourceId: source.id),
+      isNull,
+    );
+  });
+
+  test('刷新期间旧预热完成不会覆盖新内容，后续可再次预热', () async {
+    final source = _DelayedWarmSource();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'warm-source',
+          name: '源',
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {'warm-source': source},
+    );
+    final pending = SectionPreloader.warm(Section.video, manager: manager);
+    await Future<void>.delayed(Duration.zero);
+    SectionPreloader.discard(Section.video);
+    source.gate.complete();
+    await pending;
+    expect(SectionPreloader.hasWarm(Section.video), isFalse);
+    await SectionPreloader.warm(Section.video, manager: manager);
+    expect(SectionPreloader.hasWarm(Section.video), isTrue);
   });
 
   group('切板块预加载', () {
@@ -313,7 +391,32 @@ class _WarmSource implements DataSource {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }
 
+class _WarmHomeSource extends _WarmSource implements HomeCapable {
+  int homeCalls = 0;
+  @override
+  Future<bool> supportsHome() async => true;
+  @override
+  Future<SourceHome> home() async {
+    homeCalls++;
+    return const SourceHome(
+      items: [SourceItem(id: 'home', title: '首页')],
+    );
+  }
+}
+
+class _DelayedWarmSource extends _WarmSource {
+  final gate = Completer<void>();
+  @override
+  Future<SourceList> list({
+    String? categoryId,
+    String? keyword,
+    int page = 1,
+    Map<String, String>? filters,
+  }) async {
+    await gate.future;
+    return super.list(page: page);
+  }
+}

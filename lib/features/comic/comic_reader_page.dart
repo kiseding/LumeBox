@@ -132,6 +132,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
     )..bindSession(widget.dataSource.section, widget.dataSource.id);
     _settings = ComicReaderSettings.load(widget.library);
+    _pipeline.bindSource(widget.dataSource);
+    // 正文图也可能落在源站自己的域名上（有的站连阅读页都在 Cloudflare 校验后面）：
+    // 挂上源站会话，图片请求才带得动 cf_clearance（独立图床仍是一枚都不带）。
+    _pipeline.bindSession(widget.dataSource.section, widget.dataSource.id);
     // 模块设置（手势阈值 / 控件尺寸 / 间距）：与全局「漫画设置」同一份数据。
     _module = SectionModuleSettings.load(widget.library);
     _bookmarks = ComicBookmarks.decode(

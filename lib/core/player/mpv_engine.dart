@@ -349,6 +349,7 @@ class MpvEngineSnapshot {
     this.audioCodec,
     this.videoBitrateKbps,
     this.audioBitrateKbps,
+    this.downloadBytesPerSecond,
     this.fps,
     this.width,
     this.height,
@@ -368,6 +369,9 @@ class MpvEngineSnapshot {
   final String? audioCodec;
   final double? videoBitrateKbps;
   final double? audioBitrateKbps;
+
+  /// 播放器实际输入速率（字节/秒）；0 表示当前未下载，null 表示不可用。
+  final double? downloadBytesPerSecond;
   final double? fps;
   final int? width;
   final int? height;

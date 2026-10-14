@@ -100,14 +100,17 @@ class LumeNet {
       LumeLog.warn('本次请求已放宽证书校验（按源开启）：${request.url}');
     }
     final outgoing = http.Request(request.method, Uri.parse(request.url));
+    outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
     if (request.body != null) outgoing.body = request.body!;
-    final streamed = await client.send(outgoing).timeout(_settings.timeout);
+    final streamed = await client
+        .send(outgoing)
+        .timeout(request.timeout ?? _settings.timeout);
     // 探测型请求（网速表）带读取上限：读满即断开，不把整片内容拉下来。
     final bytes = await readResponseBody(
       streamed.stream,
       maxBytes: request.maxBytes,
-    ).timeout(_settings.timeout);
+    ).timeout(request.timeout ?? _settings.timeout);
     return NetworkResponse(
       statusCode: streamed.statusCode,
       body: bytes,

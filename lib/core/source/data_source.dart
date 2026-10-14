@@ -2,6 +2,10 @@ import '../session/section.dart';
 import '../net/network_settings.dart';
 import 'source_models.dart';
 
+abstract interface class RefreshingImageCapable {
+  Future<String?> refreshImage(String url, String page);
+}
+
 /// 统一数据源接口。
 ///
 /// 四个板块（小说 / 漫画 / 自定义视频 / 猫源）的图源——JS 图源与模拟实现——
@@ -67,10 +71,7 @@ abstract interface class DanmakuCapable {
   ///
   /// 返回形状由适配层宽容解析（数组 / `{danmaku: [...]}` 信封皆可）；没有弹幕时
   /// 返回空数组或 null。失败应抛 [SourceException]，由调用方决定是否降级。
-  Future<Object?> danmaku({
-    required String itemId,
-    required String chapterId,
-  });
+  Future<Object?> danmaku({required String itemId, required String chapterId});
 }
 
 /// 可选的「扩展能力」端口：**上报**弹幕（发一条弹幕到图源）。

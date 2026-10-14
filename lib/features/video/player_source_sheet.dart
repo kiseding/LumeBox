@@ -5,15 +5,8 @@ import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 
-/// 播放源弹窗：控制栏右侧那颗小信息图标点开的底部面板（用户要求）。
-///
-/// 为什么把地址从控制栏上收进来：完整的播放链接又长又没信息量，直接铺在控制栏
-/// 中间把进度条与按钮都挤下去了。收进弹窗后：控制栏干净了，而「看地址、复制地址、
-/// 换线路、手动贴地址」四件事一件不少——**原有的读取与切换逻辑（宿主页）不变**，
-/// 只是换了个入口。
-///
-/// 线路列表与「清晰度」按钮走的是同一份数据与同一个回调（宿主页的 `_selectQuality`），
-/// 因此两条入口永远一致。
+/// 选集与线路面板：先列剧集并标记当前集，再提供线路与播放地址。
+/// 切集交给宿主统一处理，失败时留在面板重试；手动地址没有剧集时如实提示。
 class PlayerSourceSheet extends StatefulWidget {
   const PlayerSourceSheet({
     super.key,
@@ -22,6 +15,9 @@ class PlayerSourceSheet extends StatefulWidget {
     this.currentIndex = 0,
     this.onSelectQuality,
     required this.onPlayAddress,
+    this.loadEpisodes,
+    this.currentChapterId,
+    this.onSelectEpisode,
   });
 
   /// 当前播放地址（为空表示还没装载任何媒体）。
@@ -40,15 +36,107 @@ class PlayerSourceSheet extends StatefulWidget {
   /// （由本弹窗就地展示，不弹 SnackBar——用户的手还在输入框上）。
   final Future<String?> Function(String text) onPlayAddress;
 
+  final Future<List<SourceChapter>> Function()? loadEpisodes;
+  final String? currentChapterId;
+  final Future<bool> Function(int index)? onSelectEpisode;
+
   @override
   State<PlayerSourceSheet> createState() => _PlayerSourceSheetState();
 }
 
 class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
-  late final TextEditingController _input =
-      TextEditingController(text: widget.address);
+  late final TextEditingController _input = TextEditingController(
+    text: widget.address,
+  );
   String? _error;
   bool _busy = false;
+
+  late Future<List<SourceChapter>>? _episodes = widget.loadEpisodes?.call();
+  bool _selectingEpisode = false;
+  String? _episodeError;
+
+  Future<void> _selectEpisode(int index) async {
+    if (_selectingEpisode || widget.onSelectEpisode == null) return;
+    setState(() {
+      _selectingEpisode = true;
+      _episodeError = null;
+    });
+    try {
+      final ok = await widget.onSelectEpisode!(index);
+      if (!mounted) return;
+      if (ok) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() => _episodeError = '切集失败，请重试');
+    } catch (_) {
+      if (mounted) setState(() => _episodeError = '切集失败，请重试');
+    } finally {
+      if (mounted) setState(() => _selectingEpisode = false);
+    }
+  }
+
+  Widget _buildEpisodes() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _label('选集'),
+      const SizedBox(height: 8),
+      if (_episodes == null)
+        const Text('当前视频没有剧集列表')
+      else
+        FutureBuilder<List<SourceChapter>>(
+          future: _episodes,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return TextButton.icon(
+                onPressed: () =>
+                    setState(() => _episodes = widget.loadEpisodes!()),
+                icon: const Icon(Icons.refresh),
+                label: const Text('剧集加载失败，点击重试'),
+              );
+            }
+            final chapters = snapshot.data ?? [];
+            if (chapters.isEmpty) return const Text('图源暂未提供剧集');
+            return SizedBox(
+              height: 192,
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 140,
+                  mainAxisExtent: 44,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                ),
+                itemCount: chapters.length,
+                itemBuilder: (context, index) => ChoiceChip(
+                  label: Text(
+                    chapters[index].title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  selected: chapters[index].id == widget.currentChapterId,
+                  onSelected: _selectingEpisode
+                      ? null
+                      : (_) => _selectEpisode(index),
+                ),
+              ),
+            );
+          },
+        ),
+      if (_selectingEpisode) const LinearProgressIndicator(),
+      if (_episodeError != null)
+        Text(
+          _episodeError!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      const SizedBox(height: 16),
+    ],
+  );
 
   @override
   void dispose() {
@@ -117,7 +205,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                       children: <Widget>[
                         Expanded(
                           child: Text(
-                            '播放源',
+                            '选集与线路',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -138,6 +226,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                       shrinkWrap: true,
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       children: <Widget>[
+                        _buildEpisodes(),
                         GlassCard(
                           radius: 14,
                           padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
@@ -288,7 +377,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   }
 
   Widget _label(String text) => Text(
-        text,
-        style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
-      );
+    text,
+    style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+  );
 }

@@ -12,6 +12,8 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/explore_view.dart';
 import 'package:lume_box/features/reading/search_results_page.dart';
 import 'package:lume_box/features/reading/section_toolbar.dart';
+import 'package:lume_box/features/reading/source_bar.dart';
+import 'package:lume_box/shared/widgets/home_browse_navigation.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -128,6 +130,38 @@ void main() {
           );
         }
         expect(find.byTooltip('筛选'), findsNothing, reason: '筛选已移到分类下方');
+      });
+    }
+
+    for (final width in [320.0, 375.0, 430.0]) {
+      testWidgets('漫画顶部 $width：短源切换、居中导航、右侧搜索', (tester) async {
+        await pumpExplore(
+          tester,
+          section: Section.comic,
+          source: _SearchSource(section: Section.comic),
+          sourceName: '这是一个很长的漫画源名称用于检查省略显示',
+        );
+        tester.view.physicalSize = Size(width, 812);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.binding.setSurfaceSize(Size(width, 812));
+        await tester.pumpAndSettle();
+        final toolbar = tester.getRect(find.byType(SectionToolbar));
+        final source = tester.getRect(find.byType(ReadingSourceBar));
+        final navigation = tester.getRect(find.byType(HomeBrowseNavigation));
+        final search = tester.getRect(find.byTooltip('搜索'));
+        expect(source.width, lessThanOrEqualTo(toolbar.width / 3 + 1));
+        expect(navigation.center.dx, closeTo(toolbar.center.dx, 1));
+        expect(source.right, lessThanOrEqualTo(navigation.left));
+        expect(navigation.right, lessThanOrEqualTo(search.left));
+        expect(source.center.dy, closeTo(navigation.center.dy, 1));
+        expect(search.center.dy, closeTo(navigation.center.dy, 1));
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('热门'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('搜索'));
+        await tester.pumpAndSettle();
+        expect(find.text('当前源搜索'), findsWidgets);
       });
     }
 

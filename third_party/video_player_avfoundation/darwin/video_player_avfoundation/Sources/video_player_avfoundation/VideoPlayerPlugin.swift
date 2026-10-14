@@ -75,6 +75,27 @@ public final class VideoPlayerPlugin: NSObject, FlutterPlugin, AVFoundationVideo
     // Publish the instance so that it receives detachFromEngine.
     registrar.publish(instance)
     #if os(iOS)
+      let network = FlutterMethodChannel(name: "lumebox/av_network", binaryMessenger: registrar.messenger())
+      network.setMethodCallHandler { [weak instance] call, result in
+        guard call.method == "readBytes" || call.method == "applyBuffering" else { result(FlutterMethodNotImplemented); return }
+        guard let args = call.arguments as? [String: Any],
+              let identifier = args["playerId"] as? NSNumber,
+              let video = instance?.playersByIdentifier[identifier.int64Value], !video.disposed else {
+          result(nil); return
+        }
+        if call.method == "applyBuffering" {
+          let seconds = (args["seconds"] as? NSNumber)?.doubleValue ?? 0
+          video.player.currentItem?.preferredForwardBufferDuration = max(0, seconds)
+          video.player.automaticallyWaitsToMinimizeStalling = (args["wait"] as? NSNumber)?.boolValue ?? false
+          result(nil); return
+        }
+        guard let events = video.player.currentItem?.accessLog()?.events, !events.isEmpty else {
+          result(nil); return
+        }
+        let valid = events.filter { $0.numberOfBytesTransferred >= 0 }
+        guard !valid.isEmpty else { result(nil); return }
+        result(valid.reduce(Int64(0)) { $0 + $1.numberOfBytesTransferred })
+      }
       let pip = FlutterMethodChannel(name: "lumebox/av_pip", binaryMessenger: registrar.messenger())
       pip.setMethodCallHandler { [weak instance] call, result in
         guard call.method == "prepare" else { result(FlutterMethodNotImplemented); return }

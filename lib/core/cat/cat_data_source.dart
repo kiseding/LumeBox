@@ -5,6 +5,22 @@ import '../session/section.dart';
 import '../source/source.dart';
 import 'cat_service.dart';
 
+Map<String, dynamic> catPayload(Map<String, dynamic> payload) {
+  final data = payload['data'];
+  if (data is Map &&
+      !payload.containsKey('list') &&
+      !payload.containsKey('class')) {
+    return catMap(data);
+  }
+  if (data is String) {
+    try {
+      final parsed = jsonDecode(data);
+      if (parsed is Map) return catMap(parsed);
+    } catch (_) {}
+  }
+  return payload;
+}
+
 String catUnescape(String value) {
   const pairs = {
     '＄': r'$',
@@ -29,6 +45,7 @@ class CatDataSource
   final CatSite site;
   final String? chapterFlag;
   Map<String, dynamic>? _home;
+  String? _homeCategoryId;
   final _details = <String, Map<String, dynamic>>{};
   final _folders = <String>{};
   bool isFolder(String itemId) => _folders.contains(itemId);
@@ -44,7 +61,7 @@ class CatDataSource
   };
   Future<Map<String, dynamic>> homeData({bool force = false}) async {
     if (force) _home = null;
-    return _home ??= await service.call(site, 'home');
+    return _home ??= catPayload(await service.call(site, 'home'));
   }
 
   @override
@@ -149,7 +166,7 @@ class CatDataSource
   }
 
   List<SourceItem> items(Map<String, dynamic> payload) =>
-      catMaps(payload['list'] ?? payload['items'])
+      catMaps(catPayload(payload)['list'] ?? catPayload(payload)['items'])
           .map(item)
           .whereType<SourceItem>()
           .toList();
@@ -162,13 +179,30 @@ class CatDataSource
     final data = await homeData();
     var found = items(data);
     if (found.isEmpty) {
-      try {
-        found = items(await service.call(site, 'homeVod'));
-      } on HttpException {
-        /* Some sources only provide category(). */
+      for (final endpoint in ['homeVod', 'homeVideo']) {
+        try {
+          found = items(await service.call(site, endpoint));
+        } on HttpException catch (error) {
+          if (!error.message.contains('404') &&
+              !error.message.contains('405')) {
+            rethrow;
+          }
+        }
+        if (found.isNotEmpty) break;
       }
     }
-    if (found.isEmpty) return list();
+    if (found.isEmpty) {
+      final available = await categories();
+      if (available.isEmpty) return const SourceList(items: [], hasMore: false);
+      for (final category in available.take(3)) {
+        final result = await list(categoryId: category.id);
+        if (result.items.isNotEmpty) {
+          _homeCategoryId = category.id;
+          return result;
+        }
+      }
+      return const SourceList(items: [], hasMore: false);
+    }
     return SourceList(items: found, hasMore: false);
   }
 
@@ -183,20 +217,32 @@ class CatDataSource
     if (keyword != null && keyword.trim().isNotEmpty) {
       data = await service.call(site, 'search', {
         'wd': keyword.trim(),
+        'page': page,
         'pg': '$page',
         'quick': false,
       });
     } else {
-      final tid = categoryId ?? (await categories()).firstOrNull?.id ?? '';
+      final tid =
+          categoryId ??
+          _homeCategoryId ??
+          (await categories()).firstOrNull?.id ??
+          '';
       data = await service.call(site, 'category', {
+        // CatPaw hosts use these fields; TVBox-compatible bundles use aliases.
+        'id': tid,
+        'page': page,
+        if (filters?.isNotEmpty == true) 'filters': filters,
         'tid': tid,
         'pg': '$page',
         'filter': filters?.isNotEmpty == true,
         'extend': filters ?? {},
       });
     }
-    final found = items(data);
-    final pages = int.tryParse(catText(data['pagecount'] ?? data['pageCount']));
+    final payload = catPayload(data);
+    final found = items(payload);
+    final pages = int.tryParse(
+      catText(payload['pagecount'] ?? payload['pageCount']),
+    );
     return SourceList(
       items: found,
       hasMore: pages == null ? found.length >= 20 : page < pages,
@@ -216,9 +262,9 @@ class CatDataSource
   Future<Map<String, dynamic>> rawDetail(String itemId) async =>
       _details[itemId] ??=
           catMaps(
-            (await service.call(site, 'detail', {
-              'id': rawItemId(itemId),
-            }))['list'],
+            catPayload(
+              await service.call(site, 'detail', {'id': rawItemId(itemId)}),
+            )['list'],
           ).firstOrNull ??
           {};
   @override
@@ -319,11 +365,13 @@ class CatDataSource
     required String chapterId,
   }) async {
     final episode = catMap(jsonDecode(chapterId));
-    final data = await service.call(site, 'play', {
-      'flag': episode['flag'] ?? '',
-      'id': episode['id'],
-      'flags': [],
-    });
+    final data = catPayload(
+      await service.call(site, 'play', {
+        'flag': episode['flag'] ?? '',
+        'id': episode['id'],
+        'flags': [],
+      }),
+    );
     final requestHeaders = headers(data['header'] ?? data['headers']);
     if (site.kind == 'comic') {
       var images = data['images'] ?? data['urls'] ?? data['list'];

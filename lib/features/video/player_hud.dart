@@ -11,8 +11,14 @@ import 'player_speed_meter.dart';
 /// 因此**换内核时这里一行都不用改**（宪法「播放器抽象架构规范」）。内核拿不到
 /// 的项由 [PlayerStats.chips] 自动省略；一条都没有时整块不渲染。
 class PlayerHud extends StatelessWidget {
-  const PlayerHud({super.key, required this.stats, this.networkKbps});
+  const PlayerHud({
+    super.key,
+    required this.stats,
+    this.networkKbps,
+    this.showDetails = true,
+  });
 
+  final bool showDetails;
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
 
@@ -33,11 +39,17 @@ class PlayerHud extends StatelessWidget {
       builder: (context, value, _) {
         final speed = PlaybackSpeedMeter.describe(kbps);
         final chips = <String>[
-          if (value.resolutionText != null) value.resolutionText!,
-          if (value.codecText != null) value.codecText!,
-          if (value.fpsText != null) value.fpsText!,
-          if (value.bitrateText != null) value.bitrateText!,
-          if (speed != null) '网速 $speed' else '网速 —',
+          if (showDetails && value.resolutionText != null)
+            value.resolutionText!,
+          if (showDetails && value.codecText != null) value.codecText!,
+          if (showDetails && value.fpsText != null) value.fpsText!,
+          if (showDetails && value.bitrateText != null) value.bitrateText!,
+          if (value.downloadBytesPerSecond != null)
+            '网速 ${PlaybackSpeedMeter.describeBytes(value.downloadBytesPerSecond!)}'
+          else if (speed != null)
+            '源测速 $speed'
+          else
+            '网速 —',
         ];
         if (chips.isEmpty) return const SizedBox.shrink();
         return Padding(

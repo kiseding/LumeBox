@@ -279,6 +279,7 @@ class SectionToolbar extends StatelessWidget {
     this.filterActive = false,
     this.busy = false,
     this.floating = false,
+    this.navigation,
   });
 
   /// 本板块已启用的源。
@@ -290,6 +291,7 @@ class SectionToolbar extends StatelessWidget {
   final VoidCallback? onManage;
   final bool busy;
   final bool floating;
+  final Widget? navigation;
 
   final BrowseSort sort;
   final ValueChanged<BrowseSort> onSortChanged;
@@ -314,6 +316,47 @@ class SectionToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (navigation != null) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final sourceWidth = (width / 3).clamp(0.0, (width - 120) / 2);
+          return SizedBox(
+            height: 48,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: sourceWidth,
+                    child: ReadingSourceBar(
+                      sources: sources,
+                      currentId: currentId,
+                      busy: busy,
+                      floating: true,
+                      onSelect: onSelect,
+                      onManage: onManage ?? () {},
+                      showManage: false,
+                    ),
+                  ),
+                ),
+                navigation!,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _ToolbarAction(
+                    floating: true,
+                    icon: Icons.search,
+                    tooltip: '搜索',
+                    onTap: onSearch,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
     return Row(
       children: <Widget>[
         // 1) 源选择下拉框

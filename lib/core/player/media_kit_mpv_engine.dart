@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../util/lume_log.dart';
 import 'buffering.dart';
+import 'highest_hls.dart';
 import 'mpv_engine.dart';
 import 'player_capabilities.dart';
 
@@ -40,6 +41,10 @@ class MediaKitMpvEngine
   MediaKitMpvEngine._(this._player) {
     _video = VideoController(_player);
     _subscribe();
+    _speedTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _sampleDownloadSpeed(),
+    );
   }
 
   // Position reports are not decode-frame callbacks. PiP must use its bounded
@@ -92,6 +97,10 @@ class MediaKitMpvEngine
   int? _width;
   int? _height;
   String? _error;
+  Timer? _speedTimer;
+  final _highestHls = HighestHls();
+  bool _networkMedia = false;
+  double? _downloadBytesPerSecond;
 
   @override
   void listen(void Function(MpvEngineSnapshot snapshot) onSnapshot) {
@@ -102,12 +111,24 @@ class MediaKitMpvEngine
   @override
   Future<void> open(MpvMediaRequest request) async {
     if (_disposed) return;
+    final uri = await _highestHls.resolve(
+      Uri.parse(request.url),
+      request.headers,
+    );
+    if (_disposed) {
+      await _highestHls.close();
+      return;
+    }
     _resetMediaState();
+    _networkMedia = [
+      'http',
+      'https',
+    ].contains(Uri.tryParse(request.url)?.scheme);
     try {
       // 缓冲属性要在起播**之前**写进去（cache / 预读时长在打开媒体时读一次）。
       await _applyBufferingProperties();
       await _player.open(
-        Media(request.url, httpHeaders: request.headers),
+        Media(uri.toString(), httpHeaders: request.headers),
         play: request.autoplay,
       );
       if (request.speed != 1.0) await _player.setRate(request.speed);
@@ -574,8 +595,10 @@ class MediaKitMpvEngine
 
   @override
   Future<void> dispose() async {
+    await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
+    _speedTimer?.cancel();
     for (final subscription in _subscriptions) {
       try {
         await subscription.cancel();
@@ -616,6 +639,36 @@ class MediaKitMpvEngine
   }
 
   // ------------------------------------------------------------------ 内部
+
+  void _sampleDownloadSpeed() {
+    if (_disposed || !_networkMedia) return;
+    final platform = _player.platform;
+    if (platform is! NativePlayer || platform.ctx == nullptr) return;
+    final name = 'cache-speed'.toNativeUtf8();
+    try {
+      final value = platform.mpv.mpv_get_property_string(
+        platform.ctx,
+        name.cast<Int8>(),
+      );
+      if (value == nullptr) {
+        _downloadBytesPerSecond = null;
+        return;
+      }
+      try {
+        final speed = double.tryParse(value.cast<Utf8>().toDartString());
+        _downloadBytesPerSecond = speed != null && speed.isFinite && speed >= 0
+            ? speed
+            : null;
+      } finally {
+        platform.mpv.mpv_free(value.cast());
+      }
+      _emit();
+    } catch (_) {
+      _downloadBytesPerSecond = null;
+    } finally {
+      malloc.free(name);
+    }
+  }
 
   void _subscribe() {
     final streams = _player.stream;
@@ -676,7 +729,16 @@ class MediaKitMpvEngine
     return bitsPerSecond / 1000;
   }
 
+  /// media_kit buffer is a timestamp (demuxer-cache-time), not a duration ahead.
+  @visibleForTesting
+  static Duration? bufferedAhead(Duration? end, Duration position) {
+    if (end == null) return null;
+    final ahead = end - position;
+    return ahead > Duration.zero ? ahead : Duration.zero;
+  }
+
   void _resetMediaState() {
+    _downloadBytesPerSecond = null;
     _position = Duration.zero;
     _duration = Duration.zero;
     _buffered = null;
@@ -706,13 +768,14 @@ class MediaKitMpvEngine
       MpvEngineSnapshot(
         position: _position,
         duration: _duration,
-        buffered: _buffered,
+        buffered: bufferedAhead(_buffered, _position),
         playing: _playing,
         buffering: _buffering,
         videoCodec: _videoCodec,
         audioCodec: _audioCodec,
         videoBitrateKbps: _videoBitrateKbps,
         audioBitrateKbps: _audioBitrateKbps,
+        downloadBytesPerSecond: _downloadBytesPerSecond,
         fps: _fps,
         width: _width,
         height: _height,

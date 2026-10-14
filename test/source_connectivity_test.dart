@@ -461,7 +461,7 @@ void main() {
       );
       await pumpManager(tester, manager);
 
-      await tester.tap(find.byTooltip('订阅操作'));
+      await tester.tap(find.byTooltip('添加源'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('刷新已导入订阅源'));
       await tester.pumpAndSettle();

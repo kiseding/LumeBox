@@ -19,6 +19,9 @@ class NetworkRequest {
     this.proxy = '',
     this.allowBadCertificate = false,
     this.maxBytes,
+    this.followRedirects = true,
+    this.timeout,
+    this.reuseVerifiedSession = false,
   });
 
   final String url;
@@ -41,6 +44,9 @@ class NetworkRequest {
 
   /// 本次请求的代理（图源覆盖或全局设置解析后的结果）；空串表示直连。
   final String proxy;
+  final bool followRedirects;
+  final Duration? timeout;
+  final bool reuseVerifiedSession;
 
   /// 响应体读取上限（字节）；null = 读完整。见 [readResponseBody] 的说明
   /// （只有「探测型」请求该设它，正常业务请求一律读全）。
@@ -148,6 +154,7 @@ class NetworkQueue {
   static const Duration maxRetryAfter = Duration(seconds: 30);
 
   int _activeGlobal = 0;
+  int _activeImages = 0;
   final Map<String, int> _activePerHost = <String, int>{};
 
   /// 等额度的请求（条件变量语义：释放时全部唤醒，各自重新检查）。
@@ -168,15 +175,16 @@ class NetworkQueue {
   /// 返回，本层没有额外开销。
   Future<NetworkResponse> send(NetworkRequest request) async {
     final host = hostOf(request.url);
+    final image = request.source.startsWith('封面:') || request.source == '图片缓存';
     var attempt = 0;
     final watch = Stopwatch()..start();
     while (true) {
-      await _acquire(host);
+      await _acquire(host, image);
       NetworkResponse response;
       try {
         response = await sender(request);
       } catch (error) {
-        _release(host);
+        _release(host, image);
         if (!request.retryOn ||
             isCertificateFailure(error) ||
             attempt >= settings.maxRetries) {
@@ -190,7 +198,7 @@ class NetworkQueue {
         attempt++;
         continue;
       }
-      _release(host);
+      _release(host, image);
 
       if (!request.retryOn ||
           !isRetryable(response.statusCode) ||
@@ -253,7 +261,9 @@ class NetworkQueue {
 
   /// 证书验证失败重试不会改变结果，立即释放下载额度。
   static bool isCertificateFailure(Object error) =>
-      '$error'.contains('CERTIFICATE_VERIFY_FAILED');
+      '$error'.contains('CERTIFICATE_VERIFY_FAILED') ||
+      '$error'.contains('TLS_HANDSHAKE_FAILED') ||
+      '$error'.contains('A TLS error caused the secure connection to fail');
 
   /// 解析 HTTP 日期（`Retry-After` 的日期写法）。解析失败返回 null。
   static DateTime? _tryParseHttpDate(String value) {
@@ -322,12 +332,16 @@ class NetworkQueue {
   // -------------------------------------------------------------- 额度闸门
 
   /// 拿到「全局 + 该域名」两个额度；拿不到就等，被唤醒后重新检查。
-  Future<void> _acquire(String host) async {
+  Future<void> _acquire(String host, bool image) async {
     while (true) {
       final globalOk = _activeGlobal < settings.globalConcurrency;
       final hostOk = (_activePerHost[host] ?? 0) < settings.perHostConcurrency;
-      if (globalOk && hostOk) {
+      // Keep two slots for page requests and playback while covers are loading.
+      final imageOk =
+          !image || _activeImages < max(1, settings.globalConcurrency - 2);
+      if (globalOk && hostOk && imageOk) {
         _activeGlobal++;
+        if (image) _activeImages++;
         _activePerHost[host] = (_activePerHost[host] ?? 0) + 1;
         return;
       }
@@ -337,7 +351,8 @@ class NetworkQueue {
     }
   }
 
-  void _release(String host) {
+  void _release(String host, bool image) {
+    if (image) _activeImages--;
     final remaining = (_activePerHost[host] ?? 1) - 1;
     if (remaining <= 0) {
       _activePerHost.remove(host);

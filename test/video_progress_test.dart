@@ -87,6 +87,87 @@ void main() {
     return created;
   }
 
+  for (final fullscreen in [false, true]) {
+    testWidgets('选集面板可切集并保留防盗链请求头：全屏=$fullscreen', (tester) async {
+      source.items = const [SourceItem(id: 'movie-1', title: '示例影片')];
+      source.chapterList = const [
+        SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
+        SourceChapter(id: 'movie-1-e2', title: '第 2 集'),
+      ];
+      source.contentHeaders = const {'Referer': 'https://example.com/'};
+      final players = await pumpBoard(tester);
+      await tester.tap(find.text('示例影片'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('第 1 集'));
+      await tester.pumpAndSettle();
+      if (fullscreen) {
+        await tester.tap(find.byTooltip('全屏'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('选集'), findsOneWidget);
+      await tester.tap(find.text('选集'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '第 1 集'))
+            .selected,
+        isTrue,
+      );
+      await tester.tap(find.widgetWithText(ChoiceChip, '第 2 集'));
+      await tester.pumpAndSettle();
+      expect(
+        players.single.media!.uri.toString(),
+        'https://example.com/movie-1-e2.mp4',
+      );
+      expect(players.single.media!.headers, source.contentHeaders);
+      expect(find.text('选集与线路'), findsNothing);
+      if (fullscreen) expect(find.byTooltip('退出全屏'), findsOneWidget);
+      await tester.tap(find.text('选集'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '第 2 集'))
+            .selected,
+        isTrue,
+      );
+    });
+  }
+
+  testWidgets('接近片尾预加载下一集，选集接手同一实例且不再次下载或解析', (tester) async {
+    source.items = const [SourceItem(id: 'movie-1', title: '示例影片')];
+    source.chapterList = const [
+      SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
+      SourceChapter(id: 'movie-1-e2', title: '第 2 集'),
+    ];
+    final players = await pumpBoard(tester);
+    await tester.tap(find.text('示例影片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第 1 集'));
+    await tester.pumpAndSettle();
+    final current = players.single;
+    current.pushStats(const PlayerStats(buffered: Duration(seconds: 10)));
+    current.emit(
+      position: const Duration(seconds: 40),
+      duration: const Duration(seconds: 60),
+      playing: true,
+    );
+    await tester.pumpAndSettle();
+    expect(players, hasLength(2));
+    final prepared = players.last;
+    expect(
+      prepared.media!.uri.toString(),
+      'https://example.com/movie-1-e2.mp4',
+    );
+    expect(prepared.snapshot.value.playing, isFalse);
+    await tester.tap(find.text('选集'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, '第 2 集'));
+    await tester.pumpAndSettle();
+    expect(prepared.loads, 1, reason: '接手已装载实例，不重新load');
+    expect(prepared.snapshot.value.playing, isTrue);
+    expect(current.disposals, 1);
+  });
+
   testWidgets('播到一半退出：进度落库（集数 + 时间点）', (tester) async {
     source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const <SourceChapter>[
@@ -829,9 +910,12 @@ class _FakePlayer extends AbstractPlayer {
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
 
+  final ValueNotifier<PlayerStats> _stats = ValueNotifier(const PlayerStats());
   @override
-  ValueListenable<PlayerStats> get stats =>
-      ValueNotifier<PlayerStats>(const PlayerStats());
+  ValueListenable<PlayerStats> get stats => _stats;
+  void pushStats(PlayerStats value) => _stats.value = value;
+  int loads = 0;
+  int disposals = 0;
 
   /// 用例手动推进播放位置 / 播放状态。
   void emit({
@@ -850,6 +934,7 @@ class _FakePlayer extends AbstractPlayer {
 
   @override
   Future<void> load(PlayerMedia media) async {
+    loads++;
     this.media = media;
     emit(duration: const Duration(minutes: 45));
   }
@@ -880,6 +965,8 @@ class _FakePlayer extends AbstractPlayer {
 
   @override
   Future<void> dispose() async {
+    disposals++;
     _snapshot.dispose();
+    _stats.dispose();
   }
 }

@@ -8,6 +8,8 @@ import 'package:video_player/video_player.dart';
 import '../util/lume_log.dart';
 import 'abstract_player.dart';
 import 'buffering.dart';
+import 'download_speed.dart';
+import 'highest_hls.dart';
 import 'player_capabilities.dart';
 import 'player_error.dart';
 import 'player_settings.dart';
@@ -56,6 +58,13 @@ class AvPlayer extends AbstractPlayer {
   // ignore: invalid_use_of_visible_for_testing_member
   int? get nativePlayerId => _controller?.playerId;
   Timer? _ticker;
+  final _highestHls = HighestHls();
+  final _downloadSampler = DownloadSpeedSampler();
+  final _downloadClock = Stopwatch();
+  double? _downloadBytesPerSecond;
+  bool _readingNetwork = false;
+  bool _networkMedia = false;
+  Duration _lastNetworkPoll = Duration.zero;
   bool _disposed = false;
 
   /// 最近一次应用的设置；加载完成后补挂到新控制器上。
@@ -130,6 +139,11 @@ class AvPlayer extends AbstractPlayer {
   @override
   Future<void> load(PlayerMedia media) async {
     if (_disposed) return;
+    final uri = await _highestHls.resolve(media.uri, media.headers);
+    if (_disposed) {
+      await _highestHls.close();
+      return;
+    }
     // 缓冲参数要先落到原生侧：插件正是在下面的 initialize() 里建 AVPlayer，
     // 晚一步写就只对下一次起播生效（那正是「第一次起播慢」的那一次）。
     await _applyBufferingOnce();
@@ -137,7 +151,7 @@ class AvPlayer extends AbstractPlayer {
     await _releaseController();
     final controller = media.isNetwork
         ? VideoPlayerController.networkUrl(
-            media.uri,
+            uri,
             httpHeaders: media.headers ?? const <String, String>{},
             // 后台音频继续播放：切到后台时画面停、声音不停（用户在听内容）。
             // `allowBackgroundPlayback` 是插件暴露的唯一后台开关，它顺带把
@@ -153,15 +167,19 @@ class AvPlayer extends AbstractPlayer {
             ),
           );
     _controller = controller;
+    _networkMedia = media.isNetwork;
+    _downloadClock
+      ..reset()
+      ..start();
     controller.addListener(_sync);
     try {
       await controller.initialize();
       await _applySpeed();
       await controller.setVolume(_volume);
-      _ticker = Timer.periodic(
-        const Duration(milliseconds: 500),
-        (_) => _sync(),
-      );
+      _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        _sync();
+        unawaited(_sampleNetwork(controller));
+      });
       _sync();
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
@@ -176,6 +194,16 @@ class AvPlayer extends AbstractPlayer {
     if (config == _config) return;
     _config = config;
     _bufferingWritten = false;
+    final id = nativePlayerId;
+    if (Platform.isIOS &&
+        id != null &&
+        _controller?.value.isInitialized == true) {
+      await AvNetworkStatistics.applyBuffering(
+        id,
+        config.forwardBuffer.inMicroseconds / Duration.microsecondsPerSecond,
+        config.minimizeStalling,
+      );
+    }
   }
 
   /// 把缓冲参数写进原生侧（只写一次；失败只记日志，不打断起播）。
@@ -258,6 +286,7 @@ class AvPlayer extends AbstractPlayer {
 
   @override
   Future<void> dispose() async {
+    await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
     _ticker?.cancel();
@@ -272,12 +301,42 @@ class AvPlayer extends AbstractPlayer {
     _ticker = null;
     final controller = _controller;
     _controller = null;
+    _downloadClock.stop();
+    _downloadSampler.reset();
+    _downloadBytesPerSecond = null;
+    _lastNetworkPoll = Duration.zero;
     if (controller == null) return;
     controller.removeListener(_sync);
     try {
       await controller.dispose();
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
+    }
+  }
+
+  Future<void> _sampleNetwork(VideoPlayerController controller) async {
+    if (_disposed ||
+        !_networkMedia ||
+        !Platform.isIOS ||
+        _readingNetwork ||
+        !identical(controller, _controller) ||
+        _downloadClock.elapsed - _lastNetworkPoll <
+            const Duration(seconds: 1)) {
+      return;
+    }
+    _readingNetwork = true;
+    _lastNetworkPoll = _downloadClock.elapsed;
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final bytes = await AvNetworkStatistics.readBytes(controller.playerId);
+      if (_disposed || !identical(controller, _controller)) return;
+      _downloadBytesPerSecond = _downloadSampler.sample(
+        bytes,
+        _downloadClock.elapsed,
+      );
+      _sync();
+    } finally {
+      _readingNetwork = false;
     }
   }
 
@@ -306,6 +365,7 @@ class AvPlayer extends AbstractPlayer {
       height: value.size.height > 0 ? value.size.height.round() : null,
       buffered: _bufferedAhead(value),
       buffering: value.isBuffering,
+      downloadBytesPerSecond: _downloadBytesPerSecond,
     );
   }
 

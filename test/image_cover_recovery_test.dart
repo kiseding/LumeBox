@@ -5,12 +5,71 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/net/network_queue.dart';
 import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/session/section.dart';
 
 void main() {
+  test('签名时间按UTC判定，读取前刷新即将过期的地址', () {
+    final url =
+        'https://images.example/a.jpg?X-Amz-Date=20261013T224940Z&X-Amz-Expires=60';
+    expect(
+      SectionImagePipeline.signedUrlExpired(
+        url,
+        now: DateTime.utc(2026, 10, 13, 22, 50, 38),
+      ),
+      true,
+    );
+    expect(
+      SectionImagePipeline.signedUrlExpired(
+        url,
+        now: DateTime.utc(2026, 10, 13, 22, 49, 50),
+      ),
+      false,
+    );
+    expect(
+      SectionImagePipeline.signedUrlExpired('https://images.example/a.jpg'),
+      false,
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('cover-recovery'));
   tearDown(() => root.deleteSync(recursive: true));
+  test('签名图片403后重新读取来源页，元数据不发给图床', () async {
+    const old = 'https://images.example/a.jpg?signature=expired';
+    const fresh = 'https://images.example/a.jpg?signature=fresh';
+    final source = _RefreshingSource(fresh);
+    final requests = <NetworkRequest>[];
+    final pipeline = SectionImagePipeline(
+      cacheDir: root.path,
+      maxRetries: 0,
+      requestSender: (request) async {
+        requests.add(request);
+        return NetworkResponse(
+          statusCode: request.url == fresh ? 200 : 403,
+          body: request.url == fresh ? [1, 2, 3] : [],
+          headers: {},
+        );
+      },
+    );
+    addTearDown(pipeline.dispose);
+    pipeline.bindSource(source);
+    pipeline.configureImageHeaders({
+      old: {
+        'Referer': 'https://site.example/',
+        'X-Lume-Image-Page': 'https://site.example/page/1',
+      },
+    });
+    expect(await pipeline.bytes(old), [1, 2, 3]);
+    expect(source.calls, 1);
+    expect(source.page, 'https://site.example/page/1');
+    expect(requests.map((r) => r.url), [old, fresh]);
+    for (final request in requests) {
+      expect(request.headers.containsKey('X-Lume-Image-Page'), false);
+      expect(request.headers['Referer'], 'https://site.example/');
+    }
+  });
   test('证书过期仅兼容已验证的公开缩略图，不携带凭证且沿用原缓存键', () async {
     const url =
         'https://imgcdn01.dycp444.com/pic8/e/9/e9a9905693e273094531d96d935fc330.320.255.jpg';
@@ -186,4 +245,18 @@ void main() {
       pipeline.dispose();
     });
   });
+}
+
+class _RefreshingSource extends MockDataSource
+    implements RefreshingImageCapable {
+  _RefreshingSource(this.fresh) : super(section: Section.comic);
+  final String fresh;
+  int calls = 0;
+  String? page;
+  @override
+  Future<String?> refreshImage(String url, String origin) async {
+    calls++;
+    page = origin;
+    return fresh;
+  }
 }

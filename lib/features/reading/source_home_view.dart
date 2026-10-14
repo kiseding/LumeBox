@@ -12,6 +12,7 @@ import '../../shared/widgets/notice_card.dart';
 import '../source/waf_webview_page.dart';
 import 'poster_card.dart';
 import 'section_image.dart';
+import '../shell/section_preloader.dart';
 
 /// 板块首页：**多板块横滑**（用户口径任务 3：视频 / 小说 / 漫画三块共用）。
 ///
@@ -84,12 +85,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     }
   }
 
-  /// 把「源站会话」挂到封面的管线上：源站上了 Cloudflare 校验时，封面请求不带
-  /// `cf_clearance` 就是一片空白（正文却能看）——详见 [bindSession]。
+  /// 把「源站会话」挂到封面管线上：源站上了 Cloudflare 校验时，封面请求不带
+  /// `cf_clearance` 就是一片空白（正文却能看）——详见 `SectionImagePipeline.bindSession`。
   void _bindSession() =>
       widget.pipeline?.bindSession(widget.source.section, widget.source.id);
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     final seq = ++_seq;
     setState(() {
       _home = null;
@@ -102,7 +103,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       return;
     }
     try {
-      final home = await (source as HomeCapable).home();
+      if (force) SectionPreloader.discard(source.section);
+      await SectionPreloader.waitForWarm(source.section);
+      if (!mounted || seq != _seq) return;
+      final home =
+          SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
+          await (source as HomeCapable).home();
       if (!mounted || seq != _seq) return;
       setState(() => _home = home);
       _preloadFirstScreen(home);
@@ -116,7 +122,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   ///
   /// **不自动开验证窗**（用户口径，连续两轮）：验证窗只在用户点【网页视图】时
   /// 打开；点【重试】若仍被拦下，看到的还是这张错误卡。
-  Future<void> _retry() => _load();
+  Future<void> _retry() => _load(force: true);
 
   /// 首屏封面的预取：第一块板块的前几张。
   ///
@@ -126,6 +132,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   void _preloadFirstScreen(SourceHome home) {
     final pipeline = widget.pipeline;
     if (pipeline == null) return;
+    pipeline.bindSource(widget.source);
     _bindSession();
     final items = home.isBoards
         ? (home.boards.isEmpty ? const <SourceItem>[] : home.boards.first.items)
@@ -169,7 +176,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         );
         return;
       case WafWebViewOutcome.collected:
-        await _load();
+        await _load(force: true);
     }
   }
 
@@ -264,7 +271,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     return RefreshIndicator(
       onRefresh: () async {
         await Future.wait([
-          _load(),
+          _load(force: true),
           if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
         ]);
       },
@@ -409,6 +416,8 @@ class _SourceHomeMorePageState extends State<SourceHomeMorePage> {
   }
 
   Future<void> _loadMore() async {
+    widget.pipeline?.bindSource(widget.source);
+    widget.pipeline?.bindSession(widget.source.section, widget.source.id);
     if (_loading || !_hasMore) return;
     setState(() {
       _loading = true;

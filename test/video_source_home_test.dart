@@ -170,6 +170,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('添加源'));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(PopupMenuItem<String>, '导入源'));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byType(TextField),
       '// LumeSource: {"id":"lume.new","name":"新图源","version":"1.0.0"}',

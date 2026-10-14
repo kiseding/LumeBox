@@ -59,7 +59,10 @@ class SourceRegistry {
   static final Map<String, Future<SourceRegistry>> _opening = {};
   static Future<SourceRegistry> open(Section section) {
     final existing = _registries[section.id];
-    if (existing != null) return Future.value(existing);
+    if (existing != null) {
+      existing._closeRequested = false;
+      return Future.value(existing);
+    }
     return _opening.putIfAbsent(section.id, () => _open(section));
   }
 
@@ -554,7 +557,26 @@ class SourceRegistry {
   }
 
   /// 关闭整个板块：释放引擎、HTTP 客户端与数据库。
-  static void close(Section section) => _registries[section.id]?.dispose();
+  static void close(Section section) =>
+      _registries[section.id]?._requestClose();
+
+  int _leases = 0;
+  bool _closeRequested = false;
+  Future<T> withLease<T>(Future<T> Function() operation) async {
+    if (_disposed) throw StateError('图源板块已关闭');
+    _leases++;
+    try {
+      return await operation();
+    } finally {
+      _leases--;
+      if (_leases == 0 && _closeRequested) dispose();
+    }
+  }
+
+  void _requestClose() {
+    _closeRequested = true;
+    if (_leases == 0) dispose();
+  }
 
   bool _disposed = false;
   void dispose() {

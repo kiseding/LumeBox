@@ -81,7 +81,7 @@ class SourceSubscriptionSync {
     subscriptions.clear();
     if (!file.existsSync()) return;
     final data = jsonDecode(file.readAsStringSync()) as Map;
-    _migrated = data['migrationVersion'] == 2;
+    _migrated = data['migrationVersion'] == 3;
     for (final raw in (data['subscriptions'] as List? ?? [])) {
       if (raw is! Map || !_validUrl('${raw['url']}')) continue;
       subscriptions.add(
@@ -104,7 +104,7 @@ class SourceSubscriptionSync {
     temp.writeAsStringSync(
       jsonEncode({
         'migrated': _migrated,
-        'migrationVersion': _migrated ? 2 : 0,
+        'migrationVersion': _migrated ? 3 : 0,
         'subscriptions': subscriptions.map((s) => s.toJson()).toList(),
       }),
       flush: true,

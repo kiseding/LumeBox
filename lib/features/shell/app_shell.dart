@@ -18,6 +18,8 @@ import '../../core/shell/shell_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../cat/cat_page.dart';
+import '../cat/cat_preloader.dart';
+import '../../core/cat/cat_service.dart';
 import '../comic/comic_page.dart';
 import '../novel/novel_page.dart';
 import '../settings/settings_page.dart';
@@ -83,6 +85,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 当前页签的**标识**（不是下标：顺序会变、页签会隐藏）。
   String _activeId = _pageCatalog.first.id;
   bool _scrollCollapsed = false;
+  Timer? _backgroundWarmTimer;
+  bool _foreground = true;
+  final _backgroundWarmed = <String>{};
+  bool _backgroundWarming = false;
 
   // 手机导航条使用完整安全区避让；玻璃胶囊内只摆图标与文字。
   static const double _dockHeight = 56;
@@ -191,6 +197,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _syncSubscriptions();
+    _scheduleBackgroundWarm();
     _shellSettings.addListener(_onShellSettingsChanged);
     // 装上「自动过 WAF 校验」的钩子（用户口径 2 / 3 / 4）：脚本抛
     // NEED_WEBVIEW_VERIFY 时，引擎层（没有 BuildContext）回调到这里，由壳层弹那个
@@ -229,6 +236,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _backgroundWarmTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _shellSettings.removeListener(_onShellSettingsChanged);
     if (_ownsController) _controller.dispose();
@@ -237,7 +245,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _syncSubscriptions() {
     for (final section in Section.values) {
-      if (LumeSources.runtimeAvailableFor(section)) {
+      if (section != Section.cat && LumeSources.runtimeAvailableFor(section)) {
         unawaited(SourceSubscriptionSync.refresh(section));
       }
     }
@@ -245,7 +253,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _syncSubscriptions();
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) {
+      _syncSubscriptions();
+      _backgroundWarmed.clear();
+      _scheduleBackgroundWarm();
+    } else {
+      _backgroundWarmTimer?.cancel();
+    }
   }
 
   void _onShellSettingsChanged() {
@@ -269,26 +284,69 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 点下去、页面还没构建的那一小段，把板块运行时（阅读库 + 源引擎）与首页
     // 第一页提前拉起来；页面构建后能直接吃这口热饭。
     // 预热失败不影响任何事（页面照旧自己取），见 [SectionPreloader]。
-    _warmUp(id);
+    unawaited(_warmUp(id));
     setState(() {
       _activeId = id;
       _scrollCollapsed = false;
     });
   }
 
-  /// 预热目标板块（只预热有源运行时的板块；失败静默）。
-  void _warmUp(String id) {
+  Future<void> _warmUp(String id) async {
     final section = sectionFromId(id);
     if (section == null) return;
+    if (section == Section.cat) {
+      if (LumeSources.runtimeAvailableFor(Section.cat)) {
+        await CatPreloader.warm(CatService.instance);
+      }
+      return;
+    }
     if (!LumeSources.runtimeAvailableFor(section)) return;
-    // 不 await：预热是「提前做」，绝不能拖慢页签切换本身。
-    unawaited(
-      SectionPreloader.warm(
-        section,
-        manager: LumeSources.manager(section),
-        openLibrary: () => ReadingLibrary.open(section).then((_) {}),
-      ),
+    await SectionPreloader.warm(
+      section,
+      manager: LumeSources.manager(section),
+      openLibrary: () => ReadingLibrary.open(section).then((_) {}),
     );
+  }
+
+  void _scheduleBackgroundWarm() {
+    _backgroundWarmTimer?.cancel();
+    if (!mounted ||
+        !_foreground ||
+        !_visibleTabs.any((t) {
+          final section = sectionFromId(t.id);
+          return section != null && LumeSources.runtimeAvailableFor(section);
+        })) {
+      return;
+    }
+    _backgroundWarmTimer = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_warmNext()),
+    );
+  }
+
+  Future<void> _warmNext() async {
+    if (!mounted || !_foreground || _backgroundWarming) return;
+    if (!_controller.visible || ModalRoute.of(context)?.isCurrent == false) {
+      _scheduleBackgroundWarm();
+      return;
+    }
+    final target = _visibleTabs
+        .where(
+          (t) =>
+              t.id != _activeId &&
+              sectionFromId(t.id) != null &&
+              !_backgroundWarmed.contains(t.id),
+        )
+        .firstOrNull;
+    if (target == null) return;
+    _backgroundWarming = true;
+    _backgroundWarmed.add(target.id);
+    try {
+      await _warmUp(target.id);
+    } finally {
+      _backgroundWarming = false;
+      if (mounted) _scheduleBackgroundWarm();
+    }
   }
 
   @override

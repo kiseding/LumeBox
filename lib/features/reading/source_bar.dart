@@ -40,8 +40,10 @@ class ReadingSourceBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final content = Row(
       children: <Widget>[
-        Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
-        const SizedBox(width: 8),
+        if (!floating) ...[
+          Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
+          const SizedBox(width: 8),
+        ],
         Expanded(
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
@@ -57,6 +59,8 @@ class ReadingSourceBar extends StatelessWidget {
               icon: Icon(Icons.expand_more, size: 18, color: LumeTheme.muted),
               hint: Text(
                 '未选择源',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

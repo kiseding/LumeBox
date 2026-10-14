@@ -127,7 +127,8 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
       record.enabled = true;
       await service.save();
     }
-    if (record.hash.isEmpty) await service.update(record);
+    if (!await service.hasBundle(record)) await service.update(record);
+    await service.refreshSites(record);
     final url = await service.configurationUrl(record);
     if (!mounted) return;
     await Navigator.push(
@@ -219,7 +220,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                     ),
                     subtitle: Text(
                       '${record.hash.isEmpty
-                          ? '未下载'
+                          ? (record.error.contains('401') ? '需要作者授权' : '未下载')
                           : record.sites.isEmpty
                           ? '站点尚未读取'
                           : '${record.sites.length} 个站点'} · ${record.enabled ? '已启用' : '已停用'}',
@@ -282,6 +283,26 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                       record.error,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
+                    ),
+                  if (record.error.contains('401'))
+                    TextButton.icon(
+                      onPressed: working
+                          ? null
+                          : () => add(name: record.name, url: record.url),
+                      icon: const Icon(Icons.key_outlined),
+                      label: const Text('填写作者提供的订阅授权'),
+                    )
+                  else if (record.hash.isEmpty || record.sites.isEmpty)
+                    TextButton.icon(
+                      onPressed: working || service.busy
+                          ? null
+                          : () => run(() async {
+                              record.enabled = true;
+                              await service.save();
+                              await service.refreshSites(record);
+                            }),
+                      icon: const Icon(Icons.refresh),
+                      label: Text(record.hash.isEmpty ? '下载并读取站点' : '重新读取站点'),
                     ),
                   TextButton.icon(
                     onPressed: working || service.busy

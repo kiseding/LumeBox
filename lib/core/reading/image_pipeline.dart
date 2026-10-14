@@ -15,6 +15,7 @@ import '../net/network_settings.dart';
 import '../net/source_request_log.dart';
 import '../net/waf.dart';
 import '../session/section.dart';
+import '../source/data_source.dart';
 import '../util/lume_log.dart';
 import 'reading_store.dart';
 
@@ -68,6 +69,14 @@ class SectionImagePipeline {
   bool canRetry(String url) =>
       !{'证书异常', '链接失效', '非图片响应'}.contains(failureFor(url));
   final Map<String, Map<String, String>> _imageHeaders = {};
+  Future<String?> Function(String, String)? _refreshImage;
+  DataSource? _boundSource;
+  void bindSource(DataSource? source) {
+    _boundSource = source;
+    _refreshImage = source is RefreshingImageCapable
+        ? (source as RefreshingImageCapable).refreshImage
+        : null;
+  }
 
   /// 图片请求头只能绑定到该源明确给出的 URL，不向其他域名或图片扩散。
   void configureImageHeaders(Map<String, Map<String, String>> headers) {
@@ -112,6 +121,39 @@ class SectionImagePipeline {
   }
 
   final Map<String, SectionImagePipeline> _sourcePipelines = {};
+
+  /// 这条管线渲染的是哪个源（[Section] + 源 id），由页面在渲染该源的封面时挂上。
+  ///
+  /// 用途只有一个：**源站自己的图片要带源站会话**（`cf_clearance` 这类）。脚本
+  /// 请求本来就带这份会话（见 `WafSessions`），所以列表 / 详情 HTML 一直取得到；
+  /// 图片请求从前一枚 Cookie 都不带，源站一上 Cloudflare 校验，正文能看、封面
+  /// 却一批批空白（真机反馈）。会话只发给**脚本自己请求过的域名**，独立图床
+  /// （脚本从不请求）一枚都不带——那是把源站凭据泄漏给第三方域名。
+  Section? _sessionSection;
+  String? _sessionSourceId;
+
+  /// 把「源站会话」挂到这条管线上；下次请求即按 [SourceRequestLog.ownsHost] 判定。
+  void bindSession(Section section, String sourceId) {
+    _sessionSection = section;
+    _sessionSourceId = sourceId;
+  }
+
+  /// 这张图要不要带源站会话：源站自己的域名 → 带上会话 Cookie 与验证时的 UA。
+  ///
+  /// UA 必须跟着一起换：`cf_clearance` 绑 IP + UA，带着 Cookie 用另一个 UA 发出去
+  /// 等于没验（真机反馈过「验完还是被拦」）。没有会话时返回 null，行为与从前一致。
+  ({String cookies, String userAgent})? _sessionFor(String url) {
+    final id = _sessionSourceId;
+    final section = _sessionSection;
+    if (id == null || section == null) return null;
+    if (!SourceRequestLog.ownsHost(id, url)) return null;
+    final cookies = WafSessions.cookiesFor(section, id)?.trim() ?? '';
+    if (cookies.isEmpty) return null;
+    return (
+      cookies: cookies,
+      userAgent: WafSessions.userAgentFor(section, id)?.trim() ?? '',
+    );
+  }
 
   /// 封面沿用该源的 UA、代理与显式证书选项；缓存与客户端按源隔离。
   ///
@@ -479,6 +521,22 @@ class SectionImagePipeline {
           ? uri.replace(host: 'media.themoviedb.org', userInfo: '').toString()
           : null;
       var requestedUrl = url;
+      final originPage = _imageHeaders[url]?['X-Lume-Image-Page'];
+      var refreshed = false;
+      if (originPage != null &&
+          _refreshImage != null &&
+          signedUrlExpired(url)) {
+        refreshed = true;
+        try {
+          final fresh = await _refreshImage!(url, originPage);
+          final replacement = Uri.tryParse(fresh ?? '');
+          if (replacement != null &&
+              ['http', 'https'].contains(replacement.scheme)) {
+            _imageHeaders[fresh!] = Map.of(_imageHeaders[url] ?? {});
+            requestedUrl = fresh;
+          }
+        } catch (_) {}
+      }
       var triedAlternate = false;
       final publicFallback = publicThumbnailFallback(
         url,
@@ -488,6 +546,7 @@ class SectionImagePipeline {
       var retries = 0;
       final budget =
           _maxRetries +
+          (originPage == null || _refreshImage == null ? 0 : 1) +
           (alternate == null ? 0 : 1) +
           (publicFallback == null ? 0 : 1);
       for (var attempt = 0; attempt <= budget; attempt++) {
@@ -499,6 +558,24 @@ class SectionImagePipeline {
         if (outcome.bytes != null) {
           _failures.remove(url);
           return outcome.bytes;
+        }
+        if (outcome.forbidden &&
+            !refreshed &&
+            originPage != null &&
+            _refreshImage != null) {
+          refreshed = true;
+          try {
+            final fresh = await _refreshImage!(url, originPage);
+            final uri = Uri.tryParse(fresh ?? '');
+            if (uri != null &&
+                ['http', 'https'].contains(uri.scheme) &&
+                fresh != requestedUrl) {
+              _imageHeaders[fresh!] = Map.of(_imageHeaders[url] ?? {});
+              requestedUrl = fresh;
+              bareReferer = false;
+              continue;
+            }
+          } catch (_) {}
         }
         if (alternate != null && !triedAlternate) {
           requestedUrl = alternate;
@@ -539,6 +616,21 @@ class SectionImagePipeline {
 
   /// Verified public thumbnails on this CDN remain available over HTTP while
   /// its TLS certificate is expired. Never downgrade authenticated URLs.
+  @visibleForTesting
+  static bool signedUrlExpired(String url, {DateTime? now}) {
+    final query = Uri.tryParse(url)?.queryParameters ?? {};
+    final at = DateTime.tryParse(query['X-Amz-Date'] ?? '');
+    final seconds = int.tryParse(query['X-Amz-Expires'] ?? '');
+    return at != null &&
+        seconds != null &&
+        seconds >= 0 &&
+        !at
+            .add(Duration(seconds: seconds))
+            .isAfter(
+              (now ?? DateTime.now()).toUtc().add(const Duration(seconds: 5)),
+            );
+  }
+
   @visibleForTesting
   static String? publicThumbnailFallback(
     String url, {
@@ -601,7 +693,16 @@ class SectionImagePipeline {
     bool withReferer = true,
   }) async {
     try {
-      // 源站会话：只在「这张图落在源站自己的域名上」时带（见 [_sessionFor]）。
+      final bound = _boundSource;
+      final verifiedUa = bound == null
+          ? ''
+          : WafSessions.userAgentFor(bound.section, bound.id)?.trim() ?? '';
+      // 源站会话（`cf_clearance` 这类）：**只发给源站自己的域名**，见 [_sessionFor]。
+      //
+      // 为什么图片请求也得带：脚本请求本来就带这份会话（见 `LumeHttp.sessionCookies`），
+      // 所以列表 / 详情 HTML 一直取得到；图片请求从前一枚 Cookie 都不带（iOS 原生
+      // 图片通道是 ephemeral 会话、不读 Cookie 仓库），源站一上 Cloudflare 校验，
+      // 正文能看、封面却一批批空白（真机反馈）。这里补上同一份会话。
       final session = _sessionFor(url);
       final explicitHeaders = _imageHeaders[url] ?? const <String, String>{};
       // 源自己写死的 Cookie（`coverHeaders`）优先：它比会话更懂那张图要什么。
@@ -619,12 +720,17 @@ class SectionImagePipeline {
               'User-Agent': network.userAgent.trim(),
             for (final entry in explicitHeaders.entries)
               if (withReferer || entry.key.toLowerCase() != 'referer')
-                entry.key: entry.value,
+                if (!entry.key.toLowerCase().startsWith('x-lume-image-'))
+                  entry.key: entry.value,
             if (session != null && !hasExplicitCookie) 'Cookie': session.cookies,
+            // 会话的 UA 压过一切：`cf_clearance` 绑 IP + UA，换 UA 等于没验。
             if (session != null && session.userAgent.isNotEmpty)
               'User-Agent': session.userAgent,
+            if (verifiedUa.isNotEmpty) 'User-Agent': verifiedUa,
           },
           source: sourceLabel,
+          timeout: timeout,
+          reuseVerifiedSession: verifiedUa.isNotEmpty,
           proxy: network.proxy.trim().isEmpty
               ? LumeNet.settings.proxy
               : network.proxy.trim(),
