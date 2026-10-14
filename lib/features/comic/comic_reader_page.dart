@@ -130,7 +130,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
       // 只是这一话跨会话再看会重新下载（内存缓存与管线复用仍在）。
       diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
-    );
+    )..bindSession(widget.dataSource.section, widget.dataSource.id);
     _settings = ComicReaderSettings.load(widget.library);
     // 模块设置（手势阈值 / 控件尺寸 / 间距）：与全局「漫画设置」同一份数据。
     _module = SectionModuleSettings.load(widget.library);

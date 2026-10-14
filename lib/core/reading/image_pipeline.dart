@@ -12,6 +12,8 @@ import '../net/lume_http.dart';
 import '../net/lume_net.dart';
 import '../net/network_queue.dart';
 import '../net/network_settings.dart';
+import '../net/source_request_log.dart';
+import '../net/waf.dart';
 import '../session/section.dart';
 import '../util/lume_log.dart';
 import 'reading_store.dart';
@@ -76,10 +78,46 @@ class SectionImagePipeline {
     }
   }
 
+  /// 这条管线渲染的是哪个源（[Section] + 源 id），由页面在渲染该源的封面时挂上。
+  ///
+  /// 用途只有一个：**源站自己的图片要带源站会话**（`cf_clearance` 这类）。脚本
+  /// 请求本来就带这份会话（见 `WafSessions`），所以列表 / 详情 HTML 一直取得到；
+  /// 图片请求从前一枚 Cookie 都不带，源站一上 Cloudflare 校验，正文能看、封面
+  /// 却一批批空白（真机反馈）。会话只发给**脚本自己请求过的域名**，独立图床
+  /// （脚本从不请求）一枚都不带——那是把源站凭据泄漏给第三方域名。
+  Section? _sessionSection;
+  String? _sessionSourceId;
+
+  /// 把「源站会话」挂到这条管线上；下次请求即按 [ownsHost] 判定要不要带。
+  void bindSession(Section section, String sourceId) {
+    _sessionSection = section;
+    _sessionSourceId = sourceId;
+  }
+
+  /// 这张图要不要带源站会话：源站自己的域名 → 带上会话 Cookie 与验证时的 UA。
+  ///
+  /// UA 必须跟着一起换：`cf_clearance` 绑 IP + UA，带着 Cookie 用另一个 UA 发出去
+  /// 等于没验（真机反馈过「验完还是被拦」）。没有会话时返回 null，行为与从前一致。
+  ({String cookies, String userAgent})? _sessionFor(String url) {
+    final id = _sessionSourceId;
+    final section = _sessionSection;
+    if (id == null || section == null) return null;
+    if (!SourceRequestLog.ownsHost(id, url)) return null;
+    final cookies = WafSessions.cookiesFor(section, id)?.trim() ?? '';
+    if (cookies.isEmpty) return null;
+    return (
+      cookies: cookies,
+      userAgent: WafSessions.userAgentFor(section, id)?.trim() ?? '',
+    );
+  }
+
   final Map<String, SectionImagePipeline> _sourcePipelines = {};
 
   /// 封面沿用该源的 UA、代理与显式证书选项；缓存与客户端按源隔离。
-  /// Cookie 不发给独立图床，避免把源站会话泄漏到第三方域名。
+  ///
+  /// Cookie 只发给**源站自己的域名**（脚本请求过的域名，见 [SourceRequestLog.ownsHost]）：
+  /// 独立图床一枚都不带，避免把源站会话泄漏到第三方域名；源站自己的封面则必须带上
+  /// （`cf_clearance` 这类校验凭证不带过去就是一片空白，见 [_fetchOnce]）。
   SectionImagePipeline forSource(
     Section section,
     String sourceId,
@@ -102,7 +140,7 @@ class SectionImagePipeline {
         network: profile,
         sourceLabel: '封面:${section.id}:$sourceId',
         requestSender: requestSender,
-      ),
+      )..bindSession(section, sourceId),
     );
   }
 
@@ -563,6 +601,13 @@ class SectionImagePipeline {
     bool withReferer = true,
   }) async {
     try {
+      // 源站会话：只在「这张图落在源站自己的域名上」时带（见 [_sessionFor]）。
+      final session = _sessionFor(url);
+      final explicitHeaders = _imageHeaders[url] ?? const <String, String>{};
+      // 源自己写死的 Cookie（`coverHeaders`）优先：它比会话更懂那张图要什么。
+      final hasExplicitCookie = explicitHeaders.keys.any(
+        (key) => key.toLowerCase() == 'cookie',
+      );
       // 图片同样走全局网络队列：单域名并发（2~3）保护图床，429/503 自动退避。
       // 队列管「什么时候发」，这里只管「拿到字节后怎么用」。
       final response = await (requestSender ?? LumeNet.queue.send)(
@@ -572,10 +617,12 @@ class SectionImagePipeline {
             ...imageRequestHeaders(url, withReferer: withReferer),
             if (network.userAgent.trim().isNotEmpty)
               'User-Agent': network.userAgent.trim(),
-            for (final entry
-                in (_imageHeaders[url] ?? const <String, String>{}).entries)
+            for (final entry in explicitHeaders.entries)
               if (withReferer || entry.key.toLowerCase() != 'referer')
                 entry.key: entry.value,
+            if (session != null && !hasExplicitCookie) 'Cookie': session.cookies,
+            if (session != null && session.userAgent.isNotEmpty)
+              'User-Agent': session.userAgent,
           },
           source: sourceLabel,
           proxy: network.proxy.trim().isEmpty

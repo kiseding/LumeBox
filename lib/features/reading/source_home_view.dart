@@ -66,6 +66,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   @override
   void initState() {
     super.initState();
+    _bindSession();
     _load();
   }
 
@@ -74,12 +75,19 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     super.didUpdateWidget(oldWidget);
     // 换图源：重新取首页（代号作废在飞结果）。
     if (!identical(oldWidget.source, widget.source)) {
+      _bindSession();
       _load();
     } else if (!identical(oldWidget.pipeline, widget.pipeline) &&
         _home != null) {
+      _bindSession();
       _preloadFirstScreen(_home!);
     }
   }
+
+  /// 把「源站会话」挂到封面的管线上：源站上了 Cloudflare 校验时，封面请求不带
+  /// `cf_clearance` 就是一片空白（正文却能看）——详见 [bindSession]。
+  void _bindSession() =>
+      widget.pipeline?.bindSession(widget.source.section, widget.source.id);
 
   Future<void> _load() async {
     final seq = ++_seq;
@@ -118,6 +126,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   void _preloadFirstScreen(SourceHome home) {
     final pipeline = widget.pipeline;
     if (pipeline == null) return;
+    _bindSession();
     final items = home.isBoards
         ? (home.boards.isEmpty ? const <SourceItem>[] : home.boards.first.items)
         : home.items;

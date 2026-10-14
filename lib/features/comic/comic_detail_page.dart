@@ -114,6 +114,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
       final detail = await source.detail(widget.target.itemId);
       final chapters = await source.chapters(widget.target.itemId);
       if (!mounted) return;
+      // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么。
+      _pipeline.bindSession(source.section, source.id);
       if (detail?.cover != null) {
         _pipeline.configureImageHeaders({detail!.cover!: detail.coverHeaders});
       }
