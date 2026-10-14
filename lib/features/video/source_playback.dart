@@ -28,6 +28,10 @@ class SourcePlayback {
     final text = value?.trim() ?? '';
     if (text.isEmpty) return null;
     // 绝对路径先判：`D:\a.mp4` 会被 URI 解析器认成 scheme 'd'，不拦下来就漏了。
+    // 判定必须**带媒体后缀**（见 [_looksLikeFilePath]）：图源条目 id 大量是
+    // `/watch?v=123`、`/9434719.html`、`/album/1` 这种站内路径，早先一律当成
+    // 本地文件，起播就变成打开一个不存在的 file:// —— 真机表现是
+    // 「播放连接中断 + 未知错误 -17913」且日志里地址域名空白（H動漫網中过）。
     if (_looksLikeFilePath(text)) return Uri.file(text);
     final uri = Uri.tryParse(text);
     if (uri == null || !uri.hasScheme) return null;
@@ -63,11 +67,16 @@ class SourcePlayback {
     DataSource? source,
   }) {
     if (content is! VideoContent) return const {};
-    return _verifiedHeaders(
-      highestQuality(content)?.headers ?? content.headers,
-      contentAddress(content),
-      source,
-    );
+    // **线路自己没写请求头时继承主 headers**：图源多数只在 `headers` 上写一次
+    // （Referer / UA），`qualities` 里只有 label+url。早先这里写的是
+    // `highestQuality()?.headers ?? content.headers`——空的 Map 不是 null，
+    // 于是「带 qualities 的源」请求头被整份丢掉（真机：Hanime1 / H動漫網 的播放
+    // 请求裸奔，AVPlayer 报 -12939「byte range and no content length」）。
+    final quality = highestQuality(content);
+    final headers = quality == null || quality.headers.isEmpty
+        ? content.headers
+        : quality.headers;
+    return _verifiedHeaders(headers, contentAddress(content), source);
   }
 
   /// 带上该源「验证过的会话」：验证时的 UA，以及 **源站自己域名上的** Cookie。
@@ -132,11 +141,24 @@ class SourcePlayback {
   }
 
   /// 本地文件的绝对路径判定（POSIX 与 Windows 两种写法）。
-  /// 相对路径不认——图源条目里的纯 id 落到这里只会是 id，不是文件。
+  ///
+  /// **必须带媒体后缀**才算本地文件：条目 id 是**站内路径**（`/watch?v=123`、
+  /// `/9434719.html`、`/album/1`、`/book/1248`）的和本地文件长得一模一样，
+  /// 只看「以 / 开头」就会把整个图源误判成本地播放（起播必失败，报错里连域名
+  /// 都没有）。带 `file://` scheme 的地址走 [schemes] 白名单，不经过这里。
   static bool _looksLikeFilePath(String text) {
-    if (text.startsWith('/') || text.startsWith(r'\')) return true;
-    return _driveLetter.hasMatch(text);
+    if (_driveLetter.hasMatch(text)) return true;
+    if (!(text.startsWith('/') || text.startsWith(r'\'))) return false;
+    final path = text.split('?').first.split('#').first;
+    return _mediaExtension.hasMatch(path);
   }
+
+  /// 本地媒体 / 字幕文件后缀（判「这是文件还是站内路径」用）。
+  static final RegExp _mediaExtension = RegExp(
+    r'\.(?:mp4|m4v|mov|mkv|webm|avi|flv|wmv|ts|m3u8|mpd|mp3|m4a|aac|flac|wav|'
+    r'ogg|opus|ape|srt|ass|ssa|vtt)$',
+    caseSensitive: false,
+  );
 
   static final RegExp _driveLetter = RegExp(r'^[A-Za-z]:[\\/]');
 }

@@ -69,4 +69,80 @@ void main() {
       expect(SourcePlayback.contentAddress(null), isNull);
     });
   });
+
+  group('站内路径不能被当成本地文件（真机 -17913 的根因）', () {
+    test('图源条目 id 的形状：/watch?v=、/9434719.html、/album/1、/book/1248', () {
+      // 这些 id 全是「以 / 开头」的站内路径，早先一律被 Uri.file 吃掉，
+      // 起播变成打开不存在的 file://（H動漫網 -17913 + 报错里没有域名）。
+      for (final id in <String>[
+        '/watch?v=123',
+        '/9434719.html',
+        '/album/1',
+        '/book/1248',
+        '/comic-lists/all/ob/time/st/all',
+      ]) {
+        expect(
+          SourcePlayback.directAddress(id),
+          isNull,
+          reason: '「$id」是站内路径：交给 chapters/content 链路取地址',
+        );
+      }
+    });
+
+    test('真本地媒体路径照旧认（带媒体后缀才认）', () {
+      expect(
+        SourcePlayback.directAddress('/var/mobile/Media/a.mp4')?.scheme,
+        'file',
+      );
+      expect(SourcePlayback.directAddress('/tmp/剧集01.mkv')?.scheme, 'file');
+      expect(SourcePlayback.directAddress('/tmp/a.m3u8')?.scheme, 'file');
+      expect(SourcePlayback.directAddress(r'D:\media.mp4')?.scheme, 'file');
+      // file:// 走 scheme 白名单，与后缀无关。
+      expect(
+        SourcePlayback.directAddress('file:///var/mobile/a.bin')?.scheme,
+        'file',
+      );
+    });
+  });
+
+  group('播放请求头：线路没写就继承主 headers（Hanime1 裸奔回归）', () {
+    test('qualities 只有 label+url 时，Referer / UA 不能丢', () {
+      final content = VideoContent(
+        url: Uri.parse('https://cdn.example/e1.mp4'),
+        headers: const <String, String>{
+          'User-Agent': 'site-ua',
+          'Referer': 'https://site.example/watch?v=1',
+        },
+        qualities: <VideoQuality>[
+          VideoQuality(label: '原画', url: Uri.parse('https://cdn.example/e1.mp4')),
+          VideoQuality(label: '720p', url: Uri.parse('https://cdn.example/720.mp4')),
+        ],
+      );
+      final headers = SourcePlayback.contentHeaders(content);
+      expect(headers['Referer'], 'https://site.example/watch?v=1');
+      expect(headers['User-Agent'], 'site-ua');
+      // 逐线路同样继承（切线路不该把请求头切没）。
+      for (final quality in SourcePlayback.contentQualities(content)) {
+        expect(quality.headers['Referer'], 'https://site.example/watch?v=1');
+      }
+    });
+
+    test('线路自己写了 headers 时用它自己的', () {
+      final content = VideoContent(
+        url: Uri.parse('https://cdn.example/e1.mp4'),
+        headers: const <String, String>{'Referer': 'https://site.example/'},
+        qualities: <VideoQuality>[
+          VideoQuality(
+            label: '1080p',
+            url: Uri.parse('https://cdn.example/1080.mp4'),
+            headers: const <String, String>{'Referer': 'https://cdn2.example/'},
+          ),
+        ],
+      );
+      expect(
+        SourcePlayback.contentHeaders(content)['Referer'],
+        'https://cdn2.example/',
+      );
+    });
+  });
 }

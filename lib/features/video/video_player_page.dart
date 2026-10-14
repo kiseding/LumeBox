@@ -3415,9 +3415,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _loggedFailure = error;
     final media = _media;
     final headers = media?.headers ?? const <String, String>{};
+    // 文案与错误卡一致（内核给的原文已经带「打开失败：」前缀时不再叠一层）。
+    final reason = error.startsWith('打开失败：') ? error : PlayerErrorText.describe(error);
     LumeLog.warn(
-      '[player] 播放失败：${PlayerErrorText.describe(error)}'
-      '｜地址域名 ${media?.uri.host ?? '未知'}'
+      '[player] 播放失败：$reason'
+      // 打**完整地址**：域名空白的见过（file:// 误判），只打 host 会看不到那条线索。
+      '｜地址 ${media?.uri.toString() ?? '未知'}'
       '｜请求头 ${headers.isEmpty ? '无' : headers.keys.join(',')}',
     );
   }

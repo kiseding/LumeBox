@@ -91,6 +91,15 @@ class PlayerErrorText {
       'codec',
       'format error',
     ], '该视频的格式或编码不被当前内核支持'),
+    // -12939「byte range and no content length - error code is 200」：服务器接了
+    // Range 请求却回 200 且不给 Content-Length（分块流 / 站点自己的 PHP 播放口），
+    // AVPlayer 直接放弃。不是地址错，也不是网络断——换内核（MPV 的 ffmpeg 能吃
+    // 这种流）通常就能播，所以文案要给出下一步动作（真机：Hanime1 过完验证卡在这）。
+    _Rule(<String>[
+      'byte range and no content length',
+      'no content length',
+      'server is not correctly configured',
+    ], '服务器不支持分段请求（AVPlayer 播不了这种流）：换 MPV 内核通常可播'),
     _Rule(<String>['cancelled', 'canceled', 'aborted', 'operation stopped'], '已取消加载'),
     _Rule(<String>['permission', 'denied'], '没有权限访问该地址'),
     _Rule(<String>['no such file', 'file not found', 'enoent'], '本地文件不存在'),

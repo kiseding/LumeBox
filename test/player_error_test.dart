@@ -39,6 +39,17 @@ void main() {
         PlayerErrorText.describe('Error: The Internet connection appears to be offline.'),
         '打开失败：网络不可用或域名解析失败',
       );
+      // 真机：Hanime1 过完网页验证后 AVPlayer 报的这条（服务器接了 Range 请求
+      // 却回 200 且不给 Content-Length）——要给出「换 MPV 内核」这个下一步。
+      expect(
+        PlayerErrorText.describe(
+          'Failed to load video: Operation Stopped: The server is not correctly '
+          'configured.: The operation couldn’t be completed. '
+          '(CoreMediaErrorDomain error -12939 - byte range and no content length '
+          '- error code is 200)',
+        ),
+        '打开失败：服务器不支持分段请求（AVPlayer 播不了这种流）：换 MPV 内核通常可播',
+      );
       expect(
         PlayerErrorText.describe('A server with the specified hostname could not be found'),
         '打开失败：网络不可用或域名解析失败',
