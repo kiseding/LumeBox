@@ -3309,8 +3309,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   ? Text(
                       label,
                       maxLines: 1,
-                      style: const TextStyle(
-                        fontSize: 11,
+                      style: TextStyle(
+                        fontSize: side < 34 ? 10 : 11,
                         fontWeight: FontWeight.w400,
                         shadows: _controlShadows,
                       ),
