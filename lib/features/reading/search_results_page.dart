@@ -1,3 +1,5 @@
+import '../../core/search/search_settings.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -126,7 +128,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         final result = await AggregateSearch.run(
           sources: sources,
           sourceIds: _sourceIds,
-          keyword: widget.keyword,
+          keyword: SearchSettings.instance.prepare(widget.keyword),
           open: (sourceId) => _manager.open(sourceId),
         );
         if (!mounted || seq != _seq) return;
@@ -137,7 +139,14 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
           _sourceNames
             ..clear()
             ..addAll(names);
-          _hits = result.hits;
+          _hits = result.hits
+              .where(
+                (hit) => SearchSettings.instance.accepts(
+                  hit.item.title,
+                  widget.keyword,
+                ),
+              )
+              .toList();
           _aggregateFailed = result.failed;
           _aggregateSiteCount = siteCount;
           _loading = false;
@@ -161,11 +170,19 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         });
         return;
       }
-      final result = await source.list(keyword: widget.keyword, page: 1);
+      final result = await source.list(
+        keyword: SearchSettings.instance.prepare(widget.keyword),
+        page: 1,
+      );
       if (!mounted || seq != _seq) return;
       setState(() {
         _sourceNames[source.id] = source.name;
-        _items = result.items;
+        _items = result.items
+            .where(
+              (item) =>
+                  SearchSettings.instance.accepts(item.title, widget.keyword),
+            )
+            .toList();
         _hasMore = result.hasMore;
         _loading = false;
       });
@@ -220,7 +237,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
     try {
       final source = await _manager.open(sourceId);
       final result = await source?.list(
-        keyword: widget.keyword,
+        keyword: SearchSettings.instance.prepare(widget.keyword),
         page: _page + 1,
       );
       if (!mounted || seq != _seq || result == null) {
@@ -231,7 +248,13 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         _page++;
         _hasMore = result.hasMore;
         _loadingMore = false;
-        _items = <SourceItem>[..._items, ...result.items];
+        _items = <SourceItem>[
+          ..._items,
+          ...result.items.where(
+            (item) =>
+                SearchSettings.instance.accepts(item.title, widget.keyword),
+          ),
+        ];
       });
     } catch (error) {
       LumeLog.warn('[${widget.section.id}] 搜索翻页失败: $error');

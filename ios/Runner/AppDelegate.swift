@@ -30,6 +30,10 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxPlaybackBlur") {
+      registrar.register(PlaybackBlurFactory(), withId: "lumebox/playback_blur")
+    }
+
 
     // 画中画通道：与 Dart 侧 `MethodChannelPipBackend` 的契约一一对应。
     // 用插件注册器的 binaryMessenger 注册，保证与 Flutter 引擎同一条消息通道。
@@ -75,4 +79,22 @@ import UIKit
       battery.register(with: messenger)
     }
   }
+}
+
+/// Native effect view overlays only the active player's controls or menus.
+private final class PlaybackBlurFactory: NSObject, FlutterPlatformViewFactory {
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol { FlutterStandardMessageCodec.sharedInstance() }
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    PlaybackBlurView(frame: frame, dark: (args as? [String: Any])?["dark"] as? Bool ?? false)
+  }
+}
+private final class PlaybackBlurView: NSObject, FlutterPlatformView {
+  private let effectView: UIVisualEffectView
+  init(frame: CGRect, dark: Bool) {
+    effectView = UIVisualEffectView(effect: UIBlurEffect(style: dark ? .systemThinMaterialDark : .systemThinMaterialLight))
+    super.init()
+    effectView.frame = frame
+    effectView.isUserInteractionEnabled = false
+  }
+  func view() -> UIView { effectView }
 }

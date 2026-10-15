@@ -34,7 +34,18 @@ class _ControlPainter extends CustomPainter {
         const Radius.circular(2),
       ),
     );
-    if (icon == Icons.arrow_back_ios_new) {
+    if (icon == Icons.high_quality_outlined) {
+      box(2, 5, 22, 19);
+      line(6, 9, 6, 15);
+      line(11, 9, 11, 15);
+      line(6, 12, 11, 12);
+      path
+        ..moveTo(15, 9)
+        ..lineTo(15, 15)
+        ..lineTo(18, 15)
+        ..quadraticBezierTo(21, 12, 18, 9)
+        ..close();
+    } else if (icon == Icons.arrow_back_ios_new) {
       path
         ..moveTo(15, 4)
         ..lineTo(7, 12)

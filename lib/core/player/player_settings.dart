@@ -175,8 +175,7 @@ enum RotationMode {
   }
 
   /// 从角度反查档位（未知角度回落「不旋转」）。
-  static RotationMode fromDegrees(int? degrees) =>
-      fromId(degrees?.toString());
+  static RotationMode fromDegrees(int? degrees) => fromId(degrees?.toString());
 }
 
 /// 一套内核的播放偏好：**按内核分别记住**的那几项（用户点名）。
@@ -277,7 +276,10 @@ class KernelPrefs {
           : normalizeSubtitleBackground(subtitleBackground),
       subtitleFont: subtitleFont ?? this.subtitleFont,
       subtitleShadow: (subtitleShadow ?? this.subtitleShadow).clamp(0.0, 1.0),
-      subtitleOffsetY: (subtitleOffsetY ?? this.subtitleOffsetY).clamp(-1.0, 1.0),
+      subtitleOffsetY: (subtitleOffsetY ?? this.subtitleOffsetY).clamp(
+        -1.0,
+        1.0,
+      ),
       subtitleDelay: subtitleDelay == null
           ? this.subtitleDelay
           : PlayerSettings.normalizeSubtitleDelay(subtitleDelay),
@@ -295,17 +297,17 @@ class KernelPrefs {
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'speed': speed,
-        'zoom': zoom.id,
-        'rotation': rotation.id,
-        'mirrored': mirrored,
-        'subtitleSize': subtitleSize.id,
-        'subtitleColor': subtitleColor.id,
-        'subtitleOutline': subtitleOutline.id,
-        'subtitleBackground': subtitleBackground,
-        'subtitleDelayMs': subtitleDelay.inMilliseconds,
-        'audioDelayMs': audioDelay.inMilliseconds,
-      };
+    'speed': speed,
+    'zoom': zoom.id,
+    'rotation': rotation.id,
+    'mirrored': mirrored,
+    'subtitleSize': subtitleSize.id,
+    'subtitleColor': subtitleColor.id,
+    'subtitleOutline': subtitleOutline.id,
+    'subtitleBackground': subtitleBackground,
+    'subtitleDelayMs': subtitleDelay.inMilliseconds,
+    'audioDelayMs': audioDelay.inMilliseconds,
+  };
 
   /// 从落库的 JSON 还原；任何一项坏掉都只影响那一项（回落默认值），
   /// 不让「库被改坏」变成「播放设置整块丢失」。
@@ -360,20 +362,35 @@ class KernelPrefs {
 
   @override
   int get hashCode => Object.hash(
-        speed,
-        zoom,
-        rotation,
-        mirrored,
-        subtitleSize,
-        subtitleColor,
-        subtitleOutline,
-        subtitleBackground,
-        subtitleDelay,
-        audioDelay,
-      );
+    speed,
+    zoom,
+    rotation,
+    mirrored,
+    subtitleSize,
+    subtitleColor,
+    subtitleOutline,
+    subtitleBackground,
+    subtitleDelay,
+    audioDelay,
+  );
 }
 
 /// 全屏按钮的两种呈现，共用布局和操作。
+enum DefaultQuality {
+  automatic('自动(优先原画/最高)', 0),
+  original('原画', 0),
+  uhd('4K', 2160),
+  fullHd('1080p', 1080),
+  hd('720p', 720),
+  sd('480p', 480);
+
+  const DefaultQuality(this.label, this.height);
+  final String label;
+  final int height;
+  static DefaultQuality parse(String? value) =>
+      values.where((e) => e.name == value).firstOrNull ?? automatic;
+}
+
 enum PlayerControlStyle { text, icons }
 
 /// 播放器设置：内核 + 全局开关 + **每个内核各一份**的偏好。
@@ -386,6 +403,8 @@ class PlayerSettings {
     this.backgroundSourceValidation = true,
     this.rememberManualQuality = false,
     this.manualQualityLabel = '',
+    this.defaultQuality = DefaultQuality.automatic,
+    this.playbackGlass = true,
     this.controlStyle = PlayerControlStyle.icons,
     this.autoNext = true,
     this.gestureSensitivity = defaultGestureSensitivity,
@@ -427,8 +446,22 @@ class PlayerSettings {
 
   /// 可选倍速档位：文档要求 0.25~4.0、步长 0.25。
   static const List<double> speeds = <double>[
-    0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0,
-    2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+    2.25,
+    2.5,
+    2.75,
+    3.0,
+    3.25,
+    3.5,
+    3.75,
+    4.0,
   ];
 
   static const double defaultSpeed = 1.0;
@@ -464,6 +497,8 @@ class PlayerSettings {
   final bool backgroundSourceValidation;
   final bool rememberManualQuality;
   final String manualQualityLabel;
+  final DefaultQuality defaultQuality;
+  final bool playbackGlass;
   final PlayerControlStyle controlStyle;
 
   /// 手势灵敏度倍率（亮度 / 音量垂直滑动用）：
@@ -529,6 +564,8 @@ class PlayerSettings {
     bool? backgroundSourceValidation,
     bool? rememberManualQuality,
     String? manualQualityLabel,
+    DefaultQuality? defaultQuality,
+    bool? playbackGlass,
     PlayerControlStyle? controlStyle,
     bool? autoNext,
     double? gestureSensitivity,
@@ -551,7 +588,8 @@ class PlayerSettings {
     final source = prefs ?? this.prefs;
     // 没有一项偏好被改到时不落格：`copyWith()` 必须是**幂等**的
     // （否则空改一次就会给当前内核凭空造出一格默认值，等值判断随之失效）。
-    final prefChanged = speed != null ||
+    final prefChanged =
+        speed != null ||
         zoom != null ||
         rotation != null ||
         mirrored != null ||
@@ -589,16 +627,20 @@ class PlayerSettings {
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
-      backgroundSourceValidation: backgroundSourceValidation ?? this.backgroundSourceValidation,
-      rememberManualQuality: rememberManualQuality ?? this.rememberManualQuality,
+      backgroundSourceValidation:
+          backgroundSourceValidation ?? this.backgroundSourceValidation,
+      rememberManualQuality:
+          rememberManualQuality ?? this.rememberManualQuality,
       manualQualityLabel: manualQualityLabel ?? this.manualQualityLabel,
+      defaultQuality: defaultQuality ?? this.defaultQuality,
+      playbackGlass: playbackGlass ?? this.playbackGlass,
       controlStyle: controlStyle ?? this.controlStyle,
       autoNext: autoNext ?? this.autoNext,
       gestureSensitivity: gestureSensitivity == null
           ? this.gestureSensitivity
           : gestureSensitivity
-              .clamp(minGestureSensitivity, maxGestureSensitivity)
-              .toDouble(),
+                .clamp(minGestureSensitivity, maxGestureSensitivity)
+                .toDouble(),
       prefs: nextPrefs,
     );
   }
@@ -642,6 +684,8 @@ class PlayerSettings {
         other.backgroundSourceValidation != backgroundSourceValidation ||
         other.rememberManualQuality != rememberManualQuality ||
         other.manualQualityLabel != manualQualityLabel ||
+        other.defaultQuality != defaultQuality ||
+        other.playbackGlass != playbackGlass ||
         other.controlStyle != controlStyle ||
         other.autoNext != autoNext ||
         other.gestureSensitivity != gestureSensitivity) {
@@ -659,16 +703,18 @@ class PlayerSettings {
 
   @override
   int get hashCode => Object.hash(
-        kernel,
-        subtitlesEnabled,
-        hardwareDecoding,
-        autoHideControls,
-        backgroundSourceValidation,
-        rememberManualQuality,
-        manualQualityLabel,
-        controlStyle,
-        Object.hashAllUnordered(
-          prefs.entries.map((entry) => Object.hash(entry.key, entry.value)),
-        ),
-      );
+    kernel,
+    subtitlesEnabled,
+    hardwareDecoding,
+    autoHideControls,
+    backgroundSourceValidation,
+    rememberManualQuality,
+    manualQualityLabel,
+    defaultQuality,
+    playbackGlass,
+    controlStyle,
+    Object.hashAllUnordered(
+      prefs.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
+  );
 }

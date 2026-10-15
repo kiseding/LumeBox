@@ -37,8 +37,10 @@ class VideoPlayerSettingsStore {
   static const String keySubtitleOutline = 'video.player.subtitleOutline';
   static const String keySubtitleDelay = 'video.player.subtitleDelayMs';
   static const String keyHardwareDecoding = 'video.player.hardwareDecoding';
-  static const String keyBackgroundSourceValidation = 'video.player.backgroundSourceValidation';
-  static const String keyRememberManualQuality = 'video.player.rememberManualQuality';
+  static const String keyBackgroundSourceValidation =
+      'video.player.backgroundSourceValidation';
+  static const String keyRememberManualQuality =
+      'video.player.rememberManualQuality';
   static const String keyManualQualityLabel = 'video.player.manualQualityLabel';
   static const String keyControlStyle = 'video.player.controlStyle';
   static const String keyAutoHideControls = 'video.player.autoHideControls';
@@ -86,15 +88,22 @@ class VideoPlayerSettingsStore {
 
     return PlayerSettings(
       kernel: kernel,
-      backgroundSourceValidation: _library.setting(keyBackgroundSourceValidation) != 'false',
-      rememberManualQuality: _library.setting(keyRememberManualQuality) == 'true',
+      backgroundSourceValidation:
+          _library.setting(keyBackgroundSourceValidation) != 'false',
+      rememberManualQuality:
+          _library.setting(keyRememberManualQuality) == 'true',
+      defaultQuality: DefaultQuality.parse(
+        _library.setting('video.player.defaultQuality'),
+      ),
+      playbackGlass: _library.setting('video.player.playbackGlass') != 'false',
       manualQualityLabel: _library.setting(keyManualQualityLabel) ?? '',
       // 旧库没有这一项时（键缺失）按「开」处理——与历史行为一致。
       subtitlesEnabled: _library.setting(keySubtitles) != 'false',
       hardwareDecoding: _library.setting(keyHardwareDecoding) != 'false',
       // 缺键按「开」处理（默认开启自动隐藏）。
       controlStyle: _library.setting(keyControlStyle) == 'text'
-          ? PlayerControlStyle.text : PlayerControlStyle.icons,
+          ? PlayerControlStyle.text
+          : PlayerControlStyle.icons,
       autoHideControls: _library.setting(keyAutoHideControls) != 'false',
       // 同上：缺键按「开」（历史行为就是一集播完自动进下一集）。
       autoNext: _library.setting(keyAutoNext) != 'false',
@@ -110,8 +119,22 @@ class VideoPlayerSettingsStore {
   /// 之后一直在用 AVPlayer」的情况下，MPV 那一格要等下次选中它才被写到，
   /// 中间重启就丢了。
   void save(PlayerSettings settings) {
-    _library.setSetting(keyBackgroundSourceValidation, settings.backgroundSourceValidation ? 'true' : 'false');
-    _library.setSetting(keyRememberManualQuality, settings.rememberManualQuality ? 'true' : 'false');
+    _library.setSetting(
+      'video.player.defaultQuality',
+      settings.defaultQuality.name,
+    );
+    _library.setSetting(
+      'video.player.playbackGlass',
+      settings.playbackGlass.toString(),
+    );
+    _library.setSetting(
+      keyBackgroundSourceValidation,
+      settings.backgroundSourceValidation ? 'true' : 'false',
+    );
+    _library.setSetting(
+      keyRememberManualQuality,
+      settings.rememberManualQuality ? 'true' : 'false',
+    );
     _library.setSetting(keyManualQualityLabel, settings.manualQualityLabel);
     _library.setSetting(keyControlStyle, settings.controlStyle.name);
     _library.setSetting(keyKernel, settings.kernel.id);
@@ -155,25 +178,29 @@ class VideoPlayerSettingsStore {
       keyAutoHideControls,
       settings.autoHideControls ? 'true' : 'false',
     );
-    _library.setSetting(keyGestureSensitivity, '${settings.gestureSensitivity}');
+    _library.setSetting(
+      keyGestureSensitivity,
+      '${settings.gestureSensitivity}',
+    );
   }
 
   /// 老版本的全局键 → 一份偏好（迁移用）。
   KernelPrefs _legacyPrefs() => KernelPrefs(
-        speed: PlayerSettings.normalizeSpeed(
-          double.tryParse(_library.setting(keySpeed) ?? ''),
-        ),
-        subtitleSize: SubtitleSize.fromId(_library.setting(keySubtitleSize)),
-      subtitleFont: _library.setting(keySubtitleFont) ?? '',
-      subtitleShadow: _double(_library, keySubtitleShadow, 0.0, 0.0, 1.0),
-      subtitleOffsetY: _double(_library, keySubtitleOffsetY, 0.0, -1.0, 1.0),
-        subtitleColor: SubtitleColor.fromId(_library.setting(keySubtitleColor)),
-        subtitleOutline:
-            SubtitleOutline.fromId(_library.setting(keySubtitleOutline)),
-        subtitleDelay: PlayerSettings.normalizeSubtitleDelay(
-          _intMillis(_library.setting(keySubtitleDelay)),
-        ),
-      );
+    speed: PlayerSettings.normalizeSpeed(
+      double.tryParse(_library.setting(keySpeed) ?? ''),
+    ),
+    subtitleSize: SubtitleSize.fromId(_library.setting(keySubtitleSize)),
+    subtitleFont: _library.setting(keySubtitleFont) ?? '',
+    subtitleShadow: _double(_library, keySubtitleShadow, 0.0, 0.0, 1.0),
+    subtitleOffsetY: _double(_library, keySubtitleOffsetY, 0.0, -1.0, 1.0),
+    subtitleColor: SubtitleColor.fromId(_library.setting(keySubtitleColor)),
+    subtitleOutline: SubtitleOutline.fromId(
+      _library.setting(keySubtitleOutline),
+    ),
+    subtitleDelay: PlayerSettings.normalizeSubtitleDelay(
+      _intMillis(_library.setting(keySubtitleDelay)),
+    ),
+  );
 
   /// 读毫秒值；缺失或非法返回 null（由归一函数回退到零延迟）。
   static Duration? _intMillis(String? raw) {
@@ -190,7 +217,9 @@ class VideoPlayerSettingsStore {
 double _gestureSensitivityOf(ReadingLibrary library) {
   final raw = library.setting(VideoPlayerSettingsStore.keyGestureSensitivity);
   final value = double.tryParse((raw ?? '').trim());
-  if (value == null || value.isNaN) return PlayerSettings.defaultGestureSensitivity;
+  if (value == null || value.isNaN) {
+    return PlayerSettings.defaultGestureSensitivity;
+  }
   return value
       .clamp(
         PlayerSettings.minGestureSensitivity,
@@ -200,7 +229,13 @@ double _gestureSensitivityOf(ReadingLibrary library) {
 }
 
 /// 读一个 double 设置：没写过 / 解析失败 / 越界都回落到 [fallback] 并夹进范围。
-double _double(ReadingLibrary library, String key, double fallback, double min, double max) {
+double _double(
+  ReadingLibrary library,
+  String key,
+  double fallback,
+  double min,
+  double max,
+) {
   final raw = library.setting(key);
   final value = double.tryParse((raw ?? '').trim());
   if (value == null || value.isNaN) return fallback;

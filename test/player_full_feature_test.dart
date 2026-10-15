@@ -479,7 +479,7 @@ void main() {
 
       expect(find.byTooltip('前进 10 秒'), findsOneWidget);
       expect(find.byTooltip('后退 10 秒'), findsOneWidget);
-      expect(find.byTooltip('清晰度'), findsNothing);
+      expect(find.byTooltip('清晰度'), findsOneWidget);
       expect(find.byTooltip('播放内核'), findsOneWidget);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.byTooltip('全屏'), findsOneWidget);
@@ -576,7 +576,10 @@ void main() {
           ),
         ],
       );
-      expect(players.single.media?.uri.toString(), 'https://example.com/a.mp4');
+      expect(
+        players.single.media?.uri.toString(),
+        'https://example.com/1080.mp4',
+      );
 
       await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
@@ -623,12 +626,44 @@ void main() {
       await tester.pumpAndSettle();
 
       // AVPlayer 上调 1.5x。
-      await tester.tap(find.text('1.5x'));
+      await tester.dragUntilVisible(
+        find.text('1.5x'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -120),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byType(PlayerSettingsSheet),
+              matching: find.widgetWithText(ChoiceChip, '1.5x'),
+            )
+            .first,
+      );
       await tester.pumpAndSettle();
       expect(find.text('1.5x'), findsWidgets);
 
       // 切到 MPV：显示的是 MPV 自己的 1x（按内核分别记住）。
+      await tester.dragUntilVisible(
+        find.text('MPV'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, 200),
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('MPV')),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.descendant(
+          of: find.byType(PlayerSettingsSheet),
+          matching: find.byType(Slider),
+        ),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -120),
+      );
       await tester.pumpAndSettle();
       // 倍速滑杆在弹窗里（控制栏的进度条也是 Slider，因此先限定在弹窗内）。
       final slider = tester.widget<Slider>(
@@ -1591,19 +1626,7 @@ Future<void> openPlayerAction(WidgetTester tester, String action) async {
     '弹幕设置' => '弹幕：开',
     _ => '播放器设置',
   };
-  if (action == '清晰度') {
-    await tester.tap(find.byTooltip('播放器设置').first);
-    await tester.pumpAndSettle();
-    await tester.dragUntilVisible(
-      find.text('清晰度'),
-      find.byType(PlayerSettingsSheet),
-      const Offset(0, -200),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('清晰度'));
-  } else {
-    await tester.tap(find.byTooltip(tooltip).first);
-  }
+  await tester.tap(find.byTooltip(tooltip).first);
   await tester.pumpAndSettle();
 }
 

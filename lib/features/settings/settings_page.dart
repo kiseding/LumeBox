@@ -1,3 +1,4 @@
+import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
 
 import 'dart:async';
@@ -97,6 +98,13 @@ class SettingsPage extends StatelessWidget {
                 '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
                 '阅读页与播放页里的就地设置仍然保留）',
             onTap: () => _push(context, const ModuleSettingsHubPage()),
+          ),
+          const SizedBox(height: 20),
+          _SettingsEntry(
+            icon: Icons.search,
+            title: '搜索',
+            subtitle: '搜索自动繁转简 / 精确搜索',
+            onTap: () => _push(context, const SearchSettingsPage()),
           ),
           const SizedBox(height: 20),
           const _GroupTitle('源与网络'),

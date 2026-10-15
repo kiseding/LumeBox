@@ -1,3 +1,5 @@
+import 'playback_glass.dart';
+
 import 'dart:io' show Platform;
 
 import '../../core/net/ios_verified_webview.dart';
@@ -1036,9 +1038,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 反应」（实测：发起播的 SnackBar 压在控制栏上，设置 / 全屏都点不到）。
     final media = widget.media;
     if (media != null && _player != null) {
-      final selected = _settings.rememberManualQuality
-          ? PlaybackQualityPreference.select(_qualities, _settings)
-          : null;
+      final selected = PlaybackQualityPreference.select(_qualities, _settings);
       final initial = selected == null
           ? media
           : PlayerMedia(
@@ -1376,7 +1376,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 位置接回去，用户感知不到「重新开始」。
   Future<void> _selectQuality(int index) async {
     if (index < 0 || index >= _qualities.length) return;
-    if (_settings.rememberManualQuality) {
+    // Manual intent also invalidates a preloaded next episode when this is already the active level.
+    _nextEpisodeBuffer.discard();
+    {
       _settings = _settings.copyWith(
         manualQualityLabel: _qualities[index].label,
       );
@@ -1413,12 +1415,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 打开清晰度菜单；只有一条线路时按用户口径**弹提示**而不是藏按钮。
+  Future<T?> _playbackMenu<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    Color? backgroundColor,
+    bool isScrollControlled = false,
+    bool useSafeArea = false,
+  }) => showPlaybackMenu<T>(
+    context: context,
+    builder: builder,
+    glass: _settings.playbackGlass,
+    isScrollControlled: isScrollControlled,
+    useSafeArea: useSafeArea,
+  );
+
   Future<void> _openQualityMenu() async {
-    if (_qualities.length <= 1) {
+    if (_qualities.isEmpty) {
       _showToast('当前图源不提供多清晰度选项');
       return;
     }
-    final selected = await showModalBottomSheet<int>(
+    final selected = await _playbackMenu<int>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) =>
@@ -1794,7 +1810,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Future<void> _configureDanmakuService() async {
     final config = await DandanplayCredentials.load();
     if (!mounted) return;
-    final updated = await showModalBottomSheet<DandanplayCredentials>(
+    final updated = await _playbackMenu<DandanplayCredentials>(
       context: context,
       isScrollControlled: true,
       builder: (_) => DanmakuServiceSheet(initial: config),
@@ -1808,7 +1824,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _showToast('请先从源条目播放视频');
       return;
     }
-    final title = await showModalBottomSheet<String>(
+    final title = await _playbackMenu<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -1829,7 +1845,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _showToast('未找到这部作品的本集弹幕，可以修改片名或更换服务');
         return;
       }
-      final selected = await showModalBottomSheet<DandanplayEpisode>(
+      final selected = await _playbackMenu<DandanplayEpisode>(
         context: context,
         isScrollControlled: true,
         builder: (context) => SafeArea(
@@ -1889,7 +1905,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 打开弹幕设置面板。
   Future<void> _openDanmakuSettings() async {
     _cancelAutoHide();
-    await showModalBottomSheet<void>(
+    await _playbackMenu<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -2533,6 +2549,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onOrientationChanged: PlaybackOrientationController.instance.apply,
       // 弹幕设置也收进同一份设置弹窗（用户点名：所有功能入口都固定在这里）；
       // 控制栏那颗 tune 仍保留为快捷入口。
+      danmaku: _danmakuSettings,
+      onDanmakuChanged: _applyDanmakuSettings,
       extraControls: _buildPlaybackSettings(),
     );
   }
@@ -2597,16 +2615,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       unawaited(_player?.setBuffering(_buffering));
                     },
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.high_quality_outlined),
-              title: const Text('清晰度'),
-              subtitle: const Text('默认选择最高可用分辨率'),
-              onTap: () {
-                Navigator.of(context).pop();
-                unawaited(_openQualityMenu());
-              },
-            ),
+
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('自动连播'),
@@ -2657,7 +2666,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _showToast('这条视频没有可选音轨');
       return;
     }
-    final selected = await showModalBottomSheet<String>(
+    final selected = await _playbackMenu<String>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _TrackSheet(title: '选择音轨', tracks: tracks),
@@ -2680,7 +2689,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _showToast('这条视频没有内置字幕轨（可以试试「外挂字幕」）');
       return;
     }
-    final selected = await showModalBottomSheet<String>(
+    final selected = await _playbackMenu<String>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) =>
@@ -3105,7 +3114,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _openKernelPicker() async {
     _cancelAutoHide();
-    final selected = await showModalBottomSheet<PlayerKernel>(
+    final selected = await _playbackMenu<PlayerKernel>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -3198,7 +3207,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _showSpeedPicker() async {
     _cancelAutoHide();
-    final speed = await showModalBottomSheet<double>(
+    final speed = await _playbackMenu<double>(
       context: context,
       isScrollControlled: true,
       builder: (context) => SafeArea(
@@ -3236,27 +3245,31 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏浮层控制栏：进度 + 主要控制 + 次级控制（退出全屏与设置都在里面）。
   Widget _buildFloatingControls() {
-    return Listener(
-      onPointerDown: (_) => _scheduleAutoHide(),
-      child: Padding(
-        // 底部留白 6（用户口径：整块往下移，靠近屏幕底边）。再往下就是安全区
-        // （home 指示条）本身留的位，按钮压不进去也不用压进去。
-        padding: const EdgeInsets.fromLTRB(
-          VideoPlayerPage.controlHorizontalPadding,
-          8,
-          VideoPlayerPage.controlHorizontalPadding,
-          2,
-        ),
-        child: ValueListenableBuilder<PlayerSnapshot>(
-          valueListenable: _player?.snapshot ?? _idleSnapshot,
-          builder: (context, snapshot, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _buildProgress(snapshot),
-              // 两行（进度条行 / 按钮行）固定行距（用户口径）。
-              const SizedBox(height: VideoPlayerPage.controlRowGap),
-              _buildFloatingSplitControls(snapshot),
-            ],
+    return PlaybackGlass(
+      enabled: _settings.playbackGlass,
+      dark: true,
+      child: Listener(
+        onPointerDown: (_) => _scheduleAutoHide(),
+        child: Padding(
+          // 底部留白 6（用户口径：整块往下移，靠近屏幕底边）。再往下就是安全区
+          // （home 指示条）本身留的位，按钮压不进去也不用压进去。
+          padding: const EdgeInsets.fromLTRB(
+            VideoPlayerPage.controlHorizontalPadding,
+            8,
+            VideoPlayerPage.controlHorizontalPadding,
+            2,
+          ),
+          child: ValueListenableBuilder<PlayerSnapshot>(
+            valueListenable: _player?.snapshot ?? _idleSnapshot,
+            builder: (context, snapshot, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _buildProgress(snapshot),
+                // 两行（进度条行 / 按钮行）固定行距（用户口径）。
+                const SizedBox(height: VideoPlayerPage.controlRowGap),
+                _buildFloatingSplitControls(snapshot),
+              ],
+            ),
           ),
         ),
       ),
@@ -3267,8 +3280,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
     builder: (context, constraints) {
       final target = _target;
-      final side = ((_box * 7 + 24) > constraints.maxWidth)
-          ? ((constraints.maxWidth - 24) / 7).clamp(28.0, _box).toDouble()
+      final side = ((_box * 8 + 28) > constraints.maxWidth)
+          ? ((constraints.maxWidth - 28) / 8).clamp(24.0, _box).toDouble()
           : _box;
       Widget action(
         String label,
@@ -3354,6 +3367,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ),
           const Spacer(),
           action(
+            '画质',
+            '清晰度',
+            Icons.high_quality_outlined,
+            _media == null ? null : _openQualityMenu,
+          ),
+          const SizedBox(width: 4),
+          action(
             '选集',
             '线路 / 选集',
             Icons.playlist_play_outlined,
@@ -3383,6 +3403,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 文字按钮与图标按钮走同一个 [VideoPlayerPage.controlBox] 触达盒、同一个 13 号字，
   /// 因此一排看上去是等高等宽的方块，而不是「文字比图标大一号」。
   List<Widget> _essentialActions() => <Widget>[
+    if (_media != null) _actionLabel('画质', '清晰度', _openQualityMenu),
     _actionLabel('选集', '线路 / 选集', _openSourceSheet),
     _actionLabel(
       '弹',
@@ -3771,7 +3792,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         16,
         VideoPlayerPage.controlBottomGap,
       ),
-      child: GlassCard(
+      child: PlaybackGlass(
+        enabled: _settings.playbackGlass,
         child: Column(
           children: <Widget>[
             ValueListenableBuilder<PlayerSnapshot>(
@@ -3799,7 +3821,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (!mounted) return;
     _cancelAutoHide();
     final target = _target;
-    await showModalBottomSheet<void>(
+    await _playbackMenu<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -4543,7 +4565,7 @@ class _TrackSheet extends StatelessWidget {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: LumeTheme.background,
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: SafeArea(
           top: false,
           child: Column(
@@ -4633,7 +4655,7 @@ class _QualitySheet extends StatelessWidget {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: LumeTheme.background,
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: SafeArea(
           top: false,
           child: Column(
@@ -4735,7 +4757,7 @@ class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: LumeTheme.background,
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: Padding(
           // 键盘高度由系统的 viewInsets 给：面板整体上移，输入框不会被盖住。
           padding: EdgeInsets.only(

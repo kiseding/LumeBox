@@ -70,12 +70,9 @@ void main() {
     expect(changed?.kernel, PlayerKernel.mpv);
     // 页面本地状态同步更新：勾选移到 MPV 那一行。
     Finder checkOn(String label) => find.descendant(
-          of: find.ancestor(
-            of: find.text(label),
-            matching: find.byType(GlassCard),
-          ),
-          matching: find.byIcon(Icons.check_circle),
-        );
+      of: find.ancestor(of: find.text(label), matching: find.byType(GlassCard)),
+      matching: find.byIcon(Icons.check_circle),
+    );
     expect(checkOn('MPV'), findsOneWidget);
     expect(checkOn('AVPlayer'), findsNothing);
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
@@ -118,6 +115,33 @@ void main() {
     );
   });
 
+  testWidgets('毛玻璃在避让字幕下方，默认画质在后台校验上方，选择立即回调', (tester) async {
+    PlayerSettings? changed;
+    await pumpPage(
+      tester,
+      settings: const PlayerSettings(),
+      catalog: _FakeCatalog({PlayerKernel.avplayer}),
+      onChanged: (value) => changed = value,
+    );
+    expect(
+      tester.getTopLeft(find.text('避让底部字幕')).dy,
+      lessThan(tester.getTopLeft(find.text('播放毛玻璃')).dy),
+    );
+    final dropdown = find.byType(DropdownButtonFormField<DefaultQuality>);
+    await tester.ensureVisible(dropdown);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(dropdown).dy,
+      lessThan(tester.getTopLeft(find.text('后台静默校验播放源')).dy),
+    );
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('720p').last);
+    await tester.pumpAndSettle();
+    expect(changed?.defaultQuality, DefaultQuality.hd);
+    expect(changed?.backgroundSourceValidation, isTrue);
+  });
+
   testWidgets('字幕：开关与字号写入设置', (tester) async {
     PlayerSettings? changed;
     await pumpPage(
@@ -132,25 +156,38 @@ void main() {
     expect(find.text('显示字幕'), findsOneWidget);
 
     // 开着字幕时先改字号。
-    await tester.dragUntilVisible(find.text('大'), find.byType(ListView).first, const Offset(0, -200));
+    await tester.dragUntilVisible(
+      find.text('大'),
+      find.byType(ListView).first,
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.text('大')),
+      alignment: .5,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('大'));
     await tester.pumpAndSettle();
     expect(changed?.subtitleSize, SubtitleSize.large);
 
-    await Scrollable.ensureVisible(tester.element(find.descendant(
-      of: find.ancestor(of: find.text('显示字幕'), matching: find.byType(Row)).first,
-      matching: find.byType(Switch),
-    )), alignment: 0.5);
+    await Scrollable.ensureVisible(
+      tester.element(
+        find.descendant(
+          of: find
+              .ancestor(of: find.text('显示字幕'), matching: find.byType(Row))
+              .first,
+          matching: find.byType(Switch),
+        ),
+      ),
+      alignment: 0.5,
+    );
     await tester.pumpAndSettle();
     // 再关字幕：改动基于本地最新状态，字号保持上一次的选择。
     // 页面上有两个开关（字幕 / 硬件解码），因此按「显示字幕」那一行定位。
     await tester.tap(
       find.descendant(
-        of: find.ancestor(
-          of: find.text('显示字幕'),
-          matching: find.byType(Row),
-        ),
+        of: find.ancestor(of: find.text('显示字幕'), matching: find.byType(Row)),
         matching: find.byType(Switch),
       ),
     );
@@ -168,7 +205,16 @@ void main() {
       onChanged: (next) => changed = next,
     );
 
-    await tester.dragUntilVisible(find.text('大'), find.byType(ListView).first, const Offset(0, -200));
+    await tester.dragUntilVisible(
+      find.text('大'),
+      find.byType(ListView).first,
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.text('大')),
+      alignment: .5,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('大'));
     await tester.pumpAndSettle();

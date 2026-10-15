@@ -1,3 +1,4 @@
+import '../../core/search/search_settings.dart';
 import '../reading/collection_panel.dart';
 import '../../core/source/source_preferences.dart';
 import '../../shared/widgets/source_icon.dart';
@@ -207,14 +208,16 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           ? await current.homeList()
           : await current.list(
               categoryId: category,
-              keyword: query,
+              keyword: SearchSettings.instance.prepare(query),
               filters: filters,
             );
       if (!mounted || token != sequence) return;
       setState(() {
         categories = nextCategories;
         groups = nextGroups;
-        items = results.items;
+        items = results.items
+            .where((item) => SearchSettings.instance.accepts(item.title, query))
+            .toList();
         more = results.hasMore;
         page = 1;
         loading = false;
@@ -263,14 +266,20 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     try {
       final result = await current.list(
         categoryId: category,
-        keyword: query,
+        keyword: SearchSettings.instance.prepare(query),
         filters: filters,
         page: page + 1,
       );
       if (!mounted || token != sequence) return;
       setState(() {
         final ids = items.map((item) => item.id).toSet();
-        items.addAll(result.items.where((item) => ids.add(item.id)));
+        items.addAll(
+          result.items.where(
+            (item) =>
+                ids.add(item.id) &&
+                SearchSettings.instance.accepts(item.title, query),
+          ),
+        );
         page++;
         more = result.hasMore;
       });

@@ -1,3 +1,5 @@
+import 'playback_glass.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/player/playback_orientation.dart';
@@ -31,27 +33,38 @@ Future<void> showPlayerSettingsSheet({
   int? danmakuCount,
   Widget? extraControls,
 }) {
+  final glass = ValueNotifier(settings.playbackGlass);
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (_) => PlayerSettingsSheet(
-      settings: settings,
-      capabilities: capabilities,
-      onChanged: onChanged,
-      catalog: catalog,
-      onUnsupported: onUnsupported,
-      onPickAudioTrack: onPickAudioTrack,
-      onPickSubtitleTrack: onPickSubtitleTrack,
-      onPickSubtitleFile: onPickSubtitleFile,
-      orientation: orientation,
-      onOrientationChanged: onOrientationChanged,
-      danmaku: danmaku,
-      onDanmakuChanged: onDanmakuChanged,
-      danmakuCount: danmakuCount,
-      extraControls: extraControls,
+    builder: (_) => ValueListenableBuilder<bool>(
+      valueListenable: glass,
+      builder: (context, enabled, _) => PlaybackGlass(
+        enabled: enabled,
+        child: PlayerSettingsSheet(
+          showDanmakuPanel: false,
+          settings: settings,
+          capabilities: capabilities,
+          onChanged: (next) {
+            glass.value = next.playbackGlass;
+            onChanged(next);
+          },
+          catalog: catalog,
+          onUnsupported: onUnsupported,
+          onPickAudioTrack: onPickAudioTrack,
+          onPickSubtitleTrack: onPickSubtitleTrack,
+          onPickSubtitleFile: onPickSubtitleFile,
+          orientation: orientation,
+          onOrientationChanged: onOrientationChanged,
+          danmaku: danmaku,
+          onDanmakuChanged: onDanmakuChanged,
+          danmakuCount: danmakuCount,
+          extraControls: extraControls,
+        ),
+      ),
     ),
-  );
+  ).whenComplete(glass.dispose);
 }
 
 /// 播放器设置面板：**所有功能入口都固定在这里**（用户点名）。
@@ -83,6 +96,7 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.danmaku,
     this.onDanmakuChanged,
     this.danmakuCount,
+    this.showDanmakuPanel = true,
     this.embedded = false,
     this.extraControls,
   });
@@ -125,6 +139,7 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 用户点名「所有功能入口固定在播放页的设置弹窗内」——弹幕也是其中一项，
   /// 因此这里内嵌同一份面板（[DanmakuSettingsPanel]），不另写一套控件。
   final DanmakuSettings? danmaku;
+  final bool showDanmakuPanel;
 
   /// 弹幕设置变更回调。
   final ValueChanged<DanmakuSettings>? onDanmakuChanged;
@@ -180,6 +195,21 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('避让底部字幕'),
+        value: _danmaku?.avoidSubtitles ?? true,
+        onChanged: _danmaku == null
+            ? null
+            : (value) =>
+                  _updateDanmaku(_danmaku!.copyWith(avoidSubtitles: value)),
+      ),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('播放毛玻璃'),
+        value: settings.playbackGlass,
+        onChanged: (value) => _update(settings.copyWith(playbackGlass: value)),
+      ),
       _section('播放内核', '切换播放内核；倍速、画面与字幕设置分别保存'),
       PlayerKernelPicker(
         selected: settings.kernel,
@@ -232,7 +262,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       const SizedBox(height: 20),
       _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
       _audioCard(context),
-      if (_danmaku != null) ...<Widget>[
+      if (_danmaku != null && widget.showDanmakuPanel) ...<Widget>[
         const SizedBox(height: 20),
         _section(
           '弹幕',
@@ -244,6 +274,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           danmakuCount: widget.danmakuCount,
           // 外层已经有「弹幕」这一节标题，面板不再重复。
           showTitle: false,
+          showAvoidSubtitles: false,
           onChanged: _updateDanmaku,
         ),
       ],
@@ -252,6 +283,17 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       _decodingCard(context),
       const SizedBox(height: 20),
       _section('播放启动', '直接起播，不自动切换播放线路或升降清晰度'),
+      DropdownButtonFormField<DefaultQuality>(
+        initialValue: settings.defaultQuality,
+        decoration: const InputDecoration(labelText: '默认清晰度'),
+        items: [
+          for (final value in DefaultQuality.values)
+            DropdownMenuItem(value: value, child: Text(value.label)),
+        ],
+        onChanged: (value) {
+          if (value != null) _update(settings.copyWith(defaultQuality: value));
+        },
+      ),
       SwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
         title: const Text('后台静默校验播放源'),
@@ -267,7 +309,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       SwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
         title: const Text('记住手动选择的清晰度'),
-        subtitle: const Text('下一集优先使用同名清晰度；没有匹配项时使用该集最高画质。关闭后每集默认最高画质。'),
+        subtitle: const Text('下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。'),
         value: settings.rememberManualQuality,
         onChanged: (value) =>
             _update(settings.copyWith(rememberManualQuality: value)),
@@ -300,7 +342,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: LumeTheme.background,
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: SafeArea(
           top: false,
           child: ConstrainedBox(

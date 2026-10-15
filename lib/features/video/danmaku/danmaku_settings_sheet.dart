@@ -40,7 +40,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: LumeTheme.background,
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: SafeArea(
           top: false,
           // 面板内容与「播放器设置 → 弹幕」共用同一份（[DanmakuSettingsPanel]），
@@ -119,6 +119,7 @@ class DanmakuSettingsPanel extends StatefulWidget {
     required this.onChanged,
     this.danmakuCount,
     this.showTitle = true,
+    this.showAvoidSubtitles = true,
   });
 
   final DanmakuSettings settings;
@@ -129,6 +130,7 @@ class DanmakuSettingsPanel extends StatefulWidget {
 
   /// 是否显示面板自己的标题（内嵌到播放器设置里时可以关掉，避免两级标题）。
   final bool showTitle;
+  final bool showAvoidSubtitles;
 
   @override
   State<DanmakuSettingsPanel> createState() => _DanmakuSettingsPanelState();
@@ -277,11 +279,12 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               ),
             ],
           ),
-          _switch(
-            '避让底部字幕',
-            _settings.avoidSubtitles,
-            (value) => _update(_settings.copyWith(avoidSubtitles: value)),
-          ),
+          if (widget.showAvoidSubtitles)
+            _switch(
+              '避让底部字幕',
+              _settings.avoidSubtitles,
+              (value) => _update(_settings.copyWith(avoidSubtitles: value)),
+            ),
           _switch(
             '画中画显示弹幕',
             _settings.pipEnabled,

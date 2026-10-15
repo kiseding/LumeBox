@@ -127,7 +127,7 @@ void main() {
       await tester.tap(find.text('第 1 集'));
       await tester.pumpAndSettle();
       expect(players.last.media!.uri.path, '/e1-1080.mp4');
-      await tester.tap(find.byTooltip('线路 / 选集'));
+      await tester.tap(find.byTooltip('清晰度'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ListTile, '720P'));
       await tester.pumpAndSettle();
@@ -163,7 +163,7 @@ void main() {
       expect(players.last.media!.uri.path, '/e3-1080.mp4');
       expect(
         library.setting(VideoPlayerSettingsStore.keyManualQualityLabel),
-        remember ? '720P' : '',
+        '720P',
       );
     });
   }

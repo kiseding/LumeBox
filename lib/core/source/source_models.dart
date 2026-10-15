@@ -576,10 +576,15 @@ class VideoQuality {
     if (text.contains('8k')) return 4320;
     if (text.contains('4k') || text.contains('uhd')) return 2160;
     if (text.contains('2k')) return 1440;
-    if (text.contains('蓝光') || text.contains('原画')) return 1080;
+    if (text.contains('蓝光') ||
+        text.contains('藍光') ||
+        text.contains('原画') ||
+        text.contains('原畫')) {
+      return 1080;
+    }
     if (text.contains('超清')) return 1080;
     if (text.contains('高清')) return 720;
-    if (text.contains('标清')) return 480;
+    if (text.contains('标清') || text.contains('標清')) return 480;
     return 0;
   }
 

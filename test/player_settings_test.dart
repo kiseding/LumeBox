@@ -109,6 +109,8 @@ void main() {
           backgroundSourceValidation: false,
           rememberManualQuality: true,
           manualQualityLabel: '720P',
+          defaultQuality: DefaultQuality.hd,
+          playbackGlass: false,
         ),
       );
       store.close();
@@ -117,6 +119,8 @@ void main() {
       expect(reopened.load().backgroundSourceValidation, isFalse);
       expect(reopened.load().rememberManualQuality, isTrue);
       expect(reopened.load().manualQualityLabel, '720P');
+      expect(reopened.load().defaultQuality, DefaultQuality.hd);
+      expect(reopened.load().playbackGlass, isFalse);
     });
 
     test('按钮样式保存后重开仍保留，未知值回退图标模式', () async {

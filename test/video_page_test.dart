@@ -1,3 +1,5 @@
+import 'package:lume_box/features/video/player_settings_sheet.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -365,9 +367,20 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.dragUntilVisible(find.text('1.5x'), find.byType(ListView).last, const Offset(0, -160));
+      await tester.dragUntilVisible(
+        find.text('1.5x'),
+        find.byType(ListView).last,
+        const Offset(0, -160),
+      );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('1.5x'));
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byType(PlayerSettingsSheet),
+              matching: find.widgetWithText(ChoiceChip, '1.5x'),
+            )
+            .first,
+      );
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
       await tester.tap(find.byTooltip('关闭'));
