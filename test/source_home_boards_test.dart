@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/reading/browse_layout.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_home_view.dart';
@@ -13,6 +14,8 @@ import 'package:lume_box/features/reading/source_home_view.dart';
 ///   3. 旧图源（没有 home 契约）与空返回都不崩、不空转。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => BrowseLayoutSettings.instance.resetForTesting());
+  tearDown(() => BrowseLayoutSettings.instance.resetForTesting());
 
   group('两套格式自动识别', () {
     test('板块数组 → 多板块模式（title / moreUrl / items）', () {
@@ -156,6 +159,48 @@ void main() {
       expect(find.byType(GridView), findsOneWidget, reason: '普通网格首页');
     });
 
+    for (final section in [Section.novel, Section.comic, Section.video]) {
+      testWidgets('${section.id}首页应用全部布局档位且不重新加载源', (tester) async {
+        var opened = '';
+        final source = _HomeSource(
+          const SourceHome(
+            items: [SourceItem(id: 'sample', title: '示例条目')],
+          ),
+          section: section,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SourceHomeView(
+                source: source,
+                pipeline: null,
+                onOpenItem: (item) => opened = item.id,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final mode in BrowseLayoutMode.values) {
+          await BrowseLayoutSettings.instance.setMode(section, mode);
+          await tester.pumpAndSettle();
+          if (mode == BrowseLayoutMode.list) {
+            expect(find.byType(GridView), findsNothing);
+            expect(find.byType(ListTile), findsOneWidget);
+          } else {
+            final grid = tester.widget<GridView>(find.byType(GridView));
+            expect(
+              (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+                  .crossAxisCount,
+              mode.columns,
+            );
+          }
+          expect(find.text('示例条目'), findsOneWidget);
+        }
+        await tester.tap(find.text('示例条目'));
+        expect(opened, 'sample');
+      });
+    }
+
     testWidgets('空首页：给提示并引导去分类', (tester) async {
       await pump(tester, _HomeSource(const SourceHome()));
       expect(find.text('暂无首页推荐内容'), findsOneWidget);
@@ -204,7 +249,7 @@ void main() {
 
 /// 提供 home() 的替身图源。
 class _HomeSource implements DataSource, HomeCapable {
-  _HomeSource(this._home);
+  _HomeSource(this._home, {this.section = Section.novel});
 
   final SourceHome _home;
 
@@ -215,7 +260,7 @@ class _HomeSource implements DataSource, HomeCapable {
   String get name => '首页测试源';
 
   @override
-  Section get section => Section.video;
+  final Section section;
 
   @override
   Future<bool> supportsHome() async => true;

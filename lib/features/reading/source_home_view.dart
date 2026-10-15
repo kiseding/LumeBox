@@ -71,8 +71,19 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   @override
   void initState() {
     super.initState();
+    BrowseLayoutSettings.instance.addListener(_layoutChanged);
     _bindSession();
     _load();
+  }
+
+  void _layoutChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    BrowseLayoutSettings.instance.removeListener(_layoutChanged);
+    super.dispose();
   }
 
   @override
@@ -308,6 +319,50 @@ class _SourceHomeViewState extends State<SourceHomeView> {
 
   /// 旧兼容模式：普通网格首页（不出现任何横向板块组件）。
   Widget _buildFlat(List<SourceItem> items) {
+    final mode =
+        BrowseLayoutSettings.instance.modeFor(widget.source.section) ??
+        BrowseLayoutMode.grid3;
+    if (mode == BrowseLayoutMode.list) {
+      return ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          widget.topInset,
+          16,
+          16 + widget.bottomInset,
+        ),
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 4,
+            ),
+            leading: SizedBox(
+              width: 48,
+              height: 64,
+              child: widget.pipeline == null
+                  ? ColoredBox(color: LumeTheme.fill)
+                  : PosterCover(
+                      pipeline: widget.pipeline!,
+                      url: item.cover,
+                      headers: item.coverHeaders,
+                      title: item.title,
+                      width: 160,
+                    ),
+            ),
+            title: Text(
+              item.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => widget.onOpenItem(item),
+          );
+        },
+      );
+    }
     return GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(
@@ -316,11 +371,11 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         16,
         16 + widget.bottomInset,
       ),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: mode.columns,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 0.62,
+        childAspectRatio: mode.tileAspectRatio,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => _HomeCard(

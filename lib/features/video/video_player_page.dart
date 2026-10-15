@@ -331,6 +331,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _backgroundPlaying = false;
   bool _returnedFromBackground = false;
   bool _recoveringPlayback = false;
+  bool _rangeFallbackAttempted = false;
   Duration _healthyPosition = Duration.zero;
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
 
@@ -755,6 +756,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (snapshot?.error != null) {
       _cancelAutoHide();
       _logPlaybackFailure(snapshot!);
+      final error = snapshot.error!.toLowerCase();
+      if (!_rangeFallbackAttempted &&
+          _settings.kernel == PlayerKernel.avplayer &&
+          _catalog.isAvailable(PlayerKernel.mpv) &&
+          (error.contains('-12939') ||
+              error.contains('byte range and no content length') ||
+              error.contains('服务器不支持分段请求') ||
+              error.contains('server is not correctly configured'))) {
+        _rangeFallbackAttempted = true;
+        // 快照通知期间不能同步释放发出通知的播放器。
+        scheduleMicrotask(() async {
+          if (!mounted || _settings.kernel != PlayerKernel.avplayer) return;
+          _showToast('当前媒体的分段响应与 AVPlayer 不兼容，正在切换 MPV');
+          await _applySettings(_settings.copyWith(kernel: PlayerKernel.mpv));
+          if (mounted) await _player?.play();
+        });
+      }
     }
     _wasPlaying = playing;
     if (snapshot != null) {

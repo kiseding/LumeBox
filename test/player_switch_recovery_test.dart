@@ -16,7 +16,6 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/player_kernel_section.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 
-
 /// 内核切换的「不空转」验证。
 ///
 /// 背景（用户报的现象）：切到 MPV 之后视频板块一直转圈，右上角的播放器设置
@@ -43,11 +42,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_switch');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await ReadingLibrary.open(Section.video);
   });
@@ -61,7 +60,8 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  Future<void> pumpVideo(WidgetTester tester, {
+  Future<void> pumpVideo(
+    WidgetTester tester, {
     required AbstractPlayer? Function(PlayerKernel) factory,
     Set<PlayerKernel> available = const <PlayerKernel>{
       PlayerKernel.avplayer,
@@ -82,6 +82,30 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('AVPlayer 分段响应失败自动接续 MPV，MPV 再失败不循环切换', (tester) async {
+    final created = <_FakePlayer>[];
+    await pumpVideo(
+      tester,
+      factory: (kernel) {
+        final player = _FakePlayer(kernel);
+        created.add(player);
+        return player;
+      },
+    );
+    created.first.emit(error: '打开失败：服务器不支持分段请求（AVPlayer 播不了这种流）：换 MPV 内核通常可播');
+    await tester.pumpAndSettle();
+    expect(created.map((p) => p.kernel), [
+      PlayerKernel.avplayer,
+      PlayerKernel.mpv,
+    ]);
+    expect(created.first.disposals, 1);
+    expect(created.last.plays, greaterThan(0));
+    created.last.emit(error: 'HTTP 403');
+    await tester.pumpAndSettle();
+    expect(created.length, 2);
+    expect(find.text('视频服务器拒绝访问'), findsOneWidget);
+  });
 
   group('控制栏在任何状态下都在', () {
     testWidgets('内核起不来：给出「重试 / 切回 AVPlayer」，齿轮与地址栏仍在', (tester) async {
@@ -116,9 +140,9 @@ void main() {
       await SectionScope.closeAll();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/path_provider'),
-        (call) async => null,
-      );
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => null,
+          );
 
       await pumpVideo(tester, factory: (kernel) => _FakePlayer(kernel));
 
@@ -205,9 +229,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: Scaffold(
-            body: SingleChildScrollView(
-              child: const PlayerKernelSection(),
-            ),
+            body: SingleChildScrollView(child: const PlayerKernelSection()),
           ),
         ),
       );
@@ -226,7 +248,9 @@ void main() {
   });
 
   group('重建的异常安全', () {
-    testWidgets('接续失败（applySettings / load 抛错）不空转：画面仍在 + 说明可重试', (tester) async {
+    testWidgets('接续失败（applySettings / load 抛错）不空转：画面仍在 + 说明可重试', (
+      tester,
+    ) async {
       final created = <_FakePlayer>[];
       await pumpVideo(
         tester,
@@ -330,9 +354,7 @@ void main() {
     );
     expect(created.last.plays, greaterThan(0), reason: '切换前在播，切完继续播');
   });
-
 }
-
 
 class _Catalog implements PlayerKernelCatalog {
   const _Catalog(this.available);
@@ -362,16 +384,23 @@ class _FakePlayer extends AbstractPlayer {
   int plays = 0;
 
   /// 推进快照（模拟真实播放器报位置 / 播放状态）。
-  void emit({Duration? position, Duration? duration, bool? playing}) {
+  void emit({
+    Duration? position,
+    Duration? duration,
+    bool? playing,
+    String? error,
+  }) {
     _snapshot.value = PlayerSnapshot(
+      error: error,
       position: position ?? _snapshot.value.position,
       duration: duration ?? _snapshot.value.duration,
       playing: playing ?? _snapshot.value.playing,
     );
   }
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
   late final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
     PlayerStats(engineLabel: kernel.label),
   );
@@ -398,6 +427,7 @@ class _FakePlayer extends AbstractPlayer {
   Future<void> seek(Duration position) async {
     seeks.add(position);
   }
+
   @override
   Future<void> stop() async {}
   @override
