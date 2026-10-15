@@ -263,7 +263,9 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
               16,
               8,
               16,
-              MediaQuery.viewInsetsOf(context).bottom + 8,
+              MediaQuery.viewInsetsOf(context).bottom +
+                  MediaQuery.paddingOf(context).bottom +
+                  24,
             ),
             child: Column(
               children: [
