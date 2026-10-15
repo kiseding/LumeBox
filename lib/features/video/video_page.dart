@@ -215,7 +215,7 @@ class _VideoPageState extends State<VideoPage> {
   Future<void> _playFromSource(DataSource source, SourceItem item) async {
     // 已经有一条起播在解析：不加第二次（忙态已经把列表挡住了）。
     if (_busy) return;
-    final direct = SourcePlayback.directAddress(item.id);
+    final direct = SourcePlayback.itemAddress(item.id);
     if (direct != null) {
       await _openPlayer(
         PlayerMedia(uri: direct, title: item.title),
@@ -350,8 +350,10 @@ class _VideoPageState extends State<VideoPage> {
     _playerRouteOpen = true;
     try {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => VideoPlayerPage(
+        PageRouteBuilder<void>(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, animation, secondaryAnimation) => VideoPlayerPage(
             media: media,
             title: target?.title,
             target: target,

@@ -383,6 +383,9 @@ class PlayerSettings {
     this.subtitlesEnabled = true,
     this.hardwareDecoding = true,
     this.autoHideControls = true,
+    this.backgroundSourceValidation = true,
+    this.rememberManualQuality = false,
+    this.manualQualityLabel = '',
     this.controlStyle = PlayerControlStyle.icons,
     this.autoNext = true,
     this.gestureSensitivity = defaultGestureSensitivity,
@@ -458,6 +461,9 @@ class PlayerSettings {
   /// 播放中 N 秒无操作就把进度条与按钮收起来，点屏幕再唤回；关掉则一直显示。
   /// 与内核无关（三套内核共用一份），因此放在全局项里而不是 KernelPrefs。
   final bool autoHideControls;
+  final bool backgroundSourceValidation;
+  final bool rememberManualQuality;
+  final String manualQualityLabel;
   final PlayerControlStyle controlStyle;
 
   /// 手势灵敏度倍率（亮度 / 音量垂直滑动用）：
@@ -520,6 +526,9 @@ class PlayerSettings {
     double? speed,
     bool? subtitlesEnabled,
     bool? autoHideControls,
+    bool? backgroundSourceValidation,
+    bool? rememberManualQuality,
+    String? manualQualityLabel,
     PlayerControlStyle? controlStyle,
     bool? autoNext,
     double? gestureSensitivity,
@@ -580,6 +589,9 @@ class PlayerSettings {
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
+      backgroundSourceValidation: backgroundSourceValidation ?? this.backgroundSourceValidation,
+      rememberManualQuality: rememberManualQuality ?? this.rememberManualQuality,
+      manualQualityLabel: manualQualityLabel ?? this.manualQualityLabel,
       controlStyle: controlStyle ?? this.controlStyle,
       autoNext: autoNext ?? this.autoNext,
       gestureSensitivity: gestureSensitivity == null
@@ -627,6 +639,9 @@ class PlayerSettings {
         other.subtitlesEnabled != subtitlesEnabled ||
         other.hardwareDecoding != hardwareDecoding ||
         other.autoHideControls != autoHideControls ||
+        other.backgroundSourceValidation != backgroundSourceValidation ||
+        other.rememberManualQuality != rememberManualQuality ||
+        other.manualQualityLabel != manualQualityLabel ||
         other.controlStyle != controlStyle ||
         other.autoNext != autoNext ||
         other.gestureSensitivity != gestureSensitivity) {
@@ -648,6 +663,9 @@ class PlayerSettings {
         subtitlesEnabled,
         hardwareDecoding,
         autoHideControls,
+        backgroundSourceValidation,
+        rememberManualQuality,
+        manualQualityLabel,
         controlStyle,
         Object.hashAllUnordered(
           prefs.entries.map((entry) => Object.hash(entry.key, entry.value)),

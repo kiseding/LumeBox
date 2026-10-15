@@ -19,6 +19,7 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
 import 'package:lume_box/features/video/video_page.dart';
+import 'package:lume_box/features/video/video_player_settings.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -43,7 +44,12 @@ void main() {
               ? root.path
               : null,
         );
-    await ReadingLibrary.open(Section.video);
+    final fixtureLibrary = await ReadingLibrary.open(Section.video);
+    // Progress fixtures exercise the unchanged fast path without network probes.
+    fixtureLibrary.setSetting(
+      VideoPlayerSettingsStore.keyBackgroundSourceValidation,
+      'false',
+    );
     source = _VideoSource();
     manager = FakeSourceManager(
       sources: const <SourceDescriptor>[
@@ -85,6 +91,81 @@ void main() {
     );
     await tester.pumpAndSettle();
     return created;
+  }
+
+  for (final remember in [true, false]) {
+    testWidgets('手选清晰度切集与预加载一致，缺项回退最高；记忆=$remember', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      VideoPlayerSettingsStore(library).save(
+        PlayerSettings(
+          backgroundSourceValidation: false,
+          rememberManualQuality: remember,
+        ),
+      );
+      source.items = const [SourceItem(id: 'movie', title: '画质测试')];
+      source.chapterList = const [
+        SourceChapter(id: 'e1', title: '第 1 集'),
+        SourceChapter(id: 'e2', title: '第 2 集'),
+        SourceChapter(id: 'e3', title: '第 3 集'),
+      ];
+      source.qualitiesFor = (chapter) => [
+        if (chapter != 'e3')
+          VideoQuality(
+            label: '720P',
+            url: Uri.parse('https://example.com/$chapter-720.mp4'),
+            headers: {'Referer': 'https://example.com/watch/$chapter'},
+          ),
+        VideoQuality(
+          label: '1080P',
+          url: Uri.parse('https://example.com/$chapter-1080.mp4'),
+          headers: {'Referer': 'https://example.com/watch/$chapter'},
+        ),
+      ];
+      final players = await pumpBoard(tester);
+      await tester.tap(find.text('画质测试'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('第 1 集'));
+      await tester.pumpAndSettle();
+      expect(players.last.media!.uri.path, '/e1-1080.mp4');
+      await tester.tap(find.byTooltip('线路 / 选集'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, '720P'));
+      await tester.pumpAndSettle();
+      expect(players.last.media!.uri.path, '/e1-720.mp4');
+      players.last.pushStats(
+        const PlayerStats(buffered: Duration(seconds: 10)),
+      );
+      players.last.emit(
+        position: const Duration(seconds: 40),
+        duration: const Duration(seconds: 60),
+        playing: true,
+      );
+      await tester.pumpAndSettle();
+      expect(players.length, 2);
+      final prepared = players.last;
+      expect(
+        prepared.media!.uri.path,
+        remember ? '/e2-720.mp4' : '/e2-1080.mp4',
+      );
+      await tester.tap(find.byTooltip('线路 / 选集'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '第 2 集'));
+      await tester.pumpAndSettle();
+      expect(prepared.loads, 1);
+      expect(
+        prepared.media!.headers!['Referer'],
+        'https://example.com/watch/e2',
+      );
+      await tester.tap(find.byTooltip('线路 / 选集'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '第 3 集'));
+      await tester.pumpAndSettle();
+      expect(players.last.media!.uri.path, '/e3-1080.mp4');
+      expect(
+        library.setting(VideoPlayerSettingsStore.keyManualQualityLabel),
+        remember ? '720P' : '',
+      );
+    });
   }
 
   for (final fullscreen in [false, true]) {
@@ -451,11 +532,7 @@ void main() {
     // 播放中有常驻定时器在跑（进度落盘 / 弹幕节拍 / 跳过判定），
     // pumpAndSettle 永远等不到「无新帧」——按固定时长推进即可。
     await tester.pump(const Duration(milliseconds: 400));
-    expect(
-      find.text('记片头'),
-      findsOneWidget,
-      reason: '离片尾还远：快捷按钮显示「记片头」',
-    );
+    expect(find.text('记片头'), findsOneWidget, reason: '离片尾还远：快捷按钮显示「记片头」');
     await tester.tap(find.text('记片头'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('已记片头'), findsOneWidget);
@@ -857,6 +934,7 @@ void main() {
 
 /// 视频图源替身。
 class _VideoSource implements DataSource {
+  List<VideoQuality> Function(String)? qualitiesFor;
   @override
   final Section section = Section.video;
 
@@ -900,7 +978,11 @@ class _VideoSource implements DataSource {
     final url = contentUrl.contains(chapterId)
         ? contentUrl
         : 'https://example.com/$chapterId.mp4';
-    return VideoContent(url: Uri.parse(url), headers: contentHeaders);
+    return VideoContent(
+      url: Uri.parse(url),
+      headers: contentHeaders,
+      qualities: qualitiesFor?.call(chapterId) ?? const [],
+    );
   }
 }
 

@@ -19,16 +19,43 @@ void main() {
       }
       // iOS 的 ATS 拦明文加载：域名地址统一升到 https；IP / localhost 不动。
       expect(
-        SourcePlayback.directAddress('http://example.com/live.m3u8')?.toString(),
+        SourcePlayback.directAddress('http://example.com/live.m3u8')
+            ?.toString(),
         'https://example.com/live.m3u8',
       );
       expect(
-        SourcePlayback.directAddress('http://192.168.1.9/live.m3u8')?.toString(),
+        SourcePlayback.directAddress('http://192.168.1.9/live.m3u8')
+            ?.toString(),
         'http://192.168.1.9/live.m3u8',
       );
       expect(
         SourcePlayback.directAddress('http://localhost:8080/a.mp4')?.toString(),
         'http://localhost:8080/a.mp4',
+      );
+    });
+
+    test('完整播放网页与实际媒体地址分别处理，签名媒体地址不受影响', () {
+      for (final url in [
+        'https://hanime1.me/watch?v=123',
+        'https://www.hanime.xyz/123.html',
+        'https://example.com/watch/123',
+      ]) {
+        expect(SourcePlayback.itemAddress(url), isNull);
+      }
+      expect(
+        SourcePlayback.itemAddress('https://cdn.example/watch.mp4?token=demo')
+            ?.path,
+        '/watch.mp4',
+      );
+      expect(
+        SourcePlayback.itemAddress('https://cdn.example/download.php?id=1')
+            ?.path,
+        '/download.php',
+      );
+      expect(
+        SourcePlayback.directAddress('https://example.com/watch?v=123'),
+        isNotNull,
+        reason: '已解析媒体地址的通用协议判断保持原样',
       );
     });
 
@@ -55,10 +82,7 @@ void main() {
         SourcePlayback.directAddress('/var/mobile/Media/a.mp4')?.scheme,
         'file',
       );
-      expect(
-        SourcePlayback.directAddress(r'D:\media\a.mp4')?.scheme,
-        'file',
-      );
+      expect(SourcePlayback.directAddress(r'D:\media\a.mp4')?.scheme, 'file');
       expect(SourcePlayback.directAddress('a.mp4'), isNull, reason: '相对路径不认');
     });
   });
@@ -133,8 +157,14 @@ void main() {
           'Referer': 'https://site.example/watch?v=1',
         },
         qualities: <VideoQuality>[
-          VideoQuality(label: '原画', url: Uri.parse('https://cdn.example/e1.mp4')),
-          VideoQuality(label: '720p', url: Uri.parse('https://cdn.example/720.mp4')),
+          VideoQuality(
+            label: '原画',
+            url: Uri.parse('https://cdn.example/e1.mp4'),
+          ),
+          VideoQuality(
+            label: '720p',
+            url: Uri.parse('https://cdn.example/720.mp4'),
+          ),
         ],
       );
       final headers = SourcePlayback.contentHeaders(content);

@@ -250,6 +250,29 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       const SizedBox(height: 20),
       _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
       _decodingCard(context),
+      const SizedBox(height: 20),
+      _section('播放启动', '直接起播，不自动切换播放线路或升降清晰度'),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('后台静默校验播放源'),
+        value: settings.backgroundSourceValidation,
+        onChanged: (value) =>
+            _update(settings.copyWith(backgroundSourceValidation: value)),
+      ),
+      Text(
+        '开启：视频会立刻开始播放，播放启动后在后台悄悄检查当前播放源是否可用。如果检测发现链接失效，仅弹出提示，不会自动帮你切换线路。\n'
+        '关闭：跳过全部后台源检测，拿到播放地址直接交给播放器，启动速度更快。如果播放链接已经失效，则不会提前提示，需要自己手动更换线路。',
+        style: TextStyle(fontSize: 12, height: 1.4, color: LumeTheme.muted),
+      ),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('记住手动选择的清晰度'),
+        subtitle: const Text('下一集优先使用同名清晰度；没有匹配项时使用该集最高画质。关闭后每集默认最高画质。'),
+        value: settings.rememberManualQuality,
+        onChanged: (value) =>
+            _update(settings.copyWith(rememberManualQuality: value)),
+      ),
+      const SizedBox(height: 20),
     ];
 
     // 内嵌模式（全局设置页）：**返回 Column 而不是 ListView**。

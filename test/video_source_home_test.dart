@@ -250,7 +250,9 @@ void main() {
     expect(source.contentCalls.single, ('movie-1', 'movie-1-e2'));
   });
 
-  testWidgets('站内路径 id（/watch?v=…）不能当成本地文件：走剧集 + 内容取地址（真机 -17913 回归）', (tester) async {
+  testWidgets('站内路径 id（/watch?v=…）不能当成本地文件：走剧集 + 内容取地址（真机 -17913 回归）', (
+    tester,
+  ) async {
     // 真机：H動漫網 / Hanime1 的条目 id 是站内路径（`/9434719.html`、`/watch?v=…`），
     // 早先被 `directAddress` 判成本地文件 → 起播打开一个不存在的 file://，
     // AVPlayer 报「未知错误 -17913」且日志里地址域名是空的。
@@ -259,6 +261,40 @@ void main() {
     ];
     source.chapterList = const <SourceChapter>[
       SourceChapter(id: '/watch?v=123', title: '播放'),
+    ];
+    source.contentUrl = 'https://hanime1.me/download/123.mp4';
+    source.contentHeaders = const <String, String>{
+      'User-Agent': 'src-ua',
+      'Referer': 'https://hanime1.me/watch?v=123',
+    };
+    final created = await pumpBoard(tester);
+
+    await tester.tap(find.text('樣片'));
+    await tester.pumpAndSettle();
+
+    expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
+    expect(source.contentCalls, isNotEmpty, reason: '再取这一集的播放地址');
+    expect(
+      created.single.media!.uri.toString(),
+      'https://hanime1.me/download/123.mp4',
+    );
+    expect(created.single.media!.uri.scheme, 'https');
+    expect(
+      created.single.media!.headers?['Referer'],
+      'https://hanime1.me/watch?v=123',
+      reason: '图源给的防盗链头必须一起交给内核',
+    );
+  });
+
+  testWidgets('完整 watch 网页地址必须解析 content，不能直接当媒体播放', (tester) async {
+    // 真机：H動漫網 / Hanime1 的条目 id 是站内路径（`/9434719.html`、`/watch?v=…`），
+    // 早先被 `directAddress` 判成本地文件 → 起播打开一个不存在的 file://，
+    // AVPlayer 报「未知错误 -17913」且日志里地址域名是空的。
+    source.items = const <SourceItem>[
+      SourceItem(id: 'https://hanime1.me/watch?v=123', title: '樣片'),
+    ];
+    source.chapterList = const <SourceChapter>[
+      SourceChapter(id: 'https://hanime1.me/watch?v=123', title: '播放'),
     ];
     source.contentUrl = 'https://hanime1.me/download/123.mp4';
     source.contentHeaders = const <String, String>{

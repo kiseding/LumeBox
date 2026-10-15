@@ -25,6 +25,7 @@ import 'package:lume_box/features/video/player_settings_sheet.dart';
 import 'package:lume_box/features/video/player_speed_meter.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
+import 'package:lume_box/features/video/playback_source_validator.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
 
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
@@ -261,6 +262,7 @@ void main() {
       VideoPlayTarget? target,
       SourceManager? sourceManager,
       PipBackend? pipBackend,
+      PlaybackSourceValidator? validator,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -274,6 +276,7 @@ void main() {
             catalog: catalog ?? const _AllKernelsCatalog(),
             speedMeter: speedMeter,
             pipBackend: pipBackend,
+            sourceValidator: validator,
             target: target,
             sourceManager: sourceManager,
             playerFactory: (kernel) {
@@ -287,6 +290,162 @@ void main() {
       await tester.pumpAndSettle();
       return created;
     }
+
+    testWidgets('A 只在播放推进后静默校验，悬挂检测不阻塞起播，失效只提示', (tester) async {
+      final pending = Completer<LumeHttpResponse>();
+      var checks = 0;
+      final meter = _CountingSpeedMeter();
+      addTearDown(meter.dispose);
+      final players = await pump(
+        tester,
+        speedMeter: meter,
+        validator: PlaybackSourceValidator(
+          request: (uri, headers) {
+            checks++;
+            return pending.future;
+          },
+        ),
+      );
+      final player = players.single;
+      expect(player.plays, greaterThan(0));
+      expect(checks, 0);
+      player.emit(position: const Duration(seconds: 1), playing: true);
+      await tester.pump();
+      expect(checks, 1);
+      expect(player.snapshot.value.playing, isTrue);
+      player.emit(position: const Duration(seconds: 2), playing: true);
+      await tester.pump();
+      expect(checks, 1);
+      final original = player.media!.uri;
+      final loads = player.loads;
+      pending.complete(
+        LumeHttpResponse(
+          statusCode: 404,
+          body: Uint8List(0),
+          headers: const {},
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('HTTP 404'), findsOneWidget);
+      expect(player.media!.uri, original);
+      expect(player.loads, loads);
+      expect(players.length, 1);
+    });
+
+    testWidgets('B 关闭校验后直接起播，校验与主动测速均零请求', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      VideoPlayerSettingsStore(library)
+          .save(const PlayerSettings(backgroundSourceValidation: false));
+      var checks = 0;
+      final meter = _CountingSpeedMeter();
+      addTearDown(meter.dispose);
+      final players = await pump(
+        tester,
+        speedMeter: meter,
+        validator: PlaybackSourceValidator(
+          request: (uri, headers) async {
+            checks++;
+            return LumeHttpResponse(
+              statusCode: 404,
+              body: Uint8List(0),
+              headers: const {},
+            );
+          },
+        ),
+      );
+      expect(players.single.plays, greaterThan(0));
+      players.single.emit(position: const Duration(seconds: 5), playing: true);
+      await tester.pumpAndSettle();
+      expect(checks, 0);
+      expect(meter.requests, 0);
+      expect(find.textContaining('后台校验'), findsNothing);
+    });
+
+    testWidgets('切换媒体后旧校验失败不得影响新地址', (tester) async {
+      final pending = Completer<LumeHttpResponse>();
+      var checks = 0;
+      final meter = _CountingSpeedMeter();
+      addTearDown(meter.dispose);
+      final players = await pump(
+        tester,
+        speedMeter: meter,
+        validator: PlaybackSourceValidator(
+          request: (uri, headers) => checks++ == 0
+              ? pending.future
+              : Future.value(
+                  LumeHttpResponse(
+                    statusCode: 200,
+                    body: Uint8List(0),
+                    headers: const {},
+                  ),
+                ),
+        ),
+        qualities: [
+          VideoQuality(
+            label: '1080P',
+            url: Uri.parse('https://example.com/a.mp4'),
+          ),
+          VideoQuality(
+            label: '720P',
+            url: Uri.parse('https://example.com/720.mp4'),
+          ),
+        ],
+      );
+      players.single.emit(position: const Duration(seconds: 1), playing: true);
+      await tester.pump();
+      await openPlayerAction(tester, '清晰度');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('720P'));
+      await tester.pumpAndSettle();
+      pending.complete(
+        LumeHttpResponse(
+          statusCode: 404,
+          body: Uint8List(0),
+          headers: const {},
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('后台校验返回'), findsNothing);
+      expect(players.single.media!.uri.path, '/720.mp4');
+    });
+
+    testWidgets('播放资源 403 保留当前地址并提供手动网页验证入口', (tester) async {
+      final players = await pump(
+        tester,
+        target: const VideoPlayTarget(
+          sourceId: 'hanime1_video',
+          itemId: 'https://hanime1.me/watch?v=123',
+          title: '样片',
+          chapterIndex: 0,
+          chapterId: 'https://hanime1.me/watch?v=123',
+          chapterTitle: '播放',
+        ),
+      );
+      final address = players.single.media!.uri;
+      players.single.emit(error: 'HTTP 403: Forbidden');
+      await tester.pumpAndSettle();
+      expect(find.text('播放网页验证'), findsOneWidget);
+      expect(players.single.media!.uri, address);
+    });
+
+    testWidgets('媒体尺寸迟到不会改变底部面板位置与尺寸', (tester) async {
+      final players = await pump(tester);
+      final before = tester.getRect(
+        find.byKey(VideoPlayerPage.controlPanelKey),
+      );
+      players.single.pushStats(const PlayerStats(width: 1080, height: 1920));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.getRect(find.byKey(VideoPlayerPage.controlPanelKey)),
+        before,
+      );
+      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.getRect(find.byKey(VideoPlayerPage.controlPanelKey)),
+        before,
+      );
+    });
 
     testWidgets('两套按钮样式立即切换，不重建播放器，暂停后也在三秒淡出', (tester) async {
       final players = await pump(tester);
@@ -1332,7 +1491,7 @@ class _FakePlayer extends AbstractPlayer {
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
   Object? seekError;
-  int plays = 0, pauses = 0, stops = 0, disposals = 0;
+  int plays = 0, pauses = 0, stops = 0, disposals = 0, loads = 0;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -1358,6 +1517,7 @@ class _FakePlayer extends AbstractPlayer {
 
   @override
   Future<void> load(PlayerMedia media) async {
+    loads++;
     this.media = media;
   }
 
@@ -1469,4 +1629,16 @@ class _TestPipBackend implements PipBackend {
   }
 
   Future<void> close() => _events.close();
+}
+
+class _CountingSpeedMeter extends PlaybackSpeedMeter {
+  int requests = 0;
+  @override
+  Future<void> measure(
+    Uri uri, {
+    Map<String, String>? headers,
+    bool force = false,
+  }) async {
+    requests++;
+  }
 }

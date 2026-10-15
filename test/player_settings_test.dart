@@ -100,6 +100,25 @@ void main() {
       expect(loaded.subtitleSize, SubtitleSize.large);
     });
 
+    test('启动选项与手动画质名本地持久化；缺项按 A 开、记忆关', () async {
+      final store = await VideoPlayerSettingsStore.open();
+      expect(store.load().backgroundSourceValidation, isTrue);
+      expect(store.load().rememberManualQuality, isFalse);
+      store.save(
+        store.load().copyWith(
+          backgroundSourceValidation: false,
+          rememberManualQuality: true,
+          manualQualityLabel: '720P',
+        ),
+      );
+      store.close();
+      ReadingLibrary.close(Section.video);
+      final reopened = await VideoPlayerSettingsStore.open();
+      expect(reopened.load().backgroundSourceValidation, isFalse);
+      expect(reopened.load().rememberManualQuality, isTrue);
+      expect(reopened.load().manualQualityLabel, '720P');
+    });
+
     test('按钮样式保存后重开仍保留，未知值回退图标模式', () async {
       final store = await VideoPlayerSettingsStore.open();
       store.save(store.load().copyWith(controlStyle: PlayerControlStyle.text));

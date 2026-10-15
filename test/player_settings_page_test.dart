@@ -138,7 +138,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(changed?.subtitleSize, SubtitleSize.large);
 
-    await tester.ensureVisible(find.text('显示字幕'));
+    await Scrollable.ensureVisible(tester.element(find.descendant(
+      of: find.ancestor(of: find.text('显示字幕'), matching: find.byType(Row)).first,
+      matching: find.byType(Switch),
+    )), alignment: 0.5);
     await tester.pumpAndSettle();
     // 再关字幕：改动基于本地最新状态，字号保持上一次的选择。
     // 页面上有两个开关（字幕 / 硬件解码），因此按「显示字幕」那一行定位。

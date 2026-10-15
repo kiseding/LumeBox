@@ -40,6 +40,21 @@ class SourcePlayback {
     return _secure(uri);
   }
 
+  /// A catalogue entry can be an absolute webpage URL. It must still go through
+  /// chapters/content; only the parsed content URL is handed to the decoder.
+  static Uri? itemAddress(String? value) {
+    final uri = directAddress(value);
+    if (uri == null) return null;
+    if ((uri.scheme == 'https' || uri.scheme == 'http') &&
+        RegExp(
+          r'/(?:watch|detail)(?:/|\.php(?:/|$)|$)|\.(?:html?|aspx?)$',
+          caseSensitive: false,
+        ).hasMatch(uri.path)) {
+      return null;
+    }
+    return uri;
+  }
+
   /// 章节内容 → 可播放地址（只有视频载荷可播，文本 / 图片返回 null）。
   ///
   /// 返回前统一走 [_secure]：**明文 http 的媒体地址一律升到 https**（理由见那里）。
@@ -57,7 +72,8 @@ class SourcePlayback {
     if (uri.scheme != 'http') return uri;
     final host = uri.host;
     if (host.isEmpty) return uri;
-    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host) || host == 'localhost') {
+    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host) ||
+        host == 'localhost') {
       return uri;
     }
     return uri.replace(scheme: 'https');

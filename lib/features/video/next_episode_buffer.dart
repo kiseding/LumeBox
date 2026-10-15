@@ -10,6 +10,7 @@ import '../../core/player/player_settings.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
 import 'source_playback.dart';
+import 'playback_quality_preference.dart';
 import 'video_play_target.dart';
 
 class PreparedEpisode {
@@ -55,7 +56,11 @@ class NextEpisodeBuffer {
         itemId: target.itemId,
         chapterId: chapter.id,
       );
-      final uri = SourcePlayback.contentAddress(content);
+      final chosen = PlaybackQualityPreference.select(
+        SourcePlayback.contentQualities(content, source: source),
+        settings,
+      );
+      final uri = chosen?.url ?? SourcePlayback.contentAddress(content);
       if (content == null || uri == null || stale()) return;
       player = create(settings.kernel);
       if (player == null) return;
@@ -79,9 +84,14 @@ class NextEpisodeBuffer {
               headers: Platform.isIOS
                   ? await IosVerifiedWebView.resourceHeaders(
                       uri.toString(),
-                      SourcePlayback.contentHeaders(content, source: source),
+                      (chosen?.headers ??
+                          SourcePlayback.contentHeaders(
+                            content,
+                            source: source,
+                          )),
                     )
-                  : SourcePlayback.contentHeaders(content, source: source),
+                  : (chosen?.headers ??
+                        SourcePlayback.contentHeaders(content, source: source)),
             ),
           )
           .timeout(const Duration(seconds: 8));

@@ -314,14 +314,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 硬件解码是页面上的最后一个开关：先滚到它（页面变长后它不在首屏）。
+      // 按硬件解码所在行定位，避免点击新增的播放启动开关。
       await tester.dragUntilVisible(
         find.text('硬件解码'),
         find.byType(ListView).first,
         const Offset(0, -240),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Switch).last);
+      final decodingSwitch = find.descendant(
+        of: find.ancestor(of: find.text('硬件解码'), matching: find.byType(Row)).first,
+        matching: find.byType(Switch),
+      );
+      await tester.ensureVisible(decodingSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(decodingSwitch);
       await tester.pumpAndSettle();
       expect(changed?.hardwareDecoding, isFalse);
     });

@@ -46,6 +46,8 @@ import 'danmaku/danmaku_settings_sheet.dart';
 import 'player_gestures.dart';
 import 'player_hud.dart';
 import 'player_control_glyph.dart';
+import 'playback_source_validator.dart';
+import 'playback_quality_preference.dart';
 import 'player_kernel_picker.dart';
 import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
@@ -54,6 +56,7 @@ import 'player_speed_meter.dart';
 import 'source_playback.dart';
 import 'video_play_target.dart';
 import 'video_player_settings.dart';
+import '../source/waf_webview_page.dart';
 
 /// 独立播放器页：视频**唯一的**播放入口。
 ///
@@ -86,6 +89,7 @@ class VideoPlayerPage extends StatefulWidget {
     this.playbackBackend,
     this.speedMeter,
     this.prelaunch,
+    this.sourceValidator,
   });
 
   /// 起播媒体（含防盗链请求头）。
@@ -131,6 +135,7 @@ class VideoPlayerPage extends StatefulWidget {
 
   /// 网速表（测试注入用）。为空时用真实现（向播放地址发 Range 探测）。
   final PlaybackSpeedMeter? speedMeter;
+  final PlaybackSourceValidator? sourceValidator;
 
   /// 浏览页在解析播放地址期间**预启动**的内核实例（见 [PlayerPrelaunch]）。
   ///
@@ -198,6 +203,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 媒体是否已加载成功（画中画的就绪边界检查用它）。
   bool _loaded = false;
+  late final PlaybackSourceValidator _sourceValidator =
+      widget.sourceValidator ?? PlaybackSourceValidator();
+  int _validationRevision = 0;
+  PlayerMedia? _validatedMedia;
+  Map<String, String> _playbackRequestHeaders = const {};
 
   /// 正在准备的内核：非空表示「已开始创建、还没交到手上」。
   ///
@@ -281,7 +291,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 设置 → 各模块独立设置 → 「控件尺寸」的倍率（真机反馈「显示模式全都没有
   /// 生效」：这套值原来只写库、没有界面读）。控制栏的按钮盒与图标都乘它。
+  double? _initialControlScale;
   double get _controlScale =>
+      _initialControlScale ??
       ModuleUiScale.instance.controlScale(_library?.section ?? Section.video);
 
   /// 当前生效的触达盒与图标尺寸（默认 100% 就是上面那两个常量）。
@@ -430,7 +442,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             !identical(media, _media)) {
           return;
         }
+        _cancelSourceValidation();
         _media = recoveryMedia;
+        _playbackRequestHeaders = recoveryMedia.headers ?? const {};
         _networkSpeed.reset();
         _nextSpeedProbe = null;
         await player.load(recoveryMedia);
@@ -612,6 +626,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // The normal route already owns this local library; read the final scale
+    // synchronously before the first control frame, rather than resizing later.
+    final layoutLibrary = widget.library ?? ReadingLibrary.find(Section.video);
+    if (layoutLibrary != null) {
+      _initialControlScale = SectionModuleSettings.load(layoutLibrary)
+          .controlScale;
+    }
+
     final media = widget.media;
     _syncQualityIndex(media);
     // 方向偏好：读当前值并订阅变化（设置页改了「横屏播放」当场生效）。
@@ -620,6 +642,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     orientation.addListener(_onOrientationPreferenceChanged);
     // 作品身份由 [_startPlayback] 在起播时落定：这里不预设，否则「换作品前先落盘
     // 上一部进度」那一步会在首次起播时写出一条位置为 0 的空记录。
+    _cancelSourceValidation();
     _media = media;
     _networkSpeed.reset();
     _prelaunch = widget.prelaunch;
@@ -719,12 +742,53 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _idleSnapshot.dispose();
     if (widget.speedMeter == null) _networkSpeed.dispose();
     // 注入进来的网速表由调用方释放。
+    _validationRevision++;
+    _sourceValidator.cancel();
     super.dispose();
+  }
+
+  void _cancelSourceValidation() {
+    _validationRevision++;
+    _validatedMedia = null;
+    _sourceValidator.cancel();
+  }
+
+  void _scheduleSourceValidation(PlayerSnapshot snapshot) {
+    final media = _media;
+    if (!_settings.backgroundSourceValidation ||
+        media == null ||
+        !media.isNetwork ||
+        !snapshot.playing ||
+        snapshot.buffering ||
+        snapshot.error != null ||
+        snapshot.position <= Duration.zero ||
+        _lifecycle != AppLifecycleState.resumed ||
+        identical(_validatedMedia, media)) {
+      return;
+    }
+    _validatedMedia = media;
+    final revision = _validationRevision;
+    // Runs only after the player reports progressing playback. No start path awaits it.
+    unawaited(() async {
+      final message = await _sourceValidator.check(
+        media.uri,
+        _playbackRequestHeaders,
+      );
+      if (!mounted ||
+          revision != _validationRevision ||
+          !identical(_media, media) ||
+          !_settings.backgroundSourceValidation ||
+          message == null) {
+        return;
+      }
+      _showToast(message);
+    }());
   }
 
   /// 播放状态变化：在「从播放转为非播放」时立即落盘进度，并检查是否播完。
   /// 模块「控件尺寸」变化：控制栏按钮跟着重排一次（设置页改完当场生效）。
   void _onModuleScaleChanged() {
+    _initialControlScale = ModuleUiScale.instance.controlScale(Section.video);
     if (mounted) setState(() {});
   }
 
@@ -779,7 +843,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (snapshot != null) {
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
       // 片头片尾：每次快照变化判一次（判定本身是纯函数，跳过一次后不再重复）。
-      if (playing &&
+      _scheduleSourceValidation(snapshot);
+      if (_settings.backgroundSourceValidation &&
+          playing &&
           _player?.stats.value.downloadBytesPerSecond == null &&
           !snapshot.buffering &&
           snapshot.position > Duration.zero &&
@@ -970,7 +1036,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 反应」（实测：发起播的 SnackBar 压在控制栏上，设置 / 全屏都点不到）。
     final media = widget.media;
     if (media != null && _player != null) {
-      await _startPlaybackSafely(media, target: widget.target);
+      final selected = _settings.rememberManualQuality
+          ? PlaybackQualityPreference.select(_qualities, _settings)
+          : null;
+      final initial = selected == null
+          ? media
+          : PlayerMedia(
+              uri: selected.url,
+              title: media.title,
+              headers: selected.headers.isEmpty
+                  ? media.headers
+                  : selected.headers,
+            );
+      _syncQualityIndex(initial);
+      await _startPlaybackSafely(initial, target: widget.target);
     }
   }
 
@@ -1187,10 +1266,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (backend is MethodChannelPipBackend) await backend.resetFrames();
     }
     if (!mounted || !identical(player, _player)) return;
+    _cancelSourceValidation();
     _media = media;
     _networkSpeed.reset();
     _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
+    _playbackRequestHeaders = media.headers ?? const {};
     if (!alreadyLoaded) {
       final headers = Platform.isIOS && _target != null
           ? await IosVerifiedWebView.resourceHeaders(
@@ -1203,6 +1284,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           !identical(media, _media)) {
         return;
       }
+      _playbackRequestHeaders = headers ?? const {};
       await player.load(
         PlayerMedia(uri: media.uri, title: media.title, headers: headers),
       );
@@ -1220,7 +1302,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final kernelChanged = next.kernel != _settings.kernel;
     _nextEpisodeBuffer.discard();
     if (!mounted) return;
+    if (next.backgroundSourceValidation !=
+        _settings.backgroundSourceValidation) {
+      _cancelSourceValidation();
+    }
+    if (!next.backgroundSourceValidation) {
+      _networkSpeed.reset();
+      _nextSpeedProbe = null;
+    }
     setState(() => _settings = next);
+    if (next.backgroundSourceValidation && _player != null) {
+      _scheduleSourceValidation(_player!.snapshot.value);
+    }
     // 关掉自动隐藏：立刻取消计时并让控制栏显形。
     if (next.autoHideControls) {
       _scheduleAutoHide();
@@ -1249,6 +1342,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         content: Text(message),
         duration: const Duration(milliseconds: 1600),
         behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          (_fullscreen
+                  ? 100.0
+                  : math.min(
+                      MediaQuery.sizeOf(context).height * .32,
+                      220 * _controlScale,
+                    )) +
+              MediaQuery.paddingOf(context).bottom +
+              8,
+        ),
       ),
     );
   }
@@ -1270,6 +1376,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 位置接回去，用户感知不到「重新开始」。
   Future<void> _selectQuality(int index) async {
     if (index < 0 || index >= _qualities.length) return;
+    if (_settings.rememberManualQuality) {
+      _settings = _settings.copyWith(
+        manualQualityLabel: _qualities[index].label,
+      );
+      _store?.save(_settings);
+    }
     if (index == _qualityIndex) return;
     final player = _player;
     if (player == null) return;
@@ -1376,6 +1488,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _loadSkipMarks(target);
     _healthyPosition = Duration.zero;
     _target = target;
+    _syncQualityIndex(media);
     await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
     if (!mounted || !identical(media, _media)) return;
     await _restoreProgress();
@@ -1493,20 +1606,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final content =
           prepared?.content ??
           await source.content(itemId: target.itemId, chapterId: next.id);
-      final address = SourcePlayback.contentAddress(content);
+      final qualities = SourcePlayback.contentQualities(
+        content,
+        source: source,
+      );
+      final chosen = PlaybackQualityPreference.select(qualities, _settings);
+      final address = chosen?.url ?? SourcePlayback.contentAddress(content);
       if (address == null || !mounted) return false;
 
       // 换集时线路也可能完全不同：把这一集的候选线路一起换掉。
       setState(() {
-        _qualities = SourcePlayback.contentQualities(content, source: source);
+        _qualities = qualities;
         _qualityIndex = 0;
       });
       await _startPlaybackSafely(
         PlayerMedia(
           uri: address,
           title: '${target.title} · ${next.title}',
-          // 连播 / 切集同样要带防盗链头（否则下一集很可能 403 卡住）。
-          headers: SourcePlayback.contentHeaders(content, source: source),
+          // Reuse the existing verified headers for the selected address.
+          headers:
+              chosen?.headers ??
+              SourcePlayback.contentHeaders(content, source: source),
         ),
         preparedPlayer: prepared?.player,
         target: VideoPlayTarget(
@@ -2639,28 +2759,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ],
       );
     }
+    // Stable video/control slots: decoded dimensions only affect the picture
+    // inside the stage, never the control panel's geometry.
     return Column(
-      children: <Widget>[
-        if (_isPortraitVideo)
-          Expanded(child: _buildStage(player))
-        else
-          AspectRatio(
-            aspectRatio:
-                _videoAspect(player?.stats.value ?? const PlayerStats()) ??
-                16 / 9,
-            child: _buildStage(player),
+      children: [
+        Expanded(child: _buildStage(player)),
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .32,
           ),
-        if (_isPortraitVideo)
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .32,
-            ),
-            child: SingleChildScrollView(child: _buildControlPanel(player)),
-          )
-        else
-          Expanded(
-            child: SingleChildScrollView(child: _buildControlPanel(player)),
-          ),
+          child: SingleChildScrollView(child: _buildControlPanel(player)),
+        ),
       ],
     );
   }
@@ -3409,9 +3518,34 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           icon: const Icon(Icons.refresh),
           label: const Text('重试播放'),
         ),
+        if (_target != null &&
+            ((snapshot.error ?? '').contains('403') ||
+                shouldOfferWebView(snapshot.error)))
+          OutlinedButton(
+            onPressed: _openPlaybackVerification,
+            child: const Text('播放网页验证'),
+          ),
         OutlinedButton(onPressed: _openSourceSheet, child: const Text('更换线路')),
       ],
     );
+  }
+
+  Future<void> _openPlaybackVerification() async {
+    final target = _target;
+    final media = _media;
+    if (target == null || media == null) return;
+    final outcome = await runWafWebViewFlow(
+      context: context,
+      section: Section.video,
+      sourceId: target.sourceId,
+      sourceName: _source?.name ?? target.title,
+      failureMessage: 'NEED_WEBVIEW_VERIFY：播放资源需要验证 ${media.uri}',
+      originUrl: media.uri.toString(),
+    );
+    if (!mounted || !identical(media, _media)) return;
+    if (outcome == WafWebViewOutcome.collected) {
+      await _restoreInlinePlayback(retry: true);
+    }
   }
 
   /// 已经记过日志的那条失败文案（同一条只记一次，别每秒刷屏）。
@@ -3427,7 +3561,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (error.isEmpty || error == _loggedFailure) return;
     _loggedFailure = error;
     final media = _media;
-    final headers = media?.headers ?? const <String, String>{};
+    final headers = _playbackRequestHeaders;
     // 文案与错误卡一致（内核给的原文已经带「打开失败：」前缀时不再叠一层）。
     final reason = error.startsWith('打开失败：')
         ? error
