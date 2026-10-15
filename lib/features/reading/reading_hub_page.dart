@@ -4,6 +4,7 @@ import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../source/source_subscription_page.dart';
+import '../source/source_section_page.dart';
 
 /// 板块阅读外壳：探索 / 书架两个页签（顺序见 [tabLabels]）。
 ///
@@ -20,6 +21,7 @@ class ReadingHubPage extends StatelessWidget {
     required this.shelf,
     required this.explore,
     this.actions,
+    this.onFavorites,
     this.manager,
     this.onSubscriptionsClosed,
   });
@@ -33,6 +35,7 @@ class ReadingHubPage extends StatelessWidget {
   final Widget explore;
 
   final List<Widget>? actions;
+  final VoidCallback? onFavorites;
   final SourceManager? manager;
   final VoidCallback? onSubscriptionsClosed;
 
@@ -60,18 +63,34 @@ class ReadingHubPage extends StatelessWidget {
           IconButton(
             tooltip: '收藏',
             icon: const Icon(Icons.bookmark_outline),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => DefaultTabController(
-                  length: 2,
-                  child: GlassScaffold(
-                    title: '${section.label}收藏',
-                    child: shelf,
+            onPressed:
+                onFavorites ??
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => DefaultTabController(
+                      length: 2,
+                      child: GlassScaffold(
+                        title: '${section.label}收藏',
+                        child: shelf,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+          ),
+          IconButton(
+            tooltip: '源管理',
+            icon: const Icon(Icons.folder_open_outlined),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      SourceSectionPage(section: section, manager: manager),
+                ),
+              );
+              if (context.mounted) onSubscriptionsClosed?.call();
+            },
           ),
           Tooltip(
             message: '订阅',

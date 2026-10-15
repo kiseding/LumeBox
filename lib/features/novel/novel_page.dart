@@ -126,6 +126,7 @@ class _NovelPageState extends State<NovelPage> {
       section: Section.novel,
       manager: widget.manager,
       onSubscriptionsClosed: _onSourcesChanged,
+      onFavorites: () => _openHistory(library, favorites: true),
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 漫画同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(
@@ -175,7 +176,10 @@ class _NovelPageState extends State<NovelPage> {
   ///
   /// 两条路径共用同一个「打开详情」动作：记录里点条目 = 续读（[continueOnOpen]），
   /// 收藏里点一条还没读过的 = 直接进详情页（用户点名：历史图标里要有收藏记录）。
-  Future<void> _openHistory(ReadingLibrary library) async {
+  Future<void> _openHistory(
+    ReadingLibrary library, {
+    bool favorites = false,
+  }) async {
     final manager = widget.manager ?? LumeSources.manager(Section.novel);
     void openDetail(LibraryItem item, {bool continueOnOpen = false}) {
       Navigator.of(context).pop();
@@ -201,6 +205,9 @@ class _NovelPageState extends State<NovelPage> {
       context: context,
       section: Section.novel,
       library: library,
+      initialTab: favorites
+          ? HistoryDrawerTab.favorites
+          : HistoryDrawerTab.records,
       onResume: (item, _) => openDetail(item, continueOnOpen: true),
       onOpenItem: openDetail,
     );

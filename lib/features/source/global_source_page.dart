@@ -13,6 +13,7 @@ import 'browse_page.dart';
 import 'source_import_dialog.dart';
 import '../../core/source/source_subscription_sync.dart';
 import 'source_import_flow.dart';
+import 'source_maintenance.dart';
 
 /// 全局图源总管理页：一个页面汇总四个板块的图源，逐个板块执行管理操作。
 ///
@@ -49,6 +50,97 @@ class GlobalSourcePage extends StatefulWidget {
 }
 
 class _GlobalSourcePageState extends State<GlobalSourcePage> {
+  bool _selecting = false;
+  bool _maintaining = false;
+  final _selected = <(Section, String)>{};
+  Iterable<Section> get _visibleSections =>
+      _filter == null ? Section.values : [_filter!];
+  List<(Section, SourceDescriptor)> get _visibleSources => [
+    for (final section in _visibleSections)
+      for (final source in _listOf(section)) (section, source),
+  ];
+
+  Future<void> _bulkToggle(bool enabled) async {
+    setState(() => _maintaining = true);
+    final errors = <String>[];
+    try {
+      for (final entry in _selected.toList()) {
+        try {
+          await _managers[entry.$1]!.setEnabled(entry.$2, enabled);
+        } catch (error) {
+          errors.add('${entry.$1.label}/${entry.$2}：$error');
+        }
+      }
+      await _reload();
+      if (mounted && errors.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errors.join('\n'))));
+      }
+    } finally {
+      if (mounted) setState(() => _maintaining = false);
+    }
+  }
+
+  Future<void> _bulkRemove({bool all = false, bool clearData = false}) async {
+    final targets = _visibleSources
+        .where((entry) => all || _selected.contains((entry.$1, entry.$2.id)))
+        .toList();
+    final sections = clearData
+        ? _visibleSections.toList()
+        : targets.map((e) => e.$1).toSet().toList();
+    if (sections.isEmpty) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(clearData ? '移除所有站点数据' : '移除已安装站点'),
+        content: Text(
+          '范围：${sections.map((s) => s.label).join('、')}，共 ${targets.length} 个站点。${clearData ? '清除源、订阅、Cookie／验证会话、源设置与浏览缓存；保留书架和阅读／播放进度。' : '移除所选源，保留书架、进度与站点设置。订阅自动同步不会重新安装这些源。'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    setState(() => _maintaining = true);
+    final errors = <String>[];
+    try {
+      for (final section in sections) {
+        try {
+          final result =
+              await SourceMaintenance(
+                section: section,
+                manager: _managers[section]!,
+              ).remove(
+                targets.where((e) => e.$1 == section).map((e) => e.$2).toList(),
+                clearData: clearData,
+              );
+          errors.addAll(result.errors.map((e) => '${section.label}：$e'));
+        } catch (error) {
+          errors.add('${section.label}：$error');
+        }
+      }
+      await _reload();
+      if (!mounted) return;
+      setState(() {
+        _selected.clear();
+        _selecting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errors.isEmpty ? '站点维护完成' : errors.join('\n'))),
+      );
+    } finally {
+      if (mounted) setState(() => _maintaining = false);
+    }
+  }
+
   /// 一板块一端口：本页唯一的管理通道，四个板块互相独立。
   late final Map<Section, SourceManager> _managers = <Section, SourceManager>{
     for (final section in Section.values)
@@ -502,7 +594,10 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await _managers[section]!.remove(source.id);
+    await SourceMaintenance(
+      section: section,
+      manager: _managers[section]!,
+    ).remove([source]);
     await _reloadSection(section);
   }
 
@@ -526,43 +621,83 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     return GlassScaffold(
       behindBar: true,
       title: '源总管理',
-      actions: <Widget>[
-        if (_runtimeAvailable && !_loading)
-          IconButton(
-            tooltip: '恢复源',
-            icon: const Icon(Icons.settings_backup_restore),
-            onPressed: _restoreBackup,
-          ),
-        if (_runtimeAvailable && !_loading && _totalCount > 0) ...<Widget>[
-          IconButton(
-            tooltip: '备份源',
-            icon: const Icon(Icons.save_alt),
-            onPressed: _exportBackup,
-          ),
-          IconButton(
-            tooltip: '批量刷新订阅源',
-            icon: const Icon(Icons.sync),
-            onPressed: _testing.isEmpty && _refreshing.isEmpty
-                ? _refreshSubscriptions
-                : null,
-          ),
-          IconButton(
-            tooltip: '批量测试连通性',
-            icon: const Icon(Icons.network_check),
-            onPressed: _testing.isEmpty && _refreshing.isEmpty
-                ? _testAll
-                : null,
-          ),
-        ],
-      ],
+      actions:
+          <Widget>[
+                if (_runtimeAvailable && !_loading)
+                  PopupMenuButton<String>(
+                    tooltip: '站点维护',
+                    enabled:
+                        !_maintaining &&
+                        _testing.isEmpty &&
+                        _refreshing.isEmpty,
+                    onSelected: (value) {
+                      if (value == 'select') {
+                        setState(() {
+                          _selecting = !_selecting;
+                          _selected.clear();
+                        });
+                      } else {
+                        _bulkRemove(all: true, clearData: value == 'clear');
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'select',
+                        child: Text(_selecting ? '退出多选' : '多选站点'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'remove',
+                        child: Text('移除已安装站点'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'clear',
+                        child: Text('移除所有站点数据'),
+                      ),
+                    ],
+                  ),
+                if (_runtimeAvailable && !_loading)
+                  IconButton(
+                    tooltip: '恢复源',
+                    icon: const Icon(Icons.settings_backup_restore),
+                    onPressed: _restoreBackup,
+                  ),
+                if (_runtimeAvailable &&
+                    !_loading &&
+                    _totalCount > 0) ...<Widget>[
+                  IconButton(
+                    tooltip: '备份源',
+                    icon: const Icon(Icons.save_alt),
+                    onPressed: _exportBackup,
+                  ),
+                  IconButton(
+                    tooltip: '批量刷新订阅源',
+                    icon: const Icon(Icons.sync),
+                    onPressed: _testing.isEmpty && _refreshing.isEmpty
+                        ? _refreshSubscriptions
+                        : null,
+                  ),
+                  IconButton(
+                    tooltip: '批量测试连通性',
+                    icon: const Icon(Icons.network_check),
+                    onPressed: _testing.isEmpty && _refreshing.isEmpty
+                        ? _testAll
+                        : null,
+                  ),
+                ],
+              ]
+              .map(
+                (action) =>
+                    IgnorePointer(ignoring: _maintaining, child: action),
+              )
+              .toList(),
       floatingActionButton: _runtimeAvailable && !_loading
           ? FloatingActionButton(
               tooltip: '导入源',
-              onPressed: () => _import(),
+              onPressed: _maintaining ? null : () => _import(),
               child: const Icon(Icons.add),
             )
           : null,
-      child: _buildBody(),
+      child: AbsorbPointer(absorbing: _maintaining, child: _buildBody()),
     );
   }
 
@@ -590,6 +725,44 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
         // 筛选条不是滚动视图，自己让出玻璃顶栏的高度。
         SizedBox(height: GlassScaffold.barHeight(context)),
         _buildFilterBar(),
+        if (_maintaining) const LinearProgressIndicator(),
+        if (_selecting)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: () => setState(
+                    () => _selected.addAll(
+                      _visibleSources.map((e) => (e.$1, e.$2.id)),
+                    ),
+                  ),
+                  child: const Text('全选'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _selected.clear()),
+                  child: const Text('取消全选'),
+                ),
+                Text('已选 ${_selected.length}'),
+                TextButton(
+                  onPressed: _selected.isEmpty ? null : () => _bulkToggle(true),
+                  child: const Text('批量启用'),
+                ),
+                TextButton(
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _bulkToggle(false),
+                  child: const Text('批量停用'),
+                ),
+                TextButton(
+                  onPressed: _selected.isEmpty ? null : () => _bulkRemove(),
+                  child: const Text('删除所选'),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: ListView(
             // 尾部只留「页面节奏（24）+ 右下角 FAB 的净空（56）」：二级页底下没有
@@ -631,7 +804,10 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       child: ChoiceChip(
         label: Text('$label $enabled/$total'),
         selected: _filter == section,
-        onSelected: (_) => setState(() => _filter = section),
+        onSelected: (_) => setState(() {
+          _filter = section;
+          _selected.clear();
+        }),
       ),
     );
   }
@@ -672,14 +848,33 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       for (final source in sources)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: _SourceTile(
-            source: source,
-            testing:
-                _testing.contains(source.id) || _refreshing.contains(source.id),
-            testResult: _testResults[source.id],
-            onToggle: (enabled) => _toggle(section, source, enabled),
-            onBrowse: source.enabled ? () => _browse(section, source) : null,
-            onDelete: () => _delete(section, source),
+          child: Row(
+            children: [
+              if (_selecting)
+                Checkbox(
+                  key: ValueKey('global-select-${section.id}-${source.id}'),
+                  value: _selected.contains((section, source.id)),
+                  onChanged: (_) => setState(() {
+                    _selected.contains((section, source.id))
+                        ? _selected.remove((section, source.id))
+                        : _selected.add((section, source.id));
+                  }),
+                ),
+              Expanded(
+                child: _SourceTile(
+                  source: source,
+                  testing:
+                      _testing.contains(source.id) ||
+                      _refreshing.contains(source.id),
+                  testResult: _testResults[source.id],
+                  onToggle: (enabled) => _toggle(section, source, enabled),
+                  onBrowse: source.enabled
+                      ? () => _browse(section, source)
+                      : null,
+                  onDelete: () => _delete(section, source),
+                ),
+              ),
+            ],
           ),
         ),
     ];

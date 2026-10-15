@@ -471,7 +471,7 @@ void main() {
     }, reason: '防盗链请求头不能丢：丢了就是 CDN 403 + 退避重试（等一两分钟）');
   });
 
-  testWidgets('历史抽屉里删单条：记录与书架条目一起消失', (tester) async {
+  testWidgets('历史抽屉删除记录：保留收藏', (tester) async {
     source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
     final library = await ReadingLibrary.open(Section.video);
     library.shelve(sourceId: 'demo-video', itemId: 'movie-1', title: '示例影片');
@@ -493,12 +493,18 @@ void main() {
     await tester.pumpAndSettle();
 
     // 抽屉里删单条（视频的记录就是它的书架，删掉不丢别的东西）。
-    await tester.tap(find.byTooltip('删除记录').first);
+    await tester.tap(find.text('多选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除所选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await tester.pumpAndSettle();
 
-    expect(find.text('还没有记录'), findsOneWidget, reason: '删完抽屉给空态');
+    expect(find.text('暂无内容'), findsOneWidget, reason: '删完抽屉给空态');
     expect(library.videoProgress('movie-1'), isNull);
-    expect(library.onShelf('movie-1'), isFalse);
+    expect(library.onShelf('movie-1'), isTrue);
   });
 
   testWidgets('片头片尾：从源条目播时记一下，片尾到点自动跳（用户口径）', (tester) async {
@@ -625,7 +631,7 @@ void main() {
 
     await tester.tap(find.byTooltip('播放历史'));
     await tester.pumpAndSettle();
-    expect(find.text('还没有记录'), findsOneWidget);
+    expect(find.text('暂无内容'), findsOneWidget);
   });
 
   group('进度存储口径', () {

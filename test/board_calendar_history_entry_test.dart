@@ -33,14 +33,15 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_calendar_history');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     await SectionScope.open(Section.video);
     await SectionScope.open(Section.novel);
     await SectionScope.open(Section.comic);
+    await ReadingLibrary.open(Section.cat);
   });
 
   tearDown(() async {
@@ -53,9 +54,7 @@ void main() {
   Future<void> pump(WidgetTester tester, Widget page) async {
     await tester.binding.setSurfaceSize(const Size(900, 1500));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(theme: LumeTheme.build(), home: page),
-    );
+    await tester.pumpWidget(MaterialApp(theme: LumeTheme.build(), home: page));
     await tester.pumpAndSettle();
   }
 
@@ -91,7 +90,9 @@ void main() {
     );
   }
 
-  VideoProgress videoProgressAt(String itemId, Duration position) => VideoProgress(        section: Section.video,
+  VideoProgress videoProgressAt(String itemId, Duration position) =>
+      VideoProgress(
+        section: Section.video,
         itemId: itemId,
         chapterIndex: 2,
         chapterId: '$itemId-e3',
@@ -102,15 +103,15 @@ void main() {
       );
 
   NovelProgress novelProgressAt(String itemId) => NovelProgress(
-        section: Section.novel,
-        itemId: itemId,
-        chapterIndex: 4,
-        chapterId: '$itemId-c5',
-        chapterTitle: '第 5 章',
-        updatedAt: DateTime.now(),
-        charOffset: 500,
-        chapterLength: 1000,
-      );
+    section: Section.novel,
+    itemId: itemId,
+    chapterIndex: 4,
+    chapterId: '$itemId-c5',
+    chapterTitle: '第 5 章',
+    updatedAt: DateTime.now(),
+    charOffset: 500,
+    chapterLength: 1000,
+  );
 
   group('右上角两枚独立图标', () {
     testWidgets('视频：「播放历史」在、日历已删，顶部无页签条', (tester) async {
@@ -177,8 +178,8 @@ void main() {
       await tester.tap(find.byTooltip('播放历史'));
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('清空历史'), findsOneWidget);
-      expect(find.byTooltip('删除记录'), findsWidgets);
+      expect(find.text('清空'), findsOneWidget);
+      expect(find.text('多选'), findsOneWidget);
     });
 
     testWidgets('小说：抽屉里是阅读记录，且**只读**（书架是书库，不许顺手清）', (tester) async {
@@ -198,7 +199,7 @@ void main() {
       expect(find.byType(ReadingHistorySheet), findsOneWidget);
       expect(find.text('小说 · 历史'), findsOneWidget);
       expect(find.text('示例小说'), findsWidgets);
-      expect(find.byTooltip('清空历史'), findsNothing);
+      expect(find.text('清空'), findsOneWidget);
       expect(find.byTooltip('删除记录'), findsNothing);
     });
 
@@ -235,77 +236,115 @@ void main() {
       await tester.tap(find.byTooltip('播放历史'));
       await tester.pumpAndSettle();
 
-      expect(find.text('还没有记录'), findsOneWidget);
+      expect(find.text('暂无内容'), findsOneWidget);
     });
   });
 
-  group('历史抽屉的「收藏」页签（用户点名：历史图标里要有收藏记录）', () {
-    testWidgets('小说：收藏页签列出收藏了还没读的条目，点它走「打开详情」回调', (tester) async {
-      await shelveOnly(Section.novel, itemId: 'novel-2', title: '收藏未读的书');
-      final library = await ReadingLibrary.open(Section.novel);
+  for (final section in [
+    Section.novel,
+    Section.comic,
+    Section.video,
+    Section.cat,
+  ]) {
+    for (final favorites in [false, true]) {
+      testWidgets(
+        '${section.label} ${favorites ? '收藏' : '历史'}：显示模式记忆、全选删除与取消',
+        (tester) async {
+          final library = await ReadingLibrary.open(section);
+          for (final id in ['one', 'two']) {
+            library.shelve(sourceId: 'demo', itemId: id, title: id);
+            library.saveProgress(
+              VideoProgress(
+                section: section,
+                itemId: id,
+                chapterIndex: 0,
+                chapterId: 'ep',
+                chapterTitle: '第1集',
+                updatedAt: DateTime.now(),
+                position: const Duration(seconds: 20),
+              ),
+            );
+          }
+          await pump(
+            tester,
+            Scaffold(
+              body: ReadingHistorySheet(
+                section: section,
+                library: library,
+                initialTab: favorites
+                    ? HistoryDrawerTab.favorites
+                    : HistoryDrawerTab.records,
+                onResume: (_, _) {},
+              ),
+            ),
+          );
+          expect(find.byType(ChoiceChip), findsNothing);
+          await tester.tap(find.byTooltip('显示模式'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('双列网格'));
+          await tester.pumpAndSettle();
+          expect(find.byType(GridView), findsOneWidget);
+          expect(
+            library.setting(
+              'collection.${favorites ? 'favorites' : 'history'}.layout',
+            ),
+            'grid2',
+          );
+          expect(
+            library.setting(
+              'collection.${favorites ? 'history' : 'favorites'}.layout',
+            ),
+            isNull,
+          );
+          await tester.tap(find.text('多选'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('全选'));
+          await tester.pumpAndSettle();
+          expect(find.text('已选 2'), findsOneWidget);
+          await tester.tap(find.text('删除所选'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('取消'));
+          await tester.pumpAndSettle();
+          expect(library.shelf().length, 2);
+          expect(library.continueReading().length, 2);
+          await tester.tap(find.text('删除所选'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(FilledButton, '删除'));
+          await tester.pumpAndSettle();
+          expect(library.shelf().length, favorites ? 0 : 2);
+          expect(library.continueReading().length, favorites ? 2 : 0);
+          expect(find.text('暂无内容'), findsOneWidget);
+        },
+      );
+    }
+  }
 
-      LibraryItem? opened;
-      await pump(
-        tester,
-        Scaffold(
-          body: ReadingHistorySheet(
-            section: Section.novel,
-            library: library,
-            onResume: (_, _) {},
-            onOpenItem: (item) => opened = item,
+  group('历史与收藏独立入口', () {
+    for (final section in [Section.novel, Section.comic, Section.video]) {
+      testWidgets('${section.label}收藏：未读条目可打开，且没有分栏', (tester) async {
+        await shelveOnly(section, itemId: 'unread', title: '收藏未读的书');
+        final library = await ReadingLibrary.open(section);
+        LibraryItem? opened;
+        await pump(
+          tester,
+          Scaffold(
+            body: ReadingHistorySheet(
+              section: section,
+              library: library,
+              initialTab: HistoryDrawerTab.favorites,
+              onResume: (_, _) {},
+              onOpenItem: (item) => opened = item,
+            ),
           ),
-        ),
-      );
-
-      // 两个页签都在；默认「记录」里看不到还没读的那本。
-      expect(find.widgetWithText(ChoiceChip, '记录'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, '收藏'), findsOneWidget);
-      expect(find.text('收藏未读的书'), findsNothing);
-
-      await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('1 部收藏 · 最近加入在前'), findsOneWidget);
-      expect(find.text('收藏未读的书'), findsOneWidget);
-      expect(find.text('还没开始读'), findsOneWidget);
-      // 收藏一栏只读：书架要删请到书架长按。
-      expect(find.byTooltip('删除记录'), findsNothing);
-
-      await tester.tap(find.text('收藏未读的书'));
-      await tester.pumpAndSettle();
-      expect(opened?.itemId, 'novel-2', reason: '未读的收藏点开去详情页');
-    });
-
-    testWidgets('收藏里已读的条目点开是续读（onResume 而不是详情）', (tester) async {
-      await seed(
-        Section.novel,
-        itemId: 'novel-1',
-        title: '读到一半的书',
-        progress: novelProgressAt('novel-1'),
-      );
-      final library = await ReadingLibrary.open(Section.novel);
-
-      var resumed = 0;
-      await pump(
-        tester,
-        Scaffold(
-          body: ReadingHistorySheet(
-            section: Section.novel,
-            library: library,
-            onResume: (_, _) => resumed++,
-            onOpenItem: (_) => fail('已读的条目应当续读，而不是进详情'),
-          ),
-        ),
-      );
-      await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('读到一半的书'));
-      await tester.pumpAndSettle();
-      expect(resumed, 1);
-    });
-
-    testWidgets('视频：抽屉里也有「记录 / 收藏」两个页签（用户点名）', (tester) async {
+        );
+        expect(find.byType(ChoiceChip), findsNothing);
+        expect(find.byTooltip('显示模式'), findsOneWidget);
+        expect(find.text('收藏未读的书'), findsOneWidget);
+        await tester.tap(find.text('收藏未读的书'));
+        expect(opened?.itemId, 'unread');
+      });
+    }
+    testWidgets('视频收藏按钮直接展示收藏，不含历史分栏', (tester) async {
       await seed(
         Section.video,
         itemId: 'movie-1',
@@ -313,20 +352,11 @@ void main() {
         progress: videoProgressAt('movie-1', const Duration(minutes: 12)),
       );
       await pump(tester, const VideoPage(catalog: _NoKernelCatalog()));
-      await tester.tap(find.byTooltip('播放历史'));
+      await tester.tap(find.byTooltip('收藏'));
       await tester.pumpAndSettle();
-
-      // 记录一栏（默认）：进度 + 可删单条。
-      expect(find.widgetWithText(ChoiceChip, '记录'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, '收藏'), findsOneWidget);
-      expect(find.text('示例影片'), findsWidgets);
-      expect(find.byTooltip('删除记录'), findsWidgets);
-
-      // 收藏一栏：同一份书架（视频的书架就是播放记录），按加入时间排。
-      await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
-      await tester.pumpAndSettle();
-      expect(find.text('1 部收藏 · 最近加入在前'), findsOneWidget);
-      expect(find.text('示例影片'), findsWidgets);
+      expect(find.text('视频 · 收藏'), findsOneWidget);
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.text('示例影片'), findsOneWidget);
     });
   });
 }

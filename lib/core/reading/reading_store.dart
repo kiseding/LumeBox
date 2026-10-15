@@ -30,7 +30,7 @@ class ReadingStore {
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
 
-  static const int _schemaVersion = 2;
+  static const int _schemaVersion = 3;
 
   /// 板块内阅读数据根目录（相对板块根）。
   static const String cacheRootName = 'reading_cache';
@@ -138,6 +138,13 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         "ALTER TABLE reading_progress ADD COLUMN progress_kind TEXT NOT NULL DEFAULT ''",
       );
     }
+    if (!_db
+        .select('PRAGMA table_info(library_item)')
+        .any((row) => row['name'] == 'favorite')) {
+      _db.execute(
+        'ALTER TABLE library_item ADD COLUMN favorite INTEGER NOT NULL DEFAULT 1',
+      );
+    }
     if (version < _schemaVersion) {
       _db.execute('PRAGMA user_version = $_schemaVersion');
     }
@@ -159,10 +166,10 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   // ------------------------------------------------------------------ 书架
 
   /// 书架条目，最近加入或阅读的在前。
-  List<LibraryItem> shelf() {
+  List<LibraryItem> shelf({bool includeHistoryOnly = false}) {
     if (_closed) return const <LibraryItem>[];
     final rows = _db.select(
-      'SELECT * FROM library_item WHERE section = ? ORDER BY updated_at DESC',
+      'SELECT * FROM library_item WHERE section = ? ${includeHistoryOnly ? '' : 'AND favorite = 1'} ORDER BY updated_at DESC',
       <Object?>[section.id],
     );
     final items = <LibraryItem>[];
@@ -171,6 +178,21 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       if (item != null) items.add(item);
     }
     return List<LibraryItem>.unmodifiable(items);
+  }
+
+  bool isFavorite(String itemId) =>
+      !_closed &&
+      _db.select(
+        'SELECT 1 FROM library_item WHERE item_id = ? AND section = ? AND favorite = 1',
+        [itemId, section.id],
+      ).isNotEmpty;
+
+  void removeFavorite(String itemId) {
+    if (_closed) return;
+    _db.execute(
+      'UPDATE library_item SET favorite = 0 WHERE item_id = ? AND section = ?',
+      [itemId, section.id],
+    );
   }
 
   /// 单条书架条目。不存在或归属不符时返回 null。
@@ -195,7 +217,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       'subtitle, chapter_count, read_chapter_index, added_at, updated_at) '
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(item_id) DO UPDATE SET '
-      'source_id = excluded.source_id, '
+      'favorite = 1, source_id = excluded.source_id, '
       'title = excluded.title, '
       'cover = excluded.cover, '
       'subtitle = excluded.subtitle, '
@@ -325,6 +347,10 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     _db.execute(
       'DELETE FROM reading_progress WHERE item_id = ? AND section = ?',
       <Object?>[itemId, section.id],
+    );
+    _db.execute(
+      'UPDATE library_item SET read_chapter_index = -1 WHERE item_id = ? AND section = ?',
+      [itemId, section.id],
     );
   }
 

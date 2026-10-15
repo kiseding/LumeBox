@@ -37,6 +37,40 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test('版本二收藏迁移保留条目，移出收藏后历史在重开后仍可读取', () async {
+    var library = await ReadingLibrary.open(Section.video);
+    library.shelve(sourceId: 'demo', itemId: 'legacy', title: '原收藏');
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'legacy',
+        chapterIndex: 0,
+        chapterId: 'ep',
+        chapterTitle: '第1集',
+        updatedAt: DateTime.now(),
+        position: const Duration(seconds: 60),
+      ),
+    );
+    final scope = await SectionScope.open(Section.video);
+    ReadingLibrary.close(Section.video);
+    final database = sqlite3.open(scope.resolve('reading.db'));
+    database.execute('ALTER TABLE library_item DROP COLUMN favorite');
+    database.execute('PRAGMA user_version=2');
+    database.close();
+    library = await ReadingLibrary.open(Section.video);
+    expect(library.onShelf('legacy'), isTrue);
+    expect(library.videoProgress('legacy')?.position.inSeconds, 60);
+    library.removeFavorite('legacy');
+    ReadingLibrary.close(Section.video);
+    library = await ReadingLibrary.open(Section.video);
+    expect(library.shelf(), isEmpty);
+    expect(library.onShelf('legacy'), isFalse);
+    expect(library.continueReading().single.item.title, '原收藏');
+    library.removeHistory('legacy');
+    expect(library.continueReading(), isEmpty);
+    expect(library.videoProgress('legacy'), isNull);
+  });
+
   test('版本一阅读库迁移保留原有视频进度', () async {
     final library = await ReadingLibrary.open(Section.video);
     library.saveProgress(

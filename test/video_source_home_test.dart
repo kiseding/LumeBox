@@ -161,11 +161,6 @@ void main() {
     expect(find.text('暂无源'), findsOneWidget, reason: '起步是空板块');
 
     // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
-    await tester.tap(find.byTooltip('订阅'));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 80)),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('添加源'));
@@ -179,8 +174,6 @@ void main() {
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
 
-    await tester.pageBack();
-    await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(manager.imported, hasLength(1));

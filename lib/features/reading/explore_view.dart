@@ -61,7 +61,7 @@ class ExploreView extends StatefulWidget {
     this.manager,
     this.layout = ExploreLayout.grid,
     this.showSourceManage = true,
-    this.showSort = true,
+    this.showSort = false,
     this.onOpenFacetFilter,
     this.revision = 0,
   });

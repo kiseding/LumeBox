@@ -5,7 +5,6 @@ import '../../core/net/source_subscription.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/glass_card.dart';
-import 'source_section_page.dart';
 
 class SourceSubscriptionPage extends StatefulWidget {
   const SourceSubscriptionPage({
@@ -123,19 +122,6 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
       title: '${widget.section.label} · 订阅管理',
       actions: [
         ...widget.extraActions,
-        IconButton(
-          tooltip: '源管理',
-          icon: const Icon(Icons.folder_open),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => SourceSectionPage(
-                section: widget.section,
-                manager: widget.manager,
-              ),
-            ),
-          ),
-        ),
         IconButton(
           tooltip: '同步订阅',
           onPressed: _busy ? null : _sync,

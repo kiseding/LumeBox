@@ -44,14 +44,13 @@ void main() {
     Map<Section, List<SourceDescriptor>> sources =
         const <Section, List<SourceDescriptor>>{},
     bool runtimeAvailable = true,
-  }) =>
-      <Section, FakeSourceManager>{
-        for (final section in Section.values)
-          section: FakeSourceManager(
-            runtimeAvailable: runtimeAvailable,
-            sources: sources[section] ?? const <SourceDescriptor>[],
-          ),
-      };
+  }) => <Section, FakeSourceManager>{
+    for (final section in Section.values)
+      section: FakeSourceManager(
+        runtimeAvailable: runtimeAvailable,
+        sources: sources[section] ?? const <SourceDescriptor>[],
+      ),
+  };
 
   Future<void> pumpPage(
     WidgetTester tester,
@@ -75,11 +74,49 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('全局多选按筛选范围操作，取消删除不改数据', (tester) async {
+    final managers = fakeManagers(
+      sources: {
+        novel: [novelA, novelB],
+        comic: [comicA],
+      },
+    );
+    await pumpPage(tester, managers);
+    await tester.tap(find.text('小说 1/2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('站点维护'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('多选站点'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2'), findsOneWidget);
+    await tester.tap(find.text('批量停用'));
+    await tester.pumpAndSettle();
+    expect((await managers[novel]!.list()).every((e) => !e.enabled), isTrue);
+    expect((await managers[comic]!.list()).single.enabled, isTrue);
+    await tester.tap(find.text('删除所选'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('范围：小说'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect((await managers[novel]!.list()).length, 2);
+    await tester.tap(find.text('删除所选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '移除'));
+    await tester.pumpAndSettle();
+    expect(await managers[novel]!.list(), isEmpty);
+    expect((await managers[comic]!.list()).length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('汇总：四板块分组展示，计数与状态标记正确', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA, novelB],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA, novelB],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(tester, managers);
 
     // 筛选行：全部 + 每板块「启用 / 总数」。
@@ -103,10 +140,12 @@ void main() {
   });
 
   testWidgets('筛选：只显示所选板块的分组', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.text('漫画 1/1'));
@@ -124,9 +163,11 @@ void main() {
   });
 
   testWidgets('导入：只写入所选板块，列表随即刷新', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.byTooltip('导入到漫画'));
@@ -148,9 +189,11 @@ void main() {
   });
 
   testWidgets('导入：对话框里可改目标板块', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.byType(FloatingActionButton));
@@ -161,7 +204,10 @@ void main() {
       find.descendant(of: find.byType(AlertDialog), matching: find.text('猫源')),
     );
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'var LumeSource = {id:"c"};');
+    await tester.enterText(
+      find.byType(TextField),
+      'var LumeSource = {id:"c"};',
+    );
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
 
@@ -171,9 +217,11 @@ void main() {
   });
 
   testWidgets('导入：空脚本被拦下，不写任何板块', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.byTooltip('导入到小说'));
@@ -189,9 +237,11 @@ void main() {
   });
 
   testWidgets('导入失败：提示原因，列表不变', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     managers[comic]!.importFailure = '脚本载入失败：语法错误或运行异常';
     await pumpPage(tester, managers);
 
@@ -203,20 +253,19 @@ void main() {
 
     // 结果弹窗带上板块名，失败行点明是哪一条、原因是什么。
     expect(find.text('导入结果 · 漫画'), findsOneWidget);
-    expect(
-      find.text('导入失败：粘贴 — 脚本载入失败：语法错误或运行异常'),
-      findsOneWidget,
-    );
+    expect(find.text('导入失败：粘贴 — 脚本载入失败：语法错误或运行异常'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     expect(find.text('漫画 1/1'), findsOneWidget);
   });
 
   testWidgets('导入：本地文件通道可用，且只写所选板块', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(
       tester,
       managers,
@@ -248,7 +297,9 @@ void main() {
       tester,
       managers,
       fetchSubscription: (url) async => SourceFetchResult(
-        bytes: Uint8List.fromList(utf8.encode('var LumeSource = {id: "s", name: "订阅源"};')),
+        bytes: Uint8List.fromList(
+          utf8.encode('var LumeSource = {id: "s", name: "订阅源"};'),
+        ),
         text: 'var LumeSource = {id: "s", name: "订阅源"};',
       ),
     );
@@ -261,7 +312,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('订阅链接'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'https://example.com/sub.js');
+    await tester.enterText(
+      find.byType(TextField),
+      'https://example.com/sub.js',
+    );
     await tester.tap(find.text('拉取并导入'));
     await tester.pumpAndSettle();
 
@@ -273,11 +327,13 @@ void main() {
   testWidgets('导入：剪贴板里的脚本一键填入', (tester) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.getData') {
-        return <String, Object?>{'text': 'var LumeSource = {id: "clip", name: "剪贴板源"};'};
-      }
-      return null;
-    });
+          if (call.method == 'Clipboard.getData') {
+            return <String, Object?>{
+              'text': 'var LumeSource = {id: "clip", name: "剪贴板源"};',
+            };
+          }
+          return null;
+        });
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -301,10 +357,12 @@ void main() {
   });
 
   testWidgets('启停：只写入所属板块，停用后浏览入口禁用', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.text('漫画 1/1'));
@@ -318,17 +376,21 @@ void main() {
     expect(find.text('已停用'), findsOneWidget);
     expect(
       tester
-          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right))
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.chevron_right),
+          )
           .onPressed,
       isNull,
     );
   });
 
   testWidgets('删除：二次确认后只移除所属板块的记录', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     await pumpPage(tester, managers);
 
     await tester.tap(find.text('漫画 1/1'));
@@ -352,10 +414,12 @@ void main() {
   });
 
   testWidgets('浏览：经所属板块端口打开数据源', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     managers[comic]!.opened['c1'] = const MockDataSource(section: comic);
     await pumpPage(tester, managers);
 
@@ -370,9 +434,11 @@ void main() {
   });
 
   testWidgets('单板块存储故障：只影响该板块，其他板块照常', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      comic: const <SourceDescriptor>[comicA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        comic: const <SourceDescriptor>[comicA],
+      },
+    );
     managers[novel]!.listFailure = const SourceException(
       SourceErrorKind.callFailed,
       '板块库打不开',
@@ -405,32 +471,34 @@ void main() {
   });
 
   testWidgets('窄屏：条目控件不溢出，超长名称省略', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[
-        SourceDescriptor(
-          id: 'n1',
-          name: '一个非常长的图源名称用于验证省略号是否生效',
-          version: '1.0.0',
-          enabled: true,
-        ),
-      ],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[
+          SourceDescriptor(
+            id: 'n1',
+            name: '一个非常长的图源名称用于验证省略号是否生效',
+            version: '1.0.0',
+            enabled: true,
+          ),
+        ],
+      },
+    );
     await pumpPage(tester, managers, size: const Size(390, 844));
 
     expect(tester.takeException(), isNull);
     expect(find.text('小说 1/1'), findsOneWidget);
     expect(
-      tester
-          .widget<Text>(find.text('一个非常长的图源名称用于验证省略号是否生效'))
-          .overflow,
+      tester.widget<Text>(find.text('一个非常长的图源名称用于验证省略号是否生效')).overflow,
       TextOverflow.ellipsis,
     );
   });
 
   testWidgets('页面退出：四个板块的管理器一起释放', (tester) async {
-    final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-      novel: const <SourceDescriptor>[novelA],
-    });
+    final managers = fakeManagers(
+      sources: <Section, List<SourceDescriptor>>{
+        novel: const <SourceDescriptor>[novelA],
+      },
+    );
     await pumpPage(tester, managers);
     for (final manager in managers.values) {
       expect(manager.closed, isFalse);
@@ -473,10 +541,12 @@ void main() {
     );
 
     testWidgets('只刷新有订阅地址的源，本地导入的源一个都不碰', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelSubscribed, novelLocal],
-        comic: const <SourceDescriptor>[comicSubscribed],
-      });
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelSubscribed, novelLocal],
+          comic: const <SourceDescriptor>[comicSubscribed],
+        },
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -501,9 +571,11 @@ void main() {
     });
 
     testWidgets('刷新按板块隔离：小说源只经小说板块的端口', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelSubscribed],
-      });
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelSubscribed],
+        },
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -523,21 +595,25 @@ void main() {
     });
 
     testWidgets('结果汇总：更新 / 失败分别计数，失败原因逐条列出', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelSubscribed],
-        comic: const <SourceDescriptor>[comicSubscribed],
-      });
-      managers[novel]!.updateResults['n-sub'] = const SourceUpdateResult.updated(
-        SourceDescriptor(
-          id: 'n-sub',
-          name: '订阅小说源',
-          version: '2.0.0',
-          enabled: true,
-          originUrl: 'https://example.com/novel.js',
-        ),
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelSubscribed],
+          comic: const <SourceDescriptor>[comicSubscribed],
+        },
       );
-      managers[comic]!.updateResults['c-sub'] =
-          const SourceUpdateResult.failed('订阅拉取失败：连接超时');
+      managers[novel]!.updateResults['n-sub'] =
+          const SourceUpdateResult.updated(
+            SourceDescriptor(
+              id: 'n-sub',
+              name: '订阅小说源',
+              version: '2.0.0',
+              enabled: true,
+              originUrl: 'https://example.com/novel.js',
+            ),
+          );
+      managers[comic]!.updateResults['c-sub'] = const SourceUpdateResult.failed(
+        '订阅拉取失败：连接超时',
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -559,9 +635,11 @@ void main() {
     });
 
     testWidgets('取消确认：一个源都不刷新', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelSubscribed],
-      });
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelSubscribed],
+        },
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -573,9 +651,11 @@ void main() {
     });
 
     testWidgets('没有订阅源：直接说明，不弹确认框', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelLocal],
-      });
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelLocal],
+        },
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -586,12 +666,15 @@ void main() {
     });
 
     testWidgets('一条失败不中断整批：后面的源照常刷新', (tester) async {
-      final managers = fakeManagers(sources: <Section, List<SourceDescriptor>>{
-        novel: const <SourceDescriptor>[novelSubscribed],
-        comic: const <SourceDescriptor>[comicSubscribed],
-      });
-      managers[novel]!.updateResults['n-sub'] =
-          const SourceUpdateResult.failed('订阅拉取失败：连接超时');
+      final managers = fakeManagers(
+        sources: <Section, List<SourceDescriptor>>{
+          novel: const <SourceDescriptor>[novelSubscribed],
+          comic: const <SourceDescriptor>[comicSubscribed],
+        },
+      );
+      managers[novel]!.updateResults['n-sub'] = const SourceUpdateResult.failed(
+        '订阅拉取失败：连接超时',
+      );
       await pumpPage(tester, managers);
 
       await tester.tap(find.byTooltip('批量刷新订阅源'));
@@ -599,11 +682,9 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, '刷新'));
       await tester.pumpAndSettle();
 
-      expect(
-        managers[comic]!.updatedIds,
-        <String>['c-sub'],
-        reason: '一条失败不该让后面的源被跳过',
-      );
+      expect(managers[comic]!.updatedIds, <String>[
+        'c-sub',
+      ], reason: '一条失败不该让后面的源被跳过');
       await tester.tap(find.widgetWithText(FilledButton, '关闭'));
       await tester.pumpAndSettle();
     });

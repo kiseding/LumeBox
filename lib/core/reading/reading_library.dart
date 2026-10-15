@@ -45,7 +45,11 @@ class ReadingLibrary {
 
   LibraryItem? item(String itemId) => _store.item(itemId);
 
-  bool onShelf(String itemId) => _store.item(itemId) != null;
+  bool onShelf(String itemId) => _store.isFavorite(itemId);
+
+  void removeFavorite(String itemId) => _store.removeFavorite(itemId);
+
+  void removeHistory(String itemId) => _store.clearProgress(itemId);
 
   /// 加入书架。已在架时只补全信息（封面、简介、章节数），阅读记录不受影响。
   LibraryItem shelve({
@@ -119,7 +123,7 @@ class ReadingLibrary {
   /// 已播完（≥95%）的也保留：用户可能想重看，标「已看完」比直接藏掉更好。
   List<LibraryItem> continueWatching({int limit = 20}) {
     final items = <LibraryItem>[];
-    for (final item in _store.shelf()) {
+    for (final item in _store.shelf(includeHistoryOnly: true)) {
       final progress = _store.progress(item.itemId);
       if (progress is! VideoProgress) continue;
       items.add(item);
@@ -137,7 +141,7 @@ class ReadingLibrary {
     int limit = 50,
   }) {
     final entries = <({LibraryItem item, ReadingProgress progress})>[];
-    for (final item in _store.shelf()) {
+    for (final item in _store.shelf(includeHistoryOnly: true)) {
       final progress = _store.progress(item.itemId);
       if (progress == null) continue;
       entries.add((item: item, progress: progress));

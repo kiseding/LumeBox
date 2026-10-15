@@ -1,3 +1,4 @@
+import '../reading/collection_panel.dart';
 import '../../core/source/source_preferences.dart';
 import '../../shared/widgets/source_icon.dart';
 import '../source/source_preferences_page.dart';
@@ -622,26 +623,108 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> collection(bool favorites) async {
-    final records = favorites ? service.favoriteItems : service.history;
+    List<Map<String, dynamic>> records() =>
+        favorites ? service.favoriteItems : service.history;
     final chosen = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * .65,
-          child: records.isEmpty
-              ? Center(child: Text(favorites ? '暂无收藏' : '暂无历史'))
-              : ListView(
-                  children: [
-                    ListTile(title: Text(favorites ? '猫源收藏' : '猫源历史')),
-                    for (final entry in records)
-                      ListTile(
-                        title: Text(catText(entry['title'])),
-                        onTap: () => Navigator.pop(context, entry),
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) {
+          final entries = records();
+          String id(Map<String, dynamic> entry) =>
+              '${entry['site']}|${entry['id']}';
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * .7,
+              child: Column(
+                children: [
+                  ListTile(
+                    title: Text(favorites ? '猫源 · 收藏' : '猫源 · 历史'),
+                    trailing: IconButton(
+                      tooltip: '关闭',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  Expanded(
+                    child: CollectionPanel(
+                      title: favorites ? '收藏' : '历史',
+                      library: library,
+                      storageKey:
+                          'collection.${favorites ? 'favorites' : 'history'}.layout',
+                      ids: entries.map(id).toList(),
+                      onDelete: (ids) async {
+                        for (final entry in entries.where(
+                          (entry) => ids.contains(id(entry)),
+                        )) {
+                          if (favorites) {
+                            library?.removeFavorite(catText(entry['id']));
+                          } else {
+                            library?.removeHistory(catText(entry['id']));
+                          }
+                        }
+                        await service.removeCollection(
+                          ids,
+                          favorites: favorites,
+                        );
+                        update(() {});
+                      },
+                      itemBuilder: (index) => ListTile(
+                        title: Text(catText(entries[index]['title'])),
+                        onTap: () => Navigator.pop(context, entries[index]),
                       ),
-                  ],
-                ),
-        ),
+                      gridBuilder: (index) => Card(
+                        child: InkWell(
+                          onTap: () => Navigator.pop(context, entries[index]),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: pipeline == null
+                                      ? const Icon(Icons.video_library_outlined)
+                                      : SizedBox(
+                                          width: double.infinity,
+                                          child: PosterCover(
+                                            pipeline: pipeline!,
+                                            url:
+                                                entries[index]['cover']
+                                                    as String?,
+                                            title: catText(
+                                              entries[index]['title'],
+                                            ),
+                                            headers:
+                                                catMap(
+                                                  entries[index]['headers'],
+                                                ).map(
+                                                  (key, value) => MapEntry(
+                                                    key,
+                                                    catText(value),
+                                                  ),
+                                                ),
+                                          ),
+                                        ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  catText(entries[index]['title']),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
     if (chosen == null || !mounted) return;

@@ -77,11 +77,6 @@ void main() {
     );
 
     expect(find.byTooltip('订阅'), findsOneWidget);
-    await tester.tap(find.byTooltip('订阅'));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 80)),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
@@ -100,16 +95,6 @@ void main() {
     // 「图片缓存」入口已按用户要求移除（缓存本体的管理在设置 → 缓存管理）。
     expect(find.byTooltip('图片缓存'), findsNothing);
 
-    await tester.tap(find.byTooltip('订阅'));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 80)),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byTooltip('扩展仓库'),
-      findsOneWidget,
-      reason: 'Venera 仓库入口收进订阅管理后仍可使用',
-    );
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
@@ -134,11 +119,6 @@ void main() {
       expect(find.byTooltip('添加源'), findsOneWidget);
     }
 
-    await tester.tap(find.byTooltip('订阅'));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 80)),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 

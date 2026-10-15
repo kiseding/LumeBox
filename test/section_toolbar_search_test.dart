@@ -77,7 +77,7 @@ void main() {
             pipeline: pipeline,
             layout: ExploreLayout.list,
             // 与真板块一致：小说 / 漫画不显示排序（见 comic_explore_page 等）。
-            showSort: section == Section.video,
+            showSort: false,
             manager: FakeSourceManager(
               sources: <SourceDescriptor>[
                 SourceDescriptor(
@@ -140,7 +140,7 @@ void main() {
         );
         expect(
           find.descendant(of: toolbar, matching: find.byTooltip('排序')),
-          section == Section.video ? findsOneWidget : findsNothing,
+          findsNothing,
           reason: '排序只在视频板块（小说 / 漫画按用户要求不显示）',
         );
         expect(find.byTooltip('筛选'), findsNothing, reason: '筛选已移到分类下方');
@@ -201,24 +201,17 @@ void main() {
       );
     });
 
-    testWidgets('排序：菜单可选，选中后列表按该字段重排', (tester) async {
-      final source = _SearchSource(
+    testWidgets('视频不再显示排序按钮或菜单', (tester) async {
+      await pumpExplore(
+        tester,
         section: Section.video,
-        items: const <SourceItem>[
-          SourceItem(id: 'b', title: 'B 条目', duration: Duration(minutes: 3)),
-          SourceItem(id: 'a', title: 'A 条目', duration: Duration(minutes: 9)),
-        ],
+        source: _SearchSource(section: Section.video),
       );
-      await pumpExplore(tester, section: Section.video, source: source);
-
-      tester
-          .widget<SectionToolbar>(find.byType(SectionToolbar))
-          .onSortChanged(BrowseSort.title);
-      await tester.pumpAndSettle();
-
-      final first = tester.getTopLeft(find.text('A 条目')).dx;
-      final second = tester.getTopLeft(find.text('B 条目')).dx;
-      expect(first, lessThan(second), reason: '标题升序');
+      expect(find.byTooltip('排序'), findsNothing);
+      expect(
+        tester.widget<SectionToolbar>(find.byType(SectionToolbar)).showSort,
+        isFalse,
+      );
     });
   });
 

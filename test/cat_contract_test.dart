@@ -183,6 +183,25 @@ void main() {
     await node.close(force: true);
     root.deleteSync(recursive: true);
   });
+  test('猫源批量移除收藏与历史互不影响，保持其他站点记录', () async {
+    final site = CatSite(
+      subscriptionId: 'collection',
+      key: 'a',
+      name: 'A',
+      api: '/spider/a',
+    );
+    for (final id in ['one', 'two']) {
+      await service.toggleFavorite(site, {'id': id, 'title': id});
+      await service.remember(site, {'id': id, 'title': id});
+    }
+    await service.removeCollection({'${site.id}|one'}, favorites: true);
+    expect(service.favoriteItems.map((e) => e['id']), ['two']);
+    expect(service.history.length, 2);
+    await service.removeCollection({'${site.id}|two'}, favorites: false);
+    expect(service.history.single['id'], 'one');
+    expect(service.favoriteItems.single['id'], 'two');
+  });
+
   test('记住最后选择的订阅与站点，正常重开精准恢复，不落到第一个订阅', () async {
     final first = await service.add(
       '第一',

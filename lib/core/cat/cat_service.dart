@@ -906,6 +906,21 @@ class CatService extends ChangeNotifier {
     await save();
   }
 
+  Future<void> removeCollection(
+    Set<String> ids, {
+    required bool favorites,
+  }) async {
+    if (favorites) {
+      this.favorites.removeAll(ids);
+      _bookmarks.removeWhere((key, _) => ids.contains(key));
+    } else {
+      history.removeWhere(
+        (entry) => ids.contains('${entry['site']}|${entry['id']}'),
+      );
+    }
+    await save();
+  }
+
   Future<void> remember(CatSite site, Map<String, dynamic> item) async {
     final id = catText(item['id']);
     history.removeWhere((old) => old['site'] == site.id && old['id'] == id);

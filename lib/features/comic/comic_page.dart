@@ -146,6 +146,7 @@ class _ComicPageState extends State<ComicPage> {
       section: Section.comic,
       manager: widget.manager,
       onSubscriptionsClosed: _onSourcesChanged,
+      onFavorites: () => _openHistory(library, sourceManager, favorites: true),
       actions: <Widget>[
         // 右上角统一的入口（与视频 / 小说同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(
@@ -204,8 +205,9 @@ class _ComicPageState extends State<ComicPage> {
   /// 还没读过的 = 直接进详情页（用户点名：历史图标里要有收藏记录）。
   Future<void> _openHistory(
     ReadingLibrary library,
-    SourceManager manager,
-  ) async {
+    SourceManager manager, {
+    bool favorites = false,
+  }) async {
     void openDetail(LibraryItem item) {
       Navigator.of(context).pop();
       Navigator.of(context).push(
@@ -229,6 +231,9 @@ class _ComicPageState extends State<ComicPage> {
       context: context,
       section: Section.comic,
       library: library,
+      initialTab: favorites
+          ? HistoryDrawerTab.favorites
+          : HistoryDrawerTab.records,
       onResume: (item, _) => openDetail(item),
       onOpenItem: openDetail,
     );

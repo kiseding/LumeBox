@@ -18,6 +18,7 @@ import '../../shared/widgets/glass_card.dart';
 import '../reading/explore_view.dart';
 import '../reading/history_sheet.dart';
 import '../source/source_subscription_page.dart';
+import '../source/source_section_page.dart';
 import 'source_playback.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
@@ -559,6 +560,22 @@ class _VideoPageState extends State<VideoPage> {
       tooltip: '收藏',
       icon: const Icon(Icons.bookmark_outline),
       onPressed: () => _openHistory(favorites: true),
+    ),
+    IconButton(
+      tooltip: '源管理',
+      icon: const Icon(Icons.folder_open_outlined),
+      onPressed: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => SourceSectionPage(
+              section: Section.video,
+              manager: widget.sourceManager,
+            ),
+          ),
+        );
+        if (mounted) _onSourcesChanged();
+      },
     ),
     // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
     Tooltip(
