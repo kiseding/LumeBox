@@ -192,6 +192,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     listenable: tmdb,
     builder: (context, _) => GlassScaffold(
       title: widget.item.title,
+      actions: [TmdbRematchMenu(controller: tmdb)],
       child: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -244,6 +245,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
+                TmdbInformation(controller: tmdb),
                 const Text('简介'),
                 const SizedBox(height: 8),
                 Text(

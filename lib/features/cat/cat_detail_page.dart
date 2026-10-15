@@ -648,6 +648,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                               ),
                               const SizedBox(height: 16),
                               episodePreview(),
+                              TmdbInformation(controller: tmdb),
                               description(),
                               cast(),
                             ],
@@ -695,13 +696,21 @@ class _CatDetailPageState extends State<CatDetailPage> {
                               tooltip: '更多',
                               icon: const Icon(Icons.more_horiz),
                               onSelected: (value) {
-                                if (value == 'reload') {
+                                if (value == 'tmdb') {
+                                  tmdb.rematch();
+                                } else if (value == 'reload') {
                                   load();
                                 } else {
                                   Clipboard.setData(ClipboardData(text: title));
                                 }
                               },
                               itemBuilder: (_) => [
+                                PopupMenuItem(
+                                  value: 'tmdb',
+                                  enabled:
+                                      tmdb.settings.configured && !tmdb.loading,
+                                  child: const Text('重新匹配TMDB'),
+                                ),
                                 const PopupMenuItem(
                                   value: 'reload',
                                   child: Text('刷新详情'),

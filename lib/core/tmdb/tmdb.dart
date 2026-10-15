@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../search/search_settings.dart';
+
 enum TmdbPosterStyle { fixed, random, carousel }
 
 class TmdbSettings extends ChangeNotifier {
@@ -59,7 +61,62 @@ class TmdbSettings extends ChangeNotifier {
     await _writes;
   }
 
-  Future<void> flush() => _writes;
+  final Map<String, dynamic> _cache = {};
+  bool _cacheLoaded = false;
+  Future<void> _cacheWrites = Future.value();
+  String cacheKey(String title) => jsonEncode([
+    apiProxy.trim(),
+    imageProxy.trim(),
+    TmdbClient.normalized(title),
+  ]);
+  Future<TmdbMetadata?> cached(String key) async {
+    if (!_cacheLoaded) {
+      _cacheLoaded = true;
+      try {
+        final file = _file;
+        if (file != null) {
+          final cache = File('${file.parent.path}/tmdb_metadata.json');
+          if (await cache.exists()) {
+            _cache.addAll(
+              jsonDecode(await cache.readAsString()) as Map<String, dynamic>,
+            );
+          }
+        }
+      } catch (_) {
+        /* Damaged cache must not affect source details. */
+      }
+    }
+    final value = _cache[key];
+    return value is Map<String, dynamic> ? TmdbMetadata.fromJson(value) : null;
+  }
+
+  Future<void> cache(String key, TmdbMetadata? value) async {
+    await cached(key);
+    if (value == null) {
+      _cache.remove(key);
+    } else {
+      _cache[key] = value.toJson();
+    }
+    final snapshot = jsonEncode(_cache);
+    _cacheWrites = _cacheWrites.catchError((Object _) {}).then((_) async {
+      final file = _file;
+      if (file == null) return;
+      final target = File('${file.parent.path}/tmdb_metadata.json');
+      final temp = File('${target.path}.tmp');
+      await temp.writeAsString(snapshot, flush: true);
+      await temp.rename(target.path);
+    });
+    try {
+      await _cacheWrites;
+    } catch (_) {
+      /* Cache writes are best effort. */
+    }
+  }
+
+  Future<void> flush() async {
+    await _writes;
+    await _cacheWrites;
+  }
 
   Future<void> disconnect() {
     enabled = false;
@@ -111,9 +168,34 @@ class TmdbSettings extends ChangeNotifier {
 }
 
 class TmdbMetadata {
-  const TmdbMetadata({required this.overview, required this.posters});
+  const TmdbMetadata({
+    required this.overview,
+    required this.posters,
+    this.backdrops = const [],
+    this.cast = const [],
+    this.rating = 0,
+    this.voteCount = 0,
+  });
   final String overview;
-  final List<String> posters;
+  final List<String> posters, backdrops, cast;
+  final double rating;
+  final int voteCount;
+  Map<String, dynamic> toJson() => {
+    'overview': overview,
+    'posters': posters,
+    'backdrops': backdrops,
+    'cast': cast,
+    'rating': rating,
+    'voteCount': voteCount,
+  };
+  factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
+    overview: data['overview'] as String? ?? '',
+    posters: (data['posters'] as List? ?? []).whereType<String>().toList(),
+    backdrops: (data['backdrops'] as List? ?? []).whereType<String>().toList(),
+    cast: (data['cast'] as List? ?? []).whereType<String>().toList(),
+    rating: (data['rating'] as num?)?.toDouble() ?? 0,
+    voteCount: (data['voteCount'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class TmdbClient {
@@ -218,52 +300,196 @@ class TmdbClient {
     return response.bodyBytes;
   }
 
+  String? lastError;
+  static String cleanTitle(String value) {
+    var title = SearchSettings.toSimplified(value).trim();
+    for (var i = 0; i < 3; i++) {
+      title = title
+          .replaceAll(
+            RegExp(
+              r'[\s._-]*[（(\[]?(?:国语|粤语|普通话|中字|字幕|高清|超清|蓝光|完整版|更新至\d+集?|全\d+集|第\d+集|2160[pP]|1080[pP]|720[pP]|4[kK])[）)\]]?\s*$',
+            ),
+            '',
+          )
+          .trim();
+      title = title
+          .replaceAll(RegExp(r'[（(\[](?:19|20)\d{2}[）)\]]'), '')
+          .replaceAll(RegExp(r'\s+(?:19|20)\d{2}$'), '')
+          .trim();
+    }
+    return title;
+  }
+
   static String normalized(String value) =>
-      value.toLowerCase().replaceAll(RegExp(r'[\s·:：\-《》]'), '');
-  Future<TmdbMetadata?> lookup(String title) async {
+      SearchSettings.toSimplified(value)
+          .toLowerCase()
+          .replaceAll(RegExp(r'[\s·:：\-《》、，,。.!！?？（）()\[\]]'), '');
+  Future<TmdbMetadata?> lookup(String title, {bool force = false}) async {
+    lastError = null;
     if (!settings.configured) return null;
     final revision = settings.revision;
+    final cacheKey = settings.cacheKey(title);
     try {
-      final base = await _resolvedBase(revision);
-      final data = await _json(
-        'search/multi',
-        revision,
-        base,
-        query: {'query': title, 'language': 'zh-CN'},
-      );
-      final matches = (data['results'] as List? ?? []).whereType<Map>().where(
-        (row) =>
-            ['movie', 'tv'].contains(row['media_type']) &&
-            [
-              row['title'],
-              row['name'],
-              row['original_title'],
-              row['original_name'],
-            ].whereType<String>().any(
-              (name) => normalized(name) == normalized(title),
-            ),
-      );
-      if (matches.isEmpty) return null;
-      final match = matches.first;
-      final type = match['media_type'];
-      final id = match['id'];
-      if (id is! int) return null;
-      final images = await _json('$type/$id/images', revision, base);
-      final paths = (images['posters'] as List? ?? [])
-          .whereType<Map>()
-          .map((row) => row['file_path'])
-          .whereType<String>()
-          .where((path) => path.startsWith('/'))
-          .toList();
-      if (paths.isEmpty && match['poster_path'] is String) {
-        paths.add(match['poster_path'] as String);
-      }
+      final cached = await settings.cached(cacheKey);
       if (!settings.configured || settings.revision != revision) return null;
-      return TmdbMetadata(
-        overview: match['overview'] as String? ?? '',
-        posters: paths.map(settings.imageUrl).toList(),
+      if (!force && cached != null) return cached;
+      if (force) await settings.cache(cacheKey, null);
+      final base = await _resolvedBase(revision);
+      Map? match;
+      Map<String, dynamic>? matchedDetails;
+      final cleaned = cleanTitle(title);
+      final year = RegExp(r'(?:19|20)\d{2}').firstMatch(title)?.group(0);
+      for (final query in <String>{title.trim(), cleaned}) {
+        if (query.isEmpty) continue;
+        final data = await _json(
+          'search/multi',
+          revision,
+          base,
+          query: {'query': query, 'language': 'zh-CN'},
+        );
+        final candidates = (data['results'] as List? ?? [])
+            .whereType<Map>()
+            .where(
+              (row) =>
+                  ['movie', 'tv'].contains(row['media_type']) &&
+                  row['id'] is int,
+            )
+            .toList();
+        bool same(Object? name) =>
+            name is String &&
+            normalized(cleanTitle(name)) == normalized(cleaned);
+        final exact = candidates
+            .where(
+              (row) => [
+                row['title'],
+                row['name'],
+                row['original_title'],
+                row['original_name'],
+              ].any(same),
+            )
+            .toList();
+        if (exact.isNotEmpty) {
+          match =
+              exact
+                  .where(
+                    (row) =>
+                        year != null &&
+                        '${row['release_date'] ?? row['first_air_date'] ?? ''}'
+                            .startsWith(year),
+                  )
+                  .firstOrNull ??
+              exact.first;
+          break;
+        }
+        // Check a bounded number of translated aliases; never accept the first search hit blindly.
+        for (final candidate in candidates.take(3)) {
+          final details = await _json(
+            '${candidate['media_type']}/${candidate['id']}',
+            revision,
+            base,
+            query: {
+              'language': 'zh-CN',
+              'append_to_response': 'credits,alternative_titles,translations',
+            },
+          );
+          final alternatives = details['alternative_titles'] as Map? ?? {};
+          final translations =
+              (details['translations'] as Map?)?['translations'] as List? ?? [];
+          final aliases = <Object?>[
+            details['title'],
+            details['name'],
+            details['original_title'],
+            details['original_name'],
+            ...(alternatives['titles'] as List? ??
+                    alternatives['results'] as List? ??
+                    [])
+                .whereType<Map>()
+                .map((row) => row['title']),
+            ...translations.whereType<Map>().expand(
+              (row) => [
+                (row['data'] as Map?)?['title'],
+                (row['data'] as Map?)?['name'],
+              ],
+            ),
+          ];
+          if (aliases.any(same)) {
+            match = candidate;
+            matchedDetails = details;
+            break;
+          }
+        }
+        if (match != null) break;
+      }
+      if (match == null) return null;
+      final type = match['media_type'], id = match['id'];
+      final details =
+          matchedDetails ??
+          await _json(
+            '$type/$id',
+            revision,
+            base,
+            query: {
+              'language': 'zh-CN',
+              'append_to_response': 'credits,alternative_titles,translations',
+            },
+          );
+      Map<String, dynamic> images = {};
+      try {
+        images = await _json('$type/$id/images', revision, base);
+      } catch (_) {
+        lastError = 'TMDB 图片列表暂时无法获取，已保留其他影片资料';
+      }
+      List<String> paths(String field, Object? fallback) {
+        final values = (images[field] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => row['file_path'])
+            .whereType<String>()
+            .where((path) => path.startsWith('/'))
+            .toList();
+        if (values.isEmpty && fallback is String && fallback.startsWith('/')) {
+          values.add(fallback);
+        }
+        return values.map(settings.imageUrl).toList();
+      }
+
+      if (!settings.configured || settings.revision != revision) return null;
+      final result = TmdbMetadata(
+        overview: (details['overview'] as String?)?.trim().isNotEmpty == true
+            ? details['overview'] as String
+            : match['overview'] as String? ?? '',
+        posters: paths(
+          'posters',
+          details['poster_path'] ?? match['poster_path'],
+        ),
+        backdrops: paths(
+          'backdrops',
+          details['backdrop_path'] ?? match['backdrop_path'],
+        ),
+        rating:
+            ((details['vote_average'] ?? match['vote_average']) as num?)
+                ?.toDouble() ??
+            0,
+        voteCount:
+            ((details['vote_count'] ?? match['vote_count']) as num?)?.toInt() ??
+            0,
+        cast: ((details['credits'] as Map?)?['cast'] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => row['name'])
+            .whereType<String>()
+            .where((name) => name.isNotEmpty)
+            .toList(),
       );
-    } catch (_) {
+      await settings.cache(cacheKey, result);
+      return settings.configured && settings.revision == revision
+          ? result
+          : null;
+    } catch (error) {
+      // Do not expose URLs or API keys in UI or logs.
+      lastError = error is StateError
+          ? error.message.toString()
+          : error is FormatException
+          ? 'TMDB 返回内容无效，请检查 API 代理'
+          : 'TMDB 网络请求失败，请检查 API 代理后重试';
       return null;
     }
   }

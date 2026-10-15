@@ -18,17 +18,24 @@ class TmdbDetailController extends ChangeNotifier {
   TmdbMetadata? metadata;
   int index = 0, _sequence = 0;
   bool _closed = false;
+  bool loading = false;
+  String? status;
+  Future<void> rematch() => refresh(force: true);
   Timer? _timer;
-  Future<void> refresh() async {
+  Future<void> refresh({bool force = false}) async {
     final sequence = ++_sequence;
     _timer?.cancel();
     metadata = null;
+    loading = settings.configured;
+    status = null;
     index = 0;
     if (!_closed) notifyListeners();
     if (!settings.configured) return;
-    final result = await client.lookup(title);
+    final result = await client.lookup(title, force: force);
     if (_closed || sequence != _sequence || !settings.configured) return;
     metadata = result;
+    loading = false;
+    status = result == null ? (client.lastError ?? '未匹配到 TMDB 资料，保留源信息') : null;
     final count = result?.posters.length ?? 0;
     if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
       index = Random().nextInt(count);
@@ -116,5 +123,91 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
         itemBuilder: (_, index) => poster(urls[index]),
       );
     },
+  );
+}
+
+class TmdbInformation extends StatelessWidget {
+  const TmdbInformation({super.key, required this.controller});
+  final TmdbDetailController controller;
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) {
+      if (!controller.settings.configured) return const SizedBox.shrink();
+      final data = controller.metadata;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('TMDB 影片资料', style: Theme.of(context).textTheme.titleMedium),
+            if (controller.loading)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(),
+              ),
+            if (controller.status != null) Text(controller.status!),
+            if (data != null) ...[
+              Text(
+                data.voteCount > 0
+                    ? 'TMDB 评分 ${data.rating.toStringAsFixed(1)} / 10 · ${data.voteCount} 人评价'
+                    : 'TMDB 暂无评分',
+              ),
+              if (data.cast.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text('演员'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: data.cast
+                      .map((name) => Chip(label: Text(name)))
+                      .toList(),
+                ),
+              ],
+              if (data.backdrops.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: PageView(
+                    children: data.backdrops
+                        .map(
+                          (url) => Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const Center(child: Text('背景图暂时无法加载')),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+              if (data.overview.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('TMDB 官方剧情简介'),
+                Text(data.overview),
+              ],
+            ],
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class TmdbRematchMenu extends StatelessWidget {
+  const TmdbRematchMenu({super.key, required this.controller});
+  final TmdbDetailController controller;
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    tooltip: '更多',
+    onSelected: (_) => controller.rematch(),
+    itemBuilder: (_) => [
+      PopupMenuItem(
+        value: 'tmdb',
+        enabled: controller.settings.configured && !controller.loading,
+        child: const Text('重新匹配TMDB'),
+      ),
+    ],
   );
 }
