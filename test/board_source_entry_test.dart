@@ -184,10 +184,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(manager.toggled.single, ('demo', true));
 
-    // 重命名 / 导出 / 删除 / 浏览都在「更多」里。
+    // 管理操作留在「更多」；浏览已移至首页源抽屉。
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    for (final action in <String>['浏览', '重命名', '导出脚本', '删除']) {
+    expect(find.text('浏览'), findsNothing);
+    for (final action in <String>['重命名', '导出脚本', '删除']) {
       expect(find.text(action), findsOneWidget, reason: '缺少操作：$action');
     }
   });

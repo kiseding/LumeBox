@@ -338,6 +338,15 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
 
+  /// Station credentials/preferences only. Shelf, progress and app settings survive.
+  void clearStationSettings() {
+    if (_closed) return;
+    _db.execute(
+      "DELETE FROM reading_setting WHERE key LIKE 'source.preferences.%' OR key LIKE 'waf.cookies.%' OR key LIKE 'waf.ua.%'",
+    );
+    setSetting('search.aggregate.sourceIds', 'null');
+  }
+
   void setSetting(String key, String value) {
     if (_closed) return;
     _db.execute(

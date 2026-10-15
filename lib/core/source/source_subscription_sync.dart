@@ -1,3 +1,5 @@
+import '../js/source_script.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -18,18 +20,22 @@ class SavedSourceSubscription {
     this.checkedAt,
     this.error = '',
     Map<String, String>? members,
-  }) : members = members ?? {};
+    Set<String>? excludedIds,
+  }) : members = members ?? {},
+       excludedIds = excludedIds ?? {};
   final String url;
   bool enabled;
   DateTime? checkedAt;
   String error;
   Map<String, String> members;
+  final Set<String> excludedIds;
   Map<String, Object?> toJson() => {
     'url': url,
     'enabled': enabled,
     'checkedAt': checkedAt?.toIso8601String(),
     'error': error,
     'members': members,
+    'excludedIds': excludedIds.toList(),
   };
 }
 
@@ -90,6 +96,9 @@ class SourceSubscriptionSync {
           enabled: raw['enabled'] != false,
           checkedAt: DateTime.tryParse('${raw['checkedAt']}'),
           error: '${raw['error'] ?? ''}',
+          excludedIds: (raw['excludedIds'] as List? ?? [])
+              .whereType<String>()
+              .toSet(),
           members: (raw['members'] as Map? ?? {}).map(
             (key, value) => MapEntry('$key', '$value'),
           ),
@@ -116,8 +125,14 @@ class SourceSubscriptionSync {
     for (final raw in urls) {
       final url = raw.trim();
       if (!_validUrl(url)) throw const FormatException('订阅地址须为完整 HTTP(S) 地址');
-      if (!subscriptions.any((s) => s.url == url)) {
+      final existing = subscriptions
+          .where((record) => record.url == url)
+          .firstOrNull;
+      if (existing == null) {
         subscriptions.add(SavedSourceSubscription(url));
+      } else {
+        existing.excludedIds.clear();
+        existing.checkedAt = null;
       }
     }
     await save();
@@ -194,9 +209,22 @@ class SourceSubscriptionSync {
           );
           final refs = await resolver.resolveRefs([record.url]);
           final before = {for (final s in await manager.list()) s.id: s};
-          final next = <String, String>{};
+          final next = <String, String>{
+            for (final entry in record.members.entries)
+              if (record.excludedIds.contains(entry.key))
+                entry.key: entry.value,
+          };
           var complete = resolver.complete;
           for (final ref in refs) {
+            final declaredId = SourceMetadata.parseHeader(ref.script)?.id;
+            if (record.excludedIds.contains(declaredId) ||
+                record.members.entries.any(
+                  (entry) =>
+                      record.excludedIds.contains(entry.key) &&
+                      entry.value == ref.url,
+                )) {
+              continue;
+            }
             final old = before.values
                 .where((s) => s.originUrl == ref.url)
                 .firstOrNull;
@@ -316,6 +344,46 @@ class SourceSubscriptionSync {
   }) async {
     await _running[section];
     await (await open(section, manager: manager)).register(urls);
+  }
+
+  /// Serializes destructive source maintenance with automatic subscription sync.
+  static Future<T> maintenance<T>(
+    Section section,
+    Future<T> Function() action,
+  ) async {
+    while (_running[section] != null) {
+      await _running[section];
+    }
+    final completion = Completer<SubscriptionSyncResult>();
+    _running[section] = completion.future;
+    try {
+      return await action();
+    } finally {
+      completion.complete(SubscriptionSyncResult());
+      if (identical(_running[section], completion.future)) {
+        _running.remove(section);
+      }
+      revision(section).value++;
+    }
+  }
+
+  Future<void> markRemoved(Iterable<SourceDescriptor> removed) async {
+    for (final source in removed) {
+      for (final record in subscriptions) {
+        if (record.members.containsKey(source.id) ||
+            record.url == source.originUrl) {
+          record.members[source.id] = source.originUrl;
+          record.excludedIds.add(source.id);
+        }
+      }
+    }
+    await save();
+  }
+
+  Future<void> clearSavedSubscriptions() async {
+    subscriptions.clear();
+    _migrated = true;
+    await save();
   }
 
   static Future<void> waitForIdle(Section section) async {

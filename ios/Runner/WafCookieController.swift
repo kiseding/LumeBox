@@ -58,6 +58,11 @@ final class WafCookieController: NSObject {
         task.start()
       case "allCookies":
         WafCookieController.allCookies(result: result)
+      case "clearWebsiteDataForHosts":
+        let args = call.arguments as? [String: Any] ?? [:]
+        WafCookieController.clearWebsiteData(
+          hosts: args["hosts"] as? [String] ?? [],
+          protectedHosts: args["protectedHosts"] as? [String] ?? [], result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -72,6 +77,38 @@ final class WafCookieController: NSObject {
   ///
   /// `url` 参数当前只用于日志（不过滤）：跨子域分享的 Cookie（如
   /// `.example.com` 域上的 cf_clearance）必须一起带回去，按 url 过滤会漏掉它们。
+  /// Clear only requested station domains. Shared domains still used by another section are retained.
+  private static func clearWebsiteData(hosts: [String], protectedHosts: [String], result: @escaping FlutterResult) {
+    let targets = hosts.map { $0.lowercased() }.filter { !$0.isEmpty }
+    let protected = protectedHosts.map { $0.lowercased() }.filter { !$0.isEmpty }
+    func matches(_ domain: String, _ host: String) -> Bool {
+      let value = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+      return !value.isEmpty && (host == value || host.hasSuffix("." + value))
+    }
+    func removable(_ domain: String) -> Bool {
+      targets.contains { matches(domain, $0) } && !protected.contains { matches(domain, $0) }
+    }
+    guard !targets.isEmpty else { result(nil); return }
+    let dataStore = WKWebsiteDataStore.default()
+    dataStore.httpCookieStore.getAllCookies { cookies in
+      let group = DispatchGroup()
+      for cookie in cookies where removable(cookie.domain) {
+        group.enter()
+        dataStore.httpCookieStore.delete(cookie) { group.leave() }
+      }
+      for cookie in HTTPCookieStorage.shared.cookies ?? [] where removable(cookie.domain) {
+        HTTPCookieStorage.shared.deleteCookie(cookie)
+      }
+      group.notify(queue: .main) {
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        dataStore.fetchDataRecords(ofTypes: types) { records in
+          let selected = records.filter { removable($0.displayName) }
+          dataStore.removeData(ofTypes: types, for: selected) { result(nil) }
+        }
+      }
+    }
+  }
+
   private static func allCookies(result: @escaping FlutterResult) {
     let store = WKWebsiteDataStore.default().httpCookieStore
     store.getAllCookies { cookies in

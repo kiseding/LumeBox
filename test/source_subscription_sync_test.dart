@@ -55,6 +55,49 @@ void main() {
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
+  test('手动删除不被同步装回，其他源继续更新；重新添加订阅可恢复', () async {
+    remote[manifest] = 'https://repo.example/a.js\nhttps://repo.example/b.js';
+    remote['https://repo.example/a.js'] = script('a', 1);
+    remote['https://repo.example/b.js'] = script('b', 1);
+    await service.sync();
+    final removed = manager.sources.firstWhere((source) => source.id == 'a');
+    await manager.remove('a');
+    await service.markRemoved([removed]);
+    final restarted = SourceSubscriptionSync(
+      section: Section.video,
+      manager: manager,
+      file: service.file,
+      fetch: service.fetch,
+    );
+    await restarted.load();
+    remote['https://repo.example/b.js'] = script('b', 2);
+    await restarted.sync(force: true);
+    expect(manager.sources.map((source) => source.id), ['b']);
+    expect(manager.sources.single.version, '2');
+    expect(restarted.subscriptions.single.excludedIds, {'a'});
+    await restarted.register([manifest]);
+    await restarted.sync(force: true);
+    expect(manager.sources.map((source) => source.id), containsAll(['a', 'b']));
+  });
+
+  test('清空订阅后重开不会从已清理站点迁移恢复', () async {
+    remote[manifest] = 'https://repo.example/a.js';
+    remote['https://repo.example/a.js'] = script('a', 1);
+    await service.sync();
+    await manager.remove('a');
+    await service.clearSavedSubscriptions();
+    final restarted = SourceSubscriptionSync(
+      section: Section.video,
+      manager: manager,
+      file: service.file,
+      fetch: service.fetch,
+    );
+    await restarted.load();
+    await restarted.sync(force: true);
+    expect(restarted.subscriptions, isEmpty);
+    expect(manager.sources, isEmpty);
+  });
+
   test('地址与清单成员落盘；自动新增更新移除，保留手动源和停用状态', () async {
     remote[manifest] = 'https://repo.example/a.js\nhttps://repo.example/b.js';
     remote['https://repo.example/a.js'] = script('a', 1);

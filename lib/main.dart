@@ -1,3 +1,4 @@
+import 'core/source/source_content_visibility.dart';
 import 'core/theme/floating_modules.dart';
 
 import 'dart:async';
@@ -34,6 +35,7 @@ void main() {
     // 一闪而过）。多等一次本地读盘（几毫秒）换首帧即正确，是笔划算的账。
     // `boot` 内部已吞掉读盘异常（失败回默认），因此这里不会因它启动失败。
     await ShellSettingsController.instance.boot();
+    await SourceContentVisibility.instance.boot();
     // 外观设置（亮暗模式 + 主题色）与壳层设置同理，**必须 await**：
     // 首帧就该是用户选过的主题，先闪一下默认色再变很难看。
     await AppearanceController.instance.boot();

@@ -169,9 +169,8 @@ void main() {
     // 停用后「浏览」不可点：点了也不会打开数据源。
     manager.openedIds.clear();
     await openMenu(tester);
-    await tester.tap(find.text('浏览'));
-    await tester.pumpAndSettle();
-    expect(manager.openedIds, isEmpty, reason: '停用后浏览不可点');
+    expect(find.text('浏览'), findsNothing, reason: '浏览入口已移至首页源抽屉');
+    expect(manager.openedIds, isEmpty, reason: '停用后不可浏览');
     expect(find.byType(Switch), findsOneWidget);
   });
 
@@ -202,20 +201,84 @@ void main() {
     expect(find.text('暂无源'), findsOneWidget);
   });
 
-  testWidgets('浏览：经管理器打开数据源并进入浏览页', (tester) async {
+  testWidgets('多选全选、批量启停与删除确认都只作用于所选源', (tester) async {
     final manager = FakeSourceManager(
-      sources: const <SourceDescriptor>[
-        SourceDescriptor(id: 'a', name: '示例源', version: '1.0.0', enabled: true),
+      sources: const [
+        SourceDescriptor(id: 'a', name: '甲站', version: '1', enabled: true),
+        SourceDescriptor(id: 'b', name: '乙站', version: '1', enabled: false),
       ],
-    )..opened['a'] = const MockDataSource(section: Section.novel);
+    );
     await pumpPage(tester, manager);
-
-    await openMenu(tester);
-    await tester.tap(find.text('浏览'));
+    await tester.tap(find.byTooltip('站点维护'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('多选站点'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 个'), findsOneWidget);
+    await tester.tap(find.text('批量停用'));
+    await tester.pumpAndSettle();
+    expect(manager.sources.every((source) => !source.enabled), true);
+    await tester.tap(find.text('清空选择'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('select-source-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('批量启用'));
+    await tester.pumpAndSettle();
+    expect(
+      manager.sources.firstWhere((source) => source.id == 'a').enabled,
+      true,
+    );
+    expect(
+      manager.sources.firstWhere((source) => source.id == 'b').enabled,
+      false,
+    );
+    await tester.tap(find.text('删除所选'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选定的 1 个'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(manager.removed, isEmpty);
+    await tester.tap(find.text('删除所选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认移除'));
+    await tester.pumpAndSettle();
+    expect(manager.removed, ['a']);
+    expect(manager.sources.single.id, 'b');
+  });
 
-    expect(manager.openedIds.single, 'a');
-    expect(find.text('小说 · 小说模拟源'), findsOneWidget);
+  testWidgets('站点数据清理先说明当前版块和保留数据，取消不执行', (tester) async {
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(id: 'a', name: '甲站', version: '1', enabled: true),
+      ],
+    );
+    await pumpPage(tester, manager);
+    await tester.tap(find.byTooltip('站点维护'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除所有站点数据'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('仅清理「小说」版块'), findsOneWidget);
+    expect(find.textContaining('书架、阅读／播放进度'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(manager.removed, isEmpty);
+  });
+
+  testWidgets('五项日常源操作移至首页，管理菜单保留维护操作', (tester) async {
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(id: 'a', name: '示例源', version: '1', enabled: true),
+      ],
+    );
+    await pumpPage(tester, manager);
+    await openMenu(tester);
+    for (final label in ['置顶此源', '源设置', '浏览', '测试连通性', '更新订阅源']) {
+      expect(find.text(label), findsNothing);
+    }
+    for (final label in ['重命名', '设置分组', '网络配置', '导出脚本', '删除']) {
+      expect(find.text(label), findsOneWidget);
+    }
   });
 
   testWidgets('重命名：弹窗改名并写回管理器，列表随即刷新', (tester) async {

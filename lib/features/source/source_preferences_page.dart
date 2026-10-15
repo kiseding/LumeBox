@@ -1,3 +1,4 @@
+import '../../core/source/source_picker_groups.dart';
 import '../../core/cache/section_memory_cache.dart';
 
 import 'package:flutter/services.dart';
@@ -77,6 +78,33 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (widget.section != Section.cat)
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('源抽屉分类'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final group in [
+                      ('', '自动'),
+                      ...SourcePickerGroups.forSection(widget.section),
+                    ])
+                      ChoiceChip(
+                        label: Text(group.$2),
+                        selected: prefs.pickerGroup == group.$1,
+                        onSelected: (_) => setState(
+                          () => prefs = prefs.copyWith(pickerGroup: group.$1),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
         GlassCard(
           child: Column(
             children: [

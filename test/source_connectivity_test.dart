@@ -1,3 +1,4 @@
+import 'package:lume_box/features/source/source_picker_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -56,8 +57,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> openMoreMenu(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('更多操作').first);
+  Future<void> openMoreMenu(WidgetTester tester, {bool last = false}) async {
+    final page = tester.widget<SourceSectionPage>(
+      find.byType(SourceSectionPage),
+    );
+    final manager = page.manager! as FakeSourceManager;
+    showSourcePicker(
+      context: tester.element(find.byType(SourceSectionPage)),
+      section: video,
+      sources: manager.sources,
+      currentId: null,
+      manager: manager,
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(
+      find.byKey(ValueKey('picker-source-${(last ? manager.sources.last : manager.sources.first).id}')),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -205,8 +220,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('更多操作').first);
-    await tester.pumpAndSettle();
+    await openMoreMenu(tester);
     await tester.tap(find.text('测试连通性'));
     await tester.pumpAndSettle();
 
@@ -379,8 +393,7 @@ void main() {
 
       expect(find.text('订阅'), findsOneWidget, reason: '只有订阅导入的源带这个标记');
 
-      await tester.tap(find.byTooltip('更多操作').first);
-      await tester.pumpAndSettle();
+      await openMoreMenu(tester);
       await tester.tap(find.text('更新订阅源'));
       await tester.pumpAndSettle();
 
@@ -393,8 +406,7 @@ void main() {
       await pumpManager(tester, manager);
 
       // 第二条是本地源，打开它的菜单。
-      await tester.tap(find.byTooltip('更多操作').last);
-      await tester.pumpAndSettle();
+      await openMoreMenu(tester, last: true);
 
       // 置灰的菜单项在 Flutter 里渲染为禁用色；点它不会触发回调。
       await tester.tap(find.text('更新订阅源'), warnIfMissed: false);
@@ -419,8 +431,7 @@ void main() {
       );
       await pumpManager(tester, manager);
 
-      await tester.tap(find.byTooltip('更多操作').first);
-      await tester.pumpAndSettle();
+      await openMoreMenu(tester);
       await tester.tap(find.text('更新订阅源'));
       await tester.pumpAndSettle();
 
@@ -437,8 +448,7 @@ void main() {
       );
       await pumpManager(tester, manager);
 
-      await tester.tap(find.byTooltip('更多操作').first);
-      await tester.pumpAndSettle();
+      await openMoreMenu(tester);
       await tester.tap(find.text('更新订阅源'));
       await tester.pumpAndSettle();
 

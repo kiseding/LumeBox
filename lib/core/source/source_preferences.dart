@@ -11,9 +11,11 @@ class SourcePreferences {
     this.originalOrigin = '',
     this.customOrigin = '',
     this.newestFirst = false,
+    this.pickerGroup = '',
   });
   final bool pinned, newestFirst;
   final String iconUrl, originalOrigin, customOrigin;
+  final String pickerGroup;
   static String _key(String id) => 'source.preferences.$id';
   static SourcePreferences read(Section section, String id) {
     try {
@@ -26,6 +28,7 @@ class SourcePreferences {
         originalOrigin: '${map['originalOrigin'] ?? ''}',
         customOrigin: '${map['customOrigin'] ?? ''}',
         newestFirst: map['newestFirst'] == true,
+        pickerGroup: '${map['pickerGroup'] ?? ''}',
       );
     } catch (_) {
       return const SourcePreferences();
@@ -42,6 +45,7 @@ class SourcePreferences {
         'originalOrigin': originalOrigin,
         'customOrigin': customOrigin,
         'newestFirst': newestFirst,
+        'pickerGroup': pickerGroup,
       }),
     );
   }
@@ -52,9 +56,11 @@ class SourcePreferences {
     String? iconUrl,
     String? originalOrigin,
     String? customOrigin,
+    String? pickerGroup,
   }) => SourcePreferences(
     pinned: pinned ?? this.pinned,
     newestFirst: newestFirst ?? this.newestFirst,
+    pickerGroup: pickerGroup ?? this.pickerGroup,
     iconUrl: iconUrl ?? this.iconUrl,
     originalOrigin: originalOrigin ?? this.originalOrigin,
     customOrigin: customOrigin ?? this.customOrigin,

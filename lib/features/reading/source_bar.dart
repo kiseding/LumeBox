@@ -1,16 +1,12 @@
-import '../../core/source/source_preferences.dart';
-import '../../shared/widgets/source_icon.dart';
-
 import 'package:flutter/material.dart';
 
+import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
+import '../source/source_picker_sheet.dart';
 
-/// 顶部图源选择条：下拉切换本板块已启用的图源，右侧进入图源管理。
-///
-/// 候选只来自本板块——列表由调用方从板块级管理器取得，跨板块候选不可能出现。
-/// 下拉列出的是「已启用」的图源；停用的图源若要浏览，需要先在管理页启用。
+/// A source button opens the searchable, section-scoped source drawer.
 class ReadingSourceBar extends StatelessWidget {
   const ReadingSourceBar({
     super.key,
@@ -21,112 +17,77 @@ class ReadingSourceBar extends StatelessWidget {
     this.showManage = true,
     this.busy = false,
     this.floating = false,
+    this.section,
+    this.manager,
+    this.onSourcesChanged,
   });
-
-  /// 本板块已启用的图源。
   final List<SourceDescriptor> sources;
-
-  /// 当前图源 id；为空时显示「未选择图源」。
   final String? currentId;
-
   final ValueChanged<String> onSelect;
   final VoidCallback onManage;
-
-  /// 是否显示右侧的「源管理」入口（宿主顶栏已有同一入口时关掉，避免一屏两个）。
-  final bool showManage;
-
-  /// 切换中：期间禁止再次下拉，避免连点触发多次切换。
-  final bool busy;
-  final bool floating;
+  final bool showManage, busy, floating;
+  final Section? section;
+  final SourceManager? manager;
+  final Future<void> Function()? onSourcesChanged;
 
   @override
   Widget build(BuildContext context) {
-    bool pinned(SourceDescriptor s) =>
-        s.section != null && SourcePreferences.read(s.section!, s.id).pinned;
-    final ordered = List<SourceDescriptor>.of(sources)
-      ..sort((a, b) {
-        if (pinned(a) != pinned(b)) return pinned(a) ? -1 : 1;
-        return sources.indexOf(a).compareTo(sources.indexOf(b));
-      });
+    final current = sources
+        .where((source) => source.id == currentId)
+        .firstOrNull;
     final content = Row(
-      children: <Widget>[
+      children: [
         if (!floating) ...[
           Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
           const SizedBox(width: 8),
         ],
         Expanded(
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: currentId,
-              isExpanded: true,
-              dropdownColor: LumeTheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: LumeTheme.textPrimary,
-              ),
-              icon: Icon(Icons.expand_more, size: 18, color: LumeTheme.muted),
-              hint: Text(
-                '未选择源',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: LumeTheme.muted,
-                ),
-              ),
-              selectedItemBuilder: (_) => [
-                for (final source in ordered)
-                  Align(
-                    alignment: Alignment.centerLeft,
+          child: InkWell(
+            key: const ValueKey('open-source-picker'),
+            borderRadius: BorderRadius.circular(14),
+            onTap: busy
+                ? null
+                : () async {
+                    final board =
+                        section ??
+                        current?.section ??
+                        sources.firstOrNull?.section ??
+                        Section.novel;
+                    var changed = false;
+                    final selected = await showSourcePicker(
+                      context: context,
+                      section: board,
+                      sources: sources,
+                      currentId: currentId,
+                      manager: manager,
+                      onChanged: () => changed = true,
+                    );
+                    if (!context.mounted) return;
+                    if (selected != null && selected != currentId) {
+                      onSelect(selected);
+                    } else if (changed) {
+                      await onSourcesChanged?.call();
+                    }
+                  },
+            child: SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  Expanded(
                     child: Text(
-                      source.name,
+                      current?.name ?? '未选择源',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: LumeTheme.textPrimary,
+                      ),
                     ),
                   ),
-              ],
-              items: <DropdownMenuItem<String>>[
-                for (final source in ordered)
-                  DropdownMenuItem<String>(
-                    value: source.id,
-                    child: Row(
-                      children: [
-                        SourceIcon(
-                          name: source.name,
-                          siteUrl: source.siteUrl,
-                          siteIcon: source.iconUrl,
-                          size: 24,
-                          section: source.section,
-                          sourceId: source.id,
-                          iconUrl: source.section == null
-                              ? ''
-                              : SourcePreferences.read(
-                                  source.section!,
-                                  source.id,
-                                ).iconUrl,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            source.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (pinned(source))
-                          const Icon(Icons.push_pin, size: 12),
-                      ],
-                    ),
-                  ),
-              ],
-              onChanged: busy
-                  ? null
-                  : (value) {
-                      if (value != null) onSelect(value);
-                    },
+                  Icon(Icons.expand_more, size: 18, color: LumeTheme.muted),
+                ],
+              ),
             ),
           ),
         ),

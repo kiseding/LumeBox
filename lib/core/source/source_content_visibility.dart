@@ -1,0 +1,78 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../session/section.dart';
+import '../util/lume_log.dart';
+import 'source.dart';
+import 'source_picker_groups.dart';
+
+/// Only source-drawer visibility; it never changes enabled sources or search scope.
+class SourceContentVisibility extends ChangeNotifier {
+  SourceContentVisibility();
+  static final instance = SourceContentVisibility();
+  static const types = [
+    ('novel', '小说', '文字阅读'),
+    ('audiobook', '听书', '有声内容与音频'),
+    ('comic', '漫画', '漫画作品'),
+    ('photo', '美图', '网络美图与写真图库'),
+    ('video', '视频', '网络小视频及现有泛视频源'),
+    ('movie', '影视', '网络影视站'),
+  ];
+  final Set<String> _hidden = {};
+  File? _file;
+  bool isVisible(String id) => !_hidden.contains(id);
+  List<(String, String)> groups(Section section) =>
+      SourcePickerGroups.forSection(section)
+          .where((group) => isVisible(group.$1))
+          .toList();
+  bool sectionVisible(Section section) => groups(section).isNotEmpty;
+  bool allows(Section section, SourceDescriptor source) =>
+      isVisible(SourcePickerGroups.groupFor(section, source));
+  Future<void> boot({File? file}) async {
+    try {
+      _file =
+          file ??
+          File(
+            '${(await getApplicationSupportDirectory()).path}/source_content_visibility.json',
+          );
+      _hidden.clear();
+      if (_file!.existsSync()) {
+        final data = jsonDecode(_file!.readAsStringSync());
+        if (data is List) {
+          _hidden.addAll(
+            data.whereType<String>().where(
+              (id) => types.any((type) => type.$1 == id),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+    } catch (error) {
+      LumeLog.warn('内容分类显示设置读取失败：$error');
+    }
+  }
+
+  void setVisible(String id, bool visible) {
+    if (!types.any((type) => type.$1 == id)) return;
+    if (visible) {
+      _hidden.remove(id);
+    } else {
+      _hidden.add(id);
+    }
+    try {
+      final file = _file;
+      if (file != null) {
+        file.parent.createSync(recursive: true);
+        final temporary = File('${file.path}.tmp');
+        temporary.writeAsStringSync(jsonEncode(_hidden.toList()), flush: true);
+        temporary.renameSync(file.path);
+      }
+    } catch (error) {
+      LumeLog.warn('内容分类显示设置保存失败：$error');
+    }
+    notifyListeners();
+  }
+}

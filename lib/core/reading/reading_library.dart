@@ -65,7 +65,9 @@ class ReadingLibrary {
       title: title,
       cover: cover,
       subtitle: subtitle,
-      chapterCount: chapterCount > 0 ? chapterCount : existing?.chapterCount ?? 0,
+      chapterCount: chapterCount > 0
+          ? chapterCount
+          : existing?.chapterCount ?? 0,
       readChapterIndex: existing?.readChapterIndex ?? -1,
       addedAt: existing?.addedAt ?? now,
       updatedAt: now,
@@ -164,6 +166,8 @@ class ReadingLibrary {
   String? setting(String key) => _store.setting(key);
 
   void setSetting(String key, String value) => _store.setSetting(key, value);
+
+  void clearStationSettings() => _store.clearStationSettings();
 
   // ------------------------------------------------------------------ 缓存
 

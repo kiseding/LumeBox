@@ -1,3 +1,5 @@
+import 'content_visibility_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -68,6 +70,13 @@ class SettingsPage extends StatelessWidget {
           // 分组标题只是视觉归类：每块一张卡，条目按「用户要改什么」摆放
           //（真机反馈「设置太乱」后按此口径重排）。
           const _GroupTitle('界面'),
+          _SettingsEntry(
+            icon: Icons.visibility_outlined,
+            title: '内容分类显示',
+            subtitle: '小说 / 听书 / 漫画 / 美图 / 视频 / 影视独立显示或隐藏',
+            onTap: () => _push(context, const ContentVisibilityPage()),
+          ),
+          const SizedBox(height: 10),
           const DisplaySettingsGroup(showTitle: false), // 外观 + 主题色
           const SizedBox(height: 10),
           const GridTitleStyleRow(), // 网格标题：遮罩内置 / 外置独立

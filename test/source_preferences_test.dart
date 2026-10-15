@@ -1,3 +1,5 @@
+import 'package:lume_box/features/source/source_picker_sheet.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -80,7 +82,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('甲源'), findsNothing);
       expect(find.text('乙源'), findsOneWidget);
-      await tester.tap(find.byTooltip('更多操作'));
+      showSourcePicker(
+        context: tester.element(find.byType(SourceSectionPage)),
+        section: Section.novel,
+        sources: manager.sources,
+        currentId: null,
+        manager: manager,
+      );
+      await tester.pumpAndSettle();
+      await tester.longPress(find.byKey(const ValueKey('picker-source-b')));
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await tester.tap(find.text('置顶此源'));

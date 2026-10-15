@@ -1,0 +1,441 @@
+import '../../core/source/source_content_visibility.dart';
+import '../../core/net/network_settings.dart';
+
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+
+import '../../core/reading/reading_library.dart';
+import '../../core/session/section.dart';
+import '../../core/source/source.dart';
+import '../../core/source/source_picker_groups.dart';
+import '../../core/source/source_preferences.dart';
+import '../../core/theme/lume_theme.dart';
+import '../../shared/widgets/source_icon.dart';
+import 'source_action_dialogs.dart';
+import 'source_preferences_page.dart';
+
+enum SourceQuickAction { pin, preferences, browse, test, update }
+
+Future<String?> showSourcePicker({
+  required BuildContext context,
+  required Section section,
+  required List<SourceDescriptor> sources,
+  required String? currentId,
+  SourceManager? manager,
+  VoidCallback? onChanged,
+}) => showModalBottomSheet<String>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  backgroundColor: Colors.transparent,
+  builder: (_) => SourcePickerSheet(
+    section: section,
+    sources: sources,
+    currentId: currentId,
+    manager: manager,
+    onChanged: onChanged,
+  ),
+);
+
+class SourcePickerSheet extends StatefulWidget {
+  const SourcePickerSheet({
+    super.key,
+    required this.section,
+    required this.sources,
+    required this.currentId,
+    this.manager,
+    this.onChanged,
+  });
+  final Section section;
+  final List<SourceDescriptor> sources;
+  final String? currentId;
+  final SourceManager? manager;
+  final VoidCallback? onChanged;
+  @override
+  State<SourcePickerSheet> createState() => _SourcePickerSheetState();
+}
+
+class _SourcePickerSheetState extends State<SourcePickerSheet> {
+  late final SourceManager manager =
+      widget.manager ?? LumeSources.manager(widget.section);
+  late List<SourceDescriptor> sources = List.of(widget.sources);
+  late bool columns =
+      ReadingLibrary.find(widget.section)?.setting('source.picker.columns') !=
+      'false';
+  String query = '';
+  final busy = <String>{};
+  final results = <String, SourceTestResult>{};
+
+  @override
+  void initState() {
+    super.initState();
+    SourceContentVisibility.instance.addListener(_onVisibility);
+  }
+
+  void _onVisibility() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    SourceContentVisibility.instance.removeListener(_onVisibility);
+    super.dispose();
+  }
+
+  Future<void> reload() async {
+    final next = await manager.list();
+    if (mounted) setState(() => sources = next);
+  }
+
+  void toast(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> network(SourceDescriptor source) async {
+    final profile = await showDialog<NetworkProfile>(
+      context: context,
+      builder: (_) => SourceNetworkDialog(source: source),
+    );
+    if (profile == null || !mounted) return;
+    await manager.setNetwork(
+      source.id,
+      userAgent: profile.userAgent,
+      cookie: profile.cookie,
+      proxy: profile.proxy,
+      bridge: profile.bridge,
+      allowBadCertificate: profile.allowBadCertificate,
+    );
+    await manager.setEnabled(source.id, source.enabled);
+    widget.onChanged?.call();
+    await reload();
+  }
+
+  Future<void> action(SourceDescriptor source) async {
+    if (busy.contains(source.id)) return;
+    final prefs = SourcePreferences.read(widget.section, source.id);
+    final selected = await showDialog<SourceQuickAction>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .28),
+      builder: (dialogContext) => Dialog(
+        constraints: const BoxConstraints(maxWidth: 320),
+        backgroundColor: Colors.transparent,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Material(
+              color: LumeTheme.surface.withValues(alpha: .94),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                        child: Text(
+                          source.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      for (final entry in [
+                        (
+                          SourceQuickAction.pin,
+                          Icons.push_pin_outlined,
+                          prefs.pinned ? '取消置顶' : '置顶此源',
+                        ),
+                        (SourceQuickAction.preferences, Icons.tune, '源设置'),
+                        (SourceQuickAction.browse, Icons.open_in_new, '浏览'),
+                        (SourceQuickAction.test, Icons.network_check, '测试连通性'),
+                        (SourceQuickAction.update, Icons.refresh, '更新订阅源'),
+                      ])
+                        ListTile(
+                          leading: Icon(entry.$2, color: LumeTheme.accent),
+                          title: Text(entry.$3),
+                          enabled:
+                              entry.$1 != SourceQuickAction.update ||
+                              source.subscribed,
+                          onTap: () => Navigator.pop(dialogContext, entry.$1),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    if (selected == SourceQuickAction.browse) {
+      Navigator.pop(context, source.id);
+      return;
+    }
+    setState(() => busy.add(source.id));
+    try {
+      switch (selected) {
+        case SourceQuickAction.pin:
+          await prefs
+              .copyWith(pinned: !prefs.pinned)
+              .save(widget.section, source.id);
+          widget.onChanged?.call();
+        case SourceQuickAction.preferences:
+          final saved = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute<bool>(
+              builder: (_) => SourcePreferencesPage(
+                section: widget.section,
+                sourceId: source.id,
+                name: source.name,
+                siteUrl: source.siteUrl,
+                onNetwork: () => network(source),
+              ),
+            ),
+          );
+          if (saved == true) widget.onChanged?.call();
+        case SourceQuickAction.test:
+          final result = await manager.testConnectivity(source.id);
+          if (!mounted) return;
+          setState(() {
+            results[source.id] = result;
+            busy.remove(source.id);
+          });
+          await showDialog<void>(
+            context: context,
+            builder: (_) =>
+                SourceTestResultDialog(sourceName: source.name, result: result),
+          );
+        case SourceQuickAction.update:
+          final result = await manager.updateFromSubscription(source.id);
+          if (result.status == SourceUpdateStatus.updated) {
+            widget.onChanged?.call();
+          }
+          toast(switch (result.status) {
+            SourceUpdateStatus.updated =>
+              '「${source.name}」已更新到最新脚本${result.message.isEmpty ? '' : '（${result.message}）'}',
+            SourceUpdateStatus.unchanged => '「${source.name}」已是最新',
+            SourceUpdateStatus.skipped => '跳过：${result.message}',
+            SourceUpdateStatus.failed => '更新失败：${result.message}',
+          });
+        case SourceQuickAction.browse:
+          break;
+      }
+      if (mounted) await reload();
+    } catch (error) {
+      toast('操作失败：$error');
+    } finally {
+      if (mounted) setState(() => busy.remove(source.id));
+    }
+  }
+
+  Widget sourceTile(SourceDescriptor source) {
+    final prefs = SourcePreferences.read(widget.section, source.id);
+    final selected = source.id == widget.currentId;
+    return Material(
+      color: selected
+          ? LumeTheme.accent.withValues(alpha: .10)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        key: ValueKey('picker-source-${source.id}'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: busy.contains(source.id)
+            ? null
+            : () => Navigator.pop(context, source.id),
+        onLongPress: () => action(source),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Row(
+            children: [
+              SourceIcon(
+                name: source.name,
+                siteUrl: source.siteUrl,
+                siteIcon: source.iconUrl,
+                iconUrl: prefs.iconUrl,
+                section: widget.section,
+                sourceId: source.id,
+                size: 30,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      source.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    Text(
+                      results[source.id]?.status.label ?? source.version,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                    ),
+                  ],
+                ),
+              ),
+              if (busy.contains(source.id))
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (prefs.pinned)
+                Icon(Icons.push_pin, size: 13, color: LumeTheme.accent)
+              else if (selected)
+                Icon(Icons.check, size: 15, color: LumeTheme.accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = SourceContentVisibility.instance.groups(widget.section);
+    final visible = sources
+        .where(
+          (source) =>
+              source.enabled &&
+              SourceContentVisibility.instance.allows(widget.section, source) &&
+              (source.name.toLowerCase().contains(query) ||
+                  source.id.toLowerCase().contains(query) ||
+                  source.group.toLowerCase().contains(query)),
+        )
+        .toList();
+    final order = {for (var i = 0; i < sources.length; i++) sources[i].id: i};
+    visible.sort((a, b) {
+      final pinA = SourcePreferences.read(widget.section, a.id).pinned;
+      final pinB = SourcePreferences.read(widget.section, b.id).pinned;
+      return pinA != pinB
+          ? (pinA ? -1 : 1)
+          : order[a.id]!.compareTo(order[b.id]!);
+    });
+    Widget list(List<SourceDescriptor> entries) => entries.isEmpty
+        ? Center(
+            child: Text(
+              query.isEmpty ? '暂无源' : '没有匹配的源',
+              style: TextStyle(color: LumeTheme.muted),
+            ),
+          )
+        : ListView.separated(
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 16),
+            itemCount: entries.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 4),
+            itemBuilder: (_, index) => sourceTile(entries[index]),
+          );
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: Material(
+        color: LumeTheme.surface,
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .76,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            onChanged: (value) => setState(
+                              () => query = value.trim().toLowerCase(),
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: '搜索源',
+                              prefixIcon: Icon(Icons.search),
+                            ),
+                          ),
+                        ),
+                        if (groups.length == 2)
+                          IconButton(
+                            tooltip: columns ? '切换为单列' : '切换为两列',
+                            icon: Icon(
+                              columns
+                                  ? Icons.view_agenda_outlined
+                                  : Icons.view_column_outlined,
+                            ),
+                            onPressed: () async {
+                              setState(() => columns = !columns);
+                              final library = await ReadingLibrary.open(
+                                widget.section,
+                              );
+                              library.setSetting(
+                                'source.picker.columns',
+                                '$columns',
+                              );
+                            },
+                          ),
+                        IconButton(
+                          tooltip: '关闭',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '长按源可打开操作菜单',
+                    style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: columns && groups.length == 2
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final group in groups)
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        group.$2,
+                                        style: TextStyle(
+                                          color: LumeTheme.accent,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Expanded(
+                                        child: list(
+                                          visible
+                                              .where(
+                                                (source) =>
+                                                    SourcePickerGroups.groupFor(
+                                                      widget.section,
+                                                      source,
+                                                    ) ==
+                                                    group.$1,
+                                              )
+                                              .toList(),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          )
+                        : list(visible),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

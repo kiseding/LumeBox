@@ -318,6 +318,9 @@ class SectionToolbar extends StatelessWidget {
     this.busy = false,
     this.floating = false,
     this.navigation,
+    this.section,
+    this.manager,
+    this.onSourcesChanged,
   });
 
   /// 本板块已启用的源。
@@ -330,6 +333,9 @@ class SectionToolbar extends StatelessWidget {
   final bool busy;
   final bool floating;
   final Widget? navigation;
+  final Section? section;
+  final SourceManager? manager;
+  final Future<void> Function()? onSourcesChanged;
 
   final BrowseSort sort;
   final ValueChanged<BrowseSort> onSortChanged;
@@ -370,6 +376,9 @@ class SectionToolbar extends StatelessWidget {
                     width: sourceWidth,
                     child: ReadingSourceBar(
                       sources: sources,
+                      section: section,
+                      manager: manager,
+                      onSourcesChanged: onSourcesChanged,
                       currentId: currentId,
                       busy: busy,
                       floating: true,
@@ -401,6 +410,9 @@ class SectionToolbar extends StatelessWidget {
         Expanded(
           child: ReadingSourceBar(
             sources: sources,
+            section: section,
+            manager: manager,
+            onSourcesChanged: onSourcesChanged,
             currentId: currentId,
             busy: busy,
             floating: floating,

@@ -1187,6 +1187,9 @@ class _ExploreViewState extends State<ExploreView> {
   Widget _buildHeader() {
     final showSourceManageFlag = widget.showSourceManage;
     return SectionToolbar(
+      section: widget.section,
+      manager: _manager,
+      onSourcesChanged: _bootstrap,
       floating: true,
       sources: _sources
           .where((source) => source.enabled)
