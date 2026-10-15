@@ -96,6 +96,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _Catalog(const <PlayerKernel>{
               PlayerKernel.avplayer,
@@ -160,6 +161,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _Catalog(const <PlayerKernel>{
               PlayerKernel.avplayer,

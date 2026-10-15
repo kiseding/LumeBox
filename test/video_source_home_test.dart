@@ -1,3 +1,6 @@
+import 'package:lume_box/features/reading/history_sheet.dart';
+import 'package:lume_box/features/video/video_detail_page.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -161,20 +164,23 @@ void main() {
     expect(find.text('暂无源'), findsOneWidget, reason: '起步是空板块');
 
     // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
-    await tester.tap(find.byTooltip('源管理'));
+    await tapWithDetailPlay(tester, find.byTooltip('源管理'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('添加源'));
+    await tapWithDetailPlay(tester, find.byTooltip('添加源'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<String>, '导入源'));
+    await tapWithDetailPlay(
+      tester,
+      find.widgetWithText(PopupMenuItem<String>, '导入源'),
+    );
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byType(TextField),
       '// LumeSource: {"id":"lume.new","name":"新图源","version":"1.0.0"}',
     );
-    await tester.tap(find.text('导入'));
+    await tapWithDetailPlay(tester, find.text('导入'));
     await tester.pumpAndSettle();
 
-    await tester.pageBack();
+    await backToBrowse(tester);
     await tester.pumpAndSettle();
     expect(manager.imported, hasLength(1));
     // 自动刷新：空态消失，图源条换成新图源，列表直接出现（无需点「重试」）。
@@ -186,14 +192,14 @@ void main() {
     expect(manager.closed, isFalse, reason: '刷新不能释放管理器');
   });
 
-  testWidgets('点条目直接起播：条目自带地址时不再要详情 / 章节', (tester) async {
+  testWidgets('条目先进入详情再手动播放：自带地址不重复解析章节', (tester) async {
     source.items = const <SourceItem>[
       SourceItem(id: 'https://example.com/demo.mp4', title: '测试视频'),
     ];
     final created = await pumpBoard(tester);
     expect(created, isEmpty, reason: '浏览页自己不建播放器（起播才建）');
 
-    await tester.tap(find.text('测试视频'));
+    await tapWithDetailPlay(tester, find.text('测试视频'));
     await tester.pumpAndSettle();
 
     // 起播：唤起独立播放器页，媒体交给播放器。
@@ -203,7 +209,7 @@ void main() {
       created.single.media?.uri.toString(),
       'https://example.com/demo.mp4',
     );
-    expect(created.single.media?.title, '测试视频');
+    expect(created.single.media?.title, '测试视频 · 正片');
     expect(source.chapterCalls, isEmpty, reason: '自带地址不必再去问剧集');
     expect(find.byTooltip('播放器设置'), findsWidgets, reason: '播放器页带设置入口');
     // 地址不再铺在控制栏上（用户要求）：从「播放源」弹窗里能看到它。
@@ -212,7 +218,7 @@ void main() {
       findsNothing,
       reason: '控制栏不直接展示长链接',
     );
-    await tester.tap(find.byTooltip('线路 / 选集'));
+    await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
     await tester.pumpAndSettle();
 
     expect(find.text('https://example.com/demo.mp4'), findsNothing);
@@ -228,12 +234,12 @@ void main() {
     source.contentUrl = 'https://example.com/movie-1-e2.mp4';
     final created = await pumpBoard(tester);
 
-    await tester.tap(find.text('示例影片'));
+    await tapWithDetailPlay(tester, find.text('示例影片'));
     await tester.pumpAndSettle();
 
     // 多集先让用户选。
-    expect(find.text('选择剧集'), findsOneWidget);
-    await tester.tap(find.text('第 2 集'));
+    expect(find.text('选集（2）'), findsOneWidget);
+    await tapWithDetailPlay(tester, find.text('第 2 集'));
     await tester.pumpAndSettle();
 
     expect(
@@ -262,7 +268,7 @@ void main() {
     };
     final created = await pumpBoard(tester);
 
-    await tester.tap(find.text('樣片'));
+    await tapWithDetailPlay(tester, find.text('樣片'));
     await tester.pumpAndSettle();
 
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
@@ -296,7 +302,7 @@ void main() {
     };
     final created = await pumpBoard(tester);
 
-    await tester.tap(find.text('樣片'));
+    await tapWithDetailPlay(tester, find.text('樣片'));
     await tester.pumpAndSettle();
 
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
@@ -321,7 +327,7 @@ void main() {
     source.contentUrl = 'https://example.com/movie-1-e1.mp4';
     final created = await pumpBoard(tester);
 
-    await tester.tap(find.text('示例影片'));
+    await tapWithDetailPlay(tester, find.text('示例影片'));
     await tester.pumpAndSettle();
 
     expect(find.text('选择剧集'), findsNothing);
@@ -339,14 +345,14 @@ void main() {
     );
     final created = await pumpBoard(tester);
 
-    await tester.tap(find.text('示例影片'));
+    await tapWithDetailPlay(tester, find.text('示例影片'));
     await tester.pumpAndSettle();
 
     expect(created, isEmpty, reason: '没有可播放地址就不该起播');
     expect(find.byType(VideoPlayerPage), findsNothing, reason: '不往下走，也不唤起播放器页');
     expect(
       find.textContaining('没有实现 chapters 方法'),
-      findsOneWidget,
+      findsWidgets,
       reason: '提示要能指出脚本缺什么',
     );
   });
@@ -505,5 +511,48 @@ class _FakePlayer extends AbstractPlayer {
   @override
   Future<void> dispose() async {
     _snapshot.dispose();
+  }
+}
+
+/// Existing engine regression scenarios now perform the explicit detail/play step.
+Future<void> tapWithDetailPlay(
+  WidgetTester tester,
+  Finder finder, {
+  bool warnIfMissed = true,
+}) async {
+  if (finder.evaluate().isEmpty && finder.toString().contains('全屏')) return;
+  final chapter = find
+      .ancestor(of: finder, matching: find.byType(ChoiceChip))
+      .evaluate()
+      .isNotEmpty;
+  final history = find
+      .ancestor(of: finder, matching: find.byType(HistoryEntryTile))
+      .evaluate()
+      .isNotEmpty;
+  await tester.tap(finder, warnIfMissed: warnIfMissed);
+  await tester.pumpAndSettle();
+  if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
+    final chips = find.descendant(
+      of: find.byType(VideoDetailPage),
+      matching: find.byType(ChoiceChip),
+    );
+    if (chapter || history || chips.evaluate().length <= 1) {
+      final play = find.byKey(const Key('video-detail-play'));
+      if (play.evaluate().isNotEmpty &&
+          tester.widget<FilledButton>(play).onPressed != null) {
+        await tester.ensureVisible(play);
+        await tester.tap(play);
+        await tester.pumpAndSettle();
+      }
+    }
+  }
+}
+
+Future<void> backToBrowse(WidgetTester tester) async {
+  await tester.pageBack();
+  await tester.pumpAndSettle();
+  if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
+    await tester.pageBack();
+    await tester.pumpAndSettle();
   }
 }

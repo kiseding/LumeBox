@@ -92,6 +92,7 @@ class VideoPlayerPage extends StatefulWidget {
     this.speedMeter,
     this.prelaunch,
     this.sourceValidator,
+    this.fullscreenOnly = true,
   });
 
   /// 起播媒体（含防盗链请求头）。
@@ -100,6 +101,7 @@ class VideoPlayerPage extends StatefulWidget {
   /// 的地址留空，用户贴一个地址按「播放这个地址」即可起播（手动地址没有作品身份，
   /// 因此不记进度、不连播）。
   final PlayerMedia? media;
+  final bool fullscreenOnly;
 
   /// 页面标题（作品名）；为空时用「播放」。
   final String? title;
@@ -278,7 +280,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _locked = false;
 
   /// 全屏（沉浸）模式：顶栏与控制栏收起，点画面切换浮层控制栏。
-  bool _fullscreen = false;
+  late bool _fullscreen = widget.fullscreenOnly;
   final _nextEpisodeBuffer = NextEpisodeBuffer();
 
   /// 全屏模式下的浮层控制栏是否可见。
@@ -628,6 +630,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.fullscreenOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_applyOrientation());
+      });
+    }
     // The normal route already owns this local library; read the final scale
     // synchronously before the first control frame, rather than resizing later.
     final layoutLibrary = widget.library ?? ReadingLibrary.find(Section.video);
@@ -2822,6 +2829,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 哪边都行）。页面 dispose 时也会还原一次——否则从全屏直接返回会把整个 App
   /// 留在横屏里。
   void _setFullscreen(bool value) {
+    if (widget.fullscreenOnly && !value) {
+      Navigator.of(context).maybePop();
+      return;
+    }
     setState(() {
       _fullscreen = value;
       _overlayVisible = true;

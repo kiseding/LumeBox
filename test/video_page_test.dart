@@ -78,6 +78,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             // 默认给一个初始媒体（播放器页的真实入口是「从条目进来」）；
             // 用例传 withInitialMedia: false 即可验证「还没有媒体」的边界。
             // 播放页的真实入口是「从条目进来」——挂载时就把媒体给它。
@@ -256,6 +257,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _FakeCatalog(const <PlayerKernel>{
               PlayerKernel.avplayer,
@@ -645,6 +647,7 @@ void main() {
       MaterialApp(
         theme: LumeTheme.build(),
         home: VideoPlayerPage(
+          fullscreenOnly: false,
           media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
           catalog: _FakeCatalog(const <PlayerKernel>{PlayerKernel.avplayer}),
           playerFactory: (kernel) {
@@ -669,6 +672,7 @@ void main() {
         theme: LumeTheme.build(),
         // 平台目录（真实现）：非 iOS 上三套内核都不可用 → 骨架占位。
         home: VideoPlayerPage(
+          fullscreenOnly: false,
           media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
         ),
       ),

@@ -125,6 +125,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             library: library,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AllKernelsCatalog(),

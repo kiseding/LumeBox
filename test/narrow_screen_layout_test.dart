@@ -176,6 +176,7 @@ void main() {
     '小说板块': () => NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
     '漫画板块': () => ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
     '播放器页': () => VideoPlayerPage(
+          fullscreenOnly: false,
           media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
           catalog: const _NoKernelCatalog(),
         ),

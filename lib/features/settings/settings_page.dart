@@ -1,3 +1,4 @@
+import 'tmdb_settings_page.dart';
 import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
 
@@ -105,6 +106,13 @@ class SettingsPage extends StatelessWidget {
             title: '搜索',
             subtitle: '搜索自动繁转简 / 精确搜索',
             onTap: () => _push(context, const SearchSettingsPage()),
+          ),
+          const SizedBox(height: 20),
+          _SettingsEntry(
+            icon: Icons.movie_outlined,
+            title: 'TMDB配置',
+            subtitle: '海报样式 / API Key / 接口与图片代理',
+            onTap: () => _push(context, const TmdbSettingsPage()),
           ),
           const SizedBox(height: 20),
           const _GroupTitle('源与网络'),

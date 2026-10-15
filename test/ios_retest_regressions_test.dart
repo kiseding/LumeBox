@@ -137,6 +137,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AvailableCatalog(),
             playerFactory: (kernel) => _SilentPlayer(kernel),
@@ -204,6 +205,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
+          fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AvailableCatalog(),
             speedMeter: meter,

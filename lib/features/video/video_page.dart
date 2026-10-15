@@ -1,3 +1,5 @@
+import 'video_detail_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -11,15 +13,12 @@ import '../../core/player/player_settings.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
-import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
-import '../../shared/widgets/chapter_tile.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../reading/explore_view.dart';
 import '../reading/history_sheet.dart';
 import '../source/source_subscription_page.dart';
 import '../source/source_section_page.dart';
-import 'source_playback.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
 import 'video_player_page.dart';
@@ -89,15 +88,7 @@ class _VideoPageState extends State<VideoPage> {
   /// 阅读库打不开：浏览照常，但进度与播放记录不可用。
   bool _libraryFailed = false;
 
-  /// 起播忙态文案（非空 = 点按已被吃下，正在为起播做准备）。
-  ///
-  /// 为什么必须有它：从点条目到播放器页出现之间有**两段沙箱往返**（剧集列表 /
-  /// 播放地址，各 10 秒预算），这期间列表此前毫无反应——真机反馈的「点了没
-  /// 动静」就是这么来的。忙态同时把列表挡住，同一次起播不会被连点两下。
-  String? _busyLabel;
-
-  /// 有起播请求在飞（点条目到播放器页出现之间忽略新的点按）。
-  bool get _busy => _busyLabel != null;
+  bool _detailRouteOpen = false;
 
   /// 是否有播放器页正压在栈上（由 [_openPlayer] 维护）。
   ///
@@ -161,18 +152,6 @@ class _VideoPageState extends State<VideoPage> {
 
   // ------------------------------------------------------ 图源条目 → 独立播放器
 
-  /// 进入忙态：列表上盖一张说明卡（文案说明在等什么），并把列表挡住。
-  void _beginBusy(String label) {
-    if (!mounted || _busyLabel == label) return;
-    setState(() => _busyLabel = label);
-  }
-
-  /// 退出忙态。播放器页有自己的「正在准备」卡，push 之前收掉即可。
-  void _endBusy() {
-    if (!mounted || _busyLabel == null) return;
-    setState(() => _busyLabel = null);
-  }
-
   /// 预启动一次内核：**在等播放地址的这几秒里先把内核建起来**（见 [PlayerPrelaunch]）。
   ///
   /// 按**本板块设置里存的那个内核**预启动（正式链路同样按它创建）；它在目录里
@@ -208,127 +187,34 @@ class _VideoPageState extends State<VideoPage> {
     if (pre != null) unawaited(pre.discard());
   }
 
-  /// 图源列表里点一个条目：**能直接播就直接播**，否则走剧集链路。
-  ///
-  /// 直接播的判据是条目自带可播放地址（列表里的 `url` 会落到条目 id 上）——
-  /// 视频类图源最常见的形状就是 `{title, url}`。条目只有 id 时按
-  /// 「作品 → 剧集 → 内容」取地址。取到地址后**唤起独立播放器页**。
-  Future<void> _playFromSource(DataSource source, SourceItem item) async {
-    // 已经有一条起播在解析：不加第二次（忙态已经把列表挡住了）。
-    if (_busy) return;
-    final direct = SourcePlayback.itemAddress(item.id);
-    if (direct != null) {
-      await _openPlayer(
-        PlayerMedia(uri: direct, title: item.title),
-        target: VideoPlayTarget(
-          sourceId: source.id,
-          itemId: item.id,
-          title: item.title,
-          cover: item.cover,
-          chapterIndex: 0,
-          chapterId: item.id,
-          chapterTitle: item.title,
+  /// Push detail immediately; loading a cold or unavailable source belongs to that page.
+  Future<void> _playFromSelection(ExploreSelection selection) async {
+    final library = _library;
+    if (!mounted || library == null || _detailRouteOpen) return;
+    final manager = widget.sourceManager ?? LumeSources.manager(Section.video);
+    _detailRouteOpen = true;
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => VideoDetailPage(
+            sourceId: selection.sourceId,
+            loadSource: () => manager.open(selection.sourceId),
+            item: selection.item,
+            library: library,
+            prelaunch: _startPrelaunch,
+            onPlay: (media, target, qualities, prelaunch) => _openPlayer(
+              media,
+              target: target,
+              qualities: qualities,
+              prelaunch: prelaunch,
+            ),
+          ),
         ),
       );
-      return;
-    }
-
-    final List<SourceChapter> chapters;
-    _beginBusy('正在获取剧集：${item.title}');
-    try {
-      chapters = await source.chapters(item.id);
-    } on SourceException catch (error) {
-      _toast('${error.message}；条目自带播放地址（url）时可直接起播');
-      return;
     } finally {
-      _endBusy();
+      _detailRouteOpen = false;
     }
-    if (!mounted) return;
-    if (chapters.isEmpty) {
-      _toast('「${item.title}」没有可播放的剧集');
-      return;
-    }
-
-    // 只有一集就不必让用户再选一次。
-    final chapter = chapters.length == 1
-        ? chapters.first
-        : await _pickChapter(item, chapters);
-    if (chapter == null || !mounted) return;
-
-    // 取地址与「内核预启动」并行：两件事互不依赖，谁慢等谁。
-    final prelaunch = _startPrelaunch();
-    PlayerMedia? media;
-    var qualities = const <VideoQuality>[];
-    try {
-      _beginBusy('正在解析播放地址：${item.title}');
-      final content = await source.content(
-        itemId: item.id,
-        chapterId: chapter.id,
-      );
-      final address = SourcePlayback.contentAddress(content);
-      if (address == null) {
-        _toast('「${chapter.title}」不是视频内容');
-      } else {
-        media = PlayerMedia(
-          uri: address,
-          title: '${item.title} · ${chapter.title}',
-          // 图源给的防盗链头必须原样交给内核（丢 = CDN 403 + 退避重试）。
-          headers: SourcePlayback.contentHeaders(content, source: source),
-        );
-        // 图源给了多条清晰度线路就一起带进播放器（单条 / 空表时按钮弹提示）。
-        qualities = SourcePlayback.contentQualities(content, source: source);
-      }
-    } on SourceException catch (error) {
-      _toast(error.message);
-    } finally {
-      // 地址拿到就收忙态：接着 push 播放器页，它自己的「正在准备」卡接手反馈。
-      _endBusy();
-    }
-
-    if (media == null || !mounted) {
-      // 没走到起播（不是视频内容 / 脚本报错 / 页面已退出）：预启动的实例
-      // 就地释放，绝不让它成为没人管的孤儿。
-      _discardPrelaunch(prelaunch);
-      return;
-    }
-    final chapterIndex = chapters.indexWhere(
-      (candidate) => candidate.id == chapter.id,
-    );
-    await _openPlayer(
-      media,
-      target: VideoPlayTarget(
-        sourceId: source.id,
-        itemId: item.id,
-        title: item.title,
-        cover: item.cover,
-        chapterIndex: chapterIndex < 0 ? 0 : chapterIndex,
-        chapterId: chapter.id,
-        chapterTitle: chapter.title,
-      ),
-      qualities: qualities,
-      prelaunch: prelaunch,
-    );
-  }
-
-  /// 探索列表里点一个条目：先按 id 打开它所属的图源，再走既有的起播链路。
-  Future<void> _playFromSelection(ExploreSelection selection) async {
-    if (_busy) return;
-    final manager = widget.sourceManager ?? LumeSources.manager(Section.video);
-    final DataSource? source;
-    try {
-      // 图源引擎可能是冷的（首次打开要装载脚本）：这一段也算忙态——真机上
-      // 「点了没反应」最早就是出现在这里。
-      _beginBusy('正在打开图源：${selection.item.title}');
-      source = await manager.open(selection.sourceId);
-    } finally {
-      _endBusy();
-    }
-    if (!mounted) return;
-    if (source == null) {
-      _toast('「${selection.item.title}」的源不可用（未启用或脚本载入失败）');
-      return;
-    }
-    await _playFromSource(source, selection.item);
   }
 
   /// 唤起独立播放器页。
@@ -395,121 +281,18 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
-  /// 剧集选择面板：一集一个条目，取消返回 null。
-  ///
-  /// 有历史记录时把「上次看到的那一集」高亮出来（列表里一眼能找到接着看）。
-  Future<SourceChapter?> _pickChapter(
-    SourceItem item,
-    List<SourceChapter> chapters,
-  ) async {
-    final progress = widget.library?.videoProgress(item.id);
-    if (!mounted) return null;
-    return showModalBottomSheet<SourceChapter>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ChapterSheet(
-        title: item.title,
-        chapters: chapters,
-        currentChapterId: progress?.chapterId,
-      ),
-    );
-  }
-
-  /// 续看：按记录里的剧集与时间点续播（历史抽屉里点一条走这里）。
-  ///
-  /// 记的是剧集 id 而不是序号，因此图源章节改名或重排也能找回同一集；只有剧集
-  /// 取不到（图源改了）才回退到按序号定位。
-  Future<void> _resumeFromProgress(
-    LibraryItem item,
-    VideoProgress progress,
-  ) async {
-    if (_busy) return;
-    final manager = widget.sourceManager ?? LumeSources.manager(Section.video);
-    final DataSource? source;
-    try {
-      _beginBusy('正在打开图源：${item.title}');
-      source = await manager.open(item.sourceId);
-    } finally {
-      _endBusy();
-    }
-    if (!mounted) return;
-    if (source == null) {
-      _toast('「${item.title}」的源不可用（未启用或脚本载入失败）');
-      return;
-    }
-
-    final List<SourceChapter> chapters;
-    _beginBusy('正在获取剧集：${item.title}');
-    try {
-      chapters = await source.chapters(item.itemId);
-    } on SourceException catch (error) {
-      _toast(error.message);
-      return;
-    } finally {
-      _endBusy();
-    }
-    if (!mounted) return;
-    if (chapters.isEmpty) {
-      _toast('「${item.title}」没有可播放的剧集');
-      return;
-    }
-
-    // 优先按剧集 id 找；找不到再按序号；都没有就用第一集。
-    var index = chapters.indexWhere(
-      (chapter) => chapter.id == progress.chapterId,
-    );
-    if (index < 0 && progress.chapterIndex < chapters.length) {
-      index = progress.chapterIndex;
-    }
-    if (index < 0) index = 0;
-    final chapter = chapters[index];
-
-    // 与条目起播同一条思路：取地址与内核预启动并行（见 [PlayerPrelaunch]）。
-    final prelaunch = _startPrelaunch();
-    PlayerMedia? media;
-    var qualities = const <VideoQuality>[];
-    try {
-      _beginBusy('正在解析播放地址：${item.title}');
-      final content = await source.content(
-        itemId: item.itemId,
-        chapterId: chapter.id,
+  Future<void> _resumeFromProgress(LibraryItem item, VideoProgress progress) =>
+      _playFromSelection(
+        ExploreSelection(
+          sourceId: item.sourceId,
+          item: SourceItem(
+            id: item.itemId,
+            title: item.title,
+            cover: item.cover,
+            subtitle: item.subtitle,
+          ),
+        ),
       );
-      final address = SourcePlayback.contentAddress(content);
-      if (address == null) {
-        _toast('「${chapter.title}」不是视频内容');
-      } else {
-        media = PlayerMedia(
-          uri: address,
-          title: '${item.title} · ${chapter.title}',
-          headers: SourcePlayback.contentHeaders(content, source: source),
-        );
-        qualities = SourcePlayback.contentQualities(content, source: source);
-      }
-    } on SourceException catch (error) {
-      _toast(error.message);
-    } finally {
-      _endBusy();
-    }
-
-    if (media == null || !mounted) {
-      _discardPrelaunch(prelaunch);
-      return;
-    }
-    await _openPlayer(
-      media,
-      target: VideoPlayTarget(
-        sourceId: item.sourceId,
-        itemId: item.itemId,
-        title: item.title,
-        cover: item.cover,
-        chapterIndex: index,
-        chapterId: chapter.id,
-        chapterTitle: chapter.title,
-      ),
-      qualities: qualities,
-      prelaunch: prelaunch,
-    );
-  }
 
   // ------------------------------------------------------------------ 历史
 
@@ -528,6 +311,19 @@ class _VideoPageState extends State<VideoPage> {
       initialTab: favorites
           ? HistoryDrawerTab.favorites
           : HistoryDrawerTab.records,
+      onOpenItem: (item) {
+        Navigator.of(context).pop();
+        _playFromSelection(
+          ExploreSelection(
+            sourceId: item.sourceId,
+            item: SourceItem(
+              id: item.itemId,
+              title: item.title,
+              cover: item.cover,
+            ),
+          ),
+        );
+      },
       onResume: (item, progress) {
         if (progress is! VideoProgress) return;
         Navigator.of(context).pop();
@@ -535,13 +331,6 @@ class _VideoPageState extends State<VideoPage> {
       },
     );
     if (!mounted) return;
-  }
-
-  /// 可读提示（不冒泡异常）。
-  void _toast(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   // ------------------------------------------------------------------ 构建
@@ -657,142 +446,6 @@ class _VideoPageState extends State<VideoPage> {
             // 视频筛选：一级分类（底部弹窗）→ 独立筛选子页（分页跳转模式，用户口径）。
             onOpenFacetFilter: _openFacetFilter,
           );
-    final label = _busyLabel;
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        AbsorbPointer(absorbing: label != null, child: content),
-        if (label != null) _buildBusyOverlay(label),
-      ],
-    );
-  }
-
-  /// 起播忙态浮层：**为什么必须有**——从点条目到播放器页出现之间要过两段沙箱
-  /// 往返（剧集列表 / 播放地址，各 10 秒预算），此前这期间列表上毫无反应，
-  /// 真机反馈就是「点了没动静」。卡片写明在等什么，点按至少有个交代。
-  Widget _buildBusyOverlay(String label) {
-    return Positioned.fill(
-      child: ColoredBox(
-        color: Colors.black.withValues(alpha: 0.18),
-        child: Center(
-          child: GlassCard(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2.2),
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: LumeTheme.textPrimary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 剧集选择面板：图源条目有多集时先选一集再起播。
-///
-/// 与图源切换面板同一套玻璃外观（顶部圆角 + 深色背景），一行一集。
-class _ChapterSheet extends StatelessWidget {
-  const _ChapterSheet({
-    required this.title,
-    required this.chapters,
-    this.currentChapterId,
-  });
-
-  /// 作品标题（面板抬头用）。
-  final String title;
-
-  final List<SourceChapter> chapters;
-
-  /// 正在播的那一集（高亮它）；为空表示没有历史记录。
-  final String? currentChapterId;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              // 抬头固定在列表之上，右侧是**关闭**（用户口径：集数多的时候
-              // 滚到哪儿都能直接退出选集面板）。
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 8, 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            '选择剧集',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: LumeTheme.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: LumeTheme.muted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close, size: 20),
-                    ),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                  itemCount: chapters.length,
-                  itemBuilder: (context, index) {
-                    final chapter = chapters[index];
-                    return ChapterTile(
-                      title: chapter.title,
-                      current: chapter.id == currentChapterId,
-                      onTap: () => Navigator.of(context).pop(chapter),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
+    return content;
   }
 }

@@ -1,3 +1,6 @@
+import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/features/video/video_player_page.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,6 +15,16 @@ import 'package:lume_box/features/cat/cat_detail_page.dart';
 
 class FixtureCat extends CatDataSource {
   FixtureCat(super.service, super.site, {super.chapterFlag});
+  int parses = 0;
+  @override
+  Future<ChapterContent?> content({
+    required String itemId,
+    required String chapterId,
+  }) async {
+    parses++;
+    throw const SourceException(SourceErrorKind.network, 'fixture播放解析失败');
+  }
+
   @override
   Future<Map<String, dynamic>> rawDetail(String itemId) async => {
     'vod_id': 'movie',
@@ -79,6 +92,33 @@ void main() {
     expect(CatDataSource.labelOf(filtered.first), '第1集');
     expect(filtered.first.id, groups['UC原画']!.first.id);
   });
+  testWidgets('猫源点章节只选择；点击播放才解析，解析失败停留详情', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final item = source.item(await source.rawDetail('movie'))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CatDetailPage(source: source, item: item, library: library),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final episode = find.widgetWithText(OutlinedButton, '第2集');
+    await tester.ensureVisible(episode);
+    await tester.tap(episode);
+    await tester.pumpAndSettle();
+    expect(source.parses, 0);
+    expect(find.byType(VideoPlayerPage), findsNothing);
+    final play = find.widgetWithText(FilledButton, '播放 · 第2集');
+    await tester.ensureVisible(play);
+    await tester.tap(play);
+    await tester.pumpAndSettle();
+    expect(source.parses, 1);
+    expect(find.byType(CatDetailPage), findsOneWidget);
+    expect(find.byType(VideoPlayerPage), findsNothing);
+    expect(find.textContaining('fixture播放解析失败'), findsOneWidget);
+  });
+
   for (final width in [320.0, 390.0]) {
     testWidgets('猫源详情$width宽按线路显示与完整选集，简介可收起', (tester) async {
       tester.view.physicalSize = Size(width, 844);

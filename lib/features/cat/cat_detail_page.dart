@@ -1,3 +1,4 @@
+import '../video/tmdb_artwork.dart';
 import '../../shared/widgets/missing_cover.dart';
 
 import 'dart:async';
@@ -43,6 +44,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
     maxConcurrent: SectionImagePipeline.coverConcurrency,
   );
+  late final tmdb = TmdbDetailController(widget.item.title);
   SourceDetail? detail;
   List<SourceChapter> chapters = [];
   String? error;
@@ -51,8 +53,11 @@ class _CatDetailPageState extends State<CatDetailPage> {
   Map<String, List<SourceChapter>> lines = {};
   String line = '';
   String? lastChapterId;
+  String? selectedChapterId;
   List<SourceChapter> get episodes => lines[line] ?? [];
-  String get cover => detail?.cover ?? widget.item.cover ?? '';
+  String get cover => detail?.cover?.trim().isNotEmpty == true
+      ? detail!.cover!
+      : widget.item.cover ?? '';
   Map<String, String> get coverHeaders =>
       detail?.coverHeaders ?? widget.item.coverHeaders;
   String get title => detail?.title ?? widget.item.title;
@@ -65,6 +70,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
 
   @override
   void dispose() {
+    tmdb.dispose();
     pipeline.dispose();
     super.dispose();
   }
@@ -86,6 +92,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
           lines = CatDataSource.episodeLines(episodes);
           final progress = widget.library.videoProgress(widget.item.id);
           lastChapterId = progress?.chapterId;
+          selectedChapterId = lastChapterId;
           final resumed = episodes
               .where((chapter) => chapter.id == lastChapterId)
               .firstOrNull;
@@ -109,6 +116,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
     if (playing) return;
     setState(() => playing = true);
     PlayerPrelaunch? prelaunch;
+    var openedPlayer = false;
     try {
       if (PlayerFactory.isSupported) {
         final preferred = VideoPlayerSettingsStore(widget.library)
@@ -139,6 +147,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
         'url': SourcePlayback.contentAddress(content)!.toString(),
       };
       final transferred = prelaunch;
+      openedPlayer = true;
       final opening = Navigator.push(
         context,
         MaterialPageRoute<void>(
@@ -192,6 +201,9 @@ class _CatDetailPageState extends State<CatDetailPage> {
           lastChapterId =
               widget.library.videoProgress(widget.item.id)?.chapterId ??
               lastChapterId;
+          if (openedPlayer && lastChapterId != null) {
+            selectedChapterId = lastChapterId;
+          }
         });
       }
     }
@@ -209,7 +221,12 @@ class _CatDetailPageState extends State<CatDetailPage> {
 
   void playEpisode(SourceChapter chapter) {
     final index = chapters.indexWhere((entry) => entry.id == chapter.id);
-    if (index >= 0) play(index);
+    if (index >= 0) {
+      setState(() {
+        selectedChapterId = chapter.id;
+        line = CatDataSource.flagOf(chapter);
+      });
+    }
   }
 
   Future<void> pickEpisode() async {
@@ -221,7 +238,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
       builder: (context) => CatEpisodePicker(
         lines: lines,
         initialLine: line,
-        currentId: lastChapterId,
+        currentId: selectedChapterId ?? lastChapterId,
       ),
     );
     if (selected != null && mounted) {
@@ -230,16 +247,19 @@ class _CatDetailPageState extends State<CatDetailPage> {
     }
   }
 
-  Widget image({int? width, BorderRadius? radius}) => SectionImage(
-    pipeline: pipeline,
-    placeholder: MissingCover(
-      title: widget.item.title,
-      section: pipeline.section,
+  Widget image({int? width, BorderRadius? radius}) => TmdbPosterGallery(
+    controller: tmdb,
+    fallback: SectionImage(
+      pipeline: pipeline,
+      placeholder: MissingCover(
+        title: widget.item.title,
+        section: pipeline.section,
+      ),
+      url: cover,
+      headers: coverHeaders,
+      targetWidth: width,
+      borderRadius: radius,
     ),
-    url: cover,
-    headers: coverHeaders,
-    targetWidth: width,
-    borderRadius: radius,
   );
 
   List<String> get metadata => [
@@ -415,7 +435,8 @@ class _CatDetailPageState extends State<CatDetailPage> {
               for (final chapter in preview)
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    backgroundColor: chapter.id == lastChapterId
+                    backgroundColor:
+                        chapter.id == (selectedChapterId ?? lastChapterId)
                         ? LumeTheme.accent.withValues(alpha: .12)
                         : null,
                     padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -488,7 +509,9 @@ class _CatDetailPageState extends State<CatDetailPage> {
   }
 
   Widget description() {
-    final text = detail?.description?.trim() ?? '';
+    final text = tmdb.metadata?.overview.trim().isNotEmpty == true
+        ? tmdb.metadata!.overview
+        : (detail?.description?.trim() ?? '');
     if (text.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -550,140 +573,155 @@ class _CatDetailPageState extends State<CatDetailPage> {
     final resumed = episodes
         .where((chapter) => chapter.id == lastChapterId)
         .firstOrNull;
-    final start = resumed ?? episodes.firstOrNull;
+    final selected = episodes
+        .where((chapter) => chapter.id == selectedChapterId)
+        .firstOrNull;
+    final start = selected ?? resumed ?? episodes.firstOrNull;
     final favorited = widget.source.service.favorites.contains(
       '${widget.source.id}|${widget.item.id}',
     );
-    return Scaffold(
-      backgroundColor: LumeTheme.base,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(error!),
-                          TextButton(onPressed: load, child: const Text('重试')),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      hero(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+    return ListenableBuilder(
+      listenable: tmdb,
+      builder: (context, _) => Scaffold(
+        backgroundColor: LumeTheme.base,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(48),
-                              ),
-                              onPressed: playing || start == null
-                                  ? null
-                                  : () => playEpisode(start),
-                              icon: playing
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                            Text(error!),
+                            TextButton(
+                              onPressed: load,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView(
+                      padding: EdgeInsets.zero,
+                      children: [
+                        hero(),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                onPressed: playing || start == null
+                                    ? null
+                                    : () => play(
+                                        chapters.indexWhere(
+                                          (entry) => entry.id == start.id,
+                                        ),
                                       ),
-                                    )
-                                  : const Icon(Icons.play_arrow),
-                              label: Text(
-                                playing
-                                    ? '正在获取播放地址'
-                                    : resumed == null
-                                    ? '播放'
-                                    : '继续播放 · ${CatDataSource.labelOf(resumed)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                icon: playing
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.play_arrow),
+                                label: Text(
+                                  playing
+                                      ? '正在获取播放地址'
+                                      : start == null
+                                      ? '播放'
+                                      : start.id == lastChapterId
+                                      ? '继续播放 · ${CatDataSource.labelOf(start)}'
+                                      : '播放 · ${CatDataSource.labelOf(start)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              episodePreview(),
+                              description(),
+                              cast(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Row(
+                    children: [
+                      GlassPanel(
+                        radius: 24,
+                        padding: EdgeInsets.zero,
+                        child: IconButton(
+                          tooltip: '返回',
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: const Icon(Icons.arrow_back),
+                        ),
+                      ),
+                      const Spacer(),
+                      GlassPanel(
+                        radius: 24,
+                        padding: EdgeInsets.zero,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: '收藏',
+                              onPressed: toggleFavorite,
+                              icon: Icon(
+                                favorited
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
                               ),
                             ),
-                            const SizedBox(height: 16),
-                            episodePreview(),
-                            description(),
-                            cast(),
+                            PopupMenuButton<String>(
+                              tooltip: '更多',
+                              icon: const Icon(Icons.more_horiz),
+                              onSelected: (value) {
+                                if (value == 'reload') {
+                                  load();
+                                } else {
+                                  Clipboard.setData(ClipboardData(text: title));
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(
+                                  value: 'reload',
+                                  child: Text('刷新详情'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'copy',
+                                  child: Text('复制影片名称'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Row(
-                  children: [
-                    GlassPanel(
-                      radius: 24,
-                      padding: EdgeInsets.zero,
-                      child: IconButton(
-                        tooltip: '返回',
-                        onPressed: () => Navigator.maybePop(context),
-                        icon: const Icon(Icons.arrow_back),
-                      ),
-                    ),
-                    const Spacer(),
-                    GlassPanel(
-                      radius: 24,
-                      padding: EdgeInsets.zero,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: '收藏',
-                            onPressed: toggleFavorite,
-                            icon: Icon(
-                              favorited
-                                  ? Icons.favorite
-                                  : Icons.favorite_border,
-                            ),
-                          ),
-                          PopupMenuButton<String>(
-                            tooltip: '更多',
-                            icon: const Icon(Icons.more_horiz),
-                            onSelected: (value) {
-                              if (value == 'reload') {
-                                load();
-                              } else {
-                                Clipboard.setData(ClipboardData(text: title));
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              const PopupMenuItem(
-                                value: 'reload',
-                                child: Text('刷新详情'),
-                              ),
-                              const PopupMenuItem(
-                                value: 'copy',
-                                child: Text('复制影片名称'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
