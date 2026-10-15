@@ -22,7 +22,7 @@ import 'section_toolbar.dart';
 /// 一条都没有 → 「未搜索到相关内容」。
 ///
 /// 三种板块共用本页（小说 / 漫画 / 视频），两种范围共用同一套渲染：
-/// - [SearchMode.aggregate]：并发问本板块全部已启用源，逐条标注来源；
+/// - [SearchMode.aggregate]：并发问本板块选中的已启用源，逐条标注来源；
 /// - [SearchMode.single]：只问进来时选中的那个源，并支持继续翻页。
 class SearchResultsPage extends StatefulWidget {
   const SearchResultsPage({
@@ -34,6 +34,8 @@ class SearchResultsPage extends StatefulWidget {
     this.manager,
     this.pipeline,
     this.sourceId,
+    this.sourceIds,
+    this.onSourcesChanged,
   });
 
   final Section section;
@@ -54,6 +56,8 @@ class SearchResultsPage extends StatefulWidget {
 
   /// 当前源 id（当前源搜索用；聚合搜索忽略）。
   final String? sourceId;
+  final Set<String>? sourceIds;
+  final ValueChanged<Set<String>?>? onSourcesChanged;
 
   @override
   State<SearchResultsPage> createState() => _SearchResultsPageState();
@@ -74,6 +78,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
 
   /// 聚合搜索里没取到数据的源数量（如实说明，不假装全部成功）。
   int _aggregateFailed = 0;
+  int _aggregateSiteCount = 0;
 
   /// 结果里出现的图源名字（列表行显示来源用）。
   final Map<String, String> _sourceNames = <String, String>{};
@@ -85,6 +90,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
 
   /// 请求代号：重试 / 翻页交错时丢弃过期结果。
   int _seq = 0;
+  late Set<String>? _sourceIds = widget.sourceIds;
 
   @override
   void initState() {
@@ -109,8 +115,17 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
     try {
       if (widget.mode == SearchMode.aggregate) {
         final sources = await _manager.list();
+        if (!mounted || seq != _seq) return;
+        final siteCount = sources
+            .where(
+              (source) =>
+                  source.enabled &&
+                  (_sourceIds == null || _sourceIds!.contains(source.id)),
+            )
+            .length;
         final result = await AggregateSearch.run(
           sources: sources,
+          sourceIds: _sourceIds,
           keyword: widget.keyword,
           open: (sourceId) => _manager.open(sourceId),
         );
@@ -124,6 +139,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
             ..addAll(names);
           _hits = result.hits;
           _aggregateFailed = result.failed;
+          _aggregateSiteCount = siteCount;
           _loading = false;
         });
         return;
@@ -164,6 +180,31 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         _loading = false;
         _failure = error;
       });
+    }
+  }
+
+  Future<void> _chooseSources() async {
+    try {
+      final sources = await _manager.list();
+      if (!mounted) return;
+      final selection = await showSearchModeMenu(
+        context,
+        current: SearchMode.aggregate,
+        sources: sources,
+        sourceIds: _sourceIds,
+        sitesOnly: true,
+      );
+      if (selection == null || !mounted) return;
+      _sourceIds = selection.sourceIds;
+      final library = ReadingLibrary.find(widget.section);
+      if (library != null) SearchSourceSelectionStore(library).save(_sourceIds);
+      widget.onSourcesChanged?.call(_sourceIds);
+      await _run();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('读取搜索站点失败：$error')));
+      }
     }
   }
 
@@ -316,6 +357,14 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                     ],
                   ),
                 ),
+                if (widget.mode == SearchMode.aggregate)
+                  TextButton.icon(
+                    onPressed: _chooseSources,
+                    icon: const Icon(Icons.checklist, size: 18),
+                    label: Text(
+                      _sourceIds == null ? '搜索站点' : '站点 ${_sourceIds!.length}',
+                    ),
+                  ),
                 const SizedBox(width: 12),
               ],
             ),
@@ -340,7 +389,9 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
       return SourceStateView(
         state: SourceStateKind.empty,
         // 用户点名的文案：搜不到就说搜不到，不跟「源里没内容」混为一谈。
-        detail: '未搜索到相关内容',
+        detail: widget.mode == SearchMode.aggregate && _aggregateSiteCount == 0
+            ? '没有可用的已选站点，请重新选择搜索站点'
+            : '未搜索到相关内容',
         title: _aggregateFailed > 0 ? '有 $_aggregateFailed 个源没取到' : null,
         onRetry: _run,
       );

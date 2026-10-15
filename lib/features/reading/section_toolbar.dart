@@ -69,7 +69,7 @@ enum BrowseSort {
 
 /// 搜索模式（用户点名的两种）。
 enum SearchMode {
-  aggregate('aggregate', '聚合搜索', '跨本板块全部已启用源统一搜索'),
+  aggregate('aggregate', '聚合搜索', '跨本板块全部已启用源统一搜索，可勾选站点缩小范围'),
   single('single', '当前源搜索', '只在当前选中的源内搜索');
 
   const SearchMode(this.id, this.label, this.detail);
@@ -93,7 +93,7 @@ class SearchHit {
   final SourceItem item;
 }
 
-/// 聚合搜索：**并发**问本板块所有已启用的源，把结果合并回来。
+/// 聚合搜索：**并发**问本板块选中的已启用源，把结果合并回来。
 ///
 /// 三条口径：
 /// - 单个源失败只丢它自己（结果里带一条 failed 说明），其余照常返回；
@@ -109,8 +109,15 @@ class AggregateSearch {
     required String keyword,
     String? categoryId,
     int limitPerSource = 30,
+    Set<String>? sourceIds,
   }) async {
-    final enabled = sources.where((source) => source.enabled).toList();
+    final enabled = sources
+        .where(
+          (source) =>
+              source.enabled &&
+              (sourceIds == null || sourceIds.contains(source.id)),
+        )
+        .toList();
     final results = await Future.wait(
       enabled.map((descriptor) async {
         try {
@@ -208,6 +215,37 @@ class SearchHistoryStore {
       LumeLog.warn('[search] 搜索历史清空失败：$error');
     }
   }
+}
+
+/// Null means all enabled sites; an explicit set never expands silently.
+class SearchSourceSelectionStore {
+  const SearchSourceSelectionStore(this.library);
+  final ReadingLibrary library;
+  static const key = 'search.aggregate.sourceIds';
+
+  Set<String>? load() {
+    try {
+      final raw = library.setting(key);
+      final value = raw == null ? null : jsonDecode(raw);
+      return value is List ? value.whereType<String>().toSet() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void save(Set<String>? ids) {
+    try {
+      library.setSetting(key, jsonEncode(ids?.toList()));
+    } catch (error) {
+      LumeLog.warn('[search] 搜索站点选择保存失败：$error');
+    }
+  }
+}
+
+class SearchScopeSelection {
+  const SearchScopeSelection(this.mode, this.sourceIds);
+  final SearchMode mode;
+  final Set<String>? sourceIds;
 }
 
 /// 联想词来源：优先图源的 `suggest`，没实现就用本地搜索历史。
@@ -389,18 +427,18 @@ class SectionToolbar extends StatelessWidget {
         // `!floating` 一起藏了，而探索页现在正是悬浮顶栏——于是三个板块的布局入口
         // 全都没了，用户只能一直用默认那一档。源下拉框是 Expanded，会自动让位。
         _ToolbarAction(
-            floating: floating,
-            icon: switch (layoutMode) {
-              BrowseLayoutMode.list => Icons.view_list_outlined,
-              BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
-              BrowseLayoutMode.grid3 => Icons.apps_outlined,
-              BrowseLayoutMode.grid4 => Icons.grid_on_outlined,
-              BrowseLayoutMode.grid5 => Icons.density_small_outlined,
-            },
-            tooltip: '布局',
-            highlighted: layoutMode != BrowseLayoutMode.grid3,
-            onTap: () => _pickLayout(context),
-          ),
+          floating: floating,
+          icon: switch (layoutMode) {
+            BrowseLayoutMode.list => Icons.view_list_outlined,
+            BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
+            BrowseLayoutMode.grid3 => Icons.apps_outlined,
+            BrowseLayoutMode.grid4 => Icons.grid_on_outlined,
+            BrowseLayoutMode.grid5 => Icons.density_small_outlined,
+          },
+          tooltip: '布局',
+          highlighted: layoutMode != BrowseLayoutMode.grid3,
+          onTap: () => _pickLayout(context),
+        ),
         // 4) 搜索
         _ToolbarAction(icon: Icons.search, tooltip: '搜索', onTap: onSearch),
         // 5) 筛选
@@ -616,11 +654,14 @@ class _ToolbarSheet<T> extends StatelessWidget {
 /// 2. 以前进面板时把选中项写死成 `single`（还用不到当前模式），于是「输入框右侧
 ///    写着聚合搜索、面板里勾着当前源搜索」，两边永远对不上；现在 [current] 由
 ///    调用方传入，面板与标签双向同步。
-Future<SearchMode?> showSearchModeMenu(
+Future<SearchScopeSelection?> showSearchModeMenu(
   BuildContext context, {
   required SearchMode current,
+  List<SourceDescriptor> sources = const [],
+  Set<String>? sourceIds,
+  bool sitesOnly = false,
 }) {
-  return showModalBottomSheet<SearchMode>(
+  return showModalBottomSheet<SearchScopeSelection>(
     context: context,
     backgroundColor: Colors.transparent,
     // **不受默认高度限制**：默认弹窗最高只有屏幕的 9/16，键盘弹起时（这个面板
@@ -628,14 +669,27 @@ Future<SearchMode?> showSearchModeMenu(
     // 「单选点不动」，其实是那一行已经落在面板可视范围之外。放开高度 + 面板内部
     // 自己让开键盘（见 [_SearchModeSheet]），点得到才算修好。
     isScrollControlled: true,
-    builder: (_) => _SearchModeSheet(current: current),
+    builder: (_) => _SearchModeSheet(
+      current: current,
+      sources: sources.where((source) => source.enabled).toList(),
+      sourceIds: sourceIds,
+      sitesOnly: sitesOnly,
+    ),
   );
 }
 
 class _SearchModeSheet extends StatefulWidget {
-  const _SearchModeSheet({required this.current});
+  const _SearchModeSheet({
+    required this.current,
+    required this.sources,
+    required this.sourceIds,
+    required this.sitesOnly,
+  });
 
   final SearchMode current;
+  final List<SourceDescriptor> sources;
+  final Set<String>? sourceIds;
+  final bool sitesOnly;
 
   @override
   State<_SearchModeSheet> createState() => _SearchModeSheetState();
@@ -643,6 +697,13 @@ class _SearchModeSheet extends StatefulWidget {
 
 class _SearchModeSheetState extends State<_SearchModeSheet> {
   late SearchMode _picked = widget.current;
+  late final Set<String> _selected = widget.sources
+      .where(
+        (source) =>
+            widget.sourceIds == null || widget.sourceIds!.contains(source.id),
+      )
+      .map((source) => source.id)
+      .toSet();
 
   @override
   Widget build(BuildContext context) {
@@ -669,7 +730,7 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '搜索范围',
+                        widget.sitesOnly ? '搜索站点' : '搜索范围',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -682,33 +743,80 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                     child: ListView(
                       shrinkWrap: true,
                       children: <Widget>[
-                        for (final mode in SearchMode.values)
-                          ListTile(
-                            dense: true,
-                            selected: mode == _picked,
-                            leading: Icon(
-                              mode == _picked
-                                  ? Icons.check_circle
-                                  : Icons.circle_outlined,
-                              size: 20,
-                              color: mode == _picked
-                                  ? LumeTheme.accent
-                                  : LumeTheme.muted,
-                            ),
-                            title: Text(
-                              mode.label,
-                              style: TextStyle(color: LumeTheme.textPrimary),
-                            ),
-                            subtitle: Text(
-                              mode.detail,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: LumeTheme.muted,
+                        if (!widget.sitesOnly)
+                          for (final mode in SearchMode.values)
+                            ListTile(
+                              dense: true,
+                              selected: mode == _picked,
+                              leading: Icon(
+                                mode == _picked
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                size: 20,
+                                color: mode == _picked
+                                    ? LumeTheme.accent
+                                    : LumeTheme.muted,
                               ),
+                              title: Text(
+                                mode.label,
+                                style: TextStyle(color: LumeTheme.textPrimary),
+                              ),
+                              subtitle: Text(
+                                mode.detail,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: LumeTheme.muted,
+                                ),
+                              ),
+                              // 点行只改选中态（圆点当场移动），不关面板。
+                              onTap: () => setState(() => _picked = mode),
                             ),
-                            // 点行只改选中态（圆点当场移动），不关面板。
-                            onTap: () => setState(() => _picked = mode),
+                        if (_picked == SearchMode.aggregate) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '已选 ${_selected.length}/${widget.sources.length} 个站点',
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () => setState(
+                                    () => _selected.addAll(
+                                      widget.sources.map((source) => source.id),
+                                    ),
+                                  ),
+                                  child: const Text('全选'),
+                                ),
+                                TextButton(
+                                  onPressed: () => setState(_selected.clear),
+                                  child: const Text('清空'),
+                                ),
+                              ],
+                            ),
                           ),
+                          if (widget.sources.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('暂无已启用站点，请先在源管理中启用站点'),
+                            ),
+                          for (final source in widget.sources)
+                            CheckboxListTile(
+                              key: ValueKey('search-site-${source.id}'),
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: Text(source.name),
+                              value: _selected.contains(source.id),
+                              onChanged: (value) => setState(() {
+                                if (value == true) {
+                                  _selected.add(source.id);
+                                } else {
+                                  _selected.remove(source.id);
+                                }
+                              }),
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -717,7 +825,17 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                     child: SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.of(context).pop(_picked),
+                        onPressed:
+                            _picked == SearchMode.aggregate && _selected.isEmpty
+                            ? null
+                            : () => Navigator.of(context).pop(
+                                SearchScopeSelection(
+                                  _picked,
+                                  _selected.length == widget.sources.length
+                                      ? null
+                                      : Set<String>.of(_selected),
+                                ),
+                              ),
                         child: const Text('应用'),
                       ),
                     ),

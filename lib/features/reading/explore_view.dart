@@ -204,6 +204,7 @@ class _ExploreViewState extends State<ExploreView> {
 
   /// 搜索模式（用户点名的两种）：聚合 / 当前源。
   SearchMode _searchMode = SearchMode.single;
+  Set<String>? _searchSourceIds;
 
   /// 联想候选（非空即展示下拉列表）。
   List<String> _suggestions = const <String>[];
@@ -221,7 +222,8 @@ class _ExploreViewState extends State<ExploreView> {
   ///
   /// 真机反馈「显示模式全都没有生效」：那套值原来只写库、没有任何界面读。
   /// 这里把**间距**接到浏览网格 / 列表上（[ModuleUiScale] 是读取端）。
-  double get _spacingScale => ModuleUiScale.instance.spacingScale(widget.section);
+  double get _spacingScale =>
+      ModuleUiScale.instance.spacingScale(widget.section);
 
   @override
   void initState() {
@@ -927,10 +929,30 @@ class _ExploreViewState extends State<ExploreView> {
 
   /// 点工具栏「搜索」：先选范围（聚合 / 当前源），再开搜索框。
   Future<void> _openSearch() async {
-    final mode = await showSearchModeMenu(context, current: _searchMode);
-    if (mode == null || !mounted) return;
+    final library = ReadingLibrary.find(widget.section);
+    List<SourceDescriptor> sources;
+    try {
+      sources = await _manager.list();
+    } catch (error) {
+      if (mounted) _toast('读取搜索站点失败：$error');
+      return;
+    }
+    if (!mounted) return;
+    final selection = await showSearchModeMenu(
+      context,
+      current: _searchMode,
+      sources: sources,
+      sourceIds: library == null
+          ? _searchSourceIds
+          : SearchSourceSelectionStore(library).load(),
+    );
+    if (selection == null || !mounted) return;
+    if (library != null) {
+      SearchSourceSelectionStore(library).save(selection.sourceIds);
+    }
     setState(() {
-      _searchMode = mode;
+      _searchMode = selection.mode;
+      _searchSourceIds = selection.sourceIds;
       _searching = true;
       _suggestions = const <String>[];
     });
@@ -1001,6 +1023,10 @@ class _ExploreViewState extends State<ExploreView> {
             section: widget.section,
             keyword: keyword,
             mode: _searchMode,
+            sourceIds: _searchSourceIds,
+            onSourcesChanged: (ids) {
+              if (mounted) setState(() => _searchSourceIds = ids);
+            },
             sourceId: _current?.id,
             manager: widget.manager,
             pipeline: _imagePipeline,
@@ -1204,7 +1230,9 @@ class _ExploreViewState extends State<ExploreView> {
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: _searchMode == SearchMode.aggregate
-                        ? '搜索全部已启用源'
+                        ? (_searchSourceIds == null
+                              ? '搜索全部已启用源'
+                              : '搜索已选 ${_searchSourceIds!.length} 个站点')
                         : '在当前源内搜索',
                     hintStyle: TextStyle(color: LumeTheme.muted),
                     icon: Icon(Icons.search, color: LumeTheme.muted),
@@ -1485,8 +1513,7 @@ class _ExploreViewState extends State<ExploreView> {
             16 + _keyboardInset(context) + ShellDockScope.bottomInset(context),
           ),
           itemCount: _sortedItems.length + 1,
-          separatorBuilder: (_, _) =>
-              SizedBox(height: 10 * _spacingScale),
+          separatorBuilder: (_, _) => SizedBox(height: 10 * _spacingScale),
           itemBuilder: (context, index) {
             final items = _sortedItems;
             if (index == items.length) return _buildFooter();
