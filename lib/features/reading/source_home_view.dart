@@ -132,7 +132,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   ///
   /// **不自动开验证窗**（用户口径，连续两轮）：验证窗只在用户点【网页视图】时
   /// 打开；点【重试】若仍被拦下，看到的还是这张错误卡。
-  Future<void> _retry() => _load(force: true);
+  Future<void> _retry() async {
+    await Future.wait<void>([
+      _load(force: true),
+      if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
+    ]);
+  }
 
   /// 首屏封面的预取：第一块板块的前几张。
   ///
@@ -186,7 +191,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         );
         return;
       case WafWebViewOutcome.collected:
-        await _load(force: true);
+        await _retry();
     }
   }
 

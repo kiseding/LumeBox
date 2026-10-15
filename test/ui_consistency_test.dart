@@ -147,10 +147,7 @@ void main() {
       }
       final transport = tester.widget<Row>(
         find
-            .ancestor(
-              of: find.byTooltip('后退 10 秒'),
-              matching: find.byType(Row),
-            )
+            .ancestor(of: find.byTooltip('后退 10 秒'), matching: find.byType(Row))
             .first,
       );
       expect(transport.mainAxisAlignment, MainAxisAlignment.spaceEvenly);
@@ -167,29 +164,25 @@ void main() {
       for (final finder in <Finder>[
         find.byTooltip('上一集'),
         find.byTooltip('下一集'),
-        find.text('选集'),
-        find.text('弹幕'),
-        find.byTooltip('播放内核'),
+        find.byTooltip('选集'),
+        find.byTooltip('弹幕：开'),
       ]) {
         expect(finder, findsOneWidget);
       }
       final bottomRow = tester.widget<Row>(
         find
-            .ancestor(
-              of: find.byTooltip('播放内核'),
-              matching: find.byType(Row),
-            )
+            .ancestor(of: find.byTooltip('弹幕：开'), matching: find.byType(Row))
             .first,
       );
       expect(bottomRow.mainAxisAlignment, MainAxisAlignment.spaceEvenly);
 
-      final kernel = tester.getRect(find.byTooltip('播放内核'));
-      final danmaku = tester.getRect(find.text('弹幕'));
-      expect(kernel.center.dy, closeTo(danmaku.center.dy, 1));
+      final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
+      final previous = tester.getRect(find.byTooltip('上一集'));
+      expect(previous.center.dy, closeTo(danmaku.center.dy, 1));
 
       final slider = tester.getRect(find.byType(Slider));
       expect(
-        kernel.top - slider.bottom,
+        previous.top - slider.bottom,
         closeTo(VideoPlayerPage.controlRowGap, 8),
         reason: '两行固定行距',
       );
@@ -212,12 +205,17 @@ void main() {
 
     testWidgets('设置里的「控件尺寸」真的作用到控制栏（真机：显示模式没生效）', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
-      addTearDown(() => ModuleUiScale.instance.apply(
+      addTearDown(
+        () => ModuleUiScale.instance.apply(
+          Section.video,
+          const SectionModuleSettings(),
+        ),
+      );
+
+      ModuleUiScale.instance.apply(
         Section.video,
         const SectionModuleSettings(),
-      ));
-
-      ModuleUiScale.instance.apply(Section.video, const SectionModuleSettings());
+      );
       await pumpPlayer(tester, library: library);
       final standard = tester.getRect(find.byTooltip('播放内核')).width;
 

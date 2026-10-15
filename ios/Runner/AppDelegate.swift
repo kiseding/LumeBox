@@ -19,6 +19,7 @@ import UIKit
   /// 播放会话控制器：后台音频 + 锁屏 / 控制中心的媒体控制器。
   private let playback = PlaybackSessionController()
   private let wafCookies = WafCookieController()
+  private let battery = BatteryController()
 
   override func application(
     _ application: UIApplication,
@@ -67,6 +68,11 @@ import UIKit
     if let messenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "LumeBoxWafCookies")?.messenger() {
       wafCookies.register(with: messenger)
+    }
+
+    if let messenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "LumeBoxBattery")?.messenger() {
+      battery.register(with: messenger)
     }
   }
 }

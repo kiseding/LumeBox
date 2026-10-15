@@ -162,6 +162,35 @@ void main() {
       expect(find.text('去分类浏览'), findsOneWidget);
     });
 
+    testWidgets('首页重试同时刷新分类元数据', (tester) async {
+      final source = _FailOnceHomeSource();
+      var metadataRefreshes = 0;
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          home: Scaffold(
+            body: SourceHomeView(
+              source: source,
+              pipeline: null,
+              onOpenItem: (_) {},
+              onRefreshMetadata: () async {
+                metadataRefreshes++;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('首页加载失败'), findsOneWidget);
+      expect(metadataRefreshes, 0);
+      await tester.tap(find.text('重试'));
+      await tester.pumpAndSettle();
+      expect(find.text('恢复后的首页'), findsOneWidget);
+      expect(metadataRefreshes, 1);
+    });
+
     testWidgets('图源没有 home 契约：不进首页模式（ExploreView 会走老路径）', (tester) async {
       // 这里直接验「探测为 false 时不会去调 home()」——真机上老脚本曾因此整块变错误页。
       final source = _NoHomeSource();
@@ -260,4 +289,20 @@ class _NoHomeSource implements DataSource, HomeCapable {
     required String itemId,
     required String chapterId,
   }) async => null;
+}
+
+class _FailOnceHomeSource extends _HomeSource {
+  _FailOnceHomeSource() : super(const SourceHome());
+
+  int _calls = 0;
+
+  @override
+  Future<SourceHome> home() async {
+    if (_calls++ == 0) {
+      throw const SourceException(SourceErrorKind.network, '网络请求失败');
+    }
+    return const SourceHome(
+      items: <SourceItem>[SourceItem(id: 'recovered', title: '恢复后的首页')],
+    );
+  }
 }

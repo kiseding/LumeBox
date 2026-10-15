@@ -27,7 +27,6 @@ import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
 
-
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
 /// 统一控制面板、清晰度切换、统一提示。
 ///
@@ -626,7 +625,7 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
       expect(find.text('重试播放'), findsOneWidget);
       expect(find.byTooltip('退出全屏'), findsOneWidget);
-      expect(find.byTooltip('更多功能'), findsOneWidget);
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
     });
 
     testWidgets('全屏锁定后解锁按钮避让顶部和右侧系统安全区', (tester) async {
@@ -715,7 +714,7 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
 
-      // 左：关闭(X) / 投屏 / 旋转 / 比例；右：弹幕 / 倍速 / 锁定；中：标题。
+      // 左侧锁定与右侧屏幕方向控制位于画面两边。
       // 提示文案在 Tooltip.message 上（不是 Text 节点），动态项用谓词匹配。
       Finder tipContains(String part) => find.byWidgetPredicate(
         (widget) => widget is Tooltip && (widget.message ?? '').contains(part),
@@ -729,25 +728,19 @@ void main() {
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
       // 音轨入口已按用户口径从播放页拿掉（设置弹窗里仍可切）。
       expect(find.byTooltip('音轨'), findsNothing);
-      expect(find.byTooltip('字幕'), findsOneWidget);
+      expect(find.byTooltip('字幕'), findsNothing);
       // 播放内核做进控制栏了（用户口径），底部那一排就有它。
       expect(find.byTooltip('播放内核'), findsOneWidget);
-      await tester.tap(find.byTooltip('更多功能'));
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
+      expect(find.byTooltip('横竖屏切换'), findsOneWidget);
+      await tester.tap(find.byTooltip('横竖屏切换'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('旋转画面'), 100);
-      await tester.tap(find.text('旋转画面'));
-      await tester.pumpAndSettle();
-      expect(find.text('旋转：顺时针 90°'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 4));
-      await tester.pumpAndSettle();
+      expect(find.byTooltip('横竖屏切换'), findsOneWidget);
       await tester.tap(find.byType(Scaffold).first);
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('更多功能'));
+      await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('画面比例'), 100);
-      await tester.tap(find.text('画面比例'));
-      await tester.pumpAndSettle();
-      expect(find.text('画面比例：填充'), findsOneWidget);
+      expect(find.text('播放器设置'), findsOneWidget);
     });
 
     testWidgets('全屏：锁横屏；退出全屏：还原竖屏（用户要求）', (tester) async {
@@ -955,15 +948,14 @@ void main() {
       expect(slider.top, greaterThan(seek.dy));
       expect(quality.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
-      expect(find.text('选集'), findsOneWidget);
+      expect(find.byTooltip('选集'), findsOneWidget);
       expect(find.text('画质'), findsNothing);
       expect(find.text('记片头'), findsOneWidget, reason: '快捷智能按钮：片头区间显示「记片头」');
-      expect(find.text('弹幕'), findsOneWidget);
+      expect(find.byTooltip('弹幕：开'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
-      await tester.tap(find.byTooltip('更多功能'));
+      await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('停止播放'), 100);
-      expect(find.text('停止播放'), findsOneWidget);
+      expect(find.byType(PlayerSettingsSheet), findsOneWidget);
     });
 
     for (final size in const [Size(844, 390), Size(375, 812)]) {
@@ -979,7 +971,7 @@ void main() {
         await tester.pumpAndSettle();
         for (final label in [
           '退出全屏',
-          '更多功能',
+          '播放器设置',
           '记片头（长按清除标记）',
           '线路 / 选集',
           '锁定（防误触）',
@@ -1015,11 +1007,7 @@ void main() {
       final stats = tester.getRect(find.text('1920×1080'));
       final speed = tester.getRect(find.text('125.0MB/s'));
       expect(stats.center.dy, lessThan(120), reason: '在顶部那一行里');
-      expect(
-        stats.left,
-        lessThan(width * .45),
-        reason: '跟在片名后面（左上区域），不是画面中间',
-      );
+      expect(stats.left, lessThan(width * .45), reason: '跟在片名后面（左上区域），不是画面中间');
       expect(speed.left, greaterThanOrEqualTo(stats.right), reason: '两格横排');
       await tester.pumpWidget(const SizedBox());
     });
@@ -1045,7 +1033,7 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       final height = tester.getSize(find.byType(Scaffold).first).height;
-      final bottomRow = tester.getRect(find.text('选集'));
+      final bottomRow = tester.getRect(find.byTooltip('选集'));
       expect(
         height - bottomRow.bottom,
         lessThan(48),
@@ -1074,11 +1062,7 @@ void main() {
       final field = find.byType(TextField);
       expect(field, findsOneWidget);
       final before = tester.getRect(field);
-      expect(
-        before.height,
-        greaterThan(36),
-        reason: '输入框给足高度（不再是挤在一条下划线上）',
-      );
+      expect(before.height, greaterThan(36), reason: '输入框给足高度（不再是挤在一条下划线上）');
 
       // 键盘顶上来：面板整体上移**一个键盘的高度**（输入框与按钮都留在键盘上方）。
       const keyboardPhysical = 800.0;
@@ -1162,16 +1146,7 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('更多功能'));
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('播放器设置'),
-        100,
-        scrollable: find.byType(Scrollable).last,
-      );
-      await tester.ensureVisible(find.text('播放器设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('播放器设置'));
+      await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
         find.text('自动隐藏控制栏'),

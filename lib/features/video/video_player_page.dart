@@ -280,14 +280,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 设置 → 各模块独立设置 → 「控件尺寸」的倍率（真机反馈「显示模式全都没有
   /// 生效」：这套值原来只写库、没有界面读）。控制栏的按钮盒与图标都乘它。
-  double get _controlScale => ModuleUiScale.instance.controlScale(
-    _library?.section ?? Section.video,
-  );
+  double get _controlScale =>
+      ModuleUiScale.instance.controlScale(_library?.section ?? Section.video);
 
   /// 当前生效的触达盒与图标尺寸（默认 100% 就是上面那两个常量）。
   double get _box => VideoPlayerPage.controlBox * _controlScale;
   double get _iconSize => VideoPlayerPage.controlIconSize * _controlScale;
-
 
   /// 方向锁定（用户要求）：自动 / 强制横屏 / 强制竖屏。
   ///
@@ -2807,6 +2805,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
             ),
           ),
+        if (_overlayVisible && !_locked)
+          SafeArea(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _topIcon(
+                  icon: Icons.screen_rotation_alt,
+                  tooltip: '横竖屏切换',
+                  onPressed: _cycleOrientation,
+                ),
+              ),
+            ),
+          ),
         if (_locked)
           SafeArea(
             child: Align(
@@ -2926,44 +2938,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             const Spacer(),
             if (wide)
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
+                padding: EdgeInsets.symmetric(horizontal: 8),
                 child: _PlayerClock(),
               ),
-            // 音轨入口已按用户口径从播放页拿掉（设置弹窗里仍可切音轨）。
-            _topIcon(
-              icon: Icons.subtitles_outlined,
-              tooltip: '字幕',
-              onPressed: () => _openTrackQuick(audio: false),
-            ),
             _buildPipButton(),
             _topIcon(
-              icon: Icons.more_horiz,
-              tooltip: '更多功能',
-              onPressed: _openFullscreenTools,
+              icon: VideoPlayerPage.playerKernelIcon,
+              tooltip: '播放内核',
+              onPressed: _openKernelPicker,
+            ),
+            _topIcon(
+              icon: Icons.tune,
+              tooltip: '播放器设置',
+              onPressed: _openSettings,
             ),
           ],
         ),
       );
     },
   );
-
-  Future<void> _openTrackQuick({required bool audio}) async {
-    _cancelAutoHide();
-    try {
-      final caps = _player?.capabilities ?? PlayerCapabilities.none;
-      if (audio ? !caps.audioTracks : !caps.subtitleTracks) {
-        _unsupported();
-        return;
-      }
-      if (audio) {
-        await _pickAudioTrack();
-      } else {
-        await _pickSubtitleTrack();
-      }
-    } finally {
-      _scheduleAutoHide();
-    }
-  }
 
   Future<void> _openKernelPicker() async {
     _cancelAutoHide();
@@ -3006,92 +2999,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _scheduleAutoHide();
   }
 
-  Future<void> _openFullscreenTools() async {
-    _cancelAutoHide();
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SizedBox(
-        height: math.min(600, MediaQuery.sizeOf(sheetContext).height * .82),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '更多功能',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '关闭',
-                    onPressed: () => Navigator.pop(sheetContext),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                children: [
-                  for (final option in <(String, String, IconData)>[
-                    ('quality', '清晰度', Icons.high_quality_outlined),
-                    ('subtitle', '字幕', Icons.subtitles_outlined),
-                    ('file', '外挂字幕', Icons.note_add_outlined),
-                    ('rotation', '旋转画面', Icons.screen_rotation),
-                    ('zoom', '画面比例', Icons.aspect_ratio),
-                    ('settings', '播放器设置', Icons.tune),
-                    ('retry', '刷新播放地址', Icons.refresh),
-                    ('stop', '停止播放', Icons.stop_circle_outlined),
-                  ])
-                    ListTile(
-                      leading: Icon(option.$3),
-                      title: Text(option.$2),
-                      onTap: () => Navigator.pop(sheetContext, option.$1),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted) return;
-    switch (choice) {
-      case 'quality':
-        await _openQualityMenu();
-      case 'subtitle':
-        await _openTrackQuick(audio: false);
-      case 'file':
-        if (_player?.capabilities.externalSubtitle == true) {
-          await _pickSubtitleFile();
-        } else {
-          _unsupported();
-        }
-      case 'intro':
-        _markSkip(intro: true);
-      case 'outro':
-        _markSkip(intro: false);
-      case 'rotation':
-        _cycleRotation();
-      case 'zoom':
-        _cycleZoom();
-      case 'settings':
-        await _openSettings();
-      case 'retry':
-        await _restoreInlinePlayback(retry: true);
-      case 'stop':
-        await _player?.stop();
-    }
-    _scheduleAutoHide();
-  }
-
   /// 顶栏上的紧凑图标按钮（白字 + 投影，压在画面上也看得清）。
   Widget _topIcon({
     required IconData icon,
@@ -3111,22 +3018,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 旋转循环：不旋转 → 90° → 180° → 270°（改的是当前内核的偏好，立即生效）。
-  void _cycleRotation() {
-    final values = RotationMode.values;
-    final next =
-        values[(values.indexOf(_settings.rotation) + 1) % values.length];
-    _applySettings(_settings.copyWith(rotation: next));
-    _showToast('旋转：${next.label}');
-  }
-
-  /// 比例循环：适应 → 填充 → 0.75x → 1.0x → 1.25x → 1.5x（同一档位表）。
-  void _cycleZoom() {
-    final values = ZoomMode.values;
-    final current = _settings.zoom;
-    final next = values[(values.indexOf(current) + 1) % values.length];
-    _applySettings(_settings.copyWith(zoom: next));
-    _showToast('画面比例：${next.label}');
+  void _cycleOrientation() {
+    final modes = PlaybackOrientation.values;
+    final next = modes[(modes.indexOf(_orientation) + 1) % modes.length];
+    PlaybackOrientationController.instance.apply(next);
+    _showToast('屏幕方向：${next.label}');
   }
 
   Future<void> _showSpeedPicker() async {
@@ -3232,18 +3128,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           () => _markSkipFromQuick(snapshot),
           onLongPress: _clearSkipMarksFromQuick,
         ),
-        // 播放内核切换做进控制栏（用户口径），换一颗看得顺眼的图标。
         _compactIcon(
-          icon: VideoPlayerPage.playerKernelIcon,
-          tooltip: '播放内核',
-          onPressed: _openKernelPicker,
-        ),
-        _fullscreenLabel(
-          '弹幕',
-          _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-          _openDanmakuSettings,
+          icon: Icons.chat_bubble_outline,
+          tooltip: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+          onPressed: _openDanmakuSettings,
           highlighted: _danmakuSettings.enabled,
-          onLongPress: _toggleDanmaku,
+        ),
+        _compactIcon(
+          icon: Icons.video_library_outlined,
+          tooltip: '选集',
+          onPressed: _openSourceSheet,
         ),
       ],
     );
@@ -3461,7 +3355,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final media = _media;
     final headers = media?.headers ?? const <String, String>{};
     // 文案与错误卡一致（内核给的原文已经带「打开失败：」前缀时不再叠一层）。
-    final reason = error.startsWith('打开失败：') ? error : PlayerErrorText.describe(error);
+    final reason = error.startsWith('打开失败：')
+        ? error
+        : PlayerErrorText.describe(error);
     LumeLog.warn(
       '[player] 播放失败：$reason'
       // 打**完整地址**：域名空白的见过（file:// 误判），只打 host 会看不到那条线索。
@@ -4051,13 +3947,32 @@ class _PlayerClock extends StatefulWidget {
 }
 
 class _PlayerClockState extends State<_PlayerClock> {
+  static const MethodChannel _batteryChannel = MethodChannel('lumebox/battery');
   Timer? _timer;
+  int? _batteryPercent;
   @override
   void initState() {
     super.initState();
+    _refreshBattery();
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _refreshBattery();
+      }
     });
+  }
+
+  Future<void> _refreshBattery() async {
+    try {
+      final value = await _batteryChannel.invokeMethod<int>('level');
+      if (mounted && value != _batteryPercent) {
+        setState(() => _batteryPercent = value);
+      }
+    } on PlatformException {
+      // 其它平台没有此通道时省略真实电量百分比。
+    } on MissingPluginException {
+      // 其它平台没有此通道时省略真实电量百分比。
+    }
   }
 
   @override
@@ -4069,9 +3984,55 @@ class _PlayerClockState extends State<_PlayerClock> {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    return Text(
-      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-      style: const TextStyle(color: Colors.white, fontSize: 12),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _BatteryGlyph(percent: _batteryPercent),
+            const SizedBox(width: 3),
+            Text(
+              '${_batteryPercent ?? '--'}%',
+              style: const TextStyle(color: Colors.white70, fontSize: 9),
+            ),
+          ],
+        ),
+        Text(
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+          style: const TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ],
+    );
+  }
+}
+
+class _BatteryGlyph extends StatelessWidget {
+  const _BatteryGlyph({required this.percent});
+  final int? percent;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = percent;
+    return SizedBox(
+      width: 8,
+      height: 13,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white70, width: 1),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: FractionallySizedBox(
+            heightFactor: value == null ? 0 : (value / 100).clamp(0.0, 1.0),
+            child: const DecoratedBox(
+              decoration: BoxDecoration(color: Colors.white70),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

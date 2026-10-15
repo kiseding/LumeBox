@@ -391,7 +391,7 @@ class _ExploreViewState extends State<ExploreView> {
   /// 错误卡——自动蹦出来的验证窗无法预期，等用户以为「切个源它自己就弹」。
   /// 引擎层那条「许可驱动」的自动通道因此在这三个页面里都不再被许可（见
   /// `WafAutoVerify.run` 的说明）。
-  Future<void> _retry() => _bootstrap();
+  Future<void> _retry() => _source == null ? _bootstrap() : _refresh();
 
   /// 列表尾部「加载失败，点击重试」：同上，也不自动开验证窗。
   Future<void> _retryMore() => _loadPage(more: true);
@@ -918,7 +918,7 @@ class _ExploreViewState extends State<ExploreView> {
         _toast(
           '已取回会话（${WafSessions.countFor(widget.section, source.id)} 项），正在重新拉取',
         );
-        await _bootstrap();
+        await _refresh();
     }
   }
 

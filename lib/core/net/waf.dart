@@ -321,7 +321,17 @@ bool webViewMayHelp(String? message) {
   if (text.contains('超时') || text.contains('TIMEOUT') || text.contains('TIMED OUT')) {
     return true;
   }
-  if (text.contains('网络') || text.contains('NETWORK') || text.contains('SOCKET')) {
+  if (text.contains('网络') ||
+      text.contains('连接') ||
+      text.contains('拒绝') ||
+      text.contains('中断') ||
+      text.contains('NETWORK') ||
+      text.contains('SOCKET') ||
+      text.contains('CONNECTION') ||
+      text.contains('HOST LOOKUP') ||
+      text.contains('HANDSHAKE') ||
+      text.contains('TLS_') ||
+      text.contains('DNS')) {
     return true;
   }
   return RegExp(r'HTTP[ /]?(?:403|429|5\d\d)(?![0-9])').hasMatch(text);
