@@ -373,6 +373,9 @@ class KernelPrefs {
       );
 }
 
+/// 全屏按钮的两种呈现，共用布局和操作。
+enum PlayerControlStyle { text, icons }
+
 /// 播放器设置：内核 + 全局开关 + **每个内核各一份**的偏好。
 class PlayerSettings {
   const PlayerSettings({
@@ -380,6 +383,7 @@ class PlayerSettings {
     this.subtitlesEnabled = true,
     this.hardwareDecoding = true,
     this.autoHideControls = true,
+    this.controlStyle = PlayerControlStyle.icons,
     this.autoNext = true,
     this.gestureSensitivity = defaultGestureSensitivity,
     this.prefs = const <PlayerKernel, KernelPrefs>{},
@@ -454,6 +458,7 @@ class PlayerSettings {
   /// 播放中 N 秒无操作就把进度条与按钮收起来，点屏幕再唤回；关掉则一直显示。
   /// 与内核无关（三套内核共用一份），因此放在全局项里而不是 KernelPrefs。
   final bool autoHideControls;
+  final PlayerControlStyle controlStyle;
 
   /// 手势灵敏度倍率（亮度 / 音量垂直滑动用）：
   /// 1.0 = 现在的口径（一屏高度 = 100% 变化），调大更灵敏、调小更稳。
@@ -515,6 +520,7 @@ class PlayerSettings {
     double? speed,
     bool? subtitlesEnabled,
     bool? autoHideControls,
+    PlayerControlStyle? controlStyle,
     bool? autoNext,
     double? gestureSensitivity,
     SubtitleSize? subtitleSize,
@@ -574,6 +580,7 @@ class PlayerSettings {
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
+      controlStyle: controlStyle ?? this.controlStyle,
       autoNext: autoNext ?? this.autoNext,
       gestureSensitivity: gestureSensitivity == null
           ? this.gestureSensitivity
@@ -620,6 +627,7 @@ class PlayerSettings {
         other.subtitlesEnabled != subtitlesEnabled ||
         other.hardwareDecoding != hardwareDecoding ||
         other.autoHideControls != autoHideControls ||
+        other.controlStyle != controlStyle ||
         other.autoNext != autoNext ||
         other.gestureSensitivity != gestureSensitivity) {
       return false;
@@ -640,6 +648,7 @@ class PlayerSettings {
         subtitlesEnabled,
         hardwareDecoding,
         autoHideControls,
+        controlStyle,
         Object.hashAllUnordered(
           prefs.entries.map((entry) => Object.hash(entry.key, entry.value)),
         ),

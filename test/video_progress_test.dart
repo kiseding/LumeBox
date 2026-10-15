@@ -104,8 +104,8 @@ void main() {
         await tester.tap(find.byTooltip('全屏'));
         await tester.pumpAndSettle();
       }
-      expect(find.text('选集'), findsOneWidget);
-      await tester.tap(find.text('选集'));
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
+      await tester.tap(find.byTooltip('线路 / 选集'));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -122,7 +122,7 @@ void main() {
       expect(players.single.media!.headers, source.contentHeaders);
       expect(find.text('选集与线路'), findsNothing);
       if (fullscreen) expect(find.byTooltip('退出全屏'), findsOneWidget);
-      await tester.tap(find.text('选集'));
+      await tester.tap(find.byTooltip('线路 / 选集'));
       await tester.pumpAndSettle();
       expect(
         tester

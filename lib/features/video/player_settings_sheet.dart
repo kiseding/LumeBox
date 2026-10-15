@@ -193,6 +193,17 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         },
       ),
       const SizedBox(height: 20),
+      _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
+      SegmentedButton<PlayerControlStyle>(
+        segments: const [
+          ButtonSegment(value: PlayerControlStyle.text, label: Text('文字')),
+          ButtonSegment(value: PlayerControlStyle.icons, label: Text('图标')),
+        ],
+        selected: {settings.controlStyle},
+        onSelectionChanged: (values) =>
+            _update(settings.copyWith(controlStyle: values.first)),
+      ),
+      const SizedBox(height: 20),
       _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
       _speedSlider(context),
       const SizedBox(height: 20),
@@ -468,7 +479,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           ),
           Text(
             settings.autoHideControls
-                ? '全屏播放中 4 秒无操作自动收起，点屏幕唤回（默认开）'
+                ? '全屏 3 秒无操作自动收起，点屏幕唤回（默认开）'
                 : '控制栏常显（关闭自动隐藏）',
             style: TextStyle(fontSize: 12, height: 1.4, color: LumeTheme.muted),
           ),

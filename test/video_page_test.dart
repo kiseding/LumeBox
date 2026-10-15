@@ -365,6 +365,8 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.dragUntilVisible(find.text('1.5x'), find.byType(ListView).last, const Offset(0, -160));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('1.5x'));
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。

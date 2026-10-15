@@ -37,6 +37,7 @@ class VideoPlayerSettingsStore {
   static const String keySubtitleOutline = 'video.player.subtitleOutline';
   static const String keySubtitleDelay = 'video.player.subtitleDelayMs';
   static const String keyHardwareDecoding = 'video.player.hardwareDecoding';
+  static const String keyControlStyle = 'video.player.controlStyle';
   static const String keyAutoHideControls = 'video.player.autoHideControls';
 
   /// 手势灵敏度（亮度 / 音量垂直滑动）。
@@ -86,6 +87,8 @@ class VideoPlayerSettingsStore {
       subtitlesEnabled: _library.setting(keySubtitles) != 'false',
       hardwareDecoding: _library.setting(keyHardwareDecoding) != 'false',
       // 缺键按「开」处理（默认开启自动隐藏）。
+      controlStyle: _library.setting(keyControlStyle) == 'text'
+          ? PlayerControlStyle.text : PlayerControlStyle.icons,
       autoHideControls: _library.setting(keyAutoHideControls) != 'false',
       // 同上：缺键按「开」（历史行为就是一集播完自动进下一集）。
       autoNext: _library.setting(keyAutoNext) != 'false',
@@ -101,6 +104,7 @@ class VideoPlayerSettingsStore {
   /// 之后一直在用 AVPlayer」的情况下，MPV 那一格要等下次选中它才被写到，
   /// 中间重启就丢了。
   void save(PlayerSettings settings) {
+    _library.setSetting(keyControlStyle, settings.controlStyle.name);
     _library.setSetting(keyKernel, settings.kernel.id);
     _library.setSetting(keyAutoNext, settings.autoNext ? 'true' : 'false');
     for (final entry in settings.prefs.entries) {

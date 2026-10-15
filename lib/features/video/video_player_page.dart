@@ -45,6 +45,7 @@ import 'danmaku/danmaku_settings.dart';
 import 'danmaku/danmaku_settings_sheet.dart';
 import 'player_gestures.dart';
 import 'player_hud.dart';
+import 'player_control_glyph.dart';
 import 'player_kernel_picker.dart';
 import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
@@ -750,7 +751,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (playing) {
         _scheduleAutoHide();
       } else {
-        _cancelAutoHide();
+        _scheduleAutoHide();
       }
     }
     if (snapshot?.error != null) {
@@ -2668,22 +2669,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 重排自动隐藏：每次有操作（点按钮 / 唤出控制栏 / 状态变化）都重新计时。
   ///
-  /// 只在「全屏 + 正在播放 + 开关打开」时生效；暂停、播完、锁屏、退出全屏
-  /// 都取消计时并保持可见（暂停时还把控制栏收起来，用户会以为卡住了）。
+  /// 全屏闲置三秒淡出，暂停时同样生效；锁定、报错与无障碍导航保留操作出口。
   void _scheduleAutoHide() {
     _autoHideTimer?.cancel();
     if (!_fullscreen || _locked || _previewTarget != null) return;
     if (_accessibleNavigation) return;
     if (!_settings.autoHideControls) return;
-    if (!(_player?.snapshot.value.playing ?? false) ||
-        _player?.snapshot.value.error != null) {
+    if (_player?.snapshot.value.error != null) {
       return;
     }
     _autoHideTimer = Timer(_autoHideDelay, () {
       if (!mounted || !_fullscreen || _locked) return;
       if (_accessibleNavigation) return;
-      if (!(_player?.snapshot.value.playing ?? false) ||
-          _player?.snapshot.value.error != null) {
+      if (_player?.snapshot.value.error != null) {
         return;
       }
       setState(() => _overlayVisible = false);
@@ -2806,37 +2804,70 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 全屏模式的布局：画面铺满 + 浮层控制栏（点画面切换显隐）。
   Widget _buildImmersive(Widget body) {
     return Stack(
-      children: <Widget>[
+      children: [
         Positioned.fill(child: body),
-        if (_overlayVisible && !_locked) Center(child: _buildCenterTransport()),
-        if (_overlayVisible && !_locked)
-          SafeArea(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: _topIcon(
-                  icon: Icons.lock_open,
-                  tooltip: '锁定（防误触）',
-                  onPressed: () => setState(() => _locked = true),
-                ),
-              ),
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: !_overlayVisible || _locked,
+            child: AnimatedSwitcher(
+              key: const Key('fullscreen-controls'),
+              duration: const Duration(milliseconds: 200),
+              child: !_overlayVisible || _locked
+                  ? const SizedBox.shrink()
+                  : SafeArea(
+                      key: const Key('fullscreen-visible-controls'),
+                      child: Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                left: VideoPlayerPage.controlHorizontalPadding,
+                              ),
+                              child: _topIcon(
+                                icon: Icons.lock_open,
+                                tooltip: '锁定（防误触）',
+                                onPressed: () {
+                                  _cancelAutoHide();
+                                  setState(() => _locked = true);
+                                },
+                              ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                right: VideoPlayerPage.controlHorizontalPadding,
+                              ),
+                              child: _topIcon(
+                                icon: Icons.screen_rotation_alt,
+                                tooltip: '横竖屏切换',
+                                onPressed: () {
+                                  _cycleOrientation();
+                                  _scheduleAutoHide();
+                                },
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: _buildImmersiveTopBar(),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: _buildFloatingControls(),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
           ),
-        if (_overlayVisible && !_locked)
-          SafeArea(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _topIcon(
-                  icon: Icons.screen_rotation_alt,
-                  tooltip: '横竖屏切换',
-                  onPressed: _cycleOrientation,
-                ),
-              ),
-            ),
-          ),
+        ),
         if (_locked)
           SafeArea(
             child: Align(
@@ -2844,64 +2875,45 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               child: _buildUnlockButton(),
             ),
           ),
-        if (_overlayVisible && !_locked)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(top: false, child: _buildFloatingControls()),
-          ),
-        if (_overlayVisible && !_locked)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(bottom: false, child: _buildImmersiveTopBar()),
-          ),
       ],
     );
   }
 
   Widget _buildUnlockButton() => Padding(
-    padding: const EdgeInsets.all(4),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: _topIcon(
-        icon: Icons.lock,
-        tooltip: '解除锁定',
-        onPressed: () {
-          setState(() {
-            _locked = false;
-            _overlayVisible = true;
-          });
-          _scheduleAutoHide();
-        },
-      ),
+    padding: const EdgeInsets.only(
+      left: VideoPlayerPage.controlHorizontalPadding,
+    ),
+    child: _topIcon(
+      icon: Icons.lock,
+      tooltip: '解除锁定',
+      onPressed: () {
+        setState(() {
+          _locked = false;
+          _overlayVisible = true;
+        });
+        _scheduleAutoHide();
+      },
     ),
   );
 
   // 只给文字和图标投影，避免安全区内的面板背景形成矩形边界。
   static const _controlShadows = <Shadow>[
-    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
+    Shadow(color: Color(0x59000000), blurRadius: 3, offset: Offset(0, 1)),
   ];
 
   /// 顶部保留返回、片名与媒体选项，低频操作收进更多。
   Widget _buildImmersiveTopBar() => LayoutBuilder(
     builder: (context, constraints) {
-      final wide = constraints.maxWidth >= 480;
+      final narrow = constraints.maxWidth < 480;
       final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
       final episode = _target?.chapterTitle;
       return Padding(
-        // 与进度条、底部按钮同一份左右内边距（用户口径：三处对齐）。
+        key: const Key('fullscreen-topbar'),
         padding: const EdgeInsets.symmetric(
           horizontal: VideoPlayerPage.controlHorizontalPadding,
           vertical: 4,
         ),
         child: Row(
-          // 返回、片名、码率网速、右侧图标在同一根水平线上（垂直居中）。
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _topIcon(
@@ -2909,67 +2921,73 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               tooltip: '退出全屏',
               onPressed: () => _setFullscreen(false),
             ),
-            const SizedBox(width: 2),
-            // `Flexible` 而不是 `Expanded`（用户口径）：片名只占自己那么宽，
-            // 分辨率 + 速率紧跟其后落在**左上角**；空白留给右侧那一组图标。
-            // 用 Expanded 时短片名后面的空白会把这两格顶到画面中间。
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+            const SizedBox(width: 4),
+            Expanded(
+              child: Row(
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                      shadows: _controlShadows,
+                  Flexible(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w400,
+                            color: Color(0xFFF8F8F8),
+                            shadows: _controlShadows,
+                          ),
+                        ),
+                        if (episode != null &&
+                            episode != '播放' &&
+                            episode != title)
+                          Text(
+                            episode,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w400,
+                              color: Color(0xFFF8F8F8),
+                              shadows: _controlShadows,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  if (episode != null && episode != '播放' && episode != title)
-                    Text(
-                      episode,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white70,
-                        shadows: _controlShadows,
+                  if (_player != null) ...[
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: narrow ? 68 : 180),
+                      child: PlayerStatsInline(
+                        stats: _player!.stats,
+                        networkKbps: _networkSpeed.kbps,
+                        stacked: narrow,
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
-            // 分辨率 + 速率横排接在片名后面（用户口径）：跟着浮层一起出现 / 收起，
-            // 不常驻画面（旧版把速率钉在右下角，收起控制栏后仍然压着画面）。
-            if (_player != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: PlayerStatsInline(
-                  stats: _player!.stats,
-                  networkKbps: _networkSpeed.kbps,
-                ),
-              ),
-            const Spacer(),
-            if (wide)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: _PlayerClock(),
-              ),
+            const SizedBox(width: 4),
             _buildPipButton(),
+            const SizedBox(width: 4),
             _topIcon(
               icon: VideoPlayerPage.playerKernelIcon,
               tooltip: '播放内核',
               onPressed: _openKernelPicker,
             ),
+            const SizedBox(width: 4),
             _topIcon(
-              icon: Icons.tune,
+              icon: Icons.more_horiz,
               tooltip: '播放器设置',
               onPressed: _openSettings,
             ),
+            const SizedBox(width: 4),
+            const SizedBox(width: 48, child: _PlayerClock()),
           ],
         ),
       );
@@ -3024,6 +3042,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     required VoidCallback? onPressed,
     bool highlighted = false,
   }) {
+    if (_fullscreen) {
+      return Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 32,
+          height: 36,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: PlayerControlGlyph(
+              icon,
+              size: _iconSize,
+              color: onPressed == null
+                  ? const Color(0x99F8F8F8)
+                  : const Color(0xFFF8F8F8),
+            ),
+          ),
+        ),
+      );
+    }
     return IconButton(
       iconSize: _iconSize,
       visualDensity: VisualDensity.compact,
@@ -3031,7 +3073,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       padding: EdgeInsets.zero,
       color: highlighted ? Colors.white : Colors.white70,
       tooltip: tooltip,
-      icon: Icon(icon, shadows: _fullscreen ? _controlShadows : null),
+      icon: _fullscreen
+          ? PlayerControlGlyph(icon, size: _iconSize)
+          : Icon(icon),
       onPressed: onPressed,
     );
   }
@@ -3092,7 +3136,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           VideoPlayerPage.controlHorizontalPadding,
           8,
           VideoPlayerPage.controlHorizontalPadding,
-          6,
+          2,
         ),
         child: ValueListenableBuilder<PlayerSnapshot>(
           valueListenable: _player?.snapshot ?? _idleSnapshot,
@@ -3110,105 +3154,117 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 底部按钮行（用户口径：**一行放齐、均匀分布、按钮间距固定相等**）。
-  ///
-  /// 顺序：上一集 / 下一集 → 选集 → 倍速 → 记片头片尾 → 播放内核 → 弹幕。
-  /// 所有按钮统一 [VideoPlayerPage.controlBox] 的触达盒（文字与图标都装进同一个盒子），
-  /// 因此 `spaceEvenly` 分出来的间距天然相等；不再分左右两组、也不窄屏折行。
-  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) {
-    final target = _target;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: <Widget>[
-        _compactIcon(
-          icon: Icons.skip_previous,
-          tooltip: '上一集',
-          onPressed: target == null || target.chapterIndex <= 0
-              ? null
-              : () => _playEpisodeAt(target.chapterIndex - 1),
-        ),
-        _compactIcon(
-          icon: Icons.skip_next,
-          tooltip: '下一集',
-          onPressed: target == null
-              ? null
-              : () => _playEpisodeAt(target.chapterIndex + 1),
-        ),
-        _fullscreenLabel('选集', '线路 / 选集', _openSourceSheet),
-        _fullscreenLabel(
-          '${_settings.speed}x',
-          '播放速度（${_settings.speed}x）',
-          _showSpeedPicker,
-        ),
-        _fullscreenLabel(
-          _skipQuickLabel(snapshot),
-          _skipQuickTooltip(snapshot),
-          () => _markSkipFromQuick(snapshot),
-          onLongPress: _clearSkipMarksFromQuick,
-        ),
-        _compactIcon(
-          icon: Icons.chat_bubble_outline,
-          tooltip: _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-          onPressed: _openDanmakuSettings,
-          highlighted: _danmakuSettings.enabled,
-        ),
-        _compactIcon(
-          icon: Icons.video_library_outlined,
-          tooltip: '选集',
-          onPressed: _openSourceSheet,
-        ),
-      ],
-    );
-  }
-
-  Widget _fullscreenLabel(
-    String label,
-    String tooltip,
-    VoidCallback onPressed, {
-    bool highlighted = false,
-    VoidCallback? onLongPress,
-  }) => Tooltip(
-    message: tooltip,
-    child: TextButton(
-      onPressed: onPressed,
-      onLongPress: onLongPress,
-      style: TextButton.styleFrom(
-        foregroundColor: highlighted ? LumeTheme.accent : Colors.white,
-        // 与图标按钮同一个触达盒（用户口径：文字与图标大小统一）。
-        minimumSize: Size(_box, _box),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          shadows: _controlShadows,
-        ),
-      ),
-    ),
-  );
-
-  Widget _buildCenterTransport() => ValueListenableBuilder<PlayerSnapshot>(
-    valueListenable: _player?.snapshot ?? _idleSnapshot,
-    builder: (_, snapshot, _) {
-      if (_player == null || snapshot.error != null) {
-        return const SizedBox.shrink();
+  /// 左侧播放与片头标记、右侧选集与弹幕倍速；组内固定 4dp 间隔。
+  Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
+    builder: (context, constraints) {
+      final target = _target;
+      final side = ((_box * 7 + 24) > constraints.maxWidth)
+          ? ((constraints.maxWidth - 24) / 7).clamp(28.0, _box).toDouble()
+          : _box;
+      Widget action(
+        String label,
+        String tooltip,
+        IconData icon,
+        VoidCallback? callback, {
+        VoidCallback? longPress,
+      }) {
+        return Tooltip(
+          message: tooltip,
+          child: SizedBox(
+            width: side,
+            height: 40,
+            child: TextButton(
+              onPressed: callback,
+              onLongPress: longPress,
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: const Color(0xFFF8F8F8),
+                disabledForegroundColor: const Color(0x99F8F8F8),
+              ),
+              child: _settings.controlStyle == PlayerControlStyle.text
+                  ? Text(
+                      label,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                        shadows: _controlShadows,
+                      ),
+                    )
+                  : PlayerControlGlyph(
+                      icon,
+                      size: _iconSize,
+                      color: callback == null
+                          ? const Color(0x99F8F8F8)
+                          : const Color(0xFFF8F8F8),
+                    ),
+            ),
+          ),
+        );
       }
-      final actions = _primaryActions(snapshot);
-      return Listener(
-        onPointerDown: (_) => _scheduleAutoHide(),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            actions[0],
-            const SizedBox(width: 28),
-            actions[1],
-            const SizedBox(width: 28),
-            actions[4],
-          ],
-        ),
+
+      final playing = snapshot.playing && snapshot.error == null;
+      return Row(
+        key: const Key('fullscreen-actions'),
+        children: [
+          action(
+            '上集',
+            '上一集',
+            Icons.skip_previous,
+            target == null || target.chapterIndex <= 0
+                ? null
+                : () => _playEpisodeAt(target.chapterIndex - 1),
+          ),
+          const SizedBox(width: 4),
+          action(
+            playing ? '暂停' : '播放',
+            playing ? '暂停' : '播放',
+            playing ? Icons.pause : Icons.play_arrow,
+            _player == null
+                ? null
+                : () => unawaited(playing ? _player!.pause() : _player!.play()),
+          ),
+          const SizedBox(width: 4),
+          action(
+            '下集',
+            '下一集',
+            Icons.skip_next,
+            target == null
+                ? null
+                : () => _playEpisodeAt(target.chapterIndex + 1),
+          ),
+          const SizedBox(width: 4),
+          action(
+            _skipQuickLabel(snapshot),
+            _skipQuickTooltip(snapshot),
+            Icons.bookmark_add_outlined,
+            () => _markSkipFromQuick(snapshot),
+            longPress: _clearSkipMarksFromQuick,
+          ),
+          const Spacer(),
+          action(
+            '选集',
+            '线路 / 选集',
+            Icons.playlist_play_outlined,
+            _openSourceSheet,
+          ),
+          const SizedBox(width: 4),
+          action(
+            '弹幕',
+            _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+            Icons.chat_bubble_outline,
+            _openDanmakuSettings,
+          ),
+          const SizedBox(width: 4),
+          action(
+            '${_settings.speed}x',
+            '播放速度（${_settings.speed}x）',
+            Icons.speed,
+            _showSpeedPicker,
+          ),
+        ],
       );
     },
   );
@@ -3675,11 +3731,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (_fullscreen) {
       final theme = SliderTheme.of(context).copyWith(
         trackHeight: 3,
-        activeTrackColor: LumeTheme.accent,
+        disabledActiveTrackColor: const Color(0x80F8F8F8),
+        disabledInactiveTrackColor: Colors.white24,
+        disabledThumbColor: const Color(0xFFF8F8F8),
+        activeTrackColor: const Color(0xFFF8F8F8),
         inactiveTrackColor: Colors.white24,
         secondaryActiveTrackColor: Colors.white54,
-        thumbColor: LumeTheme.accent,
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        thumbColor: const Color(0xFFF8F8F8),
+        thumbShape: const RoundSliderThumbShape(
+          enabledThumbRadius: 6,
+          elevation: 0,
+          pressedElevation: 0,
+        ),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
       );
       return Column(
@@ -3689,7 +3752,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             Text(
               '拖动到 ${_format(preview)}',
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFFF8F8F8),
                 fontSize: 12,
                 shadows: _controlShadows,
               ),
@@ -3699,7 +3762,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Text(
                 _format(shown),
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Color(0xFFF8F8F8),
                   fontSize: 12,
                   shadows: _controlShadows,
                 ),
@@ -3710,7 +3773,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Text(
                 _format(snapshot.duration),
                 style: const TextStyle(
-                  color: Colors.white70,
+                  color: Color(0xFFF8F8F8),
                   fontSize: 12,
                   shadows: _controlShadows,
                 ),
@@ -3875,6 +3938,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     required VoidCallback? onPressed,
     bool highlighted = false,
   }) {
+    if (_fullscreen) {
+      return Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 32,
+          height: 36,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: PlayerControlGlyph(
+              icon,
+              size: _iconSize,
+              color: onPressed == null
+                  ? const Color(0x99F8F8F8)
+                  : const Color(0xFFF8F8F8),
+            ),
+          ),
+        ),
+      );
+    }
     return IconButton(
       iconSize: _iconSize,
       visualDensity: VisualDensity.compact,
@@ -3884,7 +3971,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? (highlighted ? Colors.white : Colors.white70)
           : LumeTheme.accent,
       tooltip: tooltip,
-      icon: Icon(icon, shadows: _fullscreen ? _controlShadows : null),
+      icon: _fullscreen
+          ? PlayerControlGlyph(icon, size: _iconSize)
+          : Icon(icon),
       onPressed: onPressed,
     );
   }
@@ -3972,10 +4061,10 @@ class _PlayerClockState extends State<_PlayerClock> {
   void initState() {
     super.initState();
     _refreshBattery();
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() {});
-        _refreshBattery();
+        if (DateTime.now().second % 30 == 0) _refreshBattery();
       }
     });
   }
@@ -4013,13 +4102,23 @@ class _PlayerClockState extends State<_PlayerClock> {
             const SizedBox(width: 3),
             Text(
               '${_batteryPercent ?? '--'}%',
-              style: const TextStyle(color: Colors.white70, fontSize: 9),
+              style: const TextStyle(
+                color: Color(0xFFF8F8F8),
+                fontSize: 9,
+                fontWeight: FontWeight.w400,
+                shadows: _VideoPlayerPageState._controlShadows,
+              ),
             ),
           ],
         ),
         Text(
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-          style: const TextStyle(color: Colors.white, fontSize: 10),
+          style: const TextStyle(
+            color: Color(0xFFF8F8F8),
+            fontSize: 10,
+            fontWeight: FontWeight.w400,
+            shadows: _VideoPlayerPageState._controlShadows,
+          ),
         ),
       ],
     );
@@ -4038,7 +4137,14 @@ class _BatteryGlyph extends StatelessWidget {
       height: 13,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white70, width: 1),
+          border: Border.all(color: const Color(0xFFF8F8F8), width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x59000000),
+              blurRadius: 3,
+              offset: Offset(0, 1),
+            ),
+          ],
           borderRadius: BorderRadius.circular(2),
         ),
         child: Align(
@@ -4046,7 +4152,7 @@ class _BatteryGlyph extends StatelessWidget {
           child: FractionallySizedBox(
             heightFactor: value == null ? 0 : (value / 100).clamp(0.0, 1.0),
             child: const DecoratedBox(
-              decoration: BoxDecoration(color: Colors.white70),
+              decoration: BoxDecoration(color: Color(0xFFF8F8F8)),
             ),
           ),
         ),

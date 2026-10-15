@@ -288,6 +288,33 @@ void main() {
       return created;
     }
 
+    testWidgets('两套按钮样式立即切换，不重建播放器，暂停后也在三秒淡出', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      expect(find.text('选集'), findsNothing);
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('文字'));
+      await tester.tap(find.text('文字'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
+      expect(find.text('选集'), findsOneWidget);
+      expect(find.text('上集'), findsOneWidget);
+      expect(players.length, 1);
+      await tester.tap(find.byTooltip('暂停'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 2900));
+      expect(find.byTooltip('播放'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('fullscreen-actions')), findsNothing);
+      await tester.tap(find.text('fake-view'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('播放'), findsOneWidget);
+    });
+
     testWidgets('控制栏齐全：前进 / 后退 10 秒、清晰度、全屏、设置、播放源都在', (tester) async {
       await pump(tester);
 
@@ -504,13 +531,14 @@ void main() {
       expect(find.textContaining('网速'), findsNothing);
       // 自动收起：浮层连同这一排一起走，画面上不再压着参数。
       await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(find.text('1920×1080'), findsNothing);
       expect(find.text('125.0MB/s'), findsNothing);
       // 点画面唤回。
       await tester.tap(find.text('fake-view'));
       await tester.pump();
       expect(find.text('1920×1080'), findsOneWidget);
-      expect(find.text('选集'), findsOneWidget);
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -534,7 +562,7 @@ void main() {
         await tester.tap(back);
         await tester.pumpAndSettle();
         expect(find.byTooltip('关闭弹幕设置'), findsNothing);
-        expect(find.text('选集'), findsOneWidget);
+        expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       });
     }
 
@@ -938,19 +966,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('全屏：中央播放、底部时间进度与常用功能，停止收入更多', (tester) async {
+    testWidgets('全屏：播放移到底栏，中央没有快进控件且只有一个选集入口', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       final slider = tester.getRect(find.byType(Slider));
-      final seek = tester.getCenter(find.byTooltip('后退 10 秒'));
+      final play = tester.getCenter(find.byTooltip('暂停'));
       final quality = tester.getCenter(find.byTooltip('记片头（长按清除标记）'));
-      expect(slider.top, greaterThan(seek.dy));
+      expect(play.dy, greaterThan(slider.bottom));
+      expect(find.byTooltip('后退 10 秒'), findsNothing);
+      expect(find.byTooltip('前进 10 秒'), findsNothing);
       expect(quality.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
-      expect(find.byTooltip('选集'), findsOneWidget);
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.text('画质'), findsNothing);
-      expect(find.text('记片头'), findsOneWidget, reason: '快捷智能按钮：片头区间显示「记片头」');
+      expect(find.byTooltip('记片头（长按清除标记）'), findsOneWidget);
       expect(find.byTooltip('弹幕：开'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
@@ -958,15 +988,32 @@ void main() {
       expect(find.byType(PlayerSettingsSheet), findsOneWidget);
     });
 
-    for (final size in const [Size(844, 390), Size(375, 812)]) {
+    for (final size in const [Size(844, 390), Size(375, 812), Size(320, 568)]) {
       testWidgets('全屏常用功能在安全区内且无溢出：$size', (tester) async {
-        final players = await pump(tester);
+        final players = await pump(
+          tester,
+          target: const VideoPlayTarget(
+            sourceId: 'local',
+            itemId: 'layout',
+            title: '很长的视频标题用于检查横竖屏排列和自动省略不得挤出按钮',
+            chapterIndex: 0,
+            chapterId: 'one',
+            chapterTitle: '第1集',
+          ),
+        );
         await tester.tap(find.byTooltip('全屏'));
         await tester.pumpAndSettle();
         await tester.binding.setSurfaceSize(size);
         players.single.emit(
           duration: const Duration(minutes: 90),
           position: const Duration(minutes: 15),
+        );
+        players.single.pushStats(
+          const PlayerStats(
+            width: 1920,
+            height: 1080,
+            downloadBytesPerSecond: 128000,
+          ),
         );
         await tester.pumpAndSettle();
         for (final label in [
@@ -983,6 +1030,11 @@ void main() {
           expect(rect.bottom, lessThanOrEqualTo(size.height));
         }
         expect(tester.takeException(), isNull);
+        final settings = tester.getRect(find.byTooltip('播放器设置'));
+        final kernel = tester.getRect(find.byTooltip('播放内核'));
+        expect(settings.left - kernel.right, closeTo(4, .1));
+        expect(settings.center.dy, closeTo(kernel.center.dy, .1));
+        expect(find.text('1920×1080'), findsOneWidget);
         final slider = tester.getRect(find.byType(Slider));
         final time = tester.getRect(find.text('15:00'));
         expect(time.center.dy, closeTo(slider.center.dy, 2));
@@ -1033,7 +1085,7 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       final height = tester.getSize(find.byType(Scaffold).first).height;
-      final bottomRow = tester.getRect(find.byTooltip('选集'));
+      final bottomRow = tester.getRect(find.byTooltip('线路 / 选集'));
       expect(
         height - bottomRow.bottom,
         lessThan(48),
@@ -1113,8 +1165,10 @@ void main() {
       players.single.emit(playing: true, duration: const Duration(minutes: 10));
       await tester.pump();
       await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(find.byType(Slider), findsOneWidget);
-      expect(find.byTooltip('前进 10 秒'), findsOneWidget);
+      expect(find.byTooltip('暂停'), findsOneWidget);
+      expect(find.byTooltip('前进 10 秒'), findsNothing);
       expect(find.byTooltip('退出全屏'), findsWidgets);
     });
 
@@ -1128,16 +1182,19 @@ void main() {
       players.single.emit(playing: true, duration: const Duration(minutes: 10));
       await tester.pump();
       await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(find.byType(Slider), findsNothing);
       tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
           const FakeAccessibilityFeatures(accessibleNavigation: true);
       await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(find.byType(Slider), findsOneWidget);
       tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
           const FakeAccessibilityFeatures(accessibleNavigation: false);
       await tester.pump();
       await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(find.byType(Slider), findsNothing);
     });
 

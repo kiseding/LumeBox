@@ -21,6 +21,7 @@ void main() {
       const settings = PlayerSettings();
       expect(settings.kernel, PlayerKernel.avplayer);
       expect(settings.speed, 1.0);
+      expect(settings.controlStyle, PlayerControlStyle.icons);
       expect(settings.subtitlesEnabled, isTrue);
       expect(settings.subtitleSize, SubtitleSize.standard);
     });
@@ -52,8 +53,11 @@ void main() {
       expect(PlayerKernel.fromId('mpv'), PlayerKernel.mpv);
       expect(SubtitleSize.fromId('gigantic'), SubtitleSize.standard);
       expect(SubtitleSize.fromId('large'), SubtitleSize.large);
-      expect(SubtitleSize.fromId('huge'), SubtitleSize.huge,
-          reason: '「特大」是新增的合法档位，不再是无法识别的值');
+      expect(
+        SubtitleSize.fromId('huge'),
+        SubtitleSize.huge,
+        reason: '「特大」是新增的合法档位，不再是无法识别的值',
+      );
     });
   });
 
@@ -64,11 +68,11 @@ void main() {
       root = Directory.systemTemp.createTempSync('lume_box_player');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/path_provider'),
-        (call) async => call.method == 'getApplicationSupportDirectory'
-            ? root.path
-            : null,
-      );
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => call.method == 'getApplicationSupportDirectory'
+                ? root.path
+                : null,
+          );
     });
 
     tearDown(() async {
@@ -81,8 +85,10 @@ void main() {
     test('保存后可读回，关库重开仍在', () async {
       final store = await VideoPlayerSettingsStore.open();
       store.save(
-        const PlayerSettings(kernel: PlayerKernel.mdk, subtitlesEnabled: false)
-            .copyWith(speed: 1.5, subtitleSize: SubtitleSize.large),
+        const PlayerSettings(
+          kernel: PlayerKernel.mdk,
+          subtitlesEnabled: false,
+        ).copyWith(speed: 1.5, subtitleSize: SubtitleSize.large),
       );
       store.close();
 
@@ -92,6 +98,19 @@ void main() {
       expect(loaded.speed, 1.5);
       expect(loaded.subtitlesEnabled, isFalse);
       expect(loaded.subtitleSize, SubtitleSize.large);
+    });
+
+    test('按钮样式保存后重开仍保留，未知值回退图标模式', () async {
+      final store = await VideoPlayerSettingsStore.open();
+      store.save(store.load().copyWith(controlStyle: PlayerControlStyle.text));
+      expect(store.load().controlStyle, PlayerControlStyle.text);
+      store.close();
+      ReadingLibrary.close(Section.video);
+      final reopened = await VideoPlayerSettingsStore.open();
+      expect(reopened.load().controlStyle, PlayerControlStyle.text);
+      final library = await ReadingLibrary.open(Section.video);
+      library.setSetting(VideoPlayerSettingsStore.keyControlStyle, 'invalid');
+      expect(reopened.load().controlStyle, PlayerControlStyle.icons);
     });
 
     test('缺项回退默认；脏值回退默认或最近档位', () async {

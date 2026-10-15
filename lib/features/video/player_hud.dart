@@ -69,7 +69,14 @@ class PlayerHud extends StatelessWidget {
 /// 与左侧 [PlayerHud] 的区别：这里只要这两格，字色走顶栏那一套（白字 + 投影），
 /// 因此不再用底色块——压在画面上已经够清楚，块状底会压住片名右侧的空间。
 class PlayerStatsInline extends StatelessWidget {
-  const PlayerStatsInline({super.key, required this.stats, this.networkKbps});
+  const PlayerStatsInline({
+    super.key,
+    required this.stats,
+    this.networkKbps,
+    this.stacked = false,
+  });
+
+  final bool stacked;
 
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
@@ -102,20 +109,34 @@ class PlayerStatsInline extends StatelessWidget {
           if (speedText(value, kbps) != null) speedText(value, kbps)!,
         ];
         if (labels.isEmpty) return const SizedBox.shrink();
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            for (var i = 0; i < labels.length; i++) ...<Widget>[
-              if (i > 0) const SizedBox(width: 10),
-              Text(
-                labels[i],
+        final texts = labels
+            .map(
+              (label) => Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFFF8F8F8),
                   shadows: PlayerHudShadows.control,
                 ),
               ),
+            )
+            .toList();
+        if (stacked) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: texts,
+          );
+        }
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < texts.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Flexible(child: texts[i]),
             ],
           ],
         );
@@ -129,7 +150,7 @@ class PlayerHudShadows {
   PlayerHudShadows._();
 
   static const List<Shadow> control = <Shadow>[
-    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
+    Shadow(color: Color(0x59000000), blurRadius: 3, offset: Offset(0, 1)),
   ];
 }
 

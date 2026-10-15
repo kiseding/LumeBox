@@ -156,30 +156,20 @@ void main() {
       expect(play.center.dy, closeTo(back.center.dy, 1));
     });
 
-    testWidgets('全屏：底部一排 spaceEvenly，进度条与按钮行固定行距、左右与顶部一致', (tester) async {
+    testWidgets('全屏：底栏左右分组，组内固定间距，只有一个选集入口', (tester) async {
       await pumpPlayer(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-
-      for (final finder in <Finder>[
-        find.byTooltip('上一集'),
-        find.byTooltip('下一集'),
-        find.byTooltip('选集'),
-        find.byTooltip('弹幕：开'),
-      ]) {
-        expect(finder, findsOneWidget);
-      }
-      final bottomRow = tester.widget<Row>(
-        find
-            .ancestor(of: find.byTooltip('弹幕：开'), matching: find.byType(Row))
-            .first,
-      );
-      expect(bottomRow.mainAxisAlignment, MainAxisAlignment.spaceEvenly);
-
-      final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
+      expect(find.byTooltip('线路 / 选集'), findsOneWidget);
+      expect(find.byTooltip('前进 10 秒'), findsNothing);
+      expect(find.byTooltip('后退 10 秒'), findsNothing);
       final previous = tester.getRect(find.byTooltip('上一集'));
+      final play = tester.getRect(find.byTooltip('暂停'));
+      final next = tester.getRect(find.byTooltip('下一集'));
+      final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
+      expect(play.left - previous.right, closeTo(4, .1));
+      expect(next.left - play.right, closeTo(4, .1));
       expect(previous.center.dy, closeTo(danmaku.center.dy, 1));
-
       final slider = tester.getRect(find.byType(Slider));
       expect(
         previous.top - slider.bottom,
