@@ -9,6 +9,7 @@ import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
 import 'package:lume_box/shared/widgets/liquid_glass_widget.dart';
 import 'package:lume_box/shared/widgets/player_popup_glass.dart';
+import 'package:lume_box/shared/widgets/module_glass_surface.dart';
 import 'package:lume_box/core/theme/liquid_performance_guard.dart';
 
 void main() {
@@ -141,6 +142,37 @@ void main() {
     await restored.setLiquidEnabled(false);
     expect(restored.active(GlassArea.primaryControls), false);
     restored.dispose();
+  });
+
+  testWidgets('unsupported liquid preserves the original surface background', (
+    tester,
+  ) async {
+    if (ui.ImageFilter.isShaderFilterSupported) return;
+    final settings = GlassEffectsSettings.instance;
+    await tester.runAsync(() async {
+      await settings.setLiquidEnabled(true);
+      await settings.setModule(
+        GlassModule.comic,
+        GlassPart.panels,
+        const GlassTuning(enabled: true, liquid: true),
+      );
+    });
+    const original = ColoredBox(
+      color: Colors.red,
+      child: Text('original frame'),
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ModuleGlassSurface(
+          module: GlassModule.comic,
+          part: GlassPart.panels,
+          legacy: original,
+          child: Text('transparent content'),
+        ),
+      ),
+    );
+    expect(find.byWidget(original), findsOneWidget);
+    expect(find.text('transparent content'), findsNothing);
   });
 
   testWidgets('frosted area off returns the exact original popup subtree', (

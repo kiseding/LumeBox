@@ -37,6 +37,7 @@ class ModuleGlassSurface extends StatelessWidget {
           radius: tune.radius,
           highlight: tune.highlight,
           distort: tune.distort,
+          legacy: legacy,
           speed: tune.speed,
           border: tune.border,
           child: child,

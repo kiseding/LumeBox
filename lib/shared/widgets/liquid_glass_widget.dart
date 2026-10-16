@@ -22,6 +22,7 @@ class LiquidGlassWidget extends StatelessWidget {
     this.speed = 1,
     this.border = false,
     required this.child,
+    this.legacy,
     this.area,
   }) : assert(blur >= 0 && blur < double.infinity),
        assert(highlight >= 0 && highlight <= 1),
@@ -32,6 +33,8 @@ class LiquidGlassWidget extends StatelessWidget {
   final double blur, highlight, distort, opacity, radius, speed;
   final bool border;
   final Widget child;
+  final Widget? legacy;
+  Widget get fallback => legacy ?? child;
   final GlassArea? area;
 
   @override
@@ -46,9 +49,9 @@ class LiquidGlassWidget extends StatelessWidget {
         final module = ModuleGlassScope.moduleOf(context);
         if (settings.hasModuleConfiguration(module, part)) {
           final tune = settings.moduleTuning(module, part);
-          if (!tune.enabled) return child;
+          if (!tune.enabled) return fallback;
           if (!tune.liquid) {
-            if (!settings.frostedEnabled) return child;
+            if (!settings.frostedEnabled) return fallback;
             return FrostedGlassWidget(
               blur: tune.blur,
               opacity: tune.opacity,
@@ -59,7 +62,7 @@ class LiquidGlassWidget extends StatelessWidget {
           }
           if (!settings.liquidEnabled ||
               !ui.ImageFilter.isShaderFilterSupported) {
-            return child;
+            return fallback;
           }
           return _LiquidSurface(
             options: LiquidGlassWidget(
@@ -70,6 +73,7 @@ class LiquidGlassWidget extends StatelessWidget {
               distort: tune.distort,
               speed: tune.speed,
               border: tune.border,
+              legacy: legacy,
               child: child,
             ),
           );
@@ -80,7 +84,7 @@ class LiquidGlassWidget extends StatelessWidget {
       if (!GlassEffectsSettings.instance.liquidEnabled ||
           area != null && !GlassEffectsSettings.instance.active(area!) ||
           !ui.ImageFilter.isShaderFilterSupported) {
-        return child;
+        return fallback;
       }
       if (area == null) return _LiquidSurface(options: this);
       final tune = GlassEffectsSettings.instance.tuning(area!);
@@ -93,6 +97,7 @@ class LiquidGlassWidget extends StatelessWidget {
           distort: tune.distort,
           speed: tune.speed,
           border: tune.border,
+          legacy: legacy,
           child: child,
         ),
       );
@@ -178,12 +183,12 @@ class _LiquidSurfaceState extends State<_LiquidSurface>
   Widget build(BuildContext context) {
     final shader = _shader;
     final options = widget.options;
-    if (shader == null) return options.child;
+    if (shader == null) return options.fallback;
     return AnimatedBuilder(
       animation: Listenable.merge([_animation, _guard]),
       child: options.child,
       builder: (context, child) {
-        if (_guard.quality == LiquidQuality.legacy) return child!;
+        if (_guard.quality == LiquidQuality.legacy) return options.fallback;
         final fps = _guard.animationFps;
         final seconds = 12 / options.speed.clamp(.25, 2);
         final bucket = (_animation.value * seconds * fps).floor();

@@ -63,10 +63,19 @@ jobs:
 
       - name: 编译（--no-codesign，带构建号）
         if: ${{ inputs.typecheck_only != true }}
-        run: >-
-          flutter build ipa --no-codesign
-          --build-name=1.0.${{ github.run_number }}
-          --build-number=${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          # CI only produces unsigned archives. Keep the real target's iCloud
+          # entitlements intact; apply them later with a matching signing profile.
+          cat > "$RUNNER_TEMP/lumebox-unsigned.xcconfig" <<'EOF'
+          CODE_SIGN_ENTITLEMENTS =
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGNING_REQUIRED = NO
+          EOF
+          export XCODE_XCCONFIG_FILE="$RUNNER_TEMP/lumebox-unsigned.xcconfig"
+          flutter build ipa --no-codesign --verbose \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
 
       - name: 打包未签名 IPA
         if: ${{ inputs.typecheck_only != true }}
@@ -91,6 +100,7 @@ jobs:
             cp -R "${APP}" out/Payload/
             (cd out && zip -qry LumeBox-unsigned.ipa Payload)
           fi
+          cp ios/Runner/Runner.entitlements out/LumeBox-iCloud.entitlements
           echo "产物："
           ls -lh out/LumeBox-unsigned.ipa
           unzip -l out/LumeBox-unsigned.ipa > /dev/null && echo "IPA 结构可解压 ✓"
@@ -100,6 +110,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LumeBox-unsigned-ipa
-          path: out/LumeBox-unsigned.ipa
+          path: |
+            out/LumeBox-unsigned.ipa
+            out/LumeBox-iCloud.entitlements
           if-no-files-found: error
           retention-days: 30
