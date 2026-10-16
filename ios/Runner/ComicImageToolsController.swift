@@ -15,7 +15,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private let lock = NSLock()
   private var cancelled = Set<String>()
   private var active = Set<String>()
-  private var models: [Int: MLModel] = [:]
+  private var models: [String: MLModel] = [:]
   private var translationID: String?
   private var translationResult: FlutterResult?
   private var translationHost: UIViewController?
@@ -71,7 +71,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         try self.check(id)
         let value: Any? = try autoreleasepool {
           switch call.method {
-          case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0); return nil
+          case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime"); return nil
           case "clearModels":
             self.models.removeAll()
             let directory = try self.modelDirectory()
@@ -94,7 +94,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
             guard let image = normalized.cgImage else { throw self.failure("图片解码失败") }
             if call.method == "recognize" { return try self.recognize(image, source: args["source"] as? String ?? "auto", id: id) }
             guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
-            return FlutterStandardTypedData(bytes: try self.enlarge(image, noise: args["noise"] as? Int ?? 0, id: id))
+            return FlutterStandardTypedData(bytes: try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id))
           }
         }
         self.end(id)
@@ -111,14 +111,16 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private func end(_ id: String) { lock.lock(); cancelled.remove(id); active.remove(id); lock.unlock() }
   private func modelDirectory() throws -> URL { try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("comic-super-resolution", isDirectory: true) }
 
-  private func model(_ noise: Int) throws -> MLModel {
+  private func model(_ noise: Int, style: String = "anime") throws -> MLModel {
+    guard ["anime", "photo"].contains(style) else { throw failure("模型类型无效") }
+    let modelKey = "\(style == "photo" ? "photo" : "noise")\(noise)"
     guard (0...3).contains(noise) else { throw failure("降噪级别无效") }
-    if let loaded = models[noise] { return loaded }
+    if let loaded = models[modelKey] { return loaded }
     let directory = try modelDirectory()
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let compiled = directory.appendingPathComponent("noise\(noise).mlmodelc")
+    let compiled = directory.appendingPathComponent("\(modelKey).mlmodelc")
     if !FileManager.default.fileExists(atPath: compiled.path) {
-      guard let key = assetPath?("assets/models/waifu2x/noise\(noise).mlmodel"),
+      guard let key = assetPath?("assets/models/waifu2x/\(modelKey).mlmodel"),
             let source = Bundle.main.url(forResource: key, withExtension: nil) else { throw failure("找不到超分模型") }
       let temporary = try MLModel.compileModel(at: source)
       defer { try? FileManager.default.removeItem(at: temporary) }
@@ -127,7 +129,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     let config = MLModelConfiguration(); config.computeUnits = .all
     let loaded = try MLModel(contentsOf: compiled, configuration: config)
     // Keep only the current variant resident.
-    models = [noise: loaded]
+    models = [modelKey: loaded]
     return loaded
   }
 
@@ -150,8 +152,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     }
   }
 
-  private func enlarge(_ image: CGImage, noise: Int, id: String) throws -> Data {
-    let model = try self.model(noise)
+  private func enlarge(_ image: CGImage, noise: Int, style: String, id: String) throws -> Data {
+    let model = try self.model(noise, style: style)
     guard let inputName = model.modelDescription.inputDescriptionsByName.keys.first,
           let inputShape = model.modelDescription.inputDescriptionsByName[inputName]?.multiArrayConstraint?.shape,
           inputShape.map({ $0.intValue }) == [3, 156, 156],
