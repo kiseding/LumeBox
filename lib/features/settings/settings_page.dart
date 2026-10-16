@@ -1,4 +1,5 @@
 import 'configuration_settings_page.dart';
+import 'total_subscription_page.dart';
 import 'tmdb_settings_page.dart';
 import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
@@ -124,6 +125,13 @@ class SettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           const _GroupTitle('源与网络'),
+          _SettingsEntry(
+            icon: Icons.subscriptions_outlined,
+            title: '总订阅导入导出',
+            subtitle: '小说、漫画、视频订阅一键导入，或导出订阅地址',
+            onTap: () => _push(context, const TotalSubscriptionPage()),
+          ),
+          const SizedBox(height: 10),
           _SettingsEntry(
             icon: Icons.tune,
             title: '源总管理',

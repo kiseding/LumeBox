@@ -1,3 +1,4 @@
+import 'source_subscription_catalog.dart';
 import '../js/source_script.dart';
 
 import 'dart:async';
@@ -120,23 +121,37 @@ class SourceSubscriptionSync {
     if (!file.existsSync()) return;
     final data = jsonDecode(file.readAsStringSync()) as Map;
     _migrated = data['migrationVersion'] == 3;
+    var normalized = false;
     for (final raw in (data['subscriptions'] as List? ?? [])) {
       if (raw is! Map || !_validUrl('${raw['url']}')) continue;
-      subscriptions.add(
-        SavedSourceSubscription(
-          '${raw['url']}',
-          enabled: raw['enabled'] != false,
-          checkedAt: DateTime.tryParse('${raw['checkedAt']}'),
-          error: '${raw['error'] ?? ''}',
-          excludedIds: (raw['excludedIds'] as List? ?? [])
-              .whereType<String>()
-              .toSet(),
-          members: (raw['members'] as Map? ?? {}).map(
-            (key, value) => MapEntry('$key', '$value'),
-          ),
+      final original = '${raw['url']}';
+      final url = SubscriptionCatalog.canonical(original, section);
+      normalized = normalized || url != original;
+      final record = SavedSourceSubscription(
+        url,
+        enabled: raw['enabled'] != false,
+        checkedAt: DateTime.tryParse('${raw['checkedAt']}'),
+        error: '${raw['error'] ?? ''}',
+        excludedIds: (raw['excludedIds'] as List? ?? [])
+            .whereType<String>()
+            .toSet(),
+        members: (raw['members'] as Map? ?? {}).map(
+          (key, value) => MapEntry('$key', '$value'),
         ),
       );
+      final existing = subscriptions.where((s) => s.url == url).firstOrNull;
+      if (existing == null) {
+        if (url != original) record.checkedAt = null;
+        subscriptions.add(record);
+      } else {
+        normalized = true;
+        existing.members.addAll(record.members);
+        existing.excludedIds.addAll(record.excludedIds);
+        existing.enabled = existing.enabled || record.enabled;
+        existing.checkedAt = null;
+      }
     }
+    if (normalized) await save();
   }
 
   Future<void> save() async {
@@ -155,7 +170,7 @@ class SourceSubscriptionSync {
 
   Future<void> register(Iterable<String> urls) async {
     for (final raw in urls) {
-      final url = raw.trim();
+      final url = SubscriptionCatalog.canonical(raw.trim(), section);
       if (!_validUrl(url)) throw const FormatException('订阅地址须为完整 HTTP(S) 地址');
       final existing = subscriptions
           .where((record) => record.url == url)
@@ -189,7 +204,7 @@ class SourceSubscriptionSync {
       // 旧版本只保存脚本地址，官方清单可确定恢复；自定义清单需要首次保存根地址。
       if (!source.subscribed || !_validUrl(source.originUrl)) continue;
       final url = source.originUrl.startsWith('$prefix${section.id}/')
-          ? '$prefix${section.id}/sources.txt'
+          ? '$prefix${SubscriptionCatalog.names[section] ?? '${section.id}/sources.txt'}'
           : source.originUrl;
       var record = subscriptions.where((s) => s.url == url).firstOrNull;
       if (record == null) {
