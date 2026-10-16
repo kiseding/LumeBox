@@ -137,7 +137,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate; request.usesLanguageCorrection = false
     if #available(iOS 16.0, *) { request.automaticallyDetectsLanguage = true }
-    let supported = try request.supportedRecognitionLanguages()
+    let supported: [String]
+    if #available(iOS 15.0, *) { supported = try request.supportedRecognitionLanguages() }
+    else { supported = try VNRecognizeTextRequest.supportedRecognitionLanguages(for: .accurate, revision: request.revision) }
     let preferred = source == "auto" ? ["ja-JP", "en-US", "zh-Hans", "zh-Hant", "ko-KR"] : [source]
     let matching = preferred.compactMap { candidate in supported.first { $0 == candidate || $0.hasPrefix(candidate + "-") } }
     if !matching.isEmpty { request.recognitionLanguages = matching }
