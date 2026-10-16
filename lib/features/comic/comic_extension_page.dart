@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/session/privacy_settings.dart';
 
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
@@ -146,7 +147,7 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
         subtitle: '漫画板块的扩展仓库库打不开，请重启应用后重试',
       );
     }
-    final extensions = _extensions;
+    final extensions = _extensions?.where((entry) => (PrivacySettings.instance.showAdult || !entry.nsfw) && PrivacySettings.instance.allowsSource(entry.id, entry.name)).toList();
     if (extensions == null) {
       return const SourceStateView(state: SourceStateKind.loading);
     }

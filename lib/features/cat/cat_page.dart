@@ -1,4 +1,5 @@
 import '../../core/reading/browse_layout.dart';
+import '../../core/session/privacy_settings.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../shared/widgets/subscription_status_icon.dart';
@@ -429,10 +430,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       final rows = record.sites
           .where(
             (site) =>
-                pickerQuery.isEmpty ||
+                PrivacySettings.instance.allowsSource(site.id, site.name) &&
+                (pickerQuery.isEmpty ||
                 '${site.name} ${site.key} ${record.name}'
                     .toLowerCase()
-                    .contains(pickerQuery.toLowerCase()),
+                    .contains(pickerQuery.toLowerCase())),
           )
           .toList();
       rows.sort((a, b) {
@@ -736,7 +738,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     String? folder;
     final folders = FavoriteFolders(lib);
     List<Map<String, dynamic>> records() =>
-        favorites ? service.favoriteItems : service.history;
+        favorites ? service.favoriteItems : service.history.where(service.collectionAllowed).toList();
     final chosen = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,

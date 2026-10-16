@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'glass_effects_tiles.dart';
 
 class FloatingSettingsPage extends StatelessWidget {
   const FloatingSettingsPage({super.key});
@@ -15,6 +16,7 @@ class FloatingSettingsPage extends StatelessWidget {
         children: [
           const Text('默认采用浅色磨砂，优先保证文字清楚。透明度、磨砂强度和位置可自行调整，返回后自动保留。'),
           for (final module in FloatingModule.values) _module(context, module),
+          const PlayerFrostedSettingsTile(),
         ],
       ),
     ),

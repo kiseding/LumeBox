@@ -21,6 +21,8 @@ import UIKit
   private let wafCookies = WafCookieController()
   private let battery = BatteryController()
   private let configurationExport = ConfigurationExportController()
+  private let comicImages = ComicImageToolsController()
+  private let privacy = PrivacyController()
 
   override func application(
     _ application: UIApplication,
@@ -86,6 +88,12 @@ import UIKit
     if let messenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "LumeBoxBattery")?.messenger() {
       battery.register(with: messenger)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxComicImages") {
+      comicImages.register(with: registrar)
+    }
+    if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxPrivacy")?.messenger() {
+      privacy.register(with: messenger)
     }
   }
 }

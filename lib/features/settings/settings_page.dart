@@ -1,4 +1,7 @@
 import 'configuration_settings_page.dart';
+import 'glass_effects_tiles.dart';
+import 'privacy_settings_page.dart';
+import '../comic/comic_image_tools_page.dart';
 import 'total_subscription_page.dart';
 import 'tmdb_settings_page.dart';
 import 'search_settings_page.dart';
@@ -100,6 +103,20 @@ class SettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           const _GroupTitle('阅读与播放'),
+          _SettingsEntry(
+            icon: Icons.auto_fix_high_outlined,
+            title: '图片超分辨率',
+            subtitle: '漫画正文自动超分 · waifu2x · 降噪与模型管理',
+            onTap: () => _push(context, const ComicImageToolsSettingsPage()),
+          ),
+          const SizedBox(height: 10),
+          _SettingsEntry(
+            icon: Icons.translate,
+            title: '漫画翻译',
+            subtitle: '设备端免费翻译 · 自填 AI 接口 · 目标语言',
+            onTap: () => _push(context, const ComicImageToolsSettingsPage(translation: true)),
+          ),
+          const SizedBox(height: 10),
           // 用户口径：全局入口不藏到深层子页面，点一下就是四个模块的设置入口。
           _SettingsEntry(
             icon: Icons.tune,
@@ -124,6 +141,8 @@ class SettingsPage extends StatelessWidget {
             onTap: () => _push(context, const TmdbSettingsPage()),
           ),
           const SizedBox(height: 20),
+          const LiquidGlassSettingsTile(),
+          const SizedBox(height: 20),
           const _GroupTitle('源与网络'),
           _SettingsEntry(
             icon: Icons.subscriptions_outlined,
@@ -147,6 +166,13 @@ class SettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           const _GroupTitle('存储与安全'),
+          _SettingsEntry(
+            icon: Icons.privacy_tip_outlined,
+            title: '隐私',
+            subtitle: '应用锁 · 面容 / 锁屏密码 · 成人内容显示',
+            onTap: () => _push(context, const PrivacySettingsPage()),
+          ),
+          const SizedBox(height: 10),
           _SettingsEntry(
             icon: Icons.cleaning_services_outlined,
             title: '缓存管理',

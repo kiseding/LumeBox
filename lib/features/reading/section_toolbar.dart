@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../core/session/privacy_settings.dart';
 
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
@@ -115,6 +116,7 @@ class AggregateSearch {
         .where(
           (source) =>
               source.enabled &&
+              PrivacySettings.instance.allowsSource(source.id, source.name) &&
               (sourceIds == null || sourceIds.contains(source.id)),
         )
         .toList();
@@ -697,7 +699,7 @@ Future<SearchScopeSelection?> showSearchModeMenu(
     isScrollControlled: true,
     builder: (_) => _SearchModeSheet(
       current: current,
-      sources: sources.where((source) => source.enabled).toList(),
+      sources: sources.where((source) => source.enabled && PrivacySettings.instance.allowsSource(source.id, source.name)).toList(),
       sourceIds: sourceIds,
       sitesOnly: sitesOnly,
     ),

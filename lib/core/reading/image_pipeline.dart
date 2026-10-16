@@ -51,6 +51,7 @@ class SectionImagePipeline {
     this.network = NetworkProfile.none,
     this.sourceLabel = '图片缓存',
     this.requestSender,
+    this.decodeTransform,
   }) : _client = client ?? http.Client(),
        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
        _memory = ImageMemoryCache(memoryBudgetBytes);
@@ -67,6 +68,8 @@ class SectionImagePipeline {
   final NetworkProfile network;
   final String sourceLabel;
   final NetworkSender? requestSender;
+  /// Optional reader-local enhancement; raw exports and disk bytes stay original.
+  final Future<Uint8List> Function(Uint8List)? decodeTransform;
   final Map<String, String> _failures = {};
   String? failureFor(String url) =>
       _failures[upgradeToHttps(normalizeTransform(url))];
@@ -376,8 +379,10 @@ class SectionImagePipeline {
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
+        final decodeData = decodeTransform == null ? data : await decodeTransform!(data);
+        if (_disposed) return null;
         final codec = await ui.instantiateImageCodec(
-          data,
+          decodeData,
           targetWidth: targetWidth,
           allowUpscaling: false,
         );

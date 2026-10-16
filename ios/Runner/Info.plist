@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>使用面容识别解锁 LumeBox 应用锁。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- 网页视图（内置「网页视图」过 Cloudflare 校验）里允许明文 http。

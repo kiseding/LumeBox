@@ -21,6 +21,8 @@ import 'comic_bookmarks.dart';
 import '../../core/session/section_module_settings.dart';
 import 'comic_reader_settings_page.dart';
 import 'comic_settings.dart';
+import '../../core/reading/comic_image_tools.dart';
+import 'comic_image_tools_page.dart';
 
 /// 漫画阅读器：条漫瀑布流 / 单页左右翻页 / 双页跨页三种模式，共用一套调节控件。
 ///
@@ -76,6 +78,7 @@ class ComicReaderPage extends StatefulWidget {
 
 class _ComicReaderPageState extends State<ComicReaderPage> {
   late final SectionImagePipeline _pipeline;
+  final _imageTools = ComicImageTools();
 
   /// 阅读设置可被面板改写（模式、侧边距、双击放大），因此不是 final。
   late ComicReaderSettings _settings;
@@ -125,6 +128,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   void initState() {
     super.initState();
     _pipeline = SectionImagePipeline(
+      decodeTransform: _imageTools.automatic,
       cacheDir: widget.library.imageCacheDir,
       network: widget.network,
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
@@ -190,6 +194,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   @override
   void dispose() {
+    _imageTools.dispose();
     // 先落进度，再释放图片资源；顺序反了进度就丢了。
     _saveTimer?.cancel();
     _saveProgress();
@@ -514,6 +519,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           onChanged: _updateSettings,
           canSavePage: _images.isNotEmpty && !_saving,
           onSavePage: () => _saveImage(_page),
+          onImageTools: _images.isEmpty ? null : () async {
+            final url = _images[_page.clamp(0, _images.length - 1)];
+            await Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => ComicImageToolsPage(loadOriginal: () => _pipeline.bytes(url)),
+            ));
+          },
           // 顶栏撤掉了「书签列表」按钮，但这个功能不能变成看得见摸不着——
           // 挪到这个二级页（这也是「不常用项」的正确去处）。
           bookmarkCount: _bookmarks.length,

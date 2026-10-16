@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../session/privacy_settings.dart';
 
 import '../cache/section_memory_cache.dart';
 import '../db/source_record.dart';
@@ -95,7 +96,10 @@ class LumeSources {
   static Future<SourceDescriptor?> currentSource(Section section) async {
     if (!runtimeAvailableFor(section)) return null;
     final registry = await SourceRegistry.open(section);
-    final record = registry.currentSource();
+    var record = registry.currentSource();
+    if (record != null && !PrivacySettings.instance.allowsSource(record.id, record.name)) {
+      record = registry.sources.where((s) => s.enabled && PrivacySettings.instance.allowsSource(s.id, s.name)).firstOrNull;
+    }
     return record == null ? null : _describe(record);
   }
 
@@ -106,6 +110,8 @@ class LumeSources {
   ) async {
     if (!runtimeAvailableFor(section)) return null;
     final registry = await SourceRegistry.open(section);
+    final candidate = registry.source(sourceId);
+    if (candidate != null && !PrivacySettings.instance.allowsSource(candidate.id, candidate.name)) return null;
     final record = registry.selectSource(sourceId);
     return record == null ? null : _describe(record);
   }
@@ -205,6 +211,7 @@ class LumeSources {
       }
     }
     if (record == null) return null;
+    if (!PrivacySettings.instance.allowsSource(record.id, record.name)) return null;
     if (await registry.engineFor(sourceId) == null) return null;
     return JsDataSource(
       id: record.id,
@@ -313,6 +320,9 @@ class LumeSources {
     }
     if (!record.enabled) {
       return const SourceTestResult.failed('源已停用，先在列表里启用再测试');
+    }
+    if (!PrivacySettings.instance.allowsSource(record.id, record.name)) {
+      return const SourceTestResult.failed('成人内容已隐藏，请在隐私设置中开启后测试');
     }
     // 已标记失效的源不再自动重试（文档「图源损坏标记：标记失效源，不再自动重试」）。
     // 手动单测仍允许——用户想亲眼确认它是否真的坏了，这是他的主动行为。

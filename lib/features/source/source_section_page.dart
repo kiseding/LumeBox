@@ -1,4 +1,5 @@
 import '../../shared/widgets/source_drag_tile.dart';
+import '../../core/session/privacy_settings.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_order.dart';
@@ -591,6 +592,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         sources
             .where(
               (source) =>
+                  PrivacySettings.instance.allowsSource(source.id, source.name) &&
                   (query.isEmpty ||
                       '${source.name} ${source.id} ${source.group}'
                           .toLowerCase()

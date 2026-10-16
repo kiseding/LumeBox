@@ -188,6 +188,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('沙箱设置'), 160,
+        scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('沙箱设置'));
+      await tester.pumpAndSettle();
     }
 
     testWidgets('设置页有「沙箱设置」入口，点进去能改超时', (tester) async {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../session/privacy_settings.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -30,7 +31,8 @@ class SourceContentVisibility extends ChangeNotifier {
           .toList();
   bool sectionVisible(Section section) => groups(section).isNotEmpty;
   bool allows(Section section, SourceDescriptor source) =>
-      isVisible(SourcePickerGroups.groupFor(section, source));
+      isVisible(SourcePickerGroups.groupFor(section, source)) &&
+      PrivacySettings.instance.allowsSource(source.id, source.name);
   Future<void> boot({File? file}) async {
     try {
       _file =

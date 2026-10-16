@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/session/privacy_settings.dart';
 
 import '../../core/cat/cat_data_source.dart';
 import '../../core/cat/cat_service.dart';
@@ -22,7 +23,7 @@ class CatPreloader {
 
   static CatSite? selectedSite(CatService service) {
     final records = service.subscriptions.where((r) => r.enabled).toList();
-    final sites = records.expand((r) => r.sites).toList();
+    final sites = records.expand((r) => r.sites).where((s) => PrivacySettings.instance.allowsSource(s.id, s.name)).toList();
     return sites.where((s) => s.id == service.selectedSiteId).firstOrNull ??
         sites
             .where(

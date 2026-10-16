@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import '../session/privacy_settings.dart';
 
 import '../session/section.dart';
 import 'reading_models.dart';
@@ -41,7 +42,7 @@ class ReadingLibrary {
   // ------------------------------------------------------------------ 书架
 
   /// 书架条目，最近加入或阅读的在前。
-  List<LibraryItem> shelf() => _store.shelf();
+  List<LibraryItem> shelf() => _store.shelf().where((item) => PrivacySettings.instance.allowsSource(item.sourceId, item.title)).toList();
 
   LibraryItem? item(String itemId) => _store.item(itemId);
 
@@ -124,6 +125,7 @@ class ReadingLibrary {
   List<LibraryItem> continueWatching({int limit = 20}) {
     final items = <LibraryItem>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title)) continue;
       final progress = _store.progress(item.itemId);
       if (progress is! VideoProgress) continue;
       items.add(item);
@@ -142,6 +144,7 @@ class ReadingLibrary {
   }) {
     final entries = <({LibraryItem item, ReadingProgress progress})>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title)) continue;
       final progress = _store.progress(item.itemId);
       if (progress == null) continue;
       entries.add((item: item, progress: progress));

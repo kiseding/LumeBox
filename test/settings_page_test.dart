@@ -265,6 +265,8 @@ void main() {
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('运行日志'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('运行日志'));
     await tester.pumpAndSettle();
 

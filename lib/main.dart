@@ -4,6 +4,9 @@ import 'core/session/configuration_backup.dart';
 import 'core/search/search_settings.dart';
 import 'core/source/source_content_visibility.dart';
 import 'core/theme/floating_modules.dart';
+import 'core/theme/glass_effects_settings.dart';
+import 'core/reading/comic_image_tools.dart';
+import 'core/session/privacy_settings.dart';
 
 import 'dart:async';
 
@@ -23,6 +26,7 @@ void main() {
   runZonedGuarded<void>(() async {
     WidgetsFlutterBinding.ensureInitialized();
     await AppPreferences.instance.boot();
+    await PrivacySettings.instance.boot();
     if (AppPreferences.instance.autoBackup) {
       try {
         await ConfigurationBackup().automatic();
@@ -54,6 +58,8 @@ void main() {
     // 首帧就该是用户选过的主题，先闪一下默认色再变很难看。
     await AppearanceController.instance.boot();
     await FloatingModules.instance.boot();
+    await GlassEffectsSettings.instance.boot();
+    await ComicImageToolsSettings.instance.boot();
     runApp(const LumeBoxApp());
   }, (error, stackTrace) => LumeLog.error(error, stackTrace));
 }

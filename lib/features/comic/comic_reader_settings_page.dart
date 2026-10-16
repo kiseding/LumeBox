@@ -4,6 +4,7 @@ import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock.dart';
 import 'comic_settings.dart';
+import 'comic_image_tools_page.dart';
 
 /// 「阅读设置」二级页（用户口径）：把**不常用**的选项从底部面板搬到这里，
 /// 底部面板只留阅读时真正会随手改的那几项（阅读模式 / 侧边距 / 页间距 + 页码）。
@@ -26,9 +27,11 @@ class ComicReaderSettingsPage extends StatefulWidget {
     this.canSavePage = false,
     this.bookmarkCount = 0,
     this.onOpenBookmarks,
+    this.onImageTools,
   });
 
   final ComicReaderSettings settings;
+  final Future<void> Function()? onImageTools;
   final ValueChanged<ComicReaderSettings> onChanged;
 
   /// 这本书当前的书签数（显示用）。
@@ -222,6 +225,22 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
           ),
           const SizedBox(height: 12),
           // 说明面板与这里的分工，避免用户回到面板找不到刚改过的东西。
+          ListTile(
+            leading: const Icon(Icons.auto_fix_high_outlined),
+            title: const Text('当前页超分 / 翻译'),
+            subtitle: const Text('处理当前页，保留原图对照'),
+            onTap: widget.onImageTools,
+          ),
+          ListTile(
+            leading: const Icon(Icons.hd_outlined),
+            title: const Text('图片超分辨率'),
+            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ComicImageToolsSettingsPage())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.translate),
+            title: const Text('漫画翻译'),
+            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ComicImageToolsSettingsPage(translation: true))),
+          ),
           GlassCard(
             padding: const EdgeInsets.all(14),
             child: Text(

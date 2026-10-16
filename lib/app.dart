@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'core/session/privacy_settings.dart';
+import 'shared/widgets/app_privacy_guard.dart';
 
 import 'core/theme/appearance.dart';
 import 'core/theme/lume_theme.dart';
@@ -76,11 +78,17 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
               // `AppShell._buildPage` 按页签标识 + 主题身份建当前页签，
               // 主题一变当前页签整体重建，页内静态色名（`LumeTheme.textPrimary`
               // 等）才重新取值。这一层保留是为了兄弟子树（弹层等）也跟着重建。
-              child: child ?? const SizedBox.shrink(),
+              child: AppPrivacyGuard(child: child ?? const SizedBox.shrink()),
             );
           },
           navigatorObservers: <NavigatorObserver>[ShellDockObserver(_dock)],
-          home: AppShell(controller: _dock),
+          home: ListenableBuilder(
+            listenable: PrivacySettings.instance,
+            builder: (context, _) => AppShell(
+              key: ValueKey(PrivacySettings.instance.showAdult),
+              controller: _dock,
+            ),
+          ),
         );
       },
     );

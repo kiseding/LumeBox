@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/session/privacy_settings.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/net/source_subscription.dart';
@@ -218,7 +219,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   }
 
   List<SourceDescriptor> _listOf(Section section) =>
-      _sources[section] ?? const <SourceDescriptor>[];
+      (_sources[section] ?? const <SourceDescriptor>[]).where((s) => PrivacySettings.instance.allowsSource(s.id, s.name)).toList();
 
   int _enabledCount(Section section) =>
       _listOf(section).where((source) => source.enabled).length;

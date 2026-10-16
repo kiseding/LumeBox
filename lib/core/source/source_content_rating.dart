@@ -27,5 +27,6 @@ class SourceContentRating {
   };
   static bool isAdult(String id, String name) =>
       adultIds.contains(id) ||
+      adultIds.any((known) => id.endsWith(':$known') || id.endsWith('|$known')) ||
       RegExp(r'成人|18禁|18H|18\+|R18|小黄书|色情|NSFW', caseSensitive: false).hasMatch(name);
 }

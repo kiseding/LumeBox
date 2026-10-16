@@ -20,6 +20,8 @@ class ConfigurationBackup {
     'source_content_visibility.json',
     'search_settings.json',
     'floating_modules.json',
+    'glass_effects_settings.json',
+    'comic_image_tools.json',
     'browse_layout.json',
     'network_settings.json',
   };

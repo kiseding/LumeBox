@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../session/privacy_settings.dart';
 
 import '../source/source_subscription_sync.dart';
 import '../session/section.dart';
@@ -178,7 +179,12 @@ class CatService extends ChangeNotifier {
   final _bookmarks = <String, Map<String, dynamic>>{};
   final messages = StreamController<Map<String, dynamic>>.broadcast();
   Map<String, dynamic> playInfo = {};
-  List<Map<String, dynamic>> get favoriteItems => _bookmarks.values.toList();
+  bool collectionAllowed(Map<String, dynamic> entry) {
+    final id = catText(entry['site']);
+    final site = subscriptions.expand((s) => s.sites).where((s) => s.id == id).firstOrNull;
+    return PrivacySettings.instance.allowsSource(id, site?.name ?? catText(entry['title']));
+  }
+  List<Map<String, dynamic>> get favoriteItems => _bookmarks.values.where(collectionAllowed).toList();
   Future<void> _saving = Future.value();
   Directory? _root;
   HttpServer? _bridge;
@@ -809,6 +815,7 @@ class CatService extends ChangeNotifier {
     String operation, [
     Map<String, dynamic> body = const {},
   ]) async {
+    if (!PrivacySettings.instance.allowsSource(site.id, site.name)) throw StateError('成人内容已隐藏，请在隐私设置中开启');
     final record = subscriptions.firstWhere((s) => s.id == site.subscriptionId);
     return guardStartup(record.id, () async {
       final base = _versions[record.id] == '${record.hash}-${record.configHash}'
@@ -901,6 +908,7 @@ class CatService extends ChangeNotifier {
     await save();
   });
   Future<void> select(CatSite site) async {
+    if (!PrivacySettings.instance.allowsSource(site.id, site.name)) return;
     needsSiteSelection = false;
     selectedSiteId = site.id;
     await save();
