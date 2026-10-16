@@ -14,7 +14,7 @@ class LiquidGlassSettingsTile extends StatelessWidget {
       children: [
         SwitchListTile.adaptive(
           title: const Text('动态液态玻璃效果'),
-          subtitle: const Text('仅用于单独接入的小型装饰，关闭时使用原有界面'),
+          subtitle: const Text('各模块与部位可单独调节；关闭时使用原有界面'),
           value: GlassEffectsSettings.instance.liquidEnabled,
           onChanged: GlassEffectsSettings.instance.setLiquidEnabled,
         ),
