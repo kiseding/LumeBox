@@ -128,7 +128,10 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('lumebox/speech'),
-          (_) async => 'test-only-key',
+          (_) async => jsonEncode({
+            'endpoint': 'https://example.com/v1',
+            'key': 'test-only-key',
+          }),
         );
     final config = SpeechCloudConfig();
     await config.load();
@@ -156,6 +159,39 @@ void main() {
       0,
     ]);
     expect(calls, 1);
+    client.close();
+  });
+  test('a provider change cannot send another provider key', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => '.cache/speech-unit-config',
+        );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('lumebox/speech'),
+          (_) async => jsonEncode({
+            'endpoint': 'https://old.example/v1',
+            'key': 'do-not-send',
+          }),
+        );
+    final config = SpeechCloudConfig();
+    await config.load();
+    config.ttsUrl = 'https://new.example/v1';
+    config.ttsModel = 'user-model';
+    var requests = 0;
+    final client = SpeechCloudClient(
+      config,
+      client: MockClient((_) async {
+        requests++;
+        return http.Response.bytes([0, 0], 200);
+      }),
+    );
+    await expectLater(
+      client.audio('你好', 'alloy', 1).toList(),
+      throwsFormatException,
+    );
+    expect(requests, 0);
     client.close();
   });
 }

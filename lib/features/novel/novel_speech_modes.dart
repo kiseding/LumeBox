@@ -204,8 +204,16 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
           );
         }
       }
-      await config.setKey('tts', fields[2].text.trim());
-      await config.setKey('llm', fields[5].text.trim());
+      await config.setKey(
+        'tts',
+        fields[2].text.trim(),
+        forEndpoint: fields[0].text.trim(),
+      );
+      await config.setKey(
+        'llm',
+        fields[5].text.trim(),
+        forEndpoint: fields[3].text.trim(),
+      );
       config.ttsUrl = fields[0].text.trim();
       config.ttsModel = fields[1].text.trim();
       config.llmUrl = fields[3].text.trim();

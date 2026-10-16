@@ -29,7 +29,14 @@ void main() {
               call,
             ) async {
               methods.add(call.method);
-              if (call.method == 'speechGetKey') return 'unit-only';
+              if (call.method == 'speechGetKey') {
+                return jsonEncode({
+                  'endpoint': (call.arguments as Map)['kind'] == 'llm'
+                      ? 'https://llm.example/v1'
+                      : 'https://tts.example/v1',
+                  'key': 'unit-only',
+                });
+              }
               if (call.method == 'streamFinish') finished.complete();
               return null;
             });

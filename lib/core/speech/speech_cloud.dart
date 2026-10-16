@@ -60,10 +60,35 @@ class SpeechCloudConfig {
     await temp.rename(file.path);
   }
 
-  Future<String> key(String kind) async =>
-      await _channel.invokeMethod<String>('speechGetKey', {'kind': kind}) ?? '';
-  Future<void> setKey(String kind, String key) =>
-      _channel.invokeMethod<void>('speechSetKey', {'kind': kind, 'key': key});
+  int revision = 0;
+  Future<String> key(String kind, {String? forEndpoint}) async {
+    final raw =
+        await _channel.invokeMethod<String>('speechGetKey', {'kind': kind}) ??
+        '';
+    if (raw.isEmpty) return '';
+    final record = jsonDecode(raw);
+    final expected = (forEndpoint ?? (kind == 'tts' ? ttsUrl : llmUrl)).trim();
+    if (record is! Map ||
+        record['endpoint'] != expected ||
+        record['key'] is! String) {
+      throw const FormatException('接口地址已改变，请重新保存对应密钥');
+    }
+    return record['key'] as String;
+  }
+
+  Future<void> setKey(String kind, String key, {String? forEndpoint}) async {
+    revision++;
+    await _channel.invokeMethod<void>('speechSetKey', {
+      'kind': kind,
+      'key': key.isEmpty
+          ? ''
+          : jsonEncode({
+              'endpoint': (forEndpoint ?? (kind == 'tts' ? ttsUrl : llmUrl))
+                  .trim(),
+              'key': key,
+            }),
+    });
+  }
 
   static Uri endpoint(String raw, String suffix) {
     final uri = Uri.tryParse(raw.trim());
@@ -118,9 +143,10 @@ class SpeechCloudClient {
     if (config.llmModel.trim().isEmpty) {
       throw const FormatException('请填写大模型名称');
     }
+    final address = config.llmUrl;
     final response = await _post(
-      SpeechCloudConfig.endpoint(config.llmUrl, '/chat/completions'),
-      await config.key('llm'),
+      SpeechCloudConfig.endpoint(address, '/chat/completions'),
+      await config.key('llm', forEndpoint: address),
       {
         'model': config.llmModel,
         'stream': false,
@@ -155,9 +181,10 @@ class SpeechCloudClient {
     if (config.ttsModel.trim().isEmpty) {
       throw const FormatException('请填写 TTS 模型名称');
     }
+    final address = config.ttsUrl;
     final response = await _post(
-      SpeechCloudConfig.endpoint(config.ttsUrl, '/audio/speech'),
-      await config.key('tts'),
+      SpeechCloudConfig.endpoint(address, '/audio/speech'),
+      await config.key('tts', forEndpoint: address),
       {
         'model': config.ttsModel,
         'input': text,

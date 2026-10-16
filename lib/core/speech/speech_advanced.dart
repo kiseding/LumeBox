@@ -83,7 +83,8 @@ class AdvancedSpeechSource {
         if (settings.mode == SpeechMode.cloudAi && settings.autoDialogue) {
           await config.load();
           if (generation != _generation) return;
-          final cacheKey = '${config.llmUrl}\n${config.llmModel}\n$_chapter';
+          final cacheKey =
+              '${config.revision}\n${config.llmUrl}\n${config.llmModel}\n$_chapter';
           if (_annotationKey != cacheKey) {
             try {
               final result = await client
@@ -109,6 +110,14 @@ class AdvancedSpeechSource {
             segment.text,
             dialogue: settings.autoDialogue,
           );
+        }
+        if (effective.mode != settings.mode) {
+          // AI failed before any audio was queued: use the complete simple-mode
+          // profile, including its native pitch/volume, without altering storage.
+          await methods.invokeMethod<void>('streamBegin', {
+            'token':token,'sampleRate':sampleRate,'pitch':effective.pitch,
+            'volume':effective.volume,'background':effective.backgroundPlayback,
+          });
         }
         for (final turn in turns) {
           if (generation != _generation) return;
