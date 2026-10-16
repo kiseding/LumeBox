@@ -25,7 +25,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isIOS) {
+    if (Platform.isIOS || Platform.isAndroid) {
       const MethodChannel('lumebox/app_icon')
           .invokeMethod<String>('current')
           .then((value) {
@@ -137,7 +137,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
     child: ListView(
       padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
       children: [
-        if (Platform.isIOS) ...[
+        if (Platform.isIOS || Platform.isAndroid) ...[
           const ListTile(title: Text('App 图标')),
           Wrap(
             spacing: 12,

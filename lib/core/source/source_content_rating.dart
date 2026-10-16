@@ -1,6 +1,9 @@
 /// Explicitly identified adult sources. Unknown sources stay unclassified.
 class SourceContentRating {
   static const adultIds = <String>{
+    '99xs_novel',
+    'xxiaoshuo_novel',
+    'xnovel_novel',
     'hhhbook_novel',
     'hlib_novel',
     'aaccoo_novel',

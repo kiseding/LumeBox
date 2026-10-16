@@ -877,8 +877,23 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
               Expanded(
                 child: _compact
                     ? ListTile(
-                        title: Text(source.name),
-                        subtitle: Text(source.hasGroup ? source.group : '未分组'),
+                        title: Text(
+                          source.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Wrap(
+                          spacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (SourceContentRating.isAdult(
+                              source.id,
+                              source.name,
+                            ))
+                              const SourceRatingBadge(),
+                            Text(source.hasGroup ? source.group : '未分组'),
+                          ],
+                        ),
                         leading: SourceIcon(
                           name: source.name,
                           siteUrl: source.siteUrl,
@@ -1009,6 +1024,8 @@ class _SourceTile extends StatelessWidget {
               children: <Widget>[
                 Text(
                   source.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -1090,53 +1107,61 @@ class _SourceTile extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-          Switch(value: source.enabled, onChanged: onToggle),
-          // 行内只留开关：浏览 / 重命名 / 导出 / 删除收进「更多」，
-          // 手机窄屏也不会把四个按钮挤成一片。
-          PopupMenuButton<_SourceAction>(
-            tooltip: '更多操作',
-            onSelected: (action) {
-              switch (action) {
-                case _SourceAction.rename:
-                  onRename();
-                case _SourceAction.group:
-                  onGroup();
-                case _SourceAction.recover:
-                  onRecover?.call();
-                case _SourceAction.network:
-                  onNetwork();
-                case _SourceAction.exportScript:
-                  onExport();
-                case _SourceAction.delete:
-                  onDelete();
-              }
-            },
-            itemBuilder: (context) => <PopupMenuEntry<_SourceAction>>[
-              const PopupMenuItem<_SourceAction>(
-                value: _SourceAction.rename,
-                child: Text('重命名'),
-              ),
-              const PopupMenuItem<_SourceAction>(
-                value: _SourceAction.group,
-                child: Text('设置分组'),
-              ),
-              // 只有失效的源才有「恢复」——正常的源没有可恢复的状态。
-              if (onRecover != null)
-                const PopupMenuItem<_SourceAction>(
-                  value: _SourceAction.recover,
-                  child: Text('恢复（解除失效标记）'),
-                ),
-              const PopupMenuItem<_SourceAction>(
-                value: _SourceAction.network,
-                child: Text('网络配置'),
-              ),
-              const PopupMenuItem<_SourceAction>(
-                value: _SourceAction.exportScript,
-                child: Text('导出脚本'),
-              ),
-              const PopupMenuItem<_SourceAction>(
-                value: _SourceAction.delete,
-                child: Text('删除'),
+          Wrap(
+            direction: MediaQuery.sizeOf(context).width < 380
+                ? Axis.vertical
+                : Axis.horizontal,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Switch(value: source.enabled, onChanged: onToggle),
+              // 行内只留开关：浏览 / 重命名 / 导出 / 删除收进「更多」，
+              // 手机窄屏也不会把四个按钮挤成一片。
+              PopupMenuButton<_SourceAction>(
+                tooltip: '更多操作',
+                onSelected: (action) {
+                  switch (action) {
+                    case _SourceAction.rename:
+                      onRename();
+                    case _SourceAction.group:
+                      onGroup();
+                    case _SourceAction.recover:
+                      onRecover?.call();
+                    case _SourceAction.network:
+                      onNetwork();
+                    case _SourceAction.exportScript:
+                      onExport();
+                    case _SourceAction.delete:
+                      onDelete();
+                  }
+                },
+                itemBuilder: (context) => <PopupMenuEntry<_SourceAction>>[
+                  const PopupMenuItem<_SourceAction>(
+                    value: _SourceAction.rename,
+                    child: Text('重命名'),
+                  ),
+                  const PopupMenuItem<_SourceAction>(
+                    value: _SourceAction.group,
+                    child: Text('设置分组'),
+                  ),
+                  // 只有失效的源才有「恢复」——正常的源没有可恢复的状态。
+                  if (onRecover != null)
+                    const PopupMenuItem<_SourceAction>(
+                      value: _SourceAction.recover,
+                      child: Text('恢复（解除失效标记）'),
+                    ),
+                  const PopupMenuItem<_SourceAction>(
+                    value: _SourceAction.network,
+                    child: Text('网络配置'),
+                  ),
+                  const PopupMenuItem<_SourceAction>(
+                    value: _SourceAction.exportScript,
+                    child: Text('导出脚本'),
+                  ),
+                  const PopupMenuItem<_SourceAction>(
+                    value: _SourceAction.delete,
+                    child: Text('删除'),
+                  ),
+                ],
               ),
             ],
           ),

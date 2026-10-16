@@ -106,6 +106,31 @@ void main() {
         outputPicture.dispose();
       }
     }
+    for (final (density, size) in [
+      ('mdpi', 48),
+      ('hdpi', 72),
+      ('xhdpi', 96),
+      ('xxhdpi', 144),
+      ('xxxhdpi', 192),
+    ]) {
+      final output = ui.PictureRecorder();
+      final scaled = Canvas(output)..scale(size / _size);
+      scaled.drawImage(
+        image,
+        Offset.zero,
+        Paint()..filterQuality = FilterQuality.high,
+      );
+      final recorded = output.endRecording();
+      final rendered = await recorded.toImage(size, size);
+      final png = await rendered.toByteData(format: ui.ImageByteFormat.png);
+      final directory = Directory('android/app/src/main/res/mipmap-$density')
+        ..createSync(recursive: true);
+      File(
+        '${directory.path}/ic_lume_${_style.isEmpty ? 'default' : _style.toLowerCase()}.png',
+      ).writeAsBytesSync(png!.buffer.asUint8List());
+      rendered.dispose();
+      recorded.dispose();
+    }
     image.dispose();
     picture.dispose();
 
