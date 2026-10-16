@@ -144,6 +144,34 @@ void main() {
     restored.dispose();
   });
 
+  testWidgets('module popup tuning still obeys the player frosted switch', (
+    tester,
+  ) async {
+    final settings = GlassEffectsSettings.instance;
+    await tester.runAsync(
+      () => settings.setModule(
+        GlassModule.video,
+        GlassPart.panels,
+        const GlassTuning(enabled: true),
+      ),
+    );
+    const original = ColoredBox(color: Colors.red, child: Text('old popup'));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: PlayerPopupGlass(
+          area: GlassArea.videoSettings,
+          legacy: original,
+          child: Text('new popup'),
+        ),
+      ),
+    );
+    expect(find.byType(FrostedGlassWidget), findsOneWidget);
+    await tester.runAsync(() => settings.setPlayerFrostedEnabled(false));
+    await tester.pump();
+    expect(find.byWidget(original), findsOneWidget);
+    expect(find.byType(FrostedGlassWidget), findsNothing);
+  });
+
   testWidgets('unsupported liquid preserves the original surface background', (
     tester,
   ) async {

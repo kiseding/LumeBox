@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/glass_effects_settings.dart';
 import 'frosted_glass_widget.dart';
+import 'module_glass_surface.dart';
 
 /// Explicit integration point for a full player popup only, never the dock.
 /// The original background stays in [legacy]; [child] must be popup content
@@ -25,7 +26,25 @@ class PlayerPopupGlass extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: GlassEffectsSettings.instance,
     builder: (context, _) {
-      if (!GlassEffectsSettings.instance.active(area)) return legacy;
+      final settings = GlassEffectsSettings.instance;
+      if (area == GlassArea.videoSettings &&
+          settings.hasModuleConfiguration(
+            GlassModule.video,
+            GlassPart.panels,
+          )) {
+        final profile = settings.moduleTuning(
+          GlassModule.video,
+          GlassPart.panels,
+        );
+        if (!profile.liquid && !settings.playerFrostedEnabled) return legacy;
+        return ModuleGlassSurface(
+          module: GlassModule.video,
+          part: GlassPart.panels,
+          legacy: legacy,
+          child: child,
+        );
+      }
+      if (!settings.active(area)) return legacy;
       final tune = GlassEffectsSettings.instance.tuning(area);
       return FrostedGlassWidget(
         blur: area == GlassArea.fullPlayerPopup ? blur : tune.blur,

@@ -442,10 +442,6 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       child: DecoratedBox(decoration: LumeTheme.background, child: content),
     );
     if (!widget.useFrostedSurface) return legacy;
-    if (GlassEffectsSettings.instance.hasModuleConfiguration(GlassModule.video, GlassPart.panels)) {
-      return ModuleGlassSurface(module: GlassModule.video, part: GlassPart.panels,
-        legacy: legacy, child: content);
-    }
     return PlayerPopupGlass(
       area: GlassArea.videoSettings,
       legacy: legacy,
