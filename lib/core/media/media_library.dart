@@ -217,7 +217,9 @@ class MediaLibrary extends ChangeNotifier {
   Future<MediaResource> add(MediaResource item) async {
     await boot();
     final previous = _items[item.id];
-    if (previous?.manual == true && !item.manual) return previous!;
+    if (previous?.manual == true && !item.manual) {
+      item = item.placed(previous!.kind, previous.destination);
+    }
     _items[item.id] = item;
     notifyListeners();
     await _save();

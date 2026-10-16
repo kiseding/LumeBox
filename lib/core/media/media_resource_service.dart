@@ -68,7 +68,28 @@ class MediaResourceService {
     await library.boot();
     final id = MediaResource.sourceKey(source.section, source.id, item.id);
     final previous = library.byId(id);
-    if (previous?.manual == true) return previous!;
+    if (previous?.manual == true) {
+      return library.add(
+        MediaResource(
+          id: id,
+          title: item.title,
+          kind: previous!.kind,
+          destination: previous.destination,
+          manual: true,
+          originSection: source.section,
+          sourceId: source.id,
+          itemId: item.id,
+          cover: item.cover ?? previous.cover,
+          textPath: previous.textPath,
+          episodes: chapters.isEmpty
+              ? previous.episodes
+              : [
+                  for (final chapter in chapters)
+                    ResourceEpisode(id: chapter.id, title: chapter.title),
+                ],
+        ),
+      );
+    }
     final content =
         firstContent ??
         (chapters.isEmpty

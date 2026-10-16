@@ -136,12 +136,31 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
               chapterId: chapter.id,
             )
           : null;
-      final address = direct ?? SourcePlayback.contentAddress(content);
-      if (address == null) throw StateError('源未返回有效的视频播放地址');
       await MediaLibrary.instance.boot();
       final saved = MediaLibrary.instance.byId(
         MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),
       );
+      if (saved?.manual == true && saved!.kind == ResourceKind.novel ||
+          saved?.manual != true &&
+              content is TextContent &&
+              MediaResourceService.address(content) == null) {
+        final entry = saved?.manual == true
+            ? saved!
+            : await MediaResourceService().source(
+                source: _source!,
+                item: widget.item,
+                chapters: chapters,
+                firstContent: content,
+                hint: ResourceKind.novel,
+              );
+        if (mounted) await openMediaResource(context, entry, index: selected);
+        return;
+      }
+      final address =
+          direct ??
+          SourcePlayback.contentAddress(content) ??
+          MediaResourceService.address(content);
+      if (address == null) throw StateError('源未返回有效的播放地址');
       final tracks = saved?.manual == true
           ? const MediaTrackInfo()
           : await const MediaTrackProbe().inspect(
@@ -151,7 +170,12 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       if ((saved?.manual == true && saved!.kind != ResourceKind.video) ||
           (saved?.manual != true &&
               (tracks.kind == ResourceKind.audioBook ||
-                  content is VideoContent && content.audioOnly))) {
+                  !tracks.known &&
+                      (content is VideoContent && content.audioOnly ||
+                          RegExp(
+                            r'\.(mp3|m4a|aac|flac|ogg|opus|wav)$',
+                            caseSensitive: false,
+                          ).hasMatch(address.path))))) {
         final entry = saved?.manual == true
             ? saved!
             : await MediaResourceService().source(
