@@ -163,7 +163,7 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.sources,
       behindBar: true,
       title: '${widget.section.label} · 源编辑器',
       actions: <Widget>[

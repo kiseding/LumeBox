@@ -55,7 +55,7 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
   @override
   Widget build(BuildContext context) {
     final records = DebugRequestLog.snapshot;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '调试面板',
       actions: <Widget>[

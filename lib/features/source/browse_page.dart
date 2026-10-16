@@ -22,7 +22,7 @@ class BrowsePage extends StatelessWidget {
   final DataSource dataSource;
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.sources,
         title: '${dataSource.section.label} · ${dataSource.name}',
         child: BrowseView(dataSource: dataSource),
       );

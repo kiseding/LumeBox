@@ -14,6 +14,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
   bool automatic = false;
   int threshold = 1080;
   int noise = 0;
+  String imageStyle = 'anime';
   String target = 'zh-Hans';
   String source = 'auto';
   bool ai = false;
@@ -29,6 +30,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       final data = jsonDecode(await file.readAsString());
       if (data is! Map) return;
       automatic = data['automatic'] == true;
+      imageStyle = data['imageStyle'] == 'photo' ? 'photo' : 'anime';
       threshold = [720, 1080, 1440, 2160].contains(data['threshold'])
           ? data['threshold'] as int
           : 1080;
@@ -53,6 +55,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'automatic': automatic,
       'threshold': threshold,
       'noise': noise,
+      'imageStyle': imageStyle,
       'target': target,
       'source': source,
       'ai': ai,
@@ -127,7 +130,8 @@ class ComicTextRegion {
 
 /// A reader-owned session. Disposing cancels all this reader's native jobs.
 class ComicImageTools {
-  ComicImageTools({this.settings, this.client});
+  ComicImageTools({this.settings, this.client, this.imageStyle});
+  String? imageStyle;
   static const channel = MethodChannel('lumebox/comicImages');
   final ComicImageToolsSettings? settings;
   final http.Client? client;
@@ -165,6 +169,7 @@ class ComicImageTools {
     final result = await _invoke<Uint8List>('superResolve', {
       'bytes': bytes,
       'noise': preferences.noise,
+      'imageStyle': imageStyle ?? preferences.imageStyle,
     });
     if (result == null || result.isEmpty) throw StateError('超分未返回图片');
     return result;
@@ -185,6 +190,7 @@ class ComicImageTools {
         final result = await _invoke<Uint8List>('superResolve', {
           'bytes': bytes,
           'noise': preferences.noise,
+          'imageStyle': imageStyle ?? preferences.imageStyle,
           'threshold': preferences.threshold,
         });
         completer.complete(result == null || result.isEmpty ? bytes : result);

@@ -149,7 +149,7 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '缓存管理',
       actions: <Widget>[

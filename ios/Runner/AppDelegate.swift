@@ -8,6 +8,7 @@ import UIKit
 
   /// 语音朗读控制器（AVSpeechSynthesizer）：生命周期跟随 App。
   private let speech = SpeechController()
+  private let mediaTracks = MediaTrackProbe()
 
   /// 屏幕亮度控制器（UIScreen.brightness）：生命周期跟随 App。
   private let brightness = BrightnessController()
@@ -21,6 +22,7 @@ import UIKit
   private let wafCookies = WafCookieController()
   private let battery = BatteryController()
   private let configurationExport = ConfigurationExportController()
+  private let cloudSync = ICloudSyncController()
   private let comicImages = ComicImageToolsController()
   private let privacy = PrivacyController()
 
@@ -35,6 +37,7 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxConfiguration")?.messenger() {
       configurationExport.register(with: messenger)
+      cloudSync.register(with: messenger)
       FlutterMethodChannel(name: "lumebox/app_icon", binaryMessenger: messenger).setMethodCallHandler { call, result in
         if call.method == "current" { result(UIApplication.shared.alternateIconName ?? "default"); return }
         guard call.method == "set" else { result(FlutterMethodNotImplemented); return }
@@ -57,6 +60,7 @@ import UIKit
     if let messenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "LumeBoxSpeech")?.messenger() {
       speech.register(with: messenger)
+      mediaTracks.register(with: messenger)
     }
 
     // 屏幕亮度通道：与 Dart 侧 `MethodChannelBrightnessBackend` 的契约一一对应。
@@ -107,13 +111,15 @@ private final class ConfigurationExportController: NSObject, UIDocumentPickerDel
         guard call.method == "export" else { result(FlutterMethodNotImplemented); return }
         guard let self = self else { result(false); return }
         guard self.pending == nil else { result(FlutterError(code: "busy", message: "An export is already open", details: nil)); return }
-        guard let args = call.arguments as? [String: Any], let text = args["text"] as? String,
-              let name = args["name"] as? String, name == (name as NSString).lastPathComponent else {
+        guard let args = call.arguments as? [String: Any],
+              let name = args["name"] as? String, !name.isEmpty, name == (name as NSString).lastPathComponent,
+              let data = (args["bytes"] as? FlutterStandardTypedData)?.data ?? (args["text"] as? String)?.data(using: .utf8),
+              data.count <= 32 * 1024 * 1024 else {
           result(FlutterError(code: "arguments", message: "Invalid backup", details: nil)); return
         }
         do {
           let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-          try text.write(to: url, atomically: true, encoding: .utf8)
+          try data.write(to: url, options: .atomic)
           var presenter = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }.first(where: { $0.isKeyWindow })?.rootViewController
           while let next = presenter?.presentedViewController { presenter = next }

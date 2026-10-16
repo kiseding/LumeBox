@@ -1,3 +1,5 @@
+import 'package:lume_box/core/media/media_library.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -36,6 +38,12 @@ void main() {
               ? root.path
               : null,
         );
+    await MediaLibrary.instance.boot();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('lumebox/mediaTracks'),
+          (_) async => {'known': true, 'audio': true, 'video': true},
+        );
     comicLibrary = await ReadingLibrary.open(Section.comic);
     novelLibrary = await ReadingLibrary.open(Section.novel);
   });
@@ -48,20 +56,21 @@ void main() {
   });
 
   FakeSourceManager managerFor(Section section) => FakeSourceManager(
-        sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'a', name: '测试源', version: '1.0', enabled: true),
-        ],
-        opened: <String, DataSource>{
-          'a': FakeReadingDataSource(section: section, chapterCount: 3),
-        },
-      );
+    sources: const <SourceDescriptor>[
+      SourceDescriptor(id: 'a', name: '测试源', version: '1.0', enabled: true),
+    ],
+    opened: <String, DataSource>{
+      'a': FakeReadingDataSource(section: section, chapterCount: 3),
+    },
+  );
 
   Future<void> pump(WidgetTester tester, Widget child) async {
     await tester.binding.setSurfaceSize(const Size(420, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(theme: LumeTheme.build(), home: child),
-    );
+    await tester.pumpWidget(MaterialApp(theme: LumeTheme.build(), home: child));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    });
     await tester.pumpAndSettle();
   }
 
@@ -196,7 +205,10 @@ void main() {
   });
 
   testWidgets('小说目录页：倒序切换与点章进阅读器', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 3);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 3,
+    );
     await pump(
       tester,
       NovelCatalogPage(
@@ -224,7 +236,10 @@ void main() {
   });
 
   testWidgets('小说目录页：搜索章节标题，只留命中项', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 5);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 5,
+    );
     await pump(
       tester,
       NovelCatalogPage(
@@ -254,7 +269,10 @@ void main() {
   });
 
   testWidgets('小说目录页：搜不到时给空态提示，不是白屏', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 3);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 3,
+    );
     await pump(
       tester,
       NovelCatalogPage(
@@ -276,7 +294,10 @@ void main() {
   });
 
   testWidgets('小说目录页：搜索与倒序正交，可叠加', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 5);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 5,
+    );
     await pump(
       tester,
       NovelCatalogPage(
@@ -305,7 +326,10 @@ void main() {
   });
 
   testWidgets('小说目录页：清空搜索与收起搜索都恢复完整目录', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 3);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 3,
+    );
     await pump(
       tester,
       NovelCatalogPage(
@@ -337,7 +361,10 @@ void main() {
   });
 
   testWidgets('小说目录页：搜索结果里点章进阅读器，落的是正序下标', (tester) async {
-    final source = FakeReadingDataSource(section: Section.novel, chapterCount: 5);
+    final source = FakeReadingDataSource(
+      section: Section.novel,
+      chapterCount: 5,
+    );
     await pump(
       tester,
       NovelCatalogPage(

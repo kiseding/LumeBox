@@ -1,3 +1,4 @@
+import '../media/playback_focus.dart';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -33,7 +34,7 @@ class MethodChannelSpeechBackend
        // 公开参数名 `settings` 与私有字段 `_settings` 不同名，无法用初始化
        // 形参（Dart 不允许下划线开头的具名参数）。
        // ignore: prefer_initializing_formals
-       _settings = settings;
+       _settings = settings { PlaybackFocus.register('tts',stop); }
 
   static const String methodChannelName = 'lumebox/speech';
   static const String eventChannelName = 'lumebox/speech/events';
@@ -71,6 +72,7 @@ class MethodChannelSpeechBackend
 
   @override
   Future<void> speak(String text) async {
+    await PlaybackFocus.acquire('tts');
     _advanced.cancel();
     try {
       await _methods.invokeMethod<void>('speak', <String, Object?>{

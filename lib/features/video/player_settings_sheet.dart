@@ -1,3 +1,6 @@
+import '../../shared/widgets/player_popup_glass.dart';
+import '../../core/theme/glass_effects_settings.dart';
+import '../settings/glass_effects_page.dart';
 import 'playback_glass.dart';
 
 import 'package:flutter/material.dart';
@@ -43,6 +46,7 @@ Future<void> showPlayerSettingsSheet({
       builder: (context, enabled, _) => PlaybackGlass(
         enabled: enabled,
         child: PlayerSettingsSheet(
+          useFrostedSurface: true,
           showDanmakuPanel: false,
           settings: settings,
           capabilities: capabilities,
@@ -98,6 +102,7 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.danmakuCount,
     this.showDanmakuPanel = true,
     this.embedded = false,
+    this.useFrostedSurface = false,
     this.extraControls,
   });
 
@@ -150,6 +155,7 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 是否作为**内嵌内容**使用（全局设置页）：不画拖拽把手与关闭按钮，
   /// 也不限高（由外层滚动容器负责）。
   final bool embedded;
+  final bool useFrostedSurface;
   final Widget? extraControls;
 
   @override
@@ -215,6 +221,89 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           // 列表重新评估：宿主在下一帧重建面板。
           _update(settings);
         },
+      ),
+      const SizedBox(height: 20),
+      ListTile(
+        title: const Text('玻璃效果作用部位与强度'),
+        leading: const Icon(Icons.blur_on),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(builder: (_) => const GlassEffectsPage()),
+        ),
+      ),
+      _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
+      SwitchListTile.adaptive(
+        title: const Text('启用播放器手势'),
+        subtitle: const Text('控制下列滑动和长按手势；不影响按钮与进度条操作'),
+        value: settings.gestures.enabled,
+        onChanged: (v) => _update(
+          settings.copyWith(gestures: settings.gestures.copyWith(enabled: v)),
+        ),
+      ),
+      for (final item in [
+        ('左侧上下滑调亮度', settings.gestures.brightness, 'brightness'),
+        ('右侧上下滑调音量', settings.gestures.volume, 'volume'),
+        ('横向滑动调进度', settings.gestures.seek, 'seek'),
+        ('长按临时倍速', settings.gestures.boost, 'boost'),
+      ])
+        SwitchListTile.adaptive(
+          title: Text(item.$1),
+          value: item.$2,
+          onChanged: !settings.gestures.enabled
+              ? null
+              : (v) => _update(
+                  settings.copyWith(
+                    gestures: settings.gestures.copyWith(
+                      brightness: item.$3 == 'brightness' ? v : null,
+                      volume: item.$3 == 'volume' ? v : null,
+                      seek: item.$3 == 'seek' ? v : null,
+                      boost: item.$3 == 'boost' ? v : null,
+                    ),
+                  ),
+                ),
+        ),
+      _label('上下滑动灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
+      Slider(
+        value: settings.gestureSensitivity,
+        min: PlayerSettings.minGestureSensitivity,
+        max: PlayerSettings.maxGestureSensitivity,
+        divisions: 6,
+        onChanged:
+            !settings.gestures.enabled ||
+                !(settings.gestures.brightness || settings.gestures.volume)
+            ? null
+            : (v) => _update(settings.copyWith(gestureSensitivity: v)),
+      ),
+      _label('横滑一屏跨度 ${settings.gestures.seekSeconds} 秒'),
+      Slider(
+        value: settings.gestures.seekSeconds.toDouble(),
+        min: 30,
+        max: 180,
+        divisions: 10,
+        onChanged: !settings.gestures.enabled || !settings.gestures.seek
+            ? null
+            : (v) => _update(
+                settings.copyWith(
+                  gestures: settings.gestures.copyWith(seekSeconds: v.round()),
+                ),
+              ),
+      ),
+      _label('长按加速倍率 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×'),
+      Slider(
+        value: settings.gestures.boostMultiplier,
+        min: 1.25,
+        max: 3,
+        divisions: 7,
+        onChanged: !settings.gestures.enabled || !settings.gestures.boost
+            ? null
+            : (v) => _update(
+                settings.copyWith(
+                  gestures: settings.gestures.copyWith(boostMultiplier: v),
+                ),
+              ),
+      ),
+      const Text(
+        '长按在当前倍速上临时加速，松手恢复。默认 2× 保留原加速规则；自定义倍率最高播放 4×。亮度不可由系统调整时使用画面遮罩。',
       ),
       const SizedBox(height: 20),
       _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
@@ -333,26 +422,34 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       children: children,
     );
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
-        child: SafeArea(
-          top: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                _handle(context),
-                Flexible(child: list),
-              ],
-            ),
-          ),
+    final content = SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _handle(context),
+            Flexible(child: list),
+          ],
         ),
       ),
+    );
+    final legacy = ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: DecoratedBox(decoration: LumeTheme.background, child: content),
+    );
+    if (!widget.useFrostedSurface) return legacy;
+    if (GlassEffectsSettings.instance.hasModuleConfiguration(GlassModule.video, GlassPart.panels)) {
+      return ModuleGlassSurface(module: GlassModule.video, part: GlassPart.panels,
+        legacy: legacy, child: content);
+    }
+    return PlayerPopupGlass(
+      area: GlassArea.videoSettings,
+      legacy: legacy,
+      child: content,
     );
   }
 
@@ -736,25 +833,6 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             ),
           ),
           const SizedBox(height: 12),
-          // 手势灵敏度（用户口径：在播放器设置里可自定义）。
-          // 只作用于**亮度 / 音量**的垂直滑动：一屏高度对应「100% × 灵敏度」。
-          _label('手势灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
-          Slider(
-            value: settings.gestureSensitivity,
-            min: PlayerSettings.minGestureSensitivity,
-            max: PlayerSettings.maxGestureSensitivity,
-            divisions: 6,
-            label: '${settings.gestureSensitivity.toStringAsFixed(1)}×',
-            onChanged: (value) =>
-                _update(settings.copyWith(gestureSensitivity: value)),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 4),
-            child: Text(
-              '只影响亮度 / 音量的上下滑动幅度：调大更灵敏，调小更稳（左右横滑调进度不受影响）。',
-              style: TextStyle(fontSize: 11, color: LumeTheme.muted),
-            ),
-          ),
           const SizedBox(height: 12),
           _label(
             '底色 ${(prefs.subtitleBackground * 100).round()}%',

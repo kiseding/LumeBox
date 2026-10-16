@@ -1,3 +1,4 @@
+import '../../core/media/playback_focus.dart';
 import '../../shared/widgets/subscription_status_icon.dart';
 import 'video_detail_page.dart';
 
@@ -235,6 +236,8 @@ class _VideoPageState extends State<VideoPage> {
       _discardPrelaunch(prelaunch);
       return;
     }
+    await PlaybackFocus.acquire('video');
+    if(!mounted) { _discardPrelaunch(prelaunch);return; }
     _playerRouteOpen = true;
     try {
       await Navigator.of(context).push(
@@ -393,7 +396,7 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.video,
       // **不随键盘收缩**：板块内容区（ExploreView）自己处理键盘内边距
       // （列表底部让出键盘高度）。外层若跟着收缩，固定的工具栏 / 搜索行会被
       // 挤出屏幕——真机反馈过两次「键盘弹起后搜索框不见了」。

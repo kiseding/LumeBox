@@ -10,6 +10,8 @@
 		     源站的正文与挑战页都会嵌 http 子资源，ATS 默认把它们拦掉，
 		     表现就是「页面一片白、看不到验证勾选框」（真机反馈）。
 		     只作用于 Web 内容：App 自己的 Dart 网络请求不受影响。 -->
+		<key>NSAllowsArbitraryLoadsForMedia</key>
+		<true/>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 		<key>NSExceptionDomains</key>

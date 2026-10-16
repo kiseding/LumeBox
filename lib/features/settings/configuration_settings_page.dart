@@ -132,7 +132,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.settings,
     title: '配置与体验',
     child: ListView(
       padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),

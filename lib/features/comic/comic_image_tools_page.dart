@@ -1,3 +1,5 @@
+import 'package:file_selector/file_selector.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -44,6 +46,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     try {
       await ComicImageTools.channel.invokeMethod<void>(method, {
         'noise': settings.noise,
+        'imageStyle': settings.imageStyle,
       });
       if (mounted) {
         setState(
@@ -80,8 +83,8 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   );
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
-    title: widget.translation ? '漫画翻译' : '图片超分辨率',
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.comic,
+    title: widget.translation ? '漫画翻译' : 'AI 图片超分辨率',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: widget.translation
@@ -194,7 +197,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
           : [
               SwitchListTile.adaptive(
                 title: const Text('自动超分'),
-                subtitle: const Text('仅漫画正文；失败时显示原图，不改写下载或导出原图'),
+                subtitle: const Text('漫画 / 美图源正文自动处理；失败保留原图，不改写下载文件'),
                 value: settings.automatic,
                 onChanged: (v) {
                   setState(() => settings.automatic = v);
@@ -212,9 +215,33 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 subtitle: Text('移动设备固定为 1，逐张处理，控制内存与发热'),
                 trailing: Text('1'),
               ),
-              const ListTile(
-                title: Text('模型'),
-                subtitle: Text('waifu2x · 漫画 / 动漫 · 2 倍超分'),
+              choice('AI 超分模型类型', settings.imageStyle, {
+                'anime': '漫画 / 动漫 · 2 倍',
+                'photo': '美图 / 照片 · 2 倍',
+              }, (v) => settings.imageStyle = v),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome),
+                title: const Text('选择本地图片进行 AI 超分'),
+                subtitle: const Text('支持漫画与美图；仅本机处理，可对比原图'),
+                onTap: () async {
+                  final file = await openFile(
+                    acceptedTypeGroups: const [
+                      XTypeGroup(
+                        label: '图片',
+                        extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'],
+                        uniformTypeIdentifiers: ['public.image'],
+                      ),
+                    ],
+                  );
+                  if (file == null || !context.mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          ComicImageToolsPage(loadOriginal: file.readAsBytes),
+                    ),
+                  );
+                },
               ),
               choice('降噪级别', settings.noise, {
                 0: '降噪 0',
@@ -228,7 +255,9 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               ),
               const ListTile(
                 title: Text('模型管理'),
-                subtitle: Text('四档模型随应用提供；首次使用在设备上编译，无需上传图片'),
+                subtitle: Text(
+                  'waifu2x 一个 AI 模型系列，漫画和照片两种类型各含降噪 0–3，共 8 份模型；首次使用在设备上编译，无需上传图片',
+                ),
               ),
               if (busy) const Center(child: CircularProgressIndicator()),
               FilledButton(
@@ -246,7 +275,9 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 ),
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('自动超分默认关闭。可在漫画阅读设置里对当前页手动超分、比较原图。过大的长图会保留原图。'),
+                child: Text(
+                  '自动超分默认关闭。漫画版块源内图片按源选择分组使用漫画或照片模型，当前页也可手动超分；本地图片使用本页选择的模型类型。过大的长图会保留原图。',
+                ),
               ),
             ],
     ),
@@ -254,14 +285,19 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
 }
 
 class ComicImageToolsPage extends StatefulWidget {
-  const ComicImageToolsPage({super.key, required this.loadOriginal});
+  const ComicImageToolsPage({
+    super.key,
+    required this.loadOriginal,
+    this.imageStyle,
+  });
+  final String? imageStyle;
   final Future<Uint8List?> Function() loadOriginal;
   @override
   State<ComicImageToolsPage> createState() => _ImageToolsState();
 }
 
 class _ImageToolsState extends State<ComicImageToolsPage> {
-  final tools = ComicImageTools();
+  late final tools = ComicImageTools(imageStyle: widget.imageStyle);
   Uint8List? original, enhanced;
   List<ComicTextRegion> regions = [];
   double ratio = 1;
@@ -358,8 +394,8 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
-    title: '当前页图片处理',
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.comic,
+    title: 'AI 图片超分与翻译',
     child: Column(
       children: [
         Wrap(
@@ -367,7 +403,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
           children: [
             FilledButton(
               onPressed: busy || original == null ? null : () => process(false),
-              child: const Text('超分当前页'),
+              child: const Text('AI 超分当前图片'),
             ),
             FilledButton(
               onPressed: busy || original == null ? null : () => process(true),

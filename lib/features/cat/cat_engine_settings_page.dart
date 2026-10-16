@@ -77,7 +77,7 @@ class _CatEngineSettingsPageState extends State<CatEngineSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.cat,
       behindBar: true,
       title: '猫源引擎',
       child: _buildBody(),

@@ -62,7 +62,7 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '沙箱设置',
       actions: <Widget>[

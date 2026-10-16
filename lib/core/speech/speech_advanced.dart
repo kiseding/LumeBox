@@ -1,3 +1,4 @@
+import '../media/playback_focus.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -57,6 +58,7 @@ class AdvancedSpeechSource {
   }
 
   Future<void> speak(SpeechSegment segment, SpeechSettings settings) async {
+    await PlaybackFocus.acquire('tts');
     cancel();
     final generation = _generation;
     final token = '$generation-${DateTime.now().microsecondsSinceEpoch}';

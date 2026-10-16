@@ -78,7 +78,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             // 默认给一个初始媒体（播放器页的真实入口是「从条目进来」）；
             // 用例传 withInitialMedia: false 即可验证「还没有媒体」的边界。
             // 播放页的真实入口是「从条目进来」——挂载时就把媒体给它。
@@ -257,7 +257,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _FakeCatalog(const <PlayerKernel>{
               PlayerKernel.avplayer,
@@ -391,6 +391,53 @@ void main() {
       expect(created.single.applied?.speed, 1.5);
       final store = await VideoPlayerSettingsStore.open();
       expect(store.load().speed, 1.5);
+    });
+
+    testWidgets('手势总开关关闭后移除滑动和长按识别层', (tester) async {
+      ReadingLibrary.find(Section.video)!
+          .setSetting('video.player.gestures', '{"enabled":false}');
+      await pumpVideo(tester, available: {PlayerKernel.avplayer});
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is GestureDetector && widget.onPanDown != null,
+        ),
+        findsNothing,
+      );
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
+    });
+
+    testWidgets('独立关闭音量和进度手势后不向内核发送命令', (tester) async {
+      ReadingLibrary.find(Section.video)!.setSetting(
+        'video.player.gestures',
+        '{"volume":false,"seek":false,"boost":false}',
+      );
+      final created = await pumpVideo(
+        tester,
+        available: {PlayerKernel.avplayer},
+      );
+      created.single.volumes.clear();
+      created.single.seeks.clear();
+      final layer = _gestureLayerRect(tester);
+      await _dragInSteps(
+        tester,
+        from: Offset(layer.right - 40, layer.center.dy),
+        total: Offset(0, layer.height / 4),
+      );
+      await _dragInSteps(
+        tester,
+        from: layer.center,
+        total: Offset(layer.width / 4, 0),
+      );
+      expect(created.single.volumes, isEmpty);
+      expect(created.single.seeks, isEmpty);
+      final detector = tester.widget<GestureDetector>(
+        find
+            .byWidgetPredicate(
+              (widget) => widget is GestureDetector && widget.onPanDown != null,
+            )
+            .first,
+      );
+      expect(detector.onLongPressStart, isNull);
     });
 
     testWidgets('手势：右半屏上下滑改音量并下发给内核', (tester) async {

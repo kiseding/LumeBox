@@ -75,6 +75,7 @@ final class PlaybackSessionController: NSObject {
   // ------------------------------------------------------------------ 会话
 
   private func start(title: String, subtitle: String?, durationMs: Double, speed: Double) {
+    UserDefaults.standard.set("video",forKey:"lumebox.mediaOwner")
     position = 0
     duration = durationMs / 1000
     self.speed = speed
@@ -109,6 +110,7 @@ final class PlaybackSessionController: NSObject {
   }
 
   private func update(_ args: [String: Any]) {
+    guard UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "video" else { return }
     if let value = (args["positionMs"] as? NSNumber)?.doubleValue {
       position = value / 1000
     }
@@ -133,6 +135,7 @@ final class PlaybackSessionController: NSObject {
 
   private func stop() {
     playing = false
+    guard UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "video" else { return }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     configureCommands(enabled: false)
     // 不主动把 AVAudioSession 置为 inactive：视频可能只是退出页面，音频还在播

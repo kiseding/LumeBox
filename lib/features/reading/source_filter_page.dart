@@ -590,26 +590,43 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 56, 16, 28),
-        child: Row(
-          children: <Widget>[
-            OutlinedButton(onPressed: _reset, child: const Text('重置')),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pop(
-                  SourceFilterSelection(
-                    categoryId: _categoryId ?? '',
-                    categoryTitle: _titleOf(_categoryId),
-                    filters: _filters,
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+        child: SizedBox(
+          height: 54,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Row(
+              children: <Widget>[
+                OutlinedButton(
+                  onPressed: _reset,
+                  child: Transform.translate(
+                    offset: const Offset(0, 10),
+                    child: const Text('重置'),
                   ),
                 ),
-                child: Text(
-                  _filters.isEmpty ? '应用（不筛选）' : '应用筛选（${_filters.length} 组）',
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(
+                      SourceFilterSelection(
+                        categoryId: _categoryId ?? '',
+                        categoryTitle: _titleOf(_categoryId),
+                        filters: _filters,
+                      ),
+                    ),
+                    child: Transform.translate(
+                      offset: const Offset(0, 10),
+                      child: Text(
+                        _filters.isEmpty
+                            ? '应用（不筛选）'
+                            : '应用筛选（${_filters.length} 组）',
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

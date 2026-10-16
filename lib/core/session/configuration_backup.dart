@@ -22,6 +22,8 @@ class ConfigurationBackup {
     'floating_modules.json',
     'glass_effects_settings.json',
     'comic_image_tools.json',
+    'speech_cloud.json',
+    'audio_book_settings.json',
     'browse_layout.json',
     'network_settings.json',
   };

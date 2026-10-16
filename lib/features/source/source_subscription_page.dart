@@ -27,6 +27,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   final _url = TextEditingController();
   bool _busy = false;
   String? _error;
+  String? _syncStatus;
   @override
   void initState() {
     super.initState();
@@ -82,8 +83,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
         fetch: widget.fetchSubscription,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(result.summary)));
+      setState(() => _syncStatus = result.summary);
       await _load();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -118,7 +118,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   @override
   Widget build(BuildContext context) {
     final service = _service;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.sources,
       title: '${widget.section.label} · 订阅管理',
       actions: widget.extraActions,
       child: ListView(
@@ -131,7 +131,13 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
                 : ListTile(
                     leading: const Icon(Icons.notifications_active_outlined),
                     title: Text('订阅源已变动 $count 条'),
-                    subtitle: const Text('已同步新增、更新或移除的源'),
+                    subtitle: Text(
+                      SourceSubscriptionSync.notices(widget.section)
+                          .map(
+                            (entry) => '${entry['name']} · ${entry['status']}',
+                          )
+                          .join('\n'),
+                    ),
                     trailing: TextButton(
                       onPressed: () =>
                           SourceSubscriptionSync.changeCount(widget.section)
@@ -141,6 +147,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
                     ),
                   ),
           ),
+          if (_syncStatus != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(_syncStatus!),
+            ),
           FilledButton.icon(
             onPressed: _busy ? null : _sync,
             icon: const Icon(Icons.system_update_alt),

@@ -1,3 +1,5 @@
+import 'glass_effects_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/glass_effects_settings.dart';
@@ -8,11 +10,23 @@ class LiquidGlassSettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: GlassEffectsSettings.instance,
-    builder: (context, _) => SwitchListTile.adaptive(
-      title: const Text('动态液态玻璃效果'),
-      subtitle: const Text('仅用于单独接入的小型装饰，关闭时使用原有界面'),
-      value: GlassEffectsSettings.instance.liquidEnabled,
-      onChanged: GlassEffectsSettings.instance.setLiquidEnabled,
+    builder: (context, _) => Column(
+      children: [
+        SwitchListTile.adaptive(
+          title: const Text('动态液态玻璃效果'),
+          subtitle: const Text('仅用于单独接入的小型装饰，关闭时使用原有界面'),
+          value: GlassEffectsSettings.instance.liquidEnabled,
+          onChanged: GlassEffectsSettings.instance.setLiquidEnabled,
+        ),
+        ListTile(
+          title: const Text('玻璃效果作用部位与强度'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const GlassEffectsPage()),
+          ),
+        ),
+      ],
     ),
   );
 }

@@ -7,7 +7,7 @@ import 'glass_effects_tiles.dart';
 class FloatingSettingsPage extends StatelessWidget {
   const FloatingSettingsPage({super.key});
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.settings,
     title: '悬浮模块',
     child: ListenableBuilder(
       listenable: FloatingModules.instance,

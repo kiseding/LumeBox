@@ -68,10 +68,52 @@ class SourceSubscriptionSync {
   static final Map<Section, ValueNotifier<int>> _revisions = {};
   static final Map<Section, ValueNotifier<int>> _changeCounts = {};
   static final Map<Section, File> _noticeFiles = {};
+  static final Map<Section, Map<String, Map<String, String>>> _changes = {};
+  static Map<String, String>? notice(Section section, String id) =>
+      _changes[section]?[id];
+  static List<Map<String, String>> notices(Section section) =>
+      List.unmodifiable(
+        _changes[section]?.values ?? const <Map<String, String>>[],
+      );
+  static void recordChange(
+    Section section,
+    String id,
+    String name,
+    String status,
+  ) {
+    final entries = _changes.putIfAbsent(section, () => {});
+    final fresh = !entries.containsKey(id);
+    entries[id] = {'id': id, 'name': name, 'status': status};
+    if (fresh) {
+      changeCount(section).value++;
+    } else {
+      final file = _noticeFiles[section];
+      if (file != null) _saveChanges(section, file);
+      revision(section).value++;
+    }
+  }
+
+  static void acknowledge(Section section) => changeCount(section).value = 0;
+  static void _saveChanges(Section section, File file) {
+    try {
+      file.parent.createSync(recursive: true);
+      final detail = File('${file.path}.json');
+      final temporary = File('${detail.path}.tmp');
+      temporary.writeAsStringSync(
+        jsonEncode(_changes[section] ?? {}),
+        flush: true,
+      );
+      temporary.renameSync(detail.path);
+    } catch (error) {
+      LumeLog.warn('订阅源变动详情保存失败：$error');
+    }
+  }
+
   static ValueNotifier<int> changeCount(Section section) =>
       _changeCounts.putIfAbsent(section, () {
         final count = ValueNotifier(0);
         count.addListener(() {
+          if (count.value == 0) _changes[section]?.clear();
           final file = _noticeFiles[section];
           if (file == null) return;
           try {
@@ -79,6 +121,7 @@ class SourceSubscriptionSync {
             final temporary = File('${file.path}.tmp');
             temporary.writeAsStringSync('${count.value}', flush: true);
             temporary.renameSync(file.path);
+            _saveChanges(section, file);
           } catch (error) {
             LumeLog.warn('订阅提示保存失败：$error');
           }
@@ -89,6 +132,16 @@ class SourceSubscriptionSync {
     if (_noticeFiles[section]?.path == file.path) return;
     _noticeFiles[section] = file;
     try {
+      final details = File('${file.path}.json');
+      final decoded = details.existsSync()
+          ? jsonDecode(details.readAsStringSync())
+          : {};
+      _changes[section] = decoded is Map
+          ? decoded.map(
+              (key, value) =>
+                  MapEntry('$key', Map<String, String>.from(value as Map)),
+            )
+          : {};
       changeCount(section).value = file.existsSync()
           ? int.tryParse(file.readAsStringSync()) ?? 0
           : 0;
@@ -293,8 +346,10 @@ class SourceSubscriptionSync {
             next[descriptor.id] = ref.url;
             if (before.containsKey(descriptor.id)) {
               result.updated++;
+              recordChange(section, descriptor.id, descriptor.name, '已更新');
             } else {
               result.added++;
+              recordChange(section, descriptor.id, descriptor.name, '已新增');
             }
           }
           if (complete) {
@@ -309,6 +364,7 @@ class SourceSubscriptionSync {
               if (existing == null || existing.originUrl != old.value) continue;
               await manager.remove(old.key);
               result.removed++;
+              recordChange(section, existing.id, existing.name, '已移除');
             }
             record.members = next;
             record.error = '';
@@ -328,8 +384,6 @@ class SourceSubscriptionSync {
     }
     if (result.changed) {
       revision(section).value++;
-      changeCount(section).value +=
-          result.added + result.updated + result.removed;
     }
     if (result.changed || result.errors.isNotEmpty) {
       LumeLog.info('[订阅] ${section.label}: ${result.summary}');

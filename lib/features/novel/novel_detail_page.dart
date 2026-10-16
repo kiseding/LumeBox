@@ -1,3 +1,7 @@
+import '../../core/media/media_library.dart';
+import '../../core/media/media_resource_service.dart';
+import '../media/media_library_page.dart';
+import '../media/media_resource_page.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -49,6 +53,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   /// 成预览条）。列表在 `SliverList.builder` 里按需构建，几千章也只是滚动条长，
   /// 不会一次性建出全部行。
   DataSource? _source;
+  MediaResource? _mediaResource;
   SourceDetail? _detail;
   List<SourceChapter> _chapters = const <SourceChapter>[];
   ReadingProgress? _progress;
@@ -86,8 +91,21 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       }
       final detail = await source.detail(widget.target.itemId);
       final chapters = await source.chapters(widget.target.itemId);
+      await MediaLibrary.instance.boot();
+      MediaResource? media = MediaLibrary.instance.byId(MediaResource.sourceKey(source.section,source.id,widget.target.itemId));
+      if (media == null && chapters.isNotEmpty) {
+        try {
+          final content = await source.content(itemId:widget.target.itemId,chapterId:chapters.first.id);
+          if (MediaResourceService.address(content) != null) {
+            media = await MediaResourceService().source(source:source,
+              item:SourceItem(id:widget.target.itemId,title:widget.target.title,cover:widget.target.cover),
+              chapters:chapters,firstContent:content,hint:ResourceKind.audioBook);
+          }
+        } catch (_) { /* The original reading path retains its normal retry UI. */ }
+      }
       if (!mounted) return;
       setState(() {
+        _mediaResource = media?.kind == ResourceKind.novel ? null : media;
         _source = source;
         _detail = detail;
         _chapters = chapters;
@@ -95,6 +113,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         _onShelf = widget.library.onShelf(widget.target.itemId);
         _progress = widget.library.novelProgress(widget.target.itemId);
       });
+      if (_mediaResource != null) return;
       if (_onShelf) {
         widget.library.syncChapters(widget.target.itemId, chapters.length);
       }
@@ -229,11 +248,26 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     });
   }
 
+  Future<void> _changeMediaType() async {
+    final source=_source;if(source==null) return;
+    try {
+      final entry=await MediaResourceService().source(source:source,
+        item:SourceItem(id:widget.target.itemId,title:widget.target.title,cover:widget.target.cover),
+        chapters:_chapters,hint:ResourceKind.novel);
+      if(!mounted) return;
+      final changed=await editMediaPlacement(context,entry);
+      if(mounted && changed!=null) setState(()=>_mediaResource=changed.kind==ResourceKind.novel ? null : changed);
+    } catch(_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('资源信息暂不可用，请重试'))); }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_mediaResource != null) return MediaResourcePage(resource:_mediaResource!);
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: GlassAppBar(
+        actions:[IconButton(tooltip:'类型与所在库',icon:const Icon(Icons.drive_file_move_outline),
+          onPressed:_source == null ? null : _changeMediaType)],
         title: Text(
           _detail?.title ?? widget.target.title,
           maxLines: 1,

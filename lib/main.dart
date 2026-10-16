@@ -1,3 +1,5 @@
+import 'core/session/icloud_sync.dart';
+import 'core/media/media_library.dart';
 import 'core/tmdb/tmdb.dart';
 import 'core/session/app_preferences.dart';
 import 'core/session/configuration_backup.dart';
@@ -27,6 +29,7 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
     await AppPreferences.instance.boot();
     await PrivacySettings.instance.boot();
+    await MediaLibrary.instance.boot();
     if (AppPreferences.instance.autoBackup) {
       try {
         await ConfigurationBackup().automatic();
@@ -61,5 +64,10 @@ void main() {
     await GlassEffectsSettings.instance.boot();
     await ComicImageToolsSettings.instance.boot();
     runApp(const LumeBoxApp());
+    unawaited(
+      ICloudSync.instance.boot().catchError((Object error) {
+        LumeLog.warn('iCloud 初始化失败：$error');
+      }),
+    );
   }, (error, stackTrace) => LumeLog.error(error, stackTrace));
 }

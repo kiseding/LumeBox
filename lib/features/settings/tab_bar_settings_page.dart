@@ -30,7 +30,7 @@ class TabBarSettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '底部导航栏管理',
       child: ListenableBuilder(

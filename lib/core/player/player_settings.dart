@@ -12,6 +12,9 @@
 /// 「硬件解码」这三项：它们的内核语义本来就不同，共享会误导。
 library;
 
+import 'player_gesture_options.dart';
+export 'player_gesture_options.dart';
+
 import 'package:flutter/foundation.dart';
 
 /// 播放内核。只保留宪法允许的三套。
@@ -408,6 +411,7 @@ class PlayerSettings {
     this.controlStyle = PlayerControlStyle.icons,
     this.autoNext = true,
     this.gestureSensitivity = defaultGestureSensitivity,
+    this.gestures = const PlayerGestureOptions(),
     this.prefs = const <PlayerKernel, KernelPrefs>{},
   });
 
@@ -504,6 +508,7 @@ class PlayerSettings {
   /// 手势灵敏度倍率（亮度 / 音量垂直滑动用）：
   /// 1.0 = 现在的口径（一屏高度 = 100% 变化），调大更灵敏、调小更稳。
   final double gestureSensitivity;
+  final PlayerGestureOptions gestures;
 
   /// 按内核分别记住的偏好（键是内核，没记录过的内核用默认值）。
   final Map<PlayerKernel, KernelPrefs> prefs;
@@ -569,6 +574,7 @@ class PlayerSettings {
     PlayerControlStyle? controlStyle,
     bool? autoNext,
     double? gestureSensitivity,
+    PlayerGestureOptions? gestures,
     SubtitleSize? subtitleSize,
     SubtitleColor? subtitleColor,
     SubtitleOutline? subtitleOutline,
@@ -641,6 +647,7 @@ class PlayerSettings {
           : gestureSensitivity
                 .clamp(minGestureSensitivity, maxGestureSensitivity)
                 .toDouble(),
+      gestures: gestures ?? this.gestures,
       prefs: nextPrefs,
     );
   }
@@ -688,6 +695,7 @@ class PlayerSettings {
         other.playbackGlass != playbackGlass ||
         other.controlStyle != controlStyle ||
         other.autoNext != autoNext ||
+        other.gestures != gestures ||
         other.gestureSensitivity != gestureSensitivity) {
       return false;
     }
@@ -713,6 +721,7 @@ class PlayerSettings {
     defaultQuality,
     playbackGlass,
     controlStyle,
+    gestures,
     Object.hashAllUnordered(
       prefs.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),

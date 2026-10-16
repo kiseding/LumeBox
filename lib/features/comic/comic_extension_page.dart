@@ -126,7 +126,7 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.comic,
       behindBar: true,
       title: widget.repo.name,
       actions: <Widget>[

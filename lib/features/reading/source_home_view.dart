@@ -1,3 +1,4 @@
+import '../../core/media/media_library.dart';
 import 'dart:async';
 
 import '../../shared/widgets/missing_cover.dart';
@@ -71,6 +72,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
   @override
   void initState() {
     super.initState();
+    MediaLibrary.instance.addListener(_mediaChanged);
     BrowseLayoutSettings.instance.addListener(_layoutChanged);
     _bindSession();
     _load();
@@ -80,8 +82,11 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     if (mounted) setState(() {});
   }
 
+  void _mediaChanged() { if(mounted) setState(() {}); }
+
   @override
   void dispose() {
+    MediaLibrary.instance.removeListener(_mediaChanged);
     BrowseLayoutSettings.instance.removeListener(_layoutChanged);
     super.dispose();
   }
@@ -256,7 +261,11 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         ),
       );
     }
-    final home = _home;
+    final original = _home;
+    bool visible(SourceItem item)=>MediaLibrary.instance.visibleAtOrigin(widget.source.section,widget.source.id,item.id);
+    final home=original==null ? null : SourceHome(items:original.items.where(visible).toList(),
+      boards:[for(final board in original.boards) SourceHomeBoard(title:board.title,moreUrl:board.moreUrl,
+        items:board.items.where(visible).toList())]);
     if (home == null) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2.5));
     }

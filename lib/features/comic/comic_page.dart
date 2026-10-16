@@ -119,7 +119,7 @@ class _ComicPageState extends State<ComicPage> {
   @override
   Widget build(BuildContext context) {
     if (!_runtimeAvailable) {
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.comic,
         title: Section.comic.label,
         child: const SkeletonNotice(),
       );
@@ -127,7 +127,7 @@ class _ComicPageState extends State<ComicPage> {
     final library = _library;
     final pipeline = _pipeline;
     if (_failed) {
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.comic,
         title: Section.comic.label,
         child: const NoticeCard(
           title: '阅读存储不可用',
@@ -136,7 +136,7 @@ class _ComicPageState extends State<ComicPage> {
       );
     }
     if (library == null || pipeline == null) {
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.comic,
         title: Section.comic.label,
         child: const SourceStateView(state: SourceStateKind.loading),
       );

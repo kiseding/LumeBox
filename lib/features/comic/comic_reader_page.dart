@@ -1,3 +1,4 @@
+import '../../core/source/source_picker_groups.dart';
 import '../source/waf_webview_page.dart';
 
 import 'dart:async';
@@ -81,6 +82,31 @@ class ComicReaderPage extends StatefulWidget {
 class _ComicReaderPageState extends State<ComicReaderPage> {
   late final SectionImagePipeline _pipeline;
   final _imageTools = ComicImageTools();
+  late final Future<void> _imageModelReady;
+
+  Future<void> _chooseSourceImageModel() async {
+    var descriptor = SourceDescriptor(
+      id: widget.dataSource.id,
+      name: widget.dataSource.name,
+      version: '',
+      enabled: true,
+    );
+    try {
+      final sources = await LumeSources.manager(widget.dataSource.section)
+          .list();
+      descriptor =
+          sources
+              .where((source) => source.id == widget.dataSource.id)
+              .firstOrNull ??
+          descriptor;
+    } catch (_) {
+      /* Saved picker grouping still applies without a runtime. */
+    }
+    _imageTools.imageStyle =
+        SourcePickerGroups.groupFor(Section.comic, descriptor) == 'photo'
+        ? 'photo'
+        : 'anime';
+  }
 
   /// 阅读设置可被面板改写（模式、侧边距、双击放大），因此不是 final。
   late ComicReaderSettings _settings;
@@ -129,8 +155,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   @override
   void initState() {
     super.initState();
+    _imageModelReady = _chooseSourceImageModel();
     _pipeline = SectionImagePipeline(
-      decodeTransform: _imageTools.automatic,
+      decodeTransform: (bytes) async {
+        await _imageModelReady;
+        return _imageTools.automatic(bytes);
+      },
       cacheDir: widget.library.imageCacheDir,
       network: widget.network,
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
@@ -514,20 +544,32 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// 页面与阅读器共用同一份 `ComicReaderSettings`：那里改完立刻写回，
   /// 返回阅读页即生效（不需要额外的「保存」按钮）。
   Future<void> _openReaderSettings() async {
+    await _imageModelReady;
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ComicReaderSettingsPage(
-          chapterOrder: ChapterDisplayOrder(widget.library, widget.target.sourceId),
+          chapterOrder: ChapterDisplayOrder(
+            widget.library,
+            widget.target.sourceId,
+          ),
           settings: _settings,
           onChanged: _updateSettings,
           canSavePage: _images.isNotEmpty && !_saving,
           onSavePage: () => _saveImage(_page),
-          onImageTools: _images.isEmpty ? null : () async {
-            final url = _images[_page.clamp(0, _images.length - 1)];
-            await Navigator.of(context).push(MaterialPageRoute<void>(
-              builder: (_) => ComicImageToolsPage(loadOriginal: () => _pipeline.bytes(url)),
-            ));
-          },
+          onImageTools: _images.isEmpty
+              ? null
+              : () async {
+                  final url = _images[_page.clamp(0, _images.length - 1)];
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ComicImageToolsPage(
+                        imageStyle: _imageTools.imageStyle,
+                        loadOriginal: () => _pipeline.bytes(url),
+                      ),
+                    ),
+                  );
+                },
           // 顶栏撤掉了「书签列表」按钮，但这个功能不能变成看得见摸不着——
           // 挪到这个二级页（这也是「不常用项」的正确去处）。
           bookmarkCount: _bookmarks.length,
@@ -760,8 +802,11 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) =>
-          _ChapterSheet(chapters: _chapters, currentIndex: _chapterIndex, order: ChapterDisplayOrder(widget.library, widget.target.sourceId)),
+      builder: (_) => _ChapterSheet(
+        chapters: _chapters,
+        currentIndex: _chapterIndex,
+        order: ChapterDisplayOrder(widget.library, widget.target.sourceId),
+      ),
     );
     if (selected == null || !mounted) return;
     await _openChapter(selected);
@@ -831,7 +876,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   // ------------------------------------------------------------------ 构建
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ModuleGlassScope(module: GlassModule.comic, child: _legacyBuild(context));
+  Widget _legacyBuild(BuildContext context) {
     // 平台骨架：无图源运行时的平台上阅读器不可达（板块入口已拦），
     // 这里再拦一次做双保险，避免别的入口把它拉起来白跑一遍。
     if (!_runtimeAvailable) {
@@ -1509,7 +1556,11 @@ class _ComicImageTileState extends State<_ComicImageTile>
 /// 面板本身是「一个会横向平移的整块」：拖动量用 [AnimatedContainer] 的 transform
 /// 表达，松手没到阈值就弹回原位（拖动中不加动画，否则跟手感变成拖影）。
 class _ChapterSheet extends StatefulWidget {
-  const _ChapterSheet({required this.chapters, required this.currentIndex, required this.order});
+  const _ChapterSheet({
+    required this.chapters,
+    required this.currentIndex,
+    required this.order,
+  });
   final ChapterDisplayOrder order;
 
   final List<SourceChapter> chapters;
@@ -1586,10 +1637,16 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                       ),
                     ),
                   ),
-                  Align(alignment: Alignment.centerRight, child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: ChapterManualOrderDropdown(order: widget.order, onChanged: () => setState(() {})),
-                  )),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: ChapterManualOrderDropdown(
+                        order: widget.order,
+                        onChanged: () => setState(() {}),
+                      ),
+                    ),
+                  ),
                   Flexible(
                     child: ListView.builder(
                       padding: EdgeInsets.zero,

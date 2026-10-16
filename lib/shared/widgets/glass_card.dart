@@ -1,3 +1,7 @@
+import 'module_glass_surface.dart';
+export 'module_glass_surface.dart'
+    show GlassModule, GlassPart, ModuleGlassScope, ModuleGlassSurface;
+
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -44,7 +48,16 @@ class GlassPanel extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleGlassSurface(
+    part: module == FloatingModule.home
+        ? GlassPart.home
+        : module == FloatingModule.dock
+        ? GlassPart.dock
+        : ModuleGlassScope.partOf(context) ?? GlassPart.panels,
+    legacy: _legacyBuild(context),
+    child: padding == null ? child : Padding(padding: padding!, child: child),
+  );
+  Widget _legacyBuild(BuildContext context) {
     final borderRadius = BorderRadius.circular(radius);
     return ListenableBuilder(
       listenable: FloatingModules.instance,
@@ -108,7 +121,22 @@ class GlassCard extends StatelessWidget {
   final Color? color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleGlassSurface(
+    part: GlassPart.cards,
+    legacy: _legacyBuild(context),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(radius),
+        child: Padding(
+          padding: padding ?? const EdgeInsets.all(16),
+          child: child,
+        ),
+      ),
+    ),
+  );
+  Widget _legacyBuild(BuildContext context) {
     final border = BorderRadius.circular(radius);
     final decoration = color == null
         ? LumeTheme.cardDecoration(radius: radius)
@@ -170,7 +198,21 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleGlassScope(
+    module: ModuleGlassScope.moduleOf(context),
+    part: GlassPart.navigation,
+    child: _legacyBuild(context),
+  );
+  Widget _legacyBuild(BuildContext context) {
+    final actions = this.actions
+        ?.map(
+          (button) => ModuleGlassSurface(
+            part: GlassPart.buttons,
+            legacy: button,
+            child: button,
+          ),
+        )
+        .toList();
     return ListenableBuilder(
       listenable: FloatingModules.instance,
       builder: (context, _) => Transform.translate(
@@ -197,7 +239,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: actions!,
+                      children: actions,
                     ),
                   ),
                 ],
@@ -332,9 +374,11 @@ class GlassScaffold extends StatelessWidget {
     this.floatingBar = false,
     this.mergeHomeHeader = false,
     this.resizeToAvoidBottomInset,
+    this.effectModule,
   });
 
   final Widget child;
+  final GlassModule? effectModule;
 
   /// 页面标题。为空时回退到项目名称。
   final String? title;
@@ -380,7 +424,11 @@ class GlassScaffold extends StatelessWidget {
       EdgeInsets.only(top: barHeight(context, extra: extra));
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleGlassScope(
+    module: effectModule ?? ModuleGlassScope.moduleOf(context),
+    child: _legacyBuild(context),
+  );
+  Widget _legacyBuild(BuildContext context) {
     // 顶栏内容要让出的高度：**避让后的**状态栏 + 工具栏 + 页签条。
     // 用壳自己的 context 读（此时还没被 Scaffold 注入顶栏高度）。
     final statusInset = MediaQuery.paddingOf(context).top;

@@ -41,7 +41,7 @@ class SourceHomePage extends StatelessWidget {
   final void Function(DataSource source, SourceItem item)? onItemTap;
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.sources,
         title: section.label,
         child: SourceBrowsePane(
           section: section,

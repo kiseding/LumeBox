@@ -10,7 +10,7 @@ import 'package:lume_box/features/reading/browse_choice_access.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final height in [667.0, 844.0]) {
-    testWidgets('筛选页 $height 高度操作区固定，56/28间距，末行标签可见', (tester) async {
+    testWidgets('筛选页 $height 高度操作区固定，60高度/文字下移6，末行标签可见', (tester) async {
       tester.view.physicalSize = Size(390, height);
       tester.view.devicePixelRatio = 1;
       tester.view.padding = const FakeViewPadding(bottom: 34);
@@ -44,8 +44,9 @@ void main() {
       final before = tester.getRect(actions);
       expect(before.left, 16);
       expect(before.right, 374);
-      expect(height - before.bottom, 28 + 34);
-      expect(before.top - tester.getRect(options).bottom, 56);
+      expect(height - before.bottom, 34);
+      expect(tester.getSize(find.byKey(const Key('filter-footer'))).height, 60);
+      expect(before.top - tester.getRect(options).bottom, 60 - before.height);
       await tester.ensureVisible(find.text('分类99'));
       await tester.pumpAndSettle();
       expect(tester.getRect(actions), before);
@@ -55,7 +56,7 @@ void main() {
       );
       tester.view.viewInsets = const FakeViewPadding(bottom: 280);
       await tester.pumpAndSettle();
-      expect(tester.getRect(actions).bottom, height - 280 - 28);
+      expect(tester.getRect(actions).bottom, height - 280);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('应用筛选'));
       await tester.pumpAndSettle();

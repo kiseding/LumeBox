@@ -389,6 +389,159 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     );
   }
 
+  /// Cloud sync reads rows through this store, never copies a live SQLite file.
+  Map<String, Object?> cloudRecords({required bool includeSettings}) {
+    final result = <String, Object?>{};
+    for (final table in ['library_item', 'reading_progress']) {
+      for (final row in _db.select('SELECT * FROM $table WHERE section = ?', [
+        section.id,
+      ])) {
+        result[jsonEncode([section.id, table, row['item_id']])] =
+            Map<String, Object?>.from(row);
+      }
+    }
+    for (final entry in exportSettings().entries) {
+      if (entry.key == 'favorites.folders' ||
+          includeSettings && cloudSettingAllowed(entry.key)) {
+        result[jsonEncode([section.id, 'reading_setting', entry.key])] = {
+          'key': entry.key,
+          'value': entry.value,
+        };
+      }
+    }
+    return result;
+  }
+
+  static bool cloudSettingAllowed(String key) =>
+      !RegExp(
+        r'key|token|password|secret|cookie|authorization|waf|lock',
+        caseSensitive: false,
+      ).hasMatch(key) &&
+      (key.startsWith('video.player.') ||
+          key.startsWith('comic.') ||
+          key.startsWith('novel.') ||
+          key.startsWith('favorites.') ||
+          key.startsWith('reader.') ||
+          key.startsWith('browse.'));
+
+  void applyCloudRecords(
+    Map<String, Object?> records, {
+    bool validateOnly = false,
+  }) {
+    const columns = {
+      'library_item': [
+        'item_id',
+        'section',
+        'source_id',
+        'title',
+        'cover',
+        'subtitle',
+        'chapter_count',
+        'read_chapter_index',
+        'added_at',
+        'updated_at',
+        'favorite',
+      ],
+      'reading_progress': [
+        'item_id',
+        'section',
+        'chapter_index',
+        'chapter_id',
+        'chapter_title',
+        'position',
+        'fraction',
+        'chapter_length',
+        'progress_kind',
+        'updated_at',
+      ],
+      'reading_setting': ['key', 'value'],
+    };
+    final operations = <(String, String, Map<String, Object?>?)>[];
+    for (final entry in records.entries) {
+      final key = jsonDecode(entry.key);
+      if (key is! List ||
+          key.length != 3 ||
+          key[0] != section.id ||
+          !columns.containsKey(key[1]) ||
+          key[2] is! String) {
+        throw const FormatException('云端阅读记录无效');
+      }
+      final table = key[1] as String;
+      if (table == 'reading_setting' && !cloudSettingAllowed(key[2])) {
+        throw const FormatException('云端设置不在允许范围');
+      }
+      final row = entry.value == null
+          ? null
+          : Map<String, Object?>.from(entry.value as Map);
+      if (row != null) {
+        if (row.keys.any((name) => !columns[table]!.contains(name)) ||
+            columns[table]!.any((name) => !row.containsKey(name)) ||
+            row.values.any(
+              (value) => value != null && value is! String && value is! num,
+            ) ||
+            row.values.whereType<num>().any((number) => !number.isFinite) ||
+            (table == 'reading_setting'
+                ? row['key'] != key[2] || row['value'] is! String
+                : row['section'] != section.id || row['item_id'] != key[2])) {
+          throw const FormatException('云端记录结构不兼容');
+        }
+      }
+      if (row != null && table != 'reading_setting') {
+        final text = table == 'library_item'
+            ? ['item_id', 'section', 'source_id', 'title']
+            : [
+                'item_id',
+                'section',
+                'chapter_id',
+                'chapter_title',
+                'progress_kind',
+              ];
+        final integers = table == 'library_item'
+            ? [
+                'chapter_count',
+                'read_chapter_index',
+                'added_at',
+                'updated_at',
+                'favorite',
+              ]
+            : ['chapter_index', 'position', 'chapter_length', 'updated_at'];
+        if (text.any((name) => row[name] is! String) ||
+            integers.any((name) => row[name] is! int) ||
+            table == 'library_item' &&
+                (['cover', 'subtitle'].any(
+                      (name) => row[name] != null && row[name] is! String,
+                    ) ||
+                    ![0, 1].contains(row['favorite'])) ||
+            table == 'reading_progress' && row['fraction'] is! num) {
+          throw const FormatException('云端字段类型不兼容');
+        }
+      }
+      operations.add((table, key[2] as String, row));
+    }
+    if (validateOnly) return;
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final (table, id, row) in operations) {
+        final names = columns[table]!;
+        if (row == null) {
+          _db.execute(
+            'DELETE FROM $table WHERE ${table == 'reading_setting' ? 'key' : 'item_id'} = ?',
+            [id],
+          );
+        } else {
+          _db.execute(
+            'INSERT OR REPLACE INTO $table (${names.join(',')}) VALUES (${List.filled(names.length, '?').join(',')})',
+            [for (final name in names) row[name]],
+          );
+        }
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
   // ------------------------------------------------------------------ 缓存
 
   /// 图片缓存文件路径。同一 URL 得到同一路径，跨会话复用。

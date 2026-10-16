@@ -72,7 +72,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.sources,
     title: '${widget.name} · 源设置',
     actions: [TextButton(onPressed: save, child: const Text('保存'))],
     child: ListView(

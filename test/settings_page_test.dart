@@ -73,6 +73,8 @@ void main() {
       260,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text(label));
+    await tester.pumpAndSettle();
   }
 
   Future<void> pumpSettings(
@@ -231,8 +233,8 @@ void main() {
   testWidgets('图源总管理：设置页内的子页面入口仍在', (tester) async {
     await pumpSettings(tester);
 
+    await scrollTo(tester, '源总管理');
     expect(find.text('源总管理'), findsOneWidget);
-
     await tester.tap(find.text('源总管理'));
     await tester.pumpAndSettle();
 

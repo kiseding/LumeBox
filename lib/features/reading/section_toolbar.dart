@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+
 import '../../core/session/privacy_settings.dart';
 
 import '../../core/reading/browse_layout.dart';
@@ -375,6 +376,16 @@ class SectionToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final old = _legacyBuild(context);
+    return ModuleGlassSurface(
+      module: GlassModule.fromId(section?.id ?? ''),
+      part: GlassPart.home,
+      legacy: old,
+      child: old,
+    );
+  }
+
+  Widget _legacyBuild(BuildContext context) {
     if (navigation != null) {
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -699,7 +710,13 @@ Future<SearchScopeSelection?> showSearchModeMenu(
     isScrollControlled: true,
     builder: (_) => _SearchModeSheet(
       current: current,
-      sources: sources.where((source) => source.enabled && PrivacySettings.instance.allowsSource(source.id, source.name)).toList(),
+      sources: sources
+          .where(
+            (source) =>
+                source.enabled &&
+                PrivacySettings.instance.allowsSource(source.id, source.name),
+          )
+          .toList(),
       sourceIds: sourceIds,
       sitesOnly: sitesOnly,
     ),

@@ -1,3 +1,5 @@
+import '../../shared/widgets/liquid_glass_widget.dart';
+import '../../core/theme/glass_effects_settings.dart';
 import 'playback_glass.dart';
 import '../../core/session/app_preferences.dart';
 
@@ -1353,7 +1355,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: ModuleGlassSurface(
+          module: GlassModule.video,
+          part: GlassPart.toasts,
+          legacy: Text(message),
+          child: Text(message),
+        ),
         duration: const Duration(milliseconds: 1600),
         behavior: SnackBarBehavior.floating,
         margin: EdgeInsets.fromLTRB(
@@ -2370,7 +2377,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return GestureDetector(
       key: _gestureLayerKey,
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: (_) => _onLongPressStart(),
+      onLongPressStart: !_settings.gestures.enabled || !_settings.gestures.boost
+          ? null
+          : (_) => _onLongPressStart(),
       onLongPressEnd: (_) => _endBoost(),
       onLongPressCancel: _endBoost,
       onPanDown: (details) => _onGestureDown(details, size),
@@ -2438,6 +2447,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _gestureStartPosition = snapshot.position;
       }
     }
+    final gestures = _settings.gestures;
+    if (!gestures.enabled ||
+        intent == PlayerGestureIntent.brightness && !gestures.brightness ||
+        intent == PlayerGestureIntent.volume && !gestures.volume ||
+        intent == PlayerGestureIntent.seek && !gestures.seek) {
+      return;
+    }
     if (intent == PlayerGestureIntent.none) return;
 
     switch (intent) {
@@ -2481,6 +2497,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           duration: snapshot.duration,
           dx: totalDx,
           width: size.width,
+          window: Duration(seconds: _settings.gestures.seekSeconds),
         );
         setState(() {
           _gesture = _gesture.copyWith(
@@ -2517,7 +2534,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final player = _player;
     if (player == null) return;
     _gestureSpeedBeforeBoost = _settings.speed;
-    final boosted = PlayerGesturePolicy.boostSpeed(_settings.speed);
+    if (!_settings.gestures.enabled || !_settings.gestures.boost) return;
+    final boosted = _settings.gestures.boostMultiplier == 2
+        ? PlayerGesturePolicy.boostSpeed(_settings.speed)
+        : (_settings.speed * _settings.gestures.boostMultiplier)
+              .clamp(_settings.speed, 4.0)
+              .toDouble();
     _gestureBoosted = true;
     setState(() {
       _gesture = _gesture.copyWith(
@@ -2752,7 +2774,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   // ------------------------------------------------------------------ 构建
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ModuleGlassScope(module: GlassModule.video, child: _legacyBuild(context));
+  Widget _legacyBuild(BuildContext context) {
     final body = _anyKernelAvailable ? _buildBody() : const _VideoSkeleton();
     // 全屏（沉浸）模式：整页只剩画面 + 浮层控制栏——顶栏与标准控制栏都收起。
     if (_fullscreen) {
@@ -2762,6 +2786,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       );
     }
     return GlassScaffold(
+      effectModule: GlassModule.video,
       title: widget.title ?? _target?.title ?? '播放',
       behindBar: true,
       child: Padding(padding: GlassScaffold.barInset(context), child: body),
@@ -3658,7 +3683,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ),
               ),
               // 手势层：锁定时不吃手势（防误触的本意就在这里）。
-              if (!_locked) Positioned.fill(child: _buildGestureLayer(size)),
+              if (!_locked && _settings.gestures.enabled)
+                Positioned.fill(child: _buildGestureLayer(size)),
               if (_locked)
                 Positioned.fill(
                   child: GestureDetector(
@@ -3871,6 +3897,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   Widget _buildProgress(PlayerSnapshot snapshot) {
+    final old = _legacyProgress(snapshot);
+    return ModuleGlassSurface(
+      module: GlassModule.video,
+      part: GlassPart.progress,
+      legacy: old,
+      child: old,
+    );
+  }
+
+  Widget _legacyProgress(PlayerSnapshot snapshot) {
     final total = snapshot.duration.inMilliseconds;
     final preview = _previewTarget;
     final shown = preview ?? snapshot.position;
@@ -4045,78 +4081,86 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final player = _player;
     final playing = snapshot.playing && snapshot.error == null;
     return <Widget>[
-      IconButton(
-        iconSize: _iconSize + 5,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        tooltip: '后退 10 秒',
-        icon: Icon(
-          Icons.replay_10,
-          shadows: _fullscreen ? _controlShadows : null,
-        ),
-        onPressed: player == null
-            ? null
-            : () => _seekBy(const Duration(seconds: -10)),
-      ),
-      IconButton(
-        // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
-        iconSize: _iconSize + 11,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-        padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        tooltip: playing ? '暂停' : '播放',
-        icon: Icon(
-          playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-          shadows: _fullscreen ? _controlShadows : null,
-        ),
-        onPressed: player == null
-            ? null
-            : () => snapshot.error != null
-                  ? _restoreInlinePlayback(retry: true)
-                  : (snapshot.playing ? player.pause() : player.play()),
-      ),
-      IconButton(
-        iconSize: _iconSize + 5,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        tooltip: '停止',
-        icon: Icon(
-          Icons.stop_circle,
-          shadows: _fullscreen ? _controlShadows : null,
-        ),
-        onPressed: player?.stop,
-      ),
-      IconButton(
-        tooltip: '播放速度（${_settings.speed}x）',
-        iconSize: _iconSize + 5,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        padding: EdgeInsets.zero,
-        icon: Icon(Icons.speed, shadows: _fullscreen ? _controlShadows : null),
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        onPressed: _showSpeedPicker,
-      ),
-      IconButton(
-        iconSize: _iconSize + 5,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-        tooltip: '前进 10 秒',
-        icon: Icon(
-          Icons.forward_10,
-          shadows: _fullscreen ? _controlShadows : null,
-        ),
-        onPressed: player == null
-            ? null
-            : () => _seekBy(const Duration(seconds: 10)),
-      ),
-    ];
+          IconButton(
+            iconSize: _iconSize + 5,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
+            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+            tooltip: '后退 10 秒',
+            icon: Icon(
+              Icons.replay_10,
+              shadows: _fullscreen ? _controlShadows : null,
+            ),
+            onPressed: player == null
+                ? null
+                : () => _seekBy(const Duration(seconds: -10)),
+          ),
+          IconButton(
+            // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
+            iconSize: _iconSize + 11,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            padding: EdgeInsets.zero,
+            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+            tooltip: playing ? '暂停' : '播放',
+            icon: Icon(
+              playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+              shadows: _fullscreen ? _controlShadows : null,
+            ),
+            onPressed: player == null
+                ? null
+                : () => snapshot.error != null
+                      ? _restoreInlinePlayback(retry: true)
+                      : (snapshot.playing ? player.pause() : player.play()),
+          ),
+          IconButton(
+            iconSize: _iconSize + 5,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
+            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+            tooltip: '停止',
+            icon: Icon(
+              Icons.stop_circle,
+              shadows: _fullscreen ? _controlShadows : null,
+            ),
+            onPressed: player?.stop,
+          ),
+          IconButton(
+            tooltip: '播放速度（${_settings.speed}x）',
+            iconSize: _iconSize + 5,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
+            icon: Icon(
+              Icons.speed,
+              shadows: _fullscreen ? _controlShadows : null,
+            ),
+            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+            onPressed: _showSpeedPicker,
+          ),
+          IconButton(
+            iconSize: _iconSize + 5,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
+            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+            tooltip: '前进 10 秒',
+            icon: Icon(
+              Icons.forward_10,
+              shadows: _fullscreen ? _controlShadows : null,
+            ),
+            onPressed: player == null
+                ? null
+                : () => _seekBy(const Duration(seconds: 10)),
+          ),
+        ]
+        .map(
+          (button) =>
+              LiquidGlassWidget(area: GlassArea.primaryControls, child: button),
+        )
+        .toList();
   }
 
   /// 次级控制：清晰度 / 弹幕 / 连播 / 画中画 / 全屏 / 设置，最右侧是播放源。
@@ -4136,6 +4180,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 紧凑的图标按钮（次级控制排专用，避免窄屏溢出）。
   Widget _compactIcon({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    bool highlighted = false,
+  }) => LiquidGlassWidget(
+    area: GlassArea.utilityControls,
+    child: _compactIconBody(
+      icon: icon,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      highlighted: highlighted,
+    ),
+  );
+
+  Widget _compactIconBody({
     required IconData icon,
     required String tooltip,
     required VoidCallback? onPressed,

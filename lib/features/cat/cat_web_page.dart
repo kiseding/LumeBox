@@ -58,7 +58,7 @@ class _CatWebPageState extends State<CatWebPage> {
     )
     ..loadRequest(widget.url);
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.cat,
     title: '网盘登录与配置',
     leading: IconButton(
       icon: const Icon(Icons.arrow_back),

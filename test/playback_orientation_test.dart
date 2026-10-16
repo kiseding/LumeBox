@@ -27,10 +27,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   setUp(() async {
@@ -78,7 +78,11 @@ void main() {
       var notified = 0;
       controller.addListener(() => notified++);
       await controller.boot();
-      expect(controller.orientation, PlaybackOrientation.portrait, reason: '启动读盘');
+      expect(
+        controller.orientation,
+        PlaybackOrientation.portrait,
+        reason: '启动读盘',
+      );
       expect(notified, 1);
 
       controller.apply(PlaybackOrientation.landscape);
@@ -107,10 +111,7 @@ void main() {
 
       expect(find.text('播放'), findsOneWidget, reason: '分组标题');
       expect(find.text('横屏播放'), findsOneWidget);
-      final switchFinder = find.widgetWithText(
-        Row,
-        '横屏播放',
-      );
+      final switchFinder = find.widgetWithText(Row, '横屏播放');
       expect(switchFinder, findsOneWidget);
 
       final before = tester.widget<Switch>(
@@ -118,10 +119,9 @@ void main() {
       );
       expect(before.value, isFalse, reason: '默认关闭（竖屏短剧按比例自动判断）');
 
-      await tester.tap(find.descendant(
-        of: switchFinder,
-        matching: find.byType(Switch),
-      ));
+      await tester.tap(
+        find.descendant(of: switchFinder, matching: find.byType(Switch)),
+      );
       await tester.pumpAndSettle();
       expect(
         PlaybackOrientationController.instance.orientation,
@@ -131,10 +131,9 @@ void main() {
       expect(find.textContaining('已开启：全屏播放一律横屏'), findsOneWidget);
 
       // 再关掉：回到「按视频比例自动判断」。
-      await tester.tap(find.descendant(
-        of: switchFinder,
-        matching: find.byType(Switch),
-      ));
+      await tester.tap(
+        find.descendant(of: switchFinder, matching: find.byType(Switch)),
+      );
       await tester.pumpAndSettle();
       expect(
         PlaybackOrientationController.instance.orientation,
@@ -155,13 +154,13 @@ void main() {
             // 测试里补一个——与全局设置页同构。
             body: SingleChildScrollView(
               child: PlayerSettingsSheet(
-              settings: const PlayerSettings(),
-              capabilities: PlayerCapabilities.of(PlayerKernel.avplayer),
-              onChanged: (_) {},
-              embedded: true,
-              orientation: PlaybackOrientationController.instance.orientation,
-              onOrientationChanged:
-                  PlaybackOrientationController.instance.apply,
+                settings: const PlayerSettings(),
+                capabilities: PlayerCapabilities.of(PlayerKernel.avplayer),
+                onChanged: (_) {},
+                embedded: true,
+                orientation: PlaybackOrientationController.instance.orientation,
+                onOrientationChanged:
+                    PlaybackOrientationController.instance.apply,
               ),
             ),
           ),
@@ -178,6 +177,8 @@ void main() {
         expect(find.widgetWithText(ChoiceChip, mode.label), findsOneWidget);
       }
 
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, '强制横屏'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '强制横屏'));
       await tester.pumpAndSettle();
       expect(

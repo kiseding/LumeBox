@@ -59,14 +59,14 @@ class _DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.sources,
         title: _title,
         child: const SourceStateView(state: SourceStateKind.loading),
       );
     }
     final failure = _failure;
     if (failure != null) {
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.sources,
         title: _title,
         child: SourceStateView(
           state: stateForError(failure),
@@ -76,7 +76,7 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
     final detail = _detail;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.sources,
       title: _title,
       child: ListView(
         padding: const EdgeInsets.all(16),

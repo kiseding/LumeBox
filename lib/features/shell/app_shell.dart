@@ -1,3 +1,5 @@
+import '../../shared/widgets/module_glass_surface.dart';
+
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import '../../core/theme/floating_modules.dart';
@@ -295,18 +297,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final difference = total - _seenSubscriptionChanges;
     _seenSubscriptionChanges = total;
     if (difference <= 0) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('订阅源变动 $difference 条，已同步到 App'),
-          action: SnackBarAction(
-            label: '一键更新',
-            onPressed: () => _syncSubscriptions(force: true),
-          ),
-        ),
-      );
-    });
+    // Update badges and source-row notices provide persistent feedback.
   }
 
   @override
@@ -652,7 +643,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   ///   页内滚动位置等局部状态归零——这是静态色名架构下的取舍。
   Widget _buildPage() => KeyedSubtree(
     key: ValueKey<String>('$_activeId·${LumeTheme.themeId}'),
-    child: _pageOf(_activeId).builder(),
+    child: ModuleGlassScope(
+      module: GlassModule.fromId(_activeId),
+      child: _pageOf(_activeId).builder(),
+    ),
   );
 }
 
@@ -753,52 +747,85 @@ class _DockBar extends StatelessWidget {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(
-                            sigmaX: FloatingModules.instance
-                                .style(FloatingModule.dock)
-                                .blur,
-                            sigmaY: FloatingModules.instance
-                                .style(FloatingModule.dock)
-                                .blur,
-                          ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: LumeTheme.glass.withValues(
-                                alpha: FloatingModules.instance
-                                    .style(FloatingModule.dock)
-                                    .opacity,
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                capsuleHeight / 2,
-                              ),
-                              border: Border.all(color: LumeTheme.hairline),
+                        child: ModuleGlassSurface(
+                          module: GlassModule.fromId(activeId),
+                          part: GlassPart.dock,
+                          legacy: BackdropFilter(
+                            filter: ImageFilter.blur(
+                              sigmaX: FloatingModules.instance
+                                  .style(FloatingModule.dock)
+                                  .blur,
+                              sigmaY: FloatingModules.instance
+                                  .style(FloatingModule.dock)
+                                  .blur,
                             ),
-                            child: SizedBox(
-                              height: capsuleHeight,
-                              child: Padding(
-                                // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                                // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                                padding: EdgeInsets.only(bottom: contentInset),
-                                // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                                // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: LumeTheme.glass.withValues(
+                                  alpha: FloatingModules.instance
+                                      .style(FloatingModule.dock)
+                                      .opacity,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  capsuleHeight / 2,
+                                ),
+                                border: Border.all(color: LumeTheme.hairline),
+                              ),
+                              child: SizedBox(
+                                height: capsuleHeight,
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal:
-                                        _AppShellState._dockInnerPadding,
+                                  // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                                  // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                                  padding: EdgeInsets.only(
+                                    bottom: contentInset,
                                   ),
-                                  child: Row(
-                                    children: <Widget>[
-                                      for (final tab in tabs)
-                                        Expanded(
-                                          child: _DockItem(
-                                            tab: tab,
-                                            selected: tab.id == activeId,
-                                            onTap: () => onSelect(tab.id),
+                                  // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                                  // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal:
+                                          _AppShellState._dockInnerPadding,
+                                    ),
+                                    child: Row(
+                                      children: <Widget>[
+                                        for (final tab in tabs)
+                                          Expanded(
+                                            child: _DockItem(
+                                              tab: tab,
+                                              selected: tab.id == activeId,
+                                              onTap: () => onSelect(tab.id),
+                                            ),
                                           ),
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          child: SizedBox(
+                            height: capsuleHeight,
+                            child: Padding(
+                              // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                              // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                              padding: EdgeInsets.only(bottom: contentInset),
+                              // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                              // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: _AppShellState._dockInnerPadding,
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    for (final tab in tabs)
+                                      Expanded(
+                                        child: _DockItem(
+                                          tab: tab,
+                                          selected: tab.id == activeId,
+                                          onTap: () => onSelect(tab.id),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ),

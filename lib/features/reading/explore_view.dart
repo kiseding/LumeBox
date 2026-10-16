@@ -1,3 +1,5 @@
+import '../../core/media/media_library.dart';
+import '../media/media_library_page.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -228,6 +230,7 @@ class _ExploreViewState extends State<ExploreView> {
   @override
   void initState() {
     super.initState();
+    MediaLibrary.instance.addListener(_mediaChanged);
     _layoutSettings.addListener(_onLayoutChanged);
     ModuleUiScale.instance.addListener(_onLayoutChanged);
     ModuleUiScale.instance.ensure(widget.section);
@@ -258,8 +261,11 @@ class _ExploreViewState extends State<ExploreView> {
     }
   }
 
+  void _mediaChanged() { if(mounted) setState(() {}); }
+
   @override
   void dispose() {
+    MediaLibrary.instance.removeListener(_mediaChanged);
     ModuleUiScale.instance.removeListener(_onLayoutChanged);
     _layoutSettings.removeListener(_onLayoutChanged);
     SourceSubscriptionSync.revision(widget.section)
@@ -867,6 +873,10 @@ class _ExploreViewState extends State<ExploreView> {
   // ------------------------------------------------------------------ 交互
 
   Future<void> _selectSource(String sourceId) async {
+    if(sourceId=='__local_media__') {
+      await Navigator.push(context,MaterialPageRoute<void>(builder:(_)=>MediaLibraryPage(section:widget.section)));
+      if(mounted) setState(() {});return;
+    }
     if (sourceId == _current?.id || _switching) return;
     SectionPreloader.discard(widget.section);
     setState(() => _switching = true);
@@ -1192,9 +1202,11 @@ class _ExploreViewState extends State<ExploreView> {
       manager: _manager,
       onSourcesChanged: _bootstrap,
       floating: true,
-      sources: _sources
-          .where((source) => source.enabled)
-          .toList(growable: false),
+      sources: [ ..._sources.where((source)=>source.enabled),
+        if(widget.section==Section.novel || widget.section==Section.video)
+          SourceDescriptor(id:'__local_media__',name:widget.section==Section.novel ? '本地有声小说与导入资源' : '本地与导入资源',
+            version:'1',enabled:true,section:widget.section,group:widget.section==Section.novel ? '有声小说' : '视频'),
+      ],
       currentId: _current?.id,
       busy: _switching,
       onSelect: _selectSource,
@@ -1375,7 +1387,8 @@ class _ExploreViewState extends State<ExploreView> {
       BrowseLayoutMode.grid3;
 
   /// 排序后的条目（排序是客户端行为，只作用于已加载的这批）。
-  List<SourceItem> get _sortedItems => _sort.apply(_items);
+  List<SourceItem> get _sortedItems => _sort.apply(_items.where((item)=>
+    MediaLibrary.instance.visibleAtOrigin(widget.section,_current?.id ?? '',item.id)).toList());
 
   /// 是否处于「首页模式」（用户口径任务 3）：图源提供 home()，且当前没有
   /// 分类 / 分组筛选 / 关键词 / 搜索结果在生效。旧源没有 home() → 照旧分类列表。

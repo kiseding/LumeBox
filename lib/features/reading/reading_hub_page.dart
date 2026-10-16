@@ -56,6 +56,7 @@ class ReadingHubPage extends StatelessWidget {
     return DefaultTabController(
       length: tabLabels.length,
       child: GlassScaffold(
+        effectModule: GlassModule.fromId(section.id),
         // **不随键盘收缩**：内容区（ExploreView）自己让出键盘高度；外层跟着收缩
         // 会把固定工具栏 / 搜索行挤出屏幕（真机反馈过两次「搜索框不见了」）。
         resizeToAvoidBottomInset: false,
@@ -74,6 +75,7 @@ class ReadingHubPage extends StatelessWidget {
                     builder: (_) => DefaultTabController(
                       length: 2,
                       child: GlassScaffold(
+                        effectModule: GlassModule.fromId(section.id),
                         title: '${section.label}收藏',
                         child: shelf,
                       ),

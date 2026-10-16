@@ -191,7 +191,7 @@ class _ComicRepoPageState extends State<ComicRepoPage> {
   @override
   Widget build(BuildContext context) {
     final repos = _repos;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.comic,
       behindBar: true,
       title: '扩展仓库',
       floatingActionButton: repos == null || _failed

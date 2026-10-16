@@ -1,3 +1,4 @@
+import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
 
@@ -50,6 +51,12 @@ void main() {
               : null,
         );
     // 视频板块的设置库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
+    await MediaLibrary.instance.boot();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('lumebox/mediaTracks'),
+          (_) async => {'known': true, 'audio': true, 'video': true},
+        );
     await ReadingLibrary.open(video);
     source = _VideoSource();
     manager = FakeSourceManager(
@@ -90,6 +97,10 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     return created;
   }
@@ -165,17 +176,33 @@ void main() {
 
     // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
     await tapWithDetailPlay(tester, find.byTooltip('源管理'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.byTooltip('添加源'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byType(TextField),
       '// LumeSource: {"id":"lume.new","name":"新图源","version":"1.0.0"}',
     );
     await tapWithDetailPlay(tester, find.text('导入'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     await backToBrowse(tester);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(manager.imported, hasLength(1));
     // 自动刷新：空态消失，图源条换成新图源，列表直接出现（无需点「重试」）。
@@ -195,6 +222,10 @@ void main() {
     expect(created, isEmpty, reason: '浏览页自己不建播放器（起播才建）');
 
     await tapWithDetailPlay(tester, find.text('测试视频'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 起播：唤起独立播放器页，媒体交给播放器。
@@ -214,6 +245,10 @@ void main() {
       reason: '控制栏不直接展示长链接',
     );
     await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(find.text('https://example.com/demo.mp4'), findsNothing);
@@ -230,11 +265,19 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 多集先让用户选。
     expect(find.text('选集（2）'), findsOneWidget);
     await tapWithDetailPlay(tester, find.text('第 2 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(
@@ -264,6 +307,10 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('樣片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
@@ -298,6 +345,10 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('樣片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
@@ -323,6 +374,10 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(find.text('选择剧集'), findsNothing);
@@ -341,6 +396,10 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(created, isEmpty, reason: '没有可播放地址就不该起播');
@@ -525,6 +584,10 @@ Future<void> tapWithDetailPlay(
       .evaluate()
       .isNotEmpty;
   await tester.tap(finder, warnIfMissed: warnIfMissed);
+  await tester.pump();
+  await tester.runAsync(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+  });
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     final chips = find.descendant(
@@ -537,6 +600,10 @@ Future<void> tapWithDetailPlay(
           tester.widget<FilledButton>(play).onPressed != null) {
         await tester.ensureVisible(play);
         await tester.tap(play);
+        await tester.pump();
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
         await tester.pumpAndSettle();
       }
     }
@@ -545,9 +612,17 @@ Future<void> tapWithDetailPlay(
 
 Future<void> backToBrowse(WidgetTester tester) async {
   await tester.pageBack();
+  await tester.pump();
+  await tester.runAsync(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+  });
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     await tester.pageBack();
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
   }
 }

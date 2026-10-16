@@ -30,10 +30,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   setUp(() async {
@@ -71,14 +71,20 @@ void main() {
 
     test('颜色档位带 ARGB 值，且都是不透明色', () {
       for (final color in SubtitleColor.values) {
-        expect(color.argb & 0xFF000000, 0xFF000000,
-            reason: '字幕颜色必须不透明（半透明字幕压在画面上读不清）');
+        expect(
+          color.argb & 0xFF000000,
+          0xFF000000,
+          reason: '字幕颜色必须不透明（半透明字幕压在画面上读不清）',
+        );
       }
     });
 
     test('描边档位含「无」（有些用户就是不喜欢描边）', () {
       expect(SubtitleOutline.none.width, 0);
-      expect(SubtitleOutline.thick.width, greaterThan(SubtitleOutline.thin.width));
+      expect(
+        SubtitleOutline.thick.width,
+        greaterThan(SubtitleOutline.thin.width),
+      );
     });
 
     test('延迟归一：越界夹到 ±10 秒', () {
@@ -148,7 +154,9 @@ void main() {
 
   group('落库往返', () {
     test('全部新字段写进板块库并读回', () {
-      final store = VideoPlayerSettingsStore(ReadingLibrary.find(Section.video)!);
+      final store = VideoPlayerSettingsStore(
+        ReadingLibrary.find(Section.video)!,
+      );
       store.save(
         const PlayerSettings(hardwareDecoding: false).copyWith(
           subtitlesEnabled: true,
@@ -168,7 +176,9 @@ void main() {
     });
 
     test('负延迟也能落库（提前字幕）', () {
-      final store = VideoPlayerSettingsStore(ReadingLibrary.find(Section.video)!);
+      final store = VideoPlayerSettingsStore(
+        ReadingLibrary.find(Section.video)!,
+      );
       store.save(
         const PlayerSettings().copyWith(
           subtitleDelay: const Duration(seconds: -3),
@@ -178,7 +188,9 @@ void main() {
     });
 
     test('旧库（缺新键）读回默认值，不让播放起不来', () {
-      final store = VideoPlayerSettingsStore(ReadingLibrary.find(Section.video)!);
+      final store = VideoPlayerSettingsStore(
+        ReadingLibrary.find(Section.video)!,
+      );
       // 旧版本只写过内核 / 倍速 / 开关 / 字号。
       final library = ReadingLibrary.find(Section.video)!;
       library.setSetting(VideoPlayerSettingsStore.keyKernel, 'mpv');
@@ -210,7 +222,10 @@ void main() {
   });
 
   group('设置页', () {
-    Future<void> pumpPage(WidgetTester tester, {PlayerSettings? initial}) async {
+    Future<void> pumpPage(
+      WidgetTester tester, {
+      PlayerSettings? initial,
+    }) async {
       await tester.binding.setSurfaceSize(const Size(900, 2000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
@@ -292,6 +307,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('黄色'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('黄色'));
       await tester.pumpAndSettle();
       expect(changed?.subtitleColor, SubtitleColor.yellow);
@@ -322,7 +339,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       final decodingSwitch = find.descendant(
-        of: find.ancestor(of: find.text('硬件解码'), matching: find.byType(Row)).first,
+        of: find
+            .ancestor(of: find.text('硬件解码'), matching: find.byType(Row))
+            .first,
         matching: find.byType(Switch),
       );
       await tester.ensureVisible(decodingSwitch);
@@ -344,8 +363,17 @@ void main() {
       // 字号 / 颜色 / 描边三组芯片在字幕关闭时全部 onSelected 为 null。
       final subtitleChips = chips.where((chip) {
         final label = (chip.label as Text).data ?? '';
-        return <String>['小', '标准', '大', '特大', '白色', '黄色', '无', '细', '粗']
-            .contains(label);
+        return <String>[
+          '小',
+          '标准',
+          '大',
+          '特大',
+          '白色',
+          '黄色',
+          '无',
+          '细',
+          '粗',
+        ].contains(label);
       }).toList();
       expect(subtitleChips, isNotEmpty);
       for (final chip in subtitleChips) {

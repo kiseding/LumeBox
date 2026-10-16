@@ -6,7 +6,7 @@ import '../../shared/widgets/glass_card.dart';
 class SearchSettingsPage extends StatelessWidget {
   const SearchSettingsPage({super.key});
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.settings,
     title: '搜索',
     child: ListenableBuilder(
       listenable: SearchSettings.instance,

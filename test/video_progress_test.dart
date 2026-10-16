@@ -1,3 +1,4 @@
+import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/player_settings_sheet.dart';
@@ -46,6 +47,12 @@ void main() {
               ? root.path
               : null,
         );
+    await MediaLibrary.instance.boot();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('lumebox/mediaTracks'),
+          (_) async => {'known': true, 'audio': true, 'video': true},
+        );
     final fixtureLibrary = await ReadingLibrary.open(Section.video);
     // Progress fixtures exercise the unchanged fast path without network probes.
     fixtureLibrary.setSetting(
@@ -92,6 +99,10 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     return created;
   }
@@ -126,13 +137,29 @@ void main() {
       ];
       final players = await pumpBoard(tester);
       await tapWithDetailPlay(tester, find.text('画质测试'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.text('第 1 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(players.last.media!.uri.path, '/e1-1080.mp4');
       await tapWithDetailPlay(tester, find.byTooltip('清晰度'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.widgetWithText(ListTile, '720P'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(players.last.media!.uri.path, '/e1-720.mp4');
       players.last.pushStats(
@@ -143,6 +170,10 @@ void main() {
         duration: const Duration(seconds: 60),
         playing: true,
       );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(players.length, 2);
       final prepared = players.last;
@@ -151,8 +182,16 @@ void main() {
         remember ? '/e2-720.mp4' : '/e2-1080.mp4',
       );
       await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.widgetWithText(ChoiceChip, '第 2 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(prepared.loads, 1);
       expect(
@@ -160,8 +199,16 @@ void main() {
         'https://example.com/watch/e2',
       );
       await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.widgetWithText(ChoiceChip, '第 3 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(players.last.media!.uri.path, '/e3-1080.mp4');
       expect(
@@ -181,15 +228,31 @@ void main() {
       source.contentHeaders = const {'Referer': 'https://example.com/'};
       final players = await pumpBoard(tester);
       await tapWithDetailPlay(tester, find.text('示例影片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.text('第 1 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       if (fullscreen && find.byTooltip('全屏').evaluate().isNotEmpty) {
         await tapWithDetailPlay(tester, find.byTooltip('全屏'));
+        await tester.pump();
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
         await tester.pumpAndSettle();
       }
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(
         tester
@@ -198,6 +261,10 @@ void main() {
         isTrue,
       );
       await tapWithDetailPlay(tester, find.widgetWithText(ChoiceChip, '第 2 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(
         players.single.media!.uri.toString(),
@@ -207,6 +274,10 @@ void main() {
       expect(find.text('选集与线路'), findsNothing);
       if (fullscreen) expect(find.byTooltip('退出全屏'), findsOneWidget);
       await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(
         tester
@@ -225,8 +296,16 @@ void main() {
     ];
     final players = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.text('第 1 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     final current = players.single;
     current.pushStats(const PlayerStats(buffered: Duration(seconds: 10)));
@@ -235,6 +314,10 @@ void main() {
       duration: const Duration(seconds: 60),
       playing: true,
     );
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(players, hasLength(2));
     final prepared = players.last;
@@ -244,8 +327,16 @@ void main() {
     );
     expect(prepared.snapshot.value.playing, isFalse);
     await tapWithDetailPlay(tester, find.text('选集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.widgetWithText(ChoiceChip, '第 2 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(prepared.loads, 1, reason: '接手已装载实例，不重新load');
     expect(prepared.snapshot.value.playing, isTrue);
@@ -261,6 +352,10 @@ void main() {
     final created = await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(created.single.media, isNotNull);
 
@@ -272,6 +367,10 @@ void main() {
 
     // 退出页面：dispose 时最后落一次盘。
     await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     final library = await ReadingLibrary.open(Section.video);
@@ -290,6 +389,10 @@ void main() {
     source.contentUrl = 'https://example.com/movie-1-e1.mp4?token=old';
     final players = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     final player = players.single;
     player.emit(position: const Duration(minutes: 6), playing: true);
@@ -299,6 +402,10 @@ void main() {
     player.emit(error: 'HTTP 403', playing: false);
     await tester.pump();
     await tapWithDetailPlay(tester, find.text('重试播放'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(player.media!.uri.query, 'token=new');
     expect(player.media!.headers, {'Referer': 'https://new.example/'});
@@ -316,15 +423,27 @@ void main() {
     // 先播一段并退出。
     final first = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     first.single.emit(position: const Duration(minutes: 20), playing: true);
     await tester.pump();
     await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 重新进入板块，再点同一作品（列表里只剩浏览区那一条）。
     final second = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(
@@ -345,20 +464,40 @@ void main() {
 
     final first = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     // 选第 1 集，看一会儿。
     await tapWithDetailPlay(tester, find.text('第 1 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     first.single.emit(position: const Duration(minutes: 30), playing: true);
     await tester.pump();
     await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 重新进入并选第 2 集（「继续观看」区块已删除，列表里只剩那一条）。
     final second = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.text('第 2 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(second.single.seeks, isEmpty, reason: '换了集就不该恢复上一集的时间点');
@@ -388,6 +527,10 @@ void main() {
 
     final created = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片').last);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(created.single.seeks, isEmpty, reason: '看完了就从头上，不跳到结尾');
@@ -424,6 +567,10 @@ void main() {
 
     // 记录仍在：右上角 ⏱️ 抽屉里看得到，点一条即从上次位置续播。
     await tapWithDetailPlay(tester, find.byTooltip('播放历史'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     final inSheet = find.descendant(
       of: find.byType(ReadingHistorySheet),
@@ -435,6 +582,10 @@ void main() {
     );
 
     await tapWithDetailPlay(tester, inSheet);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(
       created.single.seeks,
@@ -462,8 +613,16 @@ void main() {
 
     final players = await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.text('示例影片').first);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.text('第 1 集'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     final media = players.single.media;
@@ -493,16 +652,36 @@ void main() {
 
     await pumpBoard(tester);
     await tapWithDetailPlay(tester, find.byTooltip('播放历史'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 抽屉里删单条（视频的记录就是它的书架，删掉不丢别的东西）。
     await tapWithDetailPlay(tester, find.text('多选'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.text('全选'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.text('删除所选'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     await tapWithDetailPlay(tester, find.widgetWithText(FilledButton, '删除'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     expect(find.text('暂无内容'), findsOneWidget, reason: '删完抽屉给空态');
@@ -611,9 +790,17 @@ void main() {
 
     // 第一条：点开播放页再返回。
     await tapWithDetailPlay(tester, find.text('示例影片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(find.text('player:avplayer'), findsOneWidget);
     await backToBrowse(tester);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
 
     // 播放页退出时**不能关掉图源管理器**：它是板块级共享实例，关了之后浏览页
@@ -622,6 +809,10 @@ void main() {
 
     // 第二条照样能起播。
     await tapWithDetailPlay(tester, find.text('另一部片子'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(find.text('player:avplayer'), findsOneWidget);
     expect(created.length, greaterThanOrEqualTo(1));
@@ -633,6 +824,10 @@ void main() {
     expect(find.text('继续观看'), findsNothing, reason: '这个区块已经不在了');
 
     await tapWithDetailPlay(tester, find.byTooltip('播放历史'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
     expect(find.text('暂无内容'), findsOneWidget);
   });
@@ -807,8 +1002,16 @@ void main() {
       final created = await pumpBoard(tester);
 
       await tapWithDetailPlay(tester, find.text('示例影片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.text('第 1 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       // 播到结尾（模拟播放器把位置推到总时长）。
@@ -817,6 +1020,10 @@ void main() {
         duration: const Duration(minutes: 45),
         playing: true,
       );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       expect(
@@ -838,6 +1045,10 @@ void main() {
       final created = await pumpBoard(tester);
 
       await tapWithDetailPlay(tester, find.text('示例影片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       final mediaBefore = created.single.media?.uri.toString();
@@ -846,6 +1057,10 @@ void main() {
         duration: const Duration(minutes: 45),
         playing: true,
       );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       expect(
@@ -869,13 +1084,25 @@ void main() {
       final created = await pumpBoard(tester);
 
       await tapWithDetailPlay(tester, find.text('关连播测试片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.text('第 1 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       // 控制栏在独立播放器页里（点条目时已经压栈）。
       // 关掉连播开关（按图标点，避免 tooltip 在窄屏上不可见）。
       await tapWithDetailPlay(tester, find.byTooltip('播放器设置'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       await tester.dragUntilVisible(
@@ -884,12 +1111,20 @@ void main() {
         const Offset(0, -250),
       );
       await tester.ensureVisible(find.widgetWithText(SwitchListTile, '自动连播'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(
         tester,
         find.widgetWithText(SwitchListTile, '自动连播'),
       );
 
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       expect(
         tester
@@ -904,6 +1139,10 @@ void main() {
         duration: const Duration(minutes: 45),
         playing: true,
       );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       expect(
@@ -925,8 +1164,16 @@ void main() {
       final created = await pumpBoard(tester);
 
       await tapWithDetailPlay(tester, find.text('未知时长测试片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
       await tapWithDetailPlay(tester, find.text('第 1 集'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       // 位置在走但时长未知（0）。
@@ -934,6 +1181,10 @@ void main() {
         position: const Duration(minutes: 10),
         duration: Duration.zero,
       );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
       await tester.pumpAndSettle();
 
       expect(
@@ -1104,6 +1355,10 @@ Future<void> tapWithDetailPlay(
       .evaluate()
       .isNotEmpty;
   await tester.tap(finder, warnIfMissed: warnIfMissed);
+  await tester.pump();
+  await tester.runAsync(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+  });
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     final chips = find.descendant(
@@ -1116,6 +1371,10 @@ Future<void> tapWithDetailPlay(
           tester.widget<FilledButton>(play).onPressed != null) {
         await tester.ensureVisible(play);
         await tester.tap(play);
+        await tester.pump();
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
         await tester.pumpAndSettle();
       }
     }
@@ -1128,9 +1387,17 @@ Future<void> backToBrowse(WidgetTester tester) async {
   } else {
     await tester.pageBack();
   }
+  await tester.pump();
+  await tester.runAsync(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+  });
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     await tester.pageBack();
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pumpAndSettle();
   }
 }

@@ -65,7 +65,7 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.comic,
       behindBar: true,
       title: '阅读设置',
       child: ListView(
@@ -90,24 +90,24 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
           const SizedBox(height: 12),
           _OptionCard<ComicTapAction>(
             title: '点击行为',
-            hint: '「点击翻页」只在单页 / 双页模式生效：左 1/3 上一页、右 1/3 下一页；'
+            hint:
+                '「点击翻页」只在单页 / 双页模式生效：左 1/3 上一页、右 1/3 下一页；'
                 '瀑布流没有「页」可翻，仍是呼出工具栏。',
             values: ComicTapAction.values,
             value: _settings.tapAction,
             labelOf: (action) => action.label,
-            onChanged: (value) =>
-                _update(_settings.copyWith(tapAction: value)),
+            onChanged: (value) => _update(_settings.copyWith(tapAction: value)),
           ),
           const SizedBox(height: 12),
           _OptionCard<ComicReadingDirection>(
             title: '翻页方向',
-            hint: '日漫 / 港漫从右往左读；方向反了每一页的顺序都是反的'
+            hint:
+                '日漫 / 港漫从右往左读；方向反了每一页的顺序都是反的'
                 '（双页跨页尤其明显）。',
             values: ComicReadingDirection.values,
             value: _settings.direction,
             labelOf: (direction) => direction.label,
-            onChanged: (value) =>
-                _update(_settings.copyWith(direction: value)),
+            onChanged: (value) => _update(_settings.copyWith(direction: value)),
           ),
           const SizedBox(height: 12),
           _OptionCard<ComicSpreadMode>(
@@ -228,30 +228,46 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          if (widget.chapterOrder != null) ChapterAutoOrderSwitch(order: widget.chapterOrder!),
+          if (widget.chapterOrder != null)
+            ChapterAutoOrderSwitch(order: widget.chapterOrder!),
           // 说明面板与这里的分工，避免用户回到面板找不到刚改过的东西。
           ListTile(
             leading: const Icon(Icons.auto_fix_high_outlined),
-            title: const Text('当前页超分 / 翻译'),
+            title: const Text('当前页 AI 超分 / 翻译'),
             subtitle: const Text('处理当前页，保留原图对照'),
             onTap: widget.onImageTools,
           ),
           ListTile(
             leading: const Icon(Icons.hd_outlined),
-            title: const Text('图片超分辨率'),
-            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ComicImageToolsSettingsPage())),
+            title: const Text('AI 图片超分辨率'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const ComicImageToolsSettingsPage(),
+              ),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.translate),
             title: const Text('漫画翻译'),
-            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ComicImageToolsSettingsPage(translation: true))),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const ComicImageToolsSettingsPage(translation: true),
+              ),
+            ),
           ),
           GlassCard(
             padding: const EdgeInsets.all(14),
             child: Text(
               '阅读模式、侧边距、页间距仍在底部面板（阅读时点一下画面即可呼出）——'
               '那三项是边看边调的；这一页装的都是「设定一次就不动」的项。',
-              style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
         ],
@@ -297,10 +313,7 @@ class _OptionCard<T> extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            hint,
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
-          ),
+          Text(hint, style: TextStyle(fontSize: 12, color: LumeTheme.muted)),
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,

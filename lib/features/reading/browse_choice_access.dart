@@ -1,3 +1,6 @@
+import '../../shared/widgets/module_glass_surface.dart';
+import '../../shared/widgets/drawer_geometry.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -208,6 +211,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
   required String? category,
   required Map<String, String> filters,
 }) {
+  final effectModule = ModuleGlassScope.moduleOf(context);
   var chosenCategory = category;
   var chosenFilters = Map<String, String>.of(filters);
   var query = '';
@@ -218,6 +222,8 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
     useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
     builder: (context) => StatefulBuilder(
       builder: (context, setPanelState) {
         Widget choices(
@@ -262,112 +268,162 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
         return Padding(
           padding: EdgeInsets.only(bottom: keyboard),
           child: SizedBox(
-            height: math.min(
-              media.size.height * .92,
-              math.max(0, media.size.height - keyboard - media.padding.top),
-            ),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                8,
-                16,
-                (keyboard > 0
+            key: const Key('classification-drawer-frame'),
+            height: DrawerGeometry.height(context),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  bottom:
+                      60 +
+                      (keyboard > 0
+                          ? 0
+                          : math.max(
+                              media.viewPadding.bottom,
+                              media.padding.bottom,
+                            )),
+                  child: ModuleGlassSurface(
+                    module: effectModule,
+                    part: GlassPart.home,
+                    legacy: Material(
+                      key: const Key('filter-content-background'),
+                      color:
+                          Theme.of(context)
+                              .bottomSheetTheme
+                              .modalBackgroundColor ??
+                          Theme.of(context).bottomSheetTheme.backgroundColor ??
+                          Theme.of(context).colorScheme.surface,
+                      shape:
+                          Theme.of(context).bottomSheetTheme.shape ??
+                          const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(28),
+                            ),
+                          ),
+                      clipBehavior: Clip.antiAlias,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    (keyboard > 0
                         ? 0
                         : math.max(
                             media.viewPadding.bottom,
                             media.padding.bottom,
-                          )) +
-                    28,
-              ),
-              child: Column(
-                children: [
-                  Row(
+                          )),
+                  ),
+                  child: Column(
                     children: [
-                      const Expanded(
-                        child: Text(
-                          '分类与筛选',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '分类与筛选',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      TextField(
+                        onChanged: (s) => setPanelState(() => query = s.trim()),
+                        decoration: const InputDecoration(
+                          hintText: '搜索分类或筛选项',
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView(
+                          key: const Key('filter-options'),
+                          padding: EdgeInsets.zero,
+                          children: [
+                            if (categories.isNotEmpty)
+                              choices('分类', categories, chosenCategory, (id) {
+                                chosenCategory = id;
+                                chosenFilters.remove('tid');
+                                chosenFilters.remove('class');
+                              }),
+                            for (final group in groups)
+                              choices(
+                                group.title,
+                                group.options
+                                    .map(
+                                      (o) => SourceCategory(
+                                        id: o.id,
+                                        title: o.title,
+                                      ),
+                                    )
+                                    .toList(),
+                                chosenFilters[group.id] ??
+                                    group.options
+                                        .where((o) => o.title == '全部')
+                                        .firstOrNull
+                                        ?.id,
+                                (id) {
+                                  if (id == null) {
+                                    chosenFilters.remove(group.id);
+                                  } else {
+                                    chosenFilters[group.id] = id;
+                                  }
+                                  if (group.id == 'tid') {
+                                    chosenFilters.remove('class');
+                                  }
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        key: const Key('filter-footer'),
+                        height: 60,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Row(
+                              key: const Key('filter-actions'),
+                              children: [
+                                TextButton(
+                                  onPressed: () => setPanelState(() {
+                                    chosenCategory = null;
+                                    chosenFilters.clear();
+                                  }),
+                                  child: Transform.translate(
+                                    offset: const Offset(0, 10),
+                                    child: const Text('重置'),
+                                  ),
+                                ),
+                                const Spacer(),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, (
+                                    category: chosenCategory,
+                                    filters: chosenFilters,
+                                  )),
+                                  child: Transform.translate(
+                                    offset: const Offset(0, 10),
+                                    child: const Text('应用筛选'),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                      IconButton(
-                        tooltip: '关闭',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
                     ],
                   ),
-                  TextField(
-                    onChanged: (s) => setPanelState(() => query = s.trim()),
-                    decoration: const InputDecoration(
-                      hintText: '搜索分类或筛选项',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      key: const Key('filter-options'),
-                      padding: EdgeInsets.zero,
-                      children: [
-                        if (categories.isNotEmpty)
-                          choices('分类', categories, chosenCategory, (id) {
-                            chosenCategory = id;
-                            chosenFilters.remove('tid');
-                            chosenFilters.remove('class');
-                          }),
-                        for (final group in groups)
-                          choices(
-                            group.title,
-                            group.options
-                                .map(
-                                  (o) =>
-                                      SourceCategory(id: o.id, title: o.title),
-                                )
-                                .toList(),
-                            chosenFilters[group.id] ??
-                                group.options
-                                    .where((o) => o.title == '全部')
-                                    .firstOrNull
-                                    ?.id,
-                            (id) {
-                              if (id == null) {
-                                chosenFilters.remove(group.id);
-                              } else {
-                                chosenFilters[group.id] = id;
-                              }
-                              if (group.id == 'tid') {
-                                chosenFilters.remove('class');
-                              }
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 56),
-                  Row(
-                    key: const Key('filter-actions'),
-                    children: [
-                      TextButton(
-                        onPressed: () => setPanelState(() {
-                          chosenCategory = null;
-                          chosenFilters.clear();
-                        }),
-                        child: const Text('重置'),
-                      ),
-                      const Spacer(),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(context, (
-                          category: chosenCategory,
-                          filters: chosenFilters,
-                        )),
-                        child: const Text('应用筛选'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );

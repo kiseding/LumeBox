@@ -76,7 +76,7 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '网络设置',
       actions: <Widget>[

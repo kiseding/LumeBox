@@ -65,6 +65,9 @@ dependencies:
   sherpa_onnx: 1.13.8
   xml: 6.6.1
   archive: 4.3.0
+  just_audio: ^0.10.6
+  just_audio_background: ^0.0.1-beta.17
+  audio_session: ^0.2.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -90,6 +93,8 @@ dev_dependencies:
 # 只存在于原生对象上，而插件不把 AVPlayer 暴露给宿主——只有在插件内部创建播放器
 # 的那一刻才能装上；宿主没配置过时补丁什么都不做（与上游行为一致）。
 dependency_overrides:
+  audio_service:
+    path: third_party/audio_service_ownership
   video_player_avfoundation:
     path: third_party/video_player_avfoundation
 

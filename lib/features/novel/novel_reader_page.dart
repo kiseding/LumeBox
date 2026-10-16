@@ -1,3 +1,5 @@
+import '../../shared/widgets/module_glass_surface.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -112,8 +114,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   List<SpeechSegment> _speechSegments = const <SpeechSegment>[];
 
   /// 听书状态快照（面板与指示条订阅它）。
-  final ValueNotifier<SpeechState> _speechState =
-      ValueNotifier<SpeechState>(SpeechState.unavailable);
+  final ValueNotifier<SpeechState> _speechState = ValueNotifier<SpeechState>(
+    SpeechState.unavailable,
+  );
 
   /// 朗读时是否跟随翻页（与设置里的开关同步，单独存一份避免每帧读设置）。
   bool _speechFollowAlong = true;
@@ -148,7 +151,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _bookmarks = NovelBookmarks.decode(
       widget.library.setting(NovelBookmarks.keyFor(widget.target.itemId)),
     );
-    _autoPageSeconds = int.tryParse(
+    _autoPageSeconds =
+        int.tryParse(
           widget.library.setting(NovelTypesetting.autoPageKey) ?? '',
         ) ??
         15;
@@ -232,9 +236,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             _loadingChapter = false;
             _text = null;
             _pagination = null;
-            _failure = content == null
-                ? '本章暂无内容'
-                : '该章节不是文本内容（源返回了其他类型）';
+            _failure = content == null ? '本章暂无内容' : '该章节不是文本内容（源返回了其他类型）';
           });
           return;
         }
@@ -336,12 +338,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       _paginatedSignature != _signatureFor(size);
 
   String _signatureFor(Size size) => ChapterPagination.cacheKey(
-        chapterId: _chapters.isEmpty ? '' : _chapters[_chapterIndex].id,
-        viewport: size,
-        typesetting: _typesetting,
-        reserveChrome: _turnMode != NovelTurnMode.scroll,
-        leadingParagraphSpacing: _turnMode == NovelTurnMode.scroll,
-      );
+    chapterId: _chapters.isEmpty ? '' : _chapters[_chapterIndex].id,
+    viewport: size,
+    typesetting: _typesetting,
+    reserveChrome: _turnMode != NovelTurnMode.scroll,
+    leadingParagraphSpacing: _turnMode == NovelTurnMode.scroll,
+  );
 
   /// 排版在下一帧执行：分页是 CPU 活（逐段 TextPainter），
   /// 不放在 build / layout 里，先让「正在排版」这一帧画出来。
@@ -438,10 +440,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       text: pagination.text,
       typesetting: _typesetting,
       theme: _theme,
-      contentWidth: _typesetting.contentSize(
-        size,
-        reserveChrome: _turnMode != NovelTurnMode.scroll,
-      ).width,
+      contentWidth: _typesetting
+          .contentSize(size, reserveChrome: _turnMode != NovelTurnMode.scroll)
+          .width,
     );
     _canvases[index] = canvas;
     while (_canvases.length > _canvasCacheSize) {
@@ -464,7 +465,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (canvas == null) return;
     _pendingDisposal.add(canvas);
     if (_pendingDisposal.length > 1) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _flushPendingDisposal());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _flushPendingDisposal(),
+    );
   }
 
   /// 立即释放待销毁的页画布（TextPainter 逐段归还原生该页资源）。
@@ -562,16 +565,19 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (raw.isEmpty) return '';
     final start = charOffset.clamp(0, raw.length);
     final end = (start + 24).clamp(0, raw.length);
-    final slice = raw.substring(start, end).replaceAll(RegExp(r'\s+'), ' ').trim();
+    final slice = raw
+        .substring(start, end)
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     return slice;
   }
 
   /// 当前位置的书签（没有则为 null）。
   NovelBookmark? get _bookmarkHere => NovelBookmarks.at(
-        _bookmarks,
-        chapterIndex: _chapterIndex,
-        charOffset: _currentCharOffset,
-      );
+    _bookmarks,
+    chapterIndex: _chapterIndex,
+    charOffset: _currentCharOffset,
+  );
 
   /// 加/删当前位置的书签。
   void _toggleBookmark() {
@@ -692,7 +698,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       _autoPageTimer?.cancel();
       setState(() => _autoPageTimer = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: Duration(seconds: 1), content: Text('已停止自动翻页')),
+        const SnackBar(
+          duration: Duration(seconds: 1),
+          content: Text('已停止自动翻页'),
+        ),
       );
       return;
     }
@@ -702,10 +711,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   void _startAutoPage(int seconds) {
     _autoPageTimer?.cancel();
     _autoPageSeconds = seconds;
-    widget.library.setSetting(
-      NovelTypesetting.autoPageKey,
-      seconds.toString(),
-    );
+    widget.library.setSetting(NovelTypesetting.autoPageKey, seconds.toString());
     setState(() {
       _autoPageTimer = Timer.periodic(Duration(seconds: seconds), (_) {
         if (!mounted) return;
@@ -1090,16 +1096,22 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   // ------------------------------------------------------------------ 构建
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ModuleGlassScope(module: GlassModule.novel, child: _legacyBuild(context));
+  Widget _legacyBuild(BuildContext context) {
     return Scaffold(
       backgroundColor: _theme.background,
       body: Stack(
         children: <Widget>[
-          Positioned.fill(child: Padding(
-            key: const ValueKey('novel-body-safe-inset'),
-            padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
-            child: _buildContent(),
-          )),
+          Positioned.fill(
+            child: Padding(
+              key: const ValueKey('novel-body-safe-inset'),
+              padding: EdgeInsets.only(
+                top: MediaQuery.viewPaddingOf(context).top,
+              ),
+              child: _buildContent(),
+            ),
+          ),
           // 朗读指示条：压在正文底部，只在朗读 / 暂停时出现。
           //
           // 必须包在 Positioned.fill 里：它是 Stack 的非定位子项，不朗读时高度为 0，
@@ -1119,10 +1131,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
               ),
             ),
           ),
-          if (_toolbar) ...<Widget>[
-            _buildTopBar(),
-            _buildBottomPanel(),
-          ],
+          if (_toolbar) ...<Widget>[_buildTopBar(), _buildBottomPanel()],
         ],
       ),
     );
@@ -1159,7 +1168,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                   index: _pageIndex,
                   buildPage: _painterFor,
                   onIndexChanged: _onPageChanged,
-                  onBeyondStart: () => _openChapter(_chapterIndex - 1, atEnd: true),
+                  onBeyondStart: () =>
+                      _openChapter(_chapterIndex - 1, atEnd: true),
                   onBeyondEnd: () => _openChapter(_chapterIndex + 1),
                 ),
         );
@@ -1168,15 +1178,15 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _centeredSpinner() => Center(
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            color: _theme.secondary,
-          ),
-        ),
-      );
+    child: SizedBox(
+      width: 26,
+      height: 26,
+      child: CircularProgressIndicator(
+        strokeWidth: 2.4,
+        color: _theme.secondary,
+      ),
+    ),
+  );
 
   /// 上下连续滚动：页与页无缝拼接，滚动位置直接换算页码。
   Widget _buildScroll(Size size) {
@@ -1187,8 +1197,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       onNotification: (notification) {
         final controller = _scrollController;
         if (controller == null || !controller.hasClients) return false;
-        final index =
-            (controller.offset / pageHeight).round().clamp(0, pagination.pageCount - 1);
+        final index = (controller.offset / pageHeight).round().clamp(
+          0,
+          pagination.pageCount - 1,
+        );
         if (index != _pageIndex) {
           setState(() => _pageIndex = index);
           _scheduleSave();
@@ -1199,10 +1211,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         controller: _scrollController,
         itemExtent: pageHeight,
         itemCount: pagination.pageCount,
-        itemBuilder: (context, index) => CustomPaint(
-          painter: _painterFor(index),
-          size: Size.infinite,
-        ),
+        itemBuilder: (context, index) =>
+            CustomPaint(painter: _painterFor(index), size: Size.infinite),
       ),
     );
   }
@@ -1214,8 +1224,99 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       right: 0,
       // 用 Material 而不是 DecoratedBox：面板里有 ListTile，
       // 它的背景与墨水效果需要最近的 Material 祖先承载。
-      child: Material(
-        color: _theme.chromeSurface,
+      child: ModuleGlassSurface(
+        module: GlassModule.novel,
+        part: GlassPart.navigation,
+        legacy: Material(
+          color: _theme.chromeSurface,
+          child: SafeArea(
+            bottom: false,
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  icon: Icon(Icons.arrow_back, color: _theme.chromeText),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        widget.target.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _theme.chromeText,
+                        ),
+                      ),
+                      Text(
+                        _chapterTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: _theme.secondary),
+                      ),
+                    ],
+                  ),
+                ),
+                // 听书：一键开始 / 暂停朗读（设置在同名面板页签里）。
+                ValueListenableBuilder<SpeechState>(
+                  valueListenable: _speechState,
+                  builder: (context, state, _) {
+                    final active =
+                        state == SpeechState.speaking ||
+                        state == SpeechState.pausing;
+                    final paused = state == SpeechState.paused;
+                    return IconButton(
+                      tooltip: !(_speech?.isSupported ?? false)
+                          ? '当前平台不支持语音朗读'
+                          : active
+                          ? '暂停朗读'
+                          : paused
+                          ? '继续朗读'
+                          : '开始朗读',
+                      icon: Icon(
+                        active
+                            ? Icons.pause_circle_outline
+                            : paused
+                            ? Icons.play_circle_outline
+                            : Icons.headphones_outlined,
+                        color: _theme.chromeText,
+                      ),
+                      onPressed: (_speech?.isSupported ?? false)
+                          ? _toggleSpeech
+                          : () => _showSpeechToast(
+                              _speechUnavailableReason() ?? '当前平台不支持语音朗读',
+                            ),
+                    );
+                  },
+                ),
+                IconButton(
+                  tooltip: _bookmarkHere != null ? '移除书签' : '添加书签',
+                  icon: Icon(
+                    _bookmarkHere != null
+                        ? Icons.bookmark
+                        : Icons.bookmark_border,
+                    color: _theme.chromeText,
+                  ),
+                  onPressed: _toggleBookmark,
+                ),
+                IconButton(
+                  tooltip: '上一章',
+                  icon: Icon(Icons.skip_previous, color: _theme.chromeText),
+                  onPressed: () => _openChapter(_chapterIndex - 1),
+                ),
+                IconButton(
+                  tooltip: '下一章',
+                  icon: Icon(Icons.skip_next, color: _theme.chromeText),
+                  onPressed: () => _openChapter(_chapterIndex + 1),
+                ),
+              ],
+            ),
+          ),
+        ),
         child: SafeArea(
           bottom: false,
           child: Row(
@@ -1252,30 +1353,31 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
               ValueListenableBuilder<SpeechState>(
                 valueListenable: _speechState,
                 builder: (context, state, _) {
-                  final active = state == SpeechState.speaking ||
+                  final active =
+                      state == SpeechState.speaking ||
                       state == SpeechState.pausing;
                   final paused = state == SpeechState.paused;
                   return IconButton(
                     tooltip: !(_speech?.isSupported ?? false)
                         ? '当前平台不支持语音朗读'
                         : active
-                            ? '暂停朗读'
-                            : paused
-                                ? '继续朗读'
-                                : '开始朗读',
+                        ? '暂停朗读'
+                        : paused
+                        ? '继续朗读'
+                        : '开始朗读',
                     icon: Icon(
                       active
                           ? Icons.pause_circle_outline
                           : paused
-                              ? Icons.play_circle_outline
-                              : Icons.headphones_outlined,
+                          ? Icons.play_circle_outline
+                          : Icons.headphones_outlined,
                       color: _theme.chromeText,
                     ),
                     onPressed: (_speech?.isSupported ?? false)
                         ? _toggleSpeech
                         : () => _showSpeechToast(
-                              _speechUnavailableReason() ?? '当前平台不支持语音朗读',
-                            ),
+                            _speechUnavailableReason() ?? '当前平台不支持语音朗读',
+                          ),
                   );
                 },
               ),
@@ -1311,8 +1413,52 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       left: 0,
       right: 0,
       bottom: 0,
-      child: Material(
-        color: _theme.chromeSurface,
+      child: ModuleGlassSurface(
+        module: GlassModule.novel,
+        part: GlassPart.panels,
+        legacy: Material(
+          color: _theme.chromeSurface,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: <Widget>[
+                    for (final tab in _PanelTab.values)
+                      TextButton(
+                        onPressed: () => setState(() => _panel = tab),
+                        child: Text(
+                          tab.label,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: _panel == tab
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                            color: _panel == tab
+                                ? _theme.chromeText
+                                : _theme.secondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                SizedBox(
+                  height: 260,
+                  child: switch (_panel) {
+                    _PanelTab.catalog => _buildCatalog(),
+                    _PanelTab.bookmarks => _buildBookmarks(),
+                    _PanelTab.speech => _buildSpeechPanel(),
+                    _PanelTab.typesetting => _buildTypesetting(),
+                    _PanelTab.theme => _buildThemePanel(),
+                    _PanelTab.turn => _buildTurnPanel(),
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
         child: SafeArea(
           top: false,
           child: Column(
@@ -1361,9 +1507,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
     final indexes = order.indexes(_chapters);
     final pagination = _pagination;
-    final ratio = pagination == null
-        ? 0.0
-        : pagination.charRatio(_pageIndex);
+    final ratio = pagination == null ? 0.0 : pagination.charRatio(_pageIndex);
     return Column(
       children: <Widget>[
         Padding(
@@ -1383,38 +1527,47 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             ],
           ),
         ),
-        Align(alignment: Alignment.centerRight, child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: ChapterManualOrderDropdown(order: order, onChanged: () => setState(() {})),
-        )),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ChapterManualOrderDropdown(
+              order: order,
+              onChanged: () => setState(() {}),
+            ),
+          ),
+        ),
         Expanded(
-          child: Align(alignment: Alignment.bottomCenter, child: ListView.builder(
-            key: const ValueKey('novel-reader-chapters'),
-            padding: EdgeInsets.zero,
-            shrinkWrap: true,
-            itemCount: _chapters.length,
-            itemBuilder: (context, position) {
-              final index = indexes[position];
-              final current = index == _chapterIndex;
-              return ListTile(
-                dense: true,
-                title: Text(
-                  _chapters[index].title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: current ? FontWeight.w700 : FontWeight.w400,
-                    color: current ? _theme.chromeText : _theme.secondary,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ListView.builder(
+              key: const ValueKey('novel-reader-chapters'),
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              itemCount: _chapters.length,
+              itemBuilder: (context, position) {
+                final index = indexes[position];
+                final current = index == _chapterIndex;
+                return ListTile(
+                  dense: true,
+                  title: Text(
+                    _chapters[index].title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: current ? FontWeight.w700 : FontWeight.w400,
+                      color: current ? _theme.chromeText : _theme.secondary,
+                    ),
                   ),
-                ),
-                trailing: current
-                    ? Icon(Icons.bookmark, size: 16, color: _theme.chromeText)
-                    : null,
-                onTap: () => _openChapter(index),
-              );
-            },
-          )),
+                  trailing: current
+                      ? Icon(Icons.bookmark, size: 16, color: _theme.chromeText)
+                      : null,
+                  onTap: () => _openChapter(index),
+                );
+              },
+            ),
+          ),
         ),
       ],
     );
@@ -1583,7 +1736,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: <Widget>[
-        ChapterAutoOrderSwitch(order: ChapterDisplayOrder(widget.library, widget.target.sourceId), onChanged: () => setState(() {})),
+        ChapterAutoOrderSwitch(
+          order: ChapterDisplayOrder(widget.library, widget.target.sourceId),
+          onChanged: () => setState(() {}),
+        ),
         _slider(
           label: '字号',
           value: _typesetting.fontSize,
@@ -1608,8 +1764,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           min: NovelTypesetting.minParagraphSpacing,
           max: NovelTypesetting.maxParagraphSpacing,
           display: '${_typesetting.paragraphSpacing.round()}',
-          onChanged: (value) =>
-              _updateTypesetting(_typesetting.copyWith(paragraphSpacing: value)),
+          onChanged: (value) => _updateTypesetting(
+            _typesetting.copyWith(paragraphSpacing: value),
+          ),
         ),
         _slider(
           label: '页边距',
@@ -1669,8 +1826,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           spacing: 10,
           runSpacing: 10,
           children: <Widget>[
-            for (final preset in NovelReaderTheme.presets)
-              _themeChip(preset),
+            for (final preset in NovelReaderTheme.presets) _themeChip(preset),
             _customThemeChip(),
           ],
         ),
@@ -1771,7 +1927,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
               style: TextStyle(
                 fontSize: 14,
                 color: _turnMode == mode ? _theme.chromeText : _theme.secondary,
-                fontWeight: _turnMode == mode ? FontWeight.w700 : FontWeight.w400,
+                fontWeight: _turnMode == mode
+                    ? FontWeight.w700
+                    : FontWeight.w400,
               ),
             ),
             trailing: _turnMode == mode

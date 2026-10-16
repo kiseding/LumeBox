@@ -100,6 +100,35 @@ void main() {
       expect(loaded.subtitleSize, SubtitleSize.large);
     });
 
+    test('gesture switches and adjustment values persist and survive kernel switches', () async {
+      final store = await VideoPlayerSettingsStore.open();
+      final next = store.load().copyWith(
+        gestures: const PlayerGestureOptions(
+          enabled: true,
+          brightness: false,
+          volume: false,
+          seek: true,
+          boost: false,
+          seekSeconds: 150,
+          boostMultiplier: 1.5,
+        ),
+      );
+      store.save(next);
+      final reopened = await VideoPlayerSettingsStore.open();
+      expect(reopened.load().gestures, next.gestures);
+      expect(next.copyWith(kernel: PlayerKernel.mpv).gestures, next.gestures);
+      final library = await ReadingLibrary.open(Section.video);
+      library.setSetting('video.player.gestures', '{bad');
+      expect(store.load().gestures, const PlayerGestureOptions());
+      library.setSetting(
+        'video.player.gestures',
+        '{"seekSeconds":999,"boostMultiplier":-2,"volume":false}',
+      );
+      expect(store.load().gestures.seekSeconds, 180);
+      expect(store.load().gestures.boostMultiplier, 1.25);
+      expect(store.load().gestures.volume, false);
+    });
+
     test('启动选项与手动画质名本地持久化；缺项按 A 开、记忆关', () async {
       final store = await VideoPlayerSettingsStore.open();
       expect(store.load().backgroundSourceValidation, isTrue);

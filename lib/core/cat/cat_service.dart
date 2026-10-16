@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import '../session/privacy_settings.dart';
 
 import '../source/source_subscription_sync.dart';
@@ -181,10 +182,18 @@ class CatService extends ChangeNotifier {
   Map<String, dynamic> playInfo = {};
   bool collectionAllowed(Map<String, dynamic> entry) {
     final id = catText(entry['site']);
-    final site = subscriptions.expand((s) => s.sites).where((s) => s.id == id).firstOrNull;
-    return PrivacySettings.instance.allowsSource(id, site?.name ?? catText(entry['title']));
+    final site = subscriptions
+        .expand((s) => s.sites)
+        .where((s) => s.id == id)
+        .firstOrNull;
+    return PrivacySettings.instance.allowsSource(
+      id,
+      site?.name ?? catText(entry['title']),
+    );
   }
-  List<Map<String, dynamic>> get favoriteItems => _bookmarks.values.where(collectionAllowed).toList();
+
+  List<Map<String, dynamic>> get favoriteItems =>
+      _bookmarks.values.where(collectionAllowed).toList();
   Future<void> _saving = Future.value();
   Directory? _root;
   HttpServer? _bridge;
@@ -477,7 +486,20 @@ class CatService extends ChangeNotifier {
         }
       }
       if (record.hash != hash || record.configHash != configHash) {
-        SourceSubscriptionSync.changeCount(Section.cat).value++;
+        SourceSubscriptionSync.recordChange(
+          Section.cat,
+          record.id,
+          record.name,
+          record.hash.isEmpty ? '已新增' : '已更新',
+        );
+        for (final site in record.sites) {
+          SourceSubscriptionSync.recordChange(
+            Section.cat,
+            site.id,
+            site.name,
+            '已更新',
+          );
+        }
       }
       record.hash = hash;
       record.configHash = configHash;
@@ -815,7 +837,9 @@ class CatService extends ChangeNotifier {
     String operation, [
     Map<String, dynamic> body = const {},
   ]) async {
-    if (!PrivacySettings.instance.allowsSource(site.id, site.name)) throw StateError('成人内容已隐藏，请在隐私设置中开启');
+    if (!PrivacySettings.instance.allowsSource(site.id, site.name)) {
+      throw StateError('成人内容已隐藏，请在隐私设置中开启');
+    }
     final record = subscriptions.firstWhere((s) => s.id == site.subscriptionId);
     return guardStartup(record.id, () async {
       final base = _versions[record.id] == '${record.hash}-${record.configHash}'
@@ -858,6 +882,16 @@ class CatService extends ChangeNotifier {
         await request(base, '/config'),
       );
       if (record.sites.isEmpty) throw StateError('配置接口没有返回可用站点，请打开站点配置检查');
+      if (SourceSubscriptionSync.notice(Section.cat, record.id) != null) {
+        for (final site in record.sites) {
+          SourceSubscriptionSync.recordChange(
+            Section.cat,
+            site.id,
+            site.name,
+            '已更新',
+          );
+        }
+      }
       record.error = '';
       _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
       await save();

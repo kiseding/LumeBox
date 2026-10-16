@@ -1,3 +1,4 @@
+import '../media/media_library.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import '../session/privacy_settings.dart';
@@ -42,7 +43,7 @@ class ReadingLibrary {
   // ------------------------------------------------------------------ 书架
 
   /// 书架条目，最近加入或阅读的在前。
-  List<LibraryItem> shelf() => _store.shelf().where((item) => PrivacySettings.instance.allowsSource(item.sourceId, item.title)).toList();
+  List<LibraryItem> shelf() => _store.shelf().where((item) => PrivacySettings.instance.allowsSource(item.sourceId, item.title) && MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)).toList();
 
   LibraryItem? item(String itemId) => _store.item(itemId);
 
@@ -125,7 +126,7 @@ class ReadingLibrary {
   List<LibraryItem> continueWatching({int limit = 20}) {
     final items = <LibraryItem>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
-      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title)) continue;
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) || !MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)) continue;
       final progress = _store.progress(item.itemId);
       if (progress is! VideoProgress) continue;
       items.add(item);
@@ -144,7 +145,7 @@ class ReadingLibrary {
   }) {
     final entries = <({LibraryItem item, ReadingProgress progress})>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
-      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title)) continue;
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) || !MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)) continue;
       final progress = _store.progress(item.itemId);
       if (progress == null) continue;
       entries.add((item: item, progress: progress));

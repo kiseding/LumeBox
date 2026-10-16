@@ -53,6 +53,34 @@ void main() {
     () => messenger.setMockMethodCallHandler(ComicImageTools.channel, null),
   );
 
+  test(
+    'AI photo and manga model types reach the native backend independently',
+    () async {
+      final calls = <Map>[];
+      messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+        if (call.method == 'superResolve') {
+          calls.add(call.arguments as Map);
+          return bytes;
+        }
+        return null;
+      });
+      final settings = ComicImageToolsSettings()
+        ..imageStyle = 'photo'
+        ..noise = 2;
+      final tools = ComicImageTools(settings: settings);
+      await tools.superResolve(bytes);
+      settings.imageStyle = 'anime';
+      await tools.superResolve(bytes);
+      expect(calls.map((args) => args['imageStyle']), ['photo', 'anime']);
+      expect(calls.map((args) => args['noise']), [2, 2]);
+      tools.imageStyle = 'photo';
+      await tools.superResolve(bytes);
+      expect(calls.last['imageStyle'], 'photo', reason: '美图源选择覆盖全局漫画默认值');
+      expect(settings.imageStyle, 'anime', reason: '源内模型选择不改全局设置');
+      tools.dispose();
+    },
+  );
+
   test('model files match pinned provenance and license', () {
     final origin = jsonDecode(
       File('assets/models/waifu2x/ORIGIN.json').readAsStringSync(),
@@ -248,7 +276,7 @@ void main() {
         }
         return null;
       });
-      await tester.tap(find.text('超分当前页'));
+      await tester.tap(find.text('AI 超分当前图片'));
       await tester.pumpAndSettle();
       expect(find.text('图片过大，原图保留'), findsOneWidget);
       expect(find.byType(Image), findsOneWidget);

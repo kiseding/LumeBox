@@ -619,7 +619,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.sources,
       behindBar: true,
       title: '源总管理',
       actions:

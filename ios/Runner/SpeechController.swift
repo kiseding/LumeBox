@@ -82,6 +82,8 @@ final class SpeechController: NSObject {
         }
         let args = call.arguments as? [String:Any] ?? [:]
         backgroundPlayback = args["background"] as? Bool ?? true
+        UserDefaults.standard.set("tts",forKey:"lumebox.mediaOwner")
+        configureRemoteCommands()
         setSessionActive(true)
       }
       stream.handle(call,result:result); return
@@ -203,6 +205,13 @@ final class SpeechController: NSObject {
   /// 锁屏 / 控制中心 / 耳机按键：只转发成合成器操作，事件仍由委托统一上报。
   private func configureRemoteCommands() {
     let center = MPRemoteCommandCenter.shared()
+    // Reclaim only when TTS becomes active, after the other sound source yields.
+    [center.playCommand,center.pauseCommand,center.stopCommand,center.togglePlayPauseCommand,
+     center.nextTrackCommand,center.previousTrackCommand,center.changePlaybackPositionCommand]
+      .forEach { $0.removeTarget(nil) }
+    center.nextTrackCommand.isEnabled = false
+    center.previousTrackCommand.isEnabled = false
+    center.changePlaybackPositionCommand.isEnabled = false
 
     center.playCommand.isEnabled = true
     center.playCommand.addTarget { [weak self] _ -> MPRemoteCommandHandlerStatus in
@@ -262,6 +271,7 @@ final class SpeechController: NSObject {
   }
 
   private func updateNowPlayingInfo() {
+    guard UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "tts" else { return }
     var info: [String: Any] = [:]
     if let nowPlayingTitle { info[MPMediaItemPropertyTitle] = nowPlayingTitle }
     if let nowPlayingSubtitle { info[MPMediaItemPropertyArtist] = nowPlayingSubtitle }
@@ -274,7 +284,9 @@ final class SpeechController: NSObject {
   private func clearNowPlaying() {
     nowPlayingTitle = nil
     nowPlayingSubtitle = nil
-    MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    if UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "tts" {
+      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
   }
 
   // -------------------------------------------------------------- 朗读控制
@@ -287,6 +299,8 @@ final class SpeechController: NSObject {
       result(FlutterError(code: "badArgs", message: "朗读文本为空", details: nil))
       return
     }
+    UserDefaults.standard.set("tts",forKey:"lumebox.mediaOwner")
+    configureRemoteCommands()
     rate = (args["rate"] as? NSNumber)?.floatValue ?? 0.5
     pitch = (args["pitch"] as? NSNumber)?.floatValue ?? 1.0
     volume = (args["volume"] as? NSNumber)?.floatValue ?? 1.0
@@ -346,7 +360,7 @@ final class SpeechController: NSObject {
 
   /// 停止朗读（内部共用：方法通道与锁屏停止键都走这里）。
   private func stopSpeakingInternal() {
-    if stream.active { stream.stop(); setSessionActive(false); clearNowPlaying(); return }
+    if stream.active { stream.stop(); if UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "tts" { setSessionActive(false) }; clearNowPlaying(); return }
     if synthesizer.isSpeaking || synthesizer.isPaused {
       // 用户主动停止：正常上报 stopped，不抑制。
       suppressCancelEvent = false
@@ -356,7 +370,7 @@ final class SpeechController: NSObject {
       // 有确定的收敛信号（否则「停止」在无声音时状态不会变）。
       emit(kind: "stopped")
     }
-    setSessionActive(false)
+    if UserDefaults.standard.string(forKey:"lumebox.mediaOwner") == "tts" { setSessionActive(false) }
     clearNowPlaying()
   }
 

@@ -1,3 +1,5 @@
+import '../../core/source/source_subscription_sync.dart';
+import '../../shared/widgets/source_update_badge.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../core/source/source_content_rating.dart';
@@ -83,11 +85,19 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   @override
   void initState() {
     super.initState();
+    SourceSubscriptionSync.revision(widget.section)
+        .addListener(_subscriptionChanged);
     if (_manager.runtimeAvailable) _reload();
+  }
+
+  void _subscriptionChanged() {
+    if (mounted && _manager.runtimeAvailable) _reload();
   }
 
   @override
   void dispose() {
+    SourceSubscriptionSync.revision(widget.section)
+        .removeListener(_subscriptionChanged);
     if (widget.manager == null) _manager.close();
     super.dispose();
   }
@@ -481,14 +491,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   Widget build(BuildContext context) {
     if (!_manager.runtimeAvailable) {
       // 平台骨架：标题仍按「板块 · 源管理」口径，页面身份不含糊。
-      return GlassScaffold(
+      return GlassScaffold(effectModule: GlassModule.sources,
         behindBar: true,
         title: '${widget.section.label} · 源管理',
         child: const SkeletonNotice(),
       );
     }
     final sources = _sources;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.sources,
       // 内容从玻璃顶栏底下穿过，顶部空间由列表的 barInset 让——见 settings_page
       // 的同名注释：漏了这一句，SafeArea 与 barInset 会各让一次栏高。
       behindBar: true,
@@ -592,7 +602,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         sources
             .where(
               (source) =>
-                  PrivacySettings.instance.allowsSource(source.id, source.name) &&
+                  PrivacySettings.instance.allowsSource(
+                    source.id,
+                    source.name,
+                  ) &&
                   (query.isEmpty ||
                       '${source.name} ${source.id} ${source.group}'
                           .toLowerCase()
@@ -806,6 +819,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                             source.name,
                           ))
                             const SourceRatingBadge(),
+                          SourceUpdateBadge(
+                            section: widget.section,
+                            sourceId: source.id,
+                          ),
                           Text(source.hasGroup ? source.group : '未分组'),
                         ],
                       ),
@@ -1033,6 +1050,7 @@ class _SourceTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
+            SourceUpdateBadge(section: section, sourceId: source.id),
             const Spacer(),
             Row(
               children: [
@@ -1102,6 +1120,7 @@ class _SourceTile extends StatelessWidget {
                   runSpacing: 2,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
+                    SourceUpdateBadge(section: section, sourceId: source.id),
                     Text(
                       source.version.isEmpty
                           ? LumeTheme.appName

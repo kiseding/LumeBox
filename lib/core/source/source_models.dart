@@ -488,6 +488,9 @@ sealed class ChapterContent {
         return images.isEmpty
             ? null
             : ImageContent(images, imageHeaders: imageHeaders);
+      case 'audio':
+      case 'audiobook':
+      case 'audio-book':
       case 'video':
         // 宽容口径：多线路脚本可能只给 qualities 不给 url——那就用第一条当默认。
         final qualities = _qualityList(json['qualities'] ?? json['levels']);
@@ -501,6 +504,7 @@ sealed class ChapterContent {
         }
         return VideoContent(
           url: uri,
+          audioOnly: kind != 'video',
           headers: _stringMap(json['headers']),
           qualities: qualities,
         );
@@ -529,11 +533,13 @@ final class ImageContent extends ChapterContent {
 final class VideoContent extends ChapterContent {
   const VideoContent({
     required this.url,
+    this.audioOnly = false,
     this.headers = const <String, String>{},
     this.qualities = const <VideoQuality>[],
   });
 
   final Uri url;
+  final bool audioOnly;
 
   /// 播放时附带的请求头（防盗链等）。
   final Map<String, String> headers;

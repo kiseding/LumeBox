@@ -108,8 +108,19 @@ class VideoPlayerSettingsStore {
       // 同上：缺键按「开」（历史行为就是一集播完自动进下一集）。
       autoNext: _library.setting(keyAutoNext) != 'false',
       gestureSensitivity: _gestureSensitivityOf(_library),
+      gestures: _readGestures(),
       prefs: prefs,
     );
+  }
+
+  PlayerGestureOptions _readGestures() {
+    try {
+      return PlayerGestureOptions.fromJson(
+        jsonDecode(_library.setting('video.player.gestures') ?? '{}'),
+      );
+    } catch (_) {
+      return const PlayerGestureOptions();
+    }
   }
 
   /// 写回本板块的库（**各内核那一格都写** + 全局键镜像）。
@@ -177,6 +188,10 @@ class VideoPlayerSettingsStore {
     _library.setSetting(
       keyAutoHideControls,
       settings.autoHideControls ? 'true' : 'false',
+    );
+    _library.setSetting(
+      'video.player.gestures',
+      jsonEncode(settings.gestures.toJson()),
     );
     _library.setSetting(
       keyGestureSensitivity,

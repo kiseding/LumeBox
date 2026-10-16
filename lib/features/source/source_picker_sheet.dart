@@ -1,3 +1,6 @@
+import '../../shared/widgets/module_glass_surface.dart';
+import '../../core/source/source_subscription_sync.dart';
+import '../../shared/widgets/source_update_badge.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
@@ -77,7 +80,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   @override
   void initState() {
     super.initState();
+    SourceSubscriptionSync.revision(widget.section)
+        .addListener(_subscriptionChanged);
     SourceContentVisibility.instance.addListener(_onVisibility);
+  }
+
+  void _subscriptionChanged() {
+    if (mounted) reload();
   }
 
   void _onVisibility() {
@@ -86,6 +95,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
 
   @override
   void dispose() {
+    SourceSubscriptionSync.revision(widget.section)
+        .removeListener(_subscriptionChanged);
     SourceContentVisibility.instance.removeListener(_onVisibility);
     super.dispose();
   }
@@ -290,6 +301,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 13),
                 ),
+                SourceUpdateBadge(section: widget.section, sourceId: source.id),
                 if (SourceContentRating.isAdult(source.id, source.name))
                   const Align(
                     alignment: Alignment.centerLeft,
@@ -336,6 +348,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
+                    ),
+                    SourceUpdateBadge(
+                      section: widget.section,
+                      sourceId: source.id,
                     ),
                     Text(
                       results[source.id]?.status.label ?? source.version,
@@ -448,8 +464,129 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: Material(
-        color: LumeTheme.surface,
+      child: ModuleGlassSurface(
+        module: GlassModule.sources,
+        part: GlassPart.panels,
+        legacy: Material(
+          color: LumeTheme.surface,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * .76,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              onChanged: (value) => setState(
+                                () => query = value.trim().toLowerCase(),
+                              ),
+                              decoration: const InputDecoration(
+                                hintText: '搜索源',
+                                prefixIcon: Icon(Icons.search),
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: grid ? '切换为排列' : '切换为网格',
+                            icon: Icon(
+                              grid
+                                  ? Icons.view_list_outlined
+                                  : Icons.grid_view_outlined,
+                            ),
+                            onPressed: () async {
+                              final library = await ReadingLibrary.open(
+                                widget.section,
+                              );
+                              library.setSetting(
+                                'source.picker.grid',
+                                '${!grid}',
+                              );
+                              if (mounted) setState(() => grid = !grid);
+                            },
+                          ),
+                          if (groups.length == 2 && !grid)
+                            IconButton(
+                              tooltip: columns ? '切换为单列' : '切换为两列',
+                              icon: Icon(
+                                columns
+                                    ? Icons.view_agenda_outlined
+                                    : Icons.view_column_outlined,
+                              ),
+                              onPressed: () async {
+                                setState(() => columns = !columns);
+                                final library = await ReadingLibrary.open(
+                                  widget.section,
+                                );
+                                library.setSetting(
+                                  'source.picker.columns',
+                                  '$columns',
+                                );
+                              },
+                            ),
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '长按源条目拖动排序，点击更多打开操作菜单',
+                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: !grid && columns && groups.length == 2
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (final group in groups)
+                                  Expanded(
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          group.$2,
+                                          style: TextStyle(
+                                            color: LumeTheme.accent,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Expanded(
+                                          child: list(
+                                            visible
+                                                .where(
+                                                  (source) =>
+                                                      SourcePickerGroups.groupFor(
+                                                        widget.section,
+                                                        source,
+                                                      ) ==
+                                                      group.$1,
+                                                )
+                                                .toList(),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            )
+                          : list(visible),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
         child: SafeArea(
           top: false,
           child: SizedBox(

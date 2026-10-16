@@ -11,23 +11,27 @@ class PlayerPopupGlass extends StatelessWidget {
     super.key,
     required this.legacy,
     required this.child,
+    this.area = GlassArea.fullPlayerPopup,
     this.blur = 18,
     this.opacity = .72,
     this.radius = 20,
   });
 
   final Widget legacy, child;
+  final GlassArea area;
   final double blur, opacity, radius;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: GlassEffectsSettings.instance,
     builder: (context, _) {
-      if (!GlassEffectsSettings.instance.playerFrostedEnabled) return legacy;
+      if (!GlassEffectsSettings.instance.active(area)) return legacy;
+      final tune = GlassEffectsSettings.instance.tuning(area);
       return FrostedGlassWidget(
-        blur: blur,
-        opacity: opacity,
-        radius: radius,
+        blur: area == GlassArea.fullPlayerPopup ? blur : tune.blur,
+        opacity: area == GlassArea.fullPlayerPopup ? opacity : tune.opacity,
+        radius: area == GlassArea.fullPlayerPopup ? radius : tune.radius,
+        border: tune.border,
         child: child,
       );
     },

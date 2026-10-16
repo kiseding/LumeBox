@@ -4,13 +4,13 @@ import android.app.Activity
 import android.content.Intent
 import android.content.ComponentName
 import android.content.pm.PackageManager
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private var exportResult: MethodChannel.Result? = null
-    private var exportText: String? = null
+    private var exportBytes: ByteArray? = null
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/app_icon")
@@ -41,19 +41,19 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 if (call.method != "export") { result.notImplemented(); return@setMethodCallHandler }
                 if (exportResult != null) { result.error("busy", "Export already open", null); return@setMethodCallHandler }
-                val text = call.argument<String>("text")
+                val bytes = call.argument<ByteArray>("bytes") ?: call.argument<String>("text")?.toByteArray(Charsets.UTF_8)
                 val name = call.argument<String>("name")
-                if (text == null || name == null) { result.error("arguments", "Missing backup", null); return@setMethodCallHandler }
-                exportText = text
+                if (bytes == null || bytes.size > 32 * 1024 * 1024 || name == null || name.contains("/") || name.contains("\\")) { result.error("arguments", "Missing backup", null); return@setMethodCallHandler }
+                exportBytes = bytes
                 exportResult = result
                 try {
                     startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/json"
+                        type = if (name.endsWith(".zip")) "application/zip" else "application/json"
                         putExtra(Intent.EXTRA_TITLE, name)
                     }, 4271)
                 } catch (error: Exception) {
-                    exportText = null; exportResult = null
+                    exportBytes = null; exportResult = null
                     result.error("export", error.message, null)
                 }
             }
@@ -62,13 +62,13 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != 4271) return
         val result = exportResult ?: return
-        val text = exportText
-        exportResult = null; exportText = null
+        val bytes = exportBytes
+        exportResult = null; exportBytes = null
         val uri = data?.data
-        if (resultCode != Activity.RESULT_OK || uri == null || text == null) { result.success(false); return }
+        if (resultCode != Activity.RESULT_OK || uri == null || bytes == null) { result.success(false); return }
         try {
             val stream = contentResolver.openOutputStream(uri) ?: throw IllegalStateException("Cannot open destination")
-            stream.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            stream.use { it.write(bytes) }
             result.success(true)
         } catch (error: Exception) { result.error("export", error.message, null) }
     }

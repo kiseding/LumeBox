@@ -57,7 +57,7 @@ class _LogReportPageState extends State<LogReportPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '错误报告',
       child: StreamBuilder<void>(

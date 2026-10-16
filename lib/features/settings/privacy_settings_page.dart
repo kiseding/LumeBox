@@ -31,7 +31,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.settings,
     title: '隐私',
     child: ListenableBuilder(
       listenable: settings,

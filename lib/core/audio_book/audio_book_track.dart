@@ -1,0 +1,22 @@
+import '../media/media_library.dart';
+
+class ResolvedAudio {
+  const ResolvedAudio(this.url, {this.headers = const {}});
+  final Uri url;
+  final Map<String, String> headers;
+}
+
+/// Engine-neutral playlist item. Pages never construct just_audio objects.
+class AudioBookTrack {
+  const AudioBookTrack({
+    required this.id,
+    required this.episode,
+    required this.album,
+    this.cover,
+    this.resolve,
+  });
+  final String id, album;
+  final String? cover;
+  final ResourceEpisode episode;
+  final Future<ResolvedAudio> Function()? resolve;
+}

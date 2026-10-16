@@ -56,7 +56,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '运行日志',
       actions: <Widget>[

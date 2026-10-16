@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_update_badge.dart';
 import '../../core/reading/reading_library.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/session/section.dart';
@@ -240,7 +241,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
   });
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.cat,
     title: '猫源配置中心',
     actions: [
       IconButton(
@@ -261,6 +262,13 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                 : ListTile(
                     leading: const Icon(Icons.notifications_active_outlined),
                     title: Text('猫源订阅已变动 $count 条'),
+                    subtitle: Text(
+                      SourceSubscriptionSync.notices(Section.cat)
+                          .map(
+                            (entry) => '${entry['name']} · ${entry['status']}',
+                          )
+                          .join('\n'),
+                    ),
                     trailing: TextButton(
                       onPressed: () =>
                           SourceSubscriptionSync.changeCount(Section.cat)
@@ -332,10 +340,19 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                       section: Section.cat,
                       sourceId: record.id,
                     ),
-                    title: Text(
-                      record.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          record.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SourceUpdateBadge(
+                          section: Section.cat,
+                          sourceId: record.id,
+                        ),
+                      ],
                     ),
                     subtitle: Text(
                       '${record.hash.isEmpty

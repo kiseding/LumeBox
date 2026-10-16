@@ -324,7 +324,11 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleGlassScope(
+    module: GlassModule.search,
+    child: _legacyBuild(context),
+  );
+  Widget _legacyBuild(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: DecoratedBox(

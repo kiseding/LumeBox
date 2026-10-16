@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_update_badge.dart';
 import '../../core/reading/browse_layout.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../shared/widgets/source_drag_tile.dart';
@@ -432,9 +433,9 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
             (site) =>
                 PrivacySettings.instance.allowsSource(site.id, site.name) &&
                 (pickerQuery.isEmpty ||
-                '${site.name} ${site.key} ${record.name}'
-                    .toLowerCase()
-                    .contains(pickerQuery.toLowerCase())),
+                    '${site.name} ${site.key} ${record.name}'
+                        .toLowerCase()
+                        .contains(pickerQuery.toLowerCase())),
           )
           .toList();
       rows.sort((a, b) {
@@ -617,6 +618,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
+                              subtitle: SourceUpdateBadge(
+                                section: Section.cat,
+                                sourceId: site.id,
+                              ),
                               selected:
                                   site.id ==
                                   (source?.site.id ?? service.selectedSiteId),
@@ -737,8 +742,9 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     var initialCheckStarted = false;
     String? folder;
     final folders = FavoriteFolders(lib);
-    List<Map<String, dynamic>> records() =>
-        favorites ? service.favoriteItems : service.history.where(service.collectionAllowed).toList();
+    List<Map<String, dynamic>> records() => favorites
+        ? service.favoriteItems
+        : service.history.where(service.collectionAllowed).toList();
     final chosen = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,

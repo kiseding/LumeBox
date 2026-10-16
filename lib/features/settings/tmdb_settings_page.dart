@@ -97,7 +97,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(
+  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.settings,
     title: 'TMDB配置',
     child: ListenableBuilder(
       listenable: settings,

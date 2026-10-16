@@ -34,7 +34,7 @@ class ModuleSettingsHubPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '各模块独立设置',
       child: ListView(
@@ -199,7 +199,7 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final library = _library;
-    return GlassScaffold(
+    return GlassScaffold(effectModule: GlassModule.settings,
       behindBar: true,
       title: '${widget.section.label}设置',
       child: ListView(

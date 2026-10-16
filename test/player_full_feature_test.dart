@@ -271,7 +271,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             qualities: qualities,
             catalog: catalog ?? const _AllKernelsCatalog(),
@@ -455,7 +455,16 @@ void main() {
       expect(find.text('选集'), findsNothing);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('文字'));
+      await tester.scrollUntilVisible(
+        find.text('文字'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('文字')),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('文字'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('关闭'));
@@ -1109,8 +1118,15 @@ void main() {
       await gesture.up();
       await tester.pump();
       expect(players.single.seeks, isNotEmpty, reason: '松手才 seek');
-      expect(find.textContaining('拖动到'), findsOneWidget, reason: '内核尚未确认跳转，保留目标位置避免回弹');
-      players.single.emit(position: players.single.seeks.last, duration: const Duration(minutes: 10));
+      expect(
+        find.textContaining('拖动到'),
+        findsOneWidget,
+        reason: '内核尚未确认跳转，保留目标位置避免回弹',
+      );
+      players.single.emit(
+        position: players.single.seeks.last,
+        duration: const Duration(minutes: 10),
+      );
       await tester.pumpAndSettle();
       expect(find.textContaining('拖动到'), findsNothing);
     });

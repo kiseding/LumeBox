@@ -1,3 +1,5 @@
+import 'package:lume_box/core/media/media_library.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -123,10 +125,16 @@ void main() {
           (_) async => root.path,
         );
     library = await ReadingLibrary.open(Section.video);
+    await MediaLibrary.instance.boot();
     library.setSetting(
       VideoPlayerSettingsStore.keyBackgroundSourceValidation,
       'false',
     );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('lumebox/mediaTracks'),
+          (_) async => {'known': true, 'audio': true, 'video': true},
+        );
     source = DetailSource();
   });
   tearDown(() async {
@@ -171,7 +179,17 @@ void main() {
     expect(find.text('源站原始简介'), findsOneWidget);
     expect(players, isEmpty);
     expect(source.parses, 0);
-    await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-detail-episode-1')),
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    });
+    await tester.pump(const Duration(seconds: 1));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
     await tester.pumpAndSettle();
     expect(source.parses, 1);
     expect(players.length, 1);
@@ -195,7 +213,14 @@ void main() {
     );
     expect(players.length, 1);
     expect(source.parses, 1);
-    await tester.tap(find.byTooltip('退出全屏'));
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('退出全屏'));
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    });
+    await tester.pump(const Duration(seconds: 1));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
     await tester.pumpAndSettle();
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
@@ -217,9 +242,19 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('暂无简介'), findsOneWidget);
+    expect(find.byKey(const Key('video-detail-immersive')), findsOneWidget);
+    expect(find.byKey(const Key('video-detail-gradient')), findsOneWidget);
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xff151820),
+    );
+    expect(find.byTooltip('更多'), findsOneWidget);
     expect(source.parses, 0);
     await tester.ensureVisible(find.byKey(const Key('video-detail-play')));
-    await tester.tap(find.byKey(const Key('video-detail-play')));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    });
     await tester.pumpAndSettle();
     expect(opened, 1);
     expect(source.parses, 1);
@@ -262,11 +297,20 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-detail-episode-1')),
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    });
     await tester.pumpAndSettle();
     expect(source.parses, 1);
     await tester.ensureVisible(find.byKey(const Key('video-detail-play')));
-    await tester.tap(find.byKey(const Key('video-detail-play')));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    });
     await tester.pumpAndSettle();
     expect(opened, 0);
     expect(find.byType(VideoDetailPage), findsOneWidget);
