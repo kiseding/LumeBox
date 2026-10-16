@@ -623,7 +623,7 @@ class _ToolbarSheet<T> extends StatelessWidget {
                       child: Text(
                         title,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -648,14 +648,18 @@ class _ToolbarSheet<T> extends StatelessWidget {
                             ),
                             title: Text(
                               labelOf(option),
-                              style: TextStyle(color: LumeTheme.textPrimary),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: LumeTheme.textPrimary,
+                              ),
                             ),
                             subtitle: detailOf == null
                                 ? null
                                 : Text(
                                     detailOf!(option),
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
                                       color: LumeTheme.muted,
                                     ),
                                   ),
@@ -669,7 +673,11 @@ class _ToolbarSheet<T> extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
                       child: Text(
                         note!,
-                        style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ),
                   const SizedBox(height: 8),
@@ -777,7 +785,7 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                       child: Text(
                         widget.sitesOnly ? '搜索站点' : '搜索范围',
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -804,12 +812,16 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                               ),
                               title: Text(
                                 mode.label,
-                                style: TextStyle(color: LumeTheme.textPrimary),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: LumeTheme.textPrimary,
+                                ),
                               ),
                               subtitle: Text(
                                 mode.detail,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
                                   color: LumeTheme.muted,
                                 ),
                               ),

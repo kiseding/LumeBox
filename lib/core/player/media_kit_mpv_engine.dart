@@ -565,7 +565,7 @@ class MediaKitMpvEngine
       ),
       style: TextStyle(
         height: 1.4,
-        fontSize: base,
+        fontSize: (base) + 1,
         letterSpacing: 0.0,
         wordSpacing: 0.0,
         color: Color(style.colorArgb),

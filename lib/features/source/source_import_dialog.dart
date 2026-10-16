@@ -185,7 +185,11 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
               if (_hasSectionPicker) ..._buildSectionPicker(),
               Text(
                 _hasSectionPicker ? '源只写入所选板块，不会跨板块共用。' : '源只写入当前板块，不会跨板块共用。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 12),
               SegmentedButton<_ImportMode>(
@@ -225,7 +229,11 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
                     const SizedBox(width: 8),
                     Text(
                       _progress!,
-                      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -234,14 +242,22 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
                 const SizedBox(height: 8),
                 Text(
                   _hint!,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.success),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.success,
+                  ),
                 ),
               ],
               if (_error != null) ...<Widget>[
                 const SizedBox(height: 8),
                 Text(
                   _error!,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.danger),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.danger,
+                  ),
                 ),
               ],
             ],
@@ -311,7 +327,11 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         children: <Widget>[
           Text(
             '已选 ${_files.length} 个文件',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           const Spacer(),
           TextButton(
@@ -339,7 +359,11 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       '只写顶层函数（getList(page) 等）的脚本同样支持。'
       '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
       '会按订阅逐个拉取并记下来源地址。',
-      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+      style: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 13,
+        color: LumeTheme.muted,
+      ),
     ),
   ];
 
@@ -360,14 +384,19 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
               file.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.textPrimary,
+              ),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             detail,
             style: TextStyle(
-              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
               color: importable ? LumeTheme.success : LumeTheme.danger,
             ),
           ),
@@ -398,7 +427,11 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     Text(
       '订阅返回单个脚本时直接导入；返回「一行一个脚本地址」的清单时逐个拉取；'
       '返回 MD5 校验值（.js.md5）时，去掉 .md5 后缀取脚本并校验后再导入。',
-      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+      style: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 13,
+        color: LumeTheme.muted,
+      ),
     ),
   ];
 

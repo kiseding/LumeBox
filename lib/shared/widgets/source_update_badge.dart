@@ -25,7 +25,7 @@ class SourceUpdateBadge extends StatelessWidget {
         entry['status'] ?? '已更新',
         key: ValueKey('source-update-$sourceId'),
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: FontWeight.w600,
           color: Theme.of(context).colorScheme.primary,
         ),

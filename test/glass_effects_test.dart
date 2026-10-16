@@ -320,7 +320,7 @@ void main() {
       ),
     );
     expect((box.decoration as BoxDecoration).border, null);
-    expect((box.decoration as BoxDecoration).color!.a, closeTo(.6, .005));
+    expect((box.decoration as BoxDecoration).color!.a, closeTo(.944, .005));
     FloatingModules.instance.reset(FloatingModule.overlay);
   });
 

@@ -158,7 +158,8 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
                     height: 1.25,
                     color: LumeTheme.textPrimary,
                   ),
@@ -168,14 +169,18 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
                   progress?.describe() ?? '共 ${item.chapterCount} 章',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 10, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ],
             ),
             child: PosterCover(
               pipeline: widget.pipeline,
               url: item.cover,
-                    title: item.title,
+              title: item.title,
               width: 300,
             ),
           );

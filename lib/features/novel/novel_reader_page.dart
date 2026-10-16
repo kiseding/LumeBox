@@ -1247,7 +1247,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: _theme.chromeText,
                         ),
@@ -1256,7 +1256,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                         _chapterTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: _theme.secondary),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _theme.secondary,
+                        ),
                       ),
                     ],
                   ),
@@ -1335,7 +1339,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: _theme.chromeText,
                       ),
@@ -1344,7 +1348,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                       _chapterTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: _theme.secondary),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: _theme.secondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1432,10 +1440,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                         child: Text(
                           tab.label,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: _panel == tab
                                 ? FontWeight.w700
-                                : FontWeight.w400,
+                                : FontWeight.w600,
                             color: _panel == tab
                                 ? _theme.chromeText
                                 : _theme.secondary,
@@ -1473,10 +1481,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                       child: Text(
                         tab.label,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
                           fontWeight: _panel == tab
                               ? FontWeight.w700
-                              : FontWeight.w400,
+                              : FontWeight.w600,
                           color: _panel == tab
                               ? _theme.chromeText
                               : _theme.secondary,
@@ -1516,13 +1524,21 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             children: <Widget>[
               Text(
                 '共 ${_chapters.length} 章',
-                style: TextStyle(fontSize: 12, color: _theme.secondary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: _theme.secondary,
+                ),
               ),
               const Spacer(),
               Text(
                 '本章 ${(ratio * 100).round()}% · 第 ${_pageIndex + 1}/'
                 '${pagination?.pageCount ?? 1} 页',
-                style: TextStyle(fontSize: 12, color: _theme.secondary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: _theme.secondary,
+                ),
               ),
             ],
           ),
@@ -1555,8 +1571,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: current ? FontWeight.w700 : FontWeight.w400,
+                      fontSize: 15,
+                      fontWeight: current ? FontWeight.w700 : FontWeight.w600,
                       color: current ? _theme.chromeText : _theme.secondary,
                     ),
                   ),
@@ -1617,10 +1633,18 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       children: <Widget>[
         // 章节内查找
         TextField(
-          style: TextStyle(color: _theme.chromeText, fontSize: 14),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: _theme.chromeText,
+            fontSize: 15,
+          ),
           decoration: InputDecoration(
             hintText: '在本章内查找',
-            hintStyle: TextStyle(color: _theme.secondary, fontSize: 14),
+            hintStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _theme.secondary,
+              fontSize: 15,
+            ),
             prefixIcon: Icon(Icons.search, color: _theme.secondary, size: 20),
             suffixIcon: _searchKeyword.isEmpty
                 ? null
@@ -1631,7 +1655,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                         _searchHits.isEmpty
                             ? '无结果'
                             : '${_searchHitIndex + 1}/${_searchHits.length}',
-                        style: TextStyle(fontSize: 12, color: _theme.secondary),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _theme.secondary,
+                        ),
                       ),
                       IconButton(
                         tooltip: '上一个',
@@ -1663,7 +1691,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             Expanded(
               child: Text(
                 '自动翻页',
-                style: TextStyle(fontSize: 14, color: _theme.chromeText),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: _theme.chromeText,
+                ),
               ),
             ),
             Switch(
@@ -1674,7 +1706,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             DropdownButton<int>(
               value: _autoPageSeconds,
               dropdownColor: _theme.chromeSurface,
-              style: TextStyle(fontSize: 13, color: _theme.chromeText),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: _theme.chromeText,
+              ),
               items: <DropdownMenuItem<int>>[
                 for (final seconds in <int>[5, 10, 15, 20, 30, 60])
                   DropdownMenuItem<int>(
@@ -1700,7 +1736,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             child: Text(
               '还没有书签。点顶部书签图标可把当前位置记下来。',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: _theme.secondary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: _theme.secondary,
+              ),
             ),
           )
         else
@@ -1712,7 +1752,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                 bookmark.describe(),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: _theme.chromeText),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: _theme.chromeText,
+                ),
               ),
               trailing: IconButton(
                 tooltip: '移除',
@@ -1795,7 +1839,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           width: 52,
           child: Text(
             label,
-            style: TextStyle(fontSize: 12, color: _theme.secondary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: _theme.secondary,
+            ),
           ),
         ),
         Expanded(
@@ -1811,7 +1859,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           child: Text(
             display,
             textAlign: TextAlign.end,
-            style: TextStyle(fontSize: 12, color: _theme.secondary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: _theme.secondary,
+            ),
           ),
         ),
       ],
@@ -1833,7 +1885,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         const SizedBox(height: 14),
         Text(
           '阅读主题独立于 App 全局主题：这里换的只是阅读页的背景与文字色。',
-          style: TextStyle(fontSize: 12, height: 1.5, color: _theme.secondary),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            height: 1.5,
+            color: _theme.secondary,
+          ),
         ),
       ],
     );
@@ -1860,7 +1917,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             child: Center(
               child: Text(
                 '文',
-                style: TextStyle(fontSize: 18, color: preset.textColor),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 19,
+                  color: preset.textColor,
+                ),
               ),
             ),
           ),
@@ -1868,7 +1929,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           Text(
             preset.label,
             style: TextStyle(
-              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
               color: selected ? _theme.chromeText : _theme.secondary,
             ),
           ),
@@ -1905,7 +1967,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           Text(
             '自定义',
             style: TextStyle(
-              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
               color: selected ? _theme.chromeText : _theme.secondary,
             ),
           ),
@@ -1925,11 +1988,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             title: Text(
               mode.label,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 15,
                 color: _turnMode == mode ? _theme.chromeText : _theme.secondary,
                 fontWeight: _turnMode == mode
                     ? FontWeight.w700
-                    : FontWeight.w400,
+                    : FontWeight.w600,
               ),
             ),
             trailing: _turnMode == mode
@@ -2000,19 +2063,29 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
             child: Center(
               child: Text(
                 '正文预览',
-                style: TextStyle(fontSize: 15, color: theme.textColor),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: theme.textColor,
+                ),
               ),
             ),
           ),
           const SizedBox(height: 12),
-          const Text('色相', style: TextStyle(fontSize: 12)),
+          const Text(
+            '色相',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
           Slider(
             value: _hue,
             min: 0,
             max: 360,
             onChanged: (value) => setState(() => _hue = value),
           ),
-          const Text('明度', style: TextStyle(fontSize: 12)),
+          const Text(
+            '明度',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
           Slider(
             value: _lightness,
             min: 0.12,

@@ -116,8 +116,8 @@ class PlayerStatsInline extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w400,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
                   shadows: PlayerHudShadows.control,
                 ),
@@ -173,8 +173,8 @@ class _HudChip extends StatelessWidget {
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
             color: Colors.white,
             letterSpacing: 0.3,
           ),

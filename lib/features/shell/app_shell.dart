@@ -886,8 +886,8 @@ class _DockItem extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
               color: color,
             ),
           ),

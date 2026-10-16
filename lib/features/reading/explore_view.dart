@@ -1,5 +1,5 @@
 import '../../core/media/media_library.dart';
-import '../media/media_library_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -261,7 +261,9 @@ class _ExploreViewState extends State<ExploreView> {
     }
   }
 
-  void _mediaChanged() { if(mounted) setState(() {}); }
+  void _mediaChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -564,7 +566,11 @@ class _ExploreViewState extends State<ExploreView> {
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Text(
                 group.title,
-                style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                  color: LumeTheme.muted,
+                ),
               ),
             ),
             Expanded(
@@ -669,8 +675,8 @@ class _ExploreViewState extends State<ExploreView> {
       child: Text(
         title,
         style: TextStyle(
-          fontSize: 13,
-          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          fontSize: 14,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
         ),
       ),
     ),
@@ -873,10 +879,6 @@ class _ExploreViewState extends State<ExploreView> {
   // ------------------------------------------------------------------ 交互
 
   Future<void> _selectSource(String sourceId) async {
-    if(sourceId=='__local_media__') {
-      await Navigator.push(context,MaterialPageRoute<void>(builder:(_)=>MediaLibraryPage(section:widget.section)));
-      if(mounted) setState(() {});return;
-    }
     if (sourceId == _current?.id || _switching) return;
     SectionPreloader.discard(widget.section);
     setState(() => _switching = true);
@@ -1202,11 +1204,7 @@ class _ExploreViewState extends State<ExploreView> {
       manager: _manager,
       onSourcesChanged: _bootstrap,
       floating: true,
-      sources: [ ..._sources.where((source)=>source.enabled),
-        if(widget.section==Section.novel || widget.section==Section.video)
-          SourceDescriptor(id:'__local_media__',name:widget.section==Section.novel ? '本地有声小说与导入资源' : '本地与导入资源',
-            version:'1',enabled:true,section:widget.section,group:widget.section==Section.novel ? '有声小说' : '视频'),
-      ],
+      sources: [..._sources.where((source) => source.enabled)],
       currentId: _current?.id,
       busy: _switching,
       onSelect: _selectSource,
@@ -1242,7 +1240,10 @@ class _ExploreViewState extends State<ExploreView> {
                   controller: _search,
                   autofocus: true,
                   textInputAction: TextInputAction.search,
-                  style: TextStyle(color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: LumeTheme.textPrimary,
+                  ),
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: _searchMode == SearchMode.aggregate
@@ -1250,13 +1251,19 @@ class _ExploreViewState extends State<ExploreView> {
                               ? '搜索全部已启用源'
                               : '搜索已选 ${_searchSourceIds!.length} 个站点')
                         : '在当前源内搜索',
-                    hintStyle: TextStyle(color: LumeTheme.muted),
+                    hintStyle: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: LumeTheme.muted,
+                    ),
                     icon: Icon(Icons.search, color: LumeTheme.muted),
                     suffixIcon: TextButton(
                       onPressed: _openSearch,
                       child: Text(
                         _searchMode.label,
-                        style: const TextStyle(fontSize: 12),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ),
@@ -1327,7 +1334,8 @@ class _ExploreViewState extends State<ExploreView> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
                             color: LumeTheme.textPrimary,
                           ),
                         ),
@@ -1387,8 +1395,17 @@ class _ExploreViewState extends State<ExploreView> {
       BrowseLayoutMode.grid3;
 
   /// 排序后的条目（排序是客户端行为，只作用于已加载的这批）。
-  List<SourceItem> get _sortedItems => _sort.apply(_items.where((item)=>
-    MediaLibrary.instance.visibleAtOrigin(widget.section,_current?.id ?? '',item.id)).toList());
+  List<SourceItem> get _sortedItems => _sort.apply(
+    _items
+        .where(
+          (item) => MediaLibrary.instance.visibleAtOrigin(
+            widget.section,
+            _current?.id ?? '',
+            item.id,
+          ),
+        )
+        .toList(),
+  );
 
   /// 是否处于「首页模式」（用户口径任务 3）：图源提供 home()，且当前没有
   /// 分类 / 分组筛选 / 关键词 / 搜索结果在生效。旧源没有 home() → 照旧分类列表。
@@ -1599,7 +1616,7 @@ class _ExploreViewState extends State<ExploreView> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -1611,7 +1628,8 @@ class _ExploreViewState extends State<ExploreView> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                               color: LumeTheme.muted,
                             ),
                           ),
@@ -1674,7 +1692,11 @@ class _ExploreViewState extends State<ExploreView> {
         child: Center(
           child: Text(
             '没有更多了',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
         ),
       );

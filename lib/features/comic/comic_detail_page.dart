@@ -413,7 +413,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 19,
                             fontWeight: FontWeight.w700,
                             color: LumeTheme.textPrimary,
                           ),
@@ -427,7 +427,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.muted,
                               ),
                             ),
@@ -436,7 +437,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                         Text(
                           '共 ${_chapters.length} 章',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
                             color: LumeTheme.muted,
                           ),
                         ),
@@ -446,7 +448,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                             child: Text(
                               '读至 ${progress.describe()}',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textPrimary,
                               ),
                             ),
@@ -528,7 +531,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
         child: Text(
           description,
           style: TextStyle(
-            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
             height: 1.6,
             color: LumeTheme.textSecondary,
           ),
@@ -547,7 +551,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
           Text(
             '章节（${_chapters.length}）',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -650,7 +654,7 @@ class _DownloadScopeSheet extends StatelessWidget {
                 Text(
                   '批量下载',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -660,7 +664,8 @@ class _DownloadScopeSheet extends StatelessWidget {
                   '图片存到应用内的导出目录（按作品 / 章节分目录），'
                   '已下过的图会自动跳过，可随时取消。',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
                     height: 1.5,
                     color: LumeTheme.muted,
                   ),
@@ -677,19 +682,27 @@ class _DownloadScopeSheet extends StatelessWidget {
                     title: Text(
                       scope.label,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
                         color: LumeTheme.textPrimary,
                       ),
                     ),
-                    subtitle: Text(switch (scope) {
-                      ComicDownloadScope.all => '整部作品，共 $count 章',
-                      ComicDownloadScope.unread =>
-                        count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
-                      ComicDownloadScope.current =>
-                        count == 0
-                            ? '暂无可下载章节'
-                            : '只下第 ${(readChapterIndex ?? 0) + 1} 章',
-                    }, style: TextStyle(fontSize: 12, color: LumeTheme.muted)),
+                    subtitle: Text(
+                      switch (scope) {
+                        ComicDownloadScope.all => '整部作品，共 $count 章',
+                        ComicDownloadScope.unread =>
+                          count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
+                        ComicDownloadScope.current =>
+                          count == 0
+                              ? '暂无可下载章节'
+                              : '只下第 ${(readChapterIndex ?? 0) + 1} 章',
+                      },
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: LumeTheme.muted,
+                      ),
+                    ),
                     trailing: count > 0
                         ? Icon(Icons.chevron_right, color: LumeTheme.muted)
                         : null,
@@ -742,7 +755,7 @@ class _DownloadCard extends StatelessWidget {
                 child: Text(
                   _title(),
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -768,13 +781,21 @@ class _DownloadCard extends StatelessWidget {
               _runningDetail(),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
           ] else ...<Widget>[
             const SizedBox(height: 4),
             Text(
               _summary(),
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             for (final failure in progress.failures.take(3))
               Padding(
@@ -783,7 +804,11 @@ class _DownloadCard extends StatelessWidget {
                   failure,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.danger),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.danger,
+                  ),
                 ),
               ),
             if (progress.failures.length > 3)
@@ -791,7 +816,11 @@ class _DownloadCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 3),
                 child: Text(
                   '…另有 ${progress.failures.length - 3} 章失败',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ),
             const SizedBox(height: 2),
@@ -802,13 +831,20 @@ class _DownloadCard extends StatelessWidget {
                     progress.destination,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                 ),
                 TextButton.icon(
                   onPressed: onCopy,
                   icon: const Icon(Icons.copy, size: 15),
-                  label: const Text('复制路径', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    '复制路径',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
                 ),
               ],
             ),

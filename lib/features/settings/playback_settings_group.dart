@@ -28,14 +28,14 @@ class PlaybackSettingsGroup extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
             child: Text(
-            '播放',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: LumeTheme.textSecondary,
+              '播放',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: LumeTheme.textSecondary,
+              ),
             ),
           ),
-        ),
         GlassCard(
           radius: 14,
           padding: EdgeInsets.zero,
@@ -59,7 +59,7 @@ class PlaybackSettingsGroup extends StatelessWidget {
                         Text(
                           '横屏播放',
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -69,9 +69,10 @@ class PlaybackSettingsGroup extends StatelessWidget {
                           controller.orientation.isLandscape
                               ? '已开启：全屏播放一律横屏'
                               : '关闭时按视频比例自动判断：竖屏短剧竖屏全屏、'
-                                  '普通横片横屏全屏；播放器里还能强制竖屏',
+                                    '普通横片横屏全屏；播放器里还能强制竖屏',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
                             height: 1.4,
                             color: LumeTheme.muted,
                           ),

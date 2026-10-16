@@ -83,14 +83,19 @@ class _InfoRow extends StatelessWidget {
             width: 44,
             child: Text(
               label,
-              style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
                 height: 1.4,
                 color: valueColor ?? LumeTheme.textPrimary,
               ),
@@ -151,7 +156,11 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
               Text(
                 '留空即继承「设置 → 网络设置」里的全局值。这里的配置只作用于本源，'
                 'Cookie 不与其他源共享。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 12),
               TextField(

@@ -1,7 +1,7 @@
 import '../../core/media/media_library.dart';
 import '../../core/media/media_resource_service.dart';
-import '../media/media_library_page.dart';
 import '../media/media_resource_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -92,16 +92,35 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       final detail = await source.detail(widget.target.itemId);
       final chapters = await source.chapters(widget.target.itemId);
       await MediaLibrary.instance.boot();
-      MediaResource? media = MediaLibrary.instance.byId(MediaResource.sourceKey(source.section,source.id,widget.target.itemId));
+      MediaResource? media = MediaLibrary.instance.byId(
+        MediaResource.sourceKey(
+          source.section,
+          source.id,
+          widget.target.itemId,
+        ),
+      );
       if (media == null && chapters.isNotEmpty) {
         try {
-          final content = await source.content(itemId:widget.target.itemId,chapterId:chapters.first.id);
+          final content = await source.content(
+            itemId: widget.target.itemId,
+            chapterId: chapters.first.id,
+          );
           if (MediaResourceService.address(content) != null) {
-            media = await MediaResourceService().source(source:source,
-              item:SourceItem(id:widget.target.itemId,title:widget.target.title,cover:widget.target.cover),
-              chapters:chapters,firstContent:content,hint:ResourceKind.audioBook);
+            media = await MediaResourceService().source(
+              source: source,
+              item: SourceItem(
+                id: widget.target.itemId,
+                title: widget.target.title,
+                cover: widget.target.cover,
+              ),
+              chapters: chapters,
+              firstContent: content,
+              hint: ResourceKind.audioBook,
+            );
           }
-        } catch (_) { /* The original reading path retains its normal retry UI. */ }
+        } catch (_) {
+          /* The original reading path retains its normal retry UI. */
+        }
       }
       if (!mounted) return;
       setState(() {
@@ -248,26 +267,14 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     });
   }
 
-  Future<void> _changeMediaType() async {
-    final source=_source;if(source==null) return;
-    try {
-      final entry=await MediaResourceService().source(source:source,
-        item:SourceItem(id:widget.target.itemId,title:widget.target.title,cover:widget.target.cover),
-        chapters:_chapters,hint:ResourceKind.novel);
-      if(!mounted) return;
-      final changed=await editMediaPlacement(context,entry);
-      if(mounted && changed!=null) setState(()=>_mediaResource=changed.kind==ResourceKind.novel ? null : changed);
-    } catch(_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('资源信息暂不可用，请重试'))); }
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_mediaResource != null) return MediaResourcePage(resource:_mediaResource!);
+    if (_mediaResource != null) {
+      return MediaResourcePage(resource: _mediaResource!);
+    }
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: GlassAppBar(
-        actions:[IconButton(tooltip:'类型与所在库',icon:const Icon(Icons.drive_file_move_outline),
-          onPressed:_source == null ? null : _changeMediaType)],
         title: Text(
           _detail?.title ?? widget.target.title,
           maxLines: 1,
@@ -358,7 +365,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 19,
                             fontWeight: FontWeight.w700,
                             color: LumeTheme.textPrimary,
                           ),
@@ -372,7 +379,8 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.muted,
                               ),
                             ),
@@ -455,7 +463,8 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         child: Text(
           description,
           style: TextStyle(
-            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
             height: 1.6,
             color: LumeTheme.textSecondary,
           ),
@@ -472,7 +481,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           Text(
             '章节（${_chapters.length}）',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),

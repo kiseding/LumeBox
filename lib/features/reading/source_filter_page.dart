@@ -462,7 +462,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             child: Text(
               '分类',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textSecondary,
               ),
@@ -533,7 +533,11 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             item.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              fontSize: 13,
+            ),
           ),
           child: PosterCover(
             pipeline: widget.pipeline!,
@@ -558,7 +562,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             child: Text(
               group.title,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textSecondary,
               ),

@@ -34,7 +34,7 @@ class NoticeCard extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -43,7 +43,11 @@ class NoticeCard extends StatelessWidget {
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: LumeTheme.muted,
+                ),
               ),
               if (action != null) ...<Widget>[
                 const SizedBox(height: 16),
@@ -63,7 +67,7 @@ class SkeletonNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const NoticeCard(
-        title: LumeTheme.appName,
-        subtitle: '当前平台在 Phase1 仅保留页面骨架',
-      );
+    title: LumeTheme.appName,
+    subtitle: '当前平台在 Phase1 仅保留页面骨架',
+  );
 }

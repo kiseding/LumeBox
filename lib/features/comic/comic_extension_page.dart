@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/session/privacy_settings.dart';
 
 import '../../core/source/source.dart';
@@ -83,9 +84,7 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
     if (!mounted) return;
     setState(() => _busy.remove(extension.id));
     _toast(
-      result.isSuccess
-          ? '已安装：${result.sourceName}'
-          : '安装失败：${result.message}',
+      result.isSuccess ? '已安装：${result.sourceName}' : '安装失败：${result.message}',
     );
     await _reload();
   }
@@ -95,7 +94,10 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
     await _reload();
   }
 
-  Future<void> _uninstall(RepoExtension extension, InstalledExtension installed) async {
+  Future<void> _uninstall(
+    RepoExtension extension,
+    InstalledExtension installed,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -119,14 +121,14 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.comic,
+    return GlassScaffold(
+      effectModule: GlassModule.comic,
       behindBar: true,
       title: widget.repo.name,
       actions: <Widget>[
@@ -147,7 +149,13 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
         subtitle: '漫画板块的扩展仓库库打不开，请重启应用后重试',
       );
     }
-    final extensions = _extensions?.where((entry) => (PrivacySettings.instance.showAdult || !entry.nsfw) && PrivacySettings.instance.allowsSource(entry.id, entry.name)).toList();
+    final extensions = _extensions
+        ?.where(
+          (entry) =>
+              (PrivacySettings.instance.showAdult || !entry.nsfw) &&
+              PrivacySettings.instance.allowsSource(entry.id, entry.name),
+        )
+        .toList();
     if (extensions == null) {
       return const SourceStateView(state: SourceStateKind.loading);
     }
@@ -229,7 +237,7 @@ class _ExtensionTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -249,7 +257,11 @@ class _ExtensionTile extends StatelessWidget {
               if (extension.nsfw) 'NSFW',
               if (installedHere) '已安装 v${installed!.version}',
             ].join(' · '),
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           if (extension.sourceNames.isNotEmpty) ...<Widget>[
             const SizedBox(height: 2),
@@ -257,14 +269,22 @@ class _ExtensionTile extends StatelessWidget {
               '来源：${extension.sourceNames.join('、')}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
           ],
           if (!extension.isRunnable) ...<Widget>[
             const SizedBox(height: 6),
             Text(
               'APK 载体需要 Android 运行时，本平台不能运行——只能浏览',
-              style: TextStyle(fontSize: 12, color: _disabledColor),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: _disabledColor,
+              ),
             ),
           ],
           const SizedBox(height: 6),
@@ -272,10 +292,7 @@ class _ExtensionTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.end,
             children: <Widget>[
               if (!extension.isRunnable)
-                const TextButton(
-                  onPressed: null,
-                  child: Text('不可运行'),
-                )
+                const TextButton(onPressed: null, child: Text('不可运行'))
               else if (!installedHere)
                 FilledButton.tonal(
                   onPressed: busy ? null : onInstall,
@@ -316,7 +333,8 @@ class _Chip extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
           color: danger ? _disabledColor : LumeTheme.textPrimary,
         ),
       ),

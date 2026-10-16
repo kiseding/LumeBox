@@ -46,16 +46,16 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
       await DeveloperMode.save(next);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$error')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存失败：$error')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final records = DebugRequestLog.snapshot;
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '调试面板',
       actions: <Widget>[
@@ -91,7 +91,7 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
           Text(
             '开关',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -99,18 +99,31 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
           const SizedBox(height: 4),
           Text(
             '抓包只留内存、不落盘、不导出；关闭开关会立即清空已记录的内容。',
-            style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(
               '开发者模式',
-              style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: LumeTheme.textPrimary,
+              ),
             ),
             subtitle: Text(
               '打开后才可开启请求抓包',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             value: _settings.enabled,
             onChanged: (value) => _apply(
@@ -125,11 +138,19 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
             contentPadding: EdgeInsets.zero,
             title: Text(
               '请求抓包',
-              style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: LumeTheme.textPrimary,
+              ),
             ),
             subtitle: Text(
               '记录每个请求的方法 / 状态 / 耗时 / 来源（凭据类请求头自动隐藏）',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             value: _settings.requestCapture,
             onChanged: _settings.enabled
@@ -152,7 +173,7 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
                 child: Text(
                   '请求抓包',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -160,7 +181,11 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
               ),
               Text(
                 records.isEmpty ? '无记录' : '${records.length} 条',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
@@ -169,7 +194,11 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
             DebugRequestLog.enabled
                 ? '最近 ${DebugRequestLog.limit} 条请求（新 → 旧）'
                 : '抓包未开启：打开上面的开关后，这里会显示请求明细',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           if (records.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
@@ -180,7 +209,11 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   '只显示最近 50 条（共 ${records.length} 条）',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ),
           ],
@@ -208,12 +241,20 @@ class _RequestTile extends StatelessWidget {
           Expanded(
             child: Text(
               record.describe(),
-              style: TextStyle(fontSize: 13, color: color),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: color,
+              ),
             ),
           ),
           Text(
             '${record.source} · ${_clock(record.time)}',
-            style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -223,7 +264,11 @@ class _RequestTile extends StatelessWidget {
           record.url,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+            color: LumeTheme.muted,
+          ),
         ),
       ),
       children: <Widget>[
@@ -235,22 +280,34 @@ class _RequestTile extends StatelessWidget {
               if (record.error.isNotEmpty)
                 Text(
                   '失败原因：${record.error}',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.danger),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.danger,
+                  ),
                 ),
               if (record.note.isNotEmpty)
                 Text(
                   record.note,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               Text(
                 '响应体：${record.responseBytes} 字节',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
                 '请求头',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -258,25 +315,35 @@ class _RequestTile extends StatelessWidget {
               if (record.requestHeaders.isEmpty)
                 Text(
                   '（无）',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               for (final entry in record.requestHeaders.entries)
                 Text(
                   '${entry.key}: ${entry.value}',
-                  style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               const SizedBox(height: 6),
               TextButton.icon(
                 onPressed: () async {
                   await Clipboard.setData(ClipboardData(text: record.url));
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制请求地址')),
-                    );
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('已复制请求地址')));
                   }
                 },
                 icon: const Icon(Icons.copy, size: 16),
-                label: const Text('复制地址', style: TextStyle(fontSize: 12)),
+                label: const Text(
+                  '复制地址',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
               ),
             ],
           ),
@@ -305,7 +372,7 @@ class _RuntimeStatsCard extends StatelessWidget {
           Text(
             '运行环境',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -314,8 +381,14 @@ class _RuntimeStatsCard extends StatelessWidget {
           _row('在册 JS 上下文', '${SandboxContext.liveCount}'),
           _row('放弃回收的 JSRuntime', '${Qjs.abandonedRuntimes}'),
           _row('日志缓冲', '${LumeLog.snapshot.length} / ${LumeLog.bufferLimit}'),
-          _row('全局并发', '${settings.globalConcurrency}（单域名 ${settings.perHostConcurrency}）'),
-          _row('请求超时', '${settings.timeout.inSeconds}s（重试 ${settings.maxRetries} 次）'),
+          _row(
+            '全局并发',
+            '${settings.globalConcurrency}（单域名 ${settings.perHostConcurrency}）',
+          ),
+          _row(
+            '请求超时',
+            '${settings.timeout.inSeconds}s（重试 ${settings.maxRetries} 次）',
+          ),
           _row('全局 UA', settings.userAgent.isEmpty ? '内置默认' : '自定义'),
           _row('全局代理', settings.proxy.isEmpty ? '直连' : settings.proxy),
         ],
@@ -332,13 +405,21 @@ class _RuntimeStatsCard extends StatelessWidget {
             width: 150,
             child: Text(
               label,
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: TextStyle(fontSize: 12, color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.textPrimary,
+              ),
             ),
           ),
         ],

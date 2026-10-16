@@ -48,28 +48,24 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
         _settings = LumeSandboxSettings.current;
         _dirty = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已保存：新建的源引擎按新超时运行')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已保存：新建的源引擎按新超时运行')));
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$error')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存失败：$error')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '沙箱设置',
       actions: <Widget>[
-        TextButton(
-          onPressed: _dirty ? _save : null,
-          child: const Text('保存'),
-        ),
+        TextButton(onPressed: _dirty ? _save : null, child: const Text('保存')),
       ],
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
@@ -81,7 +77,7 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
                 Text(
                   'JS 执行超时',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -90,7 +86,11 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
                 Text(
                   '单个源脚本一次调用最多跑多久。超时即判定失控、销毁该源的上下文'
                   '并重建——App 不会因此卡死，但那个源的那次调用会失败。',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Wrap(
@@ -102,7 +102,9 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
                         label: Text('$seconds 秒'),
                         selected: _settings.timeout.inSeconds == seconds,
                         onSelected: (_) => _update(
-                          _settings.copyWith(timeout: Duration(seconds: seconds)),
+                          _settings.copyWith(
+                            timeout: Duration(seconds: seconds),
+                          ),
                         ),
                       ),
                   ],
@@ -114,7 +116,8 @@ class _SandboxSettingsPageState extends State<SandboxSettingsPage> {
                   '调大能给慢站点更多余量，但一个卡住的脚本也会占住更久；'
                   '默认 ${SandboxSettings.defaultTimeout.inSeconds} 秒。',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
                     height: 1.5,
                     color: LumeTheme.muted,
                   ),
@@ -148,7 +151,7 @@ class _FixedLimitsCard extends StatelessWidget {
           Text(
             '固定安全上限（不可调）',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -158,7 +161,12 @@ class _FixedLimitsCard extends StatelessWidget {
             '内存上限、调用栈上限、指令计数、宿主调用次数这些是防死循环与防内存失控的'
             '兜底，调大等于把保护关掉，因此不开放配置。超时是唯一例外——它只影响'
             '「等多久算失控」，不削弱任何防护。',
-            style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),

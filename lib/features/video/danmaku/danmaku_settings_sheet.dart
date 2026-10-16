@@ -180,7 +180,10 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
   Widget _switch(String title, bool value, ValueChanged<bool> onChanged) =>
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
-        title: Text(title, style: const TextStyle(fontSize: 14)),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
         value: value,
         onChanged: onChanged,
       );
@@ -206,7 +209,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                   child: Text(
                     '弹幕设置',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 17,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -215,7 +218,11 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                 if (widget.danmakuCount != null)
                   Text(
                     '本集 ${widget.danmakuCount} 条',
-                    style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: LumeTheme.muted,
+                    ),
                   ),
               ],
             ),
@@ -223,7 +230,11 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
           ] else if (widget.danmakuCount != null) ...<Widget>[
             Text(
               '本集 ${widget.danmakuCount} 条',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             const SizedBox(height: 4),
           ],
@@ -231,7 +242,11 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             contentPadding: EdgeInsets.zero,
             title: Text(
               '显示弹幕',
-              style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: LumeTheme.textPrimary,
+              ),
             ),
             value: _settings.enabled,
             onChanged: (value) => _update(_settings.copyWith(enabled: value)),
@@ -253,7 +268,10 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                 '${(DanmakuStyle.baseFontSize * _settings.fontScale).round()} 号',
             onChanged: (value) => _update(_settings.copyWith(fontScale: value)),
           ),
-          const Text('显示范围', style: TextStyle(fontSize: 14)),
+          const Text(
+            '显示范围',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 6,
@@ -301,7 +319,10 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
           ),
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: const Text('高级设置', style: TextStyle(fontSize: 14)),
+            title: const Text(
+              '高级设置',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            ),
             children: [
               _switch(
                 '彩色弹幕',
@@ -369,7 +390,10 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                   _settings.copyWith(delayMs: (value * 1000).round()),
                 ),
               ),
-              const Text('正值延后，负值提前', style: TextStyle(fontSize: 12)),
+              const Text(
+                '正值延后，负值提前',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
               _slider(
                 label: '描边',
                 value: _settings.strokeWidth,
@@ -422,12 +446,20 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
             ),
             Text(
               display,
-              style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.muted,
+              ),
             ),
           ],
         ),

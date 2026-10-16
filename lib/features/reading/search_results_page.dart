@@ -372,14 +372,18 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 17,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
                       ),
                       Text(
                         _loading ? '正在搜索…' : '${widget.mode.label} · $_count 条',
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -504,7 +508,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -515,7 +519,8 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                           child: Text(
                             _metaOf(row.item, row.sourceName)!,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                               color: LumeTheme.muted,
                             ),
                           ),
@@ -546,7 +551,11 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
       child: Center(
         child: Text(
           text,
-          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: LumeTheme.muted,
+          ),
         ),
       ),
     );

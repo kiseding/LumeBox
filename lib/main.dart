@@ -1,4 +1,3 @@
-import 'core/session/icloud_sync.dart';
 import 'core/media/media_library.dart';
 import 'core/tmdb/tmdb.dart';
 import 'core/session/app_preferences.dart';
@@ -64,10 +63,5 @@ void main() {
     await GlassEffectsSettings.instance.boot();
     await ComicImageToolsSettings.instance.boot();
     runApp(const LumeBoxApp());
-    unawaited(
-      ICloudSync.instance.boot().catchError((Object error) {
-        LumeLog.warn('iCloud 初始化失败：$error');
-      }),
-    );
   }, (error, stackTrace) => LumeLog.error(error, stackTrace));
 }

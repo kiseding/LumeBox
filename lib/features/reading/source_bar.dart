@@ -79,7 +79,7 @@ class ReadingSourceBar extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: LumeTheme.textPrimary,
                       ),

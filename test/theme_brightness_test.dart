@@ -38,7 +38,10 @@ void main() {
     });
 
     test('分层规则在两种亮度下都成立：底与卡不同色', () {
-      for (final palette in <LumePalette>[LumePalette.light, LumePalette.dark]) {
+      for (final palette in <LumePalette>[
+        LumePalette.light,
+        LumePalette.dark,
+      ]) {
         expect(
           palette.base,
           isNot(palette.surface),
@@ -118,10 +121,16 @@ void main() {
     });
 
     test('状态栏图标明暗跟着主题走', () {
-      expect(LumePalette.light.overlayStyle, Brightness.dark,
-          reason: '浅色主题要深色状态栏图标');
-      expect(LumePalette.dark.overlayStyle, Brightness.light,
-          reason: '深色主题要浅色状态栏图标');
+      expect(
+        LumePalette.light.overlayStyle,
+        Brightness.dark,
+        reason: '浅色主题要深色状态栏图标',
+      );
+      expect(
+        LumePalette.dark.overlayStyle,
+        Brightness.light,
+        reason: '深色主题要浅色状态栏图标',
+      );
     });
   });
 
@@ -145,11 +154,14 @@ void main() {
 
     test('卡片装饰与背景在两种亮度下都取自对应色板', () {
       LumeTheme.build(brightness: Brightness.dark);
-      expect(LumeTheme.cardDecoration().color, LumePalette.dark.glass);
-      expect(LumeTheme.cardShadow.first.color, LumePalette.dark.cardShadow.first.color);
+      expect(LumeTheme.cardDecoration().color, LumePalette.dark.surface);
+      expect(
+        LumeTheme.cardShadow.first.color,
+        LumePalette.dark.cardShadow.first.color,
+      );
 
       LumeTheme.build(brightness: Brightness.light);
-      expect(LumeTheme.cardDecoration().color, LumePalette.light.glass);
+      expect(LumeTheme.cardDecoration().color, LumePalette.light.surface);
     });
 
     test('默认构建仍是浅色（既有调用方不受影响）', () {

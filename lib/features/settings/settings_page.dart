@@ -1,8 +1,5 @@
-import 'icloud_settings_page.dart';
 import 'diagnostic_export_tile.dart';
 import '../audio_book/audio_book_page.dart';
-import '../media/media_library_page.dart';
-import '../../core/session/section.dart';
 import 'configuration_settings_page.dart';
 import 'glass_effects_tiles.dart';
 import 'privacy_settings_page.dart';
@@ -63,13 +60,15 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!_available) {
-      return GlassScaffold(effectModule: GlassModule.settings,
+      return GlassScaffold(
+        effectModule: GlassModule.settings,
         behindBar: true,
         title: '设置',
         child: const SkeletonNotice(),
       );
     }
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       // behindBar：内容从玻璃顶栏**底下**穿过（滚动时透出磨砂），顶部留给内容的
       // 空间由列表自己的 barInset 让。少了这一句，SafeArea 会先让一次栏高、
       // barInset 再让一次，顶栏高度被算两遍——真机上表现为首卡离顶栏一大截
@@ -82,13 +81,7 @@ class SettingsPage extends StatelessWidget {
           // 分组标题只是视觉归类：每块一张卡，条目按「用户要改什么」摆放
           //（真机反馈「设置太乱」后按此口径重排）。
           const _GroupTitle('界面'),
-          _SettingsEntry(
-            icon: Icons.cloud_sync_outlined,
-            title: 'iCloud 同步',
-            subtitle: '收藏夹、阅读 / 播放进度、设置与订阅地址',
-            onTap: () => _push(context, const ICloudSettingsPage()),
-          ),
-          const SizedBox(height: 10),
+
           _SettingsEntry(
             icon: Icons.backup_outlined,
             title: '配置与体验',
@@ -122,14 +115,7 @@ class SettingsPage extends StatelessWidget {
             onTap: () => _push(context, const AudioBookSettingsPage()),
           ),
           const SizedBox(height: 10),
-          _SettingsEntry(
-            icon: Icons.library_add_outlined,
-            title: '媒体导入与类型管理',
-            subtitle: '本地文件与链接 · 小说和视频库之间移动',
-            onTap: () =>
-                _push(context, const MediaLibraryPage(section: Section.novel)),
-          ),
-          const SizedBox(height: 10),
+
           _SettingsEntry(
             icon: Icons.auto_fix_high_outlined,
             title: 'AI 图片超分辨率',
@@ -296,7 +282,7 @@ class _SettingsEntry extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -304,7 +290,11 @@ class _SettingsEntry extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ],
             ),
@@ -312,7 +302,11 @@ class _SettingsEntry extends StatelessWidget {
           if (trailingValue != null) ...<Widget>[
             Text(
               trailingValue!,
-              style: TextStyle(fontSize: 13, color: LumeTheme.textSecondary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.textSecondary,
+              ),
             ),
             const SizedBox(width: 2),
           ],
@@ -336,7 +330,7 @@ class _GroupTitle extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
           color: LumeTheme.textSecondary,
         ),

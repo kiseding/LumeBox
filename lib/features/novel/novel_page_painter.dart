@@ -81,29 +81,29 @@ class NovelPagePainter extends CustomPainter {
     required double contentWidth,
     this.content,
     this.hint,
-  })  : contentWidth = contentWidth,
-        _header = _layout(
-          title,
-          typesetting,
-          theme.secondary,
-          12,
-          maxWidth: contentWidth,
-        ),
-        _footerLeft = _layout(
-          '第 ${pageIndex + 1}/$pageCount 页',
-          typesetting,
-          theme.secondary,
-          11,
-        ),
-        _footerRight = _layout(
-          '${(chapterRatio * 100).round()}%',
-          typesetting,
-          theme.secondary,
-          11,
-        ),
-        _hint = hint == null
-            ? null
-            : _layout(hint, typesetting, theme.secondary, 13);
+  }) : contentWidth = contentWidth,
+       _header = _layout(
+         title,
+         typesetting,
+         theme.secondary,
+         12,
+         maxWidth: contentWidth,
+       ),
+       _footerLeft = _layout(
+         '第 ${pageIndex + 1}/$pageCount 页',
+         typesetting,
+         theme.secondary,
+         11,
+       ),
+       _footerRight = _layout(
+         '${(chapterRatio * 100).round()}%',
+         typesetting,
+         theme.secondary,
+         11,
+       ),
+       _hint = hint == null
+           ? null
+           : _layout(hint, typesetting, theme.secondary, 13);
 
   final NovelReaderTheme theme;
   final NovelTypesetting typesetting;
@@ -140,7 +140,7 @@ class NovelPagePainter extends CustomPainter {
         text: text,
         style: typesetting.baseStyle.copyWith(
           color: color,
-          fontSize: fontSize,
+          fontSize: fontSize + 1,
           height: 1.3,
         ),
       ),
@@ -163,10 +163,7 @@ class NovelPagePainter extends CustomPainter {
     }
     content?.paint(
       canvas,
-      Offset(
-        margin,
-        margin + NovelTypesetting.headerHeight,
-      ),
+      Offset(margin, margin + NovelTypesetting.headerHeight),
     );
     _footerLeft.paint(canvas, Offset(margin, footerY));
     _footerRight.paint(
@@ -178,10 +175,7 @@ class NovelPagePainter extends CustomPainter {
     if (hint != null) {
       hint.paint(
         canvas,
-        Offset(
-          (size.width - hint.width) / 2,
-          (size.height - hint.height) / 2,
-        ),
+        Offset((size.width - hint.width) / 2, (size.height - hint.height) / 2),
       );
     }
   }

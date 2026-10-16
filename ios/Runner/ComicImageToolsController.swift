@@ -19,10 +19,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private var translationID: String?
   private var translationResult: FlutterResult?
   private var translationHost: UIViewController?
-  private var assetPath: ((String) -> String)?
 
   func register(with registrar: FlutterPluginRegistrar) {
-    assetPath = { registrar.lookupKey(forAsset: $0) }
     FlutterMethodChannel(name: "lumebox/comicImages", binaryMessenger: registrar.messenger())
       .setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
   }
@@ -64,18 +62,42 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       return
     }
     if call.method == "translate" { startTranslation(args, id: id, result: result); return }
-    guard ["recognize", "superResolve", "prepareModel", "clearModels"].contains(call.method) else { result(FlutterMethodNotImplemented); return }
+    guard ["recognize", "superResolve", "prepareModel", "clearModels", "importModel"].contains(call.method) else { result(FlutterMethodNotImplemented); return }
     lock.lock(); active.insert(id); lock.unlock()
     queue.async {
       do {
         try self.check(id)
         let value: Any? = try autoreleasepool {
           switch call.method {
+          case "importModel":
+            guard let name = args["name"] as? String,
+                  (0...3).flatMap({ ["noise\($0).mlmodel", "photo\($0).mlmodel"] }).contains(name),
+                  let bytes = args["bytes"] as? FlutterStandardTypedData,
+                  bytes.data.count <= 3 * 1024 * 1024 else { throw self.failure("模型文件无效") }
+            let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mlmodel")
+            defer { try? FileManager.default.removeItem(at: staging) }
+            try bytes.data.write(to: staging, options: .atomic)
+            let compiled = try MLModel.compileModel(at: staging)
+            defer { try? FileManager.default.removeItem(at: compiled) }
+            let configuration = MLModelConfiguration()
+            _ = try MLModel(contentsOf: compiled, configuration: configuration)
+            let directory = try self.modelDirectory()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let target = directory.appendingPathComponent(String(name.dropLast(8)) + ".mlmodelc")
+            try bytes.data.write(to: directory.appendingPathComponent(name), options: .atomic)
+            self.models.removeAll()
+            if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: compiled) }
+            else { try FileManager.default.copyItem(at: compiled, to: target) }
+            return nil
           case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime"); return nil
           case "clearModels":
             self.models.removeAll()
             let directory = try self.modelDirectory()
-            if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+            if FileManager.default.fileExists(atPath: directory.path) {
+              for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "mlmodelc" {
+                try FileManager.default.removeItem(at: file)
+              }
+            }
             return nil
           default:
             guard let bytes = args["bytes"] as? FlutterStandardTypedData, bytes.data.count <= 32 * 1024 * 1024,
@@ -120,8 +142,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let compiled = directory.appendingPathComponent("\(modelKey).mlmodelc")
     if !FileManager.default.fileExists(atPath: compiled.path) {
-      guard let key = assetPath?("assets/models/waifu2x/\(modelKey).mlmodel"),
-            let source = Bundle.main.url(forResource: key, withExtension: nil) else { throw failure("找不到超分模型") }
+      let source = directory.appendingPathComponent("\(modelKey).mlmodel")
+      guard FileManager.default.fileExists(atPath: source.path) else { throw failure("请先在设置中从本地安装对应的超分模型") }
       let temporary = try MLModel.compileModel(at: source)
       defer { try? FileManager.default.removeItem(at: temporary) }
       try FileManager.default.copyItem(at: temporary, to: compiled)

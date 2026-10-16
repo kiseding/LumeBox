@@ -20,7 +20,10 @@ import 'section_cache.dart';
 /// 「本次运行」缓存（分类 / 详情 / 章节的读结果），退出应用即消失，
 /// 不落盘、不参与过期策略；这里按板块给一个「清空」按钮。
 class CacheSettingsPage extends StatefulWidget {
-  const CacheSettingsPage({super.key, this.service = const SectionCacheService()});
+  const CacheSettingsPage({
+    super.key,
+    this.service = const SectionCacheService(),
+  });
 
   final SectionCacheService service;
 
@@ -66,17 +69,15 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('策略保存失败：$error')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('策略保存失败：$error')));
       return;
     }
     final result = await widget.service.prune(section, policy);
     if (!mounted) return;
     if (!result.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('按新策略${result.describe()}')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('按新策略${result.describe()}')));
     }
     await _reload();
   }
@@ -149,7 +150,8 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '缓存管理',
       actions: <Widget>[
@@ -165,10 +167,7 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
 
   Widget _buildBody() {
     if (_failed) {
-      return const NoticeCard(
-        title: '缓存统计不可用',
-        subtitle: '板块目录打不开，请重启应用后重试',
-      );
+      return const NoticeCard(title: '缓存统计不可用', subtitle: '板块目录打不开，请重启应用后重试');
     }
     final stats = _stats;
     if (stats == null) {
@@ -182,7 +181,11 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
         Text(
           '合计缓存 ${_formatBytes(totalCache)}'
           '${totalSaved > 0 ? ' · 已保存图片 ${_formatBytes(totalSaved)}' : ''}',
-          style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+            color: LumeTheme.muted,
+          ),
         ),
         const SizedBox(height: 12),
         for (final item in stats) ...<Widget>[
@@ -199,7 +202,11 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
         Text(
           '清理只删除可再生缓存；用户保存的图片、书架信息与阅读进度都不在清理范围。\n'
           '内存缓存只在本次运行有效，退出应用即消失，不落盘。',
-          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: LumeTheme.muted,
+          ),
         ),
       ],
     );
@@ -249,7 +256,7 @@ class _CacheTile extends StatelessWidget {
                 Text(
                   stats.section.label,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -258,14 +265,22 @@ class _CacheTile extends StatelessWidget {
                 Text(
                   '缓存 ${_CacheSettingsPageState._formatBytes(stats.cacheBytes)}'
                   '（${stats.cacheFiles} 个文件）',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 if (!SectionImagePipeline.diskCacheFor(stats.section))
                   Text(
                     // 免得看到「0 B」以为坏了：这是用户点名要的
                     //（漫画板块的图片缓存已关闭，见 image_pipeline 的说明）。
                     '图片缓存已关闭：封面与阅读页不再落盘',
-                    style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                 if (stats.savedBytes > 0)
                   Text(
@@ -273,7 +288,8 @@ class _CacheTile extends StatelessWidget {
                     '${_CacheSettingsPageState._formatBytes(stats.savedBytes)}'
                     '（不参与清理）',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                       color: LumeTheme.muted,
                     ),
                   ),
@@ -284,16 +300,13 @@ class _CacheTile extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Icon(
-                        Icons.tune,
-                        size: 14,
-                        color: LumeTheme.muted,
-                      ),
+                      Icon(Icons.tune, size: 14, color: LumeTheme.muted),
                       const SizedBox(width: 4),
                       Text(
                         policy.describe(),
                         style: TextStyle(
-                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: LumeTheme.muted,
                         ),
                       ),
@@ -308,7 +321,8 @@ class _CacheTile extends StatelessWidget {
                       child: Text(
                         '内存缓存 ${memory.describe()}',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: LumeTheme.muted,
                         ),
                       ),
@@ -341,10 +355,8 @@ class _CacheTile extends StatelessWidget {
   Future<void> _openPolicy(BuildContext context) async {
     final next = await showDialog<SectionCachePolicy>(
       context: context,
-      builder: (_) => _CachePolicyDialog(
-        section: stats.section,
-        policy: policy,
-      ),
+      builder: (_) =>
+          _CachePolicyDialog(section: stats.section, policy: policy),
     );
     if (next == null) return;
     onPolicyChanged(next);
@@ -363,8 +375,7 @@ class _CachePolicyDialog extends StatefulWidget {
 }
 
 class _CachePolicyDialogState extends State<_CachePolicyDialog> {
-  late int _maxMb =
-      widget.policy.maxBytes ~/ (1024 * 1024);
+  late int _maxMb = widget.policy.maxBytes ~/ (1024 * 1024);
   late int _ageDays = widget.policy.maxAgeDays;
 
   @override
@@ -381,12 +392,20 @@ class _CachePolicyDialogState extends State<_CachePolicyDialog> {
               Text(
                 '超过上限或过期的缓存会在保存策略时立刻清理一次，之后每次进本页'
                 '也会按策略修剪。用户保存的图片、书架与进度不受影响。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
                 '容量上限',
-                style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -404,7 +423,11 @@ class _CachePolicyDialogState extends State<_CachePolicyDialog> {
               const SizedBox(height: 16),
               Text(
                 '过期天数',
-                style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Wrap(

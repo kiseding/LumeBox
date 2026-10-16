@@ -92,7 +92,7 @@ void main() {
     expect(data.overview, '官方剧情');
     expect(data.backdrops, ['https://images.test/t/p/w1280/background.jpg']);
     expect(data.logos, ['https://images.test/t/p/w500/logo.png']);
-    expect(data.profiles, ['https://images.test/t/p/w185/actor.jpg']);
+    expect(data.profiles, ['https://images.test/t/p/w185/actor.jpg', '']);
     expect(data.videoCovers, ['https://images.test/t/p/w300/still.jpg']);
     settings.setImageSize(TmdbImageKind.backdrop, 'original');
     settings.setImageSize(TmdbImageKind.profile, 'w632');
@@ -102,7 +102,7 @@ void main() {
     expect(changed.backdrops, [
       'https://images.test/t/p/original/background.jpg',
     ]);
-    expect(changed.profiles, ['https://images.test/t/p/w632/actor.jpg']);
+    expect(changed.profiles, ['https://images.test/t/p/w632/actor.jpg', '']);
     expect(changed.videoCovers, ['https://images.test/t/p/w500/still.jpg']);
     client.dispose();
   });

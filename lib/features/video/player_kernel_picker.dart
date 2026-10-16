@@ -96,9 +96,11 @@ class _KernelTile extends StatelessWidget {
                   Text(
                     kernel.label,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: available ? LumeTheme.textPrimary : LumeTheme.muted,
+                      color: available
+                          ? LumeTheme.textPrimary
+                          : LumeTheme.muted,
                     ),
                   ),
                   if (reason != null) ...<Widget>[
@@ -106,7 +108,8 @@ class _KernelTile extends StatelessWidget {
                     Text(
                       reason!,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                         color: LumeTheme.muted,
                       ),
                     ),
@@ -117,7 +120,10 @@ class _KernelTile extends StatelessWidget {
             if (retryable)
               TextButton(
                 onPressed: onRetry,
-                child: const Text('重试', style: TextStyle(fontSize: 13)),
+                child: const Text(
+                  '重试',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
               )
             else if (selected)
               Icon(Icons.check_circle, size: 20, color: LumeTheme.textPrimary)

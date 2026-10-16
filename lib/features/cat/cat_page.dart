@@ -395,9 +395,17 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         ? child
         : Material(
             color: child.selected
-                ? child.selectedTileColor
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+                ? Color.alphaBlend(
+                    LumeTheme.accent.withValues(alpha: .18),
+                    LumeTheme.surfaceAlt,
+                  )
+                : LumeTheme.surfaceAlt,
+            elevation: 2,
+            shadowColor: LumeTheme.cardShadow.first.color,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: LumeTheme.hairline),
+            ),
             child: InkWell(
               onTap: child.onTap,
               borderRadius: BorderRadius.circular(12),
@@ -1046,7 +1054,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                     catText(entries[index]['title']),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1107,8 +1118,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 13,
-          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          fontSize: 14,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
         ),
       ),
     ),
@@ -1170,7 +1181,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 Text(
                                   '猫源',
                                   style: TextStyle(
-                                    fontSize: 16,
+                                    fontSize: 17,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1231,7 +1242,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                         '选择站点'),
                           textAlign: TextAlign.left,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -1360,7 +1371,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: LumeTheme.textPrimary,
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: FontWeight.w600,
         ),
       ),

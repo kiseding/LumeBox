@@ -147,7 +147,10 @@ class _AudioBookPageState extends State<AudioBookPage> {
               if (session.error != null)
                 Text(
                   session.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ModuleGlassSurface(
                 module: GlassModule.audioBook,

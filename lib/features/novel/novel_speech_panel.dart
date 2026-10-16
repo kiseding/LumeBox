@@ -65,7 +65,11 @@ class NovelSpeechPanel extends StatelessWidget {
             Text(
               unavailableReason ?? '当前平台不支持语音朗读',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: secondary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: secondary,
+              ),
             ),
           ],
         ),
@@ -120,11 +124,19 @@ class NovelSpeechPanel extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           title: Text(
             '跟读翻页',
-            style: TextStyle(fontSize: 13, color: chromeText),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: chromeText,
+            ),
           ),
           subtitle: Text(
             '朗读时自动翻到正在读的那一页',
-            style: TextStyle(fontSize: 11, color: secondary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              color: secondary,
+            ),
           ),
           value: settings.followAlong,
           onChanged: (value) =>
@@ -135,11 +147,19 @@ class NovelSpeechPanel extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           title: Text(
             '后台播放',
-            style: TextStyle(fontSize: 13, color: chromeText),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: chromeText,
+            ),
           ),
           subtitle: Text(
             '离开 App 后继续朗读，锁屏可控制播放',
-            style: TextStyle(fontSize: 11, color: secondary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              color: secondary,
+            ),
           ),
           value: settings.backgroundPlayback,
           onChanged: (value) =>
@@ -186,7 +206,14 @@ class NovelSpeechPanel extends StatelessWidget {
             label: const Text('停止'),
           ),
         const Spacer(),
-        Text(state.label, style: TextStyle(fontSize: 12, color: secondary)),
+        Text(
+          state.label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: secondary,
+          ),
+        ),
       ],
     );
   }
@@ -196,7 +223,14 @@ class NovelSpeechPanel extends StatelessWidget {
     final max = (segmentCount - 1).clamp(0, segmentCount).toDouble();
     return Row(
       children: <Widget>[
-        Text('进度', style: TextStyle(fontSize: 12, color: secondary)),
+        Text(
+          '进度',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: secondary,
+          ),
+        ),
         Expanded(
           child: Slider(
             value: segmentIndex.clamp(0, segmentCount - 1).toDouble(),
@@ -210,7 +244,11 @@ class NovelSpeechPanel extends StatelessWidget {
         ),
         Text(
           '${segmentIndex + 1}/$segmentCount',
-          style: TextStyle(fontSize: 12, color: secondary),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: secondary,
+          ),
         ),
       ],
     );
@@ -245,7 +283,14 @@ class _SliderRow extends StatelessWidget {
       children: <Widget>[
         SizedBox(
           width: 32,
-          child: Text(label, style: TextStyle(fontSize: 12, color: chromeText)),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: chromeText,
+            ),
+          ),
         ),
         Expanded(
           child: Slider(
@@ -260,7 +305,11 @@ class _SliderRow extends StatelessWidget {
           child: Text(
             display,
             textAlign: TextAlign.right,
-            style: TextStyle(fontSize: 12, color: secondary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: secondary,
+            ),
           ),
         ),
       ],
@@ -325,7 +374,11 @@ class NovelSpeechIndicator extends StatelessWidget {
                   state == SpeechState.paused
                       ? '已暂停'
                       : '朗读中 ${segmentIndex + 1}/$segmentCount',
-                  style: TextStyle(fontSize: 12, color: chromeText),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: chromeText,
+                  ),
                 ),
                 const SizedBox(width: 4),
                 IconButton(

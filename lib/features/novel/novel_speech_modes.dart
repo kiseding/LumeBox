@@ -51,7 +51,10 @@ class _NovelSpeechModesState extends State<NovelSpeechModes> {
                     '${mode.label}${mode == SpeechMode.local && !model.ready ? '（模型未就绪）' : ''}',
                     overflow: TextOverflow.ellipsis,
                     style: mode == SpeechMode.local && !model.ready
-                        ? TextStyle(color: Theme.of(context).disabledColor)
+                        ? TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).disabledColor,
+                          )
                         : null,
                   ),
                 ),
@@ -83,13 +86,16 @@ class _NovelSpeechModesState extends State<NovelSpeechModes> {
                     )
                   : const Icon(Icons.download_for_offline_outlined),
               label: Text(
-                model.preparing ? '正在准备内置音色包…' : '准备内置离线音色包（约147 MB）',
+                model.preparing ? '正在校验安装音色包…' : '从本地安装离线音色包（约147 MB）',
               ),
             ),
           if (model.error != null)
             Text(
               model.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
           for (final role in ['旁白', '男声', '女声'])
             if (role == '旁白' || widget.settings.autoDialogue)
@@ -278,7 +284,10 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
             if (error != null)
               Text(
                 error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
           ],
         ),
@@ -310,7 +319,7 @@ const novelSpeechHelp = ExpansionTile(
 适合临时快速听书，人声较机械。
 
 2.本地离线AI听书（推荐无网使用）
-内置AI音色包，完全离线免费。
+下载并导入AI音色包后，完全离线免费。
 自动识别小说对话切换男女声，无任何消费、不用API。
 适合长期自用、省电、稳定不掉线。
 

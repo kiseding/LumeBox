@@ -41,6 +41,23 @@ void main() {
     );
     await tester.tap(find.byIcon(Icons.tune));
     await tester.pumpAndSettle();
+    final frame = tester.getRect(
+      find.byKey(const Key('classification-drawer-frame')),
+    );
+    final background = tester.getRect(
+      find.byKey(const Key('filter-content-background')),
+    );
+    expect(
+      background.bottom,
+      frame.bottom,
+      reason: 'Drawer background must cover footer and bottom safe area',
+    );
+    final apply = find.widgetWithText(FilledButton, '应用筛选');
+    expect(
+      (tester.getCenter(find.text('应用筛选')).dy - tester.getCenter(apply).dy)
+          .abs(),
+      lessThan(3),
+    );
     await tester.tap(find.text('电影'));
     await tester.tap(find.text('大陆'));
     await tester.tap(find.text('2026'));

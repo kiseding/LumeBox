@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../../core/session/privacy_settings.dart';
+
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/net/source_subscription.dart';
@@ -219,7 +221,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   }
 
   List<SourceDescriptor> _listOf(Section section) =>
-      (_sources[section] ?? const <SourceDescriptor>[]).where((s) => PrivacySettings.instance.allowsSource(s.id, s.name)).toList();
+      (_sources[section] ?? const <SourceDescriptor>[])
+          .where((s) => PrivacySettings.instance.allowsSource(s.id, s.name))
+          .toList();
 
   int _enabledCount(Section section) =>
       _listOf(section).where((source) => source.enabled).length;
@@ -293,12 +297,19 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
               children: <Widget>[
                 Text(
                   '备份只含源脚本与配置，不含 Cookie、缓存与阅读记录。',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 SelectableText(
                   text,
-                  style: const TextStyle(fontSize: 11),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
                   maxLines: 20,
                 ),
               ],
@@ -538,14 +549,24 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(summary, style: const TextStyle(fontSize: 13)),
+                Text(
+                  summary,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 for (final failure in failures)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       failure,
-                      style: const TextStyle(fontSize: 12, height: 1.4),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
                     ),
                   ),
               ],
@@ -619,7 +640,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.sources,
+    return GlassScaffold(
+      effectModule: GlassModule.sources,
       behindBar: true,
       title: '源总管理',
       actions:
@@ -824,7 +846,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
               child: Text(
                 section.label,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -832,7 +854,11 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
             ),
             Text(
               '启用 ${_enabledCount(section)} / 共 ${sources.length}',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             IconButton(
               tooltip: '导入到${section.label}',
@@ -897,7 +923,14 @@ class _SectionNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-    child: Text(text, style: TextStyle(fontSize: 13, color: LumeTheme.muted)),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: LumeTheme.muted,
+      ),
+    ),
   );
 }
 
@@ -943,7 +976,7 @@ class _SourceTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -960,28 +993,45 @@ class _SourceTile extends StatelessWidget {
                       source.version.isEmpty
                           ? LumeTheme.appName
                           : source.version,
-                      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                     if (!source.enabled)
                       Text(
                         '已停用',
-                        style: TextStyle(fontSize: 12, color: _disabledColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _disabledColor,
+                        ),
                       ),
                     if (source.broken)
                       Text(
                         '已失效（连错 ${source.failureCount} 次）',
-                        style: TextStyle(fontSize: 12, color: _disabledColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _disabledColor,
+                        ),
                       ),
                     if (source.hasGroup)
                       Text(
                         source.group,
-                        style: TextStyle(fontSize: 12, color: _accentColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _accentColor,
+                        ),
                       ),
                     if (testResult != null)
                       Text(
                         testResult!.status.label,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: testResult!.isOk
                               ? LumeTheme.success
                               : _disabledColor,
@@ -1054,7 +1104,11 @@ class _RestoreDialogState extends State<_RestoreDialog> {
           children: <Widget>[
             Text(
               '粘贴之前导出的备份内容。同 id 的源会被覆盖。',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(

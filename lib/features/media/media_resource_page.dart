@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/media/media_library.dart';
-import 'media_library_page.dart';
 import 'media_resource_router.dart';
 
 class MediaResourcePage extends StatelessWidget {
@@ -28,16 +27,7 @@ class MediaResourcePage extends StatelessWidget {
     builder: (context, _) {
       final entry = MediaLibrary.instance.byId(resource.id) ?? resource;
       return Scaffold(
-        appBar: AppBar(
-          title: Text(entry.title),
-          actions: [
-            IconButton(
-              tooltip: '类型与所在库',
-              icon: const Icon(Icons.drive_file_move_outline),
-              onPressed: () => editMediaPlacement(context, entry),
-            ),
-          ],
-        ),
+        appBar: AppBar(title: Text(entry.title)),
         body: Column(
           children: [
             Padding(

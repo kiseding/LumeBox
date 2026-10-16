@@ -25,11 +25,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_appearance');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     AppearanceSettingsStore.resetForTesting();
     AppearanceController.instance.resetForTesting();
     // 板块作用域要在真实时钟里先打开（设置页里的播放器内核区会读板块库；
@@ -126,7 +126,10 @@ void main() {
     test('落盘 → 重开读回', () async {
       final store = await AppearanceSettingsStore.open();
       store.save(
-        const AppearanceSettings(mode: ThemeMode.light, accent: ThemeAccent.gold),
+        const AppearanceSettings(
+          mode: ThemeMode.light,
+          accent: ThemeAccent.gold,
+        ),
       );
 
       AppearanceSettingsStore.resetForTesting();
@@ -167,17 +170,35 @@ void main() {
     test('主题色进色板：只换主色，结构不变', () {
       final light = LumeTheme.paletteOf(Brightness.light);
       final forest = light.withAccent(ThemeAccent.forest);
-      expect(forest.accent, ThemeAccent.forest.colorFor(Brightness.light));
+      expect(
+        forest.accent,
+        LumeTheme.readableForeground(
+          ThemeAccent.forest.colorFor(Brightness.light),
+          light.surfaceAlt,
+        ),
+      );
       expect(forest.base, light.base, reason: '底色不动');
       expect(forest.surface, light.surface, reason: '卡片底不动');
       expect(forest.textPrimary, light.textPrimary, reason: '文字色不动');
 
       // build() 之后静态色名也跟着走。
       LumeTheme.build(brightness: Brightness.light, accent: ThemeAccent.sunset);
-      expect(LumeTheme.accent, ThemeAccent.sunset.colorFor(Brightness.light));
+      expect(
+        LumeTheme.accent,
+        LumeTheme.readableForeground(
+          ThemeAccent.sunset.colorFor(Brightness.light),
+          light.surfaceAlt,
+        ),
+      );
       // 复位，免得影响同进程的其它用例。
       LumeTheme.build(brightness: Brightness.light);
-      expect(LumeTheme.accent, ThemeAccent.amethyst.colorFor(Brightness.light));
+      expect(
+        LumeTheme.accent,
+        LumeTheme.readableForeground(
+          ThemeAccent.amethyst.colorFor(Brightness.light),
+          light.surfaceAlt,
+        ),
+      );
     });
   });
 
@@ -258,7 +279,11 @@ void main() {
 
       expect(find.byType(OptionSheet<ThemeAccent>), findsOneWidget);
       for (final accent in ThemeAccent.values) {
-        expect(find.text(accent.label), findsWidgets, reason: '${accent.label} 在列表里');
+        expect(
+          find.text(accent.label),
+          findsWidgets,
+          reason: '${accent.label} 在列表里',
+        );
       }
 
       await tester.tap(find.text('森林'));

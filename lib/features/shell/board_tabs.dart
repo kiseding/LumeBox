@@ -22,8 +22,11 @@ class BoardTabBar extends StatelessWidget {
       indicatorWeight: 2,
       labelColor: LumeTheme.accent,
       unselectedLabelColor: LumeTheme.textSecondary,
-      labelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-      unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w400),
+      labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      unselectedLabelStyle: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
       tabs: <Widget>[
         // 页签本体 42 → 38 → **36**：只收容器，文字与下划线尺寸不变。
         // 36 是这一档的余量：15pt 文字的行高约 21 + 下划线 2 = 23，再往下

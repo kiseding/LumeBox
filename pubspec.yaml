@@ -105,8 +105,8 @@ flutter:
   shaders:
     - assets/shaders/liquid_glass.frag
   assets:
-    - assets/speech/vits_aishell3/
-    - assets/models/waifu2x/
+    - assets/speech/vits_aishell3/manifest.json
+    - assets/models/waifu2x/ORIGIN.json
     - assets/js/
     - assets/cat/
     - assets/icon/

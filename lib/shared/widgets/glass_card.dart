@@ -78,11 +78,16 @@ class GlassPanel extends StatelessWidget {
             ),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: module == null
-                    ? (color ?? LumeTheme.glass)
-                    : (color ?? LumeTheme.glass).withValues(
-                        alpha: FloatingModules.instance.style(module!).opacity,
-                      ),
+                color: LumeTheme.readableGlass(
+                  module == null
+                      ? (color ?? LumeTheme.glass)
+                      : (color ?? LumeTheme.glass).withValues(
+                          alpha: FloatingModules.instance
+                              .style(module!)
+                              .opacity,
+                        ),
+                ),
+                boxShadow: LumeTheme.floatShadow,
                 borderRadius: borderRadius,
                 border: border ?? Border.all(color: LumeTheme.hairline),
               ),
@@ -476,7 +481,7 @@ class GlassScaffold extends StatelessWidget {
                                       Text(
                                         title ?? LumeTheme.appName,
                                         style: const TextStyle(
-                                          fontSize: 16,
+                                          fontSize: 17,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),

@@ -41,14 +41,15 @@ class SourceHomePage extends StatelessWidget {
   final void Function(DataSource source, SourceItem item)? onItemTap;
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.sources,
-        title: section.label,
-        child: SourceBrowsePane(
-          section: section,
-          manager: manager,
-          onItemTap: onItemTap,
-        ),
-      );
+  Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.sources,
+    title: section.label,
+    child: SourceBrowsePane(
+      section: section,
+      manager: manager,
+      onItemTap: onItemTap,
+    ),
+  );
 }
 
 /// 板块图源浏览面板：解析当前图源 → 图源条（可切换）+ 浏览面（分类 / 搜索 / 列表）。
@@ -254,24 +255,22 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
 
   /// 切换图源：候选只来自本板块已启用的图源。
   Future<void> _switchSource() async {
-    final options =
-        _sources.where((source) => source.enabled).toList(growable: false);
+    final options = _sources
+        .where((source) => source.enabled)
+        .toList(growable: false);
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _SourceSwitchSheet(
-        sources: options,
-        currentId: _current?.id,
-      ),
+      builder: (_) =>
+          _SourceSwitchSheet(sources: options, currentId: _current?.id),
     );
     if (!mounted || selected == null || selected == _current?.id) return;
 
     final record = await _manager.select(selected);
     if (!mounted) return;
     if (record == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该源不可用')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('该源不可用')));
     }
     await _resolve();
   }
@@ -280,10 +279,8 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
   Future<void> _manage() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SourceSectionPage(
-          section: widget.section,
-          manager: widget.manager,
-        ),
+        builder: (_) =>
+            SourceSectionPage(section: widget.section, manager: widget.manager),
       ),
     );
     if (!mounted) return;
@@ -316,8 +313,9 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
               dataSource: source,
               pipeline: widget.pipeline,
               // 宿主没给回调就走浏览面的通用口径（进详情页）。
-              onItemTap:
-                  onItemTap == null ? null : (item) => onItemTap(source, item),
+              onItemTap: onItemTap == null
+                  ? null
+                  : (item) => onItemTap(source, item),
             ),
           ),
         ],
@@ -343,11 +341,7 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
         onTap: _switchSource,
         child: Row(
           children: <Widget>[
-            Icon(
-              Icons.source_outlined,
-              size: 18,
-              color: LumeTheme.muted,
-            ),
+            Icon(Icons.source_outlined, size: 18, color: LumeTheme.muted),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -355,7 +349,7 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -375,10 +369,8 @@ class _SourceBrowsePaneState extends State<SourceBrowsePane> {
     );
   }
 
-  Widget _manageButton() => FilledButton(
-        onPressed: _manage,
-        child: const Text('源管理'),
-      );
+  Widget _manageButton() =>
+      FilledButton(onPressed: _manage, child: const Text('源管理'));
 }
 
 /// 切换图源面板：列出板块内已启用的图源，当前项打勾。
@@ -403,7 +395,7 @@ class _SourceSwitchSheet extends StatelessWidget {
                 child: Text(
                   '切换源',
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -413,12 +405,16 @@ class _SourceSwitchSheet extends StatelessWidget {
                 ListTile(
                   title: Text(
                     source.name,
-                    style: TextStyle(color: LumeTheme.textPrimary),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: LumeTheme.textPrimary,
+                    ),
                   ),
                   subtitle: Text(
                     source.version.isEmpty ? LumeTheme.appName : source.version,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                       color: LumeTheme.muted,
                     ),
                   ),

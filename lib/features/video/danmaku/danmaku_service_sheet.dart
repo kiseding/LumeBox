@@ -76,7 +76,7 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
           children: [
             const Text(
               '弹幕服务',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             const Text('源弹幕与公共服务弹幕同时加载。服务地址可使用兼容弹弹play的 danmu_api 部署，路径前缀会保留。'),
@@ -128,7 +128,13 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.red,
+                  ),
+                ),
               ),
             FilledButton(
               onPressed: _saving ? null : _save,

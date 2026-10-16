@@ -62,12 +62,12 @@ class ChapterTile extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   height: 1.3,
                   color: read && !current
                       ? LumeTheme.textSecondary
                       : LumeTheme.textPrimary,
-                  fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: current ? FontWeight.w600 : FontWeight.w600,
                 ),
               ),
             ),
@@ -76,13 +76,21 @@ class ChapterTile extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 8),
                 child: Text(
                   '在读',
-                  style: TextStyle(fontSize: 11, color: LumeTheme.accent),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: LumeTheme.accent,
+                  ),
                 ),
               )
             else if (read)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
-                child: Icon(Icons.done, size: 14, color: LumeTheme.textSecondary),
+                child: Icon(
+                  Icons.done,
+                  size: 14,
+                  color: LumeTheme.textSecondary,
+                ),
               ),
             ?trailing,
             Padding(

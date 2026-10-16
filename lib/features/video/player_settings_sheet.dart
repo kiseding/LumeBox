@@ -387,7 +387,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       Text(
         '开启：视频会立刻开始播放，播放启动后在后台悄悄检查当前播放源是否可用。如果检测发现链接失效，仅弹出提示，不会自动帮你切换线路。\n'
         '关闭：跳过全部后台源检测，拿到播放地址直接交给播放器，启动速度更快。如果播放链接已经失效，则不会提前提示，需要自己手动更换线路。',
-        style: TextStyle(fontSize: 12, height: 1.4, color: LumeTheme.muted),
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          height: 1.4,
+          color: LumeTheme.muted,
+        ),
       ),
       SwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
@@ -458,7 +463,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             child: Text(
               '播放器设置',
               style: TextStyle(
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textPrimary,
               ),
@@ -483,13 +488,20 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           Text(
             title,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 2),
-          Text(detail, style: TextStyle(fontSize: 12, color: LumeTheme.muted)),
+          Text(
+            detail,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
+          ),
         ],
       ),
     );
@@ -619,7 +631,11 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               Expanded(
                 child: Text(
                   '自动隐藏控制栏',
-                  style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
               ),
               Switch(
@@ -633,7 +649,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             settings.autoHideControls
                 ? '全屏 3 秒无操作自动收起，点屏幕唤回（默认开）'
                 : '控制栏常显（关闭自动隐藏）',
-            style: TextStyle(fontSize: 12, height: 1.4, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.4,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -642,7 +663,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 : (_orientation == PlaybackOrientation.landscape
                       ? '全屏一律横屏；全局设置里的「横屏播放」开关就是这一档'
                       : '按视频比例判断：竖屏短剧竖屏全屏，普通横片横屏全屏'),
-            style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -664,7 +690,11 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               Expanded(
                 child: Text(
                   '显示字幕',
-                  style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
               ),
               Switch(
@@ -910,7 +940,11 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           ),
           Text(
             '正值 = 音频延后出现（画面比声音快时往大调）',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -930,7 +964,11 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               Expanded(
                 child: Text(
                   '硬件解码',
-                  style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
               ),
               if (capabilities.hardwareDecoding)
@@ -952,7 +990,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                       ? '开启（默认）：优先硬解，省电且流畅；对随后打开的媒体生效'
                       : '关闭：走软解；对随后打开的媒体生效')
                 : '当前内核没有切换解码链的通道（点击看提示与可换的内核）',
-            style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -977,7 +1020,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     return Text(
       text,
       style: TextStyle(
-        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        fontSize: 13,
         color: dim
             ? LumeTheme.muted.withValues(alpha: 0.5)
             : LumeTheme.textSecondary,

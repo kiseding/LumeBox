@@ -157,13 +157,21 @@ Future<bool> confirmOverwrite(
                   child: Text(
                     '已存在源「${hit.old.name}」'
                     '${_versionArrow(hit.old.version, hit.next.version)}',
-                    style: const TextStyle(fontSize: 13, height: 1.4),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               const SizedBox(height: 4),
               Text(
                 '脚本、名称与版本会换成新的；启停状态与网络配置（UA / Cookie / 代理）保留。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
@@ -214,9 +222,8 @@ Future<bool> importSources(
   if (!await confirmOverwrite(context, items: items, existing: existing)) {
     // 取消也要有回音：否则弹窗关了、什么都没发生，用户不知道是没导入还是失败了。
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已取消导入：没有写入任何源')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已取消导入：没有写入任何源')));
     }
     return false;
   }
@@ -280,7 +287,12 @@ Future<bool> importSources(
   }
 
   if (!context.mounted) return succeeded;
-  await _report(context, outcomes: outcomes, notes: notes, sectionLabel: sectionLabel);
+  await _report(
+    context,
+    outcomes: outcomes,
+    notes: notes,
+    sectionLabel: sectionLabel,
+  );
   return succeeded;
 }
 
@@ -343,9 +355,7 @@ class _ImportResultDialog extends StatelessWidget {
     final failed = outcomes.where((outcome) => outcome.isFailure).length;
 
     return AlertDialog(
-      title: Text(
-        sectionLabel == null ? '导入结果' : '导入结果 · $sectionLabel',
-      ),
+      title: Text(sectionLabel == null ? '导入结果' : '导入结果 · $sectionLabel'),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(
@@ -355,13 +365,21 @@ class _ImportResultDialog extends StatelessWidget {
             children: <Widget>[
               Text(
                 '共 ${outcomes.length} 条：新增 $added · 覆盖 $overwritten · 失败 $failed',
-                style: TextStyle(fontSize: 13, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
               for (final note in notes) ...<Widget>[
                 const SizedBox(height: 6),
                 Text(
                   note,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ],
               const SizedBox(height: 10),
@@ -375,8 +393,8 @@ class _ImportResultDialog extends StatelessWidget {
                         outcome.isFailure
                             ? Icons.error_outline
                             : outcome.status == SourceImportStatus.added
-                                ? Icons.add_circle_outline
-                                : Icons.sync_problem,
+                            ? Icons.add_circle_outline
+                            : Icons.sync_problem,
                         size: 16,
                         color: outcome.isFailure
                             ? LumeTheme.danger
@@ -386,7 +404,11 @@ class _ImportResultDialog extends StatelessWidget {
                       Expanded(
                         child: Text(
                           outcome.describe(),
-                          style: const TextStyle(fontSize: 13, height: 1.4),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
                         ),
                       ),
                     ],

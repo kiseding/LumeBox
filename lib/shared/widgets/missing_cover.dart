@@ -80,8 +80,9 @@ class _CoverPainter extends CustomPainter {
       canvas,
       glyph,
       TextStyle(
+        fontWeight: FontWeight.w600,
         fontFamily: icon.fontFamily,
-        fontSize: compact ? 64 : 130,
+        fontSize: (compact ? 64 : 130) + 1,
         color: accent.withValues(alpha: .1),
       ),
       compact ? 64 : 130,
@@ -94,8 +95,9 @@ class _CoverPainter extends CustomPainter {
       canvas,
       glyph,
       TextStyle(
+        fontWeight: FontWeight.w600,
         fontFamily: icon.fontFamily,
-        fontSize: compact ? 22 : 34,
+        fontSize: (compact ? 22 : 34) + 1,
         color: accent.withValues(alpha: .75),
       ),
       size.width,
@@ -109,7 +111,7 @@ class _CoverPainter extends CustomPainter {
         canvas,
         title.isEmpty ? 'LumeBox' : title,
         TextStyle(
-          fontSize: 15,
+          fontSize: 16,
           height: 1.5,
           fontWeight: FontWeight.w600,
           color: ink,
@@ -122,7 +124,8 @@ class _CoverPainter extends CustomPainter {
         canvas,
         'LUME BOX',
         TextStyle(
-          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          fontSize: 10,
           letterSpacing: 3,
           color: accent.withValues(alpha: .5),
         ),

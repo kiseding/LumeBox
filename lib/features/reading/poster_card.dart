@@ -149,7 +149,7 @@ class UnreadBadge extends StatelessWidget {
         child: Text(
           count > 99 ? '99+' : '$count',
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
             color: Colors.white,
             height: 1.2,
@@ -221,7 +221,7 @@ class ShelfEmptyHint extends StatelessWidget {
             Text(
               title,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textPrimary,
               ),
@@ -230,7 +230,11 @@ class ShelfEmptyHint extends StatelessWidget {
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.muted,
+              ),
             ),
             if (action != null) ...<Widget>[
               const SizedBox(height: 16),
@@ -296,13 +300,13 @@ class PosterTile extends StatelessWidget {
             //  真机反馈「标题看着很淡」）；外置：封面外的浅色底 → 主题主文字色。
             style: style == GridTitleStyle.below
                 ? TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13.5,
                     height: 1.25,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   )
                 : const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13.5,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
@@ -319,10 +323,15 @@ class PosterTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               // 内置：白字降透明度做层级；外置：主题辅助色。
               style: style == GridTitleStyle.below
-                  ? TextStyle(fontSize: 10, color: LumeTheme.muted)
+                  ? TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      color: LumeTheme.muted,
+                    )
                   : TextStyle(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.72),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      color: Colors.white,
                     ),
             ),
           ],
@@ -424,7 +433,7 @@ class CompactSourceItemTile extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -434,7 +443,11 @@ class CompactSourceItemTile extends StatelessWidget {
                       meta ?? item.subtitle!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                   ],
                 ],

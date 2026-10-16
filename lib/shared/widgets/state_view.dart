@@ -51,7 +51,11 @@ class SourceStateView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               state.label,
-              style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.muted,
+              ),
             ),
           ],
         ),
@@ -68,10 +72,7 @@ class SourceStateView extends StatelessWidget {
   Widget? _buildAction() {
     final buttons = <Widget>[
       if (onRetry != null)
-        FilledButton.tonal(
-          onPressed: onRetry,
-          child: const Text('重试'),
-        ),
+        FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
       ?action,
     ];
     if (buttons.isEmpty) return null;
@@ -85,10 +86,10 @@ class SourceStateView extends StatelessWidget {
 
   /// 没有具体原因时的默认说明。
   static String _defaultDetail(SourceStateKind state) => switch (state) {
-        SourceStateKind.empty => '换个条件试试',
-        SourceStateKind.disabled => '去源管理里启用它',
-        SourceStateKind.scriptError => '源脚本执行失败，可重试或检查源',
-        SourceStateKind.networkError => '网络请求没能完成，检查网络后重试',
-        _ => LumeTheme.appName,
-      };
+    SourceStateKind.empty => '换个条件试试',
+    SourceStateKind.disabled => '去源管理里启用它',
+    SourceStateKind.scriptError => '源脚本执行失败，可重试或检查源',
+    SourceStateKind.networkError => '网络请求没能完成，检查网络后重试',
+    _ => LumeTheme.appName,
+  };
 }

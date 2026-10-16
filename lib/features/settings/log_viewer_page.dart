@@ -56,7 +56,8 @@ class _LogViewerPageState extends State<LogViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '运行日志',
       actions: <Widget>[
@@ -81,14 +82,13 @@ class _LogViewerPageState extends State<LogViewerPage> {
   Widget _buildBody() {
     final entries = LumeLog.snapshot;
     if (entries.isEmpty) {
-      return const NoticeCard(
-        title: '暂无日志',
-        subtitle: '本次运行还没有产生日志',
-      );
+      return const NoticeCard(title: '暂无日志', subtitle: '本次运行还没有产生日志');
     }
     final visible = _filter == null
         ? entries
-        : entries.where((entry) => entry.level == _filter).toList(growable: false);
+        : entries
+              .where((entry) => entry.level == _filter)
+              .toList(growable: false);
     // 新的在上面：查看现场时不用滚到底。
     final ordered = visible.reversed.toList(growable: false);
 
@@ -102,7 +102,11 @@ class _LogViewerPageState extends State<LogViewerPage> {
               ? Center(
                   child: Text(
                     '该级别暂无日志',
-                    style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                 )
               : ListView.separated(
@@ -156,10 +160,10 @@ class _LogTile extends StatelessWidget {
   final LogEntry entry;
 
   Color get _color => switch (entry.level) {
-        LogLevel.error => _errorColor,
-        LogLevel.warn => _warnColor,
-        LogLevel.info => LumeTheme.muted,
-      };
+    LogLevel.error => _errorColor,
+    LogLevel.warn => _warnColor,
+    LogLevel.info => LumeTheme.muted,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -174,13 +178,17 @@ class _LogTile extends StatelessWidget {
             children: <Widget>[
               Text(
                 LogExporter.formatTime(entry.time).substring(11),
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(width: 8),
               Text(
                 entry.level.label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: _color,
                 ),
@@ -190,7 +198,11 @@ class _LogTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             entry.message,
-            style: TextStyle(fontSize: 13, color: LumeTheme.textPrimary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: LumeTheme.textPrimary,
+            ),
           ),
           if (entry.detail != null) ...<Widget>[
             const SizedBox(height: 4),
@@ -198,7 +210,11 @@ class _LogTile extends StatelessWidget {
               entry.detail!,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                color: LumeTheme.muted,
+              ),
             ),
           ],
         ],

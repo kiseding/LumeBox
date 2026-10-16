@@ -183,15 +183,15 @@ class _ComicRepoPageState extends State<ComicRepoPage> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
     final repos = _repos;
-    return GlassScaffold(effectModule: GlassModule.comic,
+    return GlassScaffold(
+      effectModule: GlassModule.comic,
       behindBar: true,
       title: '扩展仓库',
       floatingActionButton: repos == null || _failed
@@ -269,7 +269,7 @@ class _RepoTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -283,7 +283,11 @@ class _RepoTile extends StatelessWidget {
                 ),
                 child: Text(
                   repo.kind.label,
-                  style: TextStyle(fontSize: 11, color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -293,15 +297,23 @@ class _RepoTile extends StatelessWidget {
             repo.url.toString(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             repo.refreshedAt == null
                 ? '尚未刷新'
                 : '扩展 ${repo.extensionCount} 个 · 最近刷新 '
-                    '${_formatTime(repo.refreshedAt!)}',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                      '${_formatTime(repo.refreshedAt!)}',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -377,7 +389,11 @@ class _AddRepoDialogState extends State<_AddRepoDialog> {
                 '仓库类型决定索引格式：Mihon / Tachiyomi 用 index.pb 或 index.min.json'
                 '（APK 扩展，本平台只能浏览）；Venera 用 index.json（JS 扩展，可安装运行）。\n'
                 '填根地址会自动探测索引文件；也可以直接粘贴 index.pb / index.min.json 的完整地址。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -394,7 +410,10 @@ class _AddRepoDialogState extends State<_AddRepoDialog> {
               const SizedBox(height: 12),
               TextField(
                 controller: _url,
-                style: TextStyle(color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                ),
                 decoration: const InputDecoration(
                   labelText: '仓库地址',
                   hintText: 'https://example.com/repo（可只给根地址）',
@@ -404,7 +423,10 @@ class _AddRepoDialogState extends State<_AddRepoDialog> {
               const SizedBox(height: 12),
               TextField(
                 controller: _name,
-                style: TextStyle(color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                ),
                 decoration: const InputDecoration(
                   labelText: '名称（可选）',
                   hintText: '留空则用地址主机名',
@@ -421,13 +443,9 @@ class _AddRepoDialogState extends State<_AddRepoDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(
-            _AddRepoRequest(
-              url: _url.text,
-              kind: _kind,
-              name: _name.text,
-            ),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(_AddRepoRequest(url: _url.text, kind: _kind, name: _name.text)),
           child: const Text('添加'),
         ),
       ],

@@ -65,7 +65,8 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.comic,
+    return GlassScaffold(
+      effectModule: GlassModule.comic,
       behindBar: true,
       title: '阅读设置',
       child: ListView(
@@ -131,7 +132,7 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                       Text(
                         '双击放大',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -140,7 +141,11 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                       Text(
                         '双击画面放大到该点，再双击还原。'
                         '（与「点击行为」无关：开着才会响应双击。）',
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -165,7 +170,7 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                       Text(
                         '保存本页',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -174,7 +179,11 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                       Text(
                         '把当前这一页的原图存进本板块的导出目录（不经相册权限）。'
                         '阅读时也可以直接长按图片保存。',
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -202,7 +211,7 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                       Text(
                         '书签列表',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -212,7 +221,11 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                         widget.bookmarkCount == 0
                             ? '还没有书签：阅读时点顶栏的书签图标就能加。'
                             : '共 ${widget.bookmarkCount} 个书签，点进去可跳页或删除。',
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -264,7 +277,8 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
               '阅读模式、侧边距、页间距仍在底部面板（阅读时点一下画面即可呼出）——'
               '那三项是边看边调的；这一页装的都是「设定一次就不动」的项。',
               style: TextStyle(
-                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
                 height: 1.5,
                 color: LumeTheme.muted,
               ),
@@ -307,13 +321,20 @@ class _OptionCard<T> extends StatelessWidget {
           Text(
             title,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 2),
-          Text(hint, style: TextStyle(fontSize: 12, color: LumeTheme.muted)),
+          Text(
+            hint,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
+          ),
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
@@ -324,7 +345,10 @@ class _OptionCard<T> extends StatelessWidget {
                     value: option,
                     label: Text(
                       labelOf(option),
-                      style: const TextStyle(fontSize: 11),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
               ],

@@ -188,7 +188,10 @@ class _GlassEffectsPageState extends State<GlassEffectsPage> {
       width: double.infinity,
       height: 72,
       child: Center(
-        child: Text('效果预览', style: TextStyle(color: Colors.white)),
+        child: Text(
+          '效果预览',
+          style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
+        ),
       ),
     );
     final enabled =

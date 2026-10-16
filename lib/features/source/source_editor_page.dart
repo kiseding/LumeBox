@@ -57,7 +57,8 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
   void initState() {
     super.initState();
     final initial = widget.initialScript;
-    _draft = (initial == null ? null : SourceFormDraft.parse(initial)) ??
+    _draft =
+        (initial == null ? null : SourceFormDraft.parse(initial)) ??
         const SourceFormDraft();
     _script = TextEditingController(text: initial ?? _draft.buildScript());
     if (initial != null) _formMode = false;
@@ -81,18 +82,15 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
 
   void _switchToForm() {
     if (_scriptDirty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('脚本已手动修改，切回表单会丢失这些改动'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('脚本已手动修改，切回表单会丢失这些改动')));
       return;
     }
     final parsed = SourceFormDraft.parse(_script.text);
     if (parsed == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('这份脚本不是编辑器生成的，只能继续用高级模式')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这份脚本不是编辑器生成的，只能继续用高级模式')));
       return;
     }
     setState(() {
@@ -156,14 +154,13 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
   Future<void> _copyScript(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     await Clipboard.setData(ClipboardData(text: _script.text));
-    messenger.showSnackBar(
-      const SnackBar(content: Text('已复制脚本全文')),
-    );
+    messenger.showSnackBar(const SnackBar(content: Text('已复制脚本全文')));
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.sources,
+    return GlassScaffold(
+      effectModule: GlassModule.sources,
       behindBar: true,
       title: '${widget.section.label} · 源编辑器',
       actions: <Widget>[
@@ -187,12 +184,14 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
                 _error!,
-                style: TextStyle(fontSize: 12, color: LumeTheme.danger),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.danger,
+                ),
               ),
             ),
-          Expanded(
-            child: _formMode ? _buildForm() : _buildScriptEditor(),
-          ),
+          Expanded(child: _formMode ? _buildForm() : _buildScriptEditor()),
         ],
       ),
     );
@@ -221,7 +220,11 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
           const Spacer(),
           Text(
             _formMode ? '改表单即时生成脚本' : '直接编辑脚本',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -249,7 +252,8 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
                 label: '源名称',
                 value: _draft.name,
                 hint: '显示在列表里的名字',
-                onChanged: (value) => _updateDraft(_draft.copyWith(name: value)),
+                onChanged: (value) =>
+                    _updateDraft(_draft.copyWith(name: value)),
               ),
               _text(
                 label: '版本',
@@ -313,7 +317,11 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
               const _Label('解析'),
               Text(
                 '列表来源',
-                style: TextStyle(fontSize: 13, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
               const SizedBox(height: 6),
               Wrap(
@@ -362,7 +370,11 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
                 Text(
                   'HTML 模式用内置正则抓取页面里的链接（<a href>），'
                   '生成后可在高级模式里按站点结构调整。',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               const SizedBox(height: 12),
               _text(
@@ -387,7 +399,11 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
                 child: SingleChildScrollView(
                   child: SelectableText(
                     _script.text,
-                    style: const TextStyle(fontSize: 11, height: 1.4),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ),
@@ -410,11 +426,19 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
       child: TextFormField(
         initialValue: value,
         maxLines: maxLines,
-        style: TextStyle(color: LumeTheme.textPrimary, fontSize: 14),
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: LumeTheme.textPrimary,
+          fontSize: 15,
+        ),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
-          hintStyle: TextStyle(fontSize: 12, color: LumeTheme.muted),
+          hintStyle: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: LumeTheme.muted,
+          ),
           border: const OutlineInputBorder(),
         ),
         onChanged: onChanged,
@@ -432,7 +456,12 @@ class _SourceEditorPageState extends State<SourceEditorPage> {
         maxLines: null,
         expands: true,
         textAlignVertical: TextAlignVertical.top,
-        style: const TextStyle(fontSize: 12, height: 1.4, fontFamily: 'monospace'),
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          height: 1.4,
+          fontFamily: 'monospace',
+        ),
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
           hintText: '源脚本（函数式契约：getList / getDetail / getChapters / getContent）',
@@ -452,14 +481,14 @@ class _Label extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: LumeTheme.textPrimary,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: LumeTheme.textPrimary,
+      ),
+    ),
+  );
 }

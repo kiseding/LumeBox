@@ -1,3 +1,5 @@
+import '../../core/theme/lume_theme.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -26,11 +28,13 @@ class FrostedGlassWidget extends StatelessWidget {
       filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface
-              .withValues(alpha: opacity),
+          color: LumeTheme.readableGlass(
+            Theme.of(context).colorScheme.surface.withValues(alpha: opacity),
+          ),
+          boxShadow: LumeTheme.cardShadow,
           borderRadius: BorderRadius.circular(radius),
           border: border
-              ? Border.all(color: Colors.white.withValues(alpha: .24))
+              ? Border.all(color: Theme.of(context).colorScheme.outline)
               : null,
         ),
         child: child,

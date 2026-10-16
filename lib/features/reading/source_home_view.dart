@@ -1,4 +1,5 @@
 import '../../core/media/media_library.dart';
+
 import 'dart:async';
 
 import '../../shared/widgets/missing_cover.dart';
@@ -82,7 +83,9 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     if (mounted) setState(() {});
   }
 
-  void _mediaChanged() { if(mounted) setState(() {}); }
+  void _mediaChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -262,10 +265,24 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       );
     }
     final original = _home;
-    bool visible(SourceItem item)=>MediaLibrary.instance.visibleAtOrigin(widget.source.section,widget.source.id,item.id);
-    final home=original==null ? null : SourceHome(items:original.items.where(visible).toList(),
-      boards:[for(final board in original.boards) SourceHomeBoard(title:board.title,moreUrl:board.moreUrl,
-        items:board.items.where(visible).toList())]);
+    bool visible(SourceItem item) => MediaLibrary.instance.visibleAtOrigin(
+      widget.source.section,
+      widget.source.id,
+      item.id,
+    );
+    final home = original == null
+        ? null
+        : SourceHome(
+            items: original.items.where(visible).toList(),
+            boards: [
+              for (final board in original.boards)
+                SourceHomeBoard(
+                  title: board.title,
+                  moreUrl: board.moreUrl,
+                  items: board.items.where(visible).toList(),
+                ),
+            ],
+          );
     if (home == null) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2.5));
     }
@@ -438,13 +455,13 @@ class _HomeCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: style == GridTitleStyle.below
                 ? TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13.5,
                     height: 1.25,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   )
                 : const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13.5,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,

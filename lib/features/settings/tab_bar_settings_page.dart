@@ -30,7 +30,8 @@ class TabBarSettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '底部导航栏管理',
       child: ListenableBuilder(
@@ -87,9 +88,9 @@ class TabBarSettingsPage extends StatelessWidget {
     final accepted = await _controller.setVisible(id, value);
     if (accepted || !context.mounted) return;
     // 被「至少保留 1 个」拒绝：明确告诉用户为什么，而不是让开关弹回去。
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text(ShellSettings.lastTabMessage)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text(ShellSettings.lastTabMessage)));
   }
 
   Widget _buildIntro(int visibleCount) {
@@ -102,7 +103,7 @@ class TabBarSettingsPage extends StatelessWidget {
           Text(
             '当前显示 $visibleCount 个页签',
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -111,7 +112,12 @@ class TabBarSettingsPage extends StatelessWidget {
           Text(
             '拖动手柄调整顺序，开关控制显示与隐藏。改动立即生效，不用重启 App。'
             '至少要保留 1 个页签，否则底部导航就空了。',
-            style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
+              color: LumeTheme.muted,
+            ),
           ),
         ],
       ),
@@ -128,7 +134,7 @@ class TabBarSettingsPage extends StatelessWidget {
           Text(
             '说明',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -139,7 +145,12 @@ class TabBarSettingsPage extends StatelessWidget {
             '随时可以再打开；\n'
             '· 桌面端（Windows / macOS）用的是左侧栏，顺序跟随这里的设置；\n'
             '· 隐藏「设置」后，左下角会出现一个小的设置按钮，点它回来改回这里。',
-            style: TextStyle(fontSize: 12, height: 1.6, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.6,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -188,7 +199,10 @@ class _TabTile extends StatelessWidget {
             ReorderableDragStartListener(
               index: index,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 12,
+                ),
                 child: Icon(
                   Icons.drag_handle,
                   size: 20,
@@ -204,8 +218,8 @@ class _TabTile extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
                   ),
@@ -214,7 +228,8 @@ class _TabTile extends StatelessWidget {
                     Text(
                       '最后一个显示的页签，不能关掉',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                         color: LumeTheme.warning,
                       ),
                     ),
@@ -254,7 +269,12 @@ class _SettingsHiddenNotice extends StatelessWidget {
               '「设置」页签已隐藏：底部导航里看不到它了。'
               '为了避免再也进不来本页，屏幕左下角会出现一个小的设置按钮，'
               '点它就能回到设置（以及本页）。',
-              style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                height: 1.5,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
         ],

@@ -59,14 +59,16 @@ class _DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return GlassScaffold(effectModule: GlassModule.sources,
+      return GlassScaffold(
+        effectModule: GlassModule.sources,
         title: _title,
         child: const SourceStateView(state: SourceStateKind.loading),
       );
     }
     final failure = _failure;
     if (failure != null) {
-      return GlassScaffold(effectModule: GlassModule.sources,
+      return GlassScaffold(
+        effectModule: GlassModule.sources,
         title: _title,
         child: SourceStateView(
           state: stateForError(failure),
@@ -76,7 +78,8 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
     final detail = _detail;
-    return GlassScaffold(effectModule: GlassModule.sources,
+    return GlassScaffold(
+      effectModule: GlassModule.sources,
       title: _title,
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -89,7 +92,7 @@ class _DetailPageState extends State<DetailPage> {
                 Text(
                   detail?.title ?? widget.item.title,
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 19,
                     fontWeight: FontWeight.w700,
                     color: LumeTheme.textPrimary,
                   ),
@@ -99,7 +102,8 @@ class _DetailPageState extends State<DetailPage> {
                   Text(
                     detail!.subtitle!,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
                       color: LumeTheme.muted,
                     ),
                   ),
@@ -109,7 +113,8 @@ class _DetailPageState extends State<DetailPage> {
                   Text(
                     detail!.description!,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
                       height: 1.5,
                       color: LumeTheme.textSecondary,
                     ),
@@ -122,7 +127,7 @@ class _DetailPageState extends State<DetailPage> {
           Text(
             '章节（${_chapters.length}）',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -148,10 +153,7 @@ class _DetailPageState extends State<DetailPage> {
   /// 章节点击仅提示，Phase1 不进入阅读器（阅读器属 Phase2）。
   void _notifyReaderPending() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 2),
-        content: Text('阅读器尚未实现'),
-      ),
+      const SnackBar(duration: Duration(seconds: 2), content: Text('阅读器尚未实现')),
     );
   }
 

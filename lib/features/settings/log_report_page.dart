@@ -50,14 +50,14 @@ class _LogReportPageState extends State<LogReportPage> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '错误报告',
       child: StreamBuilder<void>(
@@ -86,10 +86,10 @@ class _LogReportPageState extends State<LogReportPage> {
                 summary.isEmpty
                     ? '本次运行还没有日志'
                     : summary.hasProblems
-                        ? '发现 ${summary.errors} 个错误、${summary.warnings} 个警告'
-                        : '本次运行没有错误与警告',
+                    ? '发现 ${summary.errors} 个错误、${summary.warnings} 个警告'
+                    : '本次运行没有错误与警告',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -98,19 +98,31 @@ class _LogReportPageState extends State<LogReportPage> {
               Text(
                 '日志条数：共 ${summary.total} 条'
                 '（信息 ${summary.total - summary.errors - summary.warnings}）',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
               if (!summary.isEmpty)
                 Text(
                   '时间范围：${LogExporter.formatTime(summary.first!)} ~ '
                   '${LogExporter.formatTime(summary.last!)}',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               const SizedBox(height: 8),
               Text(
                 '报告只包含本次运行的日志（重启后清空），导出为应用目录下的 '
                 'logs/ 文本文件。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
@@ -146,7 +158,7 @@ class _LogReportPageState extends State<LogReportPage> {
                 Text(
                   '最近一次导出',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -154,12 +166,20 @@ class _LogReportPageState extends State<LogReportPage> {
                 const SizedBox(height: 4),
                 Text(
                   result.file.path,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${result.entries} 条日志 · ${_formatBytes(result.bytes)}',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ],
             ),

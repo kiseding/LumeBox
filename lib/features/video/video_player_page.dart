@@ -2082,7 +2082,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Text(
           _skipQuickLabel(snapshot),
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             shadows: _fullscreen ? _controlShadows : null,
           ),
@@ -2602,7 +2602,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           children: [
             const Text(
               '播放与连接',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text('音量 ${(_gesture.volume * 100).round()}%'),
@@ -3097,8 +3097,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w400,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             color: Color(0xFFF8F8F8),
                             shadows: _controlShadows,
                           ),
@@ -3111,8 +3111,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w400,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
                               color: Color(0xFFF8F8F8),
                               shadows: _controlShadows,
                             ),
@@ -3171,7 +3171,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Row(
                 children: [
                   const Expanded(
-                    child: Text('播放内核', style: TextStyle(fontSize: 18)),
+                    child: Text(
+                      '播放内核',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 19,
+                      ),
+                    ),
                   ),
                   IconButton(
                     tooltip: '关闭',
@@ -3262,7 +3268,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             children: [
               const Text(
                 '播放速度',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
               Wrap(
@@ -3354,8 +3360,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       label,
                       maxLines: 1,
                       style: TextStyle(
-                        fontSize: side < 34 ? 10 : 11,
-                        fontWeight: FontWeight.w400,
+                        fontSize: (side < 34 ? 10 : 11) + 1,
+                        fontWeight: FontWeight.w600,
                         shadows: _controlShadows,
                       ),
                     )
@@ -3495,7 +3501,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
           shadows: _fullscreen ? _controlShadows : null,
         ),
@@ -3991,8 +3997,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             Text(
               '拖动到 ${_format(preview)}',
               style: const TextStyle(
+                fontWeight: FontWeight.w600,
                 color: Color(0xFFF8F8F8),
-                fontSize: 12,
+                fontSize: 13,
                 shadows: _controlShadows,
               ),
             ),
@@ -4001,8 +4008,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Text(
                 _format(shown),
                 style: const TextStyle(
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: 12,
+                  fontSize: 13,
                   shadows: _controlShadows,
                 ),
               ),
@@ -4012,8 +4020,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Text(
                 _format(snapshot.duration),
                 style: const TextStyle(
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: 12,
+                  fontSize: 13,
                   shadows: _controlShadows,
                 ),
               ),
@@ -4033,11 +4042,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               Text(
                 _format(shown),
                 style: TextStyle(
-                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                   shadows: _fullscreen ? _controlShadows : null,
                   // 拖动预览用高亮色：一眼能看出「这不是当前位置」。
                   color: _fullscreen
-                      ? Colors.white70
+                      ? Colors.white
                       : (preview == null
                             ? LumeTheme.muted
                             : LumeTheme.textPrimary),
@@ -4046,14 +4056,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               if (preview != null)
                 Text(
                   '拖动到 ${_format(preview)}',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
               Text(
                 _format(snapshot.duration),
                 style: TextStyle(
-                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                   shadows: _fullscreen ? _controlShadows : null,
-                  color: _fullscreen ? Colors.white70 : LumeTheme.muted,
+                  color: _fullscreen ? Colors.white : LumeTheme.muted,
                 ),
               ),
             ],
@@ -4366,8 +4381,8 @@ class _PlayerClockState extends State<_PlayerClock> {
               '${_batteryPercent ?? '--'}%',
               style: const TextStyle(
                 color: Color(0xFFF8F8F8),
-                fontSize: 9,
-                fontWeight: FontWeight.w400,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
                 shadows: _VideoPlayerPageState._controlShadows,
               ),
             ),
@@ -4377,8 +4392,8 @@ class _PlayerClockState extends State<_PlayerClock> {
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
           style: const TextStyle(
             color: Color(0xFFF8F8F8),
-            fontSize: 10,
-            fontWeight: FontWeight.w400,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
             shadows: _VideoPlayerPageState._controlShadows,
           ),
         ),
@@ -4481,7 +4496,7 @@ class _PlayerStageNotice extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -4491,7 +4506,8 @@ class _PlayerStageNotice extends StatelessWidget {
                 detail,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                   height: 1.5,
                   color: LumeTheme.muted,
                 ),
@@ -4530,7 +4546,7 @@ class _VideoSkeleton extends StatelessWidget {
               Text(
                 LumeTheme.appName,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -4539,13 +4555,21 @@ class _VideoSkeleton extends StatelessWidget {
               Text(
                 '当前平台在 Phase1 仅保留页面骨架',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 '播放器设置与画中画为 iOS 专属模块：本平台仅 UI 骨架占位',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
@@ -4595,7 +4619,7 @@ class _GestureHint extends StatelessWidget {
                     Text(
                       _label(),
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -4684,7 +4708,7 @@ class _TrackSheet extends StatelessWidget {
                   child: Text(
                     title,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -4701,7 +4725,10 @@ class _TrackSheet extends StatelessWidget {
                         leading: const Icon(Icons.block, size: 20),
                         title: Text(
                           '关闭字幕',
-                          style: TextStyle(color: LumeTheme.textPrimary),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: LumeTheme.textPrimary,
+                          ),
                         ),
                         onTap: () => Navigator.of(context).pop(offId),
                       ),
@@ -4721,14 +4748,18 @@ class _TrackSheet extends StatelessWidget {
                           track.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: LumeTheme.textPrimary),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: LumeTheme.textPrimary,
+                          ),
                         ),
                         subtitle: track.language == null
                             ? null
                             : Text(
                                 track.language!,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
                                   color: LumeTheme.muted,
                                 ),
                               ),
@@ -4774,7 +4805,7 @@ class _QualitySheet extends StatelessWidget {
                   child: Text(
                     '清晰度',
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -4787,7 +4818,11 @@ class _QualitySheet extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '切换会保留当前位置继续播放',
-                    style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                 ),
               ),
@@ -4811,7 +4846,10 @@ class _QualitySheet extends StatelessWidget {
                         quality.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: LumeTheme.textPrimary),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: LumeTheme.textPrimary,
+                        ),
                       ),
                       onTap: () => Navigator.of(context).pop(index),
                     );
@@ -4878,7 +4916,7 @@ class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
                 Text(
                   '匹配公共弹幕',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),

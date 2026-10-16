@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -45,8 +46,16 @@ class SpeechLocalModel extends ChangeNotifier {
     return true;
   }
 
-  Future<void> prepare() async {
+  Future<void> prepare({XFile? archiveFile}) async {
     if (preparing) return;
+    final picked =
+        archiveFile ??
+        await openFile(
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'VITS 音色包', extensions: ['bz2']),
+          ],
+        );
+    if (picked == null) return;
     preparing = true;
     ready = false;
     error = null;
@@ -59,25 +68,8 @@ class SpeechLocalModel extends ChangeNotifier {
       await parent.create(recursive: true);
       staging = await parent.createTemp('prepare-');
       final archive = File('${staging.path}/pack.tar.bz2');
-      final sink = archive.openWrite();
+      await picked.saveTo(archive.path);
       final manifest = await _manifest;
-      try {
-        for (final part in manifest['parts'] as List) {
-          final data = await rootBundle.load('$assets/${part['name']}');
-          final bytes = data.buffer.asUint8List(
-            data.offsetInBytes,
-            data.lengthInBytes,
-          );
-          if (bytes.length != part['bytes'] ||
-              sha256.convert(bytes).toString() != part['sha256']) {
-            throw const FormatException('内置模型资源校验失败');
-          }
-          sink.add(bytes);
-          await sink.flush();
-        }
-      } finally {
-        await sink.close();
-      }
       final path = staging.path;
       await Isolate.run(() async {
         if ((await sha256.bind(File('$path/pack.tar.bz2').openRead()).first)
@@ -103,7 +95,9 @@ class SpeechLocalModel extends ChangeNotifier {
           await Directory('$path/model').create();
           for (final entry in archive) {
             final name = entry.name.replaceAll('\\', '/').split('/').last;
-            if (!wanted.contains(name) || !entry.isFile || entry.isSymbolicLink) {
+            if (!wanted.contains(name) ||
+                !entry.isFile ||
+                entry.isSymbolicLink) {
               continue;
             }
             final target = OutputFileStream('$path/model/$name');
@@ -125,7 +119,7 @@ class SpeechLocalModel extends ChangeNotifier {
       await Directory('${staging.path}/model').rename(directory!.path);
       ready = true;
     } catch (_) {
-      error = '模型准备失败，请检查剩余空间后重试';
+      error = '模型安装失败，请确认选择官方完整 tar.bz2 包并检查剩余空间';
     } finally {
       if (staging != null && await staging.exists()) {
         await staging.delete(recursive: true);

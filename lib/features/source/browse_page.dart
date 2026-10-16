@@ -22,10 +22,11 @@ class BrowsePage extends StatelessWidget {
   final DataSource dataSource;
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.sources,
-        title: '${dataSource.section.label} · ${dataSource.name}',
-        child: BrowseView(dataSource: dataSource),
-      );
+  Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.sources,
+    title: '${dataSource.section.label} · ${dataSource.name}',
+    child: BrowseView(dataSource: dataSource),
+  );
 }
 
 /// 浏览面：分类、列表与搜索，全部经统一数据源接口取得。
@@ -255,13 +256,10 @@ class _BrowseViewState extends State<BrowseView> {
   void _preloadCovers(List<SourceItem> items) {
     final pipeline = widget.pipeline;
     if (pipeline == null) return;
-    pipeline.preload(
-      <String>[
-        for (final item in items)
-          if ((item.cover ?? '').trim().isNotEmpty) item.cover!.trim(),
-      ],
-      targetWidth: 160,
-    );
+    pipeline.preload(<String>[
+      for (final item in items)
+        if ((item.cover ?? '').trim().isNotEmpty) item.cover!.trim(),
+    ], targetWidth: 160);
   }
 
   void _selectCategory(String? categoryId) {
@@ -295,11 +293,17 @@ class _BrowseViewState extends State<BrowseView> {
             child: TextField(
               controller: _search,
               textInputAction: TextInputAction.search,
-              style: TextStyle(color: LumeTheme.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: LumeTheme.textPrimary,
+              ),
               decoration: InputDecoration(
                 border: InputBorder.none,
                 hintText: '搜索',
-                hintStyle: TextStyle(color: LumeTheme.muted),
+                hintStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.muted,
+                ),
                 icon: Icon(Icons.search, color: LumeTheme.muted),
               ),
               onSubmitted: (value) {
@@ -411,7 +415,7 @@ class _BrowseViewState extends State<BrowseView> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -423,7 +427,8 @@ class _BrowseViewState extends State<BrowseView> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                               color: LumeTheme.muted,
                             ),
                           ),
@@ -472,7 +477,11 @@ class _BrowseViewState extends State<BrowseView> {
         child: Center(
           child: Text(
             '没有更多了',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
         ),
       );
@@ -503,8 +512,8 @@ class _CategoryChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            fontSize: 14,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
             color: selected ? LumeTheme.textPrimary : LumeTheme.muted,
           ),
         ),

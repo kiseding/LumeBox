@@ -126,7 +126,13 @@ class _AppPrivacyGuardState extends State<AppPrivacyGuard>
                     children: [
                       const Icon(Icons.lock_outline, size: 48),
                       const SizedBox(height: 20),
-                      const Text('LumeBox 已锁定', style: TextStyle(fontSize: 22)),
+                      const Text(
+                        'LumeBox 已锁定',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 23,
+                        ),
+                      ),
                       const SizedBox(height: 20),
                       if (settings.authenticating)
                         const CircularProgressIndicator()

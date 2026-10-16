@@ -244,7 +244,8 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                   height: 1.25,
                   color: LumeTheme.textPrimary,
                 ),
@@ -254,14 +255,18 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                 progress?.describe() ?? '共 ${item.chapterCount} 章',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 10, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
           child: PosterCover(
             pipeline: widget.pipeline,
             url: item.cover,
-                    title: item.title,
+            title: item.title,
             width: 300,
           ),
         );
@@ -314,7 +319,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -324,7 +329,11 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
                         progress?.describe() ?? '共 ${item.chapterCount} 章',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ],
                   ),

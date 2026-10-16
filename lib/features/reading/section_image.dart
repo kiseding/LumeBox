@@ -241,7 +241,8 @@ class _SectionImageState extends State<SectionImage> {
               onTap: widget.pipeline.verificationTargetFor(widget.url) != null
                   ? () => unawaited(_retryOrVerify())
                   : null,
-              placeholder: widget.placeholder ?? const _Placeholder(failed: true),
+              placeholder:
+                  widget.placeholder ?? const _Placeholder(failed: true),
             )
           : widget.placeholder ?? const _Placeholder(failed: false);
     }
@@ -303,7 +304,10 @@ class _FailedCover extends StatelessWidget {
               padding: const EdgeInsets.all(6),
               child: Text(
                 verifyLabel!,
-                style: const TextStyle(fontSize: 11),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
               ),
             ),
           ),

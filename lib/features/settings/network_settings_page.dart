@@ -62,35 +62,32 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
         _settings = LumeNet.settings;
         _dirty = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已保存：新配置立即生效')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已保存：新配置立即生效')));
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$error')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存失败：$error')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '网络设置',
       actions: <Widget>[
-        TextButton(
-          onPressed: _dirty ? _save : null,
-          child: const Text('保存'),
-        ),
+        TextButton(onPressed: _dirty ? _save : null, child: const Text('保存')),
       ],
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
           _SectionCard(
             title: '并发控制',
-            subtitle: '所有请求（源 / 订阅 / 图片）共用这一份额度，防止多源批量'
+            subtitle:
+                '所有请求（源 / 订阅 / 图片）共用这一份额度，防止多源批量'
                 '搜索把同一个网站打爆、导致 IP 被封锁。',
             children: <Widget>[
               _IntSlider(
@@ -116,7 +113,8 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
           const SizedBox(height: 12),
           _SectionCard(
             title: '重试与超时',
-            subtitle: '遇到「请求过多（429）」或「服务暂不可用（503）」时自动延时重试；'
+            subtitle:
+                '遇到「请求过多（429）」或「服务暂不可用（503）」时自动延时重试；'
                 '服务器给了等待时间就听服务器的。',
             children: <Widget>[
               _IntSlider(
@@ -135,22 +133,28 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
                 max: 120,
                 unit: '秒',
                 hint: '超过即视为请求失败',
-                onChanged: (value) =>
-                    _update(_settings.copyWith(timeout: Duration(seconds: value))),
+                onChanged: (value) => _update(
+                  _settings.copyWith(timeout: Duration(seconds: value)),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           _SectionCard(
             title: '身份与代理',
-            subtitle: '留空即用内置默认（移动端 Safari UA / 直连）。单个源可以在自己的'
+            subtitle:
+                '留空即用内置默认（移动端 Safari UA / 直连）。单个源可以在自己的'
                 '管理页里单独覆盖，覆盖优先于这里。',
             children: <Widget>[
               TextField(
                 controller: _ua,
                 minLines: 1,
                 maxLines: 3,
-                style: TextStyle(color: LumeTheme.textPrimary, fontSize: 13),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                  fontSize: 14,
+                ),
                 decoration: const InputDecoration(
                   labelText: '全局 User-Agent',
                   hintText: '留空 = 内置默认 UA',
@@ -161,7 +165,11 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: _proxy,
-                style: TextStyle(color: LumeTheme.textPrimary, fontSize: 13),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                  fontSize: 14,
+                ),
                 decoration: const InputDecoration(
                   labelText: '全局代理',
                   hintText: 'http://127.0.0.1:7890；留空 = 直连',
@@ -172,15 +180,16 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
               const SizedBox(height: 8),
               Text(
                 '支持 http / https 代理；SOCKS 暂不支持，会如实降级为直连并记入运行日志。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          NoticeCard(
-            title: '当前生效',
-            subtitle: LumeNet.settings.toString(),
-          ),
+          NoticeCard(title: '当前生效', subtitle: LumeNet.settings.toString()),
         ],
       ),
     );
@@ -208,7 +217,7 @@ class _SectionCard extends StatelessWidget {
           Text(
             title,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -216,7 +225,11 @@ class _SectionCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             subtitle,
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 12),
           ...children,
@@ -256,13 +269,17 @@ class _IntSlider extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(fontSize: 14, color: LumeTheme.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
             ),
             Text(
               '$value${unit ?? ''}',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textPrimary,
               ),
@@ -279,7 +296,11 @@ class _IntSlider extends StatelessWidget {
         if (hint != null)
           Text(
             hint!,
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
       ],
     );

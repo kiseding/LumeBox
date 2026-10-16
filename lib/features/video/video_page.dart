@@ -237,7 +237,10 @@ class _VideoPageState extends State<VideoPage> {
       return;
     }
     await PlaybackFocus.acquire('video');
-    if(!mounted) { _discardPrelaunch(prelaunch);return; }
+    if (!mounted) {
+      _discardPrelaunch(prelaunch);
+      return;
+    }
     _playerRouteOpen = true;
     try {
       await Navigator.of(context).push(
@@ -396,7 +399,8 @@ class _VideoPageState extends State<VideoPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.video,
+    return GlassScaffold(
+      effectModule: GlassModule.video,
       // **不随键盘收缩**：板块内容区（ExploreView）自己处理键盘内边距
       // （列表底部让出键盘高度）。外层若跟着收缩，固定的工具栏 / 搜索行会被
       // 挤出屏幕——真机反馈过两次「键盘弹起后搜索框不见了」。
@@ -430,7 +434,11 @@ class _VideoPageState extends State<VideoPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   '视频板块的阅读库打不开，播放进度与记录暂不可用；浏览与播放不受影响。',
-                  style: TextStyle(fontSize: 13, height: 1.5),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
                 ),
               ),
             ),

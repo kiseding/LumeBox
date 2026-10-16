@@ -118,7 +118,8 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   @override
   Widget build(BuildContext context) {
     final service = _service;
-    return GlassScaffold(effectModule: GlassModule.sources,
+    return GlassScaffold(
+      effectModule: GlassModule.sources,
       title: '${widget.section.label} · 订阅管理',
       actions: widget.extraActions,
       child: ListView(
@@ -193,7 +194,10 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
                     SwitchListTile(
                       title: Text(
                         record.url,
-                        style: const TextStyle(fontSize: 13),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
                       ),
                       subtitle: Text(
                         record.error.isNotEmpty

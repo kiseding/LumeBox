@@ -56,32 +56,33 @@ class NovelTypesetting {
 
   /// 用于测量的基础样式（不含颜色）。
   TextStyle get baseStyle => TextStyle(
-        fontSize: fontSize,
-        height: lineHeight,
-        fontFamily: fontFamily,
-        leadingDistribution: TextLeadingDistribution.even,
-      );
+    fontWeight: FontWeight.w600,
+    fontSize: (fontSize) + 1,
+    height: lineHeight,
+    fontFamily: fontFamily,
+    leadingDistribution: TextLeadingDistribution.even,
+  );
 
   /// 正文内容区（视口内扣除页边距与页眉页脚后的矩形尺寸）。
   ///
   /// [reserveChrome] 为 false 时不预留页眉页脚：连续滚动模式没有页眉页脚，
   /// 正文会铺满整屏，页与页才能无缝相接。
   Size contentSize(Size viewport, {bool reserveChrome = true}) => Size(
-        (viewport.width - margin * 2).clamp(1, double.infinity),
-        (viewport.height -
-                margin * 2 -
-                (reserveChrome ? headerHeight + footerHeight : 0))
-            .clamp(1, double.infinity),
-      );
+    (viewport.width - margin * 2).clamp(1, double.infinity),
+    (viewport.height -
+            margin * 2 -
+            (reserveChrome ? headerHeight + footerHeight : 0))
+        .clamp(1, double.infinity),
+  );
 
   /// 分页签名：几何参数一变，缓存必须失效。
   String get signature => <String>[
-        fontSize.toStringAsFixed(2),
-        lineHeight.toStringAsFixed(3),
-        paragraphSpacing.toStringAsFixed(2),
-        margin.toStringAsFixed(2),
-        fontFamily ?? '',
-      ].join('|');
+    fontSize.toStringAsFixed(2),
+    lineHeight.toStringAsFixed(3),
+    paragraphSpacing.toStringAsFixed(2),
+    margin.toStringAsFixed(2),
+    fontFamily ?? '',
+  ].join('|');
 
   NovelTypesetting copyWith({
     double? fontSize,
@@ -99,18 +100,17 @@ class NovelTypesetting {
       paragraphSpacing: (paragraphSpacing ?? this.paragraphSpacing)
           .clamp(minParagraphSpacing, maxParagraphSpacing)
           .toDouble(),
-      margin:
-          (margin ?? this.margin).clamp(minMargin, maxMargin).toDouble(),
+      margin: (margin ?? this.margin).clamp(minMargin, maxMargin).toDouble(),
       fontFamily: fontFamily,
     );
   }
 
   String encode() => jsonEncode(<String, Object?>{
-        'fontSize': fontSize,
-        'lineHeight': lineHeight,
-        'paragraphSpacing': paragraphSpacing,
-        'margin': margin,
-      });
+    'fontSize': fontSize,
+    'lineHeight': lineHeight,
+    'paragraphSpacing': paragraphSpacing,
+    'margin': margin,
+  });
 
   static NovelTypesetting decode(String? raw) {
     if (raw == null || raw.isEmpty) return const NovelTypesetting();
@@ -121,8 +121,10 @@ class NovelTypesetting {
       return base.copyWith(
         fontSize: _number(decoded['fontSize'], base.fontSize),
         lineHeight: _number(decoded['lineHeight'], base.lineHeight),
-        paragraphSpacing:
-            _number(decoded['paragraphSpacing'], base.paragraphSpacing),
+        paragraphSpacing: _number(
+          decoded['paragraphSpacing'],
+          base.paragraphSpacing,
+        ),
         margin: _number(decoded['margin'], base.margin),
       );
     } on FormatException {
@@ -196,16 +198,16 @@ class NovelReaderTheme {
 
   /// 自定义背景主题：文字色按背景亮度自动选，避免浅底浅字。
   factory NovelReaderTheme.custom(Color background) => NovelReaderTheme(
-        id: customId,
-        label: '自定义',
-        background: background,
-        textColor: background.computeLuminance() > 0.5
-            ? const Color(0xFF1A1A1A)
-            : const Color(0xFFE2E2E6),
-      );
+    id: customId,
+    label: '自定义',
+    background: background,
+    textColor: background.computeLuminance() > 0.5
+        ? const Color(0xFF1A1A1A)
+        : const Color(0xFFE2E2E6),
+  );
 
   /// 次要文字（页眉页脚、进度）。
-  Color get secondary => textColor.withValues(alpha: 0.55);
+  Color get secondary => chromeText;
 
   /// 分隔线与细边。
   Color get divider => textColor.withValues(alpha: 0.14);

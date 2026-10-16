@@ -419,7 +419,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                       item.title,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 12),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                     Text(
                                       widget.library
@@ -428,7 +431,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                           '尚未开始',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 11),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -632,7 +638,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                     item.title,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                   Text(
                                     widget.library
@@ -641,7 +650,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                         '尚未开始',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -742,7 +754,7 @@ class HistoryEntryTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -750,7 +762,11 @@ class HistoryEntryTile extends StatelessWidget {
                     ),
                     Text(
                       relativeTime(now, progress?.updatedAt ?? item.addedAt),
-                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -762,13 +778,21 @@ class HistoryEntryTile extends StatelessWidget {
                         progress?.describe() ?? '还没开始读',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                     ),
                     if (finished)
                       Text(
                         '已看完',
-                        style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: LumeTheme.muted,
+                        ),
                       ),
                   ],
                 ),

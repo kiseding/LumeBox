@@ -77,9 +77,9 @@ class _PlayerKernelSectionState extends State<PlayerKernelSection> {
     // 逃生入口只改内核：写回视频板块自己的库，其他项原样保留。
     _store?.save(next);
     setState(() => _settings = next);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已切换到 ${kernel.label}，进入视频板块后生效')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已切换到 ${kernel.label}，进入视频板块后生效')));
   }
 
   /// 重试被熔断的内核：清掉熔断标记并刷新列表（只恢复可选，不自动切换）。
@@ -115,7 +115,7 @@ class _PlayerKernelSectionState extends State<PlayerKernelSection> {
               Text(
                 '播放器内核 · 故障逃生入口',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -124,7 +124,11 @@ class _PlayerKernelSectionState extends State<PlayerKernelSection> {
               Text(
                 '视频板块页面卡住、快捷入口点不动时，在这里当场切回 AVPlayer（完整参数改「播放器设置」）。'
                 '内核初始化失败会自动回退并提示，失败的内核不会写进配置反复复现。',
-                style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.muted,
+                ),
               ),
             ],
           ),

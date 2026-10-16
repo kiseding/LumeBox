@@ -121,7 +121,7 @@ class _SourceIconState extends State<SourceIcon> {
         widget.name.isEmpty ? '源' : widget.name.characters.first,
         style: TextStyle(
           color: LumeTheme.accent,
-          fontSize: widget.size * .42,
+          fontSize: (widget.size * .42) + 1,
           fontWeight: FontWeight.w700,
         ),
       ),

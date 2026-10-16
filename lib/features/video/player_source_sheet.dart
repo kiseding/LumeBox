@@ -124,7 +124,10 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       if (_episodeError != null)
         Text(
           _episodeError!,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.error,
+          ),
         ),
       const SizedBox(height: 16),
     ],
@@ -177,7 +180,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                           child: Text(
                             '选集与线路',
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 16,
                               fontWeight: FontWeight.w600,
                               color: LumeTheme.textPrimary,
                             ),
@@ -232,6 +235,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                                     title: Text(
                                       lines[i].label,
                                       style: TextStyle(
+                                        fontWeight: FontWeight.w600,
                                         color: LumeTheme.textPrimary,
                                       ),
                                     ),
@@ -240,7 +244,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                         color: LumeTheme.muted,
                                       ),
                                     ),
@@ -269,6 +274,10 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   Widget _label(String text) => Text(
     text,
-    style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+    style: TextStyle(
+      fontWeight: FontWeight.w600,
+      fontSize: 13,
+      color: LumeTheme.textSecondary,
+    ),
   );
 }

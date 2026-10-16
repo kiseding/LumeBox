@@ -120,7 +120,7 @@ class _ChoiceSheetState extends State<_ChoiceSheet> {
                     child: Text(
                       '全部${widget.title}',
                       style: const TextStyle(
-                        fontSize: 18,
+                        fontSize: 19,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -273,14 +273,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
             child: Stack(
               children: [
                 Positioned.fill(
-                  bottom:
-                      60 +
-                      (keyboard > 0
-                          ? 0
-                          : math.max(
-                              media.viewPadding.bottom,
-                              media.padding.bottom,
-                            )),
+                  bottom: 0,
                   child: ModuleGlassSurface(
                     module: effectModule,
                     part: GlassPart.home,
@@ -324,7 +317,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                             child: Text(
                               '分类与筛选',
                               style: TextStyle(
-                                fontSize: 18,
+                                fontSize: 19,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -399,10 +392,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                                     chosenCategory = null;
                                     chosenFilters.clear();
                                   }),
-                                  child: Transform.translate(
-                                    offset: const Offset(0, 10),
-                                    child: const Text('重置'),
-                                  ),
+                                  child: const Text('重置'),
                                 ),
                                 const Spacer(),
                                 FilledButton(
@@ -410,10 +400,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                                     category: chosenCategory,
                                     filters: chosenFilters,
                                   )),
-                                  child: Transform.translate(
-                                    offset: const Offset(0, 10),
-                                    child: const Text('应用筛选'),
-                                  ),
+                                  child: const Text('应用筛选'),
                                 ),
                               ],
                             ),

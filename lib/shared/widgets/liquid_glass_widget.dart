@@ -1,3 +1,4 @@
+import '../../core/theme/lume_theme.dart';
 import '../../core/theme/liquid_performance_guard.dart';
 import 'module_glass_scope.dart';
 import 'frosted_glass_widget.dart';
@@ -225,8 +226,11 @@ class _LiquidSurfaceState extends State<_LiquidSurface>
                       )
                     : null,
                 borderRadius: BorderRadius.circular(options.radius),
-                color: Theme.of(context).colorScheme.surface
-                    .withValues(alpha: options.opacity),
+                color: LumeTheme.readableGlass(
+                  Theme.of(context).colorScheme.surface
+                      .withValues(alpha: options.opacity),
+                ),
+                boxShadow: LumeTheme.cardShadow,
               ),
               child: child,
             ),

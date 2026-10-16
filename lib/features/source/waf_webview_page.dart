@@ -631,7 +631,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -645,7 +645,8 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
                             color: LumeTheme.muted,
                           ),
                         ),
@@ -722,13 +723,17 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
               const SizedBox(height: 10),
               const Text(
                 '这个地址没打开',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
               Text(
                 '$_loadError\n\n$_loadErrorHint',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: LumeTheme.muted),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                  color: LumeTheme.muted,
+                ),
               ),
               const SizedBox(height: 12),
               FilledButton.tonalIcon(

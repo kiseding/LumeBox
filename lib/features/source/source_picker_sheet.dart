@@ -257,8 +257,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     if (grid) {
       return Material(
         color: selected
-            ? LumeTheme.accent.withValues(alpha: .10)
-            : Colors.transparent,
+            ? Color.alphaBlend(
+                LumeTheme.accent.withValues(alpha: .18),
+                LumeTheme.surfaceAlt,
+              )
+            : LumeTheme.surfaceAlt,
+        elevation: 2,
+        shadowColor: LumeTheme.cardShadow.first.color,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           key: ValueKey('picker-source-${source.id}'),
@@ -299,7 +304,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   source.name,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
                 SourceUpdateBadge(section: widget.section, sourceId: source.id),
                 if (SourceContentRating.isAdult(source.id, source.name))
@@ -315,8 +323,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     }
     return Material(
       color: selected
-          ? LumeTheme.accent.withValues(alpha: .10)
-          : Colors.transparent,
+          ? Color.alphaBlend(
+              LumeTheme.accent.withValues(alpha: .18),
+              LumeTheme.surfaceAlt,
+            )
+          : LumeTheme.surfaceAlt,
+      elevation: 2,
+      shadowColor: LumeTheme.cardShadow.first.color,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         key: ValueKey('picker-source-${source.id}'),
@@ -347,7 +360,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                       source.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                     SourceUpdateBadge(
                       section: widget.section,
@@ -357,7 +373,11 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                       results[source.id]?.status.label ?? source.version,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -541,7 +561,11 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                     ),
                     Text(
                       '长按源条目拖动排序，点击更多打开操作菜单',
-                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Expanded(
@@ -556,6 +580,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                                         Text(
                                           group.$2,
                                           style: TextStyle(
+                                            fontWeight: FontWeight.w600,
                                             color: LumeTheme.accent,
                                           ),
                                         ),
@@ -659,7 +684,11 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   ),
                   Text(
                     '长按源条目拖动排序，点击更多打开操作菜单',
-                    style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Expanded(
@@ -674,6 +703,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                                       Text(
                                         group.$2,
                                         style: TextStyle(
+                                          fontWeight: FontWeight.w600,
                                           color: LumeTheme.accent,
                                         ),
                                       ),

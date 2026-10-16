@@ -25,7 +25,7 @@ class HomeBrowseNavigation extends StatelessWidget {
                 ? null
                 : Theme.of(context).colorScheme.onSurface,
             textStyle: const TextStyle(
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
           ),

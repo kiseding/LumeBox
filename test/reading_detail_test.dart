@@ -159,9 +159,9 @@ void main() {
         reason: '相邻章节之间只有 ${gap}pt 间隔，容易误点相邻行',
       );
     }
-    // 字号不动（这次只改触摸区与行距，没有放大文字）。
+    // 全局可读性调整：文字加大一号，触摸区与行距保持原样。
     final title = tester.widget<Text>(find.text('第 1 章'));
-    expect(title.style?.fontSize, 14);
+    expect(title.style?.fontSize, 15);
   });
 
   testWidgets('漫画详情：点章节进阅读器，并把作品留在书架上', (tester) async {

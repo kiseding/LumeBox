@@ -1363,7 +1363,13 @@ Future<void> tapWithDetailPlay(
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     final chips = find.descendant(
       of: find.byType(VideoDetailPage),
-      matching: find.byType(ChoiceChip),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key as ValueKey<String>).value.startsWith(
+              'video-detail-episode-',
+            ),
+      ),
     );
     if (chapter || history || chips.evaluate().length <= 1) {
       final play = find.byKey(const Key('video-detail-play'));

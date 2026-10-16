@@ -309,7 +309,7 @@ void main() {
           )
           .first,
     );
-    expect(label.style?.fontSize, 11, reason: '底栏文字尺寸不许随容器收窄而变小');
+    expect(label.style?.fontSize, 12, reason: '全局文字加大一号，底栏容器尺寸保持原样');
   });
 
   testWidgets('二级页（push 出来的）不留底部白条：内容一路铺到屏幕底边', (tester) async {

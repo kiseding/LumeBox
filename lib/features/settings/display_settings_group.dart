@@ -29,7 +29,7 @@ class DisplaySettingsGroup extends StatelessWidget {
             child: Text(
               '显示',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textSecondary,
               ),
@@ -103,7 +103,7 @@ class _DisplayRow extends StatelessWidget {
               child: Text(
                 title,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -112,7 +112,11 @@ class _DisplayRow extends StatelessWidget {
             if (swatch != null) ...<Widget>[swatch!, const SizedBox(width: 8)],
             Text(
               value,
-              style: TextStyle(fontSize: 13, color: LumeTheme.textSecondary),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: LumeTheme.textSecondary,
+              ),
             ),
             const SizedBox(width: 4),
             Icon(Icons.chevron_right, size: 20, color: LumeTheme.muted),
@@ -264,7 +268,7 @@ class OptionSheet<T> extends StatelessWidget {
                   child: Text(
                     title,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -298,7 +302,10 @@ class OptionSheet<T> extends StatelessWidget {
                         ),
                         title: Text(
                           labelOf(option),
-                          style: TextStyle(color: LumeTheme.textPrimary),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: LumeTheme.textPrimary,
+                          ),
                         ),
                         onTap: () => Navigator.of(context).pop(option),
                       ),

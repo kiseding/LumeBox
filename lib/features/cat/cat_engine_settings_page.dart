@@ -63,21 +63,20 @@ class _CatEngineSettingsPageState extends State<CatEngineSettingsPage> {
     if (settings == null) return;
     if (_current == kind) return;
     if (_ready[kind] == false) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${kind.label} 在本机不可用')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${kind.label} 在本机不可用')));
       return;
     }
     settings.save(kind);
     setState(() => _current = kind);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已切换为 ${kind.label}，下次打开源时生效')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('已切换为 ${kind.label}，下次打开源时生效')));
   }
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.cat,
+    return GlassScaffold(
+      effectModule: GlassModule.cat,
       behindBar: true,
       title: '猫源引擎',
       child: _buildBody(),
@@ -101,7 +100,11 @@ class _CatEngineSettingsPageState extends State<CatEngineSettingsPage> {
         Text(
           '猫源脚本需要 JS 引擎。切换只影响猫源板块，下次打开源时生效；'
           '每个源仍然独占一个独立引擎实例。',
-          style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: LumeTheme.muted,
+          ),
         ),
         const SizedBox(height: 12),
         for (final kind in choices) ...<Widget>[
@@ -132,9 +135,9 @@ class _EngineTile extends StatelessWidget {
   final VoidCallback onTap;
 
   String get _description => switch (kind) {
-        CatEngineKind.quickjs => '轻量沙箱引擎，一源一独立上下文（iOS / Android）',
-        CatEngineKind.nodeMobile => 'Node 运行时（Android 专属；原生模块未集成时不可用）',
-      };
+    CatEngineKind.quickjs => '轻量沙箱引擎，一源一独立上下文（iOS / Android）',
+    CatEngineKind.nodeMobile => 'Node 运行时（Android 专属；原生模块未集成时不可用）',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -152,7 +155,7 @@ class _EngineTile extends StatelessWidget {
                 Text(
                   kind.label,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: available ? LumeTheme.textPrimary : LumeTheme.muted,
                   ),
@@ -160,13 +163,21 @@ class _EngineTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   _description,
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 if (!available) ...<Widget>[
                   const SizedBox(height: 2),
                   Text(
                     '本机不可用',
-                    style: TextStyle(fontSize: 12, color: LumeTheme.danger),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: LumeTheme.danger,
+                    ),
                   ),
                 ],
               ],

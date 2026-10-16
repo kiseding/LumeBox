@@ -22,7 +22,6 @@ import UIKit
   private let wafCookies = WafCookieController()
   private let battery = BatteryController()
   private let configurationExport = ConfigurationExportController()
-  private let cloudSync = ICloudSyncController()
   private let comicImages = ComicImageToolsController()
   private let privacy = PrivacyController()
 
@@ -37,7 +36,6 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxConfiguration")?.messenger() {
       configurationExport.register(with: messenger)
-      cloudSync.register(with: messenger)
       FlutterMethodChannel(name: "lumebox/app_icon", binaryMessenger: messenger).setMethodCallHandler { call, result in
         if call.method == "current" { result(UIApplication.shared.alternateIconName ?? "default"); return }
         guard call.method == "set" else { result(FlutterMethodNotImplemented); return }
@@ -108,7 +106,7 @@ private final class ConfigurationExportController: NSObject, UIDocumentPickerDel
   func register(with messenger: FlutterBinaryMessenger) {
     FlutterMethodChannel(name: "lumebox/configuration", binaryMessenger: messenger)
       .setMethodCallHandler { [weak self] call, result in
-        guard call.method == "export" else { result(FlutterMethodNotImplemented); return }
+        guard ["export", "share"].contains(call.method) else { result(FlutterMethodNotImplemented); return }
         guard let self = self else { result(false); return }
         guard self.pending == nil else { result(FlutterError(code: "busy", message: "An export is already open", details: nil)); return }
         guard let args = call.arguments as? [String: Any],
@@ -124,6 +122,16 @@ private final class ConfigurationExportController: NSObject, UIDocumentPickerDel
             .flatMap { $0.windows }.first(where: { $0.isKeyWindow })?.rootViewController
           while let next = presenter?.presentedViewController { presenter = next }
           guard let viewController = presenter else { result(false); return }
+          if call.method == "share" {
+            self.pending = result
+            self.temporary = url
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.popoverPresentationController?.sourceView = viewController.view
+            activity.popoverPresentationController?.sourceRect = CGRect(x: viewController.view.bounds.midX, y: viewController.view.bounds.midY, width: 1, height: 1)
+            activity.completionWithItemsHandler = { [weak self] _, completed, _, _ in self?.finish(completed) }
+            viewController.present(activity, animated: true)
+            return
+          }
           let picker: UIDocumentPickerViewController
           if #available(iOS 14.0, *) { picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true) }
           else { picker = UIDocumentPickerViewController(url: url, in: .exportToService) }

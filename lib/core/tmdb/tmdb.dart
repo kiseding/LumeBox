@@ -95,6 +95,7 @@ class TmdbSettings extends ChangeNotifier {
   bool _cacheLoaded = false;
   Future<void> _cacheWrites = Future.value();
   String cacheKey(String title) => jsonEncode([
+    'cast-profile-order-v2',
     apiProxy.trim(),
     imageProxy.trim(),
     TmdbClient.normalized(title),
@@ -523,9 +524,11 @@ class TmdbClient {
         profiles: ((details['credits'] as Map?)?['cast'] as List? ?? [])
             .whereType<Map>()
             .map((row) => row['profile_path'])
-            .whereType<String>()
-            .where((path) => path.startsWith('/'))
-            .map((path) => settings.imageUrl(path, kind: TmdbImageKind.profile))
+            .map(
+              (path) => path is String && path.startsWith('/')
+                  ? settings.imageUrl(path, kind: TmdbImageKind.profile)
+                  : '',
+            )
             .toList(),
         rating:
             ((details['vote_average'] ?? match['vote_average']) as num?)

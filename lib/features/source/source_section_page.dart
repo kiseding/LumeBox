@@ -381,7 +381,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         content: SizedBox(
           width: 460,
           child: SingleChildScrollView(
-            child: SelectableText(script, style: const TextStyle(fontSize: 12)),
+            child: SelectableText(
+              script,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
           ),
         ),
         actions: <Widget>[
@@ -491,14 +494,16 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   Widget build(BuildContext context) {
     if (!_manager.runtimeAvailable) {
       // 平台骨架：标题仍按「板块 · 源管理」口径，页面身份不含糊。
-      return GlassScaffold(effectModule: GlassModule.sources,
+      return GlassScaffold(
+        effectModule: GlassModule.sources,
         behindBar: true,
         title: '${widget.section.label} · 源管理',
         child: const SkeletonNotice(),
       );
     }
     final sources = _sources;
-    return GlassScaffold(effectModule: GlassModule.sources,
+    return GlassScaffold(
+      effectModule: GlassModule.sources,
       // 内容从玻璃顶栏底下穿过，顶部空间由列表的 barInset 让——见 settings_page
       // 的同名注释：漏了这一句，SafeArea 与 barInset 会各让一次栏高。
       behindBar: true,
@@ -1061,7 +1066,10 @@ class _SourceTile extends StatelessWidget {
                     source.hasGroup ? source.group : source.version,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -1105,7 +1113,7 @@ class _SourceTile extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -1125,45 +1133,70 @@ class _SourceTile extends StatelessWidget {
                       source.version.isEmpty
                           ? LumeTheme.appName
                           : source.version,
-                      style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                     if (SourceContentRating.isAdult(source.id, source.name))
                       const SourceRatingBadge(),
                     if (!source.enabled) ...<Widget>[
                       Text(
                         '已停用',
-                        style: TextStyle(fontSize: 12, color: _disabledColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _disabledColor,
+                        ),
                       ),
                     ],
                     if (source.broken) ...<Widget>[
                       Text(
                         '已失效（连错 ${source.failureCount} 次）',
-                        style: TextStyle(fontSize: 12, color: _disabledColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _disabledColor,
+                        ),
                       ),
                     ],
                     if (source.hasGroup) ...<Widget>[
                       Text(
                         source.group,
-                        style: TextStyle(fontSize: 12, color: _accentColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _accentColor,
+                        ),
                       ),
                     ],
                     if (source.subscribed) ...<Widget>[
                       Text(
                         '订阅',
-                        style: TextStyle(fontSize: 12, color: _accentColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _accentColor,
+                        ),
                       ),
                     ],
                     if (source.hasNetworkOverride) ...<Widget>[
                       Text(
                         '网络已自定义',
-                        style: TextStyle(fontSize: 12, color: _accentColor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: _accentColor,
+                        ),
                       ),
                     ],
                     if (testResult != null) ...<Widget>[
                       Text(
                         testResult!.status.label,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: switch (testResult!.status) {
                             SourceTestStatus.ok => _okColor,
                             SourceTestStatus.empty => _disabledColor,
@@ -1295,7 +1328,11 @@ class _GroupDialogState extends State<_GroupDialog> {
           Text(
             '分组只影响本板块列表里的归类显示，不改变源的归属板块。'
             '留空保存即取消分组。',
-            style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: LumeTheme.muted,
+            ),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -1312,7 +1349,11 @@ class _GroupDialogState extends State<_GroupDialog> {
             const SizedBox(height: 12),
             Text(
               '已有分组',
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             const SizedBox(height: 6),
             Wrap(

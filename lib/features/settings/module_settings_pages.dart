@@ -34,7 +34,8 @@ class ModuleSettingsHubPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '各模块独立设置',
       child: ListView(
@@ -75,7 +76,8 @@ class ModuleSettingsHubPage extends StatelessWidget {
               '阅读页 / 播放页里的就地设置保留着，和这里改的是同一份数值——'
               '哪边改，另一边立刻就是新值。',
               style: TextStyle(
-                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
                 height: 1.5,
                 color: LumeTheme.muted,
               ),
@@ -112,7 +114,7 @@ class _ModuleEntry extends StatelessWidget {
                 Text(
                   '${section.label}设置',
                   style: TextStyle(
-                    fontSize: 14.5,
+                    fontSize: 15.5,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -120,7 +122,11 @@ class _ModuleEntry extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   _subtitleFor(section),
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
               ],
             ),
@@ -199,7 +205,8 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final library = _library;
-    return GlassScaffold(effectModule: GlassModule.settings,
+    return GlassScaffold(
+      effectModule: GlassModule.settings,
       behindBar: true,
       title: '${widget.section.label}设置',
       child: ListView(
@@ -258,7 +265,13 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
           for (final preset in ModuleLayoutPreset.values)
             ButtonSegment<ModuleLayoutPreset>(
               value: preset,
-              label: Text(preset.label, style: const TextStyle(fontSize: 11)),
+              label: Text(
+                preset.label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
             ),
         ],
         selected: <ModuleLayoutPreset>{_module.layoutPreset},
@@ -423,7 +436,13 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
               for (final mode in ComicReadingMode.values)
                 ButtonSegment<ComicReadingMode>(
                   value: mode,
-                  label: Text(mode.label, style: const TextStyle(fontSize: 11)),
+                  label: Text(
+                    mode.label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
             ],
             selected: <ComicReadingMode>{comic.mode},
@@ -465,7 +484,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
                   value: background,
                   label: Text(
                     background.label,
-                    style: const TextStyle(fontSize: 11),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
             ],
@@ -507,7 +529,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
                   value: action,
                   label: Text(
                     action.label,
-                    style: const TextStyle(fontSize: 11),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
             ],
@@ -530,7 +555,10 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
                   value: direction,
                   label: Text(
                     direction.label,
-                    style: const TextStyle(fontSize: 11),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
             ],
@@ -671,14 +699,18 @@ class _Group extends StatelessWidget {
             title: Text(
               title,
               style: TextStyle(
-                fontSize: 14.5,
+                fontSize: 15.5,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textPrimary,
               ),
             ),
             subtitle: Text(
               subtitle,
-              style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: LumeTheme.muted,
+              ),
             ),
             children: children,
           ),
@@ -709,7 +741,8 @@ class _Row extends StatelessWidget {
                 child: Text(
                   label,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                     color: LumeTheme.textSecondary,
                   ),
                 ),
@@ -719,7 +752,14 @@ class _Row extends StatelessWidget {
           ),
           if (hint != null) ...<Widget>[
             const SizedBox(height: 2),
-            Text(hint!, style: TextStyle(fontSize: 11, color: LumeTheme.muted)),
+            Text(
+              hint!,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                color: LumeTheme.muted,
+              ),
+            ),
           ],
         ],
       ),
@@ -759,7 +799,11 @@ class _Slider extends StatelessWidget {
               width: 108,
               child: Text(
                 label,
-                style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.textSecondary,
+                ),
               ),
             ),
             Expanded(
@@ -777,7 +821,11 @@ class _Slider extends StatelessWidget {
               child: Text(
                 display,
                 textAlign: TextAlign.end,
-                style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: LumeTheme.textSecondary,
+                ),
               ),
             ),
           ],
@@ -787,7 +835,11 @@ class _Slider extends StatelessWidget {
             padding: const EdgeInsets.only(left: 108, bottom: 4),
             child: Text(
               hint!,
-              style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                color: LumeTheme.muted,
+              ),
             ),
           ),
       ],
@@ -828,7 +880,12 @@ class _Note extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: Text(
       text,
-      style: TextStyle(fontSize: 12, height: 1.5, color: LumeTheme.muted),
+      style: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 13,
+        height: 1.5,
+        color: LumeTheme.muted,
+      ),
     ),
   );
 }

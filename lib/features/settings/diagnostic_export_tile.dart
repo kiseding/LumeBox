@@ -18,6 +18,31 @@ class _DiagnosticExportTileState extends State<DiagnosticExportTile> {
   bool busy = false;
   String? status;
   Future<void> export() async {
+    var action = 'export';
+    if (widget.save == null && Platform.isIOS) {
+      final chosen = await showModalBottomSheet<String>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.ios_share),
+                title: const Text('发送 / 分享诊断包'),
+                onTap: () => Navigator.pop(context, 'share'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.save_alt),
+                title: const Text('保存到本地文件'),
+                onTap: () => Navigator.pop(context, 'export'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (chosen == null || !mounted) return;
+      action = chosen;
+    }
     if (busy) return;
     setState(() => busy = true);
     try {
@@ -29,7 +54,7 @@ class _DiagnosticExportTileState extends State<DiagnosticExportTile> {
       } else if (Platform.isIOS || Platform.isAndroid) {
         saved =
             await const MethodChannel('lumebox/configuration')
-                .invokeMethod<bool>('export', {
+                .invokeMethod<bool>(action, {
                   'bytes': bundle.bytes,
                   'name': bundle.name,
                   'mime': 'application/zip',
@@ -72,7 +97,7 @@ class _DiagnosticExportTileState extends State<DiagnosticExportTile> {
             )
           : const Icon(Icons.inventory_2_outlined),
       title: const Text('一键导出诊断包'),
-      subtitle: Text(status ?? '版本、系统、源状态和近期日志；过滤敏感信息'),
+      subtitle: Text(status ?? '发送分享或保存到本地；过滤敏感信息'),
       trailing: const Icon(Icons.file_upload_outlined),
       onTap: busy ? null : export,
     ),

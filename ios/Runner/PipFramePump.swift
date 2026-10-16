@@ -276,12 +276,14 @@ final class PipDanmakuRenderer {
       if visible >= Int(value("maxOnScreen", 60)) { break }
       visible += 1
       let size = fontSize * min(3, max(0.5, number(item["fontSize"]) == 0 ? 1 : number(item["fontSize"])))
-      let rgb = bool("allowColored", true) ? Int(number(item["color"])) : 0xFFFFFF
+      let rawColor = bool("allowColored", true) ? Int(number(item["color"])) : 0xFFFFFF
+      // Missing colors used to become zero (black); keep PiP text readable.
+      let rgb = (rawColor & 0xFFFFFF) == 0 ? 0xFFFFFF : rawColor
       let key = "\(text)|\(rgb)|\(size)"
       var label = labels[key]
       if label == nil {
         let color = UIColor(red: CGFloat((rgb >> 16) & 255)/255, green: CGFloat((rgb >> 8) & 255)/255, blue: CGFloat(rgb & 255)/255, alpha: CGFloat(value("opacity", 0.9)))
-        label = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: CGFloat(size), weight: bool("bold", true) ? .semibold : .regular), .foregroundColor: color, .strokeColor: UIColor.black.withAlphaComponent(CGFloat(value("opacity", 0.9))), .strokeWidth: -value("strokeWidth", 1.2) * scale / size * 100])
+        label = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: CGFloat(size), weight: bool("bold", true) ? .semibold : .regular), .foregroundColor: color, .strokeColor: UIColor.black.withAlphaComponent(CGFloat(value("opacity", 0.9))), .strokeWidth: -min(3, max(0, value("strokeWidth", 1.2)) * scale / size * 100)])
         if labels.count >= 1000 { labels.removeAll() }
         labels[key] = label
       }

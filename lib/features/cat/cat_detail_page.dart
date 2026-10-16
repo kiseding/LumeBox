@@ -320,7 +320,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 28,
+                    fontSize: 29,
                     fontWeight: FontWeight.w700,
                     color: LumeTheme.textPrimary,
                   ),
@@ -328,7 +328,11 @@ class _CatDetailPageState extends State<CatDetailPage> {
                 const SizedBox(height: 8),
                 Text(
                   widget.source.name,
-                  style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 if (metadata.isNotEmpty)
                   Padding(
@@ -338,8 +342,9 @@ class _CatDetailPageState extends State<CatDetailPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
+                        fontWeight: FontWeight.w600,
                         color: LumeTheme.textPrimary,
-                        fontSize: 13,
+                        fontSize: 14,
                       ),
                     ),
                   ),
@@ -348,7 +353,11 @@ class _CatDetailPageState extends State<CatDetailPage> {
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       detail!.subtitle!,
-                      style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: LumeTheme.muted,
+                      ),
                     ),
                   ),
                 if (score != null && score > 0)
@@ -402,7 +411,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -492,10 +501,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: chapter.id == lastChapterId
                               ? FontWeight.w700
-                              : FontWeight.w500,
+                              : FontWeight.w600,
                           color: chapter.id == lastChapterId
                               ? LumeTheme.accent
                               : LumeTheme.textPrimary,
@@ -521,7 +530,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
         const SizedBox(height: 24),
         const Text(
           '简介',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
         ),
         const SizedBox(height: 10),
         Text(
@@ -530,7 +539,11 @@ class _CatDetailPageState extends State<CatDetailPage> {
           overflow: descriptionExpanded
               ? TextOverflow.visible
               : TextOverflow.ellipsis,
-          style: TextStyle(height: 1.6, color: LumeTheme.textPrimary),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            height: 1.6,
+            color: LumeTheme.textPrimary,
+          ),
         ),
         if (text.length > 90)
           TextButton(
@@ -558,7 +571,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
         const SizedBox(height: 20),
         const Text(
           '演职人员',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -794,7 +807,7 @@ class _CatEpisodePickerState extends State<CatEpisodePicker> {
               children: [
                 const Text(
                   '选集',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 19),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -860,7 +873,10 @@ class _CatEpisodePickerState extends State<CatEpisodePicker> {
                     CatDataSource.labelOf(chapter),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   trailing: const Icon(Icons.play_circle_outline),
                   onTap: () => Navigator.pop(context, chapter),

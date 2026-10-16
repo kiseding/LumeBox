@@ -1117,7 +1117,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: LumeTheme.textPrimary,
                       ),
@@ -1128,7 +1128,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                         color: LumeTheme.textSecondary,
                       ),
                     ),
@@ -1205,7 +1206,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                               value: mode,
                               label: Text(
                                 mode.label,
-                                style: const TextStyle(fontSize: 11),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                         ],
@@ -1226,7 +1230,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                             child: Text(
                               '侧边距',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textSecondary,
                               ),
                             ),
@@ -1249,7 +1254,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                               '${(_settings.marginRatio * 100).round()}%',
                               textAlign: TextAlign.end,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textSecondary,
                               ),
                             ),
@@ -1265,7 +1271,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                             child: Text(
                               '页间距',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textSecondary,
                               ),
                             ),
@@ -1287,7 +1294,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                               '${_settings.pageGap.round()}',
                               textAlign: TextAlign.end,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textSecondary,
                               ),
                             ),
@@ -1313,7 +1321,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                               '第 $pageLabel 页',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                                 color: LumeTheme.textPrimary,
                               ),
                             ),
@@ -1631,7 +1640,7 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                       '目录',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: LumeTheme.textPrimary,
                       ),
@@ -1663,13 +1672,13 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 15,
                               color: current
                                   ? LumeTheme.textPrimary
                                   : LumeTheme.textSecondary,
                               fontWeight: current
                                   ? FontWeight.w600
-                                  : FontWeight.w400,
+                                  : FontWeight.w600,
                             ),
                           ),
                           trailing: current
@@ -1712,11 +1721,18 @@ class _ImageActionSheet extends StatelessWidget {
                 leading: Icon(Icons.download, color: LumeTheme.textSecondary),
                 title: Text(
                   '保存图片',
-                  style: TextStyle(color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
                 subtitle: Text(
                   '存到本板块的导出目录（不写入系统相册）',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 onTap: () => Navigator.of(context).pop(_ImageAction.save),
               ),
@@ -1724,11 +1740,18 @@ class _ImageActionSheet extends StatelessWidget {
                 leading: Icon(Icons.link, color: LumeTheme.textSecondary),
                 title: Text(
                   '复制图片地址',
-                  style: TextStyle(color: LumeTheme.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: LumeTheme.textPrimary,
+                  ),
                 ),
                 subtitle: Text(
                   '粘到任意 App 都能用',
-                  style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: LumeTheme.muted,
+                  ),
                 ),
                 onTap: () => Navigator.of(context).pop(_ImageAction.copyLink),
               ),
@@ -1776,7 +1799,7 @@ class _BookmarkSheetState extends State<_BookmarkSheet> {
                 child: Text(
                   '书签',
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -1788,7 +1811,11 @@ class _BookmarkSheetState extends State<_BookmarkSheet> {
                   child: Text(
                     '还没有书签\n阅读时点顶栏的书签按钮即可添加',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: LumeTheme.muted),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: LumeTheme.muted,
+                    ),
                   ),
                 )
               else
@@ -1805,7 +1832,8 @@ class _BookmarkSheetState extends State<_BookmarkSheet> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
                             color: LumeTheme.textPrimary,
                           ),
                         ),

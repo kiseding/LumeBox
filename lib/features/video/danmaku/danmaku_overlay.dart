@@ -499,8 +499,8 @@ class _DanmakuPainter extends CustomPainter {
       text: TextSpan(
         text: text,
         style: TextStyle(
-          fontSize: style.fontSize,
-          fontWeight: style.bold ? FontWeight.w600 : FontWeight.normal,
+          fontSize: (style.fontSize) + 1,
+          fontWeight: style.bold ? FontWeight.w600 : FontWeight.w600,
           color: stroke ? null : style.color,
           foreground: stroke
               ? (Paint()

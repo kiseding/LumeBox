@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
 
 import 'dart:ui' as ui;
@@ -60,6 +63,46 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     }
   }
 
+  Future<void> importModel() async {
+    if (busy) return;
+    final picked = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'waifu2x CoreML', extensions: ['mlmodel']),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    setState(() => busy = true);
+    try {
+      if (await picked.length() > 3 * 1024 * 1024) {
+        throw const FormatException('模型文件过大');
+      }
+      final bytes = await picked.readAsBytes();
+      final origin = jsonDecode(
+        await rootBundle.loadString('assets/models/waifu2x/ORIGIN.json'),
+      ) as Map<String, dynamic>;
+      final hashes = origin['sha256'] as Map<String, dynamic>;
+      final hash = sha256.convert(bytes).toString();
+      final matches = hashes.entries.where((entry) => entry.value == hash);
+      if (matches.isEmpty) throw const FormatException('不是受支持的官方 waifu2x 模型');
+      await ComicImageTools.channel.invokeMethod<void>('importModel', {
+        'name': matches.first.key,
+        'bytes': bytes,
+      });
+      if (mounted) {
+        setState(() => status = '已安装 ${matches.first.key}，请选择对应类型和降噪级别');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () =>
+              status = error is FormatException ? error.message : '模型安装失败，请重试',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Widget choice<T>(
     String title,
     T value,
@@ -83,7 +126,8 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   );
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.comic,
+  Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.comic,
     title: widget.translation ? '漫画翻译' : 'AI 图片超分辨率',
     child: ListView(
       padding: const EdgeInsets.all(16),
@@ -262,7 +306,12 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               if (busy) const Center(child: CircularProgressIndicator()),
               FilledButton(
                 onPressed: busy ? null : () => manage('prepareModel'),
-                child: const Text('准备 / 重新准备当前模型'),
+                child: const Text('加载当前已安装模型'),
+              ),
+              TextButton.icon(
+                onPressed: busy ? null : importModel,
+                icon: const Icon(Icons.file_open_outlined),
+                label: const Text('从本地安装超分模型'),
               ),
               TextButton(
                 onPressed: busy ? null : () => manage('clearModels'),
@@ -394,7 +443,8 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => GlassScaffold(effectModule: GlassModule.comic,
+  Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.comic,
     title: 'AI 图片超分与翻译',
     child: Column(
       children: [
@@ -484,8 +534,9 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
                                             region.translation,
                                             textAlign: TextAlign.center,
                                             style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
                                               color: Colors.black,
-                                              fontSize: 15,
+                                              fontSize: 16,
                                             ),
                                           ),
                                         ),
