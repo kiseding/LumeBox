@@ -48,8 +48,7 @@ static NSMutableDictionary *nowPlayingInfo = nil;
         [registrar addMethodCallDelegate:instance channel:instance.channel];
         [plugins addObject:instance];
         if (!handlerChannel) {
-            }
-        processingState = ApsIdle;
+            processingState = ApsIdle;
             position = @(0);
             bufferedPosition = @(0);
             long long msSinceEpoch = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
@@ -236,10 +235,11 @@ static NSMutableDictionary *nowPlayingInfo = nil;
         result(@{});
     } else if ([@"stopService" isEqualToString:call.method]) {
         if (LumeAudioBookOwnsControls()) {
-        [commandCenter.changePlaybackRateCommand setEnabled:NO];
-        [commandCenter.togglePlayPauseCommand setEnabled:NO];
-        [commandCenter.togglePlayPauseCommand removeTarget:self];
-        [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
+            [commandCenter.changePlaybackRateCommand setEnabled:NO];
+            [commandCenter.togglePlayPauseCommand setEnabled:NO];
+            [commandCenter.togglePlayPauseCommand removeTarget:self];
+            [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
+        }
         processingState = ApsIdle;
         actionBits = 0;
         [self updateControls];
