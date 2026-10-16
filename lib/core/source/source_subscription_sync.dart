@@ -65,6 +65,37 @@ class SourceSubscriptionSync {
   bool _migrated = false;
   static final Map<Section, Future<SubscriptionSyncResult>> _running = {};
   static final Map<Section, ValueNotifier<int>> _revisions = {};
+  static final Map<Section, ValueNotifier<int>> _changeCounts = {};
+  static final Map<Section, File> _noticeFiles = {};
+  static ValueNotifier<int> changeCount(Section section) =>
+      _changeCounts.putIfAbsent(section, () {
+        final count = ValueNotifier(0);
+        count.addListener(() {
+          final file = _noticeFiles[section];
+          if (file == null) return;
+          try {
+            file.parent.createSync(recursive: true);
+            final temporary = File('${file.path}.tmp');
+            temporary.writeAsStringSync('${count.value}', flush: true);
+            temporary.renameSync(file.path);
+          } catch (error) {
+            LumeLog.warn('订阅提示保存失败：$error');
+          }
+        });
+        return count;
+      });
+  static void attachNoticeFile(Section section, File file) {
+    if (_noticeFiles[section]?.path == file.path) return;
+    _noticeFiles[section] = file;
+    try {
+      changeCount(section).value = file.existsSync()
+          ? int.tryParse(file.readAsStringSync()) ?? 0
+          : 0;
+    } catch (_) {
+      changeCount(section).value = 0;
+    }
+  }
+
   static ValueNotifier<int> revision(Section section) =>
       _revisions.putIfAbsent(section, () => ValueNotifier(0));
 
@@ -73,6 +104,7 @@ class SourceSubscriptionSync {
     SourceManager? manager,
   }) async {
     final scope = await SectionScope.open(section);
+    attachNoticeFile(section, File(scope.resolve('subscription-changes.txt')));
     final service = SourceSubscriptionSync(
       section: section,
       manager: manager ?? LumeSources.manager(section),
@@ -279,7 +311,11 @@ class SourceSubscriptionSync {
     } finally {
       http.dispose();
     }
-    if (result.changed) revision(section).value++;
+    if (result.changed) {
+      revision(section).value++;
+      changeCount(section).value +=
+          result.added + result.updated + result.removed;
+    }
     if (result.changed || result.errors.isNotEmpty) {
       LumeLog.info('[订阅] ${section.label}: ${result.summary}');
     }

@@ -1,4 +1,5 @@
 import 'playback_glass.dart';
+import '../../core/session/app_preferences.dart';
 
 import 'dart:io' show Platform;
 
@@ -316,6 +317,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 进度条拖动预览的目标位置（拖动中显示，松手才真 seek）。
   Duration? _previewTarget;
+  int _seekRevision = 0;
 
   /// 进度落盘节流：播放中每 5 秒写一次，暂停 / 切集 / 退出时立即写。
   Timer? _progressTimer;
@@ -361,6 +363,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _returnedFromBackground = true;
+      if (!AppPreferences.instance.backgroundPlayback &&
+          _session?.state != PipState.active) {
+        _backgroundPlaying = false;
+        unawaited(_player?.pause());
+      }
     }
     if (state == AppLifecycleState.inactive &&
         previous == AppLifecycleState.resumed) {
@@ -2152,6 +2159,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final library = _library;
     final snapshot = _player?.snapshot.value;
     if (target == null || library == null || snapshot == null) return;
+    if (library.setting('history.incognito') == 'true') return;
     if (snapshot.error != null) return;
 
     final position = snapshot.position;
@@ -3875,6 +3883,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onChangeStart: total == 0
           ? null
           : (value) {
+              _seekRevision++;
               _cancelAutoHide();
               setState(
                 () => _previewTarget = _positionAt(value, snapshot.duration),
@@ -3887,12 +3896,39 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
       onChangeEnd: total == 0
           ? null
-          : (value) {
+          : (value) async {
               final target = _positionAt(value, snapshot.duration);
-              setState(() => _previewTarget = null);
-              _scheduleAutoHide();
               final player = _player;
-              if (player != null) unawaited(player.seek(target));
+              final revision = _seekRevision;
+              final acknowledged = Completer<void>();
+              void checkPosition() {
+                if (player != null &&
+                    !acknowledged.isCompleted &&
+                    (player.snapshot.value.position - target).abs() <=
+                        const Duration(seconds: 1)) {
+                  acknowledged.complete();
+                }
+              }
+
+              player?.snapshot.addListener(checkPosition);
+              try {
+                if (player != null) {
+                  await player.seek(target);
+                  checkPosition();
+                  await acknowledged.future.timeout(
+                    const Duration(seconds: 2),
+                    onTimeout: () {},
+                  );
+                }
+              } catch (error) {
+                if (mounted) _showToast('跳转失败，请重试');
+              } finally {
+                player?.snapshot.removeListener(checkPosition);
+                if (mounted && revision == _seekRevision) {
+                  setState(() => _previewTarget = null);
+                  _scheduleAutoHide();
+                }
+              }
             },
     );
     if (_fullscreen) {

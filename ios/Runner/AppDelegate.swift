@@ -20,6 +20,7 @@ import UIKit
   private let playback = PlaybackSessionController()
   private let wafCookies = WafCookieController()
   private let battery = BatteryController()
+  private let configurationExport = ConfigurationExportController()
 
   override func application(
     _ application: UIApplication,
@@ -30,11 +31,19 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxPlaybackBlur") {
-      registrar.register(PlaybackBlurFactory(), withId: "lumebox/playback_blur")
+    if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxConfiguration")?.messenger() {
+      configurationExport.register(with: messenger)
+      FlutterMethodChannel(name: "lumebox/app_icon", binaryMessenger: messenger).setMethodCallHandler { call, result in
+        if call.method == "current" { result(UIApplication.shared.alternateIconName ?? "default"); return }
+        guard call.method == "set" else { result(FlutterMethodNotImplemented); return }
+        guard UIApplication.shared.supportsAlternateIcons else { result(FlutterError(code: "unsupported", message: "This device does not support alternate icons", details: nil)); return }
+        guard let name = call.arguments as? String, ["default", "Aurora", "Obsidian", "Solar"].contains(name) else { result(FlutterError(code: "icon", message: "Unknown icon", details: nil)); return }
+        UIApplication.shared.setAlternateIconName(name == "default" ? nil : name) { error in
+          if let error = error { result(FlutterError(code: "icon", message: error.localizedDescription, details: nil)) }
+          else { result(true) }
+        }
+      }
     }
-
-
     // 画中画通道：与 Dart 侧 `MethodChannelPipBackend` 的契约一一对应。
     // 用插件注册器的 binaryMessenger 注册，保证与 Flutter 引擎同一条消息通道。
     if let messenger = engineBridge.pluginRegistry
@@ -81,20 +90,43 @@ import UIKit
   }
 }
 
-/// Native effect view overlays only the active player's controls or menus.
-private final class PlaybackBlurFactory: NSObject, FlutterPlatformViewFactory {
-  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol { FlutterStandardMessageCodec.sharedInstance() }
-  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
-    PlaybackBlurView(frame: frame, dark: (args as? [String: Any])?["dark"] as? Bool ?? false)
+private final class ConfigurationExportController: NSObject, UIDocumentPickerDelegate {
+  private var pending: FlutterResult?
+  private var temporary: URL?
+  func register(with messenger: FlutterBinaryMessenger) {
+    FlutterMethodChannel(name: "lumebox/configuration", binaryMessenger: messenger)
+      .setMethodCallHandler { [weak self] call, result in
+        guard call.method == "export" else { result(FlutterMethodNotImplemented); return }
+        guard let self = self else { result(false); return }
+        guard self.pending == nil else { result(FlutterError(code: "busy", message: "An export is already open", details: nil)); return }
+        guard let args = call.arguments as? [String: Any], let text = args["text"] as? String,
+              let name = args["name"] as? String, name == (name as NSString).lastPathComponent else {
+          result(FlutterError(code: "arguments", message: "Invalid backup", details: nil)); return
+        }
+        do {
+          let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+          try text.write(to: url, atomically: true, encoding: .utf8)
+          var presenter = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }.first(where: { $0.isKeyWindow })?.rootViewController
+          while let next = presenter?.presentedViewController { presenter = next }
+          guard let viewController = presenter else { result(false); return }
+          let picker: UIDocumentPickerViewController
+          if #available(iOS 14.0, *) { picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true) }
+          else { picker = UIDocumentPickerViewController(url: url, in: .exportToService) }
+          self.pending = result
+          self.temporary = url
+          picker.delegate = self
+          viewController.present(picker, animated: true)
+        } catch { result(FlutterError(code: "export", message: error.localizedDescription, details: nil)) }
+      }
   }
-}
-private final class PlaybackBlurView: NSObject, FlutterPlatformView {
-  private let effectView: UIVisualEffectView
-  init(frame: CGRect, dark: Bool) {
-    effectView = UIVisualEffectView(effect: UIBlurEffect(style: dark ? .systemThinMaterialDark : .systemThinMaterialLight))
-    super.init()
-    effectView.frame = frame
-    effectView.isUserInteractionEnabled = false
+  private func finish(_ saved: Bool) {
+    let callback = pending
+    pending = nil
+    if let url = temporary { try? FileManager.default.removeItem(at: url) }
+    temporary = nil
+    callback?(saved)
   }
-  func view() -> UIView { effectView }
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish(!urls.isEmpty) }
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(false) }
 }

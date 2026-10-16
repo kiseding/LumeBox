@@ -204,12 +204,6 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             : (value) =>
                   _updateDanmaku(_danmaku!.copyWith(avoidSubtitles: value)),
       ),
-      SwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('播放毛玻璃'),
-        value: settings.playbackGlass,
-        onChanged: (value) => _update(settings.copyWith(playbackGlass: value)),
-      ),
       _section('播放内核', '切换播放内核；倍速、画面与字幕设置分别保存'),
       PlayerKernelPicker(
         selected: settings.kernel,
@@ -342,7 +336,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.transparent),
+        decoration: LumeTheme.background,
         child: SafeArea(
           top: false,
           child: ConstrainedBox(

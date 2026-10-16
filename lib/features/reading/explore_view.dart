@@ -954,7 +954,7 @@ class _ExploreViewState extends State<ExploreView> {
       _searchMode = selection.mode;
       _searchSourceIds = selection.sourceIds;
       _searching = true;
-      _suggestions = const <String>[];
+      _suggestions = _historyStore?.load() ?? const <String>[];
     });
   }
 
@@ -964,13 +964,14 @@ class _ExploreViewState extends State<ExploreView> {
   void _onSearchChanged(String value) {
     _suggestDebounce?.cancel();
     final keyword = value.trim();
+    _suggestSeq++;
     if (keyword.isEmpty) {
-      // 空输入不弹（用户点名）。
-      setState(() => _suggestions = const <String>[]);
+      setState(() => _suggestions = _historyStore?.load() ?? const <String>[]);
       return;
     }
+    setState(() => _suggestions = const <String>[]);
     _suggestDebounce = Timer(
-      const Duration(milliseconds: 200),
+      const Duration(milliseconds: 300),
       () => unawaited(_loadSuggestions(keyword)),
     );
   }
@@ -1284,6 +1285,18 @@ class _ExploreViewState extends State<ExploreView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (_search.text.trim().isEmpty)
+              ListTile(
+                dense: true,
+                title: const Text('搜索历史'),
+                trailing: TextButton(
+                  onPressed: () {
+                    _historyStore?.clear();
+                    setState(() => _suggestions = const <String>[]);
+                  },
+                  child: const Text('清空全部'),
+                ),
+              ),
             for (final suggestion in _suggestions)
               InkWell(
                 onTap: () => _applySuggestion(suggestion),
@@ -1297,8 +1310,8 @@ class _ExploreViewState extends State<ExploreView> {
                       Icon(Icons.search, size: 16, color: LumeTheme.muted),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          suggestion,
+                        child: Text.rich(
+                          _highlightSuggestion(suggestion),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -1315,6 +1328,35 @@ class _ExploreViewState extends State<ExploreView> {
         ),
       ),
     );
+  }
+
+  TextSpan _highlightSuggestion(String title) {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return TextSpan(text: title);
+    final spans = <TextSpan>[];
+    var offset = 0;
+    final lower = title.toLowerCase();
+    while (offset < title.length) {
+      final start = lower.indexOf(query, offset);
+      if (start < 0) {
+        spans.add(TextSpan(text: title.substring(offset)));
+        break;
+      }
+      if (start > offset) {
+        spans.add(TextSpan(text: title.substring(offset, start)));
+      }
+      spans.add(
+        TextSpan(
+          text: title.substring(start, start + query.length),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+      offset = start + query.length;
+    }
+    return TextSpan(children: spans);
   }
 
   /// 键盘占住的高度：列表拿它做底部内边距。

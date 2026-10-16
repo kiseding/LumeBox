@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lume_box/core/session/section_scope.dart';
-import 'package:lume_box/features/source/source_section_page.dart';
+import 'package:lume_box/features/source/source_subscription_page.dart';
 
 import 'dart:convert';
 import 'dart:io';
@@ -233,18 +233,27 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: SourceSectionPage(
-          section: Section.video,
-          manager: manager,
-          fetchSubscription: service.fetch,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SourceSubscriptionPage(
+                    section: Section.video,
+                    manager: manager,
+                    fetchSubscription: service.fetch,
+                  ),
+                ),
+              ),
+              child: const Text('订阅'),
+            ),
+          ),
         ),
       ),
     );
     await settle();
     expect(find.text('订阅管理 · 添加订阅链接'), findsNothing);
-    await tester.tap(find.byTooltip('添加源'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('订阅管理'));
+    await tester.tap(find.text('订阅'));
     await settle();
     await tester.enterText(find.byType(TextField), manifest);
     await tester.tap(find.text('添加订阅并导入'));
@@ -254,9 +263,7 @@ void main() {
     await tester.pageBack();
     await settle();
     expect(find.textContaining('已保存 1 个订阅'), findsNothing);
-    await tester.tap(find.byTooltip('添加源'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('订阅管理'));
+    await tester.tap(find.text('订阅'));
     await settle();
     expect(find.text(manifest), findsOneWidget);
     expect(

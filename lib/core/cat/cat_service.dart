@@ -1,4 +1,8 @@
 import 'dart:async';
+
+import '../source/source_subscription_sync.dart';
+import '../session/section.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -225,6 +229,10 @@ class CatService extends ChangeNotifier {
     final base = await getApplicationSupportDirectory();
     _root = Directory('${base.path}/sections/cat/node');
     await _root!.create(recursive: true);
+    SourceSubscriptionSync.attachNoticeFile(
+      Section.cat,
+      File('${_root!.path}/subscription-changes.txt'),
+    );
     final file = File('${_root!.path}/subscriptions.json');
     if (await file.exists()) {
       try {
@@ -461,6 +469,9 @@ class CatService extends ChangeNotifier {
         } finally {
           if (await staging.exists()) await staging.delete(recursive: true);
         }
+      }
+      if (record.hash != hash || record.configHash != configHash) {
+        SourceSubscriptionSync.changeCount(Section.cat).value++;
       }
       record.hash = hash;
       record.configHash = configHash;

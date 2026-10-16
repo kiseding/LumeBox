@@ -220,12 +220,14 @@ class _CatDetailPageState extends State<CatDetailPage> {
   }
 
   void playEpisode(SourceChapter chapter) {
+    if (playing) return;
     final index = chapters.indexWhere((entry) => entry.id == chapter.id);
     if (index >= 0) {
       setState(() {
         selectedChapterId = chapter.id;
         line = CatDataSource.flagOf(chapter);
       });
+      unawaited(play(index));
     }
   }
 

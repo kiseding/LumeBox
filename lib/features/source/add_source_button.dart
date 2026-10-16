@@ -63,15 +63,12 @@ class AddSourceButton extends StatelessWidget {
           switch (value) {
             case 'add':
               _open(context, target);
-            case 'subscriptions':
-              onSubscriptions!();
             case 'refresh':
               onRefreshSubscriptions?.call();
           }
         },
         itemBuilder: (_) => [
           const PopupMenuItem(value: 'add', child: Text('导入源')),
-          const PopupMenuItem(value: 'subscriptions', child: Text('订阅管理')),
           if (onRefreshSubscriptions != null)
             const PopupMenuItem(value: 'refresh', child: Text('刷新已导入订阅源')),
         ],

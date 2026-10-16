@@ -40,7 +40,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.transparent),
+        decoration: LumeTheme.background,
         child: SafeArea(
           top: false,
           // 面板内容与「播放器设置 → 弹幕」共用同一份（[DanmakuSettingsPanel]），

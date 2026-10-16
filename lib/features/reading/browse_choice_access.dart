@@ -265,7 +265,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
               16,
               MediaQuery.viewInsetsOf(context).bottom +
                   MediaQuery.paddingOf(context).bottom +
-                  24,
+                  22,
             ),
             child: Column(
               children: [
@@ -330,6 +330,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                     ],
                   ),
                 ),
+                const SizedBox(height: 40),
                 Row(
                   children: [
                     TextButton(

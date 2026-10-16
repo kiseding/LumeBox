@@ -1,3 +1,4 @@
+import '../../shared/widgets/subscription_status_icon.dart';
 import 'video_detail_page.dart';
 
 import 'dart:async';
@@ -345,14 +346,16 @@ class _VideoPageState extends State<VideoPage> {
       icon: const Icon(Icons.history),
       onPressed: _openHistory,
     ),
+    const SizedBox(width: 2),
     IconButton(
       tooltip: '收藏',
       icon: const Icon(Icons.bookmark_outline),
       onPressed: () => _openHistory(favorites: true),
     ),
+    const SizedBox(width: 2),
     IconButton(
       tooltip: '源管理',
-      icon: const Icon(Icons.folder_open_outlined),
+      icon: const Icon(Icons.dns_outlined),
       onPressed: () async {
         await Navigator.push(
           context,
@@ -367,10 +370,11 @@ class _VideoPageState extends State<VideoPage> {
       },
     ),
     // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
+    const SizedBox(width: 2),
     Tooltip(
       message: '订阅',
       child: IconButton(
-        icon: const Icon(Icons.rss_feed),
+        icon: const SubscriptionStatusIcon(section: Section.video),
         onPressed: () async {
           await Navigator.push(
             context,

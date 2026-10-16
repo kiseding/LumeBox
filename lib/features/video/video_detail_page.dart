@@ -20,7 +20,7 @@ typedef OpenVideoPlayer = Future<void> Function(
   PlayerPrelaunch? prelaunch,
 );
 
-/// Detail first: selecting an episode never creates a player or resolves media.
+/// Episode selection opens playback; the play button remains a second entry.
 class VideoDetailPage extends StatefulWidget {
   const VideoDetailPage({
     super.key,
@@ -274,7 +274,10 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                         selected: index == selected,
                         onSelected: resolving
                             ? null
-                            : (_) => setState(() => selected = index),
+                            : (_) {
+                                setState(() => selected = index);
+                                play();
+                              },
                       ),
                   ],
                 ),

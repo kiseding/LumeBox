@@ -95,7 +95,7 @@ class VideoPlayerSettingsStore {
       defaultQuality: DefaultQuality.parse(
         _library.setting('video.player.defaultQuality'),
       ),
-      playbackGlass: _library.setting('video.player.playbackGlass') != 'false',
+      playbackGlass: false,
       manualQualityLabel: _library.setting(keyManualQualityLabel) ?? '',
       // 旧库没有这一项时（键缺失）按「开」处理——与历史行为一致。
       subtitlesEnabled: _library.setting(keySubtitles) != 'false',

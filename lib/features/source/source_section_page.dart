@@ -1,3 +1,6 @@
+import '../../core/source/source_content_rating.dart';
+import '../../shared/widgets/source_rating_badge.dart';
+import '../../core/source/source_order.dart';
 import 'source_maintenance.dart';
 import 'source_action_dialogs.dart';
 import '../../core/reading/reading_library.dart';
@@ -60,6 +63,8 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   List<SourceDescriptor>? _sources;
   bool _failed = false;
   String _sourceQuery = '';
+  String? _group;
+  bool _compact = false;
   int _sourceFilter = 0;
   bool _selecting = false;
   bool _maintaining = false;
@@ -106,6 +111,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       if (!mounted) return;
       setState(() {
         _sources = sources;
+        _compact =
+            ReadingLibrary.find(widget.section)
+                ?.setting('source.manager.compact') ==
+            'true';
         _selectedIds.removeWhere(
           (id) => !sources.any((source) => source.id == id),
         );
@@ -660,6 +669,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                       '${source.name} ${source.id} ${source.group}'
                           .toLowerCase()
                           .contains(query)) &&
+                  (_group == null || source.group == _group) &&
                   (_sourceFilter == 0 ||
                       (_sourceFilter == 1 ? source.enabled : source.broken)),
             )
@@ -668,23 +678,50 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
             final pinA = SourcePreferences.read(widget.section, a.id).pinned;
             final pinB = SourcePreferences.read(widget.section, b.id).pinned;
             if (pinA != pinB) return pinA ? -1 : 1;
-            return sources.indexOf(a).compareTo(sources.indexOf(b));
+            return SourceOrder.compare(
+              widget.section,
+              a.id,
+              b.id,
+              sources.map((s) => s.id).toList(),
+            );
           });
-    return ListView.separated(
-      padding: GlassScaffold.barInset(context).add(
-        EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          // 滚到最末才让出悬浮 Dock 那一段（猫源板块页就在 Dock 之上）。
-          16 + ShellDockScope.bottomInset(context),
-        ),
-      ),
+    return ReorderableListView.builder(
+      buildDefaultDragHandles: false,
+      onReorderItem: (from, to) async {
+        final all = List<SourceDescriptor>.of(sources)
+          ..sort(
+            (a, b) => SourceOrder.compare(
+              widget.section,
+              a.id,
+              b.id,
+              sources.map((s) => s.id).toList(),
+            ),
+          );
+        await SourceOrder.move(
+          widget.section,
+          all.map((s) => s.id).toList(),
+          visible.map((s) => s.id).toList(),
+          from - 1,
+          to - 1 < 0 ? 0 : to - 1,
+        );
+        if (mounted) setState(() {});
+      },
+      padding: GlassScaffold.barInset(context)
+          .add(
+            EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              // 滚到最末才让出悬浮 Dock 那一段（猫源板块页就在 Dock 之上）。
+              16 + ShellDockScope.bottomInset(context),
+            ),
+          )
+          .resolve(Directionality.of(context)),
       itemCount: visible.length + 1,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         if (index == 0) {
           return Column(
+            key: const ValueKey('source-manager-header'),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
@@ -711,7 +748,48 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                 ],
               ),
               const SizedBox(height: 8),
-              Text('${visible.length} 个源 · 置顶源优先'),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _group ?? '__all__',
+                      items: [
+                        const DropdownMenuItem(
+                          value: '__all__',
+                          child: Text('总分组（全部）'),
+                        ),
+                        for (final group
+                            in sources.map((source) => source.group).toSet())
+                          DropdownMenuItem(
+                            value: group,
+                            child: Text(group.isEmpty ? '未分组' : group),
+                          ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _group = value == '__all__' ? null : value,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: _compact ? '详细排列' : '紧凑排列',
+                    icon: Icon(
+                      _compact
+                          ? Icons.view_agenda_outlined
+                          : Icons.view_list_outlined,
+                    ),
+                    onPressed: () async {
+                      final library = await ReadingLibrary.open(widget.section);
+                      library.setSetting(
+                        'source.manager.compact',
+                        '${!_compact}',
+                      );
+                      if (mounted) setState(() => _compact = !_compact);
+                    },
+                  ),
+                ],
+              ),
+              Text('${visible.length} 个源 · 长按手柄拖动排序'),
               if (_maintenanceStatus != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -772,44 +850,73 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           );
         }
         final source = visible[index - 1];
-        return Row(
-          children: [
-            if (_selecting)
-              Checkbox(
-                key: ValueKey('select-source-${source.id}'),
-                value: _selectedIds.contains(source.id),
-                onChanged: (value) => setState(() {
-                  if (value == true) {
-                    _selectedIds.add(source.id);
-                  } else {
-                    _selectedIds.remove(source.id);
-                  }
-                }),
+        return Padding(
+          key: ValueKey('source-manager-${source.id}'),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              ReorderableDelayedDragStartListener(
+                index: index,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.drag_handle),
+                ),
               ),
-            Expanded(
-              child: _SourceTile(
-                source: source,
-                section: widget.section,
-                pinned: SourcePreferences.read(
-                  widget.section,
-                  source.id,
-                ).pinned,
-                customIcon: SourcePreferences.read(
-                  widget.section,
-                  source.id,
-                ).iconUrl,
-                testing: _testing.contains(source.id),
-                testResult: _testResults[source.id],
-                onToggle: (enabled) => _toggle(source, enabled),
-                onRename: () => _rename(source),
-                onGroup: () => _setGroup(source),
-                onRecover: source.broken ? () => _recover(source) : null,
-                onNetwork: () => _editNetwork(source),
-                onExport: () => _export(source),
-                onDelete: () => _delete(source),
+              if (_selecting)
+                Checkbox(
+                  key: ValueKey('select-source-${source.id}'),
+                  value: _selectedIds.contains(source.id),
+                  onChanged: (value) => setState(() {
+                    if (value == true) {
+                      _selectedIds.add(source.id);
+                    } else {
+                      _selectedIds.remove(source.id);
+                    }
+                  }),
+                ),
+              Expanded(
+                child: _compact
+                    ? ListTile(
+                        title: Text(source.name),
+                        subtitle: Text(source.hasGroup ? source.group : '未分组'),
+                        leading: SourceIcon(
+                          name: source.name,
+                          siteUrl: source.siteUrl,
+                          section: widget.section,
+                          sourceId: source.id,
+                        ),
+                        trailing: Switch(
+                          value: source.enabled,
+                          onChanged: (value) => _toggle(source, value),
+                        ),
+                        onTap: () => _rename(source),
+                      )
+                    : _SourceTile(
+                        source: source,
+                        section: widget.section,
+                        pinned: SourcePreferences.read(
+                          widget.section,
+                          source.id,
+                        ).pinned,
+                        customIcon: SourcePreferences.read(
+                          widget.section,
+                          source.id,
+                        ).iconUrl,
+                        testing: _testing.contains(source.id),
+                        testResult: _testResults[source.id],
+                        onToggle: (enabled) => _toggle(source, enabled),
+                        onRename: () => _rename(source),
+                        onGroup: () => _setGroup(source),
+                        onRecover: source.broken
+                            ? () => _recover(source)
+                            : null,
+                        onNetwork: () => _editNetwork(source),
+                        onExport: () => _export(source),
+                        onDelete: () => _delete(source),
+                      ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -924,6 +1031,8 @@ class _SourceTile extends StatelessWidget {
                           : source.version,
                       style: TextStyle(fontSize: 12, color: LumeTheme.muted),
                     ),
+                    if (SourceContentRating.isAdult(source.id, source.name))
+                      const SourceRatingBadge(),
                     if (!source.enabled) ...<Widget>[
                       Text(
                         '已停用',

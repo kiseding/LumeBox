@@ -33,7 +33,7 @@ void main() {
     await tester.pumpAndSettle();
     final apply = tester.getRect(find.widgetWithText(FilledButton, '应用筛选'));
     final reset = tester.getRect(find.widgetWithText(TextButton, '重置'));
-    expect(apply.bottom, lessThanOrEqualTo(844 - 34 - 24));
+    expect(apply.bottom, lessThanOrEqualTo(844 - 34 - 22));
     expect(reset.center.dy, apply.center.dy);
     await tester.tap(find.widgetWithText(FilledButton, '应用筛选'));
     await tester.pumpAndSettle();

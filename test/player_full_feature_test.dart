@@ -1107,8 +1107,11 @@ void main() {
       expect(players.single.seeks, isEmpty, reason: '拖动中不反复 seek');
 
       await gesture.up();
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(players.single.seeks, isNotEmpty, reason: '松手才 seek');
+      expect(find.textContaining('拖动到'), findsOneWidget, reason: '内核尚未确认跳转，保留目标位置避免回弹');
+      players.single.emit(position: players.single.seeks.last, duration: const Duration(minutes: 10));
+      await tester.pumpAndSettle();
       expect(find.textContaining('拖动到'), findsNothing);
     });
 

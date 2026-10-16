@@ -404,7 +404,7 @@ class PlayerSettings {
     this.rememberManualQuality = false,
     this.manualQualityLabel = '',
     this.defaultQuality = DefaultQuality.automatic,
-    this.playbackGlass = true,
+    this.playbackGlass = false,
     this.controlStyle = PlayerControlStyle.icons,
     this.autoNext = true,
     this.gestureSensitivity = defaultGestureSensitivity,

@@ -82,12 +82,12 @@ void main() {
   test('默认清晰度与毛玻璃默认值、复制和相等性', () {
     const original = PlayerSettings();
     expect(original.defaultQuality, DefaultQuality.automatic);
-    expect(original.playbackGlass, isTrue);
+    expect(original.playbackGlass, isFalse);
     expect(
       original.copyWith(defaultQuality: DefaultQuality.sd),
       isNot(original),
     );
-    expect(original.copyWith(playbackGlass: false), isNot(original));
+    expect(original.copyWith(playbackGlass: false), original);
     expect(DefaultQuality.parse('bad'), DefaultQuality.automatic);
   });
   test('搜索繁转简按词匹配，非中文保留，精确搜索可关闭', () {

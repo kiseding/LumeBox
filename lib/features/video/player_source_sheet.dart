@@ -154,7 +154,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.transparent),
+        decoration: LumeTheme.background,
         child: SafeArea(
           top: false,
           child: Padding(

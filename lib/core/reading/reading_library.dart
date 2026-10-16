@@ -157,6 +157,7 @@ class ReadingLibrary {
   /// 两件事必须一起做：未读角标的口径来自书架，位置来自进度表；
   /// 分开写迟早会不一致。进度写入前的类型由调用方按板块选定。
   void saveProgress(ReadingProgress progress) {
+    if (setting('history.incognito') == 'true') return;
     _store.saveProgress(progress);
     _store.markChapterRead(
       progress.itemId,
@@ -168,6 +169,8 @@ class ReadingLibrary {
   // ------------------------------------------------------------------ 设置
 
   String? setting(String key) => _store.setting(key);
+
+  Map<String, String> exportSettings() => _store.exportSettings();
 
   void setSetting(String key, String value) => _store.setSetting(key, value);
 

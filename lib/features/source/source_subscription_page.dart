@@ -131,6 +131,28 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          ValueListenableBuilder<int>(
+            valueListenable: SourceSubscriptionSync.changeCount(widget.section),
+            builder: (_, count, _) => count == 0
+                ? const SizedBox.shrink()
+                : ListTile(
+                    leading: const Icon(Icons.notifications_active_outlined),
+                    title: Text('订阅源已变动 $count 条'),
+                    subtitle: const Text('已同步新增、更新或移除的源'),
+                    trailing: TextButton(
+                      onPressed: () =>
+                          SourceSubscriptionSync.changeCount(widget.section)
+                                  .value =
+                              0,
+                      child: const Text('知道了'),
+                    ),
+                  ),
+          ),
+          FilledButton.icon(
+            onPressed: _busy ? null : _sync,
+            icon: const Icon(Icons.system_update_alt),
+            label: const Text('一键更新全部订阅'),
+          ),
           const Text(
             '订阅地址保存后，启动、回到前台和进入板块时会自动检查。正常间隔 6 小时，失败后 30 分钟可重试。同步新增、更新和移除，保留手动导入的源。',
           ),

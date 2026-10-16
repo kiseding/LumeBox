@@ -1,3 +1,11 @@
+import 'favorite_folder_dialogs.dart';
+
+import 'dart:async';
+
+import '../../core/reading/favorite_folders.dart';
+import '../../core/source/source.dart';
+import 'history_privacy.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -16,18 +24,27 @@ Future<void> showReadingHistorySheet({
   void Function(LibraryItem item)? onOpenItem,
   DateTime Function()? clock,
   HistoryDrawerTab initialTab = HistoryDrawerTab.records,
-}) {
+}) async {
+  if (initialTab == HistoryDrawerTab.records &&
+      !await HistoryPrivacy.unlock(context, library)) {
+    return;
+  }
+  if (!context.mounted) return;
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (_) => ReadingHistorySheet(
-      section: section,
+    builder: (_) => HistoryPrivacyGuard(
       library: library,
-      onResume: onResume,
-      onOpenItem: onOpenItem,
-      clock: clock,
-      initialTab: initialTab,
+      enabled: initialTab == HistoryDrawerTab.records,
+      child: ReadingHistorySheet(
+        section: section,
+        library: library,
+        onResume: onResume,
+        onOpenItem: onOpenItem,
+        clock: clock,
+        initialTab: initialTab,
+      ),
     ),
   );
 }
@@ -88,16 +105,103 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
     super.dispose();
   }
 
+  String? folder;
+  late final folders = FavoriteFolders(widget.library);
+  bool checkingUpdates = false;
+  String query = '';
+  bool showSearch = false;
+  @override
+  void initState() {
+    super.initState();
+    if (favorites) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(checkUpdates(quiet: true));
+      });
+    }
+  }
+
+  Future<void> manageFolders() async {
+    await showFavoriteFolderManager(context, folders);
+    if (mounted) {
+      setState(() {
+        if (!folders.load().containsKey(folder)) folder = null;
+      });
+    }
+  }
+
+  Future<void> moveToFolder(LibraryItem item) async {
+    await chooseFavoriteFolder(context, folders, item.itemId);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> checkUpdates({bool quiet = false}) async {
+    final last = DateTime.tryParse(
+      widget.library.setting('favorites.lastCheck') ?? '',
+    );
+    if (quiet &&
+        last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 10)) {
+      return;
+    }
+    if (checkingUpdates) return;
+    setState(() => checkingUpdates = true);
+    widget.library.setSetting(
+      'favorites.lastCheck',
+      DateTime.now().toIso8601String(),
+    );
+    final manager = LumeSources.manager(widget.section);
+    var changed = 0, failed = 0;
+    for (final item in widget.library.shelf()) {
+      try {
+        final source = await manager.open(item.sourceId);
+        if (source == null) {
+          failed++;
+          continue;
+        }
+        final chapters = await source.chapters(item.itemId);
+        if (chapters.length > item.chapterCount && item.chapterCount > 0) {
+          widget.library.setSetting('favorite.updated.${item.itemId}', 'true');
+          changed++;
+        }
+        widget.library.syncChapters(item.itemId, chapters.length);
+      } catch (_) {
+        failed++;
+      }
+      if (!mounted) return;
+    }
+    if (mounted) {
+      setState(() => checkingUpdates = false);
+      if (!quiet) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '发现 $changed 部更新${failed == 0 ? '' : '，$failed 部暂时无法检查'}',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   bool get favorites => widget.initialTab == HistoryDrawerTab.favorites;
   @override
   Widget build(BuildContext context) {
     final entries = widget.library.continueReading(limit: 1000000);
-    final items = favorites
-        ? widget.library.shelf()
-        : entries.map((e) => e.item).toList();
+    final items =
+        (favorites
+                ? widget.library.shelf()
+                : entries.map((e) => e.item).toList())
+            .where(
+              (item) =>
+                  item.title.toLowerCase().contains(query.toLowerCase()) &&
+                  (folder == null ||
+                      (folders.load()[folder] ?? []).contains(item.itemId)),
+            )
+            .toList();
     final now = (widget.clock ?? DateTime.now)();
     final title = favorites ? '收藏' : '历史';
     void open(LibraryItem item) {
+      widget.library.setSetting('favorite.updated.${item.itemId}', 'false');
       final progress = widget.library.progress(item.itemId);
       if (progress != null) {
         widget.onResume(item, progress);
@@ -125,6 +229,109 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (favorites) ...[
+                      IconButton(
+                        tooltip: '管理收藏夹',
+                        icon: const Icon(Icons.create_new_folder_outlined),
+                        onPressed: manageFolders,
+                      ),
+                      IconButton(
+                        tooltip: '检查收藏更新',
+                        icon: checkingUpdates
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Badge(
+                                isLabelVisible: widget.library.shelf().any(
+                                  (item) =>
+                                      widget.library.setting(
+                                        'favorite.updated.${item.itemId}',
+                                      ) ==
+                                      'true',
+                                ),
+                                child: const Icon(Icons.notifications_outlined),
+                              ),
+                        onPressed: checkingUpdates ? null : checkUpdates,
+                      ),
+                    ],
+                    IconButton(
+                      tooltip: '搜索记录',
+                      icon: const Icon(Icons.search),
+                      onPressed: () => setState(() => showSearch = !showSearch),
+                    ),
+                    if (!favorites) ...[
+                      IconButton(
+                        tooltip: '历史记录锁',
+                        icon: Icon(
+                          (widget.library.setting(HistoryPrivacy.lockKey) ?? '')
+                                  .isEmpty
+                              ? Icons.lock_open
+                              : Icons.lock,
+                        ),
+                        onPressed: () async {
+                          await HistoryPrivacy.toggleLock(
+                            context,
+                            widget.library,
+                          );
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                      IconButton(
+                        tooltip: '无痕模式',
+                        isSelected:
+                            widget.library.setting('history.incognito') ==
+                            'true',
+                        icon: const Icon(Icons.visibility_off_outlined),
+                        selectedIcon: const Icon(Icons.visibility_off),
+                        onPressed: () {
+                          widget.library.setSetting(
+                            'history.incognito',
+                            '${widget.library.setting('history.incognito') != 'true'}',
+                          );
+                          setState(() {});
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                if (favorites && folders.load().isNotEmpty)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('全部收藏'),
+                          selected: folder == null,
+                          onSelected: (_) => setState(() => folder = null),
+                        ),
+                        for (final name in folders.load().keys)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: ChoiceChip(
+                              label: Text(name),
+                              selected: folder == name,
+                              onSelected: (_) => setState(() => folder = name),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                if (showSearch)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(hintText: '搜索标题'),
+                      onChanged: (value) => setState(() => query = value),
+                    ),
+                  ),
                 Expanded(
                   child: CollectionPanel(
                     title: title,
@@ -144,51 +351,67 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                     },
                     itemBuilder: (index) {
                       final item = items[index];
-                      return HistoryEntryTile(
-                        item: item,
-                        progress: widget.library.progress(item.itemId),
-                        now: now,
-                        onResume: () => open(item),
+                      return GestureDetector(
+                        onLongPress: favorites
+                            ? () => moveToFolder(item)
+                            : null,
+                        child: HistoryEntryTile(
+                          pipeline: pipeline,
+                          updated:
+                              widget.library.setting(
+                                'favorite.updated.${item.itemId}',
+                              ) ==
+                              'true',
+                          item: item,
+                          progress: widget.library.progress(item.itemId),
+                          now: now,
+                          onResume: () => open(item),
+                        ),
                       );
                     },
                     gridBuilder: (index) {
                       final item = items[index];
-                      return GlassCard(
-                        onTap: () => open(item),
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: PosterCover(
-                                    pipeline: pipeline,
-                                    url: item.cover,
-                                    title: item.title,
+                      return GestureDetector(
+                        onLongPress: favorites
+                            ? () => moveToFolder(item)
+                            : null,
+                        child: GlassCard(
+                          onTap: () => open(item),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: PosterCover(
+                                      pipeline: pipeline,
+                                      url: item.cover,
+                                      title: item.title,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              widget.library
-                                      .progress(item.itemId)
-                                      ?.describe() ??
-                                  '尚未开始',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          ],
+                              const SizedBox(height: 6),
+                              Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              Text(
+                                widget.library
+                                        .progress(item.itemId)
+                                        ?.describe() ??
+                                    '尚未开始',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -216,6 +439,8 @@ class HistoryEntryTile extends StatelessWidget {
     required this.now,
     required this.onResume,
     this.onRemove,
+    this.pipeline,
+    this.updated = false,
   });
 
   final LibraryItem item;
@@ -225,6 +450,8 @@ class HistoryEntryTile extends StatelessWidget {
 
   /// 删除这条记录；为空时不显示删除按钮（小说 / 漫画的抽屉只读）。
   final VoidCallback? onRemove;
+  final SectionImagePipeline? pipeline;
+  final bool updated;
 
   /// 进度条比例：只有算得出比例的形状才画（漫画是页位置，没有总页数）。
   static double? ratioOf(ReadingProgress progress) => switch (progress) {
@@ -248,6 +475,20 @@ class HistoryEntryTile extends StatelessWidget {
       onTap: onResume,
       child: Row(
         children: <Widget>[
+          SizedBox(
+            width: 54,
+            height: 76,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: CoverThumb(
+                pipeline: pipeline,
+                url: item.cover,
+                title: item.title,
+                width: 108,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,6 +496,11 @@ class HistoryEntryTile extends StatelessWidget {
               children: <Widget>[
                 Row(
                   children: <Widget>[
+                    if (updated)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Icon(Icons.fiber_new, size: 18),
+                      ),
                     Expanded(
                       child: Text(
                         item.title,

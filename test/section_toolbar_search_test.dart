@@ -746,7 +746,7 @@ void main() {
       expect(find.text('影片 丙'), findsOneWidget);
     });
 
-    testWidgets('图源没有 suggest：退回本地搜索历史', (tester) async {
+    testWidgets('空输入展示本地历史，有输入仅匹配源标题', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
       SearchHistoryStore(Section.video, library).remember('历史关键词');
 
@@ -759,13 +759,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('应用'));
       await tester.pumpAndSettle();
+      expect(find.text('历史关键词'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '历史');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
 
       // 这个替身没有实现 SuggestCapable：联想只能来自本地历史。
       expect(source, isNot(isA<SuggestCapable>()));
-      expect(find.text('历史关键词'), findsOneWidget, reason: '用本地历史兜底');
+      expect(find.text('历史关键词'), findsNothing, reason: '无标题匹配隐藏联想');
     });
 
     testWidgets('点联想条目：填入关键词并发起搜索', (tester) async {
@@ -831,20 +832,27 @@ void main() {
       expect(await suggestions.forKeyword(''), isEmpty);
 
       final many = SearchSuggestions(
-        source: null,
-        history: <String>[for (var i = 0; i < 20; i++) '影片 $i'],
+        source: _SuggestSource(
+          section: Section.video,
+          suggestions: <String>[for (var i = 0; i < 20; i++) '影片 $i'],
+        ),
+        history: const [],
       );
       final limited = await many.forKeyword('影片');
       expect(limited, hasLength(SearchSuggestions.maxEntries));
       expect(SearchSuggestions.maxEntries, 10);
 
       final noisy = SearchSuggestions(
-        source: null,
-        history: const <String>['影片', '影片 甲', '影片 甲', '别的'],
+        source: _SuggestSource(
+          section: Section.video,
+          suggestions: const <String>['影片', '影片 甲', '影片 甲', '别的'],
+        ),
+        history: const [],
       );
       expect(await noisy.forKeyword('影片'), <String>[
+        '影片',
         '影片 甲',
-      ], reason: '去重 + 排除关键词本身 + 必须含关键词');
+      ], reason: '去重且必须含关键词');
     });
 
     test('搜索历史：去重、最新在前、上限 20 条', () async {

@@ -98,6 +98,7 @@ class SourceBackupEntry {
     this.originUrl = '',
     this.userAgent = '',
     this.proxy = '',
+    this.group = '',
   });
 
   final String id;
@@ -112,6 +113,7 @@ class SourceBackupEntry {
   /// 图源级 UA / 代理（不含 Cookie，见 [SourceBackup] 的说明）。
   final String userAgent;
   final String proxy;
+  final String group;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'id': id,
@@ -122,6 +124,7 @@ class SourceBackupEntry {
         if (originUrl.isNotEmpty) 'originUrl': originUrl,
         if (userAgent.isNotEmpty) 'userAgent': userAgent,
         if (proxy.isNotEmpty) 'proxy': proxy,
+        if (group.isNotEmpty) 'group': group,
       };
 
   static SourceBackupEntry? parse(Object? json) {
@@ -138,6 +141,7 @@ class SourceBackupEntry {
       originUrl: '${json['originUrl'] ?? ''}',
       userAgent: '${json['userAgent'] ?? ''}',
       proxy: '${json['proxy'] ?? ''}',
+      group: '${json['group'] ?? ''}',
     );
   }
 }
@@ -211,6 +215,7 @@ class SourceBackupService {
               originUrl: record.originUrl,
               userAgent: record.network.userAgent,
               proxy: record.network.proxy,
+              group: record.group,
             ),
         ];
       } catch (error, stackTrace) {
@@ -259,6 +264,7 @@ class SourceBackupService {
           }
           // 启停状态与网络覆盖属于备份里的用户配置，恢复时一并写回。
           registry.setEnabled(record.id, item.enabled);
+          registry.setGroup(record.id, item.group);
           if (item.userAgent.isNotEmpty || item.proxy.isNotEmpty) {
             registry.setSourceNetwork(
               record.id,

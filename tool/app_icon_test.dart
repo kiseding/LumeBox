@@ -14,6 +14,7 @@
 library;
 
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -21,16 +22,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const double _size = 1024;
+const _style = String.fromEnvironment('ICON_STYLE');
 
 // ---------------------------------------------------------------------- 色板
 
 /// 底：极浅（浅色主题的底色方向，不再压深色）。
-const Color _bgTop = Color(0xFFF7F6FF);
-const Color _bgBottom = Color(0xFFE8ECFF);
+const Color _bgTop = _style == 'Aurora'
+    ? Color(0xFF041D2C)
+    : _style == 'Obsidian'
+    ? Color(0xFF111019)
+    : _style == 'Solar'
+    ? Color(0xFF211C16)
+    : Color(0xFFF7F6FF);
+const Color _bgBottom = _style == 'Aurora'
+    ? Color(0xFF12394B)
+    : _style == 'Obsidian'
+    ? Color(0xFF29243C)
+    : _style == 'Solar'
+    ? Color(0xFF493627)
+    : Color(0xFFE8ECFF);
 
 /// 卡片渐变：亮蓝 → 品牌紫。
-const Color _cardBlue = Color(0xFF6E9BFF);
-const Color _cardPurple = Color(0xFF8B5CF6);
+const Color _cardBlue = _style == 'Aurora'
+    ? Color(0xFF26D5DA)
+    : _style == 'Obsidian'
+    ? Color(0xFF7B73BB)
+    : _style == 'Solar'
+    ? Color(0xFFC99647)
+    : Color(0xFF6E9BFF);
+const Color _cardPurple = _style == 'Aurora'
+    ? Color(0xFF4187EB)
+    : _style == 'Obsidian'
+    ? Color(0xFFB3A0E5)
+    : _style == 'Solar'
+    ? Color(0xFFF0D29E)
+    : Color(0xFF8B5CF6);
 
 /// 前景：白（与卡片的高对比）。
 const Color _fore = Color(0xFFFFFFFF);
@@ -49,10 +75,45 @@ void main() {
     final picture = recorder.endRecording();
     final image = await picture.toImage(_size.toInt(), _size.toInt());
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (_style.isNotEmpty) {
+      final template = jsonDecode(
+        File('ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final directory = Directory(
+        'ios/Runner/Assets.xcassets/$_style.appiconset',
+      )..createSync(recursive: true);
+      File('${directory.path}/Contents.json')
+          .writeAsStringSync(jsonEncode(template));
+      for (final entry in template['images'] as List) {
+        final size =
+            ((double.parse((entry['size'] as String).split('x').first)) *
+                    double.parse(
+                      (entry['scale'] as String).replaceAll('x', ''),
+                    ))
+                .round();
+        final outputRecorder = ui.PictureRecorder();
+        final outputCanvas = Canvas(outputRecorder)..scale(size / _size);
+        outputCanvas.drawImage(image, Offset.zero, Paint());
+        final outputPicture = outputRecorder.endRecording();
+        final outputImage = await outputPicture.toImage(size, size);
+        final bytes = await outputImage.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        File('${directory.path}/${entry['filename']}')
+            .writeAsBytesSync(bytes!.buffer.asUint8List());
+        outputImage.dispose();
+        outputPicture.dispose();
+      }
+    }
     image.dispose();
     picture.dispose();
 
-    final file = File('assets/icon/app_icon_1024.png');
+    final file = File(
+      _style.isEmpty
+          ? 'assets/icon/app_icon_1024.png'
+          : 'assets/icon/$_style.png',
+    );
     file.parent.createSync(recursive: true);
     file.writeAsBytesSync(data!.buffer.asUint8List());
     expect(file.existsSync(), isTrue);
@@ -95,7 +156,11 @@ void _paintCards(Canvas canvas) {
     );
 
     // 填充：左下的卡偏蓝、右上的卡偏紫，三层共用一条渐变轴。
-    final warm = Color.lerp(_cardBlue, _cardPurple, index / (offsets.length - 1))!;
+    final warm = Color.lerp(
+      _cardBlue,
+      _cardPurple,
+      index / (offsets.length - 1),
+    )!;
     final cool = Color.lerp(_cardPurple, _cardBlue, 0.25 * index)!;
     canvas.drawRRect(
       rrect,
@@ -169,19 +234,21 @@ void _paintGlyph(Canvas canvas) {
     center,
     cardSide * 0.42,
     Paint()
-      ..shader = ui.Gradient.radial(
-        center,
-        cardSide * 0.42,
-        <Color>[_fore.withValues(alpha: 0.16), _fore.withValues(alpha: 0)],
-      ),
+      ..shader = ui.Gradient.radial(center, cardSide * 0.42, <Color>[
+        _fore.withValues(alpha: 0.16),
+        _fore.withValues(alpha: 0),
+      ]),
   );
 }
 
 /// 供后续微调颜色时用的一键列印（保留：改配色时先看值再改）。
 // ignore: unused_element
-String debugPalette() => <Color>[_bgTop, _bgBottom, _cardBlue, _cardPurple]
-    .map((color) => color.toARGB32().toRadixString(16))
-    .join(', ');
+String debugPalette() => <Color>[
+  _bgTop,
+  _bgBottom,
+  _cardBlue,
+  _cardPurple,
+].map((color) => color.toARGB32().toRadixString(16)).join(', ');
 
 // 保持 math import 有用（圆形构图角度换算留给后续加弧形元素时用）。
 // ignore: unused_element

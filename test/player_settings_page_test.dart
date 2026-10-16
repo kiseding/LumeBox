@@ -115,7 +115,7 @@ void main() {
     );
   });
 
-  testWidgets('毛玻璃在避让字幕下方，默认画质在后台校验上方，选择立即回调', (tester) async {
+  testWidgets('无毛玻璃开关，默认画质在后台校验上方，选择立即回调', (tester) async {
     PlayerSettings? changed;
     await pumpPage(
       tester,
@@ -123,10 +123,7 @@ void main() {
       catalog: _FakeCatalog({PlayerKernel.avplayer}),
       onChanged: (value) => changed = value,
     );
-    expect(
-      tester.getTopLeft(find.text('避让底部字幕')).dy,
-      lessThan(tester.getTopLeft(find.text('播放毛玻璃')).dy),
-    );
+    expect(find.text('播放毛玻璃'), findsNothing);
     final dropdown = find.byType(DropdownButtonFormField<DefaultQuality>);
     await tester.ensureVisible(dropdown);
     await tester.pumpAndSettle();

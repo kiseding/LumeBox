@@ -192,6 +192,7 @@ class SearchHistoryStore {
 
   /// 记一条（去重后放最前，超出上限截断）。
   List<String> remember(String keyword) {
+    if (_library.setting('history.incognito') == 'true') return load();
     final text = keyword.trim();
     if (text.isEmpty) return load();
     final next = <String>[
@@ -278,7 +279,19 @@ class SearchSuggestions {
         LumeLog.info('[search] 联想接口失败，改用本地历史：$error');
       }
     }
-    return _dedupe(history, text).take(maxEntries).toList();
+    if (source != null) {
+      try {
+        final result = await source.list(keyword: text);
+        final titles = _dedupe(
+          result.items.map((item) => item.title).toList(),
+          text,
+        );
+        if (titles.isNotEmpty) return titles.take(maxEntries).toList();
+      } catch (error) {
+        LumeLog.info('[search] 标题联想请求失败：$error');
+      }
+    }
+    return const <String>[];
   }
 
   /// 去重 + 只留包含关键词的 + 去掉与关键词本身相同的那条。
@@ -287,7 +300,7 @@ class SearchSuggestions {
     final out = <String>[];
     for (final value in values) {
       final text = value.trim();
-      if (text.isEmpty || text == keyword) continue;
+      if (text.isEmpty) continue;
       if (!text.toLowerCase().contains(keyword.toLowerCase())) continue;
       if (!seen.add(text)) continue;
       out.add(text);

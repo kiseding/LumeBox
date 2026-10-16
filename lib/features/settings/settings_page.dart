@@ -1,3 +1,4 @@
+import 'configuration_settings_page.dart';
 import 'tmdb_settings_page.dart';
 import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
@@ -72,6 +73,13 @@ class SettingsPage extends StatelessWidget {
           // 分组标题只是视觉归类：每块一张卡，条目按「用户要改什么」摆放
           //（真机反馈「设置太乱」后按此口径重排）。
           const _GroupTitle('界面'),
+          _SettingsEntry(
+            icon: Icons.backup_outlined,
+            title: '配置与体验',
+            subtitle: '备份与恢复 · 自动备份 · 触感反馈 · 后台播放',
+            onTap: () => _push(context, const ConfigurationSettingsPage()),
+          ),
+          const SizedBox(height: 10),
           _SettingsEntry(
             icon: Icons.visibility_outlined,
             title: '内容分类显示',

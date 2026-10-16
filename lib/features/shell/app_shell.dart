@@ -9,6 +9,9 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../core/session/app_preferences.dart';
+import '../../core/session/configuration_backup.dart';
+
 import '../../core/net/waf.dart';
 import '../../core/net/waf_auto_verify.dart';
 import '../../core/reading/reading.dart';
@@ -86,6 +89,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   String _activeId = _pageCatalog.first.id;
   bool _scrollCollapsed = false;
   Timer? _backgroundWarmTimer;
+  Timer? _subscriptionTimer;
+  int _seenSubscriptionChanges = 0;
   bool _foreground = true;
   final _backgroundWarmed = <String>{};
   bool _backgroundWarming = false;
@@ -196,6 +201,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    for (final section in Section.values) {
+      _seenSubscriptionChanges += SourceSubscriptionSync.changeCount(section)
+          .value;
+      SourceSubscriptionSync.changeCount(section)
+          .addListener(_onSubscriptionChanges);
+    }
+    _startSubscriptionMonitor();
     _syncSubscriptions();
     _scheduleBackgroundWarm();
     _shellSettings.addListener(_onShellSettingsChanged);
@@ -236,6 +248,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _subscriptionTimer?.cancel();
+    for (final section in Section.values) {
+      SourceSubscriptionSync.changeCount(section)
+          .removeListener(_onSubscriptionChanges);
+    }
     _backgroundWarmTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _shellSettings.removeListener(_onShellSettingsChanged);
@@ -243,12 +260,53 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  void _syncSubscriptions() {
+  void _syncSubscriptions({bool force = false}) {
     for (final section in Section.values) {
       if (section != Section.cat && LumeSources.runtimeAvailableFor(section)) {
-        unawaited(SourceSubscriptionSync.refresh(section));
+        unawaited(SourceSubscriptionSync.refresh(section, force: force));
       }
     }
+  }
+
+  void _startSubscriptionMonitor() {
+    _subscriptionTimer?.cancel();
+    if (kIsWeb || !(Platform.isIOS || Platform.isAndroid)) return;
+    _subscriptionTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_foreground) {
+        _syncSubscriptions(force: true);
+        if (AppPreferences.instance.autoBackup) {
+          unawaited(() async {
+            try {
+              await ConfigurationBackup().automatic();
+            } catch (error) {
+              LumeLog.warn('自动备份失败：$error');
+            }
+          }());
+        }
+      }
+    });
+  }
+
+  void _onSubscriptionChanges() {
+    final total = Section.values.fold<int>(
+      0,
+      (sum, section) => sum + SourceSubscriptionSync.changeCount(section).value,
+    );
+    final difference = total - _seenSubscriptionChanges;
+    _seenSubscriptionChanges = total;
+    if (difference <= 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('订阅源变动 $difference 条，已同步到 App'),
+          action: SnackBarAction(
+            label: '一键更新',
+            onPressed: () => _syncSubscriptions(force: true),
+          ),
+        ),
+      );
+    });
   }
 
   @override
@@ -256,9 +314,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _foreground = state == AppLifecycleState.resumed;
     if (_foreground) {
       _syncSubscriptions();
+      _startSubscriptionMonitor();
       _backgroundWarmed.clear();
       _scheduleBackgroundWarm();
     } else {
+      _subscriptionTimer?.cancel();
       _backgroundWarmTimer?.cancel();
     }
   }
@@ -280,6 +340,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _select(String id) {
     if (id == _activeId) return;
+    AppPreferences.instance.selectionFeedback();
     // **先预热再切**（真机反馈：切板块要等、进页面才开始发请求）。这里趁手指刚
     // 点下去、页面还没构建的那一小段，把板块运行时（阅读库 + 源引擎）与首页
     // 第一页提前拉起来；页面构建后能直接吃这口热饭。

@@ -1,4 +1,6 @@
 import 'core/tmdb/tmdb.dart';
+import 'core/session/app_preferences.dart';
+import 'core/session/configuration_backup.dart';
 import 'core/search/search_settings.dart';
 import 'core/source/source_content_visibility.dart';
 import 'core/theme/floating_modules.dart';
@@ -20,6 +22,14 @@ import 'core/util/lume_log.dart';
 void main() {
   runZonedGuarded<void>(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await AppPreferences.instance.boot();
+    if (AppPreferences.instance.autoBackup) {
+      try {
+        await ConfigurationBackup().automatic();
+      } catch (error) {
+        LumeLog.warn('自动备份失败：$error');
+      }
+    }
     // 全局网络设置（并发 / UA / 代理 / 重试）：读一次落盘值，读不到就用默认，
     // 不阻断启动。四个板块的所有请求共用这一份额度（文档第六条）。
     // 这三项只影响**行为**、不影响首帧长相，因此不 await：让启动尽早出画面。

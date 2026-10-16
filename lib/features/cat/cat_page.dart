@@ -1,3 +1,11 @@
+import '../../shared/widgets/source_rating_badge.dart';
+import '../../shared/widgets/subscription_status_icon.dart';
+import '../reading/source_search_dialog.dart';
+import '../reading/history_privacy.dart';
+import '../reading/favorite_folder_dialogs.dart';
+import '../../core/reading/favorite_folders.dart';
+import '../../core/source/source_order.dart';
+import '../../core/source/source_content_rating.dart';
 import '../../core/search/search_settings.dart';
 import '../reading/collection_panel.dart';
 import '../../core/source/source_preferences.dart';
@@ -349,10 +357,60 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     unawaited(refresh());
   }
 
+  Widget _reorderSite(
+    CatSubscription record,
+    CatSite site,
+    VoidCallback changed,
+    Widget child,
+  ) => DragTarget<String>(
+    onWillAcceptWithDetails: (details) =>
+        details.data != site.id &&
+        record.sites.any((entry) => entry.id == details.data),
+    onAcceptWithDetails: (details) async {
+      final all = record.sites.map((entry) => entry.id).toList()
+        ..sort(
+          (a, b) => SourceOrder.compare(
+            Section.cat,
+            a,
+            b,
+            record.sites.map((entry) => entry.id).toList(),
+          ),
+        );
+      await SourceOrder.move(
+        Section.cat,
+        all,
+        all,
+        all.indexOf(details.data),
+        all.indexOf(site.id),
+      );
+      if (mounted) changed();
+    },
+    builder: (context, candidates, rejected) => Row(
+      children: [
+        LongPressDraggable<String>(
+          data: site.id,
+          feedback: Material(
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(site.name),
+            ),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 3, vertical: 16),
+            child: Icon(Icons.drag_handle, size: 14),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    ),
+  );
+
   Future<void> sitePicker() async {
     await ReadingLibrary.open(Section.cat);
     if (!mounted) return;
     String pickerQuery = '';
+    String? sourceGroup;
     List<CatSite> choices(CatSubscription record) {
       final rows = record.sites
           .where(
@@ -367,7 +425,12 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         final pa = SourcePreferences.read(Section.cat, a.id).pinned,
             pb = SourcePreferences.read(Section.cat, b.id).pinned;
         return pa == pb
-            ? record.sites.indexOf(a).compareTo(record.sites.indexOf(b))
+            ? SourceOrder.compare(
+                Section.cat,
+                a.id,
+                b.id,
+                record.sites.map((site) => site.id).toList(),
+              )
             : pa
             ? -1
             : 1;
@@ -410,8 +473,33 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: sourceGroup ?? '__all__',
+                      items: [
+                        const DropdownMenuItem(
+                          value: '__all__',
+                          child: Text('总分组（全部）'),
+                        ),
+                        for (final record in service.subscriptions.where(
+                          (record) => record.enabled,
+                        ))
+                          DropdownMenuItem(
+                            value: record.id,
+                            child: Text(record.name),
+                          ),
+                      ],
+                      onChanged: (value) => pickerSetState(
+                        () => sourceGroup = value == '__all__' ? null : value,
+                      ),
+                    ),
+                  ),
                   for (final record in service.subscriptions.where(
-                    (s) => s.enabled,
+                    (s) =>
+                        s.enabled &&
+                        (sourceGroup == null || sourceGroup == s.id),
                   )) ...[
                     ListTile(
                       title: Text(record.name),
@@ -427,94 +515,116 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                       mainAxisExtent: 62,
                       children: [
                         for (final site in choices(record))
-                          ListTile(
-                            dense: true,
-                            minLeadingWidth: 24,
-                            horizontalTitleGap: 8,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                            ),
-                            leading: SourceIcon(
-                              name: site.name,
-                              siteUrl: site.siteUrl,
-                              siteIcon: site.iconUrl,
-                              iconUrl: SourcePreferences.read(
-                                Section.cat,
-                                site.id,
-                              ).iconUrl,
-                              size: 28,
-                              section: Section.cat,
-                              sourceId: site.id,
-                            ),
-                            onLongPress: () async {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SourcePreferencesPage(
-                                    section: Section.cat,
-                                    sourceId: site.id,
-                                    name: site.name,
-                                    siteUrl: site.siteUrl,
-                                    showChapterOrder:
-                                        site.kind == 'novel' ||
-                                        site.kind == 'comic',
-                                    onNetwork: () async {
-                                      final url = await service
-                                          .configurationUrl(record);
-                                      if (!context.mounted) return;
-                                      await Navigator.push(
-                                        context,
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => CatWebPage(url: url),
-                                        ),
-                                      );
-                                      await service.refreshSites(record);
-                                    },
-                                  ),
-                                ),
-                              );
-                              if (context.mounted) pickerSetState(() {});
-                            },
-                            trailing: service.siteColumns == 1
-                                ? IconButton(
-                                    tooltip: '置顶站点',
-                                    icon: Icon(
-                                      SourcePreferences.read(
-                                            Section.cat,
-                                            site.id,
-                                          ).pinned
-                                          ? Icons.push_pin
-                                          : Icons.push_pin_outlined,
-                                      size: 18,
+                          _reorderSite(
+                            record,
+                            site,
+                            () => pickerSetState(() {}),
+                            ListTile(
+                              dense: true,
+                              minLeadingWidth: 24,
+                              horizontalTitleGap: 8,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              leading: SourceIcon(
+                                name: site.name,
+                                siteUrl: site.siteUrl,
+                                siteIcon: site.iconUrl,
+                                iconUrl: SourcePreferences.read(
+                                  Section.cat,
+                                  site.id,
+                                ).iconUrl,
+                                size: 28,
+                                section: Section.cat,
+                                sourceId: site.id,
+                              ),
+                              onLongPress: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => SourcePreferencesPage(
+                                      section: Section.cat,
+                                      sourceId: site.id,
+                                      name: site.name,
+                                      siteUrl: site.siteUrl,
+                                      showChapterOrder:
+                                          site.kind == 'novel' ||
+                                          site.kind == 'comic',
+                                      onNetwork: () async {
+                                        final url = await service
+                                            .configurationUrl(record);
+                                        if (!context.mounted) return;
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                CatWebPage(url: url),
+                                          ),
+                                        );
+                                        await service.refreshSites(record);
+                                      },
                                     ),
-                                    onPressed: () async {
-                                      final prefs = SourcePreferences.read(
-                                        Section.cat,
-                                        site.id,
-                                      );
-                                      await prefs
-                                          .copyWith(pinned: !prefs.pinned)
-                                          .save(Section.cat, site.id);
-                                      if (context.mounted) {
-                                        pickerSetState(() {});
-                                      }
-                                    },
-                                  )
-                                : null,
+                                  ),
+                                );
+                                if (context.mounted) pickerSetState(() {});
+                              },
+                              trailing: service.siteColumns == 1
+                                  ? IconButton(
+                                      tooltip: '置顶站点',
+                                      icon: Icon(
+                                        SourcePreferences.read(
+                                              Section.cat,
+                                              site.id,
+                                            ).pinned
+                                            ? Icons.push_pin
+                                            : Icons.push_pin_outlined,
+                                        size: 18,
+                                      ),
+                                      onPressed: () async {
+                                        final prefs = SourcePreferences.read(
+                                          Section.cat,
+                                          site.id,
+                                        );
+                                        await prefs
+                                            .copyWith(pinned: !prefs.pinned)
+                                            .save(Section.cat, site.id);
+                                        if (context.mounted) {
+                                          pickerSetState(() {});
+                                        }
+                                      },
+                                    )
+                                  : null,
 
-                            title: Text(
-                              site.name,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                              title: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(text: site.name),
+                                    if (SourceContentRating.isAdult(
+                                          site.key,
+                                          site.name,
+                                        ) ||
+                                        SourceContentRating.isAdult(
+                                          record.id,
+                                          record.name,
+                                        ))
+                                      const WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: SourceRatingBadge(),
+                                      ),
+                                  ],
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              selected:
+                                  site.id ==
+                                  (source?.site.id ?? service.selectedSiteId),
+                              selectedTileColor: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: .1),
+                              onTap: () => Navigator.pop(context, site),
                             ),
-                            selected:
-                                site.id ==
-                                (source?.site.id ?? service.selectedSiteId),
-                            selectedTileColor: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: .1),
-                            onTap: () => Navigator.pop(context, site),
                           ),
                       ],
                     ),
@@ -546,30 +656,13 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> search() async {
-    final input = TextEditingController(text: query);
+    final lib = library;
+    if (lib == null) return;
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('搜索 · ${source?.name ?? '当前站点'}'),
-        content: TextField(
-          controller: input,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          onSubmitted: (value) => Navigator.pop(context, value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, ''),
-            child: const Text('清空'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, input.text),
-            child: const Text('搜索'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          SourceSearchDialog(source: source, library: lib, initialQuery: query),
     );
-    input.dispose();
     if (value != null && mounted) {
       setState(() => query = value);
       await refresh();
@@ -598,7 +691,9 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     final lib = library;
     if (selected == null || lib == null) return;
     try {
-      await service.remember(selected, record(item));
+      if (lib.setting('history.incognito') != 'true') {
+        await service.remember(selected, record(item));
+      }
       if (!mounted) return;
       final manager = CatSourceManager(service, selected);
       final target = ReadingTarget(
@@ -632,6 +727,15 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> collection(bool favorites) async {
+    final lib = library;
+    if (lib == null) return;
+    if (!favorites && !await HistoryPrivacy.unlock(context, lib)) return;
+    if (!mounted) return;
+    var collectionQuery = '';
+    var checking = false;
+    var initialCheckStarted = false;
+    String? folder;
+    final folders = FavoriteFolders(lib);
     List<Map<String, dynamic>> records() =>
         favorites ? service.favoriteItems : service.history;
     final chosen = await showModalBottomSheet<Map<String, dynamic>>(
@@ -639,97 +743,313 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, update) {
-          final entries = records();
+          final entries = records()
+              .where(
+                (entry) =>
+                    catText(entry['title'])
+                        .toLowerCase()
+                        .contains(collectionQuery.toLowerCase()) &&
+                    (folder == null ||
+                        (folders.load()[folder] ?? []).contains(
+                          '${entry['site']}|${entry['id']}',
+                        )),
+              )
+              .toList();
           String id(Map<String, dynamic> entry) =>
               '${entry['site']}|${entry['id']}';
-          return SafeArea(
-            child: SizedBox(
-              height: MediaQuery.sizeOf(context).height * .7,
-              child: Column(
-                children: [
-                  ListTile(
-                    title: Text(favorites ? '猫源 · 收藏' : '猫源 · 历史'),
-                    trailing: IconButton(
-                      tooltip: '关闭',
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                  Expanded(
-                    child: CollectionPanel(
-                      title: favorites ? '收藏' : '历史',
-                      library: library,
-                      storageKey:
-                          'collection.${favorites ? 'favorites' : 'history'}.layout',
-                      ids: entries.map(id).toList(),
-                      onDelete: (ids) async {
-                        for (final entry in entries.where(
-                          (entry) => ids.contains(id(entry)),
-                        )) {
-                          if (favorites) {
-                            library?.removeFavorite(catText(entry['id']));
-                          } else {
-                            library?.removeHistory(catText(entry['id']));
-                          }
-                        }
-                        await service.removeCollection(
-                          ids,
-                          favorites: favorites,
-                        );
-                        update(() {});
-                      },
-                      itemBuilder: (index) => ListTile(
-                        title: Text(catText(entries[index]['title'])),
-                        onTap: () => Navigator.pop(context, entries[index]),
+          Future<void> checkFavorites({bool quiet = false}) async {
+            if (checking || !context.mounted) return;
+            lib.setSetting(
+              'cat.favorites.lastCheck',
+              DateTime.now().toIso8601String(),
+            );
+
+            update(() => checking = true);
+            var changed = 0, failures = 0;
+            for (final entry in records()) {
+              try {
+                final site = service.subscriptions
+                    .expand((subscription) => subscription.sites)
+                    .where((site) => site.id == entry['site'])
+                    .firstOrNull;
+                if (site == null) {
+                  failures++;
+                  continue;
+                }
+                final chapters = await CatDataSource(
+                  service,
+                  site,
+                ).chapters(catText(entry['id']));
+                final old = int.tryParse(
+                  lib.setting('cat.favorite.count.${id(entry)}') ?? '',
+                );
+                if (old != null && chapters.length > old) {
+                  lib.setSetting('cat.favorite.updated.${id(entry)}', 'true');
+                  changed++;
+                }
+                lib.setSetting(
+                  'cat.favorite.count.${id(entry)}',
+                  '${chapters.length}',
+                );
+              } catch (_) {
+                failures++;
+              }
+              if (!context.mounted) return;
+            }
+            if (context.mounted) {
+              update(() => checking = false);
+              if (!quiet) {
+                toast(
+                  '发现 $changed 部更新${failures == 0 ? '' : '，$failures 部暂时无法检查'}',
+                );
+              }
+            }
+          }
+
+          if (favorites && !initialCheckStarted) {
+            initialCheckStarted = true;
+            final last = DateTime.tryParse(
+              lib.setting('cat.favorites.lastCheck') ?? '',
+            );
+            if (last == null ||
+                DateTime.now().difference(last) >=
+                    const Duration(minutes: 10)) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) unawaited(checkFavorites(quiet: true));
+              });
+            }
+          }
+          return HistoryPrivacyGuard(
+            library: lib,
+            enabled: !favorites,
+            child: SafeArea(
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * .7,
+                child: Column(
+                  children: [
+                    ListTile(
+                      title: Text(favorites ? '猫源 · 收藏' : '猫源 · 历史'),
+                      trailing: IconButton(
+                        tooltip: '关闭',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
                       ),
-                      gridBuilder: (index) => Card(
-                        child: InkWell(
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (favorites)
+                          IconButton(
+                            tooltip: '检查收藏更新',
+                            icon: checking
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Badge(
+                                    isLabelVisible: records().any(
+                                      (entry) =>
+                                          lib.setting(
+                                            'cat.favorite.updated.${id(entry)}',
+                                          ) ==
+                                          'true',
+                                    ),
+                                    child: const Icon(
+                                      Icons.notifications_outlined,
+                                    ),
+                                  ),
+                            onPressed: checking ? null : () => checkFavorites(),
+                          ),
+                        if (favorites)
+                          IconButton(
+                            tooltip: '管理收藏夹',
+                            icon: const Icon(Icons.create_new_folder_outlined),
+                            onPressed: () async {
+                              await showFavoriteFolderManager(context, folders);
+                              if (context.mounted) {
+                                update(() {
+                                  if (!folders.load().containsKey(folder)) {
+                                    folder = null;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                        if (!favorites) ...[
+                          IconButton(
+                            tooltip: '历史记录锁',
+                            icon: Icon(
+                              (lib.setting(HistoryPrivacy.lockKey) ?? '')
+                                      .isEmpty
+                                  ? Icons.lock_open
+                                  : Icons.lock,
+                            ),
+                            onPressed: () async {
+                              await HistoryPrivacy.toggleLock(context, lib);
+                              if (context.mounted) update(() {});
+                            },
+                          ),
+                          IconButton(
+                            tooltip: '无痕模式',
+                            isSelected:
+                                lib.setting('history.incognito') == 'true',
+                            icon: const Icon(Icons.visibility_off_outlined),
+                            onPressed: () {
+                              lib.setSetting(
+                                'history.incognito',
+                                '${lib.setting('history.incognito') != 'true'}',
+                              );
+                              update(() {});
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: '搜索标题',
+                        ),
+                        onChanged: (value) =>
+                            update(() => collectionQuery = value),
+                      ),
+                    ),
+                    if (favorites && folders.load().isNotEmpty)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ChoiceChip(
+                              label: const Text('全部收藏'),
+                              selected: folder == null,
+                              onSelected: (_) => update(() => folder = null),
+                            ),
+                            for (final name in folders.load().keys)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: ChoiceChip(
+                                  label: Text(name),
+                                  selected: folder == name,
+                                  onSelected: (_) =>
+                                      update(() => folder = name),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    Expanded(
+                      child: CollectionPanel(
+                        title: favorites ? '收藏' : '历史',
+                        library: library,
+                        storageKey:
+                            'collection.${favorites ? 'favorites' : 'history'}.layout',
+                        ids: entries.map(id).toList(),
+                        onDelete: (ids) async {
+                          for (final entry in entries.where(
+                            (entry) => ids.contains(id(entry)),
+                          )) {
+                            if (favorites) {
+                              library?.removeFavorite(catText(entry['id']));
+                            } else {
+                              library?.removeHistory(catText(entry['id']));
+                            }
+                          }
+                          await service.removeCollection(
+                            ids,
+                            favorites: favorites,
+                          );
+                          update(() {});
+                        },
+                        itemBuilder: (index) => ListTile(
+                          onLongPress: favorites
+                              ? () async {
+                                  await chooseFavoriteFolder(
+                                    context,
+                                    folders,
+                                    id(entries[index]),
+                                  );
+                                  if (context.mounted) update(() {});
+                                }
+                              : null,
+                          leading: SizedBox(
+                            width: 46,
+                            height: 66,
+                            child: CoverThumb(
+                              pipeline: pipeline,
+                              url: entries[index]['cover'] as String?,
+                              width: 92,
+                              title: catText(entries[index]['title']),
+                            ),
+                          ),
+                          title: Text(catText(entries[index]['title'])),
                           onTap: () => Navigator.pop(context, entries[index]),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: pipeline == null
-                                      ? const Icon(Icons.video_library_outlined)
-                                      : SizedBox(
-                                          width: double.infinity,
-                                          child: PosterCover(
-                                            pipeline: pipeline!,
-                                            url:
-                                                entries[index]['cover']
-                                                    as String?,
-                                            title: catText(
-                                              entries[index]['title'],
-                                            ),
-                                            headers:
-                                                catMap(
-                                                  entries[index]['headers'],
-                                                ).map(
-                                                  (key, value) => MapEntry(
-                                                    key,
-                                                    catText(value),
+                        ),
+                        gridBuilder: (index) => Card(
+                          child: InkWell(
+                            onLongPress: favorites
+                                ? () async {
+                                    await chooseFavoriteFolder(
+                                      context,
+                                      folders,
+                                      id(entries[index]),
+                                    );
+                                    if (context.mounted) update(() {});
+                                  }
+                                : null,
+                            onTap: () => Navigator.pop(context, entries[index]),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: pipeline == null
+                                        ? const Icon(
+                                            Icons.video_library_outlined,
+                                          )
+                                        : SizedBox(
+                                            width: double.infinity,
+                                            child: PosterCover(
+                                              pipeline: pipeline!,
+                                              url:
+                                                  entries[index]['cover']
+                                                      as String?,
+                                              title: catText(
+                                                entries[index]['title'],
+                                              ),
+                                              headers:
+                                                  catMap(
+                                                    entries[index]['headers'],
+                                                  ).map(
+                                                    (key, value) => MapEntry(
+                                                      key,
+                                                      catText(value),
+                                                    ),
                                                   ),
-                                                ),
+                                            ),
                                           ),
-                                        ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  catText(entries[index]['title']),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    catText(entries[index]['title']),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -737,6 +1057,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       ),
     );
     if (chosen == null || !mounted) return;
+    lib.setSetting(
+      'cat.favorite.updated.${chosen['site']}|${chosen['id']}',
+      'false',
+    );
     final site = service.subscriptions
         .expand((s) => s.sites)
         .where((site) => site.id == chosen['site'])
@@ -858,16 +1182,24 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                   onPressed: () => collection(false),
                   icon: const Icon(Icons.history),
                 ),
+                const SizedBox(width: 2),
                 IconButton(
                   tooltip: '收藏',
                   onPressed: () => collection(true),
                   icon: const Icon(Icons.bookmark_outline),
                 ),
+                const SizedBox(width: 2),
+                IconButton(
+                  tooltip: '源管理',
+                  onPressed: sitePicker,
+                  icon: const Icon(Icons.dns_outlined),
+                ),
+                const SizedBox(width: 2),
                 Tooltip(
                   message: '订阅',
                   child: IconButton(
                     onPressed: subscriptions,
-                    icon: const Icon(Icons.rss_feed),
+                    icon: const SubscriptionStatusIcon(section: Section.cat),
                   ),
                 ),
               ],
@@ -1045,7 +1377,9 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                       const Text('添加猫源订阅后，选择包内站点即可浏览。'),
                       FilledButton.icon(
                         onPressed: subscriptions,
-                        icon: const Icon(Icons.rss_feed),
+                        icon: const SubscriptionStatusIcon(
+                          section: Section.cat,
+                        ),
                         label: const Text('添加订阅'),
                       ),
                     ],

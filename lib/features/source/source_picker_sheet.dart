@@ -1,3 +1,6 @@
+import '../../core/source/source_content_rating.dart';
+import '../../shared/widgets/source_rating_badge.dart';
+import '../../core/source/source_order.dart';
 import '../../core/source/source_content_visibility.dart';
 import '../../core/net/network_settings.dart';
 
@@ -281,6 +284,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   ],
                 ),
               ),
+              if (SourceContentRating.isAdult(source.id, source.name))
+                const SourceRatingBadge(),
               if (busy.contains(source.id))
                 const SizedBox(
                   width: 14,
@@ -311,13 +316,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   source.group.toLowerCase().contains(query)),
         )
         .toList();
-    final order = {for (var i = 0; i < sources.length; i++) sources[i].id: i};
+    final order = sources.map((s) => s.id).toList();
     visible.sort((a, b) {
       final pinA = SourcePreferences.read(widget.section, a.id).pinned;
       final pinB = SourcePreferences.read(widget.section, b.id).pinned;
       return pinA != pinB
           ? (pinA ? -1 : 1)
-          : order[a.id]!.compareTo(order[b.id]!);
+          : SourceOrder.compare(widget.section, a.id, b.id, order);
     });
     Widget list(List<SourceDescriptor> entries) => entries.isEmpty
         ? Center(
@@ -326,11 +331,44 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
               style: TextStyle(color: LumeTheme.muted),
             ),
           )
-        : ListView.separated(
+        : ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            onReorderItem: (from, to) async {
+              final all = List<SourceDescriptor>.of(sources)
+                ..sort(
+                  (a, b) =>
+                      SourceOrder.compare(widget.section, a.id, b.id, order),
+                );
+              await SourceOrder.move(
+                widget.section,
+                all.map((s) => s.id).toList(),
+                entries.map((s) => s.id).toList(),
+                from,
+                to,
+              );
+              if (mounted) setState(() {});
+            },
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 16),
             itemCount: entries.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 4),
-            itemBuilder: (_, index) => sourceTile(entries[index]),
+            itemBuilder: (_, index) => Padding(
+              key: ValueKey(entries[index].id),
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  ReorderableDelayedDragStartListener(
+                    index: index,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 16,
+                      ),
+                      child: Icon(Icons.drag_handle, size: 16),
+                    ),
+                  ),
+                  Expanded(child: sourceTile(entries[index])),
+                ],
+              ),
+            ),
           );
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -389,7 +427,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                     ),
                   ),
                   Text(
-                    '长按源可打开操作菜单',
+                    '长按拖动源可排序，长按名称打开操作菜单',
                     style: TextStyle(fontSize: 11, color: LumeTheme.muted),
                   ),
                   const SizedBox(height: 8),

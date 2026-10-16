@@ -356,6 +356,13 @@ CREATE TABLE IF NOT EXISTS reading_setting (
 
   // ------------------------------------------------------------------ 设置
 
+  Map<String, String> exportSettings() => {
+    for (final row in _db.select('SELECT key, value FROM reading_setting'))
+      if (!(row['key'] as String).startsWith('waf.') &&
+          !(row['key'] as String).startsWith('history.lock'))
+        row['key'] as String: row['value'] as String,
+  };
+
   String? setting(String key) {
     if (_closed) return null;
     final rows = _db.select('SELECT value FROM reading_setting WHERE key = ?', [

@@ -92,7 +92,7 @@ void main() {
     expect(CatDataSource.labelOf(filtered.first), '第1集');
     expect(filtered.first.id, groups['UC原画']!.first.id);
   });
-  testWidgets('猫源点章节只选择；点击播放才解析，解析失败停留详情', (tester) async {
+  testWidgets('猫源点击集号直接解析播放，失败停留详情，播放按钮可重试', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -107,13 +107,14 @@ void main() {
     await tester.ensureVisible(episode);
     await tester.tap(episode);
     await tester.pumpAndSettle();
-    expect(source.parses, 0);
+    expect(source.parses, 1);
     expect(find.byType(VideoPlayerPage), findsNothing);
+    expect(find.textContaining('fixture播放解析失败'), findsOneWidget);
     final play = find.widgetWithText(FilledButton, '播放 · 第2集');
     await tester.ensureVisible(play);
     await tester.tap(play);
     await tester.pumpAndSettle();
-    expect(source.parses, 1);
+    expect(source.parses, 2);
     expect(find.byType(CatDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
     expect(find.textContaining('fixture播放解析失败'), findsOneWidget);

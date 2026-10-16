@@ -1,4 +1,5 @@
 import '../../core/reading/reading_library.dart';
+import '../../core/source/source_subscription_sync.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source_preferences.dart';
 import '../../shared/widgets/source_icon.dart';
@@ -253,6 +254,48 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          ValueListenableBuilder<int>(
+            valueListenable: SourceSubscriptionSync.changeCount(Section.cat),
+            builder: (_, count, _) => count == 0
+                ? const SizedBox.shrink()
+                : ListTile(
+                    leading: const Icon(Icons.notifications_active_outlined),
+                    title: Text('猫源订阅已变动 $count 条'),
+                    trailing: TextButton(
+                      onPressed: () =>
+                          SourceSubscriptionSync.changeCount(Section.cat)
+                                  .value =
+                              0,
+                      child: const Text('知道了'),
+                    ),
+                  ),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.system_update_alt),
+            label: const Text('一键更新全部订阅'),
+            onPressed: working
+                ? null
+                : () async {
+                    setState(() => working = true);
+                    var failed = 0;
+                    for (final record
+                        in service.subscriptions
+                            .where((record) => record.enabled)
+                            .toList()) {
+                      try {
+                        await service.update(record);
+                      } catch (_) {
+                        failed++;
+                      }
+                    }
+                    if (mounted) {
+                      setState(() {
+                        working = false;
+                        error = failed == 0 ? null : '$failed 个订阅更新失败，已保留旧版本';
+                      });
+                    }
+                  },
+          ),
           TextField(
             onChanged: (value) => setState(() => sourceQuery = value),
             decoration: const InputDecoration(

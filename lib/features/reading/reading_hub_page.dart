@@ -1,3 +1,5 @@
+import '../../shared/widgets/subscription_status_icon.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/session/section.dart';
@@ -60,6 +62,7 @@ class ReadingHubPage extends StatelessWidget {
         title: section.label,
         actions: [
           if (actions?.isNotEmpty == true) actions!.first,
+          const SizedBox(width: 2),
           IconButton(
             tooltip: '收藏',
             icon: const Icon(Icons.bookmark_outline),
@@ -78,9 +81,10 @@ class ReadingHubPage extends StatelessWidget {
                   ),
                 ),
           ),
+          const SizedBox(width: 2),
           IconButton(
             tooltip: '源管理',
-            icon: const Icon(Icons.folder_open_outlined),
+            icon: const Icon(Icons.dns_outlined),
             onPressed: () async {
               await Navigator.push(
                 context,
@@ -92,10 +96,11 @@ class ReadingHubPage extends StatelessWidget {
               if (context.mounted) onSubscriptionsClosed?.call();
             },
           ),
+          const SizedBox(width: 2),
           Tooltip(
             message: '订阅',
             child: IconButton(
-              icon: const Icon(Icons.rss_feed),
+              icon: SubscriptionStatusIcon(section: section),
               onPressed: () async {
                 await Navigator.push(
                   context,

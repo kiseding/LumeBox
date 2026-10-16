@@ -135,7 +135,7 @@ void main() {
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
   });
-  testWidgets('列表先详情，选集不解析；点击播放才创建一个全屏实例，旋转复用，返回详情', (tester) async {
+  testWidgets('列表先详情，点击选集直接创建一个全屏实例，旋转复用，返回详情', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final players = <RoutePlayer>[];
@@ -173,11 +173,7 @@ void main() {
     expect(source.parses, 0);
     await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
     await tester.pumpAndSettle();
-    expect(source.parses, 0);
-    expect(players, isEmpty);
-    await tester.ensureVisible(find.byKey(const Key('video-detail-play')));
-    await tester.tap(find.byKey(const Key('video-detail-play')));
-    await tester.pumpAndSettle();
+    expect(source.parses, 1);
     expect(players.length, 1);
     expect(players.single.media?.uri.path, '/e2.mp4');
     expect(
@@ -268,7 +264,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
     await tester.pumpAndSettle();
-    expect(source.parses, 0);
+    expect(source.parses, 1);
     await tester.ensureVisible(find.byKey(const Key('video-detail-play')));
     await tester.tap(find.byKey(const Key('video-detail-play')));
     await tester.pumpAndSettle();
