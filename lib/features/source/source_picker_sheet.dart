@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_drag_tile.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_order.dart';
@@ -66,6 +67,9 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   late bool columns =
       ReadingLibrary.find(widget.section)?.setting('source.picker.columns') !=
       'false';
+  late bool grid =
+      ReadingLibrary.find(widget.section)?.setting('source.picker.grid') ==
+      'true';
   String query = '';
   final busy = <String>{};
   final results = <String, SourceTestResult>{};
@@ -239,6 +243,64 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   Widget sourceTile(SourceDescriptor source) {
     final prefs = SourcePreferences.read(widget.section, source.id);
     final selected = source.id == widget.currentId;
+    if (grid) {
+      return Material(
+        color: selected
+            ? LumeTheme.accent.withValues(alpha: .10)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          key: ValueKey('picker-source-${source.id}'),
+          onTap: busy.contains(source.id)
+              ? null
+              : () => Navigator.pop(context, source.id),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    SourceIcon(
+                      name: source.name,
+                      siteUrl: source.siteUrl,
+                      siteIcon: source.iconUrl,
+                      iconUrl: prefs.iconUrl,
+                      section: widget.section,
+                      sourceId: source.id,
+                      size: 28,
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      key: ValueKey('picker-more-${source.id}'),
+                      tooltip: '源操作',
+                      constraints: const BoxConstraints.tightFor(
+                        width: 28,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => action(source),
+                      icon: const Icon(Icons.more_vert, size: 18),
+                    ),
+                  ],
+                ),
+                Text(
+                  source.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                if (SourceContentRating.isAdult(source.id, source.name))
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: SourceRatingBadge(),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Material(
       color: selected
           ? LumeTheme.accent.withValues(alpha: .10)
@@ -250,7 +312,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         onTap: busy.contains(source.id)
             ? null
             : () => Navigator.pop(context, source.id),
-        onLongPress: () => action(source),
+
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           child: Row(
@@ -286,6 +348,17 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
               ),
               if (SourceContentRating.isAdult(source.id, source.name))
                 const SourceRatingBadge(),
+              IconButton(
+                key: ValueKey('picker-more-${source.id}'),
+                tooltip: '源操作',
+                constraints: const BoxConstraints.tightFor(
+                  width: 28,
+                  height: 32,
+                ),
+                padding: EdgeInsets.zero,
+                onPressed: () => action(source),
+                icon: const Icon(Icons.more_vert, size: 18),
+              ),
               if (busy.contains(source.id))
                 const SizedBox(
                   width: 14,
@@ -324,52 +397,55 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           ? (pinA ? -1 : 1)
           : SourceOrder.compare(widget.section, a.id, b.id, order);
     });
-    Widget list(List<SourceDescriptor> entries) => entries.isEmpty
-        ? Center(
-            child: Text(
-              query.isEmpty ? '暂无源' : '没有匹配的源',
-              style: TextStyle(color: LumeTheme.muted),
-            ),
-          )
-        : ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            onReorderItem: (from, to) async {
-              final all = List<SourceDescriptor>.of(sources)
-                ..sort(
-                  (a, b) =>
-                      SourceOrder.compare(widget.section, a.id, b.id, order),
-                );
-              await SourceOrder.move(
-                widget.section,
-                all.map((s) => s.id).toList(),
-                entries.map((s) => s.id).toList(),
-                from,
-                to,
-              );
-              if (mounted) setState(() {});
-            },
-            padding: const EdgeInsets.fromLTRB(6, 4, 6, 16),
-            itemCount: entries.length,
-            itemBuilder: (_, index) => Padding(
-              key: ValueKey(entries[index].id),
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  ReorderableDelayedDragStartListener(
-                    index: index,
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 16,
-                      ),
-                      child: Icon(Icons.drag_handle, size: 16),
-                    ),
-                  ),
-                  Expanded(child: sourceTile(entries[index])),
-                ],
+    Future<void> move(
+      List<SourceDescriptor> entries,
+      String from,
+      String to,
+    ) async {
+      final all = List<SourceDescriptor>.of(
+        sources,
+      )..sort((a, b) => SourceOrder.compare(widget.section, a.id, b.id, order));
+      await SourceOrder.move(
+        widget.section,
+        all.map((s) => s.id).toList(),
+        entries.map((s) => s.id).toList(),
+        entries.indexWhere((s) => s.id == from),
+        entries.indexWhere((s) => s.id == to),
+      );
+      if (mounted) setState(() {});
+    }
+
+    Widget list(List<SourceDescriptor> entries) {
+      Widget tile(BuildContext context, int i) => SourceDragTile(
+        key: ValueKey('picker-drag-${entries[i].id}'),
+        id: entries[i].id,
+        name: entries[i].name,
+        accepts: (id) => entries.any((s) => s.id == id),
+        onMove: (from, to) => move(entries, from, to),
+        child: sourceTile(entries[i]),
+      );
+      if (entries.isEmpty) {
+        return Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'));
+      }
+      return grid
+          ? GridView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: entries.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisExtent: 140,
+                mainAxisSpacing: 6,
+                crossAxisSpacing: 6,
               ),
-            ),
-          );
+              itemBuilder: tile,
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 16),
+              itemCount: entries.length,
+              itemBuilder: tile,
+            );
+    }
+
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Material(
@@ -399,7 +475,25 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                             ),
                           ),
                         ),
-                        if (groups.length == 2)
+                        IconButton(
+                          tooltip: grid ? '切换为排列' : '切换为网格',
+                          icon: Icon(
+                            grid
+                                ? Icons.view_list_outlined
+                                : Icons.grid_view_outlined,
+                          ),
+                          onPressed: () async {
+                            final library = await ReadingLibrary.open(
+                              widget.section,
+                            );
+                            library.setSetting(
+                              'source.picker.grid',
+                              '${!grid}',
+                            );
+                            if (mounted) setState(() => grid = !grid);
+                          },
+                        ),
+                        if (groups.length == 2 && !grid)
                           IconButton(
                             tooltip: columns ? '切换为单列' : '切换为两列',
                             icon: Icon(
@@ -427,12 +521,12 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                     ),
                   ),
                   Text(
-                    '长按拖动源可排序，长按名称打开操作菜单',
+                    '长按源条目拖动排序，点击更多打开操作菜单',
                     style: TextStyle(fontSize: 11, color: LumeTheme.muted),
                   ),
                   const SizedBox(height: 8),
                   Expanded(
-                    child: columns && groups.length == 2
+                    child: !grid && columns && groups.length == 2
                         ? Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [

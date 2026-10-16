@@ -254,6 +254,7 @@ class PosterTile extends StatelessWidget {
     this.pipeline,
     required this.onTap,
     this.meta,
+    this.horizontal = false,
   });
 
   final SourceItem item;
@@ -262,9 +263,18 @@ class PosterTile extends StatelessWidget {
 
   /// 额外的元信息行（搜索结果页用它显示时长 / 来源 / 更新时间）。
   final String? meta;
+  final bool horizontal;
 
   @override
   Widget build(BuildContext context) {
+    if (horizontal) {
+      return CompactSourceItemTile(
+        item: item,
+        pipeline: pipeline,
+        onTap: onTap,
+        meta: this.meta,
+      );
+    }
     final meta = this.meta;
     // 标题风格是全局偏好（设置页可切），这里按当前值渲染。
     final style = BrowseLayoutSettings.instance.gridTitleStyle;
@@ -366,4 +376,73 @@ class CoverThumb extends StatelessWidget {
       headers: headers,
     );
   }
+}
+
+/// Two-column list item: horizontal cover and text, independent of grid title style.
+class CompactSourceItemTile extends StatelessWidget {
+  const CompactSourceItemTile({
+    super.key,
+    required this.item,
+    this.pipeline,
+    required this.onTap,
+    this.meta,
+  });
+  final SourceItem item;
+  final SectionImagePipeline? pipeline;
+  final VoidCallback onTap;
+  final String? meta;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: LumeTheme.surface,
+    borderRadius: BorderRadius.circular(12),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 40,
+              height: 60,
+              child: CoverThumb(
+                pipeline: pipeline,
+                url: item.cover,
+                title: item.title,
+                headers: item.coverHeaders,
+                width: 160,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if ((meta ?? item.subtitle ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      meta ?? item.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: LumeTheme.muted),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

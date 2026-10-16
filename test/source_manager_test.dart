@@ -31,8 +31,6 @@ void main() {
   Future<void> importScript(WidgetTester tester, String script) async {
     await tester.tap(find.byTooltip('添加源'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<String>, '导入源'));
-    await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
         of: find.byType(AlertDialog),
@@ -139,8 +137,6 @@ void main() {
     await pumpPage(tester, FakeSourceManager());
 
     await tester.tap(find.byTooltip('添加源'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<String>, '导入源'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('载入内置示例'));
     await tester.pumpAndSettle();

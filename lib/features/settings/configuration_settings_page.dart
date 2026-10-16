@@ -148,6 +148,9 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
                 ('Aurora', '极光青'),
                 ('Obsidian', '曜石紫'),
                 ('Solar', '日曜金'),
+                ('Orbit', '星环蓝'),
+                ('Prism', '流光棱镜'),
+                ('Spark', '电光青'),
               ])
                 InkWell(
                   onTap: busy
@@ -233,6 +236,25 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
             preferences.save();
             preferences.selectionFeedback();
           },
+        ),
+        ListTile(
+          title: const Text('触感强度'),
+          subtitle: const Text('选择档位即可体验反馈'),
+          trailing: DropdownButton<HapticStrength>(
+            value: preferences.hapticStrength,
+            items: [
+              for (final strength in HapticStrength.values)
+                DropdownMenuItem(value: strength, child: Text(strength.label)),
+            ],
+            onChanged: preferences.haptics
+                ? (value) {
+                    if (value == null) return;
+                    setState(() => preferences.hapticStrength = value);
+                    preferences.save();
+                    preferences.selectionFeedback();
+                  }
+                : null,
+          ),
         ),
         SwitchListTile(
           title: const Text('后台播放'),

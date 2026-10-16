@@ -60,6 +60,49 @@ void main() {
     expect(disconnected.imageProxy, isEmpty);
     root.deleteSync(recursive: true);
   });
+  test('五类图片尺寸独立保存，代理路径正确，尺寸变化隔离旧缓存', () async {
+    final root = Directory.systemTemp.createTempSync('tmdb-image-sizes-');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => root.path,
+        );
+    try {
+      final settings = TmdbSettings();
+      await settings.boot();
+      expect(TmdbImageKind.values.map(settings.imageSize), [
+        'w1280',
+        'w500',
+        'w500',
+        'w185',
+        'w300',
+      ]);
+      settings.imageProxy = 'https://images.test/custom/t/p/';
+      final oldCache = settings.cacheKey('影片');
+      for (final kind in TmdbImageKind.values) {
+        for (final size in kind.sizes) {
+          settings.setImageSize(kind, size);
+          expect(
+            settings.imageUrl('/image.jpg', kind: kind),
+            'https://images.test/custom/t/p/$size/image.jpg',
+          );
+        }
+      }
+      expect(settings.cacheKey('影片'), isNot(oldCache));
+      await settings.save();
+      final reopened = TmdbSettings();
+      await reopened.boot();
+      for (final kind in TmdbImageKind.values) {
+        expect(reopened.imageSize(kind), kind.sizes.last);
+      }
+      expect(
+        () => reopened.setImageSize(TmdbImageKind.logo, 'w780'),
+        throwsArgumentError,
+      );
+    } finally {
+      root.deleteSync(recursive: true);
+    }
+  });
   test('代理拼接兼容省略协议、路径前缀及已有3，图片单独拼接', () {
     final settings = TmdbSettings()
       ..apiKey = 'fixture-key'

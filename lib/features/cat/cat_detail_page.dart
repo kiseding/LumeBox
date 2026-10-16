@@ -612,7 +612,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                       children: [
                         hero(),
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -650,10 +650,15 @@ class _CatDetailPageState extends State<CatDetailPage> {
                               ),
                               const SizedBox(height: 16),
                               episodePreview(),
-                              TmdbInformation(controller: tmdb),
-                              description(),
-                              cast(),
                             ],
+                          ),
+                        ),
+                        TmdbInformation(controller: tmdb),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [description(), cast()],
                           ),
                         ),
                       ],

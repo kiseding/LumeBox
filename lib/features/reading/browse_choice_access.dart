@@ -215,6 +215,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
     ({String? category, Map<String, String> filters})
   >(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (context) => StatefulBuilder(
@@ -256,101 +257,117 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
             ),
           ],
         );
-        return SizedBox(
-          height: MediaQuery.sizeOf(context).height * .78,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              8,
-              16,
-              MediaQuery.viewInsetsOf(context).bottom +
-                  MediaQuery.paddingOf(context).bottom +
-                  22,
+        final media = MediaQuery.of(context);
+        final keyboard = media.viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: SizedBox(
+            height: math.min(
+              media.size.height * .92,
+              math.max(0, media.size.height - keyboard - media.padding.top),
             ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '分类与筛选',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                (keyboard > 0
+                        ? 0
+                        : math.max(
+                            media.viewPadding.bottom,
+                            media.padding.bottom,
+                          )) +
+                    28,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '分类与筛选',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                TextField(
-                  onChanged: (s) => setPanelState(() => query = s.trim()),
-                  decoration: const InputDecoration(
-                    hintText: '搜索分类或筛选项',
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                ),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      if (categories.isNotEmpty)
-                        choices('分类', categories, chosenCategory, (id) {
-                          chosenCategory = id;
-                          chosenFilters.remove('tid');
-                          chosenFilters.remove('class');
-                        }),
-                      for (final group in groups)
-                        choices(
-                          group.title,
-                          group.options
-                              .map(
-                                (o) => SourceCategory(id: o.id, title: o.title),
-                              )
-                              .toList(),
-                          chosenFilters[group.id] ??
-                              group.options
-                                  .where((o) => o.title == '全部')
-                                  .firstOrNull
-                                  ?.id,
-                          (id) {
-                            if (id == null) {
-                              chosenFilters.remove(group.id);
-                            } else {
-                              chosenFilters[group.id] = id;
-                            }
-                            if (group.id == 'tid') {
-                              chosenFilters.remove('class');
-                            }
-                          },
-                        ),
+                      IconButton(
+                        tooltip: '关闭',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 40),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: () => setPanelState(() {
-                        chosenCategory = null;
-                        chosenFilters.clear();
-                      }),
-                      child: const Text('重置'),
+                  TextField(
+                    onChanged: (s) => setPanelState(() => query = s.trim()),
+                    decoration: const InputDecoration(
+                      hintText: '搜索分类或筛选项',
+                      prefixIcon: Icon(Icons.search),
                     ),
-                    const Spacer(),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(context, (
-                        category: chosenCategory,
-                        filters: chosenFilters,
-                      )),
-                      child: const Text('应用筛选'),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      key: const Key('filter-options'),
+                      padding: EdgeInsets.zero,
+                      children: [
+                        if (categories.isNotEmpty)
+                          choices('分类', categories, chosenCategory, (id) {
+                            chosenCategory = id;
+                            chosenFilters.remove('tid');
+                            chosenFilters.remove('class');
+                          }),
+                        for (final group in groups)
+                          choices(
+                            group.title,
+                            group.options
+                                .map(
+                                  (o) =>
+                                      SourceCategory(id: o.id, title: o.title),
+                                )
+                                .toList(),
+                            chosenFilters[group.id] ??
+                                group.options
+                                    .where((o) => o.title == '全部')
+                                    .firstOrNull
+                                    ?.id,
+                            (id) {
+                              if (id == null) {
+                                chosenFilters.remove(group.id);
+                              } else {
+                                chosenFilters[group.id] = id;
+                              }
+                              if (group.id == 'tid') {
+                                chosenFilters.remove('class');
+                              }
+                            },
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 56),
+                  Row(
+                    key: const Key('filter-actions'),
+                    children: [
+                      TextButton(
+                        onPressed: () => setPanelState(() {
+                          chosenCategory = null;
+                          chosenFilters.clear();
+                        }),
+                        child: const Text('重置'),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, (
+                          category: chosenCategory,
+                          filters: chosenFilters,
+                        )),
+                        child: const Text('应用筛选'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );

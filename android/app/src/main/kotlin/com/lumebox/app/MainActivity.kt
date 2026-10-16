@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/app_icon")
             .setMethodCallHandler { call, result ->
-                val names = listOf("default", "Aurora", "Obsidian", "Solar")
+                val names = listOf("default", "Aurora", "Obsidian", "Solar", "Orbit", "Prism", "Spark")
                 fun component(name: String) = ComponentName(packageName, "$packageName.icons.${if (name == "default") "Default" else name}")
                 if (call.method == "current") {
                     val current = names.firstOrNull { name ->

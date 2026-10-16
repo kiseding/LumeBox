@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../session/section.dart';
 import '../util/lume_log.dart';
 
-/// 浏览页的布局档位（用户可选五档）。
+/// 浏览页的布局档位（单/双列列表及两至五列网格）。
 ///
 /// 为什么是「档位」而不是「列数」：用户点的是「单列 / 双列 / …」这几种
 /// **观感**，列表与网格的卡片内部排版本来就不一样（列表是横排大字、网格是竖排
@@ -16,6 +16,8 @@ import '../util/lume_log.dart';
 enum BrowseLayoutMode {
   /// 单列列表：现有样式，也是三个板块的默认。
   list('list', '单列列表', '一行一条，标题为主'),
+
+  list2('list2', '双列列表', '一行两条，封面在左、文字在右'),
 
   /// 双列网格：封面更大，适合漫画 / 视频。
   grid2('grid2', '双列网格', '封面较大，两列并排'),
@@ -42,6 +44,7 @@ enum BrowseLayoutMode {
   /// 网格列数；列表档返回 0（调用方按列表渲染）。
   int get columns => switch (this) {
     BrowseLayoutMode.list => 0,
+    BrowseLayoutMode.list2 => 2,
     BrowseLayoutMode.grid2 => 2,
     BrowseLayoutMode.grid3 => 3,
     BrowseLayoutMode.grid4 => 4,
@@ -54,6 +57,7 @@ enum BrowseLayoutMode {
   /// 否则窄单元里的封面会被文字挤没。数值是「封面 1.5 倍宽 + 文字预留」反推的。
   double get tileAspectRatio => switch (this) {
     BrowseLayoutMode.list => 1,
+    BrowseLayoutMode.list2 => 1.35,
     BrowseLayoutMode.grid2 => 0.72,
     BrowseLayoutMode.grid3 => 0.62,
     BrowseLayoutMode.grid4 => 0.52,

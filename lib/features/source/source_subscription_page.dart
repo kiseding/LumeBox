@@ -120,14 +120,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
     final service = _service;
     return GlassScaffold(
       title: '${widget.section.label} · 订阅管理',
-      actions: [
-        ...widget.extraActions,
-        IconButton(
-          tooltip: '同步订阅',
-          onPressed: _busy ? null : _sync,
-          icon: const Icon(Icons.sync),
-        ),
-      ],
+      actions: widget.extraActions,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -170,11 +163,6 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
           FilledButton(
             onPressed: _busy ? null : _add,
             child: const Text('添加订阅并导入'),
-          ),
-          OutlinedButton.icon(
-            onPressed: _busy || service == null ? null : _sync,
-            icon: const Icon(Icons.sync),
-            label: const Text('更新已保存的订阅'),
           ),
           if (_busy) const LinearProgressIndicator(),
           if (_error != null)

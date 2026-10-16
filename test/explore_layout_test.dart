@@ -102,7 +102,7 @@ void main() {
     expect(gridColumns(tester), 3, reason: '漫画默认三列网格');
   });
 
-  testWidgets('布局菜单有五档：四列 / 五列也能选，当场生效（用户要求）', (tester) async {
+  testWidgets('布局菜单含双列列表、四列与五列网格，当场生效', (tester) async {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3);
 
@@ -128,6 +128,28 @@ void main() {
       }
       expect(mode.columns, greaterThanOrEqualTo(2));
       expect(mode.tileAspectRatio, greaterThan(0));
+    }
+  });
+
+  testWidgets('双列列表使用横排封面文字，四版块分别保存', (tester) async {
+    for (final section in Section.values) {
+      await pumpExplore(tester, section);
+      await tester.tap(find.byTooltip('布局'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('双列列表'));
+      await tester.pumpAndSettle();
+      expect(gridColumns(tester), 2);
+      expect(find.byType(CompactSourceItemTile), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    }
+    BrowseLayoutSettings.instance.resetForTesting();
+    await BrowseLayoutSettings.instance.boot();
+    for (final section in Section.values) {
+      expect(
+        BrowseLayoutSettings.instance.modeFor(section),
+        BrowseLayoutMode.list2,
+      );
     }
   });
 

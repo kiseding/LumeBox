@@ -37,7 +37,7 @@ import UIKit
         if call.method == "current" { result(UIApplication.shared.alternateIconName ?? "default"); return }
         guard call.method == "set" else { result(FlutterMethodNotImplemented); return }
         guard UIApplication.shared.supportsAlternateIcons else { result(FlutterError(code: "unsupported", message: "This device does not support alternate icons", details: nil)); return }
-        guard let name = call.arguments as? String, ["default", "Aurora", "Obsidian", "Solar"].contains(name) else { result(FlutterError(code: "icon", message: "Unknown icon", details: nil)); return }
+        guard let name = call.arguments as? String, ["default", "Aurora", "Obsidian", "Solar", "Orbit", "Prism", "Spark"].contains(name) else { result(FlutterError(code: "icon", message: "Unknown icon", details: nil)); return }
         UIApplication.shared.setAlternateIconName(name == "default" ? nil : name) { error in
           if let error = error { result(FlutterError(code: "icon", message: error.localizedDescription, details: nil)) }
           else { result(true) }

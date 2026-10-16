@@ -9,16 +9,37 @@ import '../search/search_settings.dart';
 
 enum TmdbPosterStyle { fixed, random, carousel }
 
+enum TmdbImageKind {
+  backdrop('背景图', ['original', 'w1280', 'w780'], 'w1280'),
+  logo('Logo', ['original', 'w500'], 'w500'),
+  poster('海报', ['original', 'w500', 'w342'], 'w500'),
+  profile('演员头像', ['original', 'w632', 'w185'], 'w185'),
+  video('视频封面', ['original', 'w500', 'w300'], 'w300');
+
+  const TmdbImageKind(this.label, this.sizes, this.defaultSize);
+  final String label;
+  final List<String> sizes;
+  final String defaultSize;
+}
+
 class TmdbSettings extends ChangeNotifier {
   TmdbSettings();
   static final instance = TmdbSettings();
   bool enabled = false;
   TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
   String apiKey = '', apiProxy = '', imageProxy = '';
+  final Map<TmdbImageKind, String> _imageSizes = {};
+  String imageSize(TmdbImageKind kind) => _imageSizes[kind] ?? kind.defaultSize;
+  void setImageSize(TmdbImageKind kind, String size) {
+    if (!kind.sizes.contains(size)) throw ArgumentError.value(size, 'size');
+    _imageSizes[kind] = size;
+  }
+
   int revision = 0;
   File? _file;
   Future<void> _writes = Future.value();
   Future<void> boot() async {
+    _imageSizes.clear();
     try {
       _file = File(
         '${(await getApplicationSupportDirectory()).path}/tmdb_settings.json',
@@ -26,6 +47,12 @@ class TmdbSettings extends ChangeNotifier {
       if (await _file!.exists()) {
         final data =
             jsonDecode(await _file!.readAsString()) as Map<String, dynamic>;
+        for (final kind in TmdbImageKind.values) {
+          final value = (data['imageSizes'] as Map?)?[kind.name];
+          _imageSizes[kind] = kind.sizes.contains(value)
+              ? value as String
+              : kind.defaultSize;
+        }
         enabled = data['enabled'] == true;
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
@@ -50,6 +77,9 @@ class TmdbSettings extends ChangeNotifier {
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,
       'posterStyle': posterStyle.name,
+      'imageSizes': {
+        for (final kind in TmdbImageKind.values) kind.name: imageSize(kind),
+      },
     });
     _writes = _writes.catchError((Object _) {}).then((_) async {
       final file = _file;
@@ -68,6 +98,7 @@ class TmdbSettings extends ChangeNotifier {
     apiProxy.trim(),
     imageProxy.trim(),
     TmdbClient.normalized(title),
+    for (final kind in TmdbImageKind.values) imageSize(kind),
   ]);
   Future<TmdbMetadata?> cached(String key) async {
     if (!_cacheLoaded) {
@@ -158,11 +189,14 @@ class TmdbSettings extends ChangeNotifier {
     );
   }
 
-  String imageUrl(String path) {
+  String imageUrl(String path, {TmdbImageKind kind = TmdbImageKind.poster}) {
     final base = address(imageProxy, 'https://image.tmdb.org/t/p/');
     final prefix = base.path.replaceAll(RegExp(r'/+$'), '');
     return base
-        .replace(path: '$prefix/w500/${path.replaceFirst(RegExp(r'^/+'), '')}')
+        .replace(
+          path:
+              '$prefix/${imageSize(kind)}/${path.replaceFirst(RegExp(r'^/+'), '')}',
+        )
         .toString();
   }
 }
@@ -172,18 +206,24 @@ class TmdbMetadata {
     required this.overview,
     required this.posters,
     this.backdrops = const [],
+    this.logos = const [],
+    this.profiles = const [],
+    this.videoCovers = const [],
     this.cast = const [],
     this.rating = 0,
     this.voteCount = 0,
   });
   final String overview;
-  final List<String> posters, backdrops, cast;
+  final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
   final double rating;
   final int voteCount;
   Map<String, dynamic> toJson() => {
     'overview': overview,
     'posters': posters,
     'backdrops': backdrops,
+    'logos': logos,
+    'profiles': profiles,
+    'videoCovers': videoCovers,
     'cast': cast,
     'rating': rating,
     'voteCount': voteCount,
@@ -193,6 +233,11 @@ class TmdbMetadata {
     posters: (data['posters'] as List? ?? []).whereType<String>().toList(),
     backdrops: (data['backdrops'] as List? ?? []).whereType<String>().toList(),
     cast: (data['cast'] as List? ?? []).whereType<String>().toList(),
+    logos: (data['logos'] as List? ?? []).whereType<String>().toList(),
+    profiles: (data['profiles'] as List? ?? []).whereType<String>().toList(),
+    videoCovers: (data['videoCovers'] as List? ?? [])
+        .whereType<String>()
+        .toList(),
     rating: (data['rating'] as num?)?.toDouble() ?? 0,
     voteCount: (data['voteCount'] as num?)?.toInt() ?? 0,
   );
@@ -439,7 +484,7 @@ class TmdbClient {
       } catch (_) {
         lastError = 'TMDB 图片列表暂时无法获取，已保留其他影片资料';
       }
-      List<String> paths(String field, Object? fallback) {
+      List<String> paths(String field, Object? fallback, TmdbImageKind kind) {
         final values = (images[field] as List? ?? [])
             .whereType<Map>()
             .map((row) => row['file_path'])
@@ -449,7 +494,9 @@ class TmdbClient {
         if (values.isEmpty && fallback is String && fallback.startsWith('/')) {
           values.add(fallback);
         }
-        return values.map(settings.imageUrl).toList();
+        return values
+            .map((path) => settings.imageUrl(path, kind: kind))
+            .toList();
       }
 
       if (!settings.configured || settings.revision != revision) return null;
@@ -460,11 +507,26 @@ class TmdbClient {
         posters: paths(
           'posters',
           details['poster_path'] ?? match['poster_path'],
+          TmdbImageKind.poster,
         ),
         backdrops: paths(
           'backdrops',
           details['backdrop_path'] ?? match['backdrop_path'],
+          TmdbImageKind.backdrop,
         ),
+        logos: paths('logos', null, TmdbImageKind.logo),
+        videoCovers: paths(
+          'stills',
+          details['still_path'],
+          TmdbImageKind.video,
+        ),
+        profiles: ((details['credits'] as Map?)?['cast'] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => row['profile_path'])
+            .whereType<String>()
+            .where((path) => path.startsWith('/'))
+            .map((path) => settings.imageUrl(path, kind: TmdbImageKind.profile))
+            .toList(),
         rating:
             ((details['vote_average'] ?? match['vote_average']) as num?)
                 ?.toDouble() ??

@@ -69,8 +69,12 @@ void main() {
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, _size, _size));
 
     _paintBackground(canvas);
-    _paintCards(canvas);
-    _paintGlyph(canvas);
+    if (const ['Orbit', 'Prism', 'Spark'].contains(_style)) {
+      _paintHighlightIcon(canvas);
+    } else {
+      _paintCards(canvas);
+      _paintGlyph(canvas);
+    }
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(_size.toInt(), _size.toInt());
@@ -144,6 +148,181 @@ void main() {
     expect(file.existsSync(), isTrue);
     expect(file.lengthSync(), greaterThan(1000));
   });
+}
+
+/// Three distinct silhouettes, with restrained highlights that survive launcher sizing.
+void _paintHighlightIcon(Canvas canvas) {
+  const bounds = Rect.fromLTWH(0, 0, _size, _size);
+  const center = Offset(512, 512);
+  final colors = switch (_style) {
+    'Orbit' => const [Color(0xFF34E5FF), Color(0xFF5D63FF)],
+    'Prism' => const [Color(0xFFAB94FF), Color(0xFFFF72D5)],
+    _ => const [Color(0xFF5BFFCC), Color(0xFF00BFEF)],
+  };
+  canvas.drawRect(
+    bounds,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        Offset.zero,
+        const Offset(1024, 1024),
+        const [Color(0xFF10182D), Color(0xFF030814)],
+      ),
+  );
+  canvas.drawCircle(
+    center,
+    460,
+    Paint()
+      ..shader = ui.Gradient.radial(
+        center,
+        460,
+        [
+          colors.first.withValues(alpha: .20),
+          colors.last.withValues(alpha: .04),
+          Colors.transparent,
+        ],
+        [0, .5, 1],
+      ),
+  );
+  final luminous = Paint()
+    ..shader = ui.Gradient.linear(
+      const Offset(200, 200),
+      const Offset(820, 820),
+      colors,
+    );
+  void stroke(Path path, double width) {
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width + 20
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round
+        ..color = colors.first.withValues(alpha: .5)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round
+        ..shader = ui.Gradient.linear(
+          path.getBounds().topLeft,
+          path.getBounds().bottomRight,
+          colors,
+        ),
+    );
+  }
+
+  if (_style == 'Orbit') {
+    canvas.save();
+    canvas.translate(512, 512);
+    canvas.rotate(-math.pi / 7);
+    for (final rect in [
+      const Rect.fromLTWH(-330, -210, 660, 420),
+      const Rect.fromLTWH(-210, -330, 420, 660),
+    ]) {
+      stroke(Path()..addOval(rect), 24);
+    }
+    canvas.restore();
+    canvas.drawCircle(
+      center,
+      150,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(390, 390),
+          const Offset(650, 650),
+          [colors.first, colors.last],
+        ),
+    );
+    canvas.drawCircle(
+      const Offset(764, 318),
+      25,
+      Paint()..color = const Color(0xFFE9FCFF),
+    );
+  } else if (_style == 'Prism') {
+    final top = Path()
+      ..moveTo(512, 215)
+      ..lineTo(790, 370)
+      ..lineTo(512, 530)
+      ..lineTo(234, 370)
+      ..close();
+    final left = Path()
+      ..moveTo(234, 370)
+      ..lineTo(512, 530)
+      ..lineTo(512, 820)
+      ..lineTo(234, 655)
+      ..close();
+    final right = Path()
+      ..moveTo(512, 530)
+      ..lineTo(790, 370)
+      ..lineTo(790, 655)
+      ..lineTo(512, 820)
+      ..close();
+    canvas.drawPath(
+      top,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(234, 250),
+          const Offset(790, 530),
+          const [Color(0xFFEBE3FF), Color(0xFF8B86FF), Color(0xFFB855FF)],
+          const [0, .5, 1],
+        ),
+    );
+    canvas.drawPath(
+      left,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(234, 370),
+          const Offset(512, 820),
+          const [Color(0xFF7FDFFF), Color(0xFF6256DC)],
+        ),
+    );
+    canvas.drawPath(right, luminous);
+    stroke(
+      Path()
+        ..moveTo(234, 370)
+        ..lineTo(512, 530)
+        ..lineTo(790, 370),
+      5,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(512, 290)
+        ..lineTo(580, 365)
+        ..lineTo(512, 440)
+        ..lineTo(444, 365)
+        ..close(),
+      Paint()..color = Colors.white.withValues(alpha: .75),
+    );
+    return;
+  } else {
+    final mark = Path()
+      ..moveTo(330, 260)
+      ..lineTo(330, 720)
+      ..lineTo(720, 720);
+    stroke(mark, 76);
+    final beam = Path()
+      ..moveTo(475, 315)
+      ..lineTo(720, 485)
+      ..lineTo(475, 620);
+    stroke(beam, 50);
+    canvas.drawCircle(
+      const Offset(744, 720),
+      17,
+      Paint()..color = Colors.white,
+    );
+    return;
+  }
+  canvas.drawPath(
+    Path()
+      ..moveTo(475, 429)
+      ..lineTo(590, 512)
+      ..lineTo(475, 595)
+      ..close(),
+    Paint()..color = Colors.white,
+  );
 }
 
 /// 底：整幅浅色渐变。

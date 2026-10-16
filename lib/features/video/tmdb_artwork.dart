@@ -135,57 +135,70 @@ class TmdbInformation extends StatelessWidget {
     builder: (context, _) {
       if (!controller.settings.configured) return const SizedBox.shrink();
       final data = controller.metadata;
+      Widget inset(Widget child) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: child,
+      );
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('TMDB 影片资料', style: Theme.of(context).textTheme.titleMedium),
+            inset(
+              Text('TMDB 影片资料', style: Theme.of(context).textTheme.titleMedium),
+            ),
             if (controller.loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: LinearProgressIndicator(),
+              inset(
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: LinearProgressIndicator(),
+                ),
               ),
-            if (controller.status != null) Text(controller.status!),
+            if (controller.status != null) inset(Text(controller.status!)),
             if (data != null) ...[
-              Text(
-                data.voteCount > 0
-                    ? 'TMDB 评分 ${data.rating.toStringAsFixed(1)} / 10 · ${data.voteCount} 人评价'
-                    : 'TMDB 暂无评分',
+              inset(
+                Text(
+                  data.voteCount > 0
+                      ? 'TMDB 评分 ${data.rating.toStringAsFixed(1)} / 10 · ${data.voteCount} 人评价'
+                      : 'TMDB 暂无评分',
+                ),
               ),
               if (data.cast.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                const Text('演员'),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: data.cast
-                      .map((name) => Chip(label: Text(name)))
-                      .toList(),
+                inset(const Text('演员')),
+                inset(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: data.cast
+                        .map((name) => Chip(label: Text(name)))
+                        .toList(),
+                  ),
                 ),
               ],
               if (data.backdrops.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                AspectRatio(
-                  aspectRatio: 16 / 9,
+                SizedBox(
+                  key: const Key('tmdb-backdrop'),
+                  height: 220,
+                  width: double.infinity,
                   child: PageView(
-                    children: data.backdrops
-                        .map(
-                          (url) => Image.network(
-                            url,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const Center(child: Text('背景图暂时无法加载')),
-                          ),
-                        )
-                        .toList(),
+                    children: [
+                      for (final url in data.backdrops)
+                        Image.network(
+                          url,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              const Center(child: Text('背景图暂时无法加载')),
+                        ),
+                    ],
                   ),
                 ),
               ],
               if (data.overview.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                const Text('TMDB 官方剧情简介'),
-                Text(data.overview),
+                inset(const Text('TMDB 官方剧情简介')),
+                inset(Text(data.overview)),
               ],
             ],
           ],

@@ -14,6 +14,7 @@ class ConfigurationBackup {
   static Future<File>? _automatic;
   static const files = <String>{
     'app_preferences.json',
+    'tmdb_settings.json',
     'appearance_settings.json',
     'shell_settings.json',
     'source_content_visibility.json',

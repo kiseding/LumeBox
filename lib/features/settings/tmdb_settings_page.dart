@@ -128,6 +128,28 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
             },
           ),
           const SizedBox(height: 24),
+          Text('图片', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final kind in TmdbImageKind.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: DropdownButtonFormField<String>(
+                key: ValueKey('tmdb-image-${kind.name}'),
+                initialValue: settings.imageSize(kind),
+                decoration: InputDecoration(labelText: kind.label),
+                items: [
+                  for (final size in kind.sizes)
+                    DropdownMenuItem(value: size, child: Text(size)),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  settings.setImageSize(kind, value);
+                  save();
+                },
+              ),
+            ),
+          const Text('仅调整下载图片的文件大小，不改变图片在页面中的显示方式。'),
+          const SizedBox(height: 24),
           TextField(
             controller: keyText,
             maxLines: 1,

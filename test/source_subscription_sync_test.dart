@@ -270,8 +270,11 @@ void main() {
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
       isEmpty,
     );
+    expect(find.text('一键更新全部订阅'), findsOneWidget);
+    expect(find.text('更新已保存的订阅'), findsNothing);
+    expect(find.byTooltip('同步订阅'), findsNothing);
     remote['https://repo.example/a.js'] = script('a', 2);
-    await tester.tap(find.text('更新已保存的订阅'));
+    await tester.tap(find.text('一键更新全部订阅'));
     await settle();
     expect(manager.sources.single.version, '2');
   });

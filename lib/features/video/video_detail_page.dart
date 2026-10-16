@@ -196,105 +196,134 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       child: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 110,
-                      height: 160,
-                      child: TmdbPosterGallery(
-                        controller: tmdb,
-                        fallback: PosterCover(
-                          pipeline: pipeline,
-                          url: sourceCover,
-                          title: widget.item.title,
-                          headers:
-                              detail?.coverHeaders ?? widget.item.coverHeaders,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              children:
+                  [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 110,
+                              height: 160,
+                              child: TmdbPosterGallery(
+                                controller: tmdb,
+                                fallback: PosterCover(
+                                  pipeline: pipeline,
+                                  url: sourceCover,
+                                  title: widget.item.title,
+                                  headers:
+                                      detail?.coverHeaders ??
+                                      widget.item.coverHeaders,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    detail?.title ?? widget.item.title,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    detail?.subtitle ??
+                                        widget.item.subtitle ??
+                                        '',
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: _source == null
+                                        ? null
+                                        : favorite,
+                                    icon: Icon(
+                                      widget.library.onShelf(widget.item.id)
+                                          ? Icons.bookmark
+                                          : Icons.bookmark_outline,
+                                    ),
+                                    label: Text(
+                                      widget.library.onShelf(widget.item.id)
+                                          ? '已收藏'
+                                          : '收藏',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            detail?.title ?? widget.item.title,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
+                        const SizedBox(height: 16),
+                        TmdbInformation(controller: tmdb),
+                        const Text('简介'),
+                        const SizedBox(height: 8),
+                        Text(
+                          tmdb.metadata?.overview.trim().isNotEmpty == true
+                              ? tmdb.metadata!.overview
+                              : (detail?.description?.trim().isNotEmpty == true
+                                    ? detail!.description!
+                                    : '暂无简介'),
+                        ),
+                        if (error != null) ...[
                           const SizedBox(height: 12),
-                          Text(detail?.subtitle ?? widget.item.subtitle ?? ''),
-                          TextButton.icon(
-                            onPressed: _source == null ? null : favorite,
-                            icon: Icon(
-                              widget.library.onShelf(widget.item.id)
-                                  ? Icons.bookmark
-                                  : Icons.bookmark_outline,
-                            ),
-                            label: Text(
-                              widget.library.onShelf(widget.item.id)
-                                  ? '已收藏'
-                                  : '收藏',
-                            ),
-                          ),
+                          Text(error!),
+                          TextButton(onPressed: load, child: const Text('重试')),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                TmdbInformation(controller: tmdb),
-                const Text('简介'),
-                const SizedBox(height: 8),
-                Text(
-                  tmdb.metadata?.overview.trim().isNotEmpty == true
-                      ? tmdb.metadata!.overview
-                      : (detail?.description?.trim().isNotEmpty == true
-                            ? detail!.description!
-                            : '暂无简介'),
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(error!),
-                  TextButton(onPressed: load, child: const Text('重试')),
-                ],
-                const SizedBox(height: 20),
-                Text('选集（${chapters.length}）'),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (var index = 0; index < chapters.length; index++)
-                      ChoiceChip(
-                        key: ValueKey('video-detail-episode-$index'),
-                        label: Text(chapters[index].title),
-                        selected: index == selected,
-                        onSelected: resolving
-                            ? null
-                            : (_) {
-                                setState(() => selected = index);
-                                play();
-                              },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  key: const Key('video-detail-play'),
-                  onPressed: resolving || chapters.isEmpty ? null : play,
-                  icon: resolving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow),
-                  label: Text(resolving ? '正在解析' : '播放'),
-                ),
-              ],
+                        const SizedBox(height: 20),
+                        Text('选集（${chapters.length}）'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (
+                              var index = 0;
+                              index < chapters.length;
+                              index++
+                            )
+                              ChoiceChip(
+                                key: ValueKey('video-detail-episode-$index'),
+                                label: Text(chapters[index].title),
+                                selected: index == selected,
+                                onSelected: resolving
+                                    ? null
+                                    : (_) {
+                                        setState(() => selected = index);
+                                        play();
+                                      },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          key: const Key('video-detail-play'),
+                          onPressed: resolving || chapters.isEmpty
+                              ? null
+                              : play,
+                          icon: resolving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.play_arrow),
+                          label: Text(resolving ? '正在解析' : '播放'),
+                        ),
+                      ]
+                      .map(
+                        (child) => child is TmdbInformation
+                            ? child
+                            : Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                child: child,
+                              ),
+                      )
+                      .toList(),
             ),
     ),
   );

@@ -378,11 +378,17 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         childAspectRatio: mode.tileAspectRatio,
       ),
       itemCount: items.length,
-      itemBuilder: (context, index) => _HomeCard(
-        item: items[index],
-        pipeline: widget.pipeline,
-        onTap: () => widget.onOpenItem(items[index]),
-      ),
+      itemBuilder: (context, index) => mode == BrowseLayoutMode.list2
+          ? CompactSourceItemTile(
+              item: items[index],
+              pipeline: widget.pipeline,
+              onTap: () => widget.onOpenItem(items[index]),
+            )
+          : _HomeCard(
+              item: items[index],
+              pipeline: widget.pipeline,
+              onTap: () => widget.onOpenItem(items[index]),
+            ),
     );
   }
 }

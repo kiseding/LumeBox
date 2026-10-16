@@ -590,7 +590,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 40, 16, 22),
+        padding: const EdgeInsets.fromLTRB(16, 56, 16, 28),
         child: Row(
           children: <Widget>[
             OutlinedButton(onPressed: _reset, child: const Text('重置')),

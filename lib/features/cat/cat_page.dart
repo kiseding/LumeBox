@@ -1,3 +1,5 @@
+import '../../core/reading/browse_layout.dart';
+import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../shared/widgets/subscription_status_icon.dart';
 import '../reading/source_search_dialog.dart';
@@ -64,6 +66,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     service.addListener(changed);
+    BrowseLayoutSettings.instance.addListener(changed);
     scroll.addListener(loadMore);
     messages = service.messages.stream.listen(hostMessage);
     unawaited(boot());
@@ -77,6 +80,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     service.removeListener(changed);
+    BrowseLayoutSettings.instance.removeListener(changed);
     messages?.cancel();
     scroll.dispose();
     pipeline?.dispose();
@@ -361,12 +365,12 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     CatSubscription record,
     CatSite site,
     VoidCallback changed,
-    Widget child,
-  ) => DragTarget<String>(
-    onWillAcceptWithDetails: (details) =>
-        details.data != site.id &&
-        record.sites.any((entry) => entry.id == details.data),
-    onAcceptWithDetails: (details) async {
+    ListTile child,
+  ) => SourceDragTile(
+    id: site.id,
+    name: site.name,
+    accepts: (id) => record.sites.any((entry) => entry.id == id),
+    onMove: (from, to) async {
       final all = record.sites.map((entry) => entry.id).toList()
         ..sort(
           (a, b) => SourceOrder.compare(
@@ -380,30 +384,40 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         Section.cat,
         all,
         all,
-        all.indexOf(details.data),
-        all.indexOf(site.id),
+        all.indexOf(from),
+        all.indexOf(to),
       );
       if (mounted) changed();
     },
-    builder: (context, candidates, rejected) => Row(
-      children: [
-        LongPressDraggable<String>(
-          data: site.id,
-          feedback: Material(
-            borderRadius: BorderRadius.circular(10),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(site.name),
+    child: service.siteColumns == 1
+        ? child
+        : Material(
+            color: child.selected
+                ? child.selectedTileColor
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: child.onTap,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        child.leading!,
+                        const Spacer(),
+                        child.trailing!,
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(child: child.title!),
+                  ],
+                ),
+              ),
             ),
           ),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 3, vertical: 16),
-            child: Icon(Icons.drag_handle, size: 14),
-          ),
-        ),
-        Expanded(child: child),
-      ],
-    ),
   );
 
   Future<void> sitePicker() async {
@@ -454,7 +468,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                     trailing: SegmentedButton<int>(
                       segments: [
                         for (final count in [1, 2, 3])
-                          ButtonSegment(value: count, label: Text('$count列')),
+                          ButtonSegment(
+                            value: count,
+                            label: Text(count == 1 ? '排列' : '$count列网格'),
+                          ),
                       ],
                       selected: {service.siteColumns},
                       showSelectedIcon: false,
@@ -512,7 +529,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      mainAxisExtent: 62,
+                      mainAxisExtent: service.siteColumns == 1 ? 68 : 140,
                       children: [
                         for (final site in choices(record))
                           _reorderSite(
@@ -538,63 +555,45 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 section: Section.cat,
                                 sourceId: site.id,
                               ),
-                              onLongPress: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SourcePreferencesPage(
-                                      section: Section.cat,
-                                      sourceId: site.id,
-                                      name: site.name,
-                                      siteUrl: site.siteUrl,
-                                      showChapterOrder:
-                                          site.kind == 'novel' ||
-                                          site.kind == 'comic',
-                                      onNetwork: () async {
-                                        final url = await service
-                                            .configurationUrl(record);
-                                        if (!context.mounted) return;
-                                        await Navigator.push(
-                                          context,
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                CatWebPage(url: url),
-                                          ),
-                                        );
-                                        await service.refreshSites(record);
-                                      },
-                                    ),
-                                  ),
-                                );
-                                if (context.mounted) pickerSetState(() {});
-                              },
-                              trailing: service.siteColumns == 1
-                                  ? IconButton(
-                                      tooltip: '置顶站点',
-                                      icon: Icon(
-                                        SourcePreferences.read(
-                                              Section.cat,
-                                              site.id,
-                                            ).pinned
-                                            ? Icons.push_pin
-                                            : Icons.push_pin_outlined,
-                                        size: 18,
+                              trailing: IconButton(
+                                tooltip: '站点设置',
+                                icon: const Icon(Icons.more_vert, size: 18),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 28,
+                                  height: 32,
+                                ),
+                                onPressed: () async {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SourcePreferencesPage(
+                                        section: Section.cat,
+                                        sourceId: site.id,
+                                        name: site.name,
+                                        siteUrl: site.siteUrl,
+                                        showChapterOrder:
+                                            site.kind == 'novel' ||
+                                            site.kind == 'comic',
+                                        onNetwork: () async {
+                                          final url = await service
+                                              .configurationUrl(record);
+                                          if (!context.mounted) return;
+                                          await Navigator.push(
+                                            context,
+                                            MaterialPageRoute<void>(
+                                              builder: (_) =>
+                                                  CatWebPage(url: url),
+                                            ),
+                                          );
+                                          await service.refreshSites(record);
+                                        },
                                       ),
-                                      onPressed: () async {
-                                        final prefs = SourcePreferences.read(
-                                          Section.cat,
-                                          site.id,
-                                        );
-                                        await prefs
-                                            .copyWith(pinned: !prefs.pinned)
-                                            .save(Section.cat, site.id);
-                                        if (context.mounted) {
-                                          pickerSetState(() {});
-                                        }
-                                      },
-                                    )
-                                  : null,
-
+                                    ),
+                                  );
+                                  if (context.mounted) pickerSetState(() {});
+                                },
+                              ),
                               title: Text.rich(
                                 TextSpan(
                                   children: [
@@ -1238,6 +1237,25 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+            PopupMenuButton<BrowseLayoutMode>(
+              tooltip: '布局',
+              icon: Icon(
+                _layout == BrowseLayoutMode.list2
+                    ? Icons.view_column_outlined
+                    : Icons.grid_view_outlined,
+              ),
+              onSelected: (mode) => unawaited(
+                BrowseLayoutSettings.instance.setMode(Section.cat, mode),
+              ),
+              itemBuilder: (_) => [
+                for (final mode in BrowseLayoutMode.values)
+                  CheckedPopupMenuItem(
+                    value: mode,
+                    checked: mode == _layout,
+                    child: Text(mode.label),
+                  ),
+              ],
+            ),
             IconButton(
               tooltip: '搜索',
               onPressed: source == null ? null : search,
@@ -1313,6 +1331,47 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       ],
     ),
   );
+  BrowseLayoutMode get _layout =>
+      BrowseLayoutSettings.instance.modeFor(Section.cat) ??
+      BrowseLayoutMode.grid3;
+  Widget browseItem(BuildContext context, int index) {
+    final item = items[index];
+    if (_layout == BrowseLayoutMode.list || _layout == BrowseLayoutMode.list2) {
+      return CompactSourceItemTile(
+        item: item,
+        pipeline: pipeline,
+        onTap: () => openItem(item),
+      );
+    }
+    return PosterCard(
+      footnoteBelow: true,
+      onTap: () => openItem(item),
+      footnote: Text(
+        item.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: LumeTheme.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      child: pipeline == null
+          ? const SizedBox()
+          : SectionImage(
+              pipeline: pipeline!,
+              url: item.cover ?? '',
+              placeholder: MissingCover(
+                title: item.title,
+                section: pipeline!.section,
+              ),
+              headers: item.coverHeaders,
+              targetWidth: 300,
+              fit: BoxFit.cover,
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: LumeTheme.base,
@@ -1396,44 +1455,24 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
             else
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: .62,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final item = items[index];
-                    return PosterCard(
-                      footnoteBelow: true,
-                      onTap: () => openItem(item),
-                      footnote: Text(
-                        item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: LumeTheme.textPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                sliver: _layout == BrowseLayoutMode.list
+                    ? SliverList.separated(
+                        itemCount: items.length,
+                        itemBuilder: browseItem,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      )
+                    : SliverGrid(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _layout.columns,
+                          childAspectRatio: _layout.tileAspectRatio,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          browseItem,
+                          childCount: items.length,
                         ),
                       ),
-                      child: pipeline == null
-                          ? const SizedBox()
-                          : SectionImage(
-                              pipeline: pipeline!,
-                              url: item.cover ?? '',
-                              placeholder: MissingCover(
-                                title: item.title,
-                                section: pipeline!.section,
-                              ),
-                              headers: item.coverHeaders,
-                              targetWidth: 300,
-                              fit: BoxFit.cover,
-                            ),
-                    );
-                  }, childCount: items.length),
-                ),
               ),
             if (loadingMore)
               const SliverToBoxAdapter(

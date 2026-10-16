@@ -76,7 +76,7 @@ void main() {
   }
 
   for (final section in [Section.novel, Section.comic, Section.video]) {
-    testWidgets('${section.label} 抽屉两列、长按五项菜单，浏览只选择目标源', (tester) async {
+    testWidgets('${section.label} 抽屉两列、独立操作菜单，浏览只选择目标源', (tester) async {
       final groups = SourcePickerGroups.forSection(section);
       await SourcePreferences(pickerGroup: groups.last.$1).save(section, 'b');
       final manager = FakeSourceManager(
@@ -105,7 +105,7 @@ void main() {
       final a = find.byKey(const ValueKey('picker-source-a'));
       final b = find.byKey(const ValueKey('picker-source-b'));
       expect(tester.getTopLeft(a).dx, lessThan(tester.getTopLeft(b).dx));
-      await tester.longPress(b);
+      await tester.tap(find.byKey(const ValueKey('picker-more-b')));
       await tester.pumpAndSettle();
       for (final label in ['置顶此源', '源设置', '浏览', '测试连通性', '更新订阅源']) {
         expect(find.text(label), findsOneWidget);
@@ -126,7 +126,7 @@ void main() {
       ],
     );
     await showBar(tester, Section.novel, manager, (_) {});
-    await tester.longPress(find.byKey(const ValueKey('picker-source-b')));
+    await tester.tap(find.byKey(const ValueKey('picker-more-b')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
@@ -228,7 +228,7 @@ void main() {
     expect(refreshes, 0);
     await tester.tap(find.byKey(const ValueKey('open-source-picker')));
     await tester.pumpAndSettle();
-    await tester.longPress(find.byKey(const ValueKey('picker-source-a')));
+    await tester.tap(find.byKey(const ValueKey('picker-more-a')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();

@@ -90,7 +90,7 @@ void main() {
         manager: manager,
       );
       await tester.pumpAndSettle();
-      await tester.longPress(find.byKey(const ValueKey('picker-source-b')));
+      await tester.tap(find.byKey(const ValueKey('picker-more-b')));
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await tester.tap(find.text('置顶此源'));

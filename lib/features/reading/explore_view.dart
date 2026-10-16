@@ -1513,12 +1513,7 @@ class _ExploreViewState extends State<ExploreView> {
             crossAxisSpacing: 12 * _spacingScale,
             // 列越少封面越大，卡片比例也相应放宽（两列时标题有一行更宽的余地）——
             // 比例表在 BrowseLayoutMode.tileAspectRatio 里统一维护。
-            childAspectRatio: BrowseLayoutMode.values
-                .firstWhere(
-                  (mode) => mode.columns == crossAxisCount,
-                  orElse: () => _mode,
-                )
-                .tileAspectRatio,
+            childAspectRatio: _mode.tileAspectRatio,
           ),
           itemCount: _sortedItems.length + 1,
           itemBuilder: (context, index) {
@@ -1526,6 +1521,7 @@ class _ExploreViewState extends State<ExploreView> {
             if (index == items.length) return _buildFooter();
             final item = items[index];
             return PosterTile(
+              horizontal: _mode == BrowseLayoutMode.list2,
               item: item,
               pipeline: _imagePipeline,
               onTap: () => _open(item),

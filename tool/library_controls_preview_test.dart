@@ -16,6 +16,9 @@ import 'package:lume_box/features/comic/comic_page.dart';
 import 'package:lume_box/features/novel/novel_page.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
+import 'package:lume_box/features/reading/browse_choice_access.dart';
+import 'package:lume_box/features/reading/poster_card.dart';
+import 'package:lume_box/core/reading/browse_layout.dart';
 import 'package:lume_box/features/source/source_section_page.dart';
 
 import '../test/support/fake_source_manager.dart';
@@ -63,6 +66,7 @@ void main() {
     final base = LumeTheme.build();
     final theme = base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: 'Preview'),
+      primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Preview'),
     );
     final manager = FakeSourceManager(
       sources: const [
@@ -115,6 +119,47 @@ void main() {
         'video': VideoPage(sourceManager: manager, library: library),
         'cat': const CatPage(),
         'sources': SourceSectionPage(section: Section.video, manager: manager),
+        'sources-grid': SourceSectionPage(
+          section: Section.video,
+          manager: manager,
+        ),
+        'double-list': Scaffold(
+          body: GridView.count(
+            crossAxisCount: 2,
+            childAspectRatio: BrowseLayoutMode.list2.tileAspectRatio,
+            padding: const EdgeInsets.all(16),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            children: [
+              for (var i = 0; i < 8; i++)
+                CompactSourceItemTile(
+                  item: SourceItem(
+                    id: '$i',
+                    title: '演示作品第${i + 1}部',
+                    subtitle: '更新至第12集',
+                  ),
+                  onTap: () {},
+                ),
+            ],
+          ),
+        ),
+        'filter': Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showBrowseFilters(
+                context: context,
+                categories: [
+                  for (var i = 0; i < 80; i++)
+                    SourceCategory(id: '$i', title: '分类标签$i'),
+                ],
+                groups: const [],
+                category: null,
+                filters: const {},
+              ),
+              child: const Text('筛选'),
+            ),
+          ),
+        ),
         'history': Scaffold(
           body: Align(
             alignment: Alignment.bottomCenter,
@@ -138,6 +183,12 @@ void main() {
         ),
       };
       for (final entry in pages.entries) {
+        if (entry.key.startsWith('sources')) {
+          library.setSetting(
+            'source.manager.grid',
+            '${entry.key == 'sources-grid'}',
+          );
+        }
         final key = GlobalKey();
         await tester.pumpWidget(
           RepaintBoundary(
@@ -154,6 +205,10 @@ void main() {
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)),
           );
+        }
+        if (entry.key == 'filter') {
+          await tester.tap(find.text('筛选'));
+          await tester.pumpAndSettle();
         }
         expect(
           tester.takeException(),

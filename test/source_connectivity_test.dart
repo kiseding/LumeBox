@@ -70,8 +70,12 @@ void main() {
       manager: manager,
     );
     await tester.pumpAndSettle();
-    await tester.longPress(
-      find.byKey(ValueKey('picker-source-${(last ? manager.sources.last : manager.sources.first).id}')),
+    await tester.tap(
+      find.byKey(
+        ValueKey(
+          'picker-more-${(last ? manager.sources.last : manager.sources.first).id}',
+        ),
+      ),
     );
     await tester.pumpAndSettle();
   }
@@ -454,32 +458,6 @@ void main() {
 
       expect(find.textContaining('更新失败'), findsOneWidget);
       expect(find.textContaining('MD5 校验不一致'), findsOneWidget);
-    });
-
-    testWidgets('批量刷新：只刷订阅源，给出汇总', (tester) async {
-      final manager = subscribedManager(
-        results: <String, SourceUpdateResult>{
-          'sub-1': const SourceUpdateResult.updated(
-            SourceDescriptor(
-              id: 'sub-1',
-              name: '订阅源',
-              version: '2.0.0',
-              enabled: true,
-            ),
-          ),
-        },
-      );
-      await pumpManager(tester, manager);
-
-      await tester.tap(find.byTooltip('添加源'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('刷新已导入订阅源'));
-      await tester.pumpAndSettle();
-
-      expect(manager.updatedIds, <String>[
-        'sub-1',
-      ], reason: '本地导入的源没有来源地址，不该被刷新');
-      expect(find.textContaining('更新 1'), findsOneWidget);
     });
 
     testWidgets('没有订阅源时：不显示批量刷新入口', (tester) async {

@@ -455,6 +455,7 @@ class SectionToolbar extends StatelessWidget {
           floating: floating,
           icon: switch (layoutMode) {
             BrowseLayoutMode.list => Icons.view_list_outlined,
+            BrowseLayoutMode.list2 => Icons.view_column_outlined,
             BrowseLayoutMode.grid2 => Icons.grid_view_outlined,
             BrowseLayoutMode.grid3 => Icons.apps_outlined,
             BrowseLayoutMode.grid4 => Icons.grid_on_outlined,

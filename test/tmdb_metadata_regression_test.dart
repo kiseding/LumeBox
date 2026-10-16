@@ -33,6 +33,12 @@ http.Response response(Uri uri, {bool alias = false}) {
       'posters': [
         {'file_path': '/poster.jpg'},
       ],
+      'logos': [
+        {'file_path': '/logo.png'},
+      ],
+      'stills': [
+        {'file_path': '/still.jpg'},
+      ],
       'backdrops': [
         {'file_path': '/background.jpg'},
       ],
@@ -45,7 +51,7 @@ http.Response response(Uri uri, {bool alias = false}) {
     'vote_count': 128,
     'credits': {
       'cast': [
-        {'name': '演员甲'},
+        {'name': '演员甲', 'profile_path': '/actor.jpg'},
         {'name': '演员乙'},
       ],
     },
@@ -84,7 +90,20 @@ void main() {
     expect(data!.rating, 8.6);
     expect(data.cast, ['演员甲', '演员乙']);
     expect(data.overview, '官方剧情');
-    expect(data.backdrops, ['https://images.test/t/p/w500/background.jpg']);
+    expect(data.backdrops, ['https://images.test/t/p/w1280/background.jpg']);
+    expect(data.logos, ['https://images.test/t/p/w500/logo.png']);
+    expect(data.profiles, ['https://images.test/t/p/w185/actor.jpg']);
+    expect(data.videoCovers, ['https://images.test/t/p/w300/still.jpg']);
+    settings.setImageSize(TmdbImageKind.backdrop, 'original');
+    settings.setImageSize(TmdbImageKind.profile, 'w632');
+    settings.setImageSize(TmdbImageKind.video, 'w500');
+    await settings.save();
+    final changed = (await client.lookup('影片'))!;
+    expect(changed.backdrops, [
+      'https://images.test/t/p/original/background.jpg',
+    ]);
+    expect(changed.profiles, ['https://images.test/t/p/w632/actor.jpg']);
+    expect(changed.videoCovers, ['https://images.test/t/p/w500/still.jpg']);
     client.dispose();
   });
   test('标题清理和繁简匹配，不盲选不相干候选', () async {
@@ -207,6 +226,18 @@ void main() {
     expect(find.text('演员甲'), findsOneWidget);
     expect(find.text('官方剧情'), findsOneWidget);
     expect(find.byType(PageView), findsOneWidget);
+    final background = find.byKey(const Key('tmdb-backdrop'));
+    expect(tester.getSize(background).height, 220);
+    expect(tester.getTopLeft(background).dx, 0);
+    expect(tester.getSize(background).width, 800);
+    expect(
+      tester
+          .widget<Image>(
+            find.descendant(of: background, matching: find.byType(Image)).first,
+          )
+          .fit,
+      BoxFit.cover,
+    );
     await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('重新匹配TMDB'));

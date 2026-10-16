@@ -448,6 +448,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         itemBuilder: (context, index) {
           final row = rows[index];
           return PosterTile(
+            horizontal: _mode == BrowseLayoutMode.list2,
             item: row.item,
             pipeline: widget.pipeline,
             meta: _metaOf(row.item, row.sourceName),

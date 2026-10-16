@@ -4,7 +4,7 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/reading/browse_choice_access.dart';
 
 void main() {
-  testWidgets('筛选操作按钮留出底部安全区并额外上移', (tester) async {
+  testWidgets('筛选操作按钮固定底部并留出安全区与28像素间距', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     tester.view.padding = const FakeViewPadding(bottom: 34);
@@ -33,7 +33,7 @@ void main() {
     await tester.pumpAndSettle();
     final apply = tester.getRect(find.widgetWithText(FilledButton, '应用筛选'));
     final reset = tester.getRect(find.widgetWithText(TextButton, '重置'));
-    expect(apply.bottom, lessThanOrEqualTo(844 - 34 - 22));
+    expect(apply.bottom, 844 - 34 - 28);
     expect(reset.center.dy, apply.center.dy);
     await tester.tap(find.widgetWithText(FilledButton, '应用筛选'));
     await tester.pumpAndSettle();

@@ -126,7 +126,9 @@ class _CollectionPanelState extends State<CollectionPanel> {
                     setState(() => mode = value);
                   },
                   itemBuilder: (_) => [
-                    for (final value in BrowseLayoutMode.values)
+                    for (final value in BrowseLayoutMode.values.where(
+                      (mode) => mode != BrowseLayoutMode.list2,
+                    ))
                       CheckedPopupMenuItem(
                         value: value,
                         checked: mode == value,

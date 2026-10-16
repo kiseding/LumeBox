@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_drag_tile.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_order.dart';
@@ -6,7 +7,6 @@ import 'source_action_dialogs.dart';
 import '../../core/reading/reading_library.dart';
 import '../../core/source/source_preferences.dart';
 import '../../shared/widgets/source_icon.dart';
-import '../../core/source/source_subscription_sync.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -25,7 +25,6 @@ import '../cat/cat_engine_settings_page.dart';
 import 'add_source_button.dart';
 import 'source_editor_page.dart';
 import 'source_import_dialog.dart';
-import 'source_subscription_page.dart';
 
 /// 板块页面：图源维护与批量操作。日常五项操作位于首页源抽屉。
 ///
@@ -65,6 +64,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   String _sourceQuery = '';
   String? _group;
   bool _compact = false;
+  bool _grid = false;
   int _sourceFilter = 0;
   bool _selecting = false;
   bool _maintaining = false;
@@ -91,23 +91,13 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     super.dispose();
   }
 
-  Future<void> _openSubscriptions() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SourceSubscriptionPage(
-          section: widget.section,
-          manager: _manager,
-          fetchSubscription: widget.fetchSubscription,
-        ),
-      ),
-    );
-    if (mounted) await _reload();
-  }
-
   Future<void> _reload() async {
     try {
       if (widget.manager == null) await ReadingLibrary.open(widget.section);
       final sources = await _manager.list();
+      _grid =
+          ReadingLibrary.find(widget.section)?.setting('source.manager.grid') ==
+          'true';
       if (!mounted) return;
       setState(() {
         _sources = sources;
@@ -280,65 +270,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       fetchSubscription: widget.fetchSubscription,
     );
     if (imported && mounted) await _reload();
-  }
-
-  /// 批量刷新本板块的全部订阅源。
-  Future<void> _updateAllSubscriptions() async {
-    if (widget.manager == null) {
-      final result = await SourceSubscriptionSync.refresh(
-        widget.section,
-        force: true,
-      );
-      await _reload();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(result.summary)));
-      }
-      return;
-    }
-    final targets = (_sources ?? const <SourceDescriptor>[])
-        .where((source) => source.subscribed)
-        .toList(growable: false);
-    if (targets.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('本板块没有订阅导入的源')));
-      return;
-    }
-
-    var updated = 0;
-    var unchanged = 0;
-    var failed = 0;
-    for (final source in targets) {
-      if (!mounted) return;
-      setState(() => _testing.add(source.id));
-      try {
-        final result = await _manager.updateFromSubscription(source.id);
-        if (!mounted) return;
-        switch (result.status) {
-          case SourceUpdateStatus.updated:
-            updated++;
-          case SourceUpdateStatus.unchanged:
-            unchanged++;
-          case SourceUpdateStatus.skipped:
-          case SourceUpdateStatus.failed:
-            failed++;
-        }
-      } finally {
-        if (mounted) setState(() => _testing.remove(source.id));
-      }
-    }
-    if (!mounted) return;
-    await _reload();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '订阅刷新完成（${targets.length} 个）：更新 $updated'
-          '${unchanged > 0 ? ' · 已最新 $unchanged' : ''}'
-          '${failed > 0 ? ' · 失败 $failed' : ''}',
-        ),
-      ),
-    );
   }
 
   /// 批量测试本板块全部图源。
@@ -617,11 +548,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   section: widget.section,
                   manager: _manager,
                   onImported: _reload,
-                  onSubscriptions: _openSubscriptions,
-                  onRefreshSubscriptions:
-                      (_sources ?? []).any((s) => s.subscribed)
-                      ? _updateAllSubscriptions
-                      : null,
                   readLocalScripts: widget.readLocalScripts,
                   fetchSubscription: widget.fetchSubscription,
                 ),
@@ -685,92 +611,87 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
               sources.map((s) => s.id).toList(),
             );
           });
-    return ReorderableListView.builder(
-      buildDefaultDragHandles: false,
-      onReorderItem: (from, to) async {
-        final all = List<SourceDescriptor>.of(sources)
-          ..sort(
-            (a, b) => SourceOrder.compare(
-              widget.section,
-              a.id,
-              b.id,
-              sources.map((s) => s.id).toList(),
-            ),
-          );
-        await SourceOrder.move(
-          widget.section,
-          all.map((s) => s.id).toList(),
-          visible.map((s) => s.id).toList(),
-          from - 1,
-          to - 1 < 0 ? 0 : to - 1,
+    Future<void> move(String from, String to) async {
+      final all = List<SourceDescriptor>.of(sources)
+        ..sort(
+          (a, b) => SourceOrder.compare(
+            widget.section,
+            a.id,
+            b.id,
+            sources.map((s) => s.id).toList(),
+          ),
         );
-        if (mounted) setState(() {});
-      },
-      padding: GlassScaffold.barInset(context)
-          .add(
-            EdgeInsets.fromLTRB(
-              16,
-              16,
-              16,
-              // 滚到最末才让出悬浮 Dock 那一段（猫源板块页就在 Dock 之上）。
-              16 + ShellDockScope.bottomInset(context),
+      await SourceOrder.move(
+        widget.section,
+        all.map((s) => s.id).toList(),
+        visible.map((s) => s.id).toList(),
+        visible.indexWhere((s) => s.id == from),
+        visible.indexWhere((s) => s.id == to),
+      );
+      if (mounted) setState(() {});
+    }
+
+    Widget entry(BuildContext context, int index) {
+      if (index == 0) {
+        return Column(
+          key: const ValueKey('source-manager-header'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              onChanged: (value) => setState(() => _sourceQuery = value),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: '搜索源名称、ID 或分组',
+              ),
             ),
-          )
-          .resolve(Directionality.of(context)),
-      itemCount: visible.length + 1,
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Column(
-            key: const ValueKey('source-manager-header'),
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                onChanged: (value) => setState(() => _sourceQuery = value),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: '搜索源名称、ID 或分组',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final (value, label) in [
-                    (0, '全部'),
-                    (1, '已启用'),
-                    (2, '异常'),
-                  ])
-                    ChoiceChip(
-                      label: Text(label),
-                      selected: _sourceFilter == value,
-                      onSelected: (_) => setState(() => _sourceFilter = value),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: _group ?? '__all__',
-                      items: [
-                        const DropdownMenuItem(
-                          value: '__all__',
-                          child: Text('总分组（全部）'),
-                        ),
-                        for (final group
-                            in sources.map((source) => source.group).toSet())
-                          DropdownMenuItem(
-                            value: group,
-                            child: Text(group.isEmpty ? '未分组' : group),
-                          ),
-                      ],
-                      onChanged: (value) => setState(
-                        () => _group = value == '__all__' ? null : value,
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final (value, label) in [(0, '全部'), (1, '已启用'), (2, '异常')])
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: _sourceFilter == value,
+                    onSelected: (_) => setState(() => _sourceFilter = value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: _group ?? '__all__',
+                    items: [
+                      const DropdownMenuItem(
+                        value: '__all__',
+                        child: Text('总分组（全部）'),
                       ),
+                      for (final group
+                          in sources.map((source) => source.group).toSet())
+                        DropdownMenuItem(
+                          value: group,
+                          child: Text(group.isEmpty ? '未分组' : group),
+                        ),
+                    ],
+                    onChanged: (value) => setState(
+                      () => _group = value == '__all__' ? null : value,
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: _grid ? '切换为排列' : '切换为网格',
+                  icon: Icon(
+                    _grid ? Icons.view_list_outlined : Icons.grid_view_outlined,
+                  ),
+                  onPressed: () async {
+                    final library = await ReadingLibrary.open(widget.section);
+                    library.setSetting('source.manager.grid', '${!_grid}');
+                    if (mounted) setState(() => _grid = !_grid);
+                  },
+                ),
+                if (!_grid)
                   IconButton(
                     tooltip: _compact ? '详细排列' : '紧凑排列',
                     icon: Icon(
@@ -787,153 +708,188 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                       if (mounted) setState(() => _compact = !_compact);
                     },
                   ),
+              ],
+            ),
+            Text('${visible.length} 个源 · 长按源条目拖动排序'),
+            if (_maintenanceStatus != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(_maintenanceStatus!),
+              ),
+            if (_selecting) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TextButton(
+                    onPressed: () => setState(
+                      () => _selectedIds.addAll(
+                        visible.map((source) => source.id),
+                      ),
+                    ),
+                    child: const Text('全选'),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(_selectedIds.clear),
+                    child: const Text('清空选择'),
+                  ),
+                  Text('已选 ${_selectedIds.length} 个'),
+                  TextButton(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : () => _bulkEnabled(true),
+                    child: const Text('批量启用'),
+                  ),
+                  TextButton(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : () => _bulkEnabled(false),
+                    child: const Text('批量停用'),
+                  ),
+                  TextButton(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : () => _removeSources(
+                            sources
+                                .where(
+                                  (source) => _selectedIds.contains(source.id),
+                                )
+                                .toList(),
+                          ),
+                    child: const Text('删除所选'),
+                  ),
                 ],
               ),
-              Text('${visible.length} 个源 · 长按手柄拖动排序'),
-              if (_maintenanceStatus != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(_maintenanceStatus!),
-                ),
-              if (_selecting) ...[
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    TextButton(
-                      onPressed: () => setState(
-                        () => _selectedIds.addAll(
-                          visible.map((source) => source.id),
-                        ),
-                      ),
-                      child: const Text('全选'),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(_selectedIds.clear),
-                      child: const Text('清空选择'),
-                    ),
-                    Text('已选 ${_selectedIds.length} 个'),
-                    TextButton(
-                      onPressed: _selectedIds.isEmpty
-                          ? null
-                          : () => _bulkEnabled(true),
-                      child: const Text('批量启用'),
-                    ),
-                    TextButton(
-                      onPressed: _selectedIds.isEmpty
-                          ? null
-                          : () => _bulkEnabled(false),
-                      child: const Text('批量停用'),
-                    ),
-                    TextButton(
-                      onPressed: _selectedIds.isEmpty
-                          ? null
-                          : () => _removeSources(
-                              sources
-                                  .where(
-                                    (source) =>
-                                        _selectedIds.contains(source.id),
-                                  )
-                                  .toList(),
-                            ),
-                      child: const Text('删除所选'),
-                    ),
-                  ],
-                ),
-              ],
-              if (visible.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('没有匹配的源'),
-                ),
             ],
-          );
-        }
-        final source = visible[index - 1];
-        return Padding(
-          key: ValueKey('source-manager-${source.id}'),
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              ReorderableDelayedDragStartListener(
-                index: index,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.drag_handle),
-                ),
-              ),
-              if (_selecting)
-                Checkbox(
-                  key: ValueKey('select-source-${source.id}'),
-                  value: _selectedIds.contains(source.id),
-                  onChanged: (value) => setState(() {
-                    if (value == true) {
-                      _selectedIds.add(source.id);
-                    } else {
-                      _selectedIds.remove(source.id);
-                    }
-                  }),
-                ),
-              Expanded(
-                child: _compact
-                    ? ListTile(
-                        title: Text(
-                          source.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Wrap(
-                          spacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            if (SourceContentRating.isAdult(
-                              source.id,
-                              source.name,
-                            ))
-                              const SourceRatingBadge(),
-                            Text(source.hasGroup ? source.group : '未分组'),
-                          ],
-                        ),
-                        leading: SourceIcon(
-                          name: source.name,
-                          siteUrl: source.siteUrl,
-                          section: widget.section,
-                          sourceId: source.id,
-                        ),
-                        trailing: Switch(
-                          value: source.enabled,
-                          onChanged: (value) => _toggle(source, value),
-                        ),
-                        onTap: () => _rename(source),
-                      )
-                    : _SourceTile(
-                        source: source,
-                        section: widget.section,
-                        pinned: SourcePreferences.read(
-                          widget.section,
-                          source.id,
-                        ).pinned,
-                        customIcon: SourcePreferences.read(
-                          widget.section,
-                          source.id,
-                        ).iconUrl,
-                        testing: _testing.contains(source.id),
-                        testResult: _testResults[source.id],
-                        onToggle: (enabled) => _toggle(source, enabled),
-                        onRename: () => _rename(source),
-                        onGroup: () => _setGroup(source),
-                        onRecover: source.broken
-                            ? () => _recover(source)
-                            : null,
-                        onNetwork: () => _editNetwork(source),
-                        onExport: () => _export(source),
-                        onDelete: () => _delete(source),
-                      ),
-              ),
-            ],
-          ),
+            if (visible.isEmpty)
+              const Padding(padding: EdgeInsets.all(20), child: Text('没有匹配的源')),
+          ],
         );
-      },
+      }
+      final source = visible[index - 1];
+      return SourceDragTile(
+        key: ValueKey('source-manager-${source.id}'),
+        id: source.id,
+        name: source.name,
+        accepts: (id) => visible.any((s) => s.id == id),
+        onMove: move,
+        child: Row(
+          children: [
+            if (_selecting)
+              Checkbox(
+                key: ValueKey('select-source-${source.id}'),
+                value: _selectedIds.contains(source.id),
+                onChanged: (value) => setState(() {
+                  if (value == true) {
+                    _selectedIds.add(source.id);
+                  } else {
+                    _selectedIds.remove(source.id);
+                  }
+                }),
+              ),
+            Expanded(
+              child: _compact && !_grid
+                  ? ListTile(
+                      title: Text(
+                        source.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Wrap(
+                        spacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (SourceContentRating.isAdult(
+                            source.id,
+                            source.name,
+                          ))
+                            const SourceRatingBadge(),
+                          Text(source.hasGroup ? source.group : '未分组'),
+                        ],
+                      ),
+                      leading: SourceIcon(
+                        name: source.name,
+                        siteUrl: source.siteUrl,
+                        section: widget.section,
+                        sourceId: source.id,
+                      ),
+                      trailing: Switch(
+                        value: source.enabled,
+                        onChanged: (value) => _toggle(source, value),
+                      ),
+                      onTap: () => _rename(source),
+                    )
+                  : _SourceTile(
+                      grid: _grid,
+                      source: source,
+                      section: widget.section,
+                      pinned: SourcePreferences.read(
+                        widget.section,
+                        source.id,
+                      ).pinned,
+                      customIcon: SourcePreferences.read(
+                        widget.section,
+                        source.id,
+                      ).iconUrl,
+                      testing: _testing.contains(source.id),
+                      testResult: _testResults[source.id],
+                      onToggle: (enabled) => _toggle(source, enabled),
+                      onRename: () => _rename(source),
+                      onGroup: () => _setGroup(source),
+                      onRecover: source.broken ? () => _recover(source) : null,
+                      onNetwork: () => _editNetwork(source),
+                      onExport: () => _export(source),
+                      onDelete: () => _delete(source),
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final inset = GlassScaffold.barInset(context)
+        .add(
+          EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            16 + ShellDockScope.bottomInset(context),
+          ),
+        )
+        .resolve(Directionality.of(context));
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: inset.copyWith(bottom: 12),
+          sliver: SliverToBoxAdapter(child: entry(context, 0)),
+        ),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            16 + ShellDockScope.bottomInset(context),
+          ),
+          sliver: _grid
+              ? SliverGrid(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => entry(context, i + 1),
+                    childCount: visible.length,
+                  ),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisExtent: 190,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                  ),
+                )
+              : SliverList.separated(
+                  itemCount: visible.length,
+                  itemBuilder: (context, i) => entry(context, i + 1),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                ),
+        ),
+      ],
     );
   }
 }
@@ -955,6 +911,7 @@ class _SourceTile extends StatelessWidget {
     required this.source,
     required this.section,
     this.pinned = false,
+    this.grid = false,
     this.customIcon = '',
     this.testing = false,
     this.testResult,
@@ -973,6 +930,7 @@ class _SourceTile extends StatelessWidget {
   final Section section;
 
   final bool pinned;
+  final bool grid;
   final String customIcon;
 
   /// 正在测试（按钮转圈）。
@@ -997,8 +955,108 @@ class _SourceTile extends StatelessWidget {
 
   final VoidCallback onDelete;
 
+  Widget _menu() => PopupMenuButton<_SourceAction>(
+    tooltip: '更多操作',
+    onSelected: (action) {
+      switch (action) {
+        case _SourceAction.rename:
+          onRename();
+        case _SourceAction.group:
+          onGroup();
+        case _SourceAction.recover:
+          onRecover?.call();
+        case _SourceAction.network:
+          onNetwork();
+        case _SourceAction.exportScript:
+          onExport();
+        case _SourceAction.delete:
+          onDelete();
+      }
+    },
+    itemBuilder: (context) => <PopupMenuEntry<_SourceAction>>[
+      const PopupMenuItem<_SourceAction>(
+        value: _SourceAction.rename,
+        child: Text('重命名'),
+      ),
+      const PopupMenuItem<_SourceAction>(
+        value: _SourceAction.group,
+        child: Text('设置分组'),
+      ),
+      // 只有失效的源才有「恢复」——正常的源没有可恢复的状态。
+      if (onRecover != null)
+        const PopupMenuItem<_SourceAction>(
+          value: _SourceAction.recover,
+          child: Text('恢复（解除失效标记）'),
+        ),
+      const PopupMenuItem<_SourceAction>(
+        value: _SourceAction.network,
+        child: Text('网络配置'),
+      ),
+      const PopupMenuItem<_SourceAction>(
+        value: _SourceAction.exportScript,
+        child: Text('导出脚本'),
+      ),
+      const PopupMenuItem<_SourceAction>(
+        value: _SourceAction.delete,
+        child: Text('删除'),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
+    if (grid) {
+      return GlassCard(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                SourceIcon(
+                  name: source.name,
+                  siteUrl: source.siteUrl,
+                  iconUrl: customIcon.isEmpty ? source.iconUrl : customIcon,
+                  section: section,
+                  sourceId: source.id,
+                  size: 32,
+                ),
+                const Spacer(),
+                _menu(),
+              ],
+            ),
+            Text(
+              source.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                if (SourceContentRating.isAdult(source.id, source.name))
+                  const SourceRatingBadge(),
+                Expanded(
+                  child: Text(
+                    source.hasGroup ? source.group : source.version,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 36,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Switch(value: source.enabled, onChanged: onToggle),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -1116,53 +1174,7 @@ class _SourceTile extends StatelessWidget {
               Switch(value: source.enabled, onChanged: onToggle),
               // 行内只留开关：浏览 / 重命名 / 导出 / 删除收进「更多」，
               // 手机窄屏也不会把四个按钮挤成一片。
-              PopupMenuButton<_SourceAction>(
-                tooltip: '更多操作',
-                onSelected: (action) {
-                  switch (action) {
-                    case _SourceAction.rename:
-                      onRename();
-                    case _SourceAction.group:
-                      onGroup();
-                    case _SourceAction.recover:
-                      onRecover?.call();
-                    case _SourceAction.network:
-                      onNetwork();
-                    case _SourceAction.exportScript:
-                      onExport();
-                    case _SourceAction.delete:
-                      onDelete();
-                  }
-                },
-                itemBuilder: (context) => <PopupMenuEntry<_SourceAction>>[
-                  const PopupMenuItem<_SourceAction>(
-                    value: _SourceAction.rename,
-                    child: Text('重命名'),
-                  ),
-                  const PopupMenuItem<_SourceAction>(
-                    value: _SourceAction.group,
-                    child: Text('设置分组'),
-                  ),
-                  // 只有失效的源才有「恢复」——正常的源没有可恢复的状态。
-                  if (onRecover != null)
-                    const PopupMenuItem<_SourceAction>(
-                      value: _SourceAction.recover,
-                      child: Text('恢复（解除失效标记）'),
-                    ),
-                  const PopupMenuItem<_SourceAction>(
-                    value: _SourceAction.network,
-                    child: Text('网络配置'),
-                  ),
-                  const PopupMenuItem<_SourceAction>(
-                    value: _SourceAction.exportScript,
-                    child: Text('导出脚本'),
-                  ),
-                  const PopupMenuItem<_SourceAction>(
-                    value: _SourceAction.delete,
-                    child: Text('删除'),
-                  ),
-                ],
-              ),
+              _menu(),
             ],
           ),
         ],
