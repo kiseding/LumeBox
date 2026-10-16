@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/chapter_display_order.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/net/network_settings.dart';
@@ -315,6 +316,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
   }
 
   Widget _buildBody() {
+    final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
+    final corrected = order.automatic ? order.indexes(_chapters) : null;
     if (_loading) return const SourceStateView(state: SourceStateKind.loading);
     final failure = _failure;
     if (failure != null && _chapters.isEmpty) {
@@ -346,9 +349,10 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
             sliver: SliverList.builder(
               itemCount: _chapters.length,
               itemBuilder: (context, position) {
-                final index = _descending
+                var index = _descending
                     ? _chapters.length - 1 - position
                     : position;
+                if (corrected != null) index = corrected[position];
                 return ChapterTile(
                   title: _chapters[index].title,
                   read: _isRead(index),

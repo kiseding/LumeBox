@@ -26,6 +26,14 @@ final class SpeechController: NSObject {
   private let eventChannelName = "lumebox/speech/events"
 
   private let synthesizer = AVSpeechSynthesizer()
+  private lazy var stream: SpeechStream = {
+    let sink = SpeechStream()
+    sink.emit = { [weak self] kind, offset, message in
+      self?.emit(kind:kind,charOffset:offset,message:message)
+      self?.updateNowPlayingInfo()
+    }
+    return sink
+  }()
   private var eventSink: FlutterEventSink?
 
   /// 当前这段的语速 / 音调 / 音量（speak 时下发）。
@@ -67,6 +75,17 @@ final class SpeechController: NSObject {
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    if call.method.hasPrefix("stream") || call.method.hasPrefix("speech") {
+      if call.method == "streamBegin" {
+        if synthesizer.isSpeaking || synthesizer.isPaused {
+          suppressCancelEvent = true; synthesizer.stopSpeaking(at:.immediate)
+        }
+        let args = call.arguments as? [String:Any] ?? [:]
+        backgroundPlayback = args["background"] as? Bool ?? true
+        setSessionActive(true)
+      }
+      stream.handle(call,result:result); return
+    }
     switch call.method {
     case "isSupported":
       // 系统合成器在所有 iOS 设备上都可用；真正的「不支持」是原生未接入，
@@ -145,6 +164,7 @@ final class SpeechController: NSObject {
     else { return }
     switch type {
     case .began:
+      if stream.active { stream.pause(); return }
       if synthesizer.isSpeaking {
         synthesizer.pauseSpeaking(at: .word)
       }
@@ -172,6 +192,7 @@ final class SpeechController: NSObject {
 
   @objc private func handleDidEnterBackground() {
     guard !backgroundPlayback else { return }
+    if stream.active { stream.pause(); return }
     if synthesizer.isSpeaking {
       synthesizer.pauseSpeaking(at: .word)
     }
@@ -186,6 +207,7 @@ final class SpeechController: NSObject {
     center.playCommand.isEnabled = true
     center.playCommand.addTarget { [weak self] _ -> MPRemoteCommandHandlerStatus in
       guard let self else { return .commandFailed }
+      if self.stream.active { self.stream.resume(); return .success }
       guard self.synthesizer.isPaused else { return .commandFailed }
       self.synthesizer.continueSpeaking()
       return .success
@@ -194,6 +216,7 @@ final class SpeechController: NSObject {
     center.pauseCommand.isEnabled = true
     center.pauseCommand.addTarget { [weak self] _ -> MPRemoteCommandHandlerStatus in
       guard let self else { return .commandFailed }
+      if self.stream.active { self.stream.pause(); return .success }
       guard self.synthesizer.isSpeaking else { return .commandFailed }
       self.synthesizer.pauseSpeaking(at: .word)
       return .success
@@ -211,6 +234,10 @@ final class SpeechController: NSObject {
     center.togglePlayPauseCommand.isEnabled = true
     center.togglePlayPauseCommand.addTarget { [weak self] _ -> MPRemoteCommandHandlerStatus in
       guard let self else { return .commandFailed }
+      if self.stream.active {
+        if self.stream.paused { self.stream.resume() } else { self.stream.pause() }
+        return .success
+      }
       if self.synthesizer.isSpeaking {
         self.synthesizer.pauseSpeaking(at: .word)
         return .success
@@ -240,7 +267,7 @@ final class SpeechController: NSObject {
     if let nowPlayingSubtitle { info[MPMediaItemPropertyArtist] = nowPlayingSubtitle }
     info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
     // 语速影响锁屏的「快进 / 快退」提示，如实带上。
-    info[MPNowPlayingInfoPropertyPlaybackRate] = synthesizer.isSpeaking ? 1.0 : 0.0
+    info[MPNowPlayingInfoPropertyPlaybackRate] = (stream.active ? stream.playing : synthesizer.isSpeaking) ? 1.0 : 0.0
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info.isEmpty ? nil : info
   }
 
@@ -277,7 +304,9 @@ final class SpeechController: NSObject {
     }
 
     let utterance = AVSpeechUtterance(string: text)
-    utterance.voice = AVSpeechSynthesisVoice(language: voiceLanguage(for: text))
+    if stream.active { stream.stop(notify:false) }
+    utterance.voice = (args["voice"] as? String).flatMap { AVSpeechSynthesisVoice(identifier:$0) }
+      ?? AVSpeechSynthesisVoice(language: voiceLanguage(for: text))
     // AVSpeechUtterance 的语速区间是 [AVSpeechUtteranceMinimumSpeechRate,
     // MaximumSpeechRate]，Dart 侧给的是 0.2~1.0 的「相对语速」，这里换算。
     utterance.rate = clampRate(rate)
@@ -317,6 +346,7 @@ final class SpeechController: NSObject {
 
   /// 停止朗读（内部共用：方法通道与锁屏停止键都走这里）。
   private func stopSpeakingInternal() {
+    if stream.active { stream.stop(); setSessionActive(false); clearNowPlaying(); return }
     if synthesizer.isSpeaking || synthesizer.isPaused {
       // 用户主动停止：正常上报 stopped，不抑制。
       suppressCancelEvent = false
@@ -336,6 +366,7 @@ final class SpeechController: NSObject {
   }
 
   private func pause(result: @escaping FlutterResult) {
+    if stream.active { stream.pause(); result(nil); return }
     guard synthesizer.isSpeaking else {
       result(nil)
       return
@@ -347,6 +378,7 @@ final class SpeechController: NSObject {
   }
 
   private func resume(result: @escaping FlutterResult) {
+    if stream.active { stream.resume(); result(nil); return }
     guard synthesizer.isPaused else {
       result(nil)
       return
@@ -386,6 +418,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didStart utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     // 新的一段已经开始：抑制标记到此必须失效。
     //
     // 为什么在这里兜底清：`suppressCancelEvent` 只在 didCancel 里被消费，而
@@ -401,6 +434,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didFinish utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     updateNowPlayingInfo()
     emit(kind: "finished")
   }
@@ -409,6 +443,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didPause utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     updateNowPlayingInfo()
     emit(kind: "paused")
   }
@@ -417,6 +452,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didContinue utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     updateNowPlayingInfo()
     emit(kind: "resumed")
   }
@@ -425,6 +461,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didCancel utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     // 自己发起的打断（换段）不上报：Dart 侧不需要知道这次内部停止。
     if suppressCancelEvent {
       suppressCancelEvent = false
@@ -439,6 +476,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
     willSpeakRangeOfSpeechString characterRange: NSRange,
     utterance: AVSpeechUtterance
   ) {
+    if stream.active { return }
     emit(kind: "progress", charOffset: characterRange.location)
   }
 }

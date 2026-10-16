@@ -1,3 +1,5 @@
+import 'speech_advanced.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -297,6 +299,10 @@ class SpeechSession {
     if (speakable.isEmpty) return '本章没有可朗读的内容';
     _cancelWatch();
     _segments = List<SpeechSegment>.unmodifiable(speakable);
+    final chapterBackend = backend;
+    if (chapterBackend is ChapterSpeechBackend) {
+      (chapterBackend as ChapterSpeechBackend).prepareChapter(_segments);
+    }
     _index = fromIndex.clamp(0, speakable.length - 1);
     _needsRespeak = false;
     _moveToSegment(_index);
@@ -430,7 +436,12 @@ class SpeechSession {
   Future<String?> _speakCurrent() async {
     final segment = _segments[_index];
     try {
-      await backend.speak(segment.text);
+      final source = backend;
+      if (source is ChapterSpeechBackend) {
+        await (source as ChapterSpeechBackend).speakSegment(segment);
+      } else {
+        await backend.speak(segment.text);
+      }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       _fail(

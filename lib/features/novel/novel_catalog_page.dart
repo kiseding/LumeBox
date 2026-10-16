@@ -3,6 +3,7 @@ import '../../core/source/source_preferences.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/chapter_display_order.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/chapter_tile.dart';
@@ -74,6 +75,11 @@ class _NovelCatalogPageState extends State<NovelCatalogPage> {
         continue;
       }
       indexes.add(index);
+    }
+    final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
+    if (order.automatic) {
+      final visible = indexes.toSet();
+      return order.indexes(widget.chapters).where(visible.contains).toList();
     }
     if (_descending) {
       return indexes.reversed.toList(growable: false);

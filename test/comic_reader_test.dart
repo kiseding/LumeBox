@@ -244,7 +244,7 @@ void main() {
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     expect(find.text('阅读设置'), findsWidgets);
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     expect(
       ComicReaderSettings.load(library).doubleTapZoom,

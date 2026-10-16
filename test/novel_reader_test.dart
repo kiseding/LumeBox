@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/reading/chapter_display_order.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
@@ -38,11 +39,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_reader');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     library = await ReadingLibrary.open(Section.novel);
   });
 
@@ -54,9 +55,9 @@ void main() {
   });
 
   List<SourceChapter> chapters(int count) => <SourceChapter>[
-        for (var index = 1; index <= count; index++)
-          SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
-      ];
+    for (var index = 1; index <= count; index++)
+      SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
+  ];
 
   Future<void> pumpReader(
     WidgetTester tester, {
@@ -96,6 +97,66 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
   }
 
+  testWidgets('正文单独适配灵动岛，目录仅保留一层底部安全区', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+    tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewPadding);
+    addTearDown(tester.view.resetPadding);
+    await pumpReader(tester);
+    final body = tester.widget<Padding>(
+      find.byKey(const ValueKey('novel-body-safe-inset')),
+    );
+    expect(body.padding, const EdgeInsets.only(top: 59));
+    await tapCenter(tester);
+    final list = find.byKey(const ValueKey('novel-reader-chapters'));
+    expect(tester.widget<ListView>(list).padding, EdgeInsets.zero);
+    final last = find.ancestor(
+      of: find.text('第 3 章'),
+      matching: find.byType(ListTile),
+    );
+    expect(tester.getRect(last).bottom, tester.getRect(list).bottom);
+    expect(tester.getRect(list).bottom, closeTo(766, 1));
+  });
+
+  testWidgets('自动排序优先但不覆盖手动倒序，关闭后恢复手动值', (tester) async {
+    final order = ChapterDisplayOrder(library, target.sourceId);
+    order.descending = true;
+    order.automatic = true;
+    await pumpReader(tester);
+    await tapCenter(tester);
+    expect(
+      tester
+          .getCenter(
+            find.descendant(
+              of: find.byKey(const ValueKey('novel-reader-chapters')),
+              matching: find.text('第 1 章'),
+            ),
+          )
+          .dy,
+      lessThan(tester.getCenter(find.text('第 3 章')).dy),
+    );
+    expect(order.descending, true);
+    order.automatic = false;
+    await tapCenter(tester);
+    await tapCenter(tester);
+    expect(
+      tester.getCenter(find.text('第 3 章')).dy,
+      lessThan(
+        tester
+            .getCenter(
+              find.descendant(
+                of: find.byKey(const ValueKey('novel-reader-chapters')),
+                matching: find.text('第 1 章'),
+              ),
+            )
+            .dy,
+      ),
+    );
+    expect(order.descending, true);
+  });
+
   testWidgets('打开即分页，并按章节 + 字符偏移落下进度', (tester) async {
     await pumpReader(tester);
 
@@ -132,11 +193,7 @@ void main() {
     // 重新进阅读器（同一章，带偏移）。
     await pumpReader(tester, initialCharOffset: savedOffset);
     final restored = library.novelProgress(target.itemId)!;
-    expect(
-      restored.charOffset,
-      savedOffset,
-      reason: '按字符偏移恢复后，进度应落在同一页的起点',
-    );
+    expect(restored.charOffset, savedOffset, reason: '按字符偏移恢复后，进度应落在同一页的起点');
   });
 
   testWidgets('翻页模式可切换：上下滚动不再走翻页视图', (tester) async {
@@ -236,8 +293,10 @@ void main() {
     const viewport = Size(400, 800);
     const theme = NovelReaderTheme.parchment;
     final text = NovelChapterText.parse(
-      FakeReadingDataSource(section: Section.novel, paragraphs: 8)
-          .chapterText('item-1', 'item-1-c1'),
+      FakeReadingDataSource(
+        section: Section.novel,
+        paragraphs: 8,
+      ).chapterText('item-1', 'item-1-c1'),
     );
     final pagination = const NovelPaginator().paginate(
       chapterId: 'item-1-c1',
@@ -258,10 +317,7 @@ void main() {
 
     final recorder = ui.PictureRecorder();
     final painter = Canvas(recorder);
-    painter.drawRect(
-      Offset.zero & viewport,
-      Paint()..color = theme.background,
-    );
+    painter.drawRect(Offset.zero & viewport, Paint()..color = theme.background);
     canvas.paint(
       painter,
       Offset(
@@ -297,10 +353,6 @@ void main() {
       final db = (data[index + 2] - bgB).abs();
       if (dr + dg + db > 30) inked++;
     }
-    expect(
-      inked,
-      greaterThan(500),
-      reason: '分页结果必须能画出成片的正文像素，而不是空页',
-    );
+    expect(inked, greaterThan(500), reason: '分页结果必须能画出成片的正文像素，而不是空页');
   });
 }

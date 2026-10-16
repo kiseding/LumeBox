@@ -130,7 +130,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '听书'));
+    await tester.tap(find.widgetWithText(ChoiceChip, '有声小说'));
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
     expect(SourcePreferences.read(Section.novel, 'b').pickerGroup, 'audiobook');
@@ -232,7 +232,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '听书'));
+    await tester.tap(find.widgetWithText(ChoiceChip, '有声小说'));
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭'));

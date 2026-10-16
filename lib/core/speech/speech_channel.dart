@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 
 import '../util/lume_log.dart';
 import 'speech_session.dart';
+import 'speech_advanced.dart';
+import 'speech_segments.dart';
 import 'speech_settings.dart';
 
 /// iOS 原生语音合成的通道契约（Dart 侧）。
@@ -20,23 +22,33 @@ import 'speech_settings.dart';
 /// 原生实现（Swift，AVSpeechSynthesizer）尚未接入时：`isSupported` 把
 /// MissingPluginException 如实降级为 false，面板显示占位而不是报错——
 /// 契约由测试固定，原生落地即生效。
-class MethodChannelSpeechBackend implements SpeechBackend, NowPlayingCapable {
+class MethodChannelSpeechBackend
+    implements SpeechBackend, NowPlayingCapable, ChapterSpeechBackend {
   MethodChannelSpeechBackend({
     MethodChannel? methodChannel,
     EventChannel? eventChannel,
     SpeechSettings settings = const SpeechSettings(),
-  })  : _methods = methodChannel ?? const MethodChannel(methodChannelName),
-        _events = eventChannel ?? const EventChannel(eventChannelName),
-        // 公开参数名 `settings` 与私有字段 `_settings` 不同名，无法用初始化
-        // 形参（Dart 不允许下划线开头的具名参数）。
-        // ignore: prefer_initializing_formals
-        _settings = settings;
+  }) : _methods = methodChannel ?? const MethodChannel(methodChannelName),
+       _events = eventChannel ?? const EventChannel(eventChannelName),
+       // 公开参数名 `settings` 与私有字段 `_settings` 不同名，无法用初始化
+       // 形参（Dart 不允许下划线开头的具名参数）。
+       // ignore: prefer_initializing_formals
+       _settings = settings;
 
   static const String methodChannelName = 'lumebox/speech';
   static const String eventChannelName = 'lumebox/speech/events';
 
   final MethodChannel _methods;
   final EventChannel _events;
+  late final _advanced = AdvancedSpeechSource(_methods);
+  @override
+  void prepareChapter(List<SpeechSegment> segments) =>
+      _advanced.prepare(segments);
+  @override
+  Future<void> speakSegment(SpeechSegment segment) =>
+      _settings.mode == SpeechMode.system && !_settings.autoDialogue
+      ? speak(segment.text)
+      : _advanced.speak(segment, _settings);
 
   /// 朗读参数（语速 / 音调 / 音量）。页面改设置时用 [applySettings] 更新。
   SpeechSettings _settings;
@@ -59,12 +71,15 @@ class MethodChannelSpeechBackend implements SpeechBackend, NowPlayingCapable {
 
   @override
   Future<void> speak(String text) async {
+    _advanced.cancel();
     try {
       await _methods.invokeMethod<void>('speak', <String, Object?>{
         'text': text,
         'rate': _settings.rate,
         'pitch': _settings.pitch,
         'volume': _settings.volume,
+        if (_settings.narratorVoice.isNotEmpty)
+          'voice': _settings.narratorVoice,
         // 后台播放开关：原生侧据此决定退到后台时是继续读还是暂停。
         'background': _settings.backgroundPlayback,
       });
@@ -76,7 +91,10 @@ class MethodChannelSpeechBackend implements SpeechBackend, NowPlayingCapable {
   }
 
   @override
-  Future<void> stop() => _invoke('stop');
+  Future<void> stop() {
+    _advanced.cancel();
+    return _invoke('stop');
+  }
 
   @override
   Future<void> pause() => _invoke('pause');
@@ -155,5 +173,6 @@ class SpeechException implements Exception {
 
 /// 按平台选择语音后端：iOS 走原生 AVSpeechSynthesizer，其余平台如实降级为
 /// 不支持（Android / Windows 只保留 UI 骨架占位）。
-SpeechBackend createPlatformSpeechBackend() =>
-    Platform.isIOS ? MethodChannelSpeechBackend() : const UnsupportedSpeechBackend();
+SpeechBackend createPlatformSpeechBackend() => Platform.isIOS
+    ? MethodChannelSpeechBackend()
+    : const UnsupportedSpeechBackend();

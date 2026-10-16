@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'speech_mode.dart';
+export 'speech_mode.dart';
+
 /// 听书设置：语速、音调、音量、是否跟读翻页、每片字数、后台播放。
 ///
 /// 与排版参数一样按板块存在阅读库里（键 [settingKey]），因此小说板块的设置
@@ -13,9 +16,27 @@ class SpeechSettings {
     this.followAlong = true,
     this.maxCharsPerSegment = 1000,
     this.backgroundPlayback = true,
+    this.mode = SpeechMode.system,
+    this.autoDialogue = false,
+    this.narratorVoice = '',
+    this.maleVoice = '',
+    this.femaleVoice = '',
+    this.profiles = const {},
   });
 
   static const String settingKey = 'novel.speech.settings';
+  final SpeechMode mode;
+  final bool autoDialogue;
+  final String narratorVoice, maleVoice, femaleVoice;
+  final Map<String, Map<String, Object?>> profiles;
+  Map<String, Object?> get _profile => {
+    'rate': rate,
+    'pitch': pitch,
+    'volume': volume,
+    'narratorVoice': narratorVoice,
+    'maleVoice': maleVoice,
+    'femaleVoice': femaleVoice,
+  };
 
   /// 语速范围。0.5 是系统 TTS 的「正常语速」，1.0 已相当快。
   static const double minRate = 0.2;
@@ -61,33 +82,109 @@ class SpeechSettings {
     bool? followAlong,
     int? maxCharsPerSegment,
     bool? backgroundPlayback,
+    SpeechMode? mode,
+    bool? autoDialogue,
+    String? narratorVoice,
+    String? maleVoice,
+    String? femaleVoice,
   }) {
+    final target = mode ?? this.mode;
+    final saved = {...profiles, this.mode.name: _profile};
+    if (target != this.mode) {
+      final profile = saved[target.name] ?? {};
+      final defaults = target == SpeechMode.local
+          ? ['66', '0', '66']
+          : target == SpeechMode.system
+          ? ['', '', '']
+          : ['alloy', 'onyx', 'nova'];
+      return SpeechSettings(
+        mode: target,
+        profiles: saved,
+        autoDialogue: autoDialogue ?? this.autoDialogue,
+        rate: _number(profile['rate'], .5).clamp(minRate, maxRate),
+        pitch: _number(profile['pitch'], 1).clamp(minPitch, maxPitch),
+        volume: _number(profile['volume'], 1).clamp(minVolume, maxVolume),
+        narratorVoice: profile['narratorVoice'] is String
+            ? profile['narratorVoice'] as String
+            : defaults[0],
+        maleVoice: profile['maleVoice'] is String
+            ? profile['maleVoice'] as String
+            : defaults[1],
+        femaleVoice: profile['femaleVoice'] is String
+            ? profile['femaleVoice'] as String
+            : defaults[2],
+        followAlong: followAlong ?? this.followAlong,
+        maxCharsPerSegment: maxCharsPerSegment ?? this.maxCharsPerSegment,
+        backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
+      );
+    }
     return SpeechSettings(
+      mode: target,
+      profiles: saved,
+      autoDialogue: autoDialogue ?? this.autoDialogue,
+      narratorVoice: narratorVoice ?? this.narratorVoice,
+      maleVoice: maleVoice ?? this.maleVoice,
+      femaleVoice: femaleVoice ?? this.femaleVoice,
       rate: (rate ?? this.rate).clamp(minRate, maxRate).toDouble(),
       pitch: (pitch ?? this.pitch).clamp(minPitch, maxPitch).toDouble(),
       volume: (volume ?? this.volume).clamp(minVolume, maxVolume).toDouble(),
       followAlong: followAlong ?? this.followAlong,
-      maxCharsPerSegment: (maxCharsPerSegment ?? this.maxCharsPerSegment)
-          .clamp(minSegmentChars, maxSegmentChars),
+      maxCharsPerSegment: (maxCharsPerSegment ?? this.maxCharsPerSegment).clamp(
+        minSegmentChars,
+        maxSegmentChars,
+      ),
       backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
     );
   }
 
   String encode() => jsonEncode(<String, Object?>{
-        'rate': rate,
-        'pitch': pitch,
-        'volume': volume,
-        'followAlong': followAlong,
-        'maxCharsPerSegment': maxCharsPerSegment,
-        'backgroundPlayback': backgroundPlayback,
-      });
+    'mode': mode.name,
+    'autoDialogue': autoDialogue,
+    'narratorVoice': narratorVoice,
+    'maleVoice': maleVoice,
+    'femaleVoice': femaleVoice,
+    'profiles': {...profiles, mode.name: _profile},
+    'rate': rate,
+    'pitch': pitch,
+    'volume': volume,
+    'followAlong': followAlong,
+    'maxCharsPerSegment': maxCharsPerSegment,
+    'backgroundPlayback': backgroundPlayback,
+  });
 
   static SpeechSettings decode(String? raw) {
     if (raw == null || raw.isEmpty) return const SpeechSettings();
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return const SpeechSettings();
-      final base = const SpeechSettings();
+      final mode = SpeechMode.parse(decoded['mode']);
+      final saved = <String, Map<String, Object?>>{};
+      final rawProfiles = decoded['profiles'];
+      if (rawProfiles is Map) {
+        for (final mode in SpeechMode.values) {
+          final profile = rawProfiles[mode.name];
+          if (profile is Map) {
+            saved[mode.name] = {
+              for (final item in profile.entries)
+                if (item.key is String) item.key as String: item.value,
+            };
+          }
+        }
+      }
+      final base = SpeechSettings(
+        mode: mode,
+        profiles: saved,
+        autoDialogue: decoded['autoDialogue'] == true,
+        narratorVoice: decoded['narratorVoice'] is String
+            ? decoded['narratorVoice'] as String
+            : '',
+        maleVoice: decoded['maleVoice'] is String
+            ? decoded['maleVoice'] as String
+            : '',
+        femaleVoice: decoded['femaleVoice'] is String
+            ? decoded['femaleVoice'] as String
+            : '',
+      );
       return base.copyWith(
         rate: _number(decoded['rate'], base.rate),
         pitch: _number(decoded['pitch'], base.pitch),
@@ -108,5 +205,5 @@ class SpeechSettings {
   }
 
   static double _number(Object? value, double fallback) =>
-      value is num ? value.toDouble() : fallback;
+      value is num && value.isFinite ? value.toDouble() : fallback;
 }

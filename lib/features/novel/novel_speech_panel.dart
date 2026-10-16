@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/speech/speech.dart';
+import 'novel_speech_modes.dart';
 
 /// 听书面板：朗读控制 + 语速 / 音调 / 音量 + 跟读开关。
 ///
@@ -73,6 +74,11 @@ class NovelSpeechPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       children: <Widget>[
+        NovelSpeechModes(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          selectorOnly: true,
+        ),
         _buildTransport(),
         if (segmentCount > 0) _buildSegmentProgress(),
         const Divider(height: 20),
@@ -139,24 +145,31 @@ class NovelSpeechPanel extends StatelessWidget {
           onChanged: (value) =>
               onSettingsChanged(settings.copyWith(backgroundPlayback: value)),
         ),
+        NovelSpeechModes(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          optionsOnly: true,
+        ),
+        novelSpeechHelp,
       ],
     );
   }
 
   /// 播放控制：开始 / 暂停 / 继续 + 停止。
   Widget _buildTransport() {
-    final active = state == SpeechState.speaking || state == SpeechState.pausing;
+    final active =
+        state == SpeechState.speaking || state == SpeechState.pausing;
     final paused = state == SpeechState.paused;
     final label = active
         ? '暂停'
         : paused
-            ? '继续'
-            : '开始朗读';
+        ? '继续'
+        : '开始朗读';
     final icon = active
         ? Icons.pause_circle_filled
         : paused
-            ? Icons.play_circle_filled
-            : Icons.play_circle_outline;
+        ? Icons.play_circle_filled
+        : Icons.play_circle_outline;
 
     return Row(
       children: <Widget>[
@@ -173,10 +186,7 @@ class NovelSpeechPanel extends StatelessWidget {
             label: const Text('停止'),
           ),
         const Spacer(),
-        Text(
-          state.label,
-          style: TextStyle(fontSize: 12, color: secondary),
-        ),
+        Text(state.label, style: TextStyle(fontSize: 12, color: secondary)),
       ],
     );
   }
@@ -235,10 +245,7 @@ class _SliderRow extends StatelessWidget {
       children: <Widget>[
         SizedBox(
           width: 32,
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 12, color: chromeText),
-          ),
+          child: Text(label, style: TextStyle(fontSize: 12, color: chromeText)),
         ),
         Expanded(
           child: Slider(

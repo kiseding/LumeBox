@@ -9,6 +9,8 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:path/path.dart' as p;
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/chapter_display_order.dart';
+import '../../shared/widgets/chapter_order_controls.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/net/network_settings.dart';
@@ -515,6 +517,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ComicReaderSettingsPage(
+          chapterOrder: ChapterDisplayOrder(widget.library, widget.target.sourceId),
           settings: _settings,
           onChanged: _updateSettings,
           canSavePage: _images.isNotEmpty && !_saving,
@@ -758,7 +761,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) =>
-          _ChapterSheet(chapters: _chapters, currentIndex: _chapterIndex),
+          _ChapterSheet(chapters: _chapters, currentIndex: _chapterIndex, order: ChapterDisplayOrder(widget.library, widget.target.sourceId)),
     );
     if (selected == null || !mounted) return;
     await _openChapter(selected);
@@ -1506,7 +1509,8 @@ class _ComicImageTileState extends State<_ComicImageTile>
 /// 面板本身是「一个会横向平移的整块」：拖动量用 [AnimatedContainer] 的 transform
 /// 表达，松手没到阈值就弹回原位（拖动中不加动画，否则跟手感变成拖影）。
 class _ChapterSheet extends StatefulWidget {
-  const _ChapterSheet({required this.chapters, required this.currentIndex});
+  const _ChapterSheet({required this.chapters, required this.currentIndex, required this.order});
+  final ChapterDisplayOrder order;
 
   final List<SourceChapter> chapters;
   final int currentIndex;
@@ -1550,6 +1554,7 @@ class _ChapterSheetState extends State<_ChapterSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final indexes = widget.order.indexes(widget.chapters);
     return AnimatedContainer(
       duration: _dragging ? Duration.zero : const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -1581,11 +1586,17 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                       ),
                     ),
                   ),
+                  Align(alignment: Alignment.centerRight, child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ChapterManualOrderDropdown(order: widget.order, onChanged: () => setState(() {})),
+                  )),
                   Flexible(
                     child: ListView.builder(
+                      padding: EdgeInsets.zero,
                       shrinkWrap: true,
                       itemCount: widget.chapters.length,
-                      itemBuilder: (context, index) {
+                      itemBuilder: (context, position) {
+                        final index = indexes[position];
                         final chapter = widget.chapters[index];
                         final current = index == widget.currentIndex;
                         return ListTile(

@@ -125,10 +125,11 @@ void main() {
       await openSpeechPanel(tester);
 
       expect(find.text('开始朗读'), findsOneWidget);
-      expect(find.text('语速'), findsOneWidget);
-      expect(find.text('音调'), findsOneWidget);
-      expect(find.text('音量'), findsOneWidget);
-      expect(find.text('跟读翻页'), findsOneWidget);
+      for (final label in ['语速','音调','音量','跟读翻页']) {
+        await tester.scrollUntilVisible(find.text(label),80,
+          scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+        expect(find.text(label),findsOneWidget);
+      }
     });
   });
 
@@ -137,6 +138,9 @@ void main() {
       await pumpReader(tester);
       await openSpeechPanel(tester);
 
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
 
@@ -148,6 +152,9 @@ void main() {
     testWidgets('暂停 / 继续 / 停止：按钮语义随状态变化', (tester) async {
       await pumpReader(tester);
       await openSpeechPanel(tester);
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
 
@@ -195,6 +202,9 @@ void main() {
     testWidgets('退出阅读器：会话被释放，朗读停止', (tester) async {
       await pumpReader(tester);
       await openSpeechPanel(tester);
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
 
@@ -209,6 +219,9 @@ void main() {
     testWidgets('朗读位置推进时自动翻到对应页', (tester) async {
       await pumpReader(tester);
       await openSpeechPanel(tester);
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
 
@@ -227,7 +240,14 @@ void main() {
       await openSpeechPanel(tester);
 
       // 关掉「跟读翻页」开关。
-      await tester.tap(find.byType(Switch));
+      await tester.scrollUntilVisible(find.text('跟读翻页'),80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.ensureVisible(find.text('跟读翻页'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('跟读翻页'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
@@ -310,6 +330,9 @@ void main() {
     testWidgets('用户停止后不再自动连播', (tester) async {
       await pumpReader(tester);
       await openSpeechPanel(tester);
+      await tester.scrollUntilVisible(find.text('开始朗读'),-80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('开始朗读'));
       await tester.pumpAndSettle();
 
@@ -347,7 +370,11 @@ void main() {
     testWidgets('跟读开关落库', (tester) async {
       await pumpReader(tester);
       await openSpeechPanel(tester);
-      await tester.tap(find.byType(Switch));
+      await tester.scrollUntilVisible(find.text('跟读翻页'),80,
+        scrollable:find.descendant(of:find.byType(NovelSpeechPanel),matching:find.byType(Scrollable)).first);
+      await tester.ensureVisible(find.text('跟读翻页'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('跟读翻页'));
       await tester.pumpAndSettle();
 
       final saved = SpeechSettings.decode(

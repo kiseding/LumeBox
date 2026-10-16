@@ -6,7 +6,7 @@ import 'source_preferences.dart';
 class SourcePickerGroups {
   static List<(String, String)> forSection(Section section) =>
       switch (section) {
-        Section.novel => [('novel', '小说'), ('audiobook', '听书')],
+        Section.novel => [('novel', '小说'), ('audiobook', '有声小说')],
         Section.comic => [('comic', '漫画'), ('photo', '美图')],
         Section.video => [('video', '视频'), ('movie', '影视')],
         Section.cat => [('cat', '猫源')],
@@ -16,6 +16,7 @@ class SourcePickerGroups {
     final groups = forSection(section);
     final saved = SourcePreferences.read(section, source.id).pickerGroup;
     if (groups.any((group) => group.$1 == saved)) return saved;
+    if (section == Section.novel && source.group == '听书') return 'audiobook';
     for (final group in groups) {
       if (source.group == group.$2) return group.$1;
     }

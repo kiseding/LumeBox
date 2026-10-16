@@ -5,6 +5,8 @@ import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock.dart';
 import 'comic_settings.dart';
 import 'comic_image_tools_page.dart';
+import '../../core/reading/chapter_display_order.dart';
+import '../../shared/widgets/chapter_order_controls.dart';
 
 /// 「阅读设置」二级页（用户口径）：把**不常用**的选项从底部面板搬到这里，
 /// 底部面板只留阅读时真正会随手改的那几项（阅读模式 / 侧边距 / 页间距 + 页码）。
@@ -28,9 +30,11 @@ class ComicReaderSettingsPage extends StatefulWidget {
     this.bookmarkCount = 0,
     this.onOpenBookmarks,
     this.onImageTools,
+    this.chapterOrder,
   });
 
   final ComicReaderSettings settings;
+  final ChapterDisplayOrder? chapterOrder;
   final Future<void> Function()? onImageTools;
   final ValueChanged<ComicReaderSettings> onChanged;
 
@@ -224,6 +228,7 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
+          if (widget.chapterOrder != null) ChapterAutoOrderSwitch(order: widget.chapterOrder!),
           // 说明面板与这里的分工，避免用户回到面板找不到刚改过的东西。
           ListTile(
             leading: const Icon(Icons.auto_fix_high_outlined),

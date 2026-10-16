@@ -62,6 +62,9 @@ dependencies:
   lume_cat_node:
     path: third_party/lume_cat_node
   pointycastle: ^4.0.0
+  sherpa_onnx: 1.13.8
+  xml: 6.6.1
+  archive: 4.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -95,6 +98,7 @@ flutter:
   shaders:
     - assets/shaders/liquid_glass.frag
   assets:
+    - assets/speech/vits_aishell3/
     - assets/models/waifu2x/
     - assets/js/
     - assets/cat/

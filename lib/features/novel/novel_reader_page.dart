@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/chapter_display_order.dart';
+import '../../shared/widgets/chapter_order_controls.dart';
 import '../../core/source/source.dart';
 import '../../core/speech/speech.dart';
 import '../../core/util/lume_log.dart';
@@ -1093,7 +1095,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       backgroundColor: _theme.background,
       body: Stack(
         children: <Widget>[
-          Positioned.fill(child: _buildContent()),
+          Positioned.fill(child: Padding(
+            key: const ValueKey('novel-body-safe-inset'),
+            padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
+            child: _buildContent(),
+          )),
           // 朗读指示条：压在正文底部，只在朗读 / 暂停时出现。
           //
           // 必须包在 Positioned.fill 里：它是 Stack 的非定位子项，不朗读时高度为 0，
@@ -1352,6 +1358,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _buildCatalog() {
+    final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
+    final indexes = order.indexes(_chapters);
     final pagination = _pagination;
     final ratio = pagination == null
         ? 0.0
@@ -1375,10 +1383,18 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             ],
           ),
         ),
+        Align(alignment: Alignment.centerRight, child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: ChapterManualOrderDropdown(order: order, onChanged: () => setState(() {})),
+        )),
         Expanded(
-          child: ListView.builder(
+          child: Align(alignment: Alignment.bottomCenter, child: ListView.builder(
+            key: const ValueKey('novel-reader-chapters'),
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
             itemCount: _chapters.length,
-            itemBuilder: (context, index) {
+            itemBuilder: (context, position) {
+              final index = indexes[position];
               final current = index == _chapterIndex;
               return ListTile(
                 dense: true,
@@ -1398,7 +1414,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                 onTap: () => _openChapter(index),
               );
             },
-          ),
+          )),
         ),
       ],
     );
@@ -1567,6 +1583,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: <Widget>[
+        ChapterAutoOrderSwitch(order: ChapterDisplayOrder(widget.library, widget.target.sourceId), onChanged: () => setState(() {})),
         _slider(
           label: '字号',
           value: _typesetting.fontSize,
