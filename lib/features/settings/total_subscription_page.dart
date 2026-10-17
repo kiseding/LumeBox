@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/source/total_subscription.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 class TotalSubscriptionPage extends StatefulWidget {
   const TotalSubscriptionPage({super.key, this.service});
@@ -122,8 +123,9 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text(
+        const SettingsFooterNote(
           '一次导入小说、漫画、视频订阅，自动分配到对应版块。听书归小说，美图归漫画，影视归视频；猫源订阅仍在猫源配置中心管理。',
+          padding: EdgeInsets.zero,
         ),
         const SizedBox(height: 16),
         TextField(
@@ -163,7 +165,10 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
           ],
         ),
         const Divider(height: 32),
-        const Text('导出已保存的订阅地址及启用状态。不包含源脚本、账号、Cookie、收藏或历史；本地 JS 源可通过源总管理备份。'),
+        const SettingsFooterNote(
+          '导出已保存的订阅地址及启用状态。不包含源脚本、账号、Cookie、收藏或历史；本地 JS 源可通过源总管理备份。',
+          padding: EdgeInsets.zero,
+        ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: busy

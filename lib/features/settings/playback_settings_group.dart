@@ -43,7 +43,7 @@ class PlaybackSettingsGroup extends StatelessWidget {
           child: ListenableBuilder(
             listenable: controller,
             builder: (context, _) => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
               child: Row(
                 children: <Widget>[
                   Icon(

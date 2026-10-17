@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/reading/chapter_display_order.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
@@ -57,6 +58,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     maxConcurrent: SectionImagePipeline.coverConcurrency,
     // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）。
     diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
+    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
   );
 
   DataSource? _source;

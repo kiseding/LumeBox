@@ -6,12 +6,32 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:path_provider/path_provider.dart';
+
+/// 自动超分作用的图片范围。
+enum UpscaleSurface {
+  /// 漫画阅读器正文（始终受「自动超分」总开关控制）。
+  reader,
+
+  /// 漫画 / 猫源 / 历史记录封面。
+  cover,
+
+  /// 视频海报。
+  videoPoster,
+
+  /// 小说封面（小说阅读器目前是纯文本排版，没有正文插图管线）。
+  novelIllustration,
+}
 
 class ComicImageToolsSettings extends ChangeNotifier {
   static final instance = ComicImageToolsSettings();
   static const fileName = 'comic_image_tools.json';
   bool automatic = false;
+  bool upscaleCovers = false;
+  bool upscaleVideoPosters = false;
+  bool upscaleNovelIllustrations = false;
+  int concurrency = 1;
   int threshold = 1080;
   int noise = 0;
   String imageStyle = 'anime';
@@ -20,6 +40,13 @@ class ComicImageToolsSettings extends ChangeNotifier {
   bool ai = false;
   String endpoint = '';
   String model = '';
+  String colorizeEndpoint = '';
+  String colorizeModel = '';
+  String colorizePrompt = defaultColorizePrompt;
+
+  static const String defaultColorizePrompt =
+      'Colorize this black-and-white manga page with natural, muted colors. '
+      'Keep the original line art, composition and text unchanged.';
   Future<void> _pending = Future.value();
 
   Future<void> boot() async {
@@ -30,6 +57,11 @@ class ComicImageToolsSettings extends ChangeNotifier {
       final data = jsonDecode(await file.readAsString());
       if (data is! Map) return;
       automatic = data['automatic'] == true;
+      upscaleCovers = data['upscaleCovers'] == true;
+      upscaleVideoPosters = data['upscaleVideoPosters'] == true;
+      upscaleNovelIllustrations = data['upscaleNovelIllustrations'] == true;
+      final rawConcurrency = data['concurrency'];
+      concurrency = rawConcurrency is int ? rawConcurrency.clamp(1, 4) : 1;
       imageStyle = data['imageStyle'] == 'photo' ? 'photo' : 'anime';
       threshold = [720, 1080, 1440, 2160].contains(data['threshold'])
           ? data['threshold'] as int
@@ -44,6 +76,16 @@ class ComicImageToolsSettings extends ChangeNotifier {
       ai = data['ai'] == true;
       endpoint = data['endpoint'] is String ? data['endpoint'] as String : '';
       model = data['model'] is String ? data['model'] as String : '';
+      colorizeEndpoint = data['colorizeEndpoint'] is String
+          ? data['colorizeEndpoint'] as String
+          : '';
+      colorizeModel = data['colorizeModel'] is String
+          ? data['colorizeModel'] as String
+          : '';
+      final prompt = data['colorizePrompt'];
+      if (prompt is String && prompt.trim().isNotEmpty) {
+        colorizePrompt = prompt;
+      }
     } catch (_) {
       // Optional preferences must never prevent reading.
     }
@@ -53,6 +95,10 @@ class ComicImageToolsSettings extends ChangeNotifier {
   Future<void> save() {
     final text = jsonEncode({
       'automatic': automatic,
+      'upscaleCovers': upscaleCovers,
+      'upscaleVideoPosters': upscaleVideoPosters,
+      'upscaleNovelIllustrations': upscaleNovelIllustrations,
+      'concurrency': concurrency.clamp(1, 4),
       'threshold': threshold,
       'noise': noise,
       'imageStyle': imageStyle,
@@ -61,6 +107,9 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'ai': ai,
       'endpoint': endpoint,
       'model': model,
+      'colorizeEndpoint': colorizeEndpoint,
+      'colorizeModel': colorizeModel,
+      'colorizePrompt': colorizePrompt,
     });
     notifyListeners();
     _pending = _pending.catchError((Object _) {}).then((_) async {
@@ -88,6 +137,13 @@ class ComicImageToolsSettings extends ChangeNotifier {
     'ar': '阿拉伯语',
   };
 }
+
+/// 给非阅读器管线用的解码增强入口。
+///
+/// 封面 / 海报 / 小说封面共用 [ComicImageTools.shared]；阅读器用自己的实例，
+/// 退出时取消本页任务。
+Future<Uint8List> automaticUpscale(Uint8List bytes, UpscaleSurface surface) =>
+    ComicImageTools.shared.automatic(bytes, surface: surface);
 
 class ComicTextRegion {
   const ComicTextRegion({
@@ -131,6 +187,13 @@ class ComicTextRegion {
 /// A reader-owned session. Disposing cancels all this reader's native jobs.
 class ComicImageTools {
   ComicImageTools({this.settings, this.client, this.imageStyle});
+
+  /// 封面 / 海报等非阅读器管线共用的一台处理器。
+  ///
+  /// 阅读器有自己的实例（退出时取消本页任务）；封面数量多、生命周期长，
+  /// 用一个不随页面销毁的共享实例即可。
+  static final ComicImageTools shared = ComicImageTools();
+
   String? imageStyle;
   static const channel = MethodChannel('lumebox/comicImages');
   final ComicImageToolsSettings? settings;
@@ -141,7 +204,10 @@ class ComicImageTools {
   final Set<http.Client> _ownedClients = {};
   static int _sequence = 0;
   bool _disposed = false;
-  Future<void> _automaticQueue = Future.value();
+
+  /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
+  int _automaticActive = 0;
+  final List<Completer<void>> _automaticWaiters = <Completer<void>>[];
 
   Future<T?> _invoke<T>(String method, Map<String, Object?> args) async {
     if (_disposed) throw StateError('图片处理已取消');
@@ -175,15 +241,34 @@ class ComicImageTools {
     return result;
   }
 
+  /// 某个范围当前是否应该自动超分。
+  ///
+  /// 「自动超分」是总开关；封面 / 海报 / 小说封面是它下面的三个范围开关。
+  /// 阅读器正文不受范围开关影响（总开关打开就处理）。
+  bool surfaceEnabled(UpscaleSurface surface) {
+    final prefs = preferences;
+    if (!prefs.automatic) return false;
+    return switch (surface) {
+      UpscaleSurface.reader => true,
+      UpscaleSurface.cover => prefs.upscaleCovers,
+      UpscaleSurface.videoPoster => prefs.upscaleVideoPosters,
+      UpscaleSurface.novelIllustration => prefs.upscaleNovelIllustrations,
+    };
+  }
+
   /// Only decoding uses this hook; original downloads/exports stay untouched.
-  Future<Uint8List> automatic(Uint8List bytes) {
-    if (!preferences.automatic || _disposed || !Platform.isIOS) {
+  Future<Uint8List> automatic(
+    Uint8List bytes, {
+    UpscaleSurface surface = UpscaleSurface.reader,
+  }) {
+    if (_disposed || !Platform.isIOS || !surfaceEnabled(surface)) {
       return Future.value(bytes);
     }
     final completer = Completer<Uint8List>();
-    _automaticQueue = _automaticQueue.then((_) async {
+    unawaited(() async {
+      await _acquireAutomaticSlot();
       try {
-        if (_disposed || !preferences.automatic) {
+        if (_disposed || !surfaceEnabled(surface)) {
           completer.complete(bytes);
           return;
         }
@@ -197,9 +282,64 @@ class ComicImageTools {
       } catch (_) {
         // A failed optional enhancement cannot break the original image.
         completer.complete(bytes);
+      } finally {
+        _releaseAutomaticSlot();
       }
-    });
+    }());
     return completer.future;
+  }
+
+  Future<void> _acquireAutomaticSlot() async {
+    final limit = preferences.concurrency.clamp(1, 4);
+    if (_automaticActive < limit) {
+      _automaticActive++;
+      return;
+    }
+    final waiter = Completer<void>();
+    _automaticWaiters.add(waiter);
+    await waiter.future;
+  }
+
+  void _releaseAutomaticSlot() {
+    if (_automaticActive > 0) _automaticActive--;
+    if (_automaticWaiters.isNotEmpty) {
+      _automaticActive++;
+      _automaticWaiters.removeAt(0).complete();
+    }
+  }
+
+  /// App 内置的 8 个 waifu2x 模型（anime/photo × 降噪 0–3）。
+  static const List<String> bundledModelNames = <String>[
+    'noise0',
+    'noise1',
+    'noise2',
+    'noise3',
+    'photo0',
+    'photo1',
+    'photo2',
+    'photo3',
+  ];
+
+  /// 把随包提供的模型安装到设备（编译并写入 Application Support）。
+  ///
+  /// 首次安装 8 个模型需要一点时间，[onProgress] 用于设置页显示进度。
+  Future<void> installBundledModels({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final total = bundledModelNames.length;
+    for (var i = 0; i < total; i++) {
+      final name = bundledModelNames[i];
+      final data = await rootBundle.load('assets/models/waifu2x/$name.mlmodel');
+      final bytes = data.buffer.asUint8List(
+        data.offsetInBytes,
+        data.lengthInBytes,
+      );
+      await _invoke<void>('importModel', {
+        'name': '$name.mlmodel',
+        'bytes': bytes,
+      });
+      onProgress?.call(i + 1, total);
+    }
   }
 
   Future<List<ComicTextRegion>> translate(Uint8List bytes) async {
@@ -225,6 +365,114 @@ class ComicImageTools {
       for (var i = 0; i < regions.length; i++)
         regions[i].translated(strings[i]),
     ];
+  }
+
+  /// 云端 AI 上色（OpenAI 兼容的图片编辑接口）。
+  ///
+  /// 设备端上色模型不在本仓库内；这里把图片以 multipart 发到用户自填的
+  /// `/v1/images/edits` 类接口，并要求返回 `data[0].b64_json`。图片会上传到
+  /// 该服务，界面上必须如实标注；翻译与上色共用同一把 API Key。
+  Future<Uint8List> colorize(Uint8List bytes) async {
+    final uri = validateEndpoint(preferences.colorizeEndpoint);
+    final model = preferences.colorizeModel.trim();
+    if (model.isEmpty) throw const FormatException('请先填写 AI 上色模型');
+    if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
+      throw const FormatException('图片为空或超过 20MB');
+    }
+    final key = await channel.invokeMethod<String>('getKey') ?? '';
+    if (key.isEmpty) throw const FormatException('请先保存 AI API Key');
+    final owned = client == null;
+    final transport = client ?? http.Client();
+    if (_disposed) {
+      if (owned) transport.close();
+      throw StateError('图片处理已取消');
+    }
+    if (owned) _ownedClients.add(transport);
+    try {
+      final prompt = preferences.colorizePrompt.trim().isEmpty
+          ? ComicImageToolsSettings.defaultColorizePrompt
+          : preferences.colorizePrompt.trim();
+      final request = http.MultipartRequest('POST', uri)
+        ..headers['Authorization'] = 'Bearer $key'
+        ..fields['model'] = model
+        ..fields['prompt'] = prompt
+        ..fields['response_format'] = 'b64_json';
+      final imageType = _imageType(bytes);
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          bytes,
+          filename: imageType.$1,
+          contentType: imageType.$2,
+        ),
+      );
+      final response = await transport
+          .send(request)
+          .timeout(const Duration(seconds: 120));
+      if (response.statusCode != 200) {
+        final detail = await response.stream.bytesToString().timeout(
+          const Duration(seconds: 15),
+        );
+        final clipped = detail.length <= 240
+            ? detail
+            : detail.substring(0, 240);
+        throw StateError('AI 上色请求失败（HTTP ${response.statusCode}）：$clipped');
+      }
+      final buffer = BytesBuilder();
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 120),
+      )) {
+        buffer.add(chunk);
+        if (buffer.length > 32 * 1024 * 1024) {
+          throw const FormatException('AI 上色返回内容过大');
+        }
+      }
+      if (_disposed) throw StateError('图片处理已取消');
+      final body = jsonDecode(utf8.decode(buffer.takeBytes()));
+      if (body is! Map) throw const FormatException('AI 上色返回格式不正确');
+      final data = body['data'];
+      final first = data is List && data.isNotEmpty ? data.first : null;
+      final b64 = first is Map ? first['b64_json'] as String? : null;
+      if (b64 == null || b64.isEmpty) {
+        throw const FormatException('上色接口没有返回 b64_json；请换用返回 base64 的图片编辑接口');
+      }
+      final result = base64Decode(b64);
+      if (result.isEmpty || result.length > 32 * 1024 * 1024) {
+        throw const FormatException('AI 上色返回的图片为空或过大');
+      }
+      return result;
+    } finally {
+      if (owned) {
+        transport.close();
+        _ownedClients.remove(transport);
+      }
+    }
+  }
+
+  /// 按魔数推断上传图片的 MIME，别把 JPEG/WebP 标成 PNG。
+  static (String, MediaType) _imageType(Uint8List bytes) {
+    bool startsWith(List<int> magic, {int offset = 0}) {
+      if (bytes.length < offset + magic.length) return false;
+      for (var i = 0; i < magic.length; i++) {
+        if (bytes[offset + i] != magic[i]) return false;
+      }
+      return true;
+    }
+
+    if (startsWith(<int>[0x89, 0x50, 0x4E, 0x47])) {
+      return ('page.png', MediaType('image', 'png'));
+    }
+    if (startsWith(<int>[0xFF, 0xD8, 0xFF])) {
+      return ('page.jpg', MediaType('image', 'jpeg'));
+    }
+    if (startsWith(<int>[0x52, 0x49, 0x46, 0x46]) &&
+        startsWith(<int>[0x57, 0x45, 0x42, 0x50], offset: 8)) {
+      return ('page.webp', MediaType('image', 'webp'));
+    }
+    if (startsWith(<int>[0x66, 0x74, 0x79, 0x70], offset: 4)) {
+      return ('page.heic', MediaType('image', 'heic'));
+    }
+    return ('page.jpg', MediaType('image', 'jpeg'));
   }
 
   static Uri validateEndpoint(String input) {
@@ -311,6 +559,12 @@ class ComicImageTools {
 
   void dispose() {
     _disposed = true;
+    // 唤醒排队中的自动超分任务，让它们看到 _disposed 后原图返回，
+    // 而不是永远挂在信号量上。
+    for (final waiter in _automaticWaiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+    _automaticWaiters.clear();
     for (final transport in _ownedClients) {
       transport.close();
     }

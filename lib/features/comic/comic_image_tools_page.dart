@@ -1,6 +1,7 @@
 import 'package:lume_box/core/theme/lume_typography.dart';
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
@@ -12,6 +13,27 @@ import 'package:flutter/services.dart';
 
 import '../../core/reading/comic_image_tools.dart';
 import '../../shared/widgets/glass_card.dart';
+import '../settings/settings_ui.dart';
+
+/// 把手动处理结果交给系统保存 / 分享。
+///
+/// iOS 走已有的 configuration 通道（系统分享单，可存照片或文件）；其它平台
+/// 用文件保存对话框。超分/上色结果都是 PNG。
+Future<bool> exportProcessedImage(Uint8List bytes, String name) async {
+  if (!Platform.isIOS) {
+    final location = await getSaveLocation(suggestedName: name);
+    if (location == null) return false;
+    await XFile.fromData(
+      bytes,
+      mimeType: 'image/png',
+      name: name,
+    ).saveTo(location.path);
+    return true;
+  }
+  return await const MethodChannel('lumebox/configuration')
+          .invokeMethod<bool>('share', {'bytes': bytes, 'name': name}) ??
+      false;
+}
 
 class ComicImageToolsSettingsPage extends StatefulWidget {
   const ComicImageToolsSettingsPage({
@@ -37,6 +59,15 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   final settings = ComicImageToolsSettings.instance;
   late final endpoint = TextEditingController(text: settings.endpoint);
   late final model = TextEditingController(text: settings.model);
+  late final colorizeEndpoint = TextEditingController(
+    text: settings.colorizeEndpoint,
+  );
+  late final colorizeModel = TextEditingController(
+    text: settings.colorizeModel,
+  );
+  late final colorizePrompt = TextEditingController(
+    text: settings.colorizePrompt,
+  );
   final keyInput = TextEditingController();
   bool busy = false;
   String? status;
@@ -44,6 +75,9 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   void dispose() {
     endpoint.dispose();
     model.dispose();
+    colorizeEndpoint.dispose();
+    colorizeModel.dispose();
+    colorizePrompt.dispose();
     keyInput.dispose();
     super.dispose();
   }
@@ -56,6 +90,77 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('配置保存失败，请重试')));
       }
+    }
+  }
+
+  Future<void> installBundled() async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      status = '正在安装内置模型 0/${ComicImageTools.bundledModelNames.length}…';
+    });
+    final tools = ComicImageTools();
+    try {
+      await tools.installBundledModels(
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() => status = '正在安装内置模型 $done/$total…');
+        },
+      );
+      if (mounted) {
+        setState(
+          () => status =
+              '内置模型已安装完成（${ComicImageTools.bundledModelNames.length}/'
+              '${ComicImageTools.bundledModelNames.length}），首次使用会自动编译',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => status =
+              '内置模型安装失败：$error\n'
+              '设备端超分目前仅支持 iOS；也可以继续用「从本地安装超分模型」。',
+        );
+      }
+    } finally {
+      tools.dispose();
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> saveColorize() async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      ComicImageTools.validateEndpoint(colorizeEndpoint.text);
+      if (colorizeModel.text.trim().isEmpty) {
+        throw const FormatException('请填写上色模型');
+      }
+      if (keyInput.text.trim().isNotEmpty) {
+        await ComicImageTools.channel.invokeMethod<void>('setKey', {
+          'key': keyInput.text.trim(),
+        });
+      }
+      settings.colorizeEndpoint = colorizeEndpoint.text.trim();
+      settings.colorizeModel = colorizeModel.text.trim();
+      settings.colorizePrompt = colorizePrompt.text.trim().isEmpty
+          ? ComicImageToolsSettings.defaultColorizePrompt
+          : colorizePrompt.text.trim();
+      await settings.save();
+      keyInput.clear();
+      if (mounted) {
+        setState(() => status = '上色配置已保存；图片会上传到该接口，费用由服务商决定');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => status = error is FormatException
+              ? error.message
+              : '上色配置保存失败：$error',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -152,7 +257,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.comic,
-    title: widget.translation ? '漫画翻译' : 'AI 图片超分辨率',
+    title: widget.translation ? '漫画翻译' : 'AI 图片超分与上色',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: widget.translation
@@ -278,10 +383,15 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 1440: '< 1440px',
                 2160: '< 2160px',
               }, (v) => settings.threshold = v),
-              const ListTile(
-                title: Text('并发数量'),
-                subtitle: Text('移动设备固定为 1，逐张处理，控制内存与发热'),
-                trailing: Text('1'),
+              choice('并发数量', settings.concurrency, {
+                1: '1（推荐）',
+                2: '2',
+                3: '3',
+                4: '4',
+              }, (v) => settings.concurrency = v),
+              const SettingsFooterNote(
+                '1 最稳；2–4 只建议在高性能设备使用，会增加内存与发热。',
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
               ),
               choice('AI 超分模型类型', settings.imageStyle, {
                 'anime': '漫画 / 动漫 · 2 倍',
@@ -321,16 +431,64 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 title: Text('分块信息'),
                 subtitle: Text('内容块 142 × 142，输入 156 × 156（每侧 7px 镜像边距）'),
               ),
+              const Divider(height: 24),
+              const ListTile(
+                title: Text('自动超分的额外范围'),
+                subtitle: Text('以下开关只在「自动超分」开启时生效；阅读器正文始终处理'),
+              ),
+              SwitchListTile.adaptive(
+                title: const Text('漫画 / 猫源封面'),
+                subtitle: const Text('书架、探索、详情页与历史记录的封面'),
+                value: settings.upscaleCovers,
+                onChanged: (v) {
+                  setState(() => settings.upscaleCovers = v);
+                  save();
+                },
+              ),
+              SwitchListTile.adaptive(
+                title: const Text('视频海报'),
+                subtitle: const Text('视频书架、详情页与搜索结果的海报'),
+                value: settings.upscaleVideoPosters,
+                onChanged: (v) {
+                  setState(() => settings.upscaleVideoPosters = v);
+                  save();
+                },
+              ),
+              SwitchListTile.adaptive(
+                title: const Text('小说封面 / 插图'),
+                subtitle: const Text('小说书架与详情页封面；小说阅读器目前是纯文本排版，没有正文插图'),
+                value: settings.upscaleNovelIllustrations,
+                onChanged: (v) {
+                  setState(() => settings.upscaleNovelIllustrations = v);
+                  save();
+                },
+              ),
+              const SettingsFooterNote(
+                '以上范围使用上面选择的模型类型与降噪级别。封面 / 海报数量多，'
+                '开启后首次加载会更慢、更热；原图、下载文件与磁盘缓存不会被改写。',
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              ),
+              const Divider(height: 24),
               const ListTile(
                 title: Text('模型管理'),
                 subtitle: Text(
-                  'waifu2x 一个 AI 模型系列，漫画和照片两种类型各含降噪 0–3，共 8 份模型；首次使用在设备上编译，无需上传图片',
+                  '内置 waifu2x：漫画 / 照片两种类型 × 降噪 0–3，共 8 份模型，随 App 提供，无需联网下载。',
                 ),
               ),
               if (busy) const Center(child: CircularProgressIndicator()),
-              FilledButton(
+              FilledButton.icon(
+                onPressed: busy ? null : installBundled,
+                icon: const Icon(Icons.download_done),
+                label: const Text('安装内置模型（8 个）'),
+              ),
+              const SettingsFooterNote(
+                '首次安装会在设备上编译，约再占一份同量级缓存；安装后即可离线超分。',
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              ),
+              OutlinedButton.icon(
                 onPressed: busy ? null : () => manage('prepareModel'),
-                child: const Text('加载当前已安装模型'),
+                icon: const Icon(Icons.play_circle_outline),
+                label: const Text('加载当前已安装模型'),
               ),
               TextButton.icon(
                 key: const Key('import-super-resolution-model'),
@@ -347,11 +505,63 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                   padding: const EdgeInsets.all(16),
                   child: Text(status!),
                 ),
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  '自动超分默认关闭。漫画版块源内图片按源选择分组使用漫画或照片模型，当前页也可手动超分；本地图片使用本页选择的模型类型。过大的长图会保留原图。',
+              const Divider(height: 32),
+              ListTile(
+                title: const Text('AI 上色（实验性 · 云端）'),
+                subtitle: const Text(
+                  '仓库没有内置设备端上色模型；这里使用你自填的 OpenAI 兼容图片编辑接口（需返回 b64_json）。'
+                  '图片会上传到该服务，费用由服务商决定。',
                 ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Column(
+                  children: <Widget>[
+                    TextField(
+                      controller: colorizeEndpoint,
+                      decoration: const InputDecoration(
+                        labelText: '图片编辑接口（HTTPS）',
+                        hintText: 'https://…/v1/images/edits',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: colorizeModel,
+                      decoration: const InputDecoration(
+                        labelText: '上色模型',
+                        hintText: '例如 gpt-image-1',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: colorizePrompt,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(labelText: '上色提示词'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: keyInput,
+                      obscureText: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: const InputDecoration(
+                        labelText: 'API Key（与 AI 翻译共用，留空保留）',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: busy ? null : saveColorize,
+                      child: const Text('保存上色配置'),
+                    ),
+                  ],
+                ),
+              ),
+              const SettingsFooterNote(
+                '自动超分默认关闭。漫画版块源内图片按源选择分组使用漫画或照片模型；'
+                '封面 / 视频海报 / 小说封面是否处理由上面的三个范围开关控制。'
+                '手动超分与上色结果可以保存 / 分享，原图与下载文件不会被覆盖。',
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
               ),
             ],
     ),
@@ -363,16 +573,20 @@ class ComicImageToolsPage extends StatefulWidget {
     super.key,
     required this.loadOriginal,
     this.imageStyle,
+    this.allowApply = false,
   });
   final String? imageStyle;
   final Future<Uint8List?> Function() loadOriginal;
+
+  /// 阅读器入口为 true：允许把结果「应用到当前页（仅本次阅读）」。
+  final bool allowApply;
   @override
   State<ComicImageToolsPage> createState() => _ImageToolsState();
 }
 
 class _ImageToolsState extends State<ComicImageToolsPage> {
   late final tools = ComicImageTools(imageStyle: widget.imageStyle);
-  Uint8List? original, enhanced;
+  Uint8List? original, enhanced, colorized;
   List<ComicTextRegion> regions = [];
   double ratio = 1;
   bool busy = true, showOriginal = false;
@@ -427,6 +641,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
           setState(() {
             regions = result;
             enhanced = null;
+            colorized = null;
             message = result.isEmpty
                 ? '未识别到文字，可尝试切换原文语言'
                 : '已翻译 ${result.length} 处文字，可切回原图对照';
@@ -437,8 +652,9 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
         if (mounted && current == generation) {
           setState(() {
             enhanced = result;
+            colorized = null;
             regions = [];
-            message = '超分完成，可切回原图对照';
+            message = '超分完成，可切回原图对照或保存结果';
           });
         }
       }
@@ -460,6 +676,66 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
     }
   }
 
+  Future<void> processColorize() async {
+    final bytes = original;
+    if (bytes == null || busy) return;
+    if (tools.preferences.colorizeEndpoint.trim().isEmpty ||
+        tools.preferences.colorizeModel.trim().isEmpty) {
+      setState(() => message = '请先在设置 → AI 图片超分与上色里配置 AI 上色接口与模型');
+      return;
+    }
+    final current = ++generation;
+    setState(() {
+      busy = true;
+      message = '正在上传并上色…';
+    });
+    try {
+      final result = await tools.colorize(bytes);
+      if (mounted && current == generation) {
+        setState(() {
+          colorized = result;
+          enhanced = null;
+          regions = [];
+          message = '上色完成，可切回原图对照或保存结果';
+        });
+      }
+      if (mounted && current == generation) {
+        setState(() => showOriginal = false);
+      }
+    } catch (error) {
+      if (mounted && current == generation) {
+        setState(
+          () => message = error is FormatException
+              ? error.message
+              : error is PlatformException
+              ? error.message ?? '上色失败，原图保留'
+              : '上色失败，原图保留；请检查接口、模型与网络',
+        );
+      }
+    } finally {
+      if (mounted && current == generation) setState(() => busy = false);
+    }
+  }
+
+  Future<void> exportResult() async {
+    final bytes = colorized ?? enhanced;
+    if (bytes == null || busy) return;
+    setState(() => busy = true);
+    try {
+      final name =
+          'LumeBox-${colorized != null ? 'color' : 'ai2x'}-'
+          '${DateTime.now().millisecondsSinceEpoch}.png';
+      final ok = await exportProcessedImage(bytes, name);
+      if (mounted) {
+        setState(() => message = ok ? '已保存 / 分享 $name' : '已取消保存');
+      }
+    } catch (error) {
+      if (mounted) setState(() => message = '保存失败：$error');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   void dispose() {
     generation++;
@@ -470,7 +746,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.comic,
-    title: 'AI 图片超分与翻译',
+    title: 'AI 图片超分 · 上色 · 翻译',
     child: Column(
       children: [
         Wrap(
@@ -480,6 +756,25 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
               onPressed: busy || original == null ? null : () => process(false),
               child: const Text('AI 超分当前图片'),
             ),
+            FilledButton.tonal(
+              onPressed: busy || original == null ? null : processColorize,
+              child: const Text('AI 上色当前图片'),
+            ),
+            OutlinedButton.icon(
+              onPressed: (colorized != null || enhanced != null) && !busy
+                  ? exportResult
+                  : null,
+              icon: const Icon(Icons.ios_share, size: 18),
+              label: const Text('保存 / 分享结果'),
+            ),
+            if (widget.allowApply)
+              OutlinedButton.icon(
+                onPressed: (colorized != null || enhanced != null) && !busy
+                    ? () => Navigator.of(context).pop(colorized ?? enhanced)
+                    : null,
+                icon: const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text('应用到当前页'),
+              ),
             FilledButton(
               onPressed: busy || original == null ? null : () => process(true),
               child: const Text('翻译当前页'),
@@ -490,8 +785,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) =>
-                      const ComicImageToolsSettingsPage(translation: true),
+                  builder: (_) => const ComicImageToolsSettingsPage(),
                 ),
               ),
             ),
@@ -521,7 +815,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
                               child: Image.memory(
                                 showOriginal
                                     ? original!
-                                    : enhanced ?? original!,
+                                    : colorized ?? enhanced ?? original!,
                                 fit: BoxFit.fill,
                                 gaplessPlayback: true,
                               ),

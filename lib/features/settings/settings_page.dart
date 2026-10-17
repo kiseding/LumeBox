@@ -22,8 +22,10 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
 import '../source/global_source_page.dart';
+import 'app_icon_settings_page.dart';
 import 'cache_settings_page.dart';
 import 'display_settings_group.dart';
+import 'floating_settings_page.dart';
 import 'debug_panel_page.dart';
 import 'module_settings_pages.dart';
 import 'network_settings_page.dart';
@@ -31,10 +33,12 @@ import 'log_report.dart';
 import 'log_report_page.dart';
 import 'log_viewer_page.dart';
 import 'sandbox_settings_page.dart';
+import 'settings_ui.dart';
 import 'tab_bar_settings_page.dart';
 import 'section_cache.dart';
 
-/// 设置：图源总管理、缓存管理、运行日志查看与错误报告导出。
+/// 设置：按「个性与界面 / 阅读与播放 / 数据与网络 / 存储与安全 / 诊断与关于」
+/// 五组组织全部入口。
 ///
 /// 平台边界（任务书第 3 条 + 宪法第 1 条）：完整业务只在 iOS；Android /
 /// Windows 只保留页面骨架占位——不做缓存统计清理，也不做报告导出。
@@ -78,52 +82,64 @@ class SettingsPage extends StatelessWidget {
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
-          // 分组标题只是视觉归类：每块一张卡，条目按「用户要改什么」摆放
-          //（真机反馈「设置太乱」后按此口径重排）。
-          const _GroupTitle('界面'),
-
-          _SettingsEntry(
-            icon: Icons.backup_outlined,
-            title: '配置与体验',
-            subtitle: '备份与恢复 · 自动备份 · 触感反馈 · 后台播放',
-            onTap: () => _push(context, const ConfigurationSettingsPage()),
+          const SettingsGroupTitle('个性与界面', topPadding: 0),
+          // 外观 / 主题色 / 页面底色收在一张卡里；悬浮模块单独摆到导航栏后，
+          // 与用户给的分类顺序一致。
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: DisplaySettingsGroup(
+              showTitle: false,
+              includeFloating: false,
+            ),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
-            icon: Icons.visibility_outlined,
-            title: '内容分类显示',
-            subtitle: '小说 / 听书 / 漫画 / 美图 / 视频 / 影视独立显示或隐藏',
-            onTap: () => _push(context, const ContentVisibilityPage()),
+          SettingsEntryCard(
+            icon: Icons.apps_outlined,
+            title: 'App 图标',
+            subtitle: '更换主屏幕图标（7 种配色）',
+            onTap: () => _push(context, const AppIconSettingsPage()),
           ),
-          const SizedBox(height: 10),
-          const DisplaySettingsGroup(showTitle: false), // 外观 + 主题色
-          const SizedBox(height: 10),
-          const GridTitleStyleRow(), // 网格标题：遮罩内置 / 外置独立
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          const GridTitleStyleRow(),
+          SettingsEntryCard(
             icon: Icons.dashboard_customize_outlined,
             title: '底部导航栏管理',
             subtitle: '每个页签独立开关 + 拖拽排序（至少保留 1 个；改动立即生效）',
             onTap: () => _push(context, const TabBarSettingsPage()),
           ),
-          const SizedBox(height: 20),
-          const _GroupTitle('阅读与播放'),
-          _SettingsEntry(
+          SettingsEntryCard(
+            icon: Icons.tune,
+            title: '悬浮模块',
+            subtitle: '顶部导航 / 首页 / 底部导航 / 其他面板的位置、透明度与磨砂',
+            onTap: () => _push(context, const FloatingSettingsPage()),
+          ),
+          SettingsEntryCard(
+            icon: Icons.visibility_outlined,
+            title: '内容分类显示',
+            subtitle: '小说 / 听书 / 漫画 / 美图 / 视频 / 影视独立显示或隐藏',
+            onTap: () => _push(context, const ContentVisibilityPage()),
+          ),
+
+          const SettingsGroupTitle('阅读与播放'),
+          SettingsEntryCard(
+            icon: Icons.tune,
+            title: '各模块独立设置',
+            subtitle:
+                '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
+                '阅读页与播放页里的就地设置仍然保留）',
+            onTap: () => _push(context, const ModuleSettingsHubPage()),
+          ),
+          SettingsEntryCard(
             icon: Icons.headphones_outlined,
             title: '有声小说播放器',
             subtitle: '纯音频播放 · 播放器选择 · 后台与锁屏控制',
             onTap: () => _push(context, const AudioBookSettingsPage()),
           ),
-          const SizedBox(height: 10),
-
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.auto_fix_high_outlined,
-            title: 'AI 图片超分辨率',
-            subtitle: '漫画 / 美图 AI 超分 · waifu2x · 降噪与模型管理',
+            title: 'AI 图片超分与上色',
+            subtitle: '漫画 / 美图 AI 超分 · AI 上色 · waifu2x 模型管理',
             onTap: () => _push(context, const ComicImageToolsSettingsPage()),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.translate,
             title: '漫画翻译',
             subtitle: '设备端免费翻译 · 自填 AI 接口 · 目标语言',
@@ -132,108 +148,88 @@ class SettingsPage extends StatelessWidget {
               const ComicImageToolsSettingsPage(translation: true),
             ),
           ),
-          const SizedBox(height: 10),
-          // 用户口径：全局入口不藏到深层子页面，点一下就是四个模块的设置入口。
-          _SettingsEntry(
-            icon: Icons.tune,
-            title: '各模块独立设置',
-            subtitle:
-                '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
-                '阅读页与播放页里的就地设置仍然保留）',
-            onTap: () => _push(context, const ModuleSettingsHubPage()),
-          ),
-          const SizedBox(height: 20),
-          _SettingsEntry(
-            icon: Icons.search,
-            title: '搜索',
-            subtitle: '搜索自动繁转简 / 精确搜索',
-            onTap: () => _push(context, const SearchSettingsPage()),
-          ),
-          const SizedBox(height: 20),
-          _SettingsEntry(
-            icon: Icons.movie_outlined,
-            title: 'TMDB配置',
-            subtitle: '海报样式 / API Key / 接口与图片代理',
-            onTap: () => _push(context, const TmdbSettingsPage()),
-          ),
-          const SizedBox(height: 20),
-          const _GroupTitle('源与网络'),
-          _SettingsEntry(
+
+          const SettingsGroupTitle('数据与网络'),
+          SettingsEntryCard(
             icon: Icons.subscriptions_outlined,
             title: '总订阅导入导出',
             subtitle: '小说、漫画、视频订阅一键导入，或导出订阅地址',
             onTap: () => _push(context, const TotalSubscriptionPage()),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.tune,
             title: '源总管理',
             subtitle: '四个板块的源总览与批量管理（小说 / 漫画 / 视频 / 猫源互相独立）',
             onTap: () => _push(context, const GlobalSourcePage()),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.wifi_tethering,
             title: '网络设置',
             subtitle: '全局并发、单域名并发、UA、代理、超时与重试（四板块共用）',
             onTap: () => _push(context, const NetworkSettingsPage()),
           ),
-          const SizedBox(height: 20),
-          const _GroupTitle('存储与安全'),
-          _SettingsEntry(
-            icon: Icons.privacy_tip_outlined,
-            title: '隐私',
-            subtitle: '应用锁 · 面容 / 锁屏密码 · 成人内容显示',
-            onTap: () => _push(context, const PrivacySettingsPage()),
+          SettingsEntryCard(
+            icon: Icons.movie_outlined,
+            title: 'TMDB配置',
+            subtitle: '海报样式 / API Key / 接口与图片代理',
+            onTap: () => _push(context, const TmdbSettingsPage()),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
+            icon: Icons.search,
+            title: '搜索',
+            subtitle: '搜索自动繁转简 / 精确搜索',
+            onTap: () => _push(context, const SearchSettingsPage()),
+          ),
+
+          const SettingsGroupTitle('存储与安全'),
+          SettingsEntryCard(
             icon: Icons.cleaning_services_outlined,
             title: '缓存管理',
             subtitle: '按板块清理磁盘缓存与内存缓存（漫画板块的图片缓存已关闭）',
             onTap: () =>
                 _push(context, CacheSettingsPage(service: cacheService)),
           ),
-          const SizedBox(height: 10),
-          // 文档第 4 条点名的全局参数之一：JS 沙箱超时（四板块共用）。
-          _SettingsEntry(
+          SettingsEntryCard(
+            icon: Icons.privacy_tip_outlined,
+            title: '隐私（应用锁）',
+            subtitle: '应用锁 · 面容 / 锁屏密码 · 成人内容显示',
+            onTap: () => _push(context, const PrivacySettingsPage()),
+          ),
+          SettingsEntryCard(
+            icon: Icons.backup_outlined,
+            title: '配置备份',
+            subtitle: '导出 / 恢复 / 自动备份 · 触感反馈 · 后台播放',
+            onTap: () => _push(context, const ConfigurationSettingsPage()),
+          ),
+
+          const SettingsGroupTitle('诊断与关于'),
+          SettingsEntryCard(
             icon: Icons.hourglass_bottom_outlined,
             title: '沙箱设置',
             subtitle: 'JS 脚本执行超时（3–10 秒，默认 10，四板块共用）；其余安全上限不可调',
             onTap: () => _push(context, const SandboxSettingsPage()),
           ),
-          const SizedBox(height: 20),
-          const _GroupTitle('诊断'),
-          const DiagnosticExportTile(),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.receipt_long_outlined,
             title: '运行日志',
             subtitle: '查看本次运行的日志：信息 / 警告 / 错误',
             onTap: () => _push(context, LogViewerPage(exporter: exporter)),
           ),
-          const SizedBox(height: 10),
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.file_upload_outlined,
             title: '错误报告',
             subtitle: '把错误与警告整理成报告，导出文件或复制全文',
             onTap: () => _push(context, LogReportPage(exporter: exporter)),
           ),
-          const SizedBox(height: 10),
-          // 调试面板（文档「调试日志规范」）：请求抓包 + JS 上下文统计。
-          // 抓包默认关闭、只留内存、不导出——见 DebugPanelPage 的说明。
-          _SettingsEntry(
+          SettingsEntryCard(
             icon: Icons.bug_report_outlined,
             title: '调试面板',
             subtitle: '请求抓包（方法 / 状态 / 耗时 / 来源）与 JS 上下文统计；抓包默认关闭',
             onTap: () => _push(context, const DebugPanelPage()),
           ),
-          const SizedBox(height: 20),
-          const _GroupTitle('关于'),
-          // **装的是哪一版**：CI 每个构建都会带上构建号（见 build-ios.yml 的
-          // `--build-name/--build-number`），这里直接显示出来。以前所有包的
-          // 版本号都是 1.0.0，装上旧包看不出来——排查「代码改了但界面没变」
-          // 时第一句话就得能回答这个问题（真机踩过一次）。
+          // 额外的诊断工具：放在用户点名的四项之后，不打断「沙箱 → 日志 →
+          // 错误报告 → 调试面板 → 关于」的顺序。
+          const DiagnosticExportTile(),
           const _BuildInfoRow(),
         ],
       ),
@@ -242,101 +238,6 @@ class SettingsPage extends StatelessWidget {
 
   void _push(BuildContext context, Widget page) {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
-  }
-}
-
-class _SettingsEntry extends StatelessWidget {
-  const _SettingsEntry({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.trailingValue,
-  });
-
-  /// 行尾的当前值（可空；为空时只显示箭头）。
-  final String? trailingValue;
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      radius: 14,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      onTap: onTap,
-      child: Row(
-        children: <Widget>[
-          Icon(icon, size: 22, color: LumeTheme.textSecondary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: LumeTypography.titleSize,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w400,
-                    fontSize: LumeTypography.descriptionSize,
-                    height: 1.5,
-                    color: LumeTheme.descriptionColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (trailingValue != null) ...<Widget>[
-            Text(
-              trailingValue!,
-              style: TextStyle(
-                fontWeight: FontWeight.w400,
-                fontSize: LumeTypography.bodySize,
-                height: 1.5,
-                color: LumeTheme.textSecondary,
-              ),
-            ),
-            const SizedBox(width: 2),
-          ],
-          Icon(Icons.chevron_right, color: LumeTheme.muted),
-        ],
-      ),
-    );
-  }
-}
-
-/// 分组标题：设置页的五个分区（界面 / 播放 / 源与网络 / 存储与安全 / 诊断）。
-class _GroupTitle extends StatelessWidget {
-  const _GroupTitle(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: LumeTypography.sectionTitleSize,
-          fontWeight: FontWeight.w600,
-          height: 1.5,
-          color: LumeTheme.textPrimary,
-        ),
-      ),
-    );
   }
 }
 
@@ -351,12 +252,12 @@ class GridTitleStyleRow extends StatelessWidget {
     final settings = BrowseLayoutSettings.instance;
     return ListenableBuilder(
       listenable: settings,
-      builder: (context, _) => _SettingsEntry(
+      builder: (context, _) => SettingsEntryCard(
         icon: Icons.title_outlined,
         title: '网格标题',
         subtitle: settings.gridTitleStyle == GridTitleStyle.below
-            ? '外置独立标题：封面不画遮罩，标题在图片下方（黑字）'
-            : '遮罩内置标题：标题压在封面底部的深色渐变上',
+            ? '封面不画遮罩，标题放在图片下方（黑字）'
+            : '标题压在封面底部的深色渐变上（白字）',
         trailingValue: settings.gridTitleStyle.label,
         onTap: () async {
           final picked = await showLumeBottomSheet<GridTitleStyle>(
@@ -415,11 +316,14 @@ class _BuildInfoRowState extends State<_BuildInfoRow> {
 
   @override
   Widget build(BuildContext context) {
-    return _SettingsEntry(
+    return SettingsEntryCard(
       icon: Icons.info_outline,
-      title: LumeTheme.appName,
+      title: '关于 LumeBox',
       subtitle: _line,
-      // 这一行不需要「进入下一页」：它本身就是答案。
+      showChevron: false,
+      marginBottom: 0,
+      trailing: Icon(Icons.copy_rounded, size: 18, color: LumeTheme.muted),
+      // 这一行不需要「进入下一页」：点一下复制版本信息。
       onTap: () async {
         await Clipboard.setData(
           ClipboardData(text: '${LumeTheme.appName} · $_line'),

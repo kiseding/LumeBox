@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
@@ -87,6 +88,8 @@ class _NovelPageState extends State<NovelPage> {
           memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
           // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
           maxConcurrent: SectionImagePipeline.coverConcurrency,
+          decodeTransform: (bytes) =>
+              automaticUpscale(bytes, UpscaleSurface.novelIllustration),
         );
       });
     } catch (error, stackTrace) {
@@ -99,7 +102,8 @@ class _NovelPageState extends State<NovelPage> {
   @override
   Widget build(BuildContext context) {
     if (!_runtimeAvailable) {
-      return GlassScaffold(effectModule: GlassModule.novel,
+      return GlassScaffold(
+        effectModule: GlassModule.novel,
         title: Section.novel.label,
         child: const SkeletonNotice(),
       );
@@ -107,7 +111,8 @@ class _NovelPageState extends State<NovelPage> {
     final library = _library;
     final pipeline = _pipeline;
     if (_failed) {
-      return GlassScaffold(effectModule: GlassModule.novel,
+      return GlassScaffold(
+        effectModule: GlassModule.novel,
         title: Section.novel.label,
         child: const NoticeCard(
           title: '阅读存储不可用',
@@ -116,7 +121,8 @@ class _NovelPageState extends State<NovelPage> {
       );
     }
     if (library == null || pipeline == null) {
-      return GlassScaffold(effectModule: GlassModule.novel,
+      return GlassScaffold(
+        effectModule: GlassModule.novel,
         title: Section.novel.label,
         child: const SourceStateView(state: SourceStateKind.loading),
       );

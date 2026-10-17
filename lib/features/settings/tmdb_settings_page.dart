@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/tmdb/tmdb.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 class TmdbSettingsPage extends StatefulWidget {
   const TmdbSettingsPage({super.key});
@@ -212,7 +213,10 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
           ),
           if (testing) const LinearProgressIndicator(),
           const SizedBox(height: 12),
-          const Text('配置仅保存在本机。请求时使用所配置的 TMDB／代理服务；不会上传至项目服务器。关闭 TMDB 后不发起请求。'),
+          const SettingsFooterNote(
+            '配置仅保存在本机。请求时使用所配置的 TMDB／代理服务；不会上传至项目服务器。关闭 TMDB 后不发起请求。',
+            padding: EdgeInsets.zero,
+          ),
           const SizedBox(height: 20),
           TextButton(
             onPressed: testing ? null : disconnect,

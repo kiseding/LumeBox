@@ -359,6 +359,70 @@ void main() {
     expect(find.textContaining('导出失败'), findsOneWidget);
   });
 
+  testWidgets('主菜单按五组重排，设置项全部落在指定分组里', (tester) async {
+    // 拉高视口让整个设置列表一次建完，按 y 坐标验证分组顺序。
+    await tester.binding.setSurfaceSize(const Size(900, 3400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: const SettingsPage(runtimeAvailable: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const groups = <String>['个性与界面', '阅读与播放', '数据与网络', '存储与安全', '诊断与关于'];
+    for (final group in groups) {
+      expect(find.text(group), findsOneWidget, reason: '缺少分组「$group」');
+    }
+
+    const items = <String>[
+      '外观',
+      '主题色',
+      '页面底色',
+      'App 图标',
+      '网格标题',
+      '底部导航栏管理',
+      '悬浮模块',
+      '各模块独立设置',
+      '有声小说播放器',
+      'AI 图片超分与上色',
+      '漫画翻译',
+      '总订阅导入导出',
+      '源总管理',
+      '网络设置',
+      'TMDB配置',
+      '搜索',
+      '缓存管理',
+      '隐私（应用锁）',
+      '配置备份',
+      '沙箱设置',
+      '运行日志',
+      '错误报告',
+      '调试面板',
+      '关于 LumeBox',
+    ];
+    for (final item in items) {
+      expect(find.text(item), findsOneWidget, reason: '缺少设置项「$item」');
+    }
+
+    final ys = <double>[
+      for (final group in groups) tester.getTopLeft(find.text(group)).dy,
+    ];
+    for (var i = 1; i < ys.length; i++) {
+      expect(
+        ys[i],
+        greaterThan(ys[i - 1]),
+        reason: '分组顺序必须是 ${groups.join(' → ')}',
+      );
+    }
+
+    // 旧分组标题不再出现，避免两套分类并存。
+    for (final old in <String>['界面', '源与网络', '诊断', '关于']) {
+      expect(find.text(old), findsNothing, reason: '旧分组「$old」应已移除');
+    }
+  });
+
   testWidgets('非 iOS：设置只保留骨架占位', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));

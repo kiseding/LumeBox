@@ -15,10 +15,19 @@ import '../../shared/widgets/glass_card.dart';
 /// 交互与视觉沿用页面既有的一套：卡片用同一份 [GlassCard]，选择弹窗是底部 Sheet
 /// 一行一项（与图源切换 / 轨道选择同款），不新造交互。
 class DisplaySettingsGroup extends StatelessWidget {
-  const DisplaySettingsGroup({super.key, this.showTitle = true});
+  const DisplaySettingsGroup({
+    super.key,
+    this.showTitle = true,
+    this.includeFloating = true,
+  });
 
   /// 是否自带分组标题（嵌进设置页的更大分组时传 false）。
   final bool showTitle;
+
+  /// 是否把「悬浮模块」收在本卡里。
+  ///
+  /// 主设置页把它单独摆到「底部导航栏管理」之后；独立预览页仍保持四项一组。
+  final bool includeFloating;
 
   @override
   Widget build(BuildContext context) {
@@ -54,16 +63,17 @@ class DisplaySettingsGroup extends StatelessWidget {
               ),
               const _AccentRow(),
               const _BackgroundRow(),
-              _DisplayRow(
-                icon: Icons.tune,
-                title: '悬浮模块',
-                value: '位置 · 透明度',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FloatingSettingsPage(),
+              if (includeFloating)
+                _DisplayRow(
+                  icon: Icons.tune,
+                  title: '悬浮模块',
+                  value: '位置 · 透明度',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FloatingSettingsPage(),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

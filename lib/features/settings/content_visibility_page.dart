@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/source/source_content_visibility.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 class ContentVisibilityPage extends StatelessWidget {
   const ContentVisibilityPage({super.key, this.controller});
@@ -17,9 +18,9 @@ class ContentVisibilityPage extends StatelessWidget {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Padding(
+            const SettingsFooterNote(
+              '开关仅控制首页源选择抽屉中的分类显示。源和已有数据保留，可随时重新显示。',
               padding: EdgeInsets.only(bottom: 12),
-              child: Text('开关仅控制首页源选择抽屉中的分类显示。源和已有数据保留，可随时重新显示。'),
             ),
             for (final type in SourceContentVisibility.types)
               SwitchListTile(

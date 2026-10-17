@@ -1,12 +1,12 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
+import '../shell/shell_dock_bar.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序 + 外观材质**。
 ///
@@ -123,15 +123,10 @@ class TabBarSettingsPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
+          const SettingsFooterNote(
             '拖动手柄调整顺序，开关控制显示与隐藏。改动立即生效，不用重启 App。'
             '至少要保留 1 个页签，否则底部导航就空了。',
-            style: TextStyle(
-              fontWeight: FontWeight.w400,
-              fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
-              height: 1.5,
-            ),
+            padding: EdgeInsets.zero,
           ),
         ],
       ),
@@ -149,6 +144,13 @@ class TabBarSettingsPage extends StatelessWidget {
         final appearance = _controller.appearance;
         final modules = FloatingModules.instance;
         final style = modules.style(FloatingModule.dock);
+        // 预览也用**当前可见的页签与顺序**：用户在下面关掉/拖动页签后，
+        // 预览里立刻少一项 / 换位置，而不是永远画着五格。
+        final visibleEntries = <ShellDockEntry>[];
+        for (final config in _controller.settings.visibleTabs) {
+          final tab = ShellTab.byId(config.id);
+          if (tab != null) visibleEntries.add(_previewEntry(tab));
+        }
         return GlassCard(
           radius: 14,
           padding: const EdgeInsets.all(16),
@@ -164,18 +166,16 @@ class TabBarSettingsPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
+              const SettingsFooterNote(
                 '调整底部 Dock 的尺寸与玻璃质感，改动立即生效。'
                 '深色主题下白边会按比例柔化，避免在暗底上变成硬描边。',
-                style: TextStyle(
-                  fontWeight: FontWeight.w400,
-                  fontSize: LumeTypography.descriptionSize,
-                  color: LumeTheme.descriptionColor,
-                  height: 1.5,
-                ),
+                padding: EdgeInsets.zero,
               ),
               const SizedBox(height: 14),
-              _DockAppearancePreview(appearance: appearance, style: style),
+              _DockAppearancePreview(
+                appearance: appearance,
+                entries: visibleEntries,
+              ),
               const SizedBox(height: 14),
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-opacity'),
@@ -252,8 +252,8 @@ class TabBarSettingsPage extends StatelessWidget {
                 label: '导航栏高度',
                 value: appearance.height,
                 min: 48,
-                max: 64,
-                divisions: 16,
+                max: 90,
+                divisions: 42,
                 display: '${appearance.height.round()} pt',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(height: value),
@@ -265,15 +265,27 @@ class TabBarSettingsPage extends StatelessWidget {
                 key: const ValueKey('dock-appearance-gap'),
                 label: '离底部距离',
                 value: appearance.safeGap,
-                min: 0,
-                max: 12,
-                divisions: 12,
+                // 负值 = 压进系统安全区，把胶囊再往下推；0 已经不是最低了。
+                min: -25,
+                max: 45,
+                divisions: 70,
                 display: '${appearance.safeGap.round()} pt',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(safeGap: value),
                   persist: false,
                 ),
                 onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 4),
+                child: Text(
+                  '负值会把胶囊压进系统安全区（Home Indicator）；0 仍保留安全区高度。',
+                  style: TextStyle(
+                    fontSize: LumeTypography.descriptionSize,
+                    height: 1.4,
+                    color: LumeTheme.descriptionColor,
+                  ),
+                ),
               ),
               // 用普通 Row 而不是 SwitchListTile：ListTile 会注入自己的
               // titleTextStyle（不跟随页面字体），截图/自定义字体下会掉字。
@@ -381,11 +393,19 @@ class TabBarSettingsPage extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              display,
-              style: TextStyle(
-                fontSize: LumeTypography.descriptionSize,
-                color: LumeTheme.textSecondary,
+            // 固定宽度 + 右对齐：每一行的数值落在同一条竖线上。
+            SizedBox(
+              width: 64,
+              child: Text(
+                display,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: LumeTypography.descriptionSize,
+                  color: LumeTheme.textSecondary,
+                  fontFeatures: const <FontFeature>[
+                    FontFeature.tabularFigures(),
+                  ],
+                ),
               ),
             ),
           ],
@@ -421,15 +441,10 @@ class TabBarSettingsPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
+          const SettingsFooterNote(
             '导航栏滚动收起时，左下角悬浮球的样式。点一下立即生效；'
             '不用时会半透明，向右滑动或点击都能展开导航。',
-            style: TextStyle(
-              fontWeight: FontWeight.w400,
-              fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
-              height: 1.5,
-            ),
+            padding: EdgeInsets.zero,
           ),
           const SizedBox(height: 12),
           for (final style in DockHandleStyle.values)
@@ -463,17 +478,12 @@ class TabBarSettingsPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
+          const SettingsFooterNote(
             '· 隐藏某个板块只是把它从底部导航里收起来，数据、缓存与图源都不受影响，'
             '随时可以再打开；\n'
             '· 桌面端（Windows / macOS）用的是左侧栏，顺序跟随这里的设置；\n'
             '· 隐藏「设置」后，左下角会出现一个小的设置按钮，点它回来改回这里。',
-            style: TextStyle(
-              fontWeight: FontWeight.w400,
-              fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
-              height: 1.5,
-            ),
+            padding: EdgeInsets.zero,
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -690,97 +700,79 @@ class _HandleStyleOption extends StatelessWidget {
   }
 }
 
-/// 管理页里的「迷你 Dock」：用真实参数画一颗胶囊。
+/// 管理页里的「真实 Dock 预览」。
 ///
-/// 它只是外观预览（不是生产 Dock），但模糊、白度、边框、阴影、高度与左右留白
-/// 都直接取当前设置值，调整滑块时能立刻看到玻璃透出的变化。
-class _DockAppearancePreview extends StatelessWidget {
-  const _DockAppearancePreview({required this.appearance, required this.style});
+/// 它不是照着 Dock 画的示意图，而是把生产代码里的 [ShellDockBar] 原样压在一块
+/// 彩色海报墙上：玻璃白度 / 磨砂强度 / 选中胶囊 / 动效时长全部走同一份设置，
+/// 拖动滑块时背后的海报会被真实模糊。预览条本身也可以直接点，切换页签会播放
+/// 与壳层完全相同的滑动动画。
+class _DockAppearancePreview extends StatefulWidget {
+  const _DockAppearancePreview({
+    required this.appearance,
+    required this.entries,
+  });
 
   final DockAppearance appearance;
-  final FloatingStyle style;
+
+  /// 当前可见的页签（顺序与真实 Dock 一致，至少 1 项）。
+  final List<ShellDockEntry> entries;
+
+  @override
+  State<_DockAppearancePreview> createState() => _DockAppearancePreviewState();
+}
+
+class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
+  String _activeId = ShellTab.all.first.id;
+
+  /// 选中项被用户隐藏后，回落到第一个仍可见的页签。
+  String get _resolvedActiveId {
+    if (widget.entries.isEmpty) return _activeId;
+    if (widget.entries.any((entry) => entry.id == _activeId)) return _activeId;
+    return widget.entries.first.id;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final dark = LumeTheme.palette.brightness == Brightness.dark;
-    // 预览卡比屏幕窄，留白按比例缩一点即可；不必精确还原 440pt 上的像素。
-    final side = (8 + (appearance.horizontalMargin - 16) * .4)
-        .clamp(8.0, 20.0)
-        .toDouble();
-    final borderAlpha =
-        (dark ? appearance.borderOpacity * .44 : appearance.borderOpacity)
-            .clamp(0.0, 1.0)
-            .toDouble();
-    final radius = BorderRadius.circular(appearance.height / 2);
     return ClipRRect(
       key: const ValueKey('dock-appearance-preview'),
       borderRadius: BorderRadius.circular(16),
-      // Card 的 Column 用 start 对齐：显式给满宽，否则 Stack 在松约束下
-      // 会按子项收缩，预览条可能只剩 0 宽（真机截图里就是一片空白）。
       child: SizedBox(
         width: double.infinity,
-        height: 126,
+        // 比上一版更高：彩色海报和真实 Dock 都能占更多面积，滑块变化更明显。
+        height: 200,
         child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            const Row(
-              // 必须 stretch：ColoredBox 没有子节点，交叉轴松约束下高度会是 0。
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Expanded(child: ColoredBox(color: Color(0xFF7C5CFF))),
-                Expanded(child: ColoredBox(color: Color(0xFFFF7675))),
-                Expanded(child: ColoredBox(color: Color(0xFF00B894))),
-                Expanded(child: ColoredBox(color: Color(0xFF0984E3))),
-                Expanded(child: ColoredBox(color: Color(0xFFFDCB6E))),
-              ],
+            const _PreviewPosterWall(),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 10,
+              child: ShellDockBar(
+                entries: widget.entries,
+                activeId: _resolvedActiveId,
+                onSelect: (id) => setState(() => _activeId = id),
+                appearance: widget.appearance,
+                applyViewPadding: false,
+              ),
             ),
             Positioned(
-              left: side,
-              right: side,
-              bottom: 12,
+              left: 10,
+              top: 10,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  borderRadius: radius,
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: appearance.shadowOpacity,
-                      ),
-                      blurRadius: 20,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
+                  color: Colors.black.withValues(alpha: .34),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                child: ClipRRect(
-                  borderRadius: radius,
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: style.blur,
-                      sigmaY: style.blur,
-                    ),
-                    child: Container(
-                      height: appearance.height,
-                      decoration: BoxDecoration(
-                        color: (dark ? LumeTheme.glass : Colors.white)
-                            .withValues(alpha: style.opacity),
-                        borderRadius: radius,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: borderAlpha),
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: <Widget>[
-                          _PreviewDockIcon(
-                            Icons.menu_book_rounded,
-                            selected: true,
-                          ),
-                          _PreviewDockIcon(Icons.auto_stories_outlined),
-                          _PreviewDockIcon(Icons.play_circle_outline_rounded),
-                          _PreviewDockIcon(Icons.pets_outlined),
-                          _PreviewDockIcon(Icons.settings_outlined),
-                        ],
-                      ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Text(
+                    '真实 Dock · 可点击',
+                    style: TextStyle(
+                      fontSize: 10,
+                      height: 1.2,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -793,25 +785,137 @@ class _DockAppearancePreview extends StatelessWidget {
   }
 }
 
-class _PreviewDockIcon extends StatelessWidget {
-  const _PreviewDockIcon(this.icon, {this.selected = false});
+ShellDockEntry _previewEntry(ShellTab tab) {
+  final (IconData icon, IconData selectedIcon) = switch (tab.id) {
+    'novel' => (Icons.menu_book_outlined, Icons.menu_book_rounded),
+    'comic' => (Icons.auto_stories_outlined, Icons.auto_stories_rounded),
+    'video' => (
+      Icons.play_circle_outline_rounded,
+      Icons.play_circle_fill_rounded,
+    ),
+    'cat' => (Icons.pets_outlined, Icons.pets_rounded),
+    _ => (Icons.settings_outlined, Icons.settings_rounded),
+  };
+  return ShellDockEntry(
+    id: tab.id,
+    label: tab.label,
+    icon: icon,
+    selectedIcon: selectedIcon,
+  );
+}
 
-  final IconData icon;
-  final bool selected;
+/// 预览背景：一张由海报拼成的彩色墙，底层再铺细斜纹。
+///
+/// 斜纹是给毛玻璃「对焦」用的：不模糊时是一根根细线，模糊后融成柔和的
+/// 光带，滑块拖到 0 与 15 的差别一眼可见。
+class _PreviewPosterWall extends StatelessWidget {
+  const _PreviewPosterWall();
+
+  static const List<(List<Color>, String, String)> _posters =
+      <(List<Color>, String, String)>[
+        (<Color>[Color(0xFF6C5CE7), Color(0xFFA29BFE)], '漫剧', '新番'),
+        (<Color>[Color(0xFFFF7675), Color(0xFFFDA085)], '电影', '热映'),
+        (<Color>[Color(0xFF00B894), Color(0xFF55EFC4)], '阅读', '连载'),
+        (<Color>[Color(0xFF0984E3), Color(0xFF74B9FF)], '短剧', '推荐'),
+      ];
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? LumeTheme.accent : LumeTheme.textSecondary;
-    if (!selected) return Icon(icon, size: 16, color: color);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: LumeTheme.accent.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        child: Icon(icon, size: 16, color: color),
-      ),
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            for (final poster in _posters)
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: poster.$1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            poster.$2,
+                            style: TextStyle(
+                              fontSize: 22,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white.withValues(alpha: .92),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            poster.$3,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: .64),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 104,
+          child: CustomPaint(painter: _PreviewStripePainter()),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: .18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
+}
+
+class _PreviewStripePainter extends CustomPainter {
+  const _PreviewStripePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: .16)
+      ..strokeWidth = 2;
+    for (var x = -size.height; x < size.width; x += 14) {
+      canvas.drawLine(
+        Offset(x, size.height),
+        Offset(x + size.height, 0),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PreviewStripePainter oldDelegate) => false;
 }

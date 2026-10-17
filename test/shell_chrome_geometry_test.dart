@@ -8,12 +8,14 @@ import 'package:lume_box/core/js/lume_js_engine.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/core/player/player_factory.dart';
 import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/features/shell/shell_dock_bar.dart';
 import 'package:lume_box/features/reading/explore_view.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
@@ -49,6 +51,9 @@ void main() {
               : null,
         );
     LumeJsEngine.debugSupportedOverride = true;
+    // 外观参数是应用级单例：上一例把高度拉到 90 / 离底改成 -25 后，下一例
+    // 若不复位就会带着它跑（横屏、键盘等列都按默认 54/4 断言）。
+    ShellSettingsController.instance.resetForTesting();
     controller = ShellDockController();
     for (final section in Section.values) {
       await SectionScope.open(section);
@@ -56,6 +61,7 @@ void main() {
   });
 
   tearDown(() async {
+    ShellSettingsController.instance.resetForTesting();
     controller.dispose();
     LumeJsEngine.debugSupportedOverride = null;
     ReadingLibrary.disposeAll();
@@ -227,15 +233,34 @@ void main() {
     final novelItem = find
         .ancestor(of: novelLabel, matching: find.byType(InkWell))
         .first;
-    final chip = tester.getRect(
-      find.descendant(of: novelItem, matching: find.byType(DecoratedBox)).first,
+    // 图标槽：Column 里的第一块 SizedBox（高 22）；选中胶囊是独立背景层，
+    // 不再挂在单个页签里，所以这里量图标槽而不是旧版的 40×22 底座。
+    final iconSlot = tester.getRect(
+      find.descendant(of: novelItem, matching: find.byType(SizedBox)).first,
     );
     final label = tester.getRect(novelLabel);
-    expect(label.top - chip.bottom, closeTo(4, 0.6), reason: '图标与文字间距 4px');
+    expect(label.top - iconSlot.bottom, closeTo(4, 0.6), reason: '图标与文字间距 4px');
     expect(
-      (chip.top + label.bottom) / 2,
+      (iconSlot.top + label.bottom) / 2,
       closeTo(tester.getRect(novelItem).center.dy, 1.5),
       reason: '图标 + 文字整体垂直居中',
+    );
+  });
+
+  testWidgets('负离底 + 90 高：真实 Dock 压进安全区且变高', (tester) async {
+    await pumpShell(tester);
+
+    await ShellSettingsController.instance.setAppearance(
+      const DockAppearance(height: 90, safeGap: -25),
+    );
+    await tester.pumpAndSettle();
+
+    final capsule = tester.getRect(dockCapsule());
+    expect(capsule.height, closeTo(90, .01), reason: '高度上限放开到 90');
+    expect(
+      height - capsule.bottom,
+      closeTo(bottomInset - 25, 0.01),
+      reason: '负留白从安全区里扣，胶囊离屏幕底边只剩 ${bottomInset - 25}pt',
     );
   });
 
@@ -280,67 +305,87 @@ void main() {
     );
   });
 
-  testWidgets('切换页签时选中底座走 250ms 果冻过渡（不是硬闪）', (tester) async {
+  testWidgets('切换页签时选中胶囊横向滑动，250ms easeOutBack 有回弹', (tester) async {
     await pumpShell(tester);
 
-    Finder chipOf(String label) => find
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    expect(pillFinder, findsOneWidget, reason: '选中胶囊必须是独立的一层');
+
+    final before = tester.getRect(pillFinder);
+    expect(before.width, greaterThan(0));
+    expect(before.height, greaterThan(0));
+
+    Finder comicTab() => find
         .descendant(
-          of: find
-              .ancestor(
-                of: find
-                    .descendant(
-                      of: find.byKey(AppShell.dockKey),
-                      matching: find.text(label),
-                    )
-                    .first,
-                matching: find.byType(InkWell),
-              )
-              .first,
-          matching: find.byType(DecoratedBox),
+          of: find.byKey(AppShell.dockKey),
+          matching: find.text(Section.comic.label),
         )
         .first;
 
-    // 未选中时底座仍在树上，只是缩到 0.72 并透明——这样切换时才有过渡可走。
-    final before = tester.getRect(chipOf(Section.comic.label));
-    final opacity = tester.widget<AnimatedOpacity>(
-      find
-          .ancestor(
-            of: chipOf(Section.comic.label),
-            matching: find.byType(AnimatedOpacity),
-          )
-          .first,
+    await tester.tap(comicTab());
+    await tester.pump();
+    // 前 50ms：胶囊已经离开小说、但还没到漫画——是「滑过去」而不是硬闪。
+    await tester.pump(const Duration(milliseconds: 50));
+    final moving = tester.getRect(pillFinder);
+    expect(moving.left, greaterThan(before.left), reason: '胶囊应开始向右滑动');
+    expect(
+      moving.left,
+      lessThan(before.left + 120),
+      reason: '50ms 时不该已经瞬移到目标槽位',
     );
-    expect(opacity.opacity, 0);
-    expect(opacity.duration, const Duration(milliseconds: 250));
 
-    await tester.tap(
+    // 约 100ms：easeOutBack 的过冲把胶囊推过目标位置，再被表面张力拉回来。
+    await tester.pump(const Duration(milliseconds: 50));
+    final overshoot = tester.getRect(pillFinder);
+
+    await tester.pumpAndSettle();
+    final after = tester.getRect(pillFinder);
+    expect(after.left, greaterThan(before.left), reason: '胶囊应停在漫画槽位');
+    expect(
+      overshoot.left,
+      greaterThan(after.left),
+      reason: 'easeOutBack 要轻微过冲，才有水滴回弹的果冻感',
+    );
+    expect(after.width, closeTo(before.width, .01), reason: '滑动时胶囊宽度不变');
+    expect(after.height, closeTo(before.height, .01));
+  });
+
+  testWidgets('动效时长滑块实时改到 Dock 的滑动层', (tester) async {
+    await pumpShell(tester);
+
+    AnimatedPositioned sliding() => tester.widget<AnimatedPositioned>(
       find
           .descendant(
             of: find.byKey(AppShell.dockKey),
-            matching: find.text(Section.comic.label),
+            matching: find.byType(AnimatedPositioned),
           )
           .first,
     );
-    await tester.pump();
-    // 前 50ms：底座从 0.72 倍往满尺寸长，明显不是一格跳到 40。
-    await tester.pump(const Duration(milliseconds: 50));
-    final growing = tester.getRect(chipOf(Section.comic.label));
-    expect(growing.width, greaterThan(before.width));
-    expect(growing.width, lessThan(40));
 
-    // 约 100ms：easeOutBack 的过冲把底座推到满尺寸之外再回弹——这就是果冻感。
-    await tester.pump(const Duration(milliseconds: 50));
-    final bounce = tester.getRect(chipOf(Section.comic.label));
-    expect(bounce.width, greaterThan(40), reason: 'easeOutBack 要轻微过冲');
+    expect(
+      sliding().duration,
+      const Duration(milliseconds: 250),
+      reason: '默认 250ms',
+    );
 
+    await ShellSettingsController.instance.setAppearance(
+      const DockAppearance(animationMs: 400),
+    );
     await tester.pumpAndSettle();
-    final after = tester.getRect(chipOf(Section.comic.label));
-    expect(after.width, closeTo(40, 0.01));
-    expect(after.height, closeTo(22, 0.01));
+    expect(
+      sliding().duration,
+      const Duration(milliseconds: 400),
+      reason: '设置页把时长拉到 400ms，滑动层要跟着变',
+    );
 
-    // 退场的那一项同步收掉，不残留一块底色。
-    final outgoing = tester.getRect(chipOf(Section.novel.label));
-    expect(outgoing.width, closeTo(40 * 0.72, 0.01));
+    await ShellSettingsController.instance.setAppearance(
+      const DockAppearance(animateSelection: false),
+    );
+    await tester.pumpAndSettle();
+    expect(sliding().duration, Duration.zero, reason: '关掉「点击弹跳动效」后立即切换');
   });
 
   testWidgets('底栏容器更薄 + 圆角椭圆（只收容器，图标文字尺寸不变）', (tester) async {

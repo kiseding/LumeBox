@@ -42,6 +42,8 @@ dependencies:
     path: third_party/quickjs_engine
   sqlite3: ^3.7.0
   http: ^1.6.0
+  # AI 上色的 multipart 图片上传需要显式声明 MIME 类型。
+  http_parser: ^4.0.2
   path_provider: ^2.1.6
   path: ^1.9.1
   ffi: ^2.2.0
@@ -104,7 +106,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/speech/vits_aishell3/manifest.json
-    - assets/models/waifu2x/ORIGIN.json
+    # 超分模型随包提供：用户不必再从文件管理器导入，离线可用。
+    # 8 个模型约 17MB，安装到设备后还会生成同量级的 Core ML 编译缓存。
+    - assets/models/waifu2x/
     - assets/js/
     - assets/cat/
     - assets/icon/

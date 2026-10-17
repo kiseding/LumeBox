@@ -11,8 +11,15 @@ import Translation
 
 /// Reader-owned jobs; originals never leave the device on this channel.
 final class ComicImageToolsController: NSObject, UIAdaptivePresentationControllerDelegate {
-  private let queue = DispatchQueue(label: "lumebox.comicImages", qos: .userInitiated)
+  // 并发队列：Dart 侧的并发闸门（1–4）决定同时发多少张；原生不再串行排队。
+  private let queue = DispatchQueue(
+    label: "lumebox.comicImages",
+    qos: .userInitiated,
+    attributes: .concurrent
+  )
   private let lock = NSLock()
+  // Core ML 模型加载/编译不是并发安全的；只锁模型表，不锁推理。
+  private let modelLock = NSLock()
   private var cancelled = Set<String>()
   private var active = Set<String>()
   private var models: [String: MLModel] = [:]
@@ -85,13 +92,13 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let target = directory.appendingPathComponent(String(name.dropLast(8)) + ".mlmodelc")
             try bytes.data.write(to: directory.appendingPathComponent(name), options: .atomic)
-            self.models.removeAll()
+            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
             if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: compiled) }
             else { try FileManager.default.copyItem(at: compiled, to: target) }
             return nil
           case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime"); return nil
           case "clearModels":
-            self.models.removeAll()
+            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
             let directory = try self.modelDirectory()
             if FileManager.default.fileExists(atPath: directory.path) {
               for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "mlmodelc" {
@@ -134,6 +141,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private func modelDirectory() throws -> URL { try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("comic-super-resolution", isDirectory: true) }
 
   private func model(_ noise: Int, style: String = "anime") throws -> MLModel {
+    // 并发推理时可能同时请求同一个/不同模型：加载与字典访问串行化。
+    modelLock.lock()
+    defer { modelLock.unlock() }
     guard ["anime", "photo"].contains(style) else { throw failure("模型类型无效") }
     let modelKey = "\(style == "photo" ? "photo" : "noise")\(noise)"
     guard (0...3).contains(noise) else { throw failure("降噪级别无效") }
@@ -143,7 +153,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     let compiled = directory.appendingPathComponent("\(modelKey).mlmodelc")
     if !FileManager.default.fileExists(atPath: compiled.path) {
       let source = directory.appendingPathComponent("\(modelKey).mlmodel")
-      guard FileManager.default.fileExists(atPath: source.path) else { throw failure("请先在设置中从本地安装对应的超分模型") }
+      guard FileManager.default.fileExists(atPath: source.path) else { throw failure("请先在设置中安装内置模型，或从本地导入对应的超分模型") }
       let temporary = try MLModel.compileModel(at: source)
       defer { try? FileManager.default.removeItem(at: temporary) }
       try FileManager.default.copyItem(at: temporary, to: compiled)

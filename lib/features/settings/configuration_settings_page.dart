@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import '../../core/session/app_preferences.dart';
 import '../../core/session/configuration_backup.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'app_icon_settings_page.dart';
+import 'settings_ui.dart';
 
 class ConfigurationSettingsPage extends StatefulWidget {
   const ConfigurationSettingsPage({super.key, this.previewIcons = false});
@@ -24,19 +26,6 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
   final backup = ConfigurationBackup();
   bool busy = false;
   String? status;
-  String selectedIcon = 'default';
-  @override
-  void initState() {
-    super.initState();
-    if (Platform.isIOS || Platform.isAndroid) {
-      const MethodChannel('lumebox/app_icon')
-          .invokeMethod<String>('current')
-          .then((value) {
-            if (mounted) setState(() => selectedIcon = value ?? 'default');
-          })
-          .catchError((Object _) {});
-    }
-  }
 
   Future<void> run(Future<String?> Function() action) async {
     if (busy) return;
@@ -137,11 +126,13 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.settings,
-    title: '配置与体验',
+    title: '配置备份与体验',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (widget.previewIcons || Platform.isIOS || Platform.isAndroid) ...[
+        // 开发预览 / 排版测试仍可在这里看到图标网格；正式入口已拆到
+        // 「个性与界面 → App 图标」，本页只负责备份与体验。
+        if (widget.previewIcons) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: Text(
@@ -149,53 +140,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
           ),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final (name, label) in [
-                ('default', '经典'),
-                ('Aurora', '极光青'),
-                ('Obsidian', '曜石紫'),
-                ('Solar', '日曜金'),
-                ('Orbit', '星环蓝'),
-                ('Prism', '流光棱镜'),
-                ('Spark', '电光青'),
-              ])
-                InkWell(
-                  onTap: busy || widget.previewIcons
-                      ? null
-                      : () => run(() async {
-                          await const MethodChannel('lumebox/app_icon')
-                              .invokeMethod<bool>('set', name);
-                          if (mounted) setState(() => selectedIcon = name);
-                          return '已切换为$label图标';
-                        }),
-                  borderRadius: BorderRadius.circular(14),
-                  child: SizedBox(
-                    width: 70,
-                    child: Column(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.asset(
-                            'assets/icon/${name == 'default' ? 'app_icon_1024' : name}.png',
-                            width: 60,
-                            height: 60,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${selectedIcon == name ? '✓ ' : ''}$label',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          const AppIconGrid(previewOnly: true),
           const SizedBox(height: 28),
         ],
         Padding(
@@ -290,10 +235,14 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
         ),
         if (busy) const LinearProgressIndicator(),
         if (status != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            child: Text(status!, style: Theme.of(context).textTheme.labelSmall),
+          SettingsFooterNote(
+            status!,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           ),
+        const SettingsFooterNote(
+          '备份包含全局设置、各板块偏好与源配置；恢复会覆盖同名配置和源，恢复后需重启 App。',
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+        ),
       ],
     ),
   );

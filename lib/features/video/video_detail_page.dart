@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/player/abstract_player.dart';
 import '../../core/player/player_kernel_launcher.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/reading/reading.dart';
 import '../../core/source/source.dart';
 
@@ -65,6 +66,8 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   String? error;
   late final pipeline = SectionImagePipeline(
     cacheDir: widget.library.imageCacheDir,
+    decodeTransform: (bytes) =>
+        automaticUpscale(bytes, UpscaleSurface.videoPoster),
   );
   @override
   void initState() {

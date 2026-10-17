@@ -4,6 +4,7 @@ import '../source/waf_webview_page.dart';
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -120,6 +121,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       LumeSources.runtimeAvailableFor(widget.library.section);
 
   List<String> _images = const <String>[];
+
+  /// 手动超分 / 上色后「应用到当前页」的临时结果（仅本次阅读，不写回源文件）。
+  final Map<String, Uint8List> _pageOverrides = <String, Uint8List>{};
+
   bool _loading = true;
   bool _failed = false;
   String? _failureDetail;
@@ -562,13 +567,19 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ? null
               : () async {
                   final url = _images[_page.clamp(0, _images.length - 1)];
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
+                  final applied = await Navigator.of(context).push<Uint8List>(
+                    MaterialPageRoute<Uint8List>(
                       builder: (_) => ComicImageToolsPage(
                         imageStyle: _imageTools.imageStyle,
                         loadOriginal: () => _pipeline.bytes(url),
+                        allowApply: true,
                       ),
                     ),
+                  );
+                  if (applied == null || !mounted) return;
+                  setState(() => _pageOverrides[url] = applied);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('已应用到当前页（仅本次阅读，原图不被覆盖）')),
                   );
                 },
           // 顶栏撤掉了「书签列表」按钮，但这个功能不能变成看得见摸不着——
@@ -1001,6 +1012,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             pipeline: _pipeline,
             url: _images[index],
             index: index,
+            overrideBytes: _pageOverrides[_images[index]],
             decodeWidth: _decodeWidth,
             fit: BoxFit.cover,
             doubleTapZoom: _settings.doubleTapZoom,
@@ -1048,6 +1060,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                     pipeline: _pipeline,
                     url: _images[page],
                     index: page,
+                    overrideBytes: _pageOverrides[_images[page]],
                     decodeWidth: _decodeWidth,
                     doubleTapZoom: _settings.doubleTapZoom,
                     // 双击放大 = 用户要的是放大，不是面板：把待呼出的那次撤掉。
@@ -1084,6 +1097,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     pipeline: _pipeline,
     url: _images[index],
     index: index,
+    overrideBytes: _pageOverrides[_images[index]],
     decodeWidth: _decodeWidth,
     doubleTapZoom: _settings.doubleTapZoom,
     onLongPress: () => _onImageLongPress(index),
@@ -1376,6 +1390,7 @@ class _ComicImageTile extends StatefulWidget {
     this.onDoubleTapZoom,
     this.onRatio,
     this.fit = BoxFit.contain,
+    this.overrideBytes,
   });
 
   final SectionImagePipeline pipeline;
@@ -1383,6 +1398,9 @@ class _ComicImageTile extends StatefulWidget {
   final int index;
   final int decodeWidth;
   final bool doubleTapZoom;
+
+  /// 手动超分 / 上色后应用到当前页的临时图片（优先于管线结果）。
+  final Uint8List? overrideBytes;
 
   /// 双击放大真正生效前回调（阅读器用它取消「待呼出工具栏」）。
   final VoidCallback? onDoubleTapZoom;
@@ -1409,6 +1427,7 @@ class _ComicImageTileState extends State<_ComicImageTile>
   ui.Image? _image;
   bool _failed = false;
   bool _acquired = false;
+  bool _ownsImage = false;
   Offset _zoomPoint = Offset.zero;
 
   @override
@@ -1425,7 +1444,8 @@ class _ComicImageTileState extends State<_ComicImageTile>
   void didUpdateWidget(_ComicImageTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
-        oldWidget.decodeWidth != widget.decodeWidth) {
+        oldWidget.decodeWidth != widget.decodeWidth ||
+        oldWidget.overrideBytes != widget.overrideBytes) {
       _release();
       _resolve();
     }
@@ -1445,10 +1465,21 @@ class _ComicImageTileState extends State<_ComicImageTile>
   int? _heldWidth;
 
   void _release() {
-    if (!_acquired) return;
-    widget.pipeline.release(_heldUrl ?? widget.url, targetWidth: _heldWidth);
-    _acquired = false;
-    _image = null;
+    if (_acquired) {
+      widget.pipeline.release(_heldUrl ?? widget.url, targetWidth: _heldWidth);
+      _acquired = false;
+    }
+    if (_ownsImage) {
+      // RawImage 可能还在这一帧引用旧图：等本帧结束再释放原生位图。
+      final owned = _image;
+      _ownsImage = false;
+      _image = null;
+      if (owned != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => owned.dispose());
+      }
+    } else {
+      _image = null;
+    }
     _heldUrl = null;
     _heldWidth = null;
   }
@@ -1457,6 +1488,33 @@ class _ComicImageTileState extends State<_ComicImageTile>
     if (mounted) setState(() => _failed = false);
     final url = widget.url;
     final width = widget.decodeWidth;
+    final override = widget.overrideBytes;
+    if (override != null) {
+      try {
+        final codec = await ui.instantiateImageCodec(
+          override,
+          targetWidth: width,
+        );
+        final frame = await codec.getNextFrame();
+        final image = frame.image;
+        codec.dispose();
+        if (!mounted) {
+          image.dispose();
+          return;
+        }
+        _ownsImage = true;
+        _acquired = false;
+        _heldUrl = null;
+        _heldWidth = null;
+        setState(() => _image = image);
+        if (image.width > 0) {
+          widget.onRatio?.call(image.height / image.width);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _failed = true);
+      }
+      return;
+    }
     // image() 返回的图自带一次引用（见管线的引用契约），由 _release 归还。
     final image = await widget.pipeline.image(url, targetWidth: width);
     if (!mounted) {
@@ -1469,6 +1527,7 @@ class _ComicImageTileState extends State<_ComicImageTile>
       return;
     }
     _acquired = true;
+    _ownsImage = false;
     _heldUrl = url;
     _heldWidth = width;
     setState(() => _image = image);

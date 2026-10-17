@@ -24,13 +24,15 @@ class FloatingStyle {
     this.blur = 6,
   });
 
-  /// 底部导航的默认材质：更透的白玻璃 + 更深的磨砂。
+  /// 底部导航的默认材质：极透的白玻璃 + 15 度磨砂。
   ///
-  /// 参考图口径：半透明白底约 65%、模糊 10–15。其余悬浮模块保持原来的
-  /// 6 度微磨砂——顶部栏贴着文字，糊得太狠会读不清。
+  /// 参考图口径是「能看见背后海报的色块走向」：白底再厚一点（65%）就会把
+  /// 模糊后的内容盖成一块塑料，所以这里收到 45%；磨砂给到 15，玻璃才有
+  /// 厚度。其余悬浮模块保持原来的 6 度微磨砂——顶部栏贴着文字，糊得太狠
+  /// 会读不清。
   static const FloatingStyle dockDefault = FloatingStyle(
-    opacity: .65,
-    blur: 12,
+    opacity: .45,
+    blur: 15,
   );
 
   /// 各模块的默认值（新建配置 / 重置时用）。
@@ -95,11 +97,11 @@ class FloatingModules extends ChangeNotifier {
               final readable = data['_readableGlassVersion'] == 1
                   ? previous
                   : previous.copyWith(opacity: .72, blur: 6);
-              // 底部导航这一轮换成「更透的白玻璃」：给旧配置做一次性迁移
-              // （沿用旧版的用户也能看到新材质）。迁移后滑块照常生效。
+              // 底部导航这一轮换成「45% 白 + 15 度磨砂」：给旧配置做一次性
+              // 迁移（沿用旧版的用户也能看到新材质）。迁移后滑块照常生效。
               _styles[module] =
                   module == FloatingModule.dock &&
-                      data['_dockGlassVersion'] != 1
+                      data['_dockGlassVersion'] != 2
                   ? previous.copyWith(
                       opacity: FloatingStyle.dockDefault.opacity,
                       blur: FloatingStyle.dockDefault.blur,
@@ -136,7 +138,7 @@ class FloatingModules extends ChangeNotifier {
           '_clearGlassVersion': 1,
           '_microGlassVersion': 1,
           '_readableGlassVersion': 1,
-          '_dockGlassVersion': 1,
+          '_dockGlassVersion': 2,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

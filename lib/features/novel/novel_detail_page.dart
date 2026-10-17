@@ -5,6 +5,7 @@ import '../media/media_resource_page.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
@@ -47,6 +48,8 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
     // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
     maxConcurrent: SectionImagePipeline.coverConcurrency,
+    decodeTransform: (bytes) =>
+        automaticUpscale(bytes, UpscaleSurface.novelIllustration),
   );
 
   /// 详情页的章节列表**不再截断预览**（用户口径：章节列表要完整展示，不得压缩

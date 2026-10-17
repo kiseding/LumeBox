@@ -125,7 +125,7 @@ void main() {
       expect(a.horizontalMargin, 24);
       expect(a.height, 54);
       expect(a.safeGap, 4);
-      expect(a.borderOpacity, .5);
+      expect(a.borderOpacity, .4);
       expect(a.shadowOpacity, .05);
       expect(a.animateSelection, isTrue);
       expect(a.animationMs, 250);
@@ -146,18 +146,25 @@ void main() {
       final clamped = DockAppearance.fromJson(<String, Object?>{
         'horizontalMargin': 999,
         'height': 1,
-        'safeGap': -5,
+        'safeGap': -999,
         'borderOpacity': 5,
         'shadowOpacity': -1,
         'animationMs': 9999,
       });
       expect(clamped.horizontalMargin, 40);
       expect(clamped.height, 48);
-      expect(clamped.safeGap, 0);
+      expect(clamped.safeGap, -25, reason: '负留白允许压进安全区，最低 -25');
       expect(clamped.borderOpacity, .8);
       expect(clamped.shadowOpacity, 0);
       expect(clamped.animationMs, 400);
       expect(clamped.animateSelection, isTrue, reason: '缺字段时动效默认开');
+
+      final tall = DockAppearance.fromJson(<String, Object?>{
+        'height': 999,
+        'safeGap': 999,
+      });
+      expect(tall.height, 90, reason: '高度上限放开到 90');
+      expect(tall.safeGap, 45, reason: '离底距离上限 45');
     });
 
     test('ShellSettings 往返带外观；旧配置缺字段回退默认；改页签不丢外观', () {
@@ -711,8 +718,16 @@ void main() {
     testWidgets('列出全部 5 个页签，各有独立开关', (tester) async {
       await pumpPage(tester);
 
+      // 只数页签行：外观卡里的「真实 Dock 预览」也带着同一批文案，
+      // 不能用全页 find.text 去数，否则会把预览里的页签算进来。
       for (final label in <String>['小说', '漫画', '视频', '猫源', '设置']) {
-        expect(find.text(label), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(ReorderableListView),
+            matching: find.text(label),
+          ),
+          findsOneWidget,
+        );
       }
       // 页签行里的开关固定 5 个（外观卡里还有一个「点击弹跳动效」开关，
       // 不能把它算进页签数）。
@@ -773,13 +788,13 @@ void main() {
       );
       expect(find.text('动效时长'), findsNothing);
 
-      // 高度滑块拖到最右端 → 64pt。
+      // 高度滑块拖到最右端 → 90pt（上限已放开）。
       final height = find.byKey(const ValueKey('dock-appearance-height'));
       await centerInView(height);
       final rect = tester.getRect(height);
       await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
       await tester.pumpAndSettle();
-      expect(ShellSettingsController.instance.appearance.height, 64);
+      expect(ShellSettingsController.instance.appearance.height, 90);
     });
 
     testWidgets('三种收起悬浮球可选：点击立即生效', (tester) async {

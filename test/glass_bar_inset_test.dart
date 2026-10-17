@@ -35,11 +35,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_bar_inset');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     ShellSettingsController.instance.resetForTesting();
     for (final section in Section.values) {
       await SectionScope.open(section);
@@ -53,9 +53,9 @@ void main() {
     await SectionScope.closeAll();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
@@ -66,9 +66,7 @@ void main() {
     tester.view.padding = const FakeViewPadding(top: 59 * 3, bottom: 34 * 3);
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(
-      MaterialApp(theme: LumeTheme.build(), home: page),
-    );
+    await tester.pumpWidget(MaterialApp(theme: LumeTheme.build(), home: page));
     await tester.pumpAndSettle();
   }
 
@@ -86,7 +84,8 @@ void main() {
     expect(
       gap,
       inInclusiveRange(0, 32),
-      reason: '$label 的顶部空隙应当是一档常规间距（约 16pt），'
+      reason:
+          '$label 的顶部空隙应当是一档常规间距（约 16pt），'
           '实测 ${gap}pt——若接近一个栏高（约 115pt），'
           '说明 SafeArea 与 barInset 各让了一次（漏了 behindBar: true）',
     );
@@ -97,14 +96,13 @@ void main() {
     // 设置页第一个元素是「显示」分组的小标题（卡片在它下面），因此这里量的是
     // 标题到顶栏的距离：判据仍然是「16pt 一档，远小于一个栏高」。
     final barBottom = tester.getRect(find.byType(AppBar)).bottom;
-    final firstTitle = tester.getRect(find.text('界面')).top;
+    final firstTitle = tester.getRect(find.text('个性与界面')).top;
     expect(
       firstTitle - barBottom,
       inInclusiveRange(0, 32),
       reason: '设置页顶部空隙应是一档常规间距；接近栏高说明顶栏高度被算了两遍',
     );
   });
-
 
   testWidgets('板块源管理：顶部不留整条空白', (tester) async {
     // 必须塞一个源：空态卡是**垂直居中**的，量出来的不是顶栏空隙。
@@ -124,7 +122,8 @@ void main() {
         ),
       ),
     );
-    final gap = tester.getRect(find.byType(TextField).first).top -
+    final gap =
+        tester.getRect(find.byType(TextField).first).top -
         tester.getRect(find.byType(AppBar)).bottom;
     expect(gap, inInclusiveRange(0, 32), reason: '搜索源入口应紧接顶栏');
   });

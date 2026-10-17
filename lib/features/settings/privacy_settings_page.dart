@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/session/privacy_settings.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 class PrivacySettingsPage extends StatefulWidget {
   const PrivacySettingsPage({super.key, this.settings});
@@ -60,11 +61,9 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                     },
             ),
           ),
-          const Padding(
+          const SettingsFooterNote(
+            '使用系统面容或本机锁屏密码，不设置额外 App 密码。启用、关闭及更换方式前需要验证。面容不可用时，可在锁定页使用锁屏密码。',
             padding: EdgeInsets.all(16),
-            child: Text(
-              '使用系统面容或本机锁屏密码，不设置额外 App 密码。启用、关闭及更换方式前需要验证。面容不可用时，可在锁定页使用锁屏密码。',
-            ),
           ),
           const Divider(),
           SwitchListTile.adaptive(
@@ -73,9 +72,9 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
             value: settings.showAdult,
             onChanged: busy ? null : (v) => run(() => settings.setShowAdult(v)),
           ),
-          const Padding(
+          const SettingsFooterNote(
+            '默认关闭。按已有成人源标记及仓库 NSFW 标记过滤，无法保证识别尚未标记的内容。',
             padding: EdgeInsets.all(16),
-            child: Text('默认关闭。按已有成人源标记及仓库 NSFW 标记过滤，无法保证识别尚未标记的内容。'),
           ),
           if (busy) const Center(child: CircularProgressIndicator()),
           if (message != null)

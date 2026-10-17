@@ -10,6 +10,7 @@ import '../../core/session/module_ui_scale.dart';
 import '../../core/session/section_module_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 import '../comic/comic_settings.dart';
 import '../novel/novel_typesetting.dart';
 import '../shell/shell_dock.dart';
@@ -50,38 +51,24 @@ class ModuleSettingsHubPage extends StatelessWidget {
         children: <Widget>[
           const PlaybackSettingsGroup(),
           const SizedBox(height: 10),
-          GlassCard(
-            padding: EdgeInsets.zero,
-            child: ListTile(
-              leading: const Icon(Icons.play_circle_outline),
-              title: const Text('播放器设置'),
-              subtitle: const Text('内核、字幕、画面与播放参数'),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const PlayerSettingsHost(),
-                ),
+          SettingsEntryCard(
+            icon: Icons.play_circle_outline,
+            title: '播放器设置',
+            subtitle: '内核、字幕、画面与播放参数',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const PlayerSettingsHost(),
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          for (final section in sections) ...<Widget>[
-            _ModuleEntry(section: section),
-            const SizedBox(height: 10),
-          ],
-          GlassCard(
-            padding: const EdgeInsets.all(14),
-            child: Text(
-              '四个模块的参数**各存各的**（各板块自己的库），改一个不会影响另一个。\n'
-              '阅读页 / 播放页里的就地设置保留着，和这里改的是同一份数值——'
-              '哪边改，另一边立刻就是新值。',
-              style: TextStyle(
-                fontWeight: FontWeight.w400,
-                fontSize: LumeTypography.descriptionSize,
-                color: LumeTheme.descriptionColor,
-                height: 1.5,
-              ),
-            ),
+          const SizedBox(height: 6),
+          for (final section in sections) _ModuleEntry(section: section),
+          const SettingsFooterNote(
+            '四个模块的参数各存各的（各板块自己的库），改一个不会影响另一个。\n'
+            '阅读页 / 播放页里的就地设置保留着，和这里改的是同一份数值——'
+            '哪边改，另一边立刻就是新值。',
+            padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
           ),
         ],
       ),
@@ -96,44 +83,14 @@ class _ModuleEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+    return SettingsEntryCard(
+      icon: _iconFor(section),
+      title: '${section.label}设置',
+      subtitle: _subtitleFor(section),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SectionModuleSettingsPage(section: section),
         ),
-      ),
-      child: Row(
-        children: <Widget>[
-          Icon(_iconFor(section), size: 20, color: LumeTheme.accent),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '${section.label}设置',
-                  style: TextStyle(
-                    fontSize: LumeTypography.titleSize,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _subtitleFor(section),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w400,
-                    fontSize: LumeTypography.descriptionSize,
-                    height: 1.5,
-                    color: LumeTheme.descriptionColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right, size: 20, color: LumeTheme.muted),
-        ],
       ),
     );
   }
@@ -697,11 +654,12 @@ class _Group extends StatelessWidget {
           child: ExpansionTile(
             // 默认**收起**（用户口径：不要把全部设置直接堆在一页）。
             initiallyExpanded: false,
-            iconColor: LumeTheme.accent,
+            iconColor: LumeTheme.textSecondary,
             collapsedIconColor: LumeTheme.muted,
             tilePadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            leading: Icon(icon, size: 20, color: LumeTheme.accent),
+            // 统一线条风格的灰色小图标，不要彩色大图标抢内容。
+            leading: Icon(icon, size: 20, color: LumeTheme.textSecondary),
             title: Text(
               title,
               style: TextStyle(

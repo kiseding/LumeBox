@@ -115,7 +115,7 @@ class DockAppearance {
     this.horizontalMargin = 24,
     this.height = 54,
     this.safeGap = 4,
-    this.borderOpacity = .5,
+    this.borderOpacity = .4,
     this.shadowOpacity = .05,
     this.animateSelection = true,
     this.animationMs = 250,
@@ -128,10 +128,14 @@ class DockAppearance {
   /// 点不准（320pt 宽屏上仍保 ≥44pt 的单项触达宽度）。
   final double horizontalMargin;
 
-  /// 内容条高度（不含手势条避让）。范围 48–64。
+  /// 内容条高度（不含手势条避让）。范围 48–90。
   final double height;
 
-  /// 胶囊底边与系统安全区之间再留的距离。0 = 紧贴安全区上沿。
+  /// 胶囊底边与系统安全区之间再留的距离。范围 -25–45。
+  ///
+  /// 负值会把胶囊**压进安全区**（例如 -25 在 34pt 的 Home Indicator 机型上
+  /// 只剩 9pt 净空），用来满足「再低一点、更贴屏幕底边」的诉求；壳层仍会把
+  /// 最终偏移收敛到 0，不会把胶囊画到屏幕外。
   final double safeGap;
 
   /// 玻璃边框（1px 白色高光）的不透明度。0 = 无边框。
@@ -186,9 +190,9 @@ class DockAppearance {
     final rawMs = json['animationMs'];
     return DockAppearance(
       horizontalMargin: read('horizontalMargin', 24, 16, 40),
-      height: read('height', 54, 48, 64),
-      safeGap: read('safeGap', 4, 0, 12),
-      borderOpacity: read('borderOpacity', .5, 0, .8),
+      height: read('height', 54, 48, 90),
+      safeGap: read('safeGap', 4, -25, 45),
+      borderOpacity: read('borderOpacity', .4, 0, .8),
       shadowOpacity: read('shadowOpacity', .05, 0, .15),
       animateSelection: json['animateSelection'] != false,
       animationMs: rawMs is num && rawMs.isFinite

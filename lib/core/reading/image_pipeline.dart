@@ -68,6 +68,7 @@ class SectionImagePipeline {
   final NetworkProfile network;
   final String sourceLabel;
   final NetworkSender? requestSender;
+
   /// Optional reader-local enhancement; raw exports and disk bytes stay original.
   final Future<Uint8List> Function(Uint8List)? decodeTransform;
   final Map<String, String> _failures = {};
@@ -167,6 +168,9 @@ class SectionImagePipeline {
         network: profile,
         sourceLabel: '封面:${section.id}:$sourceId',
         requestSender: requestSender,
+        // 封面降级到按源隔离的子管线时，也要继承父管线的解码增强
+        //（自动超分 / 未来其他解码处理），否则按源封面会静默绕过开关。
+        decodeTransform: decodeTransform,
       )..bindSession(section, sourceId),
     );
   }
@@ -379,7 +383,9 @@ class SectionImagePipeline {
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
-        final decodeData = decodeTransform == null ? data : await decodeTransform!(data);
+        final decodeData = decodeTransform == null
+            ? data
+            : await decodeTransform!(data);
         if (_disposed) return null;
         final codec = await ui.instantiateImageCodec(
           decodeData,

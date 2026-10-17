@@ -246,13 +246,13 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
           // 说明面板与这里的分工，避免用户回到面板找不到刚改过的东西。
           ListTile(
             leading: const Icon(Icons.auto_fix_high_outlined),
-            title: const Text('当前页 AI 超分 / 翻译'),
-            subtitle: const Text('处理当前页，保留原图对照'),
+            title: const Text('当前页 AI 超分 / 上色 / 翻译'),
+            subtitle: const Text('处理当前页，保留原图对照；结果可保存 / 分享'),
             onTap: widget.onImageTools,
           ),
           ListTile(
             leading: const Icon(Icons.hd_outlined),
-            title: const Text('AI 图片超分辨率'),
+            title: const Text('AI 图片超分与上色'),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute<void>(

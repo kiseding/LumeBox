@@ -6,7 +6,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/theme/lume_theme.dart';
 import 'diagnostic_exporter.dart';
+import 'settings_ui.dart';
 
 class DiagnosticExportTile extends StatefulWidget {
   const DiagnosticExportTile({super.key, this.collect, this.save});
@@ -89,19 +91,18 @@ class _DiagnosticExportTileState extends State<DiagnosticExportTile> {
   }
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      leading: busy
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.inventory_2_outlined),
-      title: const Text('一键导出诊断包'),
-      subtitle: Text(status ?? '发送分享或保存到本地；过滤敏感信息'),
-      trailing: const Icon(Icons.file_upload_outlined),
-      onTap: busy ? null : export,
-    ),
+  Widget build(BuildContext context) => SettingsEntryCard(
+    icon: Icons.inventory_2_outlined,
+    title: '一键导出诊断包',
+    subtitle: status ?? '发送分享或保存到本地；过滤敏感信息',
+    showChevron: false,
+    trailing: busy
+        ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(Icons.file_upload_outlined, size: 20, color: LumeTheme.muted),
+    onTap: busy ? null : export,
   );
 }

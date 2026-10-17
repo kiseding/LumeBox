@@ -60,7 +60,7 @@ void main() {
     expect(controller.style(FloatingModule.home).opacity, .4);
   });
 
-  test('底栏新材质：白玻璃 65% + 磨砂 12，旧配置一次性迁移且之后仍可调', () async {
+  test('底栏新材质：白玻璃 45% + 磨砂 15，旧配置一次性迁移且之后仍可调', () async {
     final root = Directory.systemTemp.createTempSync('floating-dock-glass');
     addTearDown(() => root.deleteSync(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -69,8 +69,8 @@ void main() {
           (_) async => root.path,
         );
 
-    expect(FloatingStyle.dockDefault.opacity, .65);
-    expect(FloatingStyle.dockDefault.blur, 12);
+    expect(FloatingStyle.dockDefault.opacity, .45);
+    expect(FloatingStyle.dockDefault.blur, 15);
 
     // 旧版配置：底栏只有位置/透明度，没有新材质的版本号。
     File('${root.path}/floating_modules.json').writeAsStringSync(
@@ -81,8 +81,8 @@ void main() {
     final controller = FloatingModules.instance;
     await controller.boot();
     final migrated = controller.style(FloatingModule.dock);
-    expect(migrated.opacity, .65, reason: '一次性换成新白玻璃');
-    expect(migrated.blur, 12, reason: '模糊半径落到 10–15 区间');
+    expect(migrated.opacity, .45, reason: '一次性换成更透的白玻璃');
+    expect(migrated.blur, 15, reason: '模糊半径拉到设置上限');
     expect(migrated.x, 3, reason: '迁移只换材质，不动用户摆的位置');
     expect(migrated.offset.dy, 4);
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/session/icloud_sync.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'settings_ui.dart';
 
 class ICloudSettingsPage extends StatefulWidget {
   const ICloudSettingsPage({super.key});
@@ -89,11 +90,9 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
             onPressed: cloud.busy ? null : cloud.check,
             child: const Text('检查 iCloud 状态'),
           ),
-          const Padding(
+          const SettingsFooterNote(
+            '首次同步优先合并已有云端记录，保留本机新增条目；之后按条目同步版本合并。同步后返回页面刷新，部分设置需重启生效。\n\n下载图片、音视频、离线模型、Cookie、密码和 API 密钥不上传。iCloud 账号变化会暂停自动同步，需要重新开启。\n\n需要在系统设置登录 iCloud、开启 iCloud Drive，并使用包含 iCloud.com.lumebox.app 容器权限的签名。仅打开手机 iCloud 或使用普通重签名不能补齐该权限。云端传输完成时间由系统决定。',
             padding: EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              '首次同步优先合并已有云端记录，保留本机新增条目；之后按条目同步版本合并。同步后返回页面刷新，部分设置需重启生效。\n\n下载图片、音视频、离线模型、Cookie、密码和 API 密钥不上传。iCloud 账号变化会暂停自动同步，需要重新开启。\n\n需要在系统设置登录 iCloud、开启 iCloud Drive，并使用包含 iCloud.com.lumebox.app 容器权限的签名。仅打开手机 iCloud 或使用普通重签名不能补齐该权限。云端传输完成时间由系统决定。',
-            ),
           ),
         ],
       ),

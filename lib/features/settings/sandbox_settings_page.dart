@@ -6,6 +6,7 @@ import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
+import 'settings_ui.dart';
 
 /// 全局沙箱设置页：四个板块的图源脚本共用的执行预算。
 ///
@@ -158,16 +159,11 @@ class _FixedLimitsCard extends StatelessWidget {
             ),
           ),
           SizedBox(height: 4),
-          Text(
+          const SettingsFooterNote(
             '内存上限、调用栈上限、指令计数、宿主调用次数这些是防死循环与防内存失控的'
             '兜底，调大等于把保护关掉，因此不开放配置。超时是唯一例外——它只影响'
             '「等多久算失控」，不削弱任何防护。',
-            style: TextStyle(
-              fontWeight: FontWeight.w400,
-              fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
-              height: 1.5,
-            ),
+            padding: EdgeInsets.zero,
           ),
         ],
       ),

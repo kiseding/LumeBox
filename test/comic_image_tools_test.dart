@@ -11,7 +11,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lume_box/core/reading/comic_image_tools.dart';
 import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/core/net/network_queue.dart';
+import 'package:lume_box/core/net/network_settings.dart';
+import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/features/comic/comic_image_tools_page.dart';
 
 void main() {
@@ -236,6 +239,145 @@ void main() {
     }
   });
 
+  test('all eight waifu2x models are bundled with the app', () async {
+    for (final name in ComicImageTools.bundledModelNames) {
+      final data = await rootBundle.load('assets/models/waifu2x/$name.mlmodel');
+      expect(
+        data.lengthInBytes,
+        greaterThan(1 * 1024 * 1024),
+        reason: '$name 应随 App 打包',
+      );
+    }
+  });
+
+  test(
+    'installBundledModels installs all eight models via native channel',
+    () async {
+      final installed = <String>[];
+      messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+        if (call.method == 'importModel') {
+          installed.add((call.arguments as Map)['name'] as String);
+        }
+        return null;
+      });
+      final tools = ComicImageTools();
+      await tools.installBundledModels();
+      tools.dispose();
+      expect(installed, <String>[
+        'noise0.mlmodel',
+        'noise1.mlmodel',
+        'noise2.mlmodel',
+        'noise3.mlmodel',
+        'photo0.mlmodel',
+        'photo1.mlmodel',
+        'photo2.mlmodel',
+        'photo3.mlmodel',
+      ]);
+    },
+  );
+
+  test('automatic upscale ranges are gated by the master switch', () {
+    final settings = ComicImageToolsSettings();
+    final tools = ComicImageTools(settings: settings);
+    expect(tools.surfaceEnabled(UpscaleSurface.reader), isFalse);
+    settings.automatic = true;
+    expect(tools.surfaceEnabled(UpscaleSurface.reader), isTrue);
+    expect(tools.surfaceEnabled(UpscaleSurface.cover), isFalse);
+    expect(tools.surfaceEnabled(UpscaleSurface.videoPoster), isFalse);
+    expect(tools.surfaceEnabled(UpscaleSurface.novelIllustration), isFalse);
+    settings.upscaleCovers = true;
+    settings.upscaleVideoPosters = true;
+    settings.upscaleNovelIllustrations = true;
+    expect(tools.surfaceEnabled(UpscaleSurface.cover), isTrue);
+    expect(tools.surfaceEnabled(UpscaleSurface.videoPoster), isTrue);
+    expect(tools.surfaceEnabled(UpscaleSurface.novelIllustration), isTrue);
+    tools.dispose();
+  });
+
+  test(
+    'new auto ranges and colorize config persist; concurrency clamps',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('comic-image-settings');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (call) async =>
+            call.method == 'getApplicationSupportDirectory' ? dir.path : null,
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        ),
+      );
+      final settings = ComicImageToolsSettings()
+        ..automatic = true
+        ..upscaleCovers = true
+        ..upscaleVideoPosters = true
+        ..upscaleNovelIllustrations = true
+        ..concurrency = 9
+        ..colorizeEndpoint = 'https://image.example/v1/images/edits'
+        ..colorizeModel = 'image-model'
+        ..colorizePrompt = 'colorize';
+      await settings.save();
+      final reloaded = ComicImageToolsSettings();
+      await reloaded.boot();
+      expect(reloaded.automatic, isTrue);
+      expect(reloaded.upscaleCovers, isTrue);
+      expect(reloaded.upscaleVideoPosters, isTrue);
+      expect(reloaded.upscaleNovelIllustrations, isTrue);
+      expect(reloaded.concurrency, 4);
+      expect(
+        reloaded.colorizeEndpoint,
+        'https://image.example/v1/images/edits',
+      );
+      expect(reloaded.colorizeModel, 'image-model');
+      expect(reloaded.colorizePrompt, 'colorize');
+    },
+  );
+
+  test('cloud colorize uploads multipart and accepts b64_json only', () async {
+    final settings = ComicImageToolsSettings()
+      ..colorizeEndpoint = 'https://image.example/v1/images/edits'
+      ..colorizeModel = 'image-model';
+    final client = MockClient((request) async {
+      expect(request.headers['Authorization'], 'Bearer test-secret');
+      final body = latin1.decode(request.bodyBytes);
+      expect(body, contains('name="model"'));
+      expect(body, contains('image-model'));
+      expect(body, contains('name="image"'));
+      expect(body, contains('response_format'));
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+
+    final bad = ComicImageTools(
+      settings: settings,
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'data': [
+              {'url': 'https://image.example/result.png'},
+            ],
+          }),
+          200,
+        ),
+      ),
+    );
+    addTearDown(bad.dispose);
+    await expectLater(bad.colorize(bytes), throwsFormatException);
+  });
+
   test('closing reader cancels native jobs and rejects stale result', () async {
     final response = Completer<Object?>();
     final started = Completer<void>();
@@ -302,6 +444,79 @@ void main() {
     expect(await pipeline.bytes('https://images.example/page.png'), bytes);
     expect(enhanced, 1);
     pipeline.release('https://images.example/page.png');
+
+    // 按源隔离的子管线必须继承解码增强，否则自动超分在部分封面上会静默失效。
+    final sub = pipeline.forSource(
+      Section.comic,
+      'source',
+      NetworkProfile.none,
+    );
+    expect(sub.decodeTransform, isNotNull);
+    sub.dispose();
+  });
+
+  testWidgets('apply-to-page returns enhanced bytes when allowApply', (
+    tester,
+  ) async {
+    Uint8List? applied;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              applied = await Navigator.of(context).push<Uint8List>(
+                MaterialPageRoute<Uint8List>(
+                  builder: (_) => ComicImageToolsPage(
+                    allowApply: true,
+                    loadOriginal: () async => bytes,
+                  ),
+                ),
+              );
+            },
+            child: const Text('open tools'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open tools'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI 超分当前图片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('应用到当前页'));
+    await tester.pumpAndSettle();
+    expect(applied, bytes);
+  });
+
+  testWidgets('SR settings fit 320pt and expose the new sections', (
+    tester,
+  ) async {
+    // 320pt 宽 + 拉高视口：一次建完整个设置页，直接检查排版与所有新区块。
+    tester.view.physicalSize = const Size(320, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: const ComicImageToolsSettingsPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final text in <String>[
+      '自动超分的额外范围',
+      '漫画 / 猫源封面',
+      '视频海报',
+      '小说封面 / 插图',
+      '安装内置模型（8 个）',
+      'AI 上色（实验性 · 云端）',
+      '保存上色配置',
+    ]) {
+      expect(find.text(text), findsOneWidget, reason: '缺少「$text」');
+    }
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

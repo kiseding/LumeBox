@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import '../../core/cat/cat_data_source.dart';
 import '../../core/source/source.dart';
 import '../../core/reading/reading.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/player/abstract_player.dart';
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
@@ -44,6 +45,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
     cacheDir: widget.library.imageCacheDir,
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
     maxConcurrent: SectionImagePipeline.coverConcurrency,
+    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
   );
   late final tmdb = TmdbDetailController(widget.item.title);
   SourceDetail? detail;
