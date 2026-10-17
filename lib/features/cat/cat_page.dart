@@ -9,6 +9,7 @@ import '../../shared/widgets/source_swipe_tile.dart';
 import '../../shared/widgets/subscription_status_icon.dart';
 import '../reading/source_search_dialog.dart';
 import '../reading/history_privacy.dart';
+import '../reading/history_sheet.dart';
 import '../reading/favorite_folder_dialogs.dart';
 import '../../core/reading/favorite_folders.dart';
 import '../../core/source/source_order.dart';
@@ -549,11 +550,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                           final selected =
                               site.id ==
                               (source?.site.id ?? service.selectedSiteId);
-                          // 单列更紧凑（56），双列保持 64：配合 16pt 外边距，
-                          // 在 320pt 抽屉里得到约 2.2 的宽高比。
-                          final cardHeight = service.siteColumns > 1
-                              ? 64.0
-                              : 56.0;
+                          // 单列 / 双列统一 51：与其它三个板块完全同高。
+                          final cardHeight = CatSiteTile.compactHeight;
                           // 猫源专用行：无左侧图标、无右侧三点、文字单行居中。
                           // 长按整行拖拽排序；左滑露出「设置」菜单。
                           return _reorderSite(
@@ -698,6 +696,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     var collectionQuery = '';
     var checking = false;
     var initialCheckStarted = false;
+    var showSearch = false;
     String? folder;
     final folders = FavoriteFolders(lib);
     List<Map<String, dynamic>> records() => favorites
@@ -722,6 +721,89 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
               .toList();
           String id(Map<String, dynamic> entry) =>
               '${entry['site']}|${entry['id']}';
+          DateTime? rawTime(Map<String, dynamic> entry) {
+            final value = entry['time'];
+            if (value is num) {
+              return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+            }
+            final text = catText(value).trim();
+            if (text.isEmpty) return null;
+            final parsed = DateTime.tryParse(text);
+            if (parsed != null) return parsed;
+            final millis = int.tryParse(text);
+            return millis == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(millis);
+          }
+
+          /// 收藏在旧版本里没有时间戳：依次回退到同一条历史、阅读进度与
+          /// 书架行，实在没有才用当前时间（只影响这一条的时间文案）。
+          DateTime entryTime(Map<String, dynamic> entry) {
+            final direct = rawTime(entry);
+            if (direct != null) return direct;
+            final key = id(entry);
+            final historyMatch = service.history
+                .where((old) => id(old) == key)
+                .firstOrNull;
+            final fromHistory = historyMatch == null
+                ? null
+                : rawTime(historyMatch);
+            if (fromHistory != null) return fromHistory;
+            final itemId = catText(entry['id']);
+            return lib.progress(itemId)?.updatedAt ??
+                lib.item(itemId)?.updatedAt ??
+                DateTime.now();
+          }
+
+          entries.sort((a, b) => entryTime(b).compareTo(entryTime(a)));
+
+          /// 猫源集合记录 → 共享历史卡片所需的 [LibraryItem]。
+          ///
+          /// 只为渲染服务：收藏状态与删除仍由 [CatService] 负责，这里不写库。
+          LibraryItem libraryItem(Map<String, dynamic> entry) {
+            final itemId = catText(entry['id']);
+            final saved = lib.item(itemId);
+            final time = entryTime(entry);
+            return LibraryItem(
+              section: Section.cat,
+              itemId: itemId,
+              sourceId: catText(entry['site']),
+              title: catText(entry['title']),
+              cover: entry['cover'] as String?,
+              subtitle: entry['subtitle'] == null
+                  ? null
+                  : catText(entry['subtitle']),
+              chapterCount: saved?.chapterCount ?? 0,
+              readChapterIndex: saved?.readChapterIndex ?? -1,
+              addedAt: time,
+              updatedAt: time,
+            );
+          }
+
+          Map<String, String> coverHeaders(Map<String, dynamic> entry) =>
+              catMap(entry['headers'])
+                  .map((key, value) => MapEntry(key, catText(value)));
+
+          Future<void> moveToFolder(Map<String, dynamic> entry) async {
+            if (!favorites) return;
+            await chooseFavoriteFolder(context, folders, id(entry));
+            if (context.mounted) update(() {});
+          }
+
+          void removeEntry(Map<String, dynamic> entry) {
+            final itemId = catText(entry['id']);
+            if (favorites) {
+              lib.removeFavorite(itemId);
+            } else {
+              lib.removeHistory(itemId);
+            }
+            unawaited(
+              service.removeCollection({id(entry)}, favorites: favorites),
+            );
+            update(() {});
+          }
+
+          final now = DateTime.now();
           Future<void> checkFavorites({bool quiet = false}) async {
             if (checking || !context.mounted) return;
             lib.setSetting(
@@ -787,236 +869,251 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           return HistoryPrivacyGuard(
             library: lib,
             enabled: !favorites,
-            child: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
               child: SizedBox(
+                key: const Key('history-drawer-frame'),
                 height: DrawerGeometry.height(context),
-                child: Column(
-                  children: [
-                    ListTile(
-                      title: Text(favorites ? '猫源 · 收藏' : '猫源 · 历史'),
-                      trailing: IconButton(
-                        tooltip: '关闭',
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (favorites)
-                          IconButton(
-                            tooltip: '检查收藏更新',
-                            icon: checking
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  child: DecoratedBox(
+                    decoration: LumeTheme.background,
+                    child: SafeArea(
+                      top: false,
+                      child: SizedBox(
+                        height: double.infinity,
+                        child: Column(
+                          children: [
+                            ListTile(
+                              title: Text(favorites ? '猫源 · 收藏' : '猫源 · 历史'),
+                              subtitle: Text('${entries.length} 条 · 最近在前'),
+                              trailing: IconButton(
+                                tooltip: '关闭',
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                if (favorites)
+                                  IconButton(
+                                    tooltip: '管理收藏夹',
+                                    icon: const Icon(
+                                      Icons.create_new_folder_outlined,
                                     ),
-                                  )
-                                : Badge(
-                                    isLabelVisible: records().any(
-                                      (entry) =>
+                                    onPressed: () async {
+                                      await showFavoriteFolderManager(
+                                        context,
+                                        folders,
+                                      );
+                                      if (context.mounted) {
+                                        update(() {
+                                          if (!folders.load().containsKey(
+                                            folder,
+                                          )) {
+                                            folder = null;
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                if (favorites)
+                                  IconButton(
+                                    tooltip: '检查收藏更新',
+                                    icon: checking
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Badge(
+                                            isLabelVisible: records().any(
+                                              (entry) =>
+                                                  lib.setting(
+                                                    'cat.favorite.updated.${id(entry)}',
+                                                  ) ==
+                                                  'true',
+                                            ),
+                                            child: const Icon(
+                                              Icons.notifications_outlined,
+                                            ),
+                                          ),
+                                    onPressed: checking
+                                        ? null
+                                        : () => checkFavorites(),
+                                  ),
+                                IconButton(
+                                  tooltip: '搜索记录',
+                                  icon: const Icon(Icons.search),
+                                  onPressed: () =>
+                                      update(() => showSearch = !showSearch),
+                                ),
+                                if (!favorites) ...[
+                                  IconButton(
+                                    tooltip: '历史记录锁',
+                                    icon: Icon(
+                                      (lib.setting(HistoryPrivacy.lockKey) ??
+                                                  '')
+                                              .isEmpty
+                                          ? Icons.lock_open
+                                          : Icons.lock,
+                                    ),
+                                    onPressed: () async {
+                                      await HistoryPrivacy.toggleLock(
+                                        context,
+                                        lib,
+                                      );
+                                      if (context.mounted) update(() {});
+                                    },
+                                  ),
+                                  IconButton(
+                                    tooltip: '无痕模式',
+                                    isSelected:
+                                        lib.setting('history.incognito') ==
+                                        'true',
+                                    icon: const Icon(
+                                      Icons.visibility_off_outlined,
+                                    ),
+                                    selectedIcon: const Icon(
+                                      Icons.visibility_off,
+                                    ),
+                                    onPressed: () {
+                                      lib.setSetting(
+                                        'history.incognito',
+                                        '${lib.setting('history.incognito') != 'true'}',
+                                      );
+                                      update(() {});
+                                    },
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (favorites && folders.load().isNotEmpty)
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    ChoiceChip(
+                                      label: const Text('全部收藏'),
+                                      selected: folder == null,
+                                      onSelected: (_) =>
+                                          update(() => folder = null),
+                                    ),
+                                    for (final name in folders.load().keys)
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 8),
+                                        child: ChoiceChip(
+                                          label: Text(name),
+                                          selected: folder == name,
+                                          onSelected: (_) =>
+                                              update(() => folder = name),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            if (showSearch)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                child: TextField(
+                                  autofocus: true,
+                                  decoration: const InputDecoration(
+                                    hintText: '搜索标题',
+                                  ),
+                                  onChanged: (value) =>
+                                      update(() => collectionQuery = value),
+                                ),
+                              ),
+                            Expanded(
+                              child: CollectionPanel(
+                                title: favorites ? '收藏' : '历史',
+                                library: library,
+                                storageKey:
+                                    'collection.${favorites ? 'favorites' : 'history'}.layout',
+                                ids: entries.map(id).toList(),
+                                onDelete: (ids) async {
+                                  for (final entry in entries.where(
+                                    (entry) => ids.contains(id(entry)),
+                                  )) {
+                                    if (favorites) {
+                                      library?.removeFavorite(
+                                        catText(entry['id']),
+                                      );
+                                    } else {
+                                      library?.removeHistory(
+                                        catText(entry['id']),
+                                      );
+                                    }
+                                  }
+                                  await service.removeCollection(
+                                    ids,
+                                    favorites: favorites,
+                                  );
+                                  update(() {});
+                                },
+                                itemBuilder: (index) {
+                                  final entry = entries[index];
+                                  final item = libraryItem(entry);
+                                  return GestureDetector(
+                                    onLongPress: favorites
+                                        ? () => moveToFolder(entry)
+                                        : null,
+                                    child: HistoryEntryTile(
+                                      pipeline: pipeline,
+                                      headers: coverHeaders(entry),
+                                      updated:
                                           lib.setting(
                                             'cat.favorite.updated.${id(entry)}',
                                           ) ==
                                           'true',
+                                      item: item,
+                                      progress: lib.progress(item.itemId),
+                                      now: now,
+                                      removeLabel: favorites ? '取消收藏' : '删除记录',
+                                      onRemove: () => removeEntry(entry),
+                                      onResume: () =>
+                                          Navigator.pop(context, entry),
                                     ),
-                                    child: const Icon(
-                                      Icons.notifications_outlined,
+                                  );
+                                },
+                                gridBuilder: (index) {
+                                  final entry = entries[index];
+                                  final item = libraryItem(entry);
+                                  return GestureDetector(
+                                    onLongPress: favorites
+                                        ? () => moveToFolder(entry)
+                                        : null,
+                                    child: HistoryGridTile(
+                                      item: item,
+                                      progress: lib.progress(item.itemId),
+                                      pipeline: pipeline,
+                                      headers: coverHeaders(entry),
+                                      updated:
+                                          lib.setting(
+                                            'cat.favorite.updated.${id(entry)}',
+                                          ) ==
+                                          'true',
+                                      onTap: () =>
+                                          Navigator.pop(context, entry),
                                     ),
-                                  ),
-                            onPressed: checking ? null : () => checkFavorites(),
-                          ),
-                        if (favorites)
-                          IconButton(
-                            tooltip: '管理收藏夹',
-                            icon: const Icon(Icons.create_new_folder_outlined),
-                            onPressed: () async {
-                              await showFavoriteFolderManager(context, folders);
-                              if (context.mounted) {
-                                update(() {
-                                  if (!folders.load().containsKey(folder)) {
-                                    folder = null;
-                                  }
-                                });
-                              }
-                            },
-                          ),
-                        if (!favorites) ...[
-                          IconButton(
-                            tooltip: '历史记录锁',
-                            icon: Icon(
-                              (lib.setting(HistoryPrivacy.lockKey) ?? '')
-                                      .isEmpty
-                                  ? Icons.lock_open
-                                  : Icons.lock,
-                            ),
-                            onPressed: () async {
-                              await HistoryPrivacy.toggleLock(context, lib);
-                              if (context.mounted) update(() {});
-                            },
-                          ),
-                          IconButton(
-                            tooltip: '无痕模式',
-                            isSelected:
-                                lib.setting('history.incognito') == 'true',
-                            icon: const Icon(Icons.visibility_off_outlined),
-                            onPressed: () {
-                              lib.setSetting(
-                                'history.incognito',
-                                '${lib.setting('history.incognito') != 'true'}',
-                              );
-                              update(() {});
-                            },
-                          ),
-                        ],
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: '搜索标题',
-                        ),
-                        onChanged: (value) =>
-                            update(() => collectionQuery = value),
-                      ),
-                    ),
-                    if (favorites && folders.load().isNotEmpty)
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            ChoiceChip(
-                              label: const Text('全部收藏'),
-                              selected: folder == null,
-                              onSelected: (_) => update(() => folder = null),
-                            ),
-                            for (final name in folders.load().keys)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: ChoiceChip(
-                                  label: Text(name),
-                                  selected: folder == name,
-                                  onSelected: (_) =>
-                                      update(() => folder = name),
-                                ),
+                                  );
+                                },
                               ),
+                            ),
                           ],
                         ),
                       ),
-                    Expanded(
-                      child: CollectionPanel(
-                        title: favorites ? '收藏' : '历史',
-                        library: library,
-                        storageKey:
-                            'collection.${favorites ? 'favorites' : 'history'}.layout',
-                        ids: entries.map(id).toList(),
-                        onDelete: (ids) async {
-                          for (final entry in entries.where(
-                            (entry) => ids.contains(id(entry)),
-                          )) {
-                            if (favorites) {
-                              library?.removeFavorite(catText(entry['id']));
-                            } else {
-                              library?.removeHistory(catText(entry['id']));
-                            }
-                          }
-                          await service.removeCollection(
-                            ids,
-                            favorites: favorites,
-                          );
-                          update(() {});
-                        },
-                        itemBuilder: (index) => ListTile(
-                          onLongPress: favorites
-                              ? () async {
-                                  await chooseFavoriteFolder(
-                                    context,
-                                    folders,
-                                    id(entries[index]),
-                                  );
-                                  if (context.mounted) update(() {});
-                                }
-                              : null,
-                          leading: SizedBox(
-                            width: 46,
-                            height: 66,
-                            child: CoverThumb(
-                              pipeline: pipeline,
-                              url: entries[index]['cover'] as String?,
-                              width: 92,
-                              title: catText(entries[index]['title']),
-                            ),
-                          ),
-                          title: Text(catText(entries[index]['title'])),
-                          onTap: () => Navigator.pop(context, entries[index]),
-                        ),
-                        gridBuilder: (index) => Card(
-                          child: InkWell(
-                            onLongPress: favorites
-                                ? () async {
-                                    await chooseFavoriteFolder(
-                                      context,
-                                      folders,
-                                      id(entries[index]),
-                                    );
-                                    if (context.mounted) update(() {});
-                                  }
-                                : null,
-                            onTap: () => Navigator.pop(context, entries[index]),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: pipeline == null
-                                        ? const Icon(
-                                            Icons.video_library_outlined,
-                                          )
-                                        : SizedBox(
-                                            width: double.infinity,
-                                            child: PosterCover(
-                                              pipeline: pipeline!,
-                                              url:
-                                                  entries[index]['cover']
-                                                      as String?,
-                                              title: catText(
-                                                entries[index]['title'],
-                                              ),
-                                              headers:
-                                                  catMap(
-                                                    entries[index]['headers'],
-                                                  ).map(
-                                                    (key, value) => MapEntry(
-                                                      key,
-                                                      catText(value),
-                                                    ),
-                                                  ),
-                                            ),
-                                          ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    catText(entries[index]['title']),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: LumeTypography.descriptionSize,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1510,7 +1607,7 @@ class CatGroupedSourceList extends StatelessWidget {
       // 卡片底色与描边由 CatSiteTile 自己画：外层透明，避免在圆角处
       // 露出一圈灰色底、把 1px 描边衬成两层。
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: ListTileTheme.merge(
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 6),

@@ -185,7 +185,7 @@ class SourcePickerDiffBody extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: LumeTheme.base,
     appBar: AppBar(
-      title: const Text('源列表双形态 · 统一 64px 卡片'),
+      title: const Text('源列表双形态 · 统一 51px 卡片'),
       actions: [
         IconButton(
           tooltip: '切换亮暗模式',
@@ -202,7 +202,7 @@ class SourcePickerDiffBody extends StatelessWidget {
             _panel(
               context,
               title: '小说 / 漫画 / 视频',
-              hint: '36px 图标 + 名称/版本 + 三点菜单',
+              hint: '32px 图标 + 名称/版本 + 三点菜单',
               section: Section.comic,
               sources: _realSources,
             ),

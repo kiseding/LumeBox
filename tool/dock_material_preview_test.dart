@@ -472,6 +472,22 @@ void main() {
     await capture(tester, 'dock_glass_drag_settled.png');
   });
 
+  testWidgets('按压膨胀与动态聚焦（预览）', (tester) async {
+    await pumpShell(tester);
+    final pill = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    final gesture = await tester.startGesture(tester.getCenter(pill));
+    await tester.pump();
+    // 按满：水滴按当前高度收缩、按当前宽度膨胀；磨砂从 15 动态降到 5.1。
+    await tester.pump(const Duration(milliseconds: 800));
+    await capture(tester, 'dock_press_focus.png');
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await capture(tester, 'dock_press_released.png');
+  });
+
   testWidgets('选中胶囊滑动逐帧（用于拼 GIF）', (tester) async {
     await pumpShell(tester);
     await capture(tester, 'dock_slide_00.png');

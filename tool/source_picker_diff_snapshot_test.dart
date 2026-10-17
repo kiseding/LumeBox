@@ -85,7 +85,7 @@ void main() {
     await tester.runAsync(() async {
       final renderView = tester.binding.renderViews.first;
       final layer = renderView.debugLayer! as OffsetLayer;
-      final image = await layer.toImage(renderView.paintBounds);
+      final image = await layer.toImage(renderView.paintBounds, pixelRatio: 2);
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       final output = Directory('build/ui_snapshot')

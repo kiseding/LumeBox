@@ -441,6 +441,7 @@ class HistoryEntryTile extends StatelessWidget {
     this.onRemove,
     this.removeLabel = '删除记录',
     this.pipeline,
+    this.headers = const {},
     this.updated = false,
   });
 
@@ -455,6 +456,9 @@ class HistoryEntryTile extends StatelessWidget {
   /// 删除这条记录；为空时不显示删除按钮（小说 / 漫画的抽屉只读）。
   final VoidCallback? onRemove;
   final SectionImagePipeline? pipeline;
+
+  /// 封面请求头：猫源图床经常要求 Referer / UA，视频与阅读源一般不需要。
+  final Map<String, String> headers;
   final bool updated;
 
   /// 进度条比例：只有算得出比例的形状才画（漫画是页位置，没有总页数）。
@@ -512,6 +516,7 @@ class HistoryEntryTile extends StatelessWidget {
                     pipeline: pipeline,
                     url: item.cover,
                     title: item.title,
+                    headers: headers,
                     width: compact ? 160 : 200,
                   ),
                 ),
@@ -666,6 +671,7 @@ class HistoryGridTile extends StatelessWidget {
     required this.progress,
     required this.pipeline,
     required this.onTap,
+    this.headers = const {},
     this.updated = false,
   });
 
@@ -673,6 +679,9 @@ class HistoryGridTile extends StatelessWidget {
   final ReadingProgress? progress;
   final SectionImagePipeline? pipeline;
   final VoidCallback onTap;
+
+  /// 封面请求头：猫源图床经常要求 Referer / UA，视频与阅读源一般不需要。
+  final Map<String, String> headers;
   final bool updated;
 
   @override
@@ -695,6 +704,7 @@ class HistoryGridTile extends StatelessWidget {
                   pipeline: pipeline,
                   url: item.cover,
                   title: item.title,
+                  headers: headers,
                   width: 240,
                 ),
               ),

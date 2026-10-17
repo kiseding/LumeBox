@@ -18,6 +18,7 @@ import 'package:lume_box/features/settings/content_visibility_page.dart';
 
 import 'support/fake_source_manager.dart';
 
+import 'package:lume_box/shared/widgets/source_card_metrics.dart';
 import 'package:lume_box/shared/widgets/source_icon.dart';
 
 /// 模拟真实长按：按住超过 LongPress 阈值再拖到目标卡片上松开。
@@ -140,7 +141,7 @@ void main() {
       for (final icon in tester.widgetList<SourceIcon>(
         find.byType(SourceIcon),
       )) {
-        expect(icon.size, 36);
+        expect(icon.size, SourceCardMetrics.iconSize);
         expect(icon.radius, 8);
         expect(icon.section, section);
         expect(icon.sourceId, isNotEmpty);
@@ -148,10 +149,40 @@ void main() {
 
       final a = find.byKey(const ValueKey('picker-source-a'));
       final b = find.byKey(const ValueKey('picker-source-b'));
-      expect(tester.getSize(b).height, 64);
-      expect(tester.getSize(a).height, 64);
+      expect(tester.getSize(b).height, SourceCardMetrics.height);
+      expect(tester.getSize(a).height, SourceCardMetrics.height);
       final icon = tester.getSize(find.byKey(const ValueKey('picker-icon-a')));
-      expect((icon.width, icon.height), (36, 36));
+      expect(
+        (icon.width, icon.height),
+        (SourceCardMetrics.iconSize, SourceCardMetrics.iconSize),
+      );
+      final primary = Theme.of(
+        tester.element(find.byKey(const ValueKey('picker-card-a'))),
+      ).primaryColor;
+      final selectedCard =
+          tester
+                  .widget<DecoratedBox>(
+                    find.byKey(const ValueKey('picker-card-a')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      final unselectedCard =
+          tester
+                  .widget<DecoratedBox>(
+                    find.byKey(const ValueKey('picker-card-b')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(
+        (unselectedCard.border! as Border).top.color,
+        SourceCardMetrics.unselectedBorder,
+        reason: '未选中卡片用 1px 浅灰描边',
+      );
+      expect(
+        (selectedCard.border! as Border).top.color,
+        primary,
+        reason: '选中卡片边框读取当前主题色',
+      );
       final more = tester.getRect(find.byKey(const ValueKey('picker-more-a')));
       expect(tester.getRect(a).right - more.right, 8);
       expect(tester.getTopLeft(a).dx, lessThan(tester.getTopLeft(b).dx));
@@ -216,14 +247,47 @@ void main() {
     await tester.pumpAndSettle();
     final card = find.byKey(const ValueKey('picker-source-c1'));
     final second = find.byKey(const ValueKey('picker-source-c2'));
-    expect(tester.getSize(card).height, 56, reason: '单列卡片压到 56 高');
+    expect(tester.getSize(card).height, 51, reason: '单列卡片统一 51 高');
     // 默认单列：卡片铺满 390 - 32 = 358，且左缘与搜索框同基线。
     expect(tester.getSize(card).width, 358);
     expect(tester.getTopLeft(card).dx, 16);
+    final decoration =
+        tester
+                .widget<DecoratedBox>(
+                  find.descendant(
+                    of: card,
+                    matching: find.byKey(const ValueKey('cat-site-card')),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+    final border = decoration.border! as Border;
+    expect(border.top.width, 1);
+    expect(
+      border.top.color,
+      Theme.of(tester.element(card)).primaryColor,
+      reason: '选中的猫源卡片边框读取当前主题色',
+    );
+    final secondDecoration =
+        tester
+                .widget<DecoratedBox>(
+                  find.descendant(
+                    of: second,
+                    matching: find.byKey(const ValueKey('cat-site-card')),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+    expect(
+      (secondDecoration.border! as Border).top.color,
+      SourceCardMetrics.unselectedBorder,
+      reason: '未选中的猫源卡片用 1px 浅灰描边',
+    );
+    expect(decoration.boxShadow, isNotEmpty, reason: '沿用全局卡片柔和阴影');
     final material = tester.widget<Material>(
       find.descendant(of: card, matching: find.byType(Material)).first,
     );
-    expect((material.shape! as RoundedRectangleBorder).side.width, 1);
+    expect(material.shape, isNull, reason: '没有 Material 描边');
     expect(find.byType(SourceIcon), findsNothing);
     expect(find.byKey(const ValueKey('picker-more-c1')), findsNothing);
     expect(find.byKey(const ValueKey('picker-drag-c1')), findsOneWidget);
@@ -257,14 +321,14 @@ void main() {
     await longPressDrag(tester, card, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(card).dy));
 
-    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，高度 64，
-    // 宽高比约 2.72（小屏 320pt 时约 2.2）；名称仍然居中。
+    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，高度同样 51；
+    // 名称仍然居中。
     await tester.tap(find.byTooltip('切换为双列'));
     await tester.pumpAndSettle();
     expect(tester.getSize(card).width, 174);
     expect(tester.getSize(second).width, 174);
-    expect(tester.getSize(card).height, 64);
-    expect(tester.getSize(second).height, 64);
+    expect(tester.getSize(card).height, 51);
+    expect(tester.getSize(second).height, 51);
     // 单列拖动后 c2 在前，双列里应落在左侧。
     expect(tester.getTopLeft(second).dx, lessThan(tester.getTopLeft(card).dx));
     expect(tester.getTopLeft(second).dy, tester.getTopLeft(card).dy);
@@ -325,7 +389,7 @@ void main() {
     await longPressDrag(tester, first, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
   });
-  testWidgets('固定 64 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
+  testWidgets('固定 51 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
     await SourcePreferences(pinned: true).save(Section.video, 'plain');
     await tester.runAsync(() => PrivacySettings.instance.setShowAdult(true));
     final manager = FakeSourceManager(
@@ -373,7 +437,7 @@ void main() {
     for (final id in ['plain', 'adult']) {
       expect(
         tester.getSize(find.byKey(ValueKey('picker-source-$id'))).height,
-        64,
+        51,
       );
     }
     expect(find.text('18'), findsOneWidget);

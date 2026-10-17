@@ -471,6 +471,146 @@ void main() {
     expect(settled.width, closeTo(before.width, .5), reason: '吸附完成后水滴宽度回到基准值');
   });
 
+  testWidgets('按下时水滴按当前尺寸膨胀，松手弹回', (tester) async {
+    await pumpShell(tester);
+
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    final before = tester.getRect(pillFinder);
+
+    final gesture = await tester.startGesture(before.center);
+    // 先推一帧让按压 Ticker 启动，再推进到按满。
+    await tester.pump();
+    // 按压进度由当前动效时长推导（默认 250ms → 500ms 到顶）。
+    await tester.pump(const Duration(milliseconds: 700));
+    final pressed = tester.getRect(pillFinder);
+    expect(
+      pressed.width,
+      greaterThan(before.width + 1),
+      reason: '按到底后水滴边缘应按当前宽度比例膨胀',
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(pillFinder).width,
+      closeTo(before.width, .5),
+      reason: '松手后水球应弹回基准宽度',
+    );
+  });
+
+  testWidgets('按压清晰度基于当前磨砂强度动态降低，松手回到设置值', (tester) async {
+    await pumpShell(tester);
+    final modules = FloatingModules.instance;
+    addTearDown(() => modules.reset(FloatingModule.dock));
+    modules.set(
+      FloatingModule.dock,
+      modules.style(FloatingModule.dock).copyWith(blur: 3),
+    );
+    await tester.pump();
+
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    Finder dropBlur() =>
+        find.descendant(of: pillFinder, matching: find.byType(BackdropFilter));
+    double sigma() {
+      final text = tester.widget<BackdropFilter>(dropBlur()).filter.toString();
+      return double.parse(
+        RegExp(r'ImageFilter\.blur\(([0-9.]+)').firstMatch(text)!.group(1)!,
+      );
+    }
+
+    expect(sigma(), closeTo(3, .01), reason: '静止时读取当前磨砂强度 3');
+
+    final gesture = await tester.startGesture(tester.getCenter(pillFinder));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(
+      sigma(),
+      closeTo(3 * .34, .05),
+      reason: '按到底后在当前 blur=3 的基础上动态降低（约 1.02）',
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(sigma(), closeTo(3, .05), reason: '松手后弹回当前设置值 3');
+  });
+
+  testWidgets('慢速拖拽：按离落点的距离拉伸，而不是只看速度', (tester) async {
+    await pumpShell(tester);
+
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    final before = tester.getRect(pillFinder);
+
+    final gesture = await tester.startGesture(before.center);
+    await gesture.moveBy(const Offset(24, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    // 手指停住：速度会被衰减到 0，但「离页签中心还有距离」仍然应保持拉长。
+    await tester.pump(const Duration(milliseconds: 400));
+    final held = tester.getRect(pillFinder);
+    expect(
+      held.width,
+      greaterThan(before.width + 4),
+      reason: '慢慢拖也要像橡皮筋一样被拉长，不能只是平移',
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(pillFinder).width,
+      closeTo(before.width, .5),
+      reason: '松手后宽度要弹回基准',
+    );
+  });
+
+  testWidgets('关掉点击弹跳动效：拖拽不拉伸，松手立即吸附', (tester) async {
+    await pumpShell(tester);
+    await ShellSettingsController.instance.setAppearance(
+      const DockAppearance(animateSelection: false),
+    );
+    await tester.pumpAndSettle();
+
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    final before = tester.getRect(pillFinder);
+
+    final gesture = await tester.startGesture(before.center);
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    final dragging = tester.getRect(pillFinder);
+    expect(dragging.width, closeTo(before.width, .5), reason: '关闭动效后不做拉伸形变');
+    expect(
+      dragging.center.dx,
+      greaterThan(before.center.dx + 20),
+      reason: '拖动本身仍然跟手',
+    );
+
+    await gesture.up();
+    await tester.pump();
+    final comicCenter = tester.getCenter(
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.text(Section.comic.label),
+          )
+          .first,
+    );
+    expect(
+      tester.getRect(pillFinder).center.dx,
+      closeTo(comicCenter.dx, 1.5),
+      reason: '关闭动效后松手直接瞬移到最近页签，不再走弹簧',
+    );
+  });
+
   testWidgets('极限外观参数：150pt 高 / 100pt 留白 / -50pt 离底 / 30 磨砂不报错', (
     tester,
   ) async {

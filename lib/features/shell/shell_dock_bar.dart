@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
@@ -37,15 +38,21 @@ class ShellDockEntry {
 /// 1. [ClipRRect] + [BackdropFilter]：把**背后的页面内容**真正模糊掉，
 ///    白度（[FloatingStyle.opacity]）与磨砂强度（[FloatingStyle.blur]）都来自
 ///    「设置 → 底部导航栏管理」，滑块拖动时立刻重绘；
-/// 2. 水滴层：单独一颗 [Positioned] 的水滴，位置与宽度由两个
-///    [AnimationController] 驱动。拖动时直接写值跟手，松手后分别用
-///    [SpringSimulation] 把「中心所在页签」和「宽度」弹回目标；
+/// 2. 水滴层：单独一颗 [Positioned] 的水滴，位置、宽度与形状由两个
+///    [AnimationController] 驱动。拖动时直接写值跟手，宽度同时由**速度**和
+///    **离最近页签的距离**决定；路径在静止胶囊与「尾部收窄、轻微压扁」的
+///    液态水滴之间插值。松手后分别用 [SpringSimulation] 把「中心所在页签」
+///    和「宽度 / 形状」弹回目标；
 /// 3. 页签内容层：图标 + 文案，颜色随选中态过渡。内容画在水滴之后，保证
 ///    选中的图标 / 文字始终清晰——水滴是玻璃上的装饰层，不是遮罩。
 ///
 /// 手势全部落在包裹内容的 [GestureDetector] 上：水平拖动由它赢过页签的
 /// [InkWell] 点击；点击则走 [InkWell] 与 [GestureDetector.onTapUp] 两条路，
 /// 都汇到同一个 [_selectIndex]，不会出现「拖一套、点另一套」。
+///
+/// **设置绑定**：尺寸（高度 / 左右留白 / 离底，含负数压底）、玻璃白度、
+/// 磨砂强度、边缘高光、阴影、点击弹跳开关与动效时长全部沿用原有字段，
+/// 本组件不新增或写死任何可调外观值。
 class ShellDockBar extends StatefulWidget {
   const ShellDockBar({
     super.key,
@@ -113,6 +120,15 @@ class _ShellDockBarState extends State<ShellDockBar>
   /// 拖动期间用来让速度自然衰减：手指停住时水滴不会一直保持被拉长的样子。
   late final Ticker _dragTicker;
 
+  /// 按压进度：0 = 未按，1 = 按到底。松手用同一个弹簧回 0，产生水球回弹。
+  late final AnimationController _pressController;
+
+  /// 手指在内容区的位置对「聚焦」的贡献（0 = 页签边缘，1 = 图标/文字中心）。
+  ///
+  /// 用 ValueNotifier 而不是 setState：指针移动只重建水滴这一层，
+  /// 不把整个 Dock / 页面卷进 setState。
+  late final ValueNotifier<double> _pointerFocus = ValueNotifier<double>(0);
+
   late final Listenable _dropAnimation;
 
   /// 当前「已经落定」的页签下标（页面实际停在哪一项）。
@@ -125,6 +141,23 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   /// 平滑后的水平速度（px/s），用于把水滴拉成橡皮筋。
   double _dragVelocity = 0;
+
+  /// 当前拖动点离最近页签中心的「拉力」（0 = 正在页签中心，1 = 两页签正中间）。
+  ///
+  /// 只看速度的话，慢慢拖不会有形变，像一块被平移的板；把距离也算进来，
+  /// 水滴才会像被手指拽住的橡皮：离落点越远，越细长。
+  double _dragPull = 0;
+
+  /// 最近一次有效拖动的方向：+1 向右、-1 向左。水滴的尾巴朝着来路。
+  double _dragDirection = 1;
+
+  /// 手指加速度（px/s²）：速度的瞬时变化，参与不规则拉伸。
+  double _dragAcceleration = 0;
+
+  /// 真实的指针速度采样：拖拽方向与甩动速度都从同一份轨迹读取。
+  VelocityTracker _pointerVelocity = VelocityTracker.withKind(
+    PointerDeviceKind.touch,
+  );
 
   /// 上一次拖动采样的时间戳；为空或时间倒退时退化到「按 60fps 估计」。
   Duration? _lastDragStamp;
@@ -139,10 +172,13 @@ class _ShellDockBarState extends State<ShellDockBar>
       value: _resolvedIndex.toDouble(),
     );
     _widthController = AnimationController.unbounded(vsync: this, value: 1);
+    _pressController = AnimationController.unbounded(vsync: this, value: 0);
     _dragTicker = createTicker(_onDragTick);
     _dropAnimation = Listenable.merge(<Listenable>[
       _indexController,
       _widthController,
+      _pressController,
+      _pointerFocus,
     ]);
     // 弹簧的 isDone 有容差，落定时把值钉死在目标上，避免留下半个像素。
     _indexController.addStatusListener((status) {
@@ -153,6 +189,13 @@ class _ShellDockBarState extends State<ShellDockBar>
     _widthController.addStatusListener((status) {
       if (status == AnimationStatus.completed && !_dragging) {
         _widthController.value = 1;
+      }
+    });
+    // 按压松手弹簧落定后把残差钉到 0，确保 sigma 回到设置值的精确值。
+    _pressController.addStatusListener((status) {
+      if (status == AnimationStatus.completed &&
+          _pressController.value.abs() < .01) {
+        _pressController.value = 0;
       }
     });
   }
@@ -166,6 +209,27 @@ class _ShellDockBarState extends State<ShellDockBar>
       // 拖动中不改落点：手指还没松开，松手时自然会按当前位置重新吸附。
       if (!_dragging) _animateToIndex(index);
     }
+    // 设置页把「点击弹跳动效」关掉后，正在飞的弹簧必须立刻停住并归位；
+    // 不能等它自己弹完，否则设置与画面就不一致了。
+    if (!widget.appearance.animateSelection &&
+        oldWidget.appearance.animateSelection) {
+      _stopMotion();
+    }
+  }
+
+  /// 停止一切位移 / 宽度弹簧，直接落到当前已选页签。
+  void _stopMotion() {
+    _dragTicker.stop();
+    _indexController.stop();
+    _widthController.stop();
+    _dragging = false;
+    _dragVelocity = 0;
+    _dragPull = 0;
+    _pressController.stop();
+    _pressController.value = 0;
+    _pointerFocus.value = 0;
+    _indexController.value = _resolvedIndex.toDouble();
+    _widthController.value = 1;
   }
 
   @override
@@ -173,6 +237,8 @@ class _ShellDockBarState extends State<ShellDockBar>
     _dragTicker.dispose();
     _indexController.dispose();
     _widthController.dispose();
+    _pressController.dispose();
+    _pointerFocus.dispose();
     super.dispose();
   }
 
@@ -210,10 +276,18 @@ class _ShellDockBarState extends State<ShellDockBar>
     _widthController.stop();
     _lastDragStamp = null;
     _dragVelocity = 0;
+    _dragAcceleration = 0;
+    final focus = _indexForX(details.localPosition.dx, slot);
     // 手指按下的位置就是水滴的新中心：像真的水珠被按过去一样跟手。
-    _indexController.value = _indexForX(details.localPosition.dx, slot);
-    _widthController.value = 1;
+    _indexController.value = focus;
+    _dragPull = _pullFor(focus);
+    _dragDirection = focus >= _resolvedIndex ? 1 : -1;
     setState(() => _dragging = true);
+    if (!widget.appearance.animateSelection) {
+      _widthController.value = 1;
+      return;
+    }
+    _widthController.value = _widthScaleFor(0, _dragPull);
     if (!_dragTicker.isActive) _dragTicker.start();
   }
 
@@ -221,8 +295,18 @@ class _ShellDockBarState extends State<ShellDockBar>
     if (widget.entries.isEmpty) return;
     _updateDragVelocity(details);
     // 核心跟手逻辑：localPosition.dx → 连续页签坐标，水滴中心贴着手指。
-    _indexController.value = _indexForX(details.localPosition.dx, slot);
-    _widthController.value = _widthScaleFor(_dragVelocity);
+    final previous = _indexController.value;
+    final focus = _indexForX(details.localPosition.dx, slot);
+    if ((focus - previous).abs() > .001) {
+      // 尾巴朝来路：向右拖时尾部在左，向左拖时尾部在右。
+      _dragDirection = (focus - previous).sign;
+    }
+    _indexController.value = focus;
+    _dragPull = _pullFor(focus);
+    // 关掉「点击弹跳动效」时不再做拉伸；拖动仍然跟手，但松手直接瞬移。
+    _widthController.value = widget.appearance.animateSelection
+        ? _widthScaleFor(_dragVelocity, _dragPull)
+        : 1;
   }
 
   void _onDragEnd(DragEndDetails details, double slot) {
@@ -231,9 +315,74 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   void _onDragCancel(double slot) => _finishDrag(velocityPx: 0, slot: slot);
 
+  // ------------------------------------------------------------------ 按压 / 聚焦
+
+  /// 指针位置 → 聚焦程度：越靠近页签中心（图标 / 文字），越清晰。
+  double _focusForX(double x, double slot) {
+    if (slot <= 0 || widget.entries.isEmpty) return 0;
+    final index = ((x - slot / 2) / slot).round().clamp(
+      0,
+      widget.entries.length - 1,
+    );
+    final center = index * slot + slot / 2;
+    // 图标 / 文字大约在槽位中心 40% 的范围内；边缘处聚焦为 0。
+    final radius = math.min(slot * .42, 48.0);
+    return (1 - (x - center).abs() / radius).clamp(0.0, 1.0);
+  }
+
+  /// 按下：从当前位置开始积累按压进度，停留越久越接近「按到底」。
+  ///
+  /// 时长仍从 [DockAppearance.animationMs] 推导，不新增第二套动效参数。
+  void _onPressDown(PointerDownEvent event, double slot) {
+    _pointerVelocity = VelocityTracker.withKind(PointerDeviceKind.touch)
+      ..addPosition(event.timeStamp, event.position);
+    _pointerFocus.value = _focusForX(event.localPosition.dx, slot);
+    if (!widget.appearance.animateSelection) {
+      _pressController.stop();
+      _pressController.value = 0;
+      return;
+    }
+    final ms = (widget.appearance.animationMs * 2).clamp(180, 1400);
+    // 有压感的设备用压力修正目标；没有压感（恒为 1 或 0）时按满。
+    final pressure = event.pressure.isFinite && event.pressure > 0
+        ? event.pressure.clamp(.35, 1.0)
+        : 1.0;
+    _pressController.animateTo(
+      pressure,
+      duration: Duration(milliseconds: ms),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// 手指在内容区移动：从页签边缘移到图标 / 文字上时，聚焦平滑上升。
+  void _onPressMove(PointerMoveEvent event, double slot) {
+    _pointerVelocity.addPosition(event.timeStamp, event.position);
+    final tracked = _pointerVelocity.getVelocity().pixelsPerSecond.dx;
+    if (tracked.abs() > 80) _dragDirection = tracked.sign;
+    _pointerFocus.value = _focusForX(event.localPosition.dx, slot);
+  }
+
+  /// 松手：按压进度用当前弹簧参数弹回 0，水球带一点过冲恢复。
+  void _releasePress() {
+    _pointerFocus.value = 0;
+    if (!widget.appearance.animateSelection) {
+      _pressController.stop();
+      _pressController.value = 0;
+      return;
+    }
+    if (_pressController.value.abs() < .001) {
+      _pressController.value = 0;
+      return;
+    }
+    _pressController.animateWith(
+      SpringSimulation(_springDescription(), _pressController.value, 0, 0),
+    );
+  }
+
   void _finishDrag({required double velocityPx, required double slot}) {
     _dragTicker.stop();
     _dragVelocity = 0;
+    _dragAcceleration = 0;
     if (widget.entries.isEmpty) {
       setState(() => _dragging = false);
       return;
@@ -248,6 +397,8 @@ class _ShellDockBarState extends State<ShellDockBar>
     final velocityIndex = slot <= 0
         ? 0.0
         : (velocityPx / slot).clamp(-10.0, 10.0);
+    _dragPull = 0;
+    if (!widget.appearance.animateSelection) _widthController.value = 1;
     _selectIndex(nearest, velocity: velocityIndex);
   }
 
@@ -267,6 +418,7 @@ class _ShellDockBarState extends State<ShellDockBar>
   void _selectIndex(int index, {double velocity = 0}) {
     if (widget.entries.isEmpty) return;
     final target = index.clamp(0, widget.entries.length - 1);
+    _dragPull = 0;
     setState(() {
       _dragging = false;
       _resolvedIndex = target;
@@ -281,10 +433,24 @@ class _ShellDockBarState extends State<ShellDockBar>
     return (x - slot / 2) / slot;
   }
 
-  /// 速度 → 宽度倍率：越快拉得越长，但有上限，避免变成一条横线。
-  double _widthScaleFor(double velocityPx) {
-    final normalized = (velocityPx.abs() / 1800).clamp(0.0, 1.0);
-    return 1 + normalized * .65;
+  /// 离最近页签中心的距离（0 = 正在中心，1 = 两页签之间）。
+  ///
+  /// 这是「慢慢拖也要有形变」的来源：只按速度算，手指停住水滴就会缩回去，
+  /// 看起来像被平移的板；按距离算，它才像被橡皮筋拉住。
+  double _pullFor(double focus) {
+    final nearest = focus.roundToDouble();
+    return ((focus - nearest).abs() * 2).clamp(0.0, 1.0);
+  }
+
+  /// 速度 + 拉力 → 宽度倍率：越快 / 离落点越远，拉得越长，但有上限。
+  double _widthScaleFor(double velocityPx, double pull) {
+    final speed = (velocityPx.abs() / 1800).clamp(0.0, 1.0);
+    final tug = pull.clamp(0.0, 1.0);
+    final accel = (_dragAcceleration.abs() / 12000).clamp(0.0, 1.0);
+    final amount = math
+        .max(speed, math.max(tug * .85, accel * .35))
+        .clamp(0.0, 1.0);
+    return 1 + amount * .65;
   }
 
   void _updateDragVelocity(DragUpdateDetails details) {
@@ -295,36 +461,44 @@ class _ShellDockBarState extends State<ShellDockBar>
           (stamp - previous).inMicroseconds / Duration.microsecondsPerSecond;
       if (seconds > 0) {
         final instant = details.delta.dx / seconds;
+        final previousVelocity = _dragVelocity;
         // 指数平滑：单帧抖动不会让水滴突然抽搐。
         _dragVelocity = _dragVelocity == 0
             ? instant
             : _dragVelocity * .65 + instant * .35;
+        final instantAccel = (instant - previousVelocity) / seconds;
+        _dragAcceleration = _dragAcceleration == 0
+            ? instantAccel
+            : _dragAcceleration * .7 + instantAccel * .3;
         _lastDragStamp = stamp;
         return;
       }
     }
     // 无时间戳（或被合并成一帧）：按 60fps 估计，保证仍然有拉伸反馈。
     final estimated = details.delta.dx * 60;
+    final previousVelocity = _dragVelocity;
     _dragVelocity = _dragVelocity == 0
         ? estimated
         : _dragVelocity * .65 + estimated * .35;
+    final instantAccel = (estimated - previousVelocity) * 60;
+    _dragAcceleration = _dragAcceleration == 0
+        ? instantAccel
+        : _dragAcceleration * .7 + instantAccel * .3;
     _lastDragStamp = stamp;
   }
 
-  /// 手指停住时速度衰减，水滴慢慢缩回基准宽度；仍保留一点点余量等下一帧。
+  /// 手指停住时速度衰减；只要还离落点有距离，就保留被拉长的余量。
   void _onDragTick(Duration _) {
-    if (!_dragging) {
-      _dragTicker.stop();
-      return;
-    }
-    _dragVelocity *= .86;
-    if (_dragVelocity.abs() < 24) {
-      _dragVelocity = 0;
+    if (!_dragging || !widget.appearance.animateSelection) {
       _dragTicker.stop();
       _widthController.value = 1;
       return;
     }
-    _widthController.value = _widthScaleFor(_dragVelocity);
+    _dragVelocity *= .86;
+    _dragAcceleration *= .86;
+    if (_dragVelocity.abs() < 24) _dragVelocity = 0;
+    _widthController.value = _widthScaleFor(_dragVelocity, _dragPull);
+    if (_dragVelocity == 0 && _dragPull == 0) _dragTicker.stop();
   }
 
   // ------------------------------------------------------------------ 弹簧
@@ -336,7 +510,7 @@ class _ShellDockBarState extends State<ShellDockBar>
     final ms = widget.appearance.animationMs.clamp(100, 2000);
     final period = (ms / 1000) * .56;
     final stiffness = math.pow((2 * math.pi) / period, 2).toDouble();
-    final damping = 2 * .62 * math.sqrt(stiffness);
+    final damping = 2 * .58 * math.sqrt(stiffness);
     return SpringDescription(mass: 1, stiffness: stiffness, damping: damping);
   }
 
@@ -517,7 +691,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                                         child: _buildContent(
                                           verticalPadding: verticalPadding,
                                           dropFill: dropFill,
-                                          dropFilter: dropFilter,
+                                          dropBlurSigma: style.blur,
                                           dropBorder: Colors.white.withValues(
                                             alpha: borderAlpha,
                                           ),
@@ -547,7 +721,7 @@ class _ShellDockBarState extends State<ShellDockBar>
   Widget _buildContent({
     required double verticalPadding,
     required Color dropFill,
-    required ImageFilter dropFilter,
+    required double dropBlurSigma,
     required Color dropBorder,
     required double whiteGlow,
     required double accentGlow,
@@ -575,75 +749,117 @@ class _ShellDockBarState extends State<ShellDockBar>
           onHorizontalDragCancel: () => _onDragCancel(slot),
           // 覆盖页签之间的空隙；页签自身的 InkWell 仍保留点击语义。
           onTapUp: (details) => _onTapUp(details, slot),
-          child: AnimatedBuilder(
-            animation: _dropAnimation,
-            builder: (context, _) {
-              // 水滴中心始终取连续坐标：拖动时它等于手指位置，松手后由弹簧
-              // 一帧帧推到目标中心，不能在松手瞬间直接换成整数下标。
-              final focus = _indexController.value.clamp(
-                0.0,
-                (entries.length - 1).toDouble(),
-              );
-              final activeIndex = (_dragging ? focus.round() : _resolvedIndex)
-                  .clamp(0, entries.length - 1);
-              // 水珠宽度 = 基准宽度 × 速度倍率；夹取只防极端值。
-              final dropWidth = (baseWidth * _widthController.value).clamp(
-                baseWidth * .75,
-                contentWidth,
-              );
-              // 中心跟着连续坐标走，left 永远 = 中心 - 半宽（橡皮筋拉伸时
-              // 向两侧同时长，而不是只向右长）。
-              final center = focus * slot + slot / 2;
-              final maxLeft = (contentWidth - dropWidth).clamp(
-                0.0,
-                double.infinity,
-              );
-              final left = (center - dropWidth / 2).clamp(0.0, maxLeft);
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (event) => _onPressDown(event, slot),
+            onPointerMove: (event) => _onPressMove(event, slot),
+            onPointerUp: (_) => _releasePress(),
+            onPointerCancel: (_) => _releasePress(),
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _dropAnimation,
+                builder: (context, _) {
+                  // 水滴中心始终取连续坐标：拖动时它等于手指位置，松手后由弹簧
+                  // 一帧帧推到目标中心，不能在松手瞬间直接换成整数下标。
+                  final indexFocus = _indexController.value.clamp(
+                    0.0,
+                    (entries.length - 1).toDouble(),
+                  );
+                  final activeIndex =
+                      (_dragging ? indexFocus.round() : _resolvedIndex).clamp(
+                        0,
+                        entries.length - 1,
+                      );
 
-              return Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  // 水滴先画：它是玻璃上的装饰层；页签内容后画，选中项的
-                  // 图标与文字不会被水滴的磨砂白底糊掉。
-                  Positioned(
-                    left: left,
-                    top: ShellDockBar._dropInset,
-                    width: dropWidth,
-                    height: dropHeight,
-                    child: IgnorePointer(
-                      child: _WaterDrop(
-                        key: ShellDockBar.selectionPillKey,
-                        radius: dropRadius,
-                        fill: dropFill,
-                        filter: dropFilter,
-                        border: dropBorder,
-                        whiteGlow: whiteGlow,
-                        accentGlow: accentGlow,
-                      ),
-                    ),
-                  ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  // 按压进度与指针位置共同决定「擦亮玻璃」的程度：
+                  // - 按住不放：press 从 0 → 1，sigma 逐渐降低；
+                  // - 从页签边缘移到图标 / 文字：pointerFocus 平滑升高。
+                  // 基础 sigma 始终来自当前的 FloatingStyle.blur，不写死。
+                  final pressRaw = _pressController.value.clamp(-.18, 1.0);
+                  final press = pressRaw.clamp(0.0, 1.0);
+                  final pointerFocus =
+                      (press * (.45 + .55 * _pointerFocus.value)).clamp(
+                        0.0,
+                        1.0,
+                      );
+                  final sigma = (dropBlurSigma * (1 - pointerFocus * .66))
+                      .clamp(0.0, dropBlurSigma);
+                  final dropFilter = _blurFilter(sigma);
+
+                  // 水珠宽度 = 基准宽度 × 速度/拉力倍率 + 按压膨胀；夹取只防极端值。
+                  // 基准宽度来自当前留白 / 页签数量；按压膨胀量按当前高度比例
+                  // 计算——拉动「导航栏高度」滑块时，膨胀幅度会一起变化。
+                  final pressBulge = dropHeight * .10 * pressRaw;
+                  final dropWidth =
+                      (baseWidth * _widthController.value + pressBulge).clamp(
+                        baseWidth * .75,
+                        contentWidth,
+                      );
+                  // 形变量 0–1：宽度倍率 1–1.65 映射回液体路径的「拉长程度」。
+                  final stretch = ((_widthController.value - 1) / .65).clamp(
+                    0.0,
+                    1.0,
+                  );
+                  // 中心跟着连续坐标走，left 永远 = 中心 - 半宽（橡皮筋拉伸时
+                  // 向两侧同时长，而不是只向右长）。
+                  final center = indexFocus * slot + slot / 2;
+                  final maxLeft = (contentWidth - dropWidth).clamp(
+                    0.0,
+                    double.infinity,
+                  );
+                  final left = (center - dropWidth / 2).clamp(0.0, maxLeft);
+
+                  return Stack(
+                    fit: StackFit.expand,
                     children: <Widget>[
-                      for (var index = 0; index < entries.length; index++)
-                        Expanded(
-                          child: _DockItem(
-                            entry: entries[index],
-                            selected: index == activeIndex,
-                            onTap: () => _onItemTap(index),
-                            verticalPadding: verticalPadding,
-                            animateSelection:
-                                widget.appearance.animateSelection,
-                            animationDuration: Duration(
-                              milliseconds: widget.appearance.animationMs,
+                      // 水滴先画：它是玻璃上的装饰层；页签内容后画，选中项的
+                      // 图标与文字不会被水滴的磨砂白底糊掉。
+                      Positioned(
+                        left: left,
+                        top: ShellDockBar._dropInset,
+                        width: dropWidth,
+                        height: dropHeight,
+                        child: IgnorePointer(
+                          child: RepaintBoundary(
+                            child: _WaterDrop(
+                              key: ShellDockBar.selectionPillKey,
+                              radius: dropRadius,
+                              fill: dropFill,
+                              filter: dropFilter,
+                              border: dropBorder,
+                              whiteGlow: whiteGlow,
+                              accentGlow: accentGlow,
+                              stretch: stretch,
+                              press: pressRaw,
+                              direction: _dragDirection,
                             ),
                           ),
                         ),
+                      ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          for (var index = 0; index < entries.length; index++)
+                            Expanded(
+                              child: _DockItem(
+                                entry: entries[index],
+                                selected: index == activeIndex,
+                                onTap: () => _onItemTap(index),
+                                verticalPadding: verticalPadding,
+                                animateSelection:
+                                    widget.appearance.animateSelection,
+                                animationDuration: Duration(
+                                  milliseconds: widget.appearance.animationMs,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
-                  ),
-                ],
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
         );
       },
@@ -673,6 +889,9 @@ class _WaterDrop extends StatelessWidget {
     required this.border,
     required this.whiteGlow,
     required this.accentGlow,
+    required this.stretch,
+    required this.press,
+    required this.direction,
   });
 
   final BorderRadius radius;
@@ -690,45 +909,196 @@ class _WaterDrop extends StatelessWidget {
   final double whiteGlow;
   final double accentGlow;
 
+  /// 0 = 静止的胶囊，1 = 被拉到最长：尾部收窄、整体轻微压扁。
+  final double stretch;
+
+  /// 按压进度：0 = 未按，1 = 按到底；松手弹簧会短暂越过 0（负值）再回正。
+  final double press;
+
+  /// 拖动方向：+1 向右、-1 向左；尾巴朝着来路。
+  final double direction;
+
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      // 外发光模拟水珠边缘的折射：不额外加底色，纯光晕。
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: <BoxShadow>[
-          if (whiteGlow > 0)
-            BoxShadow(
-              color: Colors.white.withValues(alpha: whiteGlow),
-              blurRadius: 12,
-              spreadRadius: -4,
-              offset: const Offset(0, 1),
-            ),
-          if (accentGlow > 0)
-            BoxShadow(
-              color: LumeTheme.accent.withValues(alpha: accentGlow),
-              blurRadius: 18,
-              spreadRadius: -6,
-              offset: const Offset(0, 5),
-            ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: BackdropFilter(
-          filter: filter,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: radius,
-              border: Border.all(color: border, width: 1),
-            ),
-            child: const SizedBox.expand(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final path = _liquidDropPath(
+          size,
+          stretch: stretch,
+          press: press,
+          direction: direction,
+        );
+        return DecoratedBox(
+          // 外发光模拟水珠边缘的折射：不额外加底色，纯光晕。
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            boxShadow: <BoxShadow>[
+              if (whiteGlow > 0)
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: whiteGlow),
+                  blurRadius: 12,
+                  spreadRadius: -4,
+                  offset: const Offset(0, 1),
+                ),
+              if (accentGlow > 0)
+                BoxShadow(
+                  color: LumeTheme.accent.withValues(alpha: accentGlow),
+                  blurRadius: 18,
+                  spreadRadius: -6,
+                  offset: const Offset(0, 5),
+                ),
+            ],
           ),
-        ),
-      ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              // 形状不是圆角矩形：拖动时是一条带尾巴的水滴路径，磨砂与白度
+              // 仍然来自设置，边缘高光用同一路径描边。
+              ClipPath(
+                clipper: _LiquidDropClipper(path),
+                child: BackdropFilter(
+                  filter: filter,
+                  child: ColoredBox(color: fill),
+                ),
+              ),
+              IgnorePointer(
+                child: CustomPaint(
+                  painter: _LiquidDropBorderPainter(path: path, color: border),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
+}
+
+/// 把静止胶囊与拖动中的水滴统一成一条路径。
+///
+/// [stretch] 为 0 时精确退化成圆角胶囊；大于 0 时尾端半径收窄、上下缘轻微
+/// 外鼓，并把高度压扁一点，形成「被手指拽住的水滴」而不是一块被拉宽的板。
+Path _liquidDropPath(
+  Size size, {
+  required double stretch,
+  required double press,
+  required double direction,
+}) {
+  final t = stretch.clamp(0.0, 1.0);
+  final p = press.clamp(-.18, 1.0);
+  final pressed = p.clamp(0.0, 1.0);
+  final rebound = math.max(-p, 0.0);
+  if (size.width <= 0 || size.height <= 0) return Path();
+  // 按压：高度收缩（体积感）；松手过冲时轻微回弹、高度略高于静止值。
+  final h = size.height * (1 - .12 * t - .10 * pressed + .04 * rebound);
+  final top = (size.height - h) / 2;
+  final w = size.width;
+  final r = h / 2;
+  final tipR = r * (1 - .55 * t + .08 * pressed);
+  final tipX = tipR;
+  final right = math.max(tipR + .01, w - r);
+  const kappa = .5522847498;
+
+  final path = Path()
+    ..moveTo(right, top)
+    // 前缘：完整的半圆（手指前进的方向）。
+    ..cubicTo(right + r * kappa, top, w, top + r - r * kappa, w, top + r)
+    ..cubicTo(
+      w,
+      top + r + r * kappa,
+      right + r * kappa,
+      top + h,
+      right,
+      top + h,
+    );
+
+  // 下缘：向尾部收窄，中段轻微外鼓（水的体积感）。
+  final bulge = r * (.10 * t + .08 * pressed);
+  path.cubicTo(
+    right - (right - tipX) * .38,
+    top + h + bulge,
+    tipX + (right - tipX) * .28,
+    top + r + tipR + bulge * .35,
+    tipX,
+    top + r + tipR,
+  );
+
+  // 尾端：半径随拉力变小的半圆。
+  final kt = kappa * tipR;
+  path
+    ..cubicTo(
+      tipX - kt,
+      top + r + tipR,
+      tipX - tipR,
+      top + r + kt,
+      tipX - tipR,
+      top + r,
+    )
+    ..cubicTo(
+      tipX - tipR,
+      top + r - kt,
+      tipX - kt,
+      top + r - tipR,
+      tipX,
+      top + r - tipR,
+    );
+
+  // 上缘：回到前缘。
+  path.cubicTo(
+    tipX + (right - tipX) * .28,
+    top + r - tipR - bulge * .35,
+    right - (right - tipX) * .38,
+    top - bulge,
+    right,
+    top,
+  );
+  path.close();
+
+  if (direction < 0) {
+    final mirror = Matrix4.identity()
+      ..setEntry(0, 0, -1)
+      ..setEntry(0, 3, w);
+    return path.transform(mirror.storage);
+  }
+  return path;
+}
+
+class _LiquidDropClipper extends CustomClipper<Path> {
+  const _LiquidDropClipper(this.path);
+
+  final Path path;
+
+  @override
+  Path getClip(Size size) => path;
+
+  @override
+  bool shouldReclip(_LiquidDropClipper oldClipper) =>
+      !identical(oldClipper.path, path);
+}
+
+class _LiquidDropBorderPainter extends CustomPainter {
+  const _LiquidDropBorderPainter({required this.path, required this.color});
+
+  final Path path;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (color.a <= 0) return;
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = color
+        ..isAntiAlias = true,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LiquidDropBorderPainter oldDelegate) =>
+      !identical(oldDelegate.path, path) || oldDelegate.color != color;
 }
 
 /// 单个页签：图标 + 文案，颜色随选中态平滑过渡。

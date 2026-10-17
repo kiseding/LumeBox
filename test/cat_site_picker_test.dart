@@ -11,10 +11,12 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/cat/cat_page.dart';
 import 'package:lume_box/shared/widgets/cat_site_tile.dart';
+import 'package:lume_box/shared/widgets/source_card_metrics.dart';
 import 'package:lume_box/shared/widgets/source_icon.dart';
 
 /// 猫源「选择站点」面板的专用外观：
-/// - 固定 64 高；
+/// - 单列 / 双列统一 51 高；
+/// - 全局柔和阴影；未选中 1px 浅灰描边，选中态动态主题色描边；
 /// - 没有左侧字母图标、没有右侧三点；
 /// - 文字单行居中，双列再窄也只省略、不折行；
 /// - 长按整行拖拽，左滑露出「设置」。
@@ -105,7 +107,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('猫源选择面板：16pt 基线、56/64 高、1px 描边、居中与左滑菜单', (tester) async {
+  testWidgets('猫源选择面板：16pt 基线、51 高、主题色描边、居中与左滑菜单', (tester) async {
     await pumpPicker(tester);
 
     final tiles = find.byType(CatSiteTile);
@@ -113,13 +115,34 @@ void main() {
 
     for (final element in tiles.evaluate()) {
       final tile = find.byWidget(element.widget);
-      expect(tester.getSize(tile).height, 56, reason: '单列卡片 56 高');
+      expect(tester.getSize(tile).height, 51, reason: '单列 / 双列统一 51 高');
+      final card = find.descendant(
+        of: tile,
+        matching: find.byKey(const ValueKey('cat-site-card')),
+      );
+      expect(card, findsOneWidget);
+      final decoration =
+          tester.widget<DecoratedBox>(card).decoration as BoxDecoration;
+      expect(decoration.borderRadius, SourceCardMetrics.borderRadius);
+      final border = decoration.border! as Border;
+      expect(border.top.width, 1);
+      final selectedTile = tester.widget<CatSiteTile>(tile).selected;
+      expect(
+        border.top.color,
+        selectedTile
+            ? Theme.of(tester.element(tile)).primaryColor
+            : SourceCardMetrics.unselectedBorder,
+        reason: '未选中 1px 浅灰；选中态读取当前主题色',
+      );
+      expect(
+        decoration.boxShadow,
+        SourceCardMetrics.shadow,
+        reason: '紧凑轻阴影不压过 1px 描边',
+      );
       final material = tester.widget<Material>(
         find.descendant(of: tile, matching: find.byType(Material)).first,
       );
-      final shape = material.shape! as RoundedRectangleBorder;
-      expect(shape.side.width, 1, reason: '卡片要有 1px 描边');
-      expect(shape.side.color, const Color(0xFFE5E5EA));
+      expect(material.shape, isNull, reason: '没有 Material 描边');
       expect(
         find.descendant(of: tile, matching: find.byType(SourceIcon)),
         findsNothing,
@@ -167,8 +190,8 @@ void main() {
                 .first,
           )
           .height,
-      56,
-      reason: '单列卡片 56 高',
+      51,
+      reason: '单列卡片 51 高',
     );
 
     // 双列：两列同一行，长日期仍然单行。
@@ -186,8 +209,8 @@ void main() {
                 .first,
           )
           .height,
-      64,
-      reason: '双列卡片 64 高（约 2.2 宽高比）',
+      51,
+      reason: '双列卡片同样 51 高，只由列数决定宽度',
     );
 
     // 左滑露出菜单；长按拖拽由 SourceDragTile 负责（布局测试另有用例）。
@@ -209,7 +232,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('猫源卡片选中态：1px 淡紫描边', (tester) async {
+  testWidgets('猫源卡片选中态：主题色描边、浅色底', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
@@ -225,16 +248,34 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final material = tester.widget<Material>(
-      find
-          .descendant(
-            of: find.byType(CatSiteTile),
-            matching: find.byType(Material),
-          )
-          .first,
+    final tile = find.byType(CatSiteTile);
+    final decoration =
+        tester
+                .widget<DecoratedBox>(
+                  find.descendant(
+                    of: tile,
+                    matching: find.byKey(const ValueKey('cat-site-card')),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+    final primary = Theme.of(tester.element(tile)).primaryColor;
+    expect(decoration.borderRadius, SourceCardMetrics.borderRadius);
+    expect(
+      decoration.color,
+      Color.alphaBlend(primary.withValues(alpha: .08), LumeTheme.surface),
+      reason: '选中态铺一层极浅主题色',
     );
-    final shape = material.shape! as RoundedRectangleBorder;
-    expect(shape.side.width, 1);
-    expect(shape.side.color, LumeTheme.accent.withValues(alpha: .55));
+    final border = decoration.border! as Border;
+    expect(border.top.width, 1);
+    expect(
+      border.top.color,
+      primary,
+      reason: '选中态边框读取 Theme.of(context).primaryColor，不写死紫色',
+    );
+    final material = tester.widget<Material>(
+      find.descendant(of: tile, matching: find.byType(Material)).first,
+    );
+    expect(material.shape, isNull, reason: 'Material 本身不重复画描边');
   });
 }

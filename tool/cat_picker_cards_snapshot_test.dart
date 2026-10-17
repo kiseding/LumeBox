@@ -4,7 +4,7 @@
 /// 产物：`build/ui_snapshot/cat_picker_cards.png`
 ///
 /// 用生产 [CatGroupedSourceList] / [CatSiteTile] 渲染单列与双列，顶部保留
-/// 「加载或刷新包内站点」的 ListTile，以便人眼核对 16pt 左基线与 1px 描边。
+/// 「加载或刷新包内站点」的 ListTile，以便人眼核对 16pt 左基线与卡片高度。
 library;
 
 import 'dart:io';
@@ -97,7 +97,7 @@ class _PickerPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double cardHeight = columns > 1 ? 64 : 56;
+    final double cardHeight = CatSiteTile.compactHeight;
     return SizedBox(
       width: 320,
       child: Material(
@@ -135,9 +135,7 @@ class _PickerPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                columns > 1
-                    ? '双列 · 64pt 高 · 约 2.2 宽高比'
-                    : '单列 · 56pt 高 · 文字绝对居中',
+                columns > 1 ? '双列 · 51pt 高 · 文字绝对居中' : '单列 · 51pt 高 · 文字绝对居中',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -157,7 +155,7 @@ void main() {
 
   setUpAll(_loadFonts);
 
-  testWidgets('猫源选择：单列 / 双列卡片描边与对齐', (tester) async {
+  testWidgets('猫源选择：单列 / 双列卡片高度与对齐', (tester) async {
     tester.view.physicalSize = const Size(700, 820);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);

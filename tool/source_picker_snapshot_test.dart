@@ -4,7 +4,7 @@
 /// 产物：`build/ui_snapshot/source_picker_light.png` / `_dark.png`
 ///
 /// 用真字体渲染生产 [SourcePickerSheet]，覆盖长标题、1.0.0 版本号、18 角标、
-/// 置顶与选中态，专门用于人眼检查 76 固定行高与 12px 边距。
+/// 置顶与选中态，专门用于人眼检查 51 固定行高与 12px 边距。
 library;
 
 import 'dart:io';
@@ -129,7 +129,7 @@ void main() {
     await tester.runAsync(() async {
       final renderView = tester.binding.renderViews.first;
       final layer = renderView.debugLayer! as OffsetLayer;
-      final image = await layer.toImage(renderView.paintBounds);
+      final image = await layer.toImage(renderView.paintBounds, pixelRatio: 2);
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       File('${output.path}/$name.png')

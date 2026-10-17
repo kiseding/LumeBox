@@ -263,7 +263,16 @@ class CatService extends ChangeNotifier {
         favorites.addAll((raw['favorites'] as List? ?? []).map(catText));
         history.addAll(catMaps(raw['history']));
         for (final entry in catMaps(raw['bookmarks'])) {
-          _bookmarks['${entry['site']}|${entry['id']}'] = entry;
+          final key = '${entry['site']}|${entry['id']}';
+          // 旧版本收藏没有时间戳：用同一条历史的打开时间补齐，历史卡片才能
+          // 和视频一样显示「N 分钟前」，而不是把老收藏全算成「刚刚」。
+          if (entry['time'] == null) {
+            final match = history
+                .where((old) => '${old['site']}|${old['id']}' == key)
+                .firstOrNull;
+            if (match?['time'] != null) entry['time'] = match!['time'];
+          }
+          _bookmarks[key] = entry;
         }
         selectedSiteId = raw['selectedSiteId'] as String?;
         siteColumns = ((raw['siteColumns'] as num?)?.toInt() ?? 1).clamp(1, 2);
@@ -959,7 +968,11 @@ class CatService extends ChangeNotifier {
       _bookmarks.remove(id);
     } else {
       favorites.add(id);
-      _bookmarks[id] = {...item, 'site': site.id};
+      _bookmarks[id] = {
+        ...item,
+        'site': site.id,
+        'time': DateTime.now().millisecondsSinceEpoch,
+      };
     }
     await save();
   }
