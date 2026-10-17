@@ -6,6 +6,16 @@ import 'glass_card.dart';
 /// 章节 / 集数列表为空时的统一文案（用户口径：不要显示残缺空白条目）。
 const String kNoChaptersHint = '暂未获取到章节列表';
 
+/// 章节行统一的尺寸口径：详情页 / 目录 / 阅读器章节目录共用。
+///
+/// 阅读器的章节目录用 ListTile（跟随阅读主题配色），详情页用 [ChapterTile]，
+/// 两者必须保持同一套行高与行距，避免同一本书在两个入口忽大忽小。
+const double kChapterRowSpacing = 10;
+const double kChapterRowVerticalPadding = 12;
+const double kChapterRowHorizontalPadding = 14;
+const int kChapterTitleMaxLines = 2;
+const double kChapterMinTouchHeight = 44;
+
 /// 章节 / 集数列表行：**三个板块共用这一套**（小说 / 漫画的章节、视频的剧集）。
 ///
 /// 真机出过的问题（用户报「章节项被渲染成短小浅白预览条，文字不清晰，也无法
@@ -47,10 +57,13 @@ class ChapterTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       // 行与行之间的间隔：挨太近时手指容易点错行，拉开间距比放大文字更管用。
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: kChapterRowSpacing),
       child: GlassCard(
         radius: 12,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(
+          horizontal: kChapterRowHorizontalPadding,
+          vertical: kChapterRowVerticalPadding,
+        ),
         color: current ? LumeTheme.accent.withValues(alpha: 0.10) : null,
         onTap: onTap,
         child: Row(
@@ -59,7 +72,7 @@ class ChapterTile extends StatelessWidget {
               child: Text(
                 title,
                 // 两行：长标题（「第一百二十三章 某某某（下）」）不用省略号也能看清。
-                maxLines: 2,
+                maxLines: kChapterTitleMaxLines,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: LumeTypography.titleSize,

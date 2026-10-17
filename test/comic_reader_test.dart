@@ -16,6 +16,7 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
 import 'package:lume_box/features/comic/comic_settings.dart';
+import 'package:lume_box/shared/widgets/chapter_tile.dart';
 import 'package:lume_box/shared/widgets/notice_card.dart';
 
 import 'support/fake_reading_source.dart';
@@ -390,6 +391,28 @@ void main() {
     final progress = library.comicProgress(target.itemId)!;
     expect(progress.chapterIndex, 2);
     expect(progress.page, 0);
+  });
+
+  testWidgets('章节目录行采用统一的触摸高度与行距', (tester) async {
+    await pumpReader(tester);
+    await openToolbar(tester);
+    await tester.tap(find.byIcon(Icons.list));
+    await tester.pumpAndSettle();
+
+    final rows = find.byType(ListTile);
+    expect(rows, findsWidgets);
+    final first = tester.getRect(rows.at(0));
+    final second = tester.getRect(rows.at(1));
+    expect(first.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
+    expect(second.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
+    expect(
+      second.top - first.bottom,
+      greaterThanOrEqualTo(kChapterRowSpacing - 1),
+    );
+    final title = tester.widget<Text>(
+      find.descendant(of: rows.at(0), matching: find.text('第 1 章')),
+    );
+    expect(title.maxLines, kChapterTitleMaxLines);
   });
 
   testWidgets('目录面板：没有关闭叉号，左右侧滑都能回阅读页', (tester) async {

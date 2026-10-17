@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../../core/reading/reading.dart';
 import '../../core/reading/chapter_display_order.dart';
 import '../../shared/widgets/chapter_order_controls.dart';
+import '../../shared/widgets/chapter_tile.dart';
 import '../../core/source/source.dart';
 import '../../core/speech/speech.dart';
 import '../../core/util/lume_log.dart';
@@ -1434,22 +1435,37 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
               itemBuilder: (context, position) {
                 final index = indexes[position];
                 final current = index == _chapterIndex;
-                return ListTile(
-                  dense: true,
-                  title: Text(
-                    _chapters[index].title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: LumeTypography.titleSize,
-                      fontWeight: current ? FontWeight.w700 : FontWeight.w600,
-                      color: current ? _theme.chromeText : _theme.secondary,
-                    ),
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: position == _chapters.length - 1
+                        ? 0
+                        : kChapterRowSpacing,
                   ),
-                  trailing: current
-                      ? Icon(Icons.bookmark, size: 16, color: _theme.chromeText)
-                      : null,
-                  onTap: () => _openChapter(index),
+                  child: ListTile(
+                    dense: false,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: kChapterRowHorizontalPadding,
+                    ),
+                    minVerticalPadding: kChapterRowVerticalPadding,
+                    title: Text(
+                      _chapters[index].title,
+                      maxLines: kChapterTitleMaxLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: LumeTypography.titleSize,
+                        fontWeight: current ? FontWeight.w700 : FontWeight.w600,
+                        color: current ? _theme.chromeText : _theme.secondary,
+                      ),
+                    ),
+                    trailing: current
+                        ? Icon(
+                            Icons.bookmark,
+                            size: 16,
+                            color: _theme.chromeText,
+                          )
+                        : null,
+                    onTap: () => _openChapter(index),
+                  ),
                 );
               },
             ),

@@ -45,6 +45,7 @@ void main() {
     for (final provider in ['Azure Speech', '火山引擎', 'voice_type']) {
       expect(find.textContaining(provider), findsWidgets);
     }
+    expect(find.textContaining('自动排序'), findsOneWidget);
 
     await tester.ensureVisible(find.text('漫画与美图'));
     await tester.pumpAndSettle();

@@ -15,6 +15,7 @@ import 'package:lume_box/features/novel/novel_pagination.dart';
 import 'package:lume_box/features/novel/novel_reader_page.dart';
 import 'package:lume_box/features/novel/novel_turn_view.dart';
 import 'package:lume_box/features/novel/novel_typesetting.dart';
+import 'package:lume_box/shared/widgets/chapter_tile.dart';
 
 import 'support/fake_reading_source.dart';
 
@@ -112,12 +113,59 @@ void main() {
     await tapCenter(tester);
     final list = find.byKey(const ValueKey('novel-reader-chapters'));
     expect(tester.widget<ListView>(list).padding, EdgeInsets.zero);
+    // 章节行按统一口径加高后，三条目录在 260pt 面板里需要滚一点；
+    // 滚到末尾再验证最后一行与底部安全区对齐。
+    await tester.drag(list, const Offset(0, -80));
+    await tester.pumpAndSettle();
     final last = find.ancestor(
       of: find.text('第 3 章'),
       matching: find.byType(ListTile),
     );
-    expect(tester.getRect(last).bottom, tester.getRect(list).bottom);
+    expect(
+      tester.getRect(last).bottom,
+      closeTo(tester.getRect(list).bottom, 1),
+    );
     expect(tester.getRect(list).bottom, closeTo(766, 1));
+  });
+
+  testWidgets('目录章节行采用统一的触摸高度与行距', (tester) async {
+    await pumpReader(tester);
+    await tapCenter(tester);
+    final list = find.byKey(const ValueKey('novel-reader-chapters'));
+    final rows = find.descendant(of: list, matching: find.byType(ListTile));
+    final first = tester.getRect(rows.at(0));
+    final second = tester.getRect(rows.at(1));
+    expect(first.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
+    expect(second.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
+    expect(
+      second.top - first.bottom,
+      greaterThanOrEqualTo(kChapterRowSpacing - 1),
+      reason: '相邻章节之间要留出统一行距',
+    );
+    final title = tester.widget<Text>(
+      find.descendant(of: rows.at(0), matching: find.text('第 1 章')),
+    );
+    expect(title.maxLines, kChapterTitleMaxLines);
+  });
+
+  testWidgets('目录顺序下拉新增自动排序，选择后立即生效', (tester) async {
+    final order = ChapterDisplayOrder(library, target.sourceId);
+    await pumpReader(tester);
+    await tapCenter(tester);
+    expect(order.automatic, isFalse);
+    await tester.tap(find.byKey(const ValueKey('reader-chapter-manual-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自动排序').last);
+    await tester.pumpAndSettle();
+    expect(order.automatic, isTrue);
+    expect(order.descending, isFalse);
+
+    await tester.tap(find.byKey(const ValueKey('reader-chapter-manual-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('倒序').last);
+    await tester.pumpAndSettle();
+    expect(order.automatic, isFalse);
+    expect(order.descending, isTrue);
   });
 
   testWidgets('自动排序优先但不覆盖手动倒序，关闭后恢复手动值', (tester) async {

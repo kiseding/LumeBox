@@ -19,6 +19,7 @@ import '../../core/speech/speech_session.dart';
 import '../../core/speech/speech_settings.dart';
 import '../novel/novel_speech_modes.dart';
 import '../../shared/widgets/chapter_order_controls.dart';
+import '../../shared/widgets/chapter_tile.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/net/network_settings.dart';
@@ -2022,26 +2023,35 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                         final index = indexes[position];
                         final chapter = widget.chapters[index];
                         final current = index == widget.currentIndex;
-                        return ListTile(
-                          dense: true,
-                          title: Text(
-                            chapter.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: LumeTypography.titleSize,
-                              color: current
-                                  ? LumeTheme.textPrimary
-                                  : LumeTheme.textSecondary,
-                              fontWeight: current
-                                  ? FontWeight.w600
-                                  : FontWeight.w600,
-                            ),
+                        return Padding(
+                          padding: EdgeInsets.only(
+                            bottom: position == widget.chapters.length - 1
+                                ? 0
+                                : kChapterRowSpacing,
                           ),
-                          trailing: current
-                              ? const Icon(Icons.play_arrow, size: 18)
-                              : null,
-                          onTap: () => Navigator.of(context).pop(index),
+                          child: ListTile(
+                            dense: false,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: kChapterRowHorizontalPadding,
+                            ),
+                            minVerticalPadding: kChapterRowVerticalPadding,
+                            title: Text(
+                              chapter.title,
+                              maxLines: kChapterTitleMaxLines,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: LumeTypography.titleSize,
+                                color: current
+                                    ? LumeTheme.textPrimary
+                                    : LumeTheme.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            trailing: current
+                                ? const Icon(Icons.play_arrow, size: 18)
+                                : null,
+                            onTap: () => Navigator.of(context).pop(index),
+                          ),
                         );
                       },
                     ),
