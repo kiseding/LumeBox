@@ -34,11 +34,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_tabbar');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     ShellSettingsController.instance.resetForTesting();
     for (final section in Section.values) {
       await SectionScope.open(section);
@@ -52,9 +52,9 @@ void main() {
     await SectionScope.closeAll();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
@@ -66,10 +66,13 @@ void main() {
     test('默认全部显示、顺序为规范顺序', () {
       const settings = ShellSettings();
       expect(settings.visibleCount, 5);
-      expect(
-        settings.tabs.map((tab) => tab.id).toList(),
-        <String>['novel', 'comic', 'video', 'cat', 'settings'],
-      );
+      expect(settings.tabs.map((tab) => tab.id).toList(), <String>[
+        'novel',
+        'comic',
+        'video',
+        'cat',
+        'settings',
+      ]);
     });
 
     test('隐藏一个页签：只影响它自己', () {
@@ -80,10 +83,13 @@ void main() {
       expect(next.isVisible('settings'), isTrue);
       expect(next.visibleCount, 4);
       // 顺序不变（隐藏不等于移除）。
-      expect(
-        next.tabs.map((tab) => tab.id).toList(),
-        <String>['novel', 'comic', 'video', 'cat', 'settings'],
-      );
+      expect(next.tabs.map((tab) => tab.id).toList(), <String>[
+        'novel',
+        'comic',
+        'video',
+        'cat',
+        'settings',
+      ]);
     });
 
     test('重新显示：回到原来的位置（顺序没被破坏）', () {
@@ -91,6 +97,25 @@ void main() {
       final hidden = settings.withVisible('video', false)!;
       final shown = hidden.withVisible('video', true)!;
       expect(shown, settings, reason: '关掉再打开应当回到完全一致的配置');
+    });
+
+    test('收起悬浮球默认极简线条，JSON 往返保留选择', () {
+      expect(const ShellSettings().handleStyle, DockHandleStyle.lines);
+      final arrow = const ShellSettings().withHandleStyle(
+        DockHandleStyle.arrow,
+      );
+      expect(arrow.handleStyle, DockHandleStyle.arrow);
+      expect(
+        ShellSettings.fromJson(arrow.toJson()).handleStyle,
+        DockHandleStyle.arrow,
+      );
+      final legacy = Map<String, Object?>.of(const ShellSettings().toJson())
+        ..remove('handleStyle');
+      expect(
+        ShellSettings.fromJson(legacy).handleStyle,
+        DockHandleStyle.lines,
+        reason: '旧配置没有该字段时回退默认，不报错',
+      );
     });
   });
 
@@ -143,28 +168,37 @@ void main() {
     test('把小说往后挪一位（最终下标语义）', () {
       const settings = ShellSettings();
       final moved = settings.withMove(0, 1);
-      expect(
-        moved.tabs.map((tab) => tab.id).toList(),
-        <String>['comic', 'novel', 'video', 'cat', 'settings'],
-      );
+      expect(moved.tabs.map((tab) => tab.id).toList(), <String>[
+        'comic',
+        'novel',
+        'video',
+        'cat',
+        'settings',
+      ]);
     });
 
     test('把小说挪到最后', () {
       const settings = ShellSettings();
       final moved = settings.withMove(0, 4);
-      expect(
-        moved.tabs.map((tab) => tab.id).toList(),
-        <String>['comic', 'video', 'cat', 'settings', 'novel'],
-      );
+      expect(moved.tabs.map((tab) => tab.id).toList(), <String>[
+        'comic',
+        'video',
+        'cat',
+        'settings',
+        'novel',
+      ]);
     });
 
     test('向上拖：把猫源挪到第 1 位', () {
       const settings = ShellSettings();
       final moved = settings.withMove(3, 1);
-      expect(
-        moved.tabs.map((tab) => tab.id).toList(),
-        <String>['novel', 'cat', 'comic', 'video', 'settings'],
-      );
+      expect(moved.tabs.map((tab) => tab.id).toList(), <String>[
+        'novel',
+        'cat',
+        'comic',
+        'video',
+        'settings',
+      ]);
     });
 
     test('拖到原位 / 越界：不改动或夹到边界', () {
@@ -221,7 +255,10 @@ void main() {
 
     test('损坏 JSON / 缺字段 / 空列表：一律回退默认', () {
       expect(ShellSettings.fromJson('不是 JSON'), ShellSettings.defaults);
-      expect(ShellSettings.fromJson(<String, Object?>{}), ShellSettings.defaults);
+      expect(
+        ShellSettings.fromJson(<String, Object?>{}),
+        ShellSettings.defaults,
+      );
       expect(
         ShellSettings.fromJson(<String, Object?>{'tabs': <Object?>[]}),
         ShellSettings.defaults,
@@ -235,11 +272,7 @@ void main() {
             <String, Object?>{'id': tab.id, 'visible': false},
         ],
       });
-      expect(
-        parsed.visibleCount,
-        5,
-        reason: '「至少保留 1 个」是硬约束，坏配置也不能绕过它',
-      );
+      expect(parsed.visibleCount, 5, reason: '「至少保留 1 个」是硬约束，坏配置也不能绕过它');
     });
 
     test('未知 id 被过滤，缺失的页签被补全，重复项去重', () {
@@ -263,13 +296,15 @@ void main() {
     test('写盘失败不影响本次运行（内存里已生效）', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/path_provider'),
-        (call) async => null,
-      );
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => null,
+          );
       ShellSettingsStore.resetForTesting();
 
-      final accepted =
-          await ShellSettingsController.instance.setVisible('comic', false);
+      final accepted = await ShellSettingsController.instance.setVisible(
+        'comic',
+        false,
+      );
       expect(accepted, isTrue);
       expect(
         ShellSettingsController.instance.settings.isVisible('comic'),
@@ -306,11 +341,7 @@ void main() {
 
       await controller.boot();
 
-      expect(
-        controller.settings,
-        saved,
-        reason: 'boot 必须把落盘的开关与顺序读回来',
-      );
+      expect(controller.settings, saved, reason: 'boot 必须把落盘的开关与顺序读回来');
       expect(controller.visibleTabIds, <String>['settings', 'novel', 'video']);
     });
 
@@ -319,11 +350,11 @@ void main() {
       // 指向一个不存在的目录：读盘必然失败/落空。
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/path_provider'),
-        (call) async => call.method == 'getApplicationSupportDirectory'
-            ? '${root.path}/definitely-missing'
-            : null,
-      );
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => call.method == 'getApplicationSupportDirectory'
+                ? '${root.path}/definitely-missing'
+                : null,
+          );
       ShellSettingsStore.resetForTesting();
 
       await controller.boot();
@@ -351,20 +382,19 @@ void main() {
 
     /// Dock 里的页签文案（按显示顺序）。
     List<String> dockLabels(WidgetTester tester) => tester
-        .widgetList<Text>(find.descendant(
-          of: find.byKey(AppShell.dockKey),
-          matching: find.byType(Text),
-        ))
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.byType(Text),
+          ),
+        )
         .map((text) => text.data)
         .whereType<String>()
         .toList();
 
     testWidgets('默认五个页签都在', (tester) async {
       await pumpShell(tester);
-      expect(
-        dockLabels(tester),
-        <String>['小说', '漫画', '视频', '猫源', '设置'],
-      );
+      expect(dockLabels(tester), <String>['小说', '漫画', '视频', '猫源', '设置']);
     });
 
     testWidgets('隐藏一个页签：底部立刻少一个（实时生效，无需重启）', (tester) async {
@@ -373,11 +403,12 @@ void main() {
       await ShellSettingsController.instance.setVisible('comic', false);
       await tester.pumpAndSettle();
 
-      expect(
-        dockLabels(tester),
-        <String>['小说', '视频', '猫源', '设置'],
-        reason: '隐藏后底部不该还有「漫画」',
-      );
+      expect(dockLabels(tester), <String>[
+        '小说',
+        '视频',
+        '猫源',
+        '设置',
+      ], reason: '隐藏后底部不该还有「漫画」');
     });
 
     testWidgets('排序实时生效：底部页签顺序跟着变', (tester) async {
@@ -412,7 +443,8 @@ void main() {
       expect(
         find.byKey(AppShell.settingsEntryKey),
         findsOneWidget,
-        reason: '设置页是导航栏管理的唯一入口，隐藏它必须留恢复入口——'
+        reason:
+            '设置页是导航栏管理的唯一入口，隐藏它必须留恢复入口——'
             '否则用户再也改不回导航栏',
       );
     });
@@ -438,7 +470,8 @@ void main() {
       expect(
         tester.getRect(entry).top,
         greaterThanOrEqualTo(844),
-        reason: 'Dock 收起时恢复入口必须一起移出屏幕'
+        reason:
+            'Dock 收起时恢复入口必须一起移出屏幕'
             '（实际 top=${tester.getRect(entry).top}，收起前 bottom=$shownBottom）',
       );
 
@@ -470,11 +503,7 @@ void main() {
       final entry = tester.getRect(find.byKey(AppShell.settingsEntryKey));
       final size = tester.view.physicalSize / tester.view.devicePixelRatio;
       final fabZone = Rect.fromLTWH(size.width - 72, size.height - 72, 72, 72);
-      expect(
-        entry.overlaps(fabZone),
-        isFalse,
-        reason: '右下角是「+ 添加源」这类 FAB 的地盘',
-      );
+      expect(entry.overlaps(fabZone), isFalse, reason: '右下角是「+ 添加源」这类 FAB 的地盘');
     });
 
     testWidgets('只剩 1 个页签：导航栏仍显示那一项，不空也不消失', (tester) async {
@@ -519,10 +548,12 @@ void main() {
 
     testWidgets('设置可见时改别的页签：也不会被弹走', (tester) async {
       await pumpShell(tester);
-      await tester.tap(find.descendant(
-        of: find.byKey(AppShell.dockKey),
-        matching: find.text('设置'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.text('设置'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await ShellSettingsController.instance.setVisible('cat', false);
@@ -539,10 +570,7 @@ void main() {
       await ShellSettingsController.instance.restoreDefaults();
       await tester.pumpAndSettle();
 
-      expect(
-        dockLabels(tester),
-        <String>['小说', '漫画', '视频', '猫源', '设置'],
-      );
+      expect(dockLabels(tester), <String>['小说', '漫画', '视频', '猫源', '设置']);
     });
   });
 
@@ -555,10 +583,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
-        MaterialApp(
-          theme: LumeTheme.build(),
-          home: const TabBarSettingsPage(),
-        ),
+        MaterialApp(theme: LumeTheme.build(), home: const TabBarSettingsPage()),
       );
       await tester.pumpAndSettle();
     }
@@ -573,14 +598,31 @@ void main() {
       expect(find.textContaining('当前显示 5 个页签'), findsOneWidget);
     });
 
+    testWidgets('三种收起悬浮球可选：点击立即生效', (tester) async {
+      await pumpPage(tester);
+
+      for (final style in DockHandleStyle.values) {
+        expect(find.text(style.label), findsOneWidget);
+      }
+      final arrow = find.byKey(const ValueKey('dock-handle-style-arrow'));
+      await tester.ensureVisible(arrow);
+      await tester.tap(arrow);
+      await tester.pumpAndSettle();
+      expect(
+        ShellSettingsController.instance.handleStyle,
+        DockHandleStyle.arrow,
+      );
+      expect(
+        find.byKey(const ValueKey('dock-handle-style-arrow')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('关掉一个：开关变化、计数更新、立刻写进配置', (tester) async {
       await pumpPage(tester);
 
       final comicSwitch = find.descendant(
-        of: find.ancestor(
-          of: find.text('漫画'),
-          matching: find.byType(Row),
-        ),
+        of: find.ancestor(of: find.text('漫画'), matching: find.byType(Row)),
         matching: find.byType(Switch),
       );
       await tester.tap(comicSwitch);
@@ -627,10 +669,23 @@ void main() {
       await ShellSettingsController.instance.setVisible('comic', false);
       await pumpPage(tester);
 
-      await tester.tap(find.text('恢复默认（全部显示）'));
+      // 新增「收起悬浮球」设置后，底部说明卡需要滚动到可视区域。
+      final restore = find.text('恢复默认（全部显示）');
+      await tester.scrollUntilVisible(
+        restore,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(restore);
       await tester.pumpAndSettle();
 
       expect(ShellSettingsController.instance.settings.visibleCount, 5);
+      // 滚回顶部确认界面也恢复了。
+      await tester.scrollUntilVisible(
+        find.textContaining('当前显示 5 个页签'),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.textContaining('当前显示 5 个页签'), findsOneWidget);
     });
 
@@ -707,20 +762,19 @@ void main() {
 
     /// 左侧栏里的页签文案（按显示顺序）。
     List<String> railLabels(WidgetTester tester) => tester
-        .widgetList<Text>(find.descendant(
-          of: find.byKey(AppShell.railKey),
-          matching: find.byType(Text),
-        ))
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byKey(AppShell.railKey),
+            matching: find.byType(Text),
+          ),
+        )
         .map((text) => text.data)
         .whereType<String>()
         .toList();
 
     testWidgets('隐藏页签后：左侧栏仍显示全部 5 个（不跟随隐藏）', (tester) async {
       await pumpRail(tester);
-      expect(
-        railLabels(tester),
-        <String>['小说', '漫画', '视频', '猫源', '设置'],
-      );
+      expect(railLabels(tester), <String>['小说', '漫画', '视频', '猫源', '设置']);
 
       await ShellSettingsController.instance.setVisible('comic', false);
       await tester.pumpAndSettle();
@@ -728,7 +782,8 @@ void main() {
       expect(
         railLabels(tester),
         <String>['小说', '漫画', '视频', '猫源', '设置'],
-        reason: '桌面端是左侧栏的标准布局，隐藏是移动端 Dock 的概念；'
+        reason:
+            '桌面端是左侧栏的标准布局，隐藏是移动端 Dock 的概念；'
             'Rail 上少了页签会让人以为界面坏了',
       );
     });
@@ -747,10 +802,12 @@ void main() {
         reason: '设置页是导航栏管理自己的入口，Rail 上必须留着它',
       );
 
-      await tester.tap(find.descendant(
-        of: find.byKey(AppShell.railKey),
-        matching: find.text('设置'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(AppShell.railKey),
+          matching: find.text('设置'),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.widgetWithText(AppBar, '设置'), findsOneWidget);
     });
@@ -765,10 +822,12 @@ void main() {
 
     testWidgets('隐藏当前页签：桌面端不把用户赶走（它还在 Rail 上）', (tester) async {
       await pumpRail(tester);
-      await tester.tap(find.descendant(
-        of: find.byKey(AppShell.railKey),
-        matching: find.text('漫画'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(AppShell.railKey),
+          matching: find.text('漫画'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await ShellSettingsController.instance.setVisible('comic', false);

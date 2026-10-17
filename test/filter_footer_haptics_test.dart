@@ -10,7 +10,7 @@ import 'package:lume_box/features/reading/browse_choice_access.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final height in [667.0, 844.0]) {
-    testWidgets('筛选页 $height 高度操作区固定，60高度/文字下移6，末行标签可见', (tester) async {
+    testWidgets('筛选页 $height 高度悬浮操作卡固定，末行标签可见', (tester) async {
       tester.view.physicalSize = Size(390, height);
       tester.view.devicePixelRatio = 1;
       tester.view.padding = const FakeViewPadding(bottom: 34);
@@ -42,11 +42,12 @@ void main() {
       final actions = find.byKey(const Key('filter-actions'));
       final options = find.byKey(const Key('filter-options'));
       final before = tester.getRect(actions);
-      expect(before.left, 16);
-      expect(before.right, 374);
-      expect(height - before.bottom, 34);
-      expect(tester.getSize(find.byKey(const Key('filter-footer'))).height, 60);
-      expect(before.top - tester.getRect(options).bottom, 60 - before.height);
+      final footer = tester.getRect(find.byKey(const Key('filter-footer')));
+      expect(before.left, 24);
+      expect(before.right, 366);
+      expect(height - footer.bottom, 34);
+      expect(footer.height, 64);
+      expect(before.top - tester.getRect(options).bottom, 8);
       await tester.ensureVisible(find.text('分类99'));
       await tester.pumpAndSettle();
       expect(tester.getRect(actions), before);
@@ -54,9 +55,10 @@ void main() {
         tester.getRect(find.text('分类99')).bottom,
         lessThanOrEqualTo(tester.getRect(options).bottom),
       );
+      final beforeKeyboard = tester.getRect(actions);
       tester.view.viewInsets = const FakeViewPadding(bottom: 280);
       await tester.pumpAndSettle();
-      expect(tester.getRect(actions).bottom, height - 280);
+      expect(beforeKeyboard.bottom - tester.getRect(actions).bottom, 280);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('应用筛选'));
       await tester.pumpAndSettle();

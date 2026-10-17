@@ -1,4 +1,5 @@
-import '../../shared/widgets/module_glass_surface.dart';
+import '../../shared/widgets/drawer_geometry.dart';
+import '../../shared/widgets/module_glass_scope.dart';
 
 import 'dart:async';
 
@@ -61,35 +62,16 @@ class _AudioBookPageState extends State<AudioBookPage> {
   );
   Widget _legacyBuild(BuildContext context) => Scaffold(
     appBar: AppBar(
-      flexibleSpace: const ModuleGlassSurface(
-        module: GlassModule.audioBook,
-        part: GlassPart.navigation,
-        legacy: SizedBox.expand(),
-        child: SizedBox.expand(),
-      ),
+      flexibleSpace: const SizedBox.expand(),
       title: const Text('有声小说'),
       actions: [
-        ModuleGlassSurface(
-          module: GlassModule.audioBook,
-          part: GlassPart.buttons,
-          legacy: IconButton(
-            tooltip: '音频播放器设置',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => const AudioBookSettingsPage(),
-              ),
-            ),
-          ),
-          child: IconButton(
-            tooltip: '音频播放器设置',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => const AudioBookSettingsPage(),
-              ),
+        IconButton(
+          tooltip: '音频播放器设置',
+          icon: const Icon(Icons.settings_outlined),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const AudioBookSettingsPage(),
             ),
           ),
         ),
@@ -152,51 +134,26 @@ class _AudioBookPageState extends State<AudioBookPage> {
                     color: Theme.of(context).colorScheme.error,
                   ),
                 ),
-              ModuleGlassSurface(
-                module: GlassModule.audioBook,
-                part: GlassPart.progress,
-                legacy: Slider(
-                  key: const Key('audio-book-seek'),
-                  min: 0,
-                  max: duration > 0 ? duration : 1,
-                  value: (_drag ?? session.position.inMilliseconds.toDouble())
-                      .clamp(0, duration > 0 ? duration : 1),
-                  onChangeStart: duration > 0
-                      ? (value) => setState(() => _drag = value)
-                      : null,
-                  onChanged: duration > 0
-                      ? (value) => setState(() => _drag = value)
-                      : null,
-                  onChangeEnd: duration > 0
-                      ? (value) async {
-                          await session.seek(
-                            Duration(milliseconds: value.round()),
-                          );
-                          if (mounted) setState(() => _drag = null);
-                        }
-                      : null,
-                ),
-                child: Slider(
-                  key: const Key('audio-book-seek'),
-                  min: 0,
-                  max: duration > 0 ? duration : 1,
-                  value: (_drag ?? session.position.inMilliseconds.toDouble())
-                      .clamp(0, duration > 0 ? duration : 1),
-                  onChangeStart: duration > 0
-                      ? (value) => setState(() => _drag = value)
-                      : null,
-                  onChanged: duration > 0
-                      ? (value) => setState(() => _drag = value)
-                      : null,
-                  onChangeEnd: duration > 0
-                      ? (value) async {
-                          await session.seek(
-                            Duration(milliseconds: value.round()),
-                          );
-                          if (mounted) setState(() => _drag = null);
-                        }
-                      : null,
-                ),
+              Slider(
+                key: const Key('audio-book-seek'),
+                min: 0,
+                max: duration > 0 ? duration : 1,
+                value: (_drag ?? session.position.inMilliseconds.toDouble())
+                    .clamp(0, duration > 0 ? duration : 1),
+                onChangeStart: duration > 0
+                    ? (value) => setState(() => _drag = value)
+                    : null,
+                onChanged: duration > 0
+                    ? (value) => setState(() => _drag = value)
+                    : null,
+                onChangeEnd: duration > 0
+                    ? (value) async {
+                        await session.seek(
+                          Duration(milliseconds: value.round()),
+                        );
+                        if (mounted) setState(() => _drag = null);
+                      }
+                    : null,
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -218,21 +175,11 @@ class _AudioBookPageState extends State<AudioBookPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  ModuleGlassSurface(
-                    module: GlassModule.audioBook,
-                    part: GlassPart.buttons,
-                    legacy: IconButton(
-                      tooltip: '上一集',
-                      onPressed: session.current > 0 ? session.previous : null,
-                      icon: const Icon(Icons.skip_previous_rounded),
-                      iconSize: 38,
-                    ),
-                    child: IconButton(
-                      tooltip: '上一集',
-                      onPressed: session.current > 0 ? session.previous : null,
-                      icon: const Icon(Icons.skip_previous_rounded),
-                      iconSize: 38,
-                    ),
+                  IconButton(
+                    tooltip: '上一集',
+                    onPressed: session.current > 0 ? session.previous : null,
+                    icon: const Icon(Icons.skip_previous_rounded),
+                    iconSize: 38,
                   ),
                   const SizedBox(width: 20),
                   IconButton.filled(
@@ -250,27 +197,14 @@ class _AudioBookPageState extends State<AudioBookPage> {
                     iconSize: 48,
                   ),
                   const SizedBox(width: 20),
-                  ModuleGlassSurface(
-                    module: GlassModule.audioBook,
-                    part: GlassPart.buttons,
-                    legacy: IconButton(
-                      tooltip: '下一集',
-                      onPressed:
-                          session.current + 1 < widget.resource.episodes.length
-                          ? session.next
-                          : null,
-                      icon: const Icon(Icons.skip_next_rounded),
-                      iconSize: 38,
-                    ),
-                    child: IconButton(
-                      tooltip: '下一集',
-                      onPressed:
-                          session.current + 1 < widget.resource.episodes.length
-                          ? session.next
-                          : null,
-                      icon: const Icon(Icons.skip_next_rounded),
-                      iconSize: 38,
-                    ),
+                  IconButton(
+                    tooltip: '下一集',
+                    onPressed:
+                        session.current + 1 < widget.resource.episodes.length
+                        ? session.next
+                        : null,
+                    icon: const Icon(Icons.skip_next_rounded),
+                    iconSize: 38,
                   ),
                 ],
               ),
@@ -338,13 +272,13 @@ class _AudioBookPageState extends State<AudioBookPage> {
       ),
     ),
   );
-  Future<void> _episodes(BuildContext context) => showModalBottomSheet<void>(
+  Future<void> _episodes(BuildContext context) => showLumeBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     builder: (context) => SafeArea(
       child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * .65,
+        height: DrawerGeometry.height(context),
         child: ListView.builder(
           padding: EdgeInsets.zero,
           itemCount: widget.resource.episodes.length,
@@ -388,12 +322,7 @@ class _AudioBookSettingsPageState extends State<AudioBookSettingsPage> {
   );
   Widget _legacyBuild(BuildContext context) => Scaffold(
     appBar: AppBar(
-      flexibleSpace: const ModuleGlassSurface(
-        module: GlassModule.audioBook,
-        part: GlassPart.navigation,
-        legacy: SizedBox.expand(),
-        child: SizedBox.expand(),
-      ),
+      flexibleSpace: const SizedBox.expand(),
       title: const Text('有声小说播放器'),
     ),
     body: ListView(

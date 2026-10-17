@@ -53,8 +53,10 @@ class ShellTabConfig {
   ShellTabConfig copyWith({bool? visible}) =>
       ShellTabConfig(id: id, visible: visible ?? this.visible);
 
-  Map<String, Object?> toJson() =>
-      <String, Object?>{'id': id, 'visible': visible};
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'visible': visible,
+  };
 
   static ShellTabConfig? fromJson(Object? json) {
     if (json is! Map) return null;
@@ -64,30 +66,47 @@ class ShellTabConfig {
   }
 }
 
+/// 底部 Dock 收起后，左下角悬浮球的样式。
+enum DockHandleStyle {
+  /// 灵动箭头：圆角箭头 + 主题渐变毛玻璃。
+  arrow('arrow'),
+
+  /// 精致网格：9 个圆点 + 白色玻璃。
+  grid('grid'),
+
+  /// 极简线条：三条加粗圆润横线 + 半透明玻璃。
+  lines('lines');
+
+  const DockHandleStyle(this.id);
+
+  final String id;
+
+  static DockHandleStyle fromId(Object? id) {
+    for (final style in values) {
+      if (style.id == id) return style;
+    }
+    return DockHandleStyle.lines;
+  }
+
+  String get label => switch (this) {
+    DockHandleStyle.arrow => '灵动箭头',
+    DockHandleStyle.grid => '精致网格',
+    DockHandleStyle.lines => '极简线条',
+  };
+
+  String get description => switch (this) {
+    DockHandleStyle.arrow => '圆角箭头 + 主题渐变毛玻璃',
+    DockHandleStyle.grid => '九点网格 + 白色玻璃与轻阴影',
+    DockHandleStyle.lines => '三横线 + 半透明玻璃（主题紫线条）',
+  };
+}
+
 /// 全局壳层设置：底部导航栏的**每个页签是否显示**与**显示顺序**。
-///
-/// ## 为什么是「逐项开关 + 拖拽排序」而不是一个总开关
-///
-/// 用户的需求是「每个 Tab 独立开关 + 拖拽排序」：想把不看的板块收起来、
-/// 把常用的排到顺手的位置。一个总开关做不到这两件事。
-///
-/// ## 两条硬约束（防止把用户锁死）
-///
-/// 1. **至少保留 1 个页签**：全部关掉会让底部导航栏变成空壳，页面也失去
-///    切换能力——用户在界面上再也点不到任何入口。因此 [setVisible] 会拒绝
-///    关掉最后一个可见页签（返回 false），管理页也把最后一颗开关置灰。
-/// 2. **设置页被隐藏时必须留一条回来的路**：设置页是「底部导航栏管理」自己的
-///    入口。把它藏起来之后，用户就再也进不去管理页把别的页签打开——这是
-///    「至少保留 1 个」拦不住的另一种锁死。因此壳层在设置页被隐藏时，会在
-///    右下角留一个**小的设置入口**（见 `AppShell`），点它直接进设置。
-///    这一条是硬约束，不是可选项。
-///
-/// ## 作用范围
-///
-/// 只作用于**移动端的底部 Dock**。桌面端（Windows / macOS / Linux）用的是左侧
-/// NavigationRail，那是桌面端的标准布局，不受本设置影响。
 class ShellSettings {
-  const ShellSettings({this.tabs = _defaultTabs});
+  const ShellSettings({
+    this.tabs = _defaultTabs,
+    this.handleStyle = DockHandleStyle.lines,
+  });
 
   static const List<ShellTabConfig> _defaultTabs = <ShellTabConfig>[
     ShellTabConfig(id: 'novel'),
@@ -99,6 +118,9 @@ class ShellSettings {
 
   /// 按**显示顺序**排列的页签配置。
   final List<ShellTabConfig> tabs;
+
+  /// 导航栏滚动收起时，左下角悬浮球的样式。
+  final DockHandleStyle handleStyle;
 
   /// 可见的页签（按显示顺序）。
   List<ShellTabConfig> get visibleTabs =>
@@ -144,7 +166,7 @@ class ShellSettings {
       }
     }
     if (!found) return null;
-    return ShellSettings(tabs: next);
+    return ShellSettings(tabs: next, handleStyle: handleStyle);
   }
 
   /// 拖拽排序：把第 [from] 项移到**最终位置** [to]。
@@ -164,15 +186,22 @@ class ShellSettings {
     final next = List<ShellTabConfig>.of(tabs);
     final moved = next.removeAt(from);
     next.insert(target, moved);
-    return ShellSettings(tabs: next);
+    return ShellSettings(tabs: next, handleStyle: handleStyle);
+  }
+
+  /// 切换收起悬浮球样式。
+  ShellSettings withHandleStyle(DockHandleStyle style) {
+    if (style == handleStyle) return this;
+    return ShellSettings(tabs: tabs, handleStyle: style);
   }
 
   /// 恢复默认顺序与可见性（全部显示、规范顺序）。
   static const ShellSettings defaults = ShellSettings();
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'tabs': <Object?>[for (final tab in tabs) tab.toJson()],
-      };
+    'tabs': <Object?>[for (final tab in tabs) tab.toJson()],
+    'handleStyle': handleStyle.id,
+  };
 
   /// 从落盘 JSON 还原。
   ///
@@ -207,12 +236,16 @@ class ShellSettings {
     }
 
     if (parsed.every((tab) => !tab.visible)) return defaults;
-    return ShellSettings(tabs: parsed);
+    return ShellSettings(
+      tabs: parsed,
+      handleStyle: DockHandleStyle.fromId(json['handleStyle']),
+    );
   }
 
   @override
   bool operator ==(Object other) {
     if (other is! ShellSettings) return false;
+    if (other.handleStyle != handleStyle) return false;
     if (other.tabs.length != tabs.length) return false;
     for (var i = 0; i < tabs.length; i++) {
       if (other.tabs[i].id != tabs[i].id) return false;
@@ -222,9 +255,10 @@ class ShellSettings {
   }
 
   @override
-  int get hashCode => Object.hashAll(
-        tabs.map((tab) => Object.hash(tab.id, tab.visible)),
-      );
+  int get hashCode => Object.hash(
+    handleStyle,
+    Object.hashAll(tabs.map((tab) => Object.hash(tab.id, tab.visible))),
+  );
 }
 
 /// 全局壳层设置的持久化：`<应用支持目录>/shell_settings.json`。
@@ -303,6 +337,9 @@ class ShellSettingsController extends ChangeNotifier {
   /// 设置页是否可见（隐藏时壳层要留恢复入口）。
   bool get settingsVisible => _settings.settingsVisible;
 
+  /// 导航栏收起时左下角悬浮球的样式。
+  DockHandleStyle get handleStyle => _settings.handleStyle;
+
   /// 某个页签当前是否允许被关掉（「至少保留 1 个」）。
   bool canHide(String id) => _settings.canHide(id);
 
@@ -347,6 +384,15 @@ class ShellSettingsController extends ChangeNotifier {
   /// 拖拽排序并落盘（[to] 是移动后的最终下标）。
   Future<void> move(int from, int to) async {
     final next = _settings.withMove(from, to);
+    if (next == _settings) return;
+    _settings = next;
+    notifyListeners();
+    await _persist();
+  }
+
+  /// 切换收起悬浮球样式并落盘（壳层会立刻按新样式重绘）。
+  Future<void> setHandleStyle(DockHandleStyle style) async {
+    final next = _settings.withHandleStyle(style);
     if (next == _settings) return;
     _settings = next;
     notifyListeners();

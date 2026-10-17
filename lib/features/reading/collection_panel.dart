@@ -1,3 +1,5 @@
+import '../../shared/widgets/column_list.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/browse_layout.dart';
@@ -27,9 +29,12 @@ class CollectionPanel extends StatefulWidget {
 }
 
 class _CollectionPanelState extends State<CollectionPanel> {
-  late BrowseLayoutMode mode =
-      BrowseLayoutMode.fromId(widget.library?.setting(widget.storageKey)) ??
-      BrowseLayoutMode.list;
+  late BrowseLayoutMode mode = switch (BrowseLayoutMode.fromId(
+    widget.library?.setting(widget.storageKey),
+  )) {
+    BrowseLayoutMode.grid2 => BrowseLayoutMode.list2,
+    final value => value ?? BrowseLayoutMode.list,
+  };
   bool selecting = false;
   bool busy = false;
   final selected = <String>{};
@@ -79,7 +84,8 @@ class _CollectionPanelState extends State<CollectionPanel> {
     selected.retainAll(widget.ids);
     Widget tile(int index) {
       final id = widget.ids[index];
-      final child = mode == BrowseLayoutMode.list
+      final child =
+          (mode == BrowseLayoutMode.list || mode == BrowseLayoutMode.list2)
           ? widget.itemBuilder(index)
           : (widget.gridBuilder ?? widget.itemBuilder)(index);
       if (!selecting) return child;
@@ -127,7 +133,7 @@ class _CollectionPanelState extends State<CollectionPanel> {
                   },
                   itemBuilder: (_) => [
                     for (final value in BrowseLayoutMode.values.where(
-                      (mode) => mode != BrowseLayoutMode.list2,
+                      (mode) => mode != BrowseLayoutMode.grid2,
                     ))
                       CheckedPopupMenuItem(
                         value: value,
@@ -188,14 +194,16 @@ class _CollectionPanelState extends State<CollectionPanel> {
                     padding: EdgeInsets.all(24),
                     child: Text('暂无内容'),
                   )
-                : mode == BrowseLayoutMode.list
-                ? ListView.separated(
+                : (mode == BrowseLayoutMode.list ||
+                      mode == BrowseLayoutMode.list2)
+                ? ColumnList(
+                    columns: mode == BrowseLayoutMode.list ? 1 : 2,
                     shrinkWrap: true,
-                    padding: const EdgeInsets.all(16),
                     itemCount: widget.ids.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) => SizedBox(
-                      height: selecting ? 104 : null,
+                      height: selecting && mode == BrowseLayoutMode.list
+                          ? 104
+                          : null,
                       child: tile(index),
                     ),
                   )

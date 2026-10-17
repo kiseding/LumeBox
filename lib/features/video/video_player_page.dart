@@ -1,5 +1,4 @@
-import '../../shared/widgets/liquid_glass_widget.dart';
-import '../../core/theme/glass_effects_settings.dart';
+import '../../shared/widgets/drawer_geometry.dart';
 import 'playback_glass.dart';
 import '../../core/session/app_preferences.dart';
 
@@ -1355,12 +1354,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
-        content: ModuleGlassSurface(
-          module: GlassModule.video,
-          part: GlassPart.toasts,
-          legacy: Text(message),
-          child: Text(message),
-        ),
+        content: Text(message),
         duration: const Duration(milliseconds: 1600),
         behavior: SnackBarBehavior.floating,
         margin: EdgeInsets.fromLTRB(
@@ -1871,7 +1865,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         isScrollControlled: true,
         builder: (context) => SafeArea(
           child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * .65,
+            height: DrawerGeometry.height(context),
             child: ListView(
               children: [
                 const ListTile(title: Text('选择对应作品和集数')),
@@ -2082,7 +2076,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Text(
           _skipQuickLabel(snapshot),
           style: TextStyle(
-            fontSize: 14,
+            fontSize: LumeTypography.bodySize,
             fontWeight: FontWeight.w600,
             shadows: _fullscreen ? _controlShadows : null,
           ),
@@ -2602,7 +2596,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           children: [
             const Text(
               '播放与连接',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: LumeTypography.sectionTitleSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text('音量 ${(_gesture.volume * 100).round()}%'),
@@ -3097,7 +3094,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: LumeTypography.titleSize,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFFF8F8F8),
                             shadows: _controlShadows,
@@ -3111,7 +3108,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 11,
+                              fontSize: LumeTypography.captionSize,
                               fontWeight: FontWeight.w600,
                               color: Color(0xFFF8F8F8),
                               shadows: _controlShadows,
@@ -3175,7 +3172,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       '播放内核',
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: 19,
+                        fontSize: LumeTypography.pageTitleSize,
                       ),
                     ),
                   ),
@@ -3268,7 +3265,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             children: [
               const Text(
                 '播放速度',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: LumeTypography.pageTitleSize,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 16),
               Wrap(
@@ -3501,7 +3501,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 14,
+          fontSize: LumeTypography.bodySize,
           fontWeight: FontWeight.w600,
           shadows: _fullscreen ? _controlShadows : null,
         ),
@@ -3904,12 +3904,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Widget _buildProgress(PlayerSnapshot snapshot) {
     final old = _legacyProgress(snapshot);
-    return ModuleGlassSurface(
-      module: GlassModule.video,
-      part: GlassPart.progress,
-      legacy: old,
-      child: old,
-    );
+    return old;
   }
 
   Widget _legacyProgress(PlayerSnapshot snapshot) {
@@ -3999,7 +3994,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
                 color: Color(0xFFF8F8F8),
-                fontSize: 13,
+                fontSize: LumeTypography.descriptionSize,
                 shadows: _controlShadows,
               ),
             ),
@@ -4010,7 +4005,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: 13,
+                  fontSize: LumeTypography.descriptionSize,
                   shadows: _controlShadows,
                 ),
               ),
@@ -4022,7 +4017,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: 13,
+                  fontSize: LumeTypography.descriptionSize,
                   shadows: _controlShadows,
                 ),
               ),
@@ -4043,7 +4038,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 _format(shown),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 13,
+                  fontSize: LumeTypography.descriptionSize,
                   shadows: _fullscreen ? _controlShadows : null,
                   // 拖动预览用高亮色：一眼能看出「这不是当前位置」。
                   color: _fullscreen
@@ -4058,7 +4053,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   '拖动到 ${_format(preview)}',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                    fontSize: LumeTypography.descriptionSize,
                     color: LumeTheme.textPrimary,
                   ),
                 ),
@@ -4066,7 +4061,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 _format(snapshot.duration),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 13,
+                  fontSize: LumeTypography.descriptionSize,
                   shadows: _fullscreen ? _controlShadows : null,
                   color: _fullscreen ? Colors.white : LumeTheme.muted,
                 ),
@@ -4096,86 +4091,78 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final player = _player;
     final playing = snapshot.playing && snapshot.error == null;
     return <Widget>[
-          IconButton(
-            iconSize: _iconSize + 5,
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            padding: EdgeInsets.zero,
-            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-            tooltip: '后退 10 秒',
-            icon: Icon(
-              Icons.replay_10,
-              shadows: _fullscreen ? _controlShadows : null,
-            ),
-            onPressed: player == null
-                ? null
-                : () => _seekBy(const Duration(seconds: -10)),
-          ),
-          IconButton(
-            // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
-            iconSize: _iconSize + 11,
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            padding: EdgeInsets.zero,
-            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-            tooltip: playing ? '暂停' : '播放',
-            icon: Icon(
-              playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-              shadows: _fullscreen ? _controlShadows : null,
-            ),
-            onPressed: player == null
-                ? null
-                : () => snapshot.error != null
-                      ? _restoreInlinePlayback(retry: true)
-                      : (snapshot.playing ? player.pause() : player.play()),
-          ),
-          IconButton(
-            iconSize: _iconSize + 5,
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            padding: EdgeInsets.zero,
-            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-            tooltip: '停止',
-            icon: Icon(
-              Icons.stop_circle,
-              shadows: _fullscreen ? _controlShadows : null,
-            ),
-            onPressed: player?.stop,
-          ),
-          IconButton(
-            tooltip: '播放速度（${_settings.speed}x）',
-            iconSize: _iconSize + 5,
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            padding: EdgeInsets.zero,
-            icon: Icon(
-              Icons.speed,
-              shadows: _fullscreen ? _controlShadows : null,
-            ),
-            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-            onPressed: _showSpeedPicker,
-          ),
-          IconButton(
-            iconSize: _iconSize + 5,
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            padding: EdgeInsets.zero,
-            color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
-            tooltip: '前进 10 秒',
-            icon: Icon(
-              Icons.forward_10,
-              shadows: _fullscreen ? _controlShadows : null,
-            ),
-            onPressed: player == null
-                ? null
-                : () => _seekBy(const Duration(seconds: 10)),
-          ),
-        ]
-        .map(
-          (button) =>
-              LiquidGlassWidget(area: GlassArea.primaryControls, child: button),
-        )
-        .toList();
+      IconButton(
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        tooltip: '后退 10 秒',
+        icon: Icon(
+          Icons.replay_10,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+        onPressed: player == null
+            ? null
+            : () => _seekBy(const Duration(seconds: -10)),
+      ),
+      IconButton(
+        // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
+        iconSize: _iconSize + 11,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        padding: EdgeInsets.zero,
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        tooltip: playing ? '暂停' : '播放',
+        icon: Icon(
+          playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+        onPressed: player == null
+            ? null
+            : () => snapshot.error != null
+                  ? _restoreInlinePlayback(retry: true)
+                  : (snapshot.playing ? player.pause() : player.play()),
+      ),
+      IconButton(
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        tooltip: '停止',
+        icon: Icon(
+          Icons.stop_circle,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+        onPressed: player?.stop,
+      ),
+      IconButton(
+        tooltip: '播放速度（${_settings.speed}x）',
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
+        icon: Icon(Icons.speed, shadows: _fullscreen ? _controlShadows : null),
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        onPressed: _showSpeedPicker,
+      ),
+      IconButton(
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
+        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        tooltip: '前进 10 秒',
+        icon: Icon(
+          Icons.forward_10,
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+        onPressed: player == null
+            ? null
+            : () => _seekBy(const Duration(seconds: 10)),
+      ),
+    ].map((button) => button).toList();
   }
 
   /// 次级控制：清晰度 / 弹幕 / 连播 / 画中画 / 全屏 / 设置，最右侧是播放源。
@@ -4199,14 +4186,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     required String tooltip,
     required VoidCallback? onPressed,
     bool highlighted = false,
-  }) => LiquidGlassWidget(
-    area: GlassArea.utilityControls,
-    child: _compactIconBody(
-      icon: icon,
-      tooltip: tooltip,
-      onPressed: onPressed,
-      highlighted: highlighted,
-    ),
+  }) => _compactIconBody(
+    icon: icon,
+    tooltip: tooltip,
+    onPressed: onPressed,
+    highlighted: highlighted,
   );
 
   Widget _compactIconBody({
@@ -4381,7 +4365,7 @@ class _PlayerClockState extends State<_PlayerClock> {
               '${_batteryPercent ?? '--'}%',
               style: const TextStyle(
                 color: Color(0xFFF8F8F8),
-                fontSize: 10,
+                fontSize: LumeTypography.captionSize,
                 fontWeight: FontWeight.w600,
                 shadows: _VideoPlayerPageState._controlShadows,
               ),
@@ -4392,7 +4376,7 @@ class _PlayerClockState extends State<_PlayerClock> {
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
           style: const TextStyle(
             color: Color(0xFFF8F8F8),
-            fontSize: 11,
+            fontSize: LumeTypography.captionSize,
             fontWeight: FontWeight.w600,
             shadows: _VideoPlayerPageState._controlShadows,
           ),
@@ -4496,7 +4480,7 @@ class _PlayerStageNotice extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: LumeTypography.titleSize,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -4507,9 +4491,9 @@ class _PlayerStageNotice extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 13,
+                  fontSize: LumeTypography.descriptionSize,
                   height: 1.5,
-                  color: LumeTheme.muted,
+                  color: LumeTheme.descriptionColor,
                 ),
               ),
               if (actions.isNotEmpty) ...<Widget>[
@@ -4546,7 +4530,7 @@ class _VideoSkeleton extends StatelessWidget {
               Text(
                 LumeTheme.appName,
                 style: TextStyle(
-                  fontSize: 17,
+                  fontSize: LumeTypography.sectionTitleSize,
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.textPrimary,
                 ),
@@ -4557,7 +4541,7 @@ class _VideoSkeleton extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 14,
+                  fontSize: LumeTypography.bodySize,
                   color: LumeTheme.muted,
                 ),
               ),
@@ -4567,7 +4551,7 @@ class _VideoSkeleton extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 14,
+                  fontSize: LumeTypography.bodySize,
                   color: LumeTheme.muted,
                 ),
               ),
@@ -4619,7 +4603,7 @@ class _GestureHint extends StatelessWidget {
                     Text(
                       _label(),
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: LumeTypography.titleSize,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -4708,7 +4692,7 @@ class _TrackSheet extends StatelessWidget {
                   child: Text(
                     title,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -4759,8 +4743,8 @@ class _TrackSheet extends StatelessWidget {
                                 track.language!,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  color: LumeTheme.muted,
+                                  fontSize: LumeTypography.descriptionSize,
+                                  color: LumeTheme.descriptionColor,
                                 ),
                               ),
                         onTap: () => Navigator.of(context).pop(track.id),
@@ -4805,7 +4789,7 @@ class _QualitySheet extends StatelessWidget {
                   child: Text(
                     '清晰度',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
@@ -4820,8 +4804,8 @@ class _QualitySheet extends StatelessWidget {
                     '切换会保留当前位置继续播放',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      color: LumeTheme.muted,
+                      fontSize: LumeTypography.descriptionSize,
+                      color: LumeTheme.descriptionColor,
                     ),
                   ),
                 ),
@@ -4916,7 +4900,7 @@ class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
                 Text(
                   '匹配公共弹幕',
                   style: TextStyle(
-                    fontSize: 17,
+                    fontSize: LumeTypography.sectionTitleSize,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),

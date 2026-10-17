@@ -1,3 +1,5 @@
+import '../../shared/widgets/drawer_geometry.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -377,12 +379,7 @@ class SectionToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final old = _legacyBuild(context);
-    return ModuleGlassSurface(
-      module: GlassModule.fromId(section?.id ?? ''),
-      part: GlassPart.home,
-      legacy: old,
-      child: old,
-    );
+    return old;
   }
 
   Widget _legacyBuild(BuildContext context) {
@@ -417,11 +414,13 @@ class SectionToolbar extends StatelessWidget {
                 navigation!,
                 Align(
                   alignment: Alignment.centerRight,
-                  child: _ToolbarAction(
-                    floating: true,
-                    icon: Icons.search,
-                    tooltip: '搜索',
-                    onTap: onSearch,
+                  child: DrawerSearchAnchor(
+                    child: _ToolbarAction(
+                      floating: true,
+                      icon: Icons.search,
+                      tooltip: '搜索',
+                      onTap: onSearch,
+                    ),
                   ),
                 ),
               ],
@@ -479,7 +478,13 @@ class SectionToolbar extends StatelessWidget {
           onTap: () => _pickLayout(context),
         ),
         // 4) 搜索
-        _ToolbarAction(icon: Icons.search, tooltip: '搜索', onTap: onSearch),
+        DrawerSearchAnchor(
+          child: _ToolbarAction(
+            icon: Icons.search,
+            tooltip: '搜索',
+            onTap: onSearch,
+          ),
+        ),
         // 5) 筛选
         if (onFilter != null)
           _ToolbarAction(
@@ -494,7 +499,7 @@ class SectionToolbar extends StatelessWidget {
   }
 
   Future<void> _pickSort(BuildContext context) async {
-    final picked = await showModalBottomSheet<BrowseSort>(
+    final picked = await showLumeBottomSheet<BrowseSort>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _ToolbarSheet<BrowseSort>(
@@ -509,7 +514,7 @@ class SectionToolbar extends StatelessWidget {
   }
 
   Future<void> _pickLayout(BuildContext context) async {
-    final picked = await showModalBottomSheet<BrowseLayoutMode>(
+    final picked = await showLumeBottomSheet<BrowseLayoutMode>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _ToolbarSheet<BrowseLayoutMode>(
@@ -623,7 +628,7 @@ class _ToolbarSheet<T> extends StatelessWidget {
                       child: Text(
                         title,
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: LumeTypography.titleSize,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -659,8 +664,8 @@ class _ToolbarSheet<T> extends StatelessWidget {
                                     detailOf!(option),
                                     style: TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 13,
-                                      color: LumeTheme.muted,
+                                      fontSize: LumeTypography.descriptionSize,
+                                      color: LumeTheme.descriptionColor,
                                     ),
                                   ),
                             onTap: () => Navigator.of(context).pop(option),
@@ -675,7 +680,7 @@ class _ToolbarSheet<T> extends StatelessWidget {
                         note!,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                          fontSize: LumeTypography.captionSize,
                           color: LumeTheme.muted,
                         ),
                       ),
@@ -708,7 +713,7 @@ Future<SearchScopeSelection?> showSearchModeMenu(
   Set<String>? sourceIds,
   bool sitesOnly = false,
 }) {
-  return showModalBottomSheet<SearchScopeSelection>(
+  return showLumeBottomSheet<SearchScopeSelection>(
     context: context,
     backgroundColor: Colors.transparent,
     // **不受默认高度限制**：默认弹窗最高只有屏幕的 9/16，键盘弹起时（这个面板
@@ -785,7 +790,7 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                       child: Text(
                         widget.sitesOnly ? '搜索站点' : '搜索范围',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: LumeTypography.titleSize,
                           fontWeight: FontWeight.w600,
                           color: LumeTheme.textPrimary,
                         ),
@@ -821,8 +826,8 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                                 mode.detail,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  color: LumeTheme.muted,
+                                  fontSize: LumeTypography.descriptionSize,
+                                  color: LumeTheme.descriptionColor,
                                 ),
                               ),
                               // 点行只改选中态（圆点当场移动），不关面板。

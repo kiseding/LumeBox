@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'appearance.dart';
+import 'lume_typography.dart';
+export 'lume_typography.dart';
 
 /// 全局主题色板：**浅色与深色两套值**，由 [LumeTheme.of] 按当前亮度取用。
 ///
@@ -89,16 +91,16 @@ class LumePalette {
   static const LumePalette light = LumePalette(
     brightness: Brightness.light,
     accent: Color(0xFF7C5CFF),
-    base: Color(0xFFDEE5EF),
+    base: Color(0xFFFFFFFF),
     surface: Color(0xFFFFFFFF),
-    surfaceAlt: Color(0xFFE7EDF7),
-    glass: Color(0xF2FFFFFF),
-    glassStrong: Color(0xFAFFFFFF),
+    surfaceAlt: Color(0xFFF5F5F7),
+    glass: Color(0xB8FFFFFF),
+    glassStrong: Color(0xD9FFFFFF),
     textPrimary: Color(0xFF1A1A1A),
     textSecondary: Color(0xFF263449),
     textHint: Color(0xFF334158),
-    divider: Color(0xFFACB8CA),
-    hairline: Color(0xFF98A6BA),
+    divider: Color(0x00000000),
+    hairline: Color(0x00000000),
     fill: Color(0x0A000000),
     fillStrong: Color(0x14000000),
     success: Color(0xFF2E7D4F),
@@ -106,13 +108,13 @@ class LumePalette {
     warning: Color(0xFFB26A00),
     info: Color(0xFF2F6FB5),
     cardShadow: <BoxShadow>[
-      BoxShadow(color: Color(0x2415253D), blurRadius: 16, offset: Offset(0, 4)),
+      BoxShadow(color: Color(0x10000000), blurRadius: 24, offset: Offset(0, 6)),
     ],
     floatShadow: <BoxShadow>[
-      BoxShadow(color: Color(0x3315253D), blurRadius: 24, offset: Offset(0, 8)),
+      BoxShadow(color: Color(0x18000000), blurRadius: 24, offset: Offset(0, 8)),
       BoxShadow(color: Color(0x0A1A1A1A), blurRadius: 6, offset: Offset(0, 2)),
     ],
-    backgroundGradient: <Color>[Color(0xFFE4EAF3), Color(0xFFD9E2EE)],
+    backgroundGradient: <Color>[Colors.white, Colors.white],
     overlayStyle: Brightness.dark,
     snackBar: Color(0xF21A1A22),
     onAccent: Colors.white,
@@ -126,16 +128,16 @@ class LumePalette {
   static const LumePalette dark = LumePalette(
     brightness: Brightness.dark,
     accent: Color(0xFF9B84FF),
-    base: Color(0xFF0B1019),
-    surface: Color(0xFF27364B),
-    surfaceAlt: Color(0xFF36485F),
-    glass: Color(0xF227364B),
-    glassStrong: Color(0xFA27364B),
+    base: Color(0xFF121214),
+    surface: Color(0xFF242427),
+    surfaceAlt: Color(0xFF303034),
+    glass: Color(0xB8242427),
+    glassStrong: Color(0xD9242427),
     textPrimary: Color(0xFFF2F2F4),
     textSecondary: Color(0xFFE4EBF5),
     textHint: Color(0xFFD6E0EE),
-    divider: Color(0xFF6D809B),
-    hairline: Color(0xFF8293AA),
+    divider: Color(0x00000000),
+    hairline: Color(0x00000000),
     fill: Color(0x0FFFFFFF),
     fillStrong: Color(0x1FFFFFFF),
     success: Color(0xFF5FBF85),
@@ -143,13 +145,13 @@ class LumePalette {
     warning: Color(0xFFE0A24C),
     info: Color(0xFF6FA8E8),
     cardShadow: <BoxShadow>[
-      BoxShadow(color: Color(0x40000000), blurRadius: 16, offset: Offset(0, 4)),
+      BoxShadow(color: Color(0x40000000), blurRadius: 24, offset: Offset(0, 6)),
     ],
     floatShadow: <BoxShadow>[
       BoxShadow(color: Color(0x59000000), blurRadius: 24, offset: Offset(0, 8)),
       BoxShadow(color: Color(0x33000000), blurRadius: 6, offset: Offset(0, 2)),
     ],
-    backgroundGradient: <Color>[Color(0xFF101824), Color(0xFF090E17)],
+    backgroundGradient: <Color>[Color(0xFF121214), Color(0xFF121214)],
     overlayStyle: Brightness.light,
     snackBar: Color(0xF22E2E36),
     onAccent: Color(0xFF1A1030),
@@ -165,13 +167,16 @@ class LumePalette {
   /// 为什么不做「按主色重新推导整套色板」：对比度与分层规则是逐值调过的，
   /// 由主色算法推导出来的底色/文字色在 11 种颜色下未必都够读。锁住结构、
   /// 只换主色，是「换主题色不牺牲可读性」的稳妥做法。
-  LumePalette withAccent(ThemeAccent accent) => LumePalette(
+  LumePalette withAccent(
+    ThemeAccent accent, {
+    ThemeBackground background = ThemeBackground.white,
+  }) => LumePalette(
     brightness: brightness,
     accent: LumeTheme.readableForeground(
       accent.colorFor(brightness),
       surfaceAlt,
     ),
-    base: base,
+    base: brightness == Brightness.light ? background.color : base,
     surface: surface,
     surfaceAlt: surfaceAlt,
     glass: glass,
@@ -220,6 +225,21 @@ class LumePalette {
 class LumeTheme {
   LumeTheme._();
 
+  static const chipIdleBackground = Color(0xFFF2F2F7);
+  static const chipIdleForeground = Color(0xFF333333);
+  static const chipSelectedBackground = Color(0xFF6C5CE7);
+
+  /// RawChip resolves stateful Color after merging TextStyle, not TextStyle itself.
+  static TextStyle get chipLabelStyle => TextStyle(
+    fontSize: LumeTypography.descriptionSize,
+    fontWeight: FontWeight.w600,
+    color: WidgetStateColor.resolveWith(
+      (states) => states.contains(WidgetState.selected)
+          ? Colors.white
+          : chipIdleForeground,
+    ),
+  );
+
   /// App 内所有标题与页面文字统一使用项目名称。
   static const String appName = 'Lume Box';
 
@@ -228,10 +248,12 @@ class LumeTheme {
 
   /// 当前生效主题色（设置页「显示 → 主题色」写入，见 `appearance.dart`）。
   static ThemeAccent _accent = ThemeAccent.fallback;
+  static ThemeBackground _background = ThemeBackground.white;
+  static void applyBackground(ThemeBackground value) => _background = value;
 
   /// 当前生效色板：亮度定结构、主题色定主色。
   static LumePalette get palette =>
-      LumePalette.of(_brightness).withAccent(_accent);
+      LumePalette.of(_brightness).withAccent(_accent, background: _background);
 
   /// 按亮度取色板（供需要显式区分的场合，如阅读页的工具栏）。
   static LumePalette paletteOf(Brightness brightness) =>
@@ -256,7 +278,8 @@ class LumeTheme {
   /// 静态色名的部件不会。而给 `MaterialApp.builder` 里那层 `KeyedSubtree`
   /// 换 key **重建不了子树**：`child` 是带 GlobalKey 的 Navigator，换 key 只会
   /// 把它换个位置、子树原样复用（实测，见 settings_page_test 的深色用例）。
-  static String get themeId => '${_brightness.name}-${_accent.id}';
+  static String get themeId =>
+      '${_brightness.name}-${_accent.id}-${_background.id}';
 
   // ------------------------------------------------------------------ 色板
 
@@ -283,6 +306,19 @@ class LumeTheme {
 
   /// 辅助说明。
   static Color get textSecondary => palette.textSecondary;
+
+  /// Supporting copy recedes behind list titles without changing icon colors.
+  static Color descriptionColorOf(Brightness brightness) =>
+      brightness == Brightness.dark
+      ? const Color(0xFFAEAEB2)
+      : const Color(0xFF8E8E93);
+
+  static Color get descriptionColor => descriptionColorOf(_brightness);
+
+  /// 输入框 / 未选中胶囊 / 卡片在浅灰或纯白底上都看得见的细边界。
+  static Color get inputBorder => _brightness == Brightness.dark
+      ? const Color(0xFF3F3F46)
+      : const Color(0xFFE5E5EA);
 
   /// 占位提示。
   static Color get textHint => palette.textHint;
@@ -327,21 +363,14 @@ class LumeTheme {
     return BoxDecoration(
       color: surface,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: hairline),
       boxShadow: cardShadow,
     );
   }
 
   // ------------------------------------------------------------------ 背景
 
-  /// 页面统一背景：带一层几乎看不见的渐变（避免大色块死板）。
-  static BoxDecoration get background => BoxDecoration(
-    gradient: LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: palette.backgroundGradient,
-    ),
-  );
+  /// 页面统一纯色背景：亮色纯白，暗色深灰。
+  static BoxDecoration get background => BoxDecoration(color: base);
 
   // ------------------------------------------------------------------ 主题
 
@@ -363,39 +392,14 @@ class LumeTheme {
   }
 
   static Color readableGlass(Color color) =>
-      color.withValues(alpha: .86 + .14 * color.a);
+      color.withValues(alpha: color.a.clamp(.60, .88));
 
   /// Shared UI typography. Keep OS accessibility scaling unchanged.
   static TextTheme readableTextTheme(Brightness brightness) {
-    final base = ThemeData(
-      useMaterial3: true,
-      brightness: brightness,
-    ).textTheme;
     final palette = LumePalette.of(brightness);
-    final expanded = base.apply(
-      bodyColor: palette.textPrimary,
-      displayColor: palette.textPrimary,
-    );
-    TextStyle? strong(TextStyle? style) => style?.copyWith(
-      fontSize: (style.fontSize ?? 14) + 1,
-      fontWeight: FontWeight.w600,
-    );
-    return expanded.copyWith(
-      displayLarge: strong(expanded.displayLarge),
-      displayMedium: strong(expanded.displayMedium),
-      displaySmall: strong(expanded.displaySmall),
-      headlineLarge: strong(expanded.headlineLarge),
-      headlineMedium: strong(expanded.headlineMedium),
-      headlineSmall: strong(expanded.headlineSmall),
-      titleLarge: strong(expanded.titleLarge),
-      titleMedium: strong(expanded.titleMedium),
-      titleSmall: strong(expanded.titleSmall),
-      bodyLarge: strong(expanded.bodyLarge),
-      bodyMedium: strong(expanded.bodyMedium),
-      bodySmall: strong(expanded.bodySmall),
-      labelLarge: strong(expanded.labelLarge),
-      labelMedium: strong(expanded.labelMedium),
-      labelSmall: strong(expanded.labelSmall),
+    return LumeTypography.textTheme(
+      palette.textPrimary,
+      descriptionColorOf(brightness),
     );
   }
 
@@ -403,9 +407,11 @@ class LumeTheme {
   static ThemeData build({
     Brightness brightness = Brightness.light,
     ThemeAccent accent = ThemeAccent.fallback,
+    ThemeBackground background = ThemeBackground.white,
   }) {
     applyBrightness(brightness);
     applyAccent(accent);
+    applyBackground(background);
     // 局部别名：下面所有裸 `accent` 要的都是**颜色**，而参数是档位。
     final accentColor = palette.accent;
     final isDark = brightness == Brightness.dark;
@@ -445,7 +451,7 @@ class LumeTheme {
             ? SystemUiOverlayStyle.light
             : SystemUiOverlayStyle.dark,
         titleTextStyle: TextStyle(
-          fontSize: 18,
+          fontSize: LumeTypography.sectionTitleSize,
           fontWeight: FontWeight.w600,
           color: textPrimary,
           letterSpacing: 0.2,
@@ -459,13 +465,14 @@ class LumeTheme {
         shadowColor: palette.floatShadow.first.color,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
-          fontSize: 18,
+          fontSize: LumeTypography.sectionTitleSize,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         contentTextStyle: TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          height: 1.5,
+          fontSize: LumeTypography.bodySize,
           color: textSecondary,
         ),
       ),
@@ -480,11 +487,23 @@ class LumeTheme {
             : const Color(0x33101018),
       ),
       listTileTheme: ListTileThemeData(
-        textColor: textPrimary,
+        // A shared textColor overrides both title and subtitle style colors.
+        // Keep their colors on the separate semantic text styles instead.
+        titleTextStyle: LumeTypography.title.copyWith(color: textPrimary),
+        subtitleTextStyle: LumeTypography.description.copyWith(
+          color: descriptionColor,
+        ),
+        leadingAndTrailingTextStyle: LumeTypography.body.copyWith(
+          color: textSecondary,
+        ),
+        minVerticalPadding: 12,
+        minTileHeight: 56,
+        horizontalTitleGap: 12,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         iconColor: textPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: hairline),
+          side: BorderSide.none,
         ),
       ),
       textTheme: readableTextTheme(brightness),
@@ -497,7 +516,8 @@ class LumeTheme {
         shadowColor: palette.cardShadow.first.color,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: hairline),
+          // 浅灰底上也能看出卡片边界：阴影之外再给一条极细边。
+          side: BorderSide(color: inputBorder),
         ),
       ),
       iconTheme: IconThemeData(color: textPrimary),
@@ -508,16 +528,25 @@ class LumeTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? onAccent : surface,
+          (states) => states.contains(WidgetState.disabled)
+              ? (isDark ? const Color(0xFFB8B8C0) : Colors.white)
+              : states.contains(WidgetState.selected)
+              ? onAccent
+              : Colors.white,
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? accentColor : fillStrong,
+          (states) => states.contains(WidgetState.disabled)
+              ? (isDark ? const Color(0xFF494952) : const Color(0xFFC7C7CF))
+              : states.contains(WidgetState.selected)
+              ? accentColor
+              : (isDark ? const Color(0xFF63636D) : const Color(0xFF90909A)),
         ),
         trackOutlineColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? accentColor : hairline,
+          (states) => states.contains(WidgetState.disabled)
+              ? (isDark ? const Color(0xFF777781) : const Color(0xFF9999A3))
+              : states.contains(WidgetState.selected)
+              ? accentColor
+              : const Color(0xFF90909A),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -538,52 +567,46 @@ class LumeTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: accentColor,
           disabledForegroundColor: textPrimary,
-          side: BorderSide(color: hairline),
+          side: BorderSide.none,
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceAlt,
-        selectedColor: accentColor,
-        side: BorderSide(color: hairline),
-        labelStyle: WidgetStateTextStyle.resolveWith(
-          (states) => TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: states.contains(WidgetState.selected)
-                ? onAccent
-                : textPrimary,
-          ),
+        backgroundColor: chipIdleBackground,
+        selectedColor: chipSelectedBackground,
+        color: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? chipSelectedBackground
+              : chipIdleBackground,
         ),
-        secondaryLabelStyle: TextStyle(
-          fontWeight: FontWeight.w600,
-          color: onAccent,
-          fontSize: 13,
-        ),
+        // 未选中胶囊在浅灰底上也必须有可见边界，不能只靠 F2F2F7 的色差。
+        side: BorderSide(color: inputBorder),
+        labelStyle: chipLabelStyle,
+        secondaryLabelStyle: chipLabelStyle,
+        checkmarkColor: Colors.white,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
+        // 保持极浅灰填充（不回到纯白），再叠 1px 浅灰边界：
+        // 白底页面靠灰底区分，浅灰页面靠边界区分。
         fillColor: surfaceAlt,
         hintStyle: TextStyle(
           fontWeight: FontWeight.w600,
-          color: textHint,
-          fontSize: 15,
+          color: textSecondary,
+          fontSize: LumeTypography.titleSize,
         ),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w600,
           color: textSecondary,
-          fontSize: 15,
+          fontSize: LumeTypography.titleSize,
         ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
-        ),
+        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: hairline),
+          borderSide: BorderSide(color: inputBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: hairline),
+          borderSide: BorderSide(color: inputBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -595,7 +618,7 @@ class LumeTheme {
         contentTextStyle: const TextStyle(
           fontWeight: FontWeight.w600,
           color: Colors.white,
-          fontSize: 14,
+          fontSize: LumeTypography.bodySize,
         ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -606,7 +629,7 @@ class LumeTheme {
         textStyle: TextStyle(
           fontWeight: FontWeight.w600,
           color: textPrimary,
-          fontSize: 15,
+          fontSize: LumeTypography.titleSize,
         ),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(

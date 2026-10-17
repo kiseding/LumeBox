@@ -1,7 +1,7 @@
+import '../../shared/widgets/drawer_geometry.dart';
 import 'diagnostic_export_tile.dart';
 import '../audio_book/audio_book_page.dart';
 import 'configuration_settings_page.dart';
-import 'glass_effects_tiles.dart';
 import 'privacy_settings_page.dart';
 import '../comic/comic_image_tools_page.dart';
 import 'total_subscription_page.dart';
@@ -157,8 +157,6 @@ class SettingsPage extends StatelessWidget {
             onTap: () => _push(context, const TmdbSettingsPage()),
           ),
           const SizedBox(height: 20),
-          const LiquidGlassSettingsTile(),
-          const SizedBox(height: 20),
           const _GroupTitle('源与网络'),
           _SettingsEntry(
             icon: Icons.subscriptions_outlined,
@@ -282,18 +280,19 @@ class _SettingsEntry extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: LumeTypography.titleSize,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: LumeTheme.muted,
+                    fontWeight: FontWeight.w400,
+                    fontSize: LumeTypography.descriptionSize,
+                    height: 1.5,
+                    color: LumeTheme.descriptionColor,
                   ),
                 ),
               ],
@@ -303,8 +302,9 @@ class _SettingsEntry extends StatelessWidget {
             Text(
               trailingValue!,
               style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                fontSize: LumeTypography.bodySize,
+                height: 1.5,
                 color: LumeTheme.textSecondary,
               ),
             ),
@@ -330,9 +330,10 @@ class _GroupTitle extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 14,
+          fontSize: LumeTypography.sectionTitleSize,
           fontWeight: FontWeight.w600,
-          color: LumeTheme.textSecondary,
+          height: 1.5,
+          color: LumeTheme.textPrimary,
         ),
       ),
     );
@@ -358,7 +359,7 @@ class GridTitleStyleRow extends StatelessWidget {
             : '遮罩内置标题：标题压在封面底部的深色渐变上',
         trailingValue: settings.gridTitleStyle.label,
         onTap: () async {
-          final picked = await showModalBottomSheet<GridTitleStyle>(
+          final picked = await showLumeBottomSheet<GridTitleStyle>(
             context: context,
             backgroundColor: Colors.transparent,
             builder: (_) => OptionSheet<GridTitleStyle>(

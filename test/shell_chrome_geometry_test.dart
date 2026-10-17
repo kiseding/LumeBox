@@ -23,7 +23,7 @@ import 'support/fake_source_manager.dart';
 /// 顶栏 / 底栏的纵向位置（用户口径）：
 /// 1. 顶部导航（标题 + 图标 + 页签）整条贴近状态栏，只留一小段安全边距——
 ///    不许「往下陷」；
-/// 2. 底部 Dock 下沿落在 iOS 标准底部安全距离上（安全区 + 0 余量）；
+/// 2. 底部 Dock 悬浮在 iOS 安全区上方 8pt（完整避开底部横条）；
 /// 3. 两端移动之后，中间内容区自动撑开占满剩余空间；
 /// 4. 只移动容器，不缩放控件——图标按钮仍是 42 的触达尺寸。
 ///
@@ -161,12 +161,12 @@ void main() {
 
     final capsule = tester.getRect(dockCapsule());
     // 用户口径第七次：**保留一小段悬浮留白**——上一版怼死屏幕底边「改过头了」。
-    // 第十一次：整体**再往上抬一小段**（6 → 12），别贴死屏幕底边。
+    // 本轮：胶囊必须完整避开 iPhone 底部横条，停在安全区上沿再留 8pt。
     final gap = height - capsule.bottom;
     expect(
       gap,
-      closeTo(bottomInset - 8, 0.01),
-      reason: '胶囊要悬浮在屏幕底边之上（约 12pt），实测 $gap',
+      closeTo(bottomInset + 8, 0.01),
+      reason: '胶囊要悬浮在安全区之上 8pt（实测 $gap）',
     );
     // 用户口径第十二次：五个页签左右两侧**稍微加宽**——胶囊按「最大宽度 360、
     // 居中」摆放，440pt 的屏幕上两侧各留 (440-360)/2 = 40（第十一次收窄到 320
@@ -222,6 +222,27 @@ void main() {
           '胶囊里的文字要避开系统手势条（至少离底边 ${inset}pt，'
           '实测 ${height - item.bottom}）',
     );
+
+    // 图标与文字间距 4，整体在 60 高的内容条里严格垂直居中。
+    final novelLabel = find
+        .descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.text(Section.novel.label),
+        )
+        .first;
+    final novelItem = find
+        .ancestor(of: novelLabel, matching: find.byType(InkWell))
+        .first;
+    final chip = tester.getRect(
+      find.descendant(of: novelItem, matching: find.byType(DecoratedBox)).first,
+    );
+    final label = tester.getRect(novelLabel);
+    expect(label.top - chip.bottom, closeTo(4, 0.6), reason: '图标与文字间距 4px');
+    expect(
+      (chip.top + label.bottom) / 2,
+      closeTo(tester.getRect(novelItem).center.dy, 1.5),
+      reason: '图标 + 文字整体垂直居中',
+    );
   });
 
   testWidgets('横屏安全区：胶囊避开左右刘海并保持居中', (tester) async {
@@ -241,8 +262,8 @@ void main() {
     final capsule = tester.getRect(dockCapsule());
     expect(capsule.left, closeTo(59 + 16, 0.01));
     expect(956 - capsule.right, closeTo(59 + 16, 0.01));
-    expect(440 - capsule.bottom, closeTo(13, 0.01));
-    expect(capsule.height, closeTo(56, 0.01));
+    expect(440 - capsule.bottom, closeTo(21 + 8, 0.01));
+    expect(capsule.height, closeTo(60, 0.01));
   });
 
   testWidgets('键盘弹出时隐藏胶囊且取消列表底部导航避让', (tester) async {
@@ -261,7 +282,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       height - tester.getRect(dockCapsule()).bottom,
-      closeTo(bottomInset - 8, 0.01),
+      closeTo(bottomInset + 8, 0.01),
     );
   });
 
@@ -280,8 +301,8 @@ void main() {
           )
           .first,
     );
-    // 内容条 64 → 56 → 48：只收留白；下限 44 是留给「图标 20 + 间距 3 + 文字 15」的。
-    expect(item.height, closeTo(56, 0.01), reason: '内容条保持统一高度');
+    // 内容条 64 → 56 → 60：拉高上下留白（图标 20 + 间距 4 + 文字约 14）。
+    expect(item.height, closeTo(60, 0.01), reason: '内容条保持统一高度');
     expect(item.height, greaterThanOrEqualTo(44.0), reason: '别压到里面的控件');
 
     final radius = tester.widget<ClipRRect>(dockCapsule()).borderRadius;

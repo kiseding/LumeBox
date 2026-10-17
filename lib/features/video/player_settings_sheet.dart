@@ -1,6 +1,4 @@
-import '../../shared/widgets/player_popup_glass.dart';
-import '../../core/theme/glass_effects_settings.dart';
-import '../settings/glass_effects_page.dart';
+import '../../shared/widgets/drawer_geometry.dart';
 import 'playback_glass.dart';
 
 import 'package:flutter/material.dart';
@@ -37,7 +35,7 @@ Future<void> showPlayerSettingsSheet({
   Widget? extraControls,
 }) {
   final glass = ValueNotifier(settings.playbackGlass);
-  return showModalBottomSheet<void>(
+  return showLumeBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
@@ -46,7 +44,6 @@ Future<void> showPlayerSettingsSheet({
       builder: (context, enabled, _) => PlaybackGlass(
         enabled: enabled,
         child: PlayerSettingsSheet(
-          useFrostedSurface: true,
           showDanmakuPanel: false,
           settings: settings,
           capabilities: capabilities,
@@ -102,7 +99,6 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.danmakuCount,
     this.showDanmakuPanel = true,
     this.embedded = false,
-    this.useFrostedSurface = false,
     this.extraControls,
   });
 
@@ -155,7 +151,6 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 是否作为**内嵌内容**使用（全局设置页）：不画拖拽把手与关闭按钮，
   /// 也不限高（由外层滚动容器负责）。
   final bool embedded;
-  final bool useFrostedSurface;
   final Widget? extraControls;
 
   @override
@@ -223,14 +218,6 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         },
       ),
       const SizedBox(height: 20),
-      ListTile(
-        title: const Text('玻璃效果作用部位与强度'),
-        leading: const Icon(Icons.blur_on),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute<void>(builder: (_) => const GlassEffectsPage()),
-        ),
-      ),
       _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
       SwitchListTile.adaptive(
         title: const Text('启用播放器手势'),
@@ -389,9 +376,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         '关闭：跳过全部后台源检测，拿到播放地址直接交给播放器，启动速度更快。如果播放链接已经失效，则不会提前提示，需要自己手动更换线路。',
         style: TextStyle(
           fontWeight: FontWeight.w600,
-          fontSize: 13,
+          fontSize: LumeTypography.descriptionSize,
           height: 1.4,
-          color: LumeTheme.muted,
+          color: LumeTheme.descriptionColor,
         ),
       ),
       SwitchListTile.adaptive(
@@ -446,12 +433,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(decoration: LumeTheme.background, child: content),
     );
-    if (!widget.useFrostedSurface) return legacy;
-    return PlayerPopupGlass(
-      area: GlassArea.videoSettings,
-      legacy: legacy,
-      child: content,
-    );
+    return legacy;
   }
 
   Widget _handle(BuildContext context) {
@@ -463,7 +445,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             child: Text(
               '播放器设置',
               style: TextStyle(
-                fontSize: 16,
+                fontSize: LumeTypography.titleSize,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textPrimary,
               ),
@@ -488,7 +470,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           Text(
             title,
             style: TextStyle(
-              fontSize: 17,
+              fontSize: LumeTypography.sectionTitleSize,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -498,8 +480,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             detail,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
-              color: LumeTheme.muted,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
             ),
           ),
         ],
@@ -633,7 +615,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   '自动隐藏控制栏',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                    fontSize: LumeTypography.titleSize,
                     color: LumeTheme.textPrimary,
                   ),
                 ),
@@ -651,9 +633,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 : '控制栏常显（关闭自动隐藏）',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: LumeTypography.descriptionSize,
               height: 1.4,
-              color: LumeTheme.muted,
+              color: LumeTheme.descriptionColor,
             ),
           ),
           const SizedBox(height: 8),
@@ -665,9 +647,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                       : '按视频比例判断：竖屏短剧竖屏全屏，普通横片横屏全屏'),
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: LumeTypography.descriptionSize,
               height: 1.5,
-              color: LumeTheme.muted,
+              color: LumeTheme.descriptionColor,
             ),
           ),
         ],
@@ -692,7 +674,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   '显示字幕',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                    fontSize: LumeTypography.titleSize,
                     color: LumeTheme.textPrimary,
                   ),
                 ),
@@ -942,8 +924,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             '正值 = 音频延后出现（画面比声音快时往大调）',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
-              color: LumeTheme.muted,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
             ),
           ),
         ],
@@ -966,7 +948,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   '硬件解码',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
+                    fontSize: LumeTypography.titleSize,
                     color: LumeTheme.textPrimary,
                   ),
                 ),
@@ -992,9 +974,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 : '当前内核没有切换解码链的通道（点击看提示与可换的内核）',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: LumeTypography.descriptionSize,
               height: 1.5,
-              color: LumeTheme.muted,
+              color: LumeTheme.descriptionColor,
             ),
           ),
         ],
@@ -1021,7 +1003,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       text,
       style: TextStyle(
         fontWeight: FontWeight.w600,
-        fontSize: 13,
+        fontSize: LumeTypography.descriptionSize,
         color: dim
             ? LumeTheme.muted.withValues(alpha: 0.5)
             : LumeTheme.textSecondary,

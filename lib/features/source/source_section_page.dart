@@ -9,13 +9,13 @@ import 'source_maintenance.dart';
 import 'source_action_dialogs.dart';
 import '../../core/reading/reading_library.dart';
 import '../../core/source/source_preferences.dart';
+import '../../core/source/source_picker_groups.dart';
 import '../../shared/widgets/source_icon.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/js/cat_engines.dart';
-import '../../core/net/network_settings.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
@@ -67,7 +67,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   String _sourceQuery = '';
   String? _group;
   bool _compact = false;
-  bool _grid = false;
   int _sourceFilter = 0;
   bool _selecting = false;
   bool _maintaining = false;
@@ -106,9 +105,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     try {
       if (widget.manager == null) await ReadingLibrary.open(widget.section);
       final sources = await _manager.list();
-      _grid =
-          ReadingLibrary.find(widget.section)?.setting('source.manager.grid') ==
-          'true';
       if (!mounted) return;
       setState(() {
         _sources = sources;
@@ -331,16 +327,19 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     );
   }
 
-  /// 网络配置：单图源的 UA / Cookie / 代理，覆盖全局设置（留空即继承）。
+  /// 源设置：单图源的网络覆盖（UA / Cookie / 代理）、换网址（镜像 / 自定义域名）
+  /// 与账号登入。网络覆盖留空即继承全局设置。
   ///
   /// 保存后丢弃该图源已建好的 HTTP 客户端与运行时——下次请求用新配置，
-  /// 不会出现「改了配置还在用旧 Cookie」的错觉。
+  /// 不会出现「改了配置还在用旧 Cookie」的错觉。换网址 / 账号登入只落库：
+  /// 它在**每次调用前**注入脚本（`LumeSource.config`），因此下一次浏览就用新值。
   Future<void> _editNetwork(SourceDescriptor source) async {
-    final profile = await showDialog<NetworkProfile>(
+    final result = await showDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),
     );
-    if (profile == null || !mounted) return;
+    if (result == null || !mounted) return;
+    final profile = result.network;
     await _manager.setNetwork(
       source.id,
       userAgent: profile.userAgent,
@@ -349,6 +348,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       bridge: profile.bridge,
       allowBadCertificate: profile.allowBadCertificate,
     );
+    await _manager.setSiteConfig(source.id, result.site);
     // 运行时重建：旧客户端带着旧 UA / Cookie，必须释放。
     await _manager.setEnabled(source.id, source.enabled);
     await _reload();
@@ -356,7 +356,9 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          profile.isEmpty
+          result.site.hasCustomDomain || result.site.safeMirrorIndex > 0
+              ? '已保存「${source.name}」的源设置（换网址已生效）'
+              : profile.isEmpty
               ? '已恢复「${source.name}」为全局网络设置'
               : '已保存「${source.name}」的网络配置',
         ),
@@ -383,7 +385,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           child: SingleChildScrollView(
             child: SelectableText(
               script,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: LumeTypography.descriptionSize,
+              ),
             ),
           ),
         ),
@@ -670,7 +675,18 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
               children: [
                 for (final (value, label) in [(0, '全部'), (1, '已启用'), (2, '异常')])
                   ChoiceChip(
-                    label: Text(label),
+                    label: Text(
+                      label,
+                      style: TextStyle(
+                        color: _sourceFilter == value
+                            ? Colors.white
+                            : LumeTheme.chipIdleForeground,
+                      ),
+                    ),
+                    labelStyle: LumeTheme.chipLabelStyle,
+                    backgroundColor: LumeTheme.chipIdleBackground,
+                    selectedColor: LumeTheme.chipSelectedBackground,
+                    checkmarkColor: Colors.white,
                     selected: _sourceFilter == value,
                     onSelected: (_) => setState(() => _sourceFilter = value),
                   ),
@@ -701,33 +717,21 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   ),
                 ),
                 IconButton(
-                  tooltip: _grid ? '切换为排列' : '切换为网格',
+                  tooltip: _compact ? '详细排列' : '紧凑排列',
                   icon: Icon(
-                    _grid ? Icons.view_list_outlined : Icons.grid_view_outlined,
+                    _compact
+                        ? Icons.view_agenda_outlined
+                        : Icons.view_list_outlined,
                   ),
                   onPressed: () async {
                     final library = await ReadingLibrary.open(widget.section);
-                    library.setSetting('source.manager.grid', '${!_grid}');
-                    if (mounted) setState(() => _grid = !_grid);
+                    library.setSetting(
+                      'source.manager.compact',
+                      '${!_compact}',
+                    );
+                    if (mounted) setState(() => _compact = !_compact);
                   },
                 ),
-                if (!_grid)
-                  IconButton(
-                    tooltip: _compact ? '详细排列' : '紧凑排列',
-                    icon: Icon(
-                      _compact
-                          ? Icons.view_agenda_outlined
-                          : Icons.view_list_outlined,
-                    ),
-                    onPressed: () async {
-                      final library = await ReadingLibrary.open(widget.section);
-                      library.setSetting(
-                        'source.manager.compact',
-                        '${!_compact}',
-                      );
-                      if (mounted) setState(() => _compact = !_compact);
-                    },
-                  ),
               ],
             ),
             Text('${visible.length} 个源 · 长按源条目拖动排序'),
@@ -808,7 +812,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                 }),
               ),
             Expanded(
-              child: _compact && !_grid
+              child: _compact
                   ? ListTile(
                       title: Text(
                         source.name,
@@ -834,6 +838,16 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                       leading: SourceIcon(
                         name: source.name,
                         siteUrl: source.siteUrl,
+                        iconUrl:
+                            SourcePreferences.read(
+                              widget.section,
+                              source.id,
+                            ).iconUrl.trim().isEmpty
+                            ? source.iconUrl
+                            : SourcePreferences.read(
+                                widget.section,
+                                source.id,
+                              ).iconUrl,
                         section: widget.section,
                         sourceId: source.id,
                       ),
@@ -844,7 +858,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                       onTap: () => _rename(source),
                     )
                   : _SourceTile(
-                      grid: _grid,
                       source: source,
                       section: widget.section,
                       pinned: SourcePreferences.read(
@@ -881,38 +894,53 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           ),
         )
         .resolve(Directionality.of(context));
+    final grouped = <String, List<int>>{};
+    for (var i = 0; i < visible.length; i++) {
+      final source = visible[i];
+      final label = source.group.trim().isNotEmpty
+          ? source.group.trim()
+          : SourcePickerGroups.forSection(widget.section)
+                .firstWhere(
+                  (group) =>
+                      group.$1 ==
+                      SourcePickerGroups.groupFor(widget.section, source),
+                )
+                .$2;
+      grouped.putIfAbsent(label, () => []).add(i);
+    }
     return CustomScrollView(
       slivers: [
         SliverPadding(
           padding: inset.copyWith(bottom: 12),
           sliver: SliverToBoxAdapter(child: entry(context, 0)),
         ),
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            16 + ShellDockScope.bottomInset(context),
-          ),
-          sliver: _grid
-              ? SliverGrid(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) => entry(context, i + 1),
-                    childCount: visible.length,
-                  ),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisExtent: 190,
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                  ),
-                )
-              : SliverList.separated(
-                  itemCount: visible.length,
-                  itemBuilder: (context, i) => entry(context, i + 1),
-                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+        for (final group in grouped.entries) ...[
+          SliverToBoxAdapter(
+            child: Semantics(
+              header: true,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                child: Text(
+                  group.key,
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
-        ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              0,
+              16,
+              16 + ShellDockScope.bottomInset(context),
+            ),
+            sliver: SliverList.separated(
+              itemCount: group.value.length,
+              itemBuilder: (context, i) => entry(context, group.value[i] + 1),
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -935,7 +963,6 @@ class _SourceTile extends StatelessWidget {
     required this.source,
     required this.section,
     this.pinned = false,
-    this.grid = false,
     this.customIcon = '',
     this.testing = false,
     this.testResult,
@@ -954,7 +981,6 @@ class _SourceTile extends StatelessWidget {
   final Section section;
 
   final bool pinned;
-  final bool grid;
   final String customIcon;
 
   /// 正在测试（按钮转圈）。
@@ -1029,62 +1055,6 @@ class _SourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (grid) {
-      return GlassCard(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                SourceIcon(
-                  name: source.name,
-                  siteUrl: source.siteUrl,
-                  iconUrl: customIcon.isEmpty ? source.iconUrl : customIcon,
-                  section: section,
-                  sourceId: source.id,
-                  size: 32,
-                ),
-                const Spacer(),
-                _menu(),
-              ],
-            ),
-            Text(
-              source.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            SourceUpdateBadge(section: section, sourceId: source.id),
-            const Spacer(),
-            Row(
-              children: [
-                if (SourceContentRating.isAdult(source.id, source.name))
-                  const SourceRatingBadge(),
-                Expanded(
-                  child: Text(
-                    source.hasGroup ? source.group : source.version,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(
-              height: 36,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Switch(value: source.enabled, onChanged: onToggle),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
     return GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -1113,7 +1083,7 @@ class _SourceTile extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 17,
+                    fontSize: LumeTypography.sectionTitleSize,
                     fontWeight: FontWeight.w600,
                     color: LumeTheme.textPrimary,
                   ),
@@ -1135,8 +1105,8 @@ class _SourceTile extends StatelessWidget {
                           : source.version,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                        color: LumeTheme.muted,
+                        fontSize: LumeTypography.descriptionSize,
+                        color: LumeTheme.descriptionColor,
                       ),
                     ),
                     if (SourceContentRating.isAdult(source.id, source.name))
@@ -1146,7 +1116,7 @@ class _SourceTile extends StatelessWidget {
                         '已停用',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           color: _disabledColor,
                         ),
                       ),
@@ -1156,7 +1126,7 @@ class _SourceTile extends StatelessWidget {
                         '已失效（连错 ${source.failureCount} 次）',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           color: _disabledColor,
                         ),
                       ),
@@ -1166,7 +1136,7 @@ class _SourceTile extends StatelessWidget {
                         source.group,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           color: _accentColor,
                         ),
                       ),
@@ -1176,7 +1146,7 @@ class _SourceTile extends StatelessWidget {
                         '订阅',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           color: _accentColor,
                         ),
                       ),
@@ -1186,7 +1156,19 @@ class _SourceTile extends StatelessWidget {
                         '网络已自定义',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
+                          color: _accentColor,
+                        ),
+                      ),
+                    ],
+                    // 换过网址（选了非主站镜像 / 填了自定义域名）：列表上标一句，
+                    // 否则「列表为空」时用户不会想到自己去过另一个域名。
+                    if (source.hasMirrorOverride) ...<Widget>[
+                      Text(
+                        '换网址',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: LumeTypography.descriptionSize,
                           color: _accentColor,
                         ),
                       ),
@@ -1196,7 +1178,7 @@ class _SourceTile extends StatelessWidget {
                         testResult!.status.label,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           color: switch (testResult!.status) {
                             SourceTestStatus.ok => _okColor,
                             SourceTestStatus.empty => _disabledColor,
@@ -1330,8 +1312,8 @@ class _GroupDialogState extends State<_GroupDialog> {
             '留空保存即取消分组。',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
-              color: LumeTheme.muted,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
             ),
           ),
           const SizedBox(height: 10),
@@ -1351,8 +1333,8 @@ class _GroupDialogState extends State<_GroupDialog> {
               '已有分组',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
-                fontSize: 13,
-                color: LumeTheme.muted,
+                fontSize: LumeTypography.descriptionSize,
+                color: LumeTheme.descriptionColor,
               ),
             ),
             const SizedBox(height: 6),

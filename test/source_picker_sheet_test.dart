@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/core/session/privacy_settings.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_preferences.dart';
 import 'package:lume_box/core/source/source_picker_groups.dart';
@@ -17,6 +18,18 @@ import 'package:lume_box/features/settings/content_visibility_page.dart';
 
 import 'support/fake_source_manager.dart';
 
+import 'package:lume_box/shared/widgets/source_icon.dart';
+
+/// 模拟真实长按：按住超过 LongPress 阈值再拖到目标卡片上松开。
+Future<void> longPressDrag(WidgetTester tester, Finder from, Finder to) async {
+  final gesture = await tester.startGesture(tester.getCenter(from));
+  await tester.pump(const Duration(milliseconds: 700));
+  await gesture.moveTo(tester.getCenter(to));
+  await tester.pump(const Duration(milliseconds: 100));
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 void main() {
   late Directory root;
   setUp(() async {
@@ -26,7 +39,12 @@ void main() {
           const MethodChannel('plugins.flutter.io/path_provider'),
           (_) async => root.path,
         );
-    for (final section in [Section.novel, Section.comic, Section.video]) {
+    for (final section in [
+      Section.novel,
+      Section.comic,
+      Section.video,
+      Section.cat,
+    ]) {
       await ReadingLibrary.open(section);
     }
     await SourceContentVisibility.instance.boot(
@@ -77,6 +95,8 @@ void main() {
 
   for (final section in [Section.novel, Section.comic, Section.video]) {
     testWidgets('${section.label} 抽屉两列、独立操作菜单，浏览只选择目标源', (tester) async {
+      ReadingLibrary.find(section)!
+          .setSetting('source.picker.columns', 'false');
       final groups = SourcePickerGroups.forSection(section);
       await SourcePreferences(pickerGroup: groups.last.$1).save(section, 'b');
       final manager = FakeSourceManager(
@@ -99,12 +119,43 @@ void main() {
       );
       String? selected;
       await showBar(tester, section, manager, (value) => selected = value);
-      expect(find.text(groups.first.$2), findsOneWidget);
-      expect(find.text(groups.last.$2), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('picker-group-${groups.first.$1}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('picker-group-${groups.last.$1}')),
+        findsOneWidget,
+      );
       expect(find.text('停用源'), findsNothing);
+      expect(find.byTooltip('切换为单列'), findsNothing);
+      expect(find.byTooltip('切换为双列'), findsNothing);
+      expect(find.byType(Scrollbar), findsNothing);
+      expect(find.byType(GridView), findsNothing);
+      expect(
+        find.byKey(const ValueKey('picker-category-columns')),
+        findsOneWidget,
+      );
+      expect(find.byType(SourceIcon), findsNWidgets(2));
+      for (final icon in tester.widgetList<SourceIcon>(
+        find.byType(SourceIcon),
+      )) {
+        expect(icon.size, 36);
+        expect(icon.radius, 8);
+        expect(icon.section, section);
+        expect(icon.sourceId, isNotEmpty);
+      }
+
       final a = find.byKey(const ValueKey('picker-source-a'));
       final b = find.byKey(const ValueKey('picker-source-b'));
+      expect(tester.getSize(b).height, 64);
+      expect(tester.getSize(a).height, 64);
+      final icon = tester.getSize(find.byKey(const ValueKey('picker-icon-a')));
+      expect((icon.width, icon.height), (36, 36));
+      final more = tester.getRect(find.byKey(const ValueKey('picker-more-a')));
+      expect(tester.getRect(a).right - more.right, 8);
       expect(tester.getTopLeft(a).dx, lessThan(tester.getTopLeft(b).dx));
+      expect(tester.getTopLeft(a).dy, tester.getTopLeft(b).dy);
       await tester.tap(find.byKey(const ValueKey('picker-more-b')));
       await tester.pumpAndSettle();
       for (final label in ['置顶此源', '源设置', '浏览', '测试连通性', '更新订阅源']) {
@@ -118,7 +169,211 @@ void main() {
       expect(find.byType(SourcePickerSheet), findsNothing);
     });
   }
-  testWidgets('长按源可设置分类并保存；单列与搜索可用', (tester) async {
+  testWidgets('猫源极简卡片：名称居中、长按拖拽、左滑菜单、点击选中', (tester) async {
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'c1',
+          name: '猫源站点甲',
+          version: '1.0.0',
+          enabled: true,
+        ),
+        SourceDescriptor(
+          id: 'c2',
+          name: '猫源站点乙',
+          version: '1.0.0',
+          enabled: true,
+        ),
+      ],
+    );
+    String? selected;
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: FilledButton(
+                onPressed: () async {
+                  selected = await showSourcePicker(
+                    context: context,
+                    section: Section.cat,
+                    sources: manager.sources,
+                    currentId: 'c1',
+                    manager: manager,
+                  );
+                },
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    final card = find.byKey(const ValueKey('picker-source-c1'));
+    final second = find.byKey(const ValueKey('picker-source-c2'));
+    expect(tester.getSize(card).height, 64);
+    // 默认单列：卡片铺满 390 - 32 = 358。
+    expect(tester.getSize(card).width, 358);
+    expect(find.byType(SourceIcon), findsNothing);
+    expect(find.byKey(const ValueKey('picker-more-c1')), findsNothing);
+    expect(find.byKey(const ValueKey('picker-drag-c1')), findsOneWidget);
+    expect(find.text('猫源站点甲'), findsOneWidget);
+    expect(find.text('1.0.0'), findsNothing);
+    expect(find.text('点击选择源，长按拖动排序，左滑打开设置/删除'), findsOneWidget);
+    // 单列：名称水平、垂直都居中。
+    expect(
+      tester.getCenter(find.text('猫源站点甲')).dx,
+      closeTo(tester.getCenter(card).dx, 1),
+    );
+    expect(
+      tester.getCenter(find.text('猫源站点甲')).dy,
+      closeTo(tester.getCenter(card).dy, 1),
+    );
+
+    // 单列左滑：露出设置 / 删除，删除走确认框。
+    final closedX = tester.getTopLeft(card).dx;
+    await tester.drag(card, const Offset(-90, 0));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(card).dx, lessThan(closedX));
+    expect(find.text('设置').hitTestable(), findsOneWidget);
+    expect(find.text('删除').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('删除').hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.text('删除源'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+
+    // 单列长按拖拽：把 c1 拖到 c2 之后。
+    await longPressDrag(tester, card, second);
+    expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(card).dy));
+
+    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，名称仍然居中。
+    await tester.tap(find.byTooltip('切换为双列'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(card).width, 174);
+    expect(tester.getSize(second).width, 174);
+    // 单列拖动后 c2 在前，双列里应落在左侧。
+    expect(tester.getTopLeft(second).dx, lessThan(tester.getTopLeft(card).dx));
+    expect(tester.getTopLeft(second).dy, tester.getTopLeft(card).dy);
+    expect(
+      tester.getCenter(find.text('猫源站点乙')).dx,
+      closeTo(tester.getCenter(second).dx, 1),
+    );
+    expect(
+      tester.getCenter(find.text('猫源站点乙')).dy,
+      closeTo(tester.getCenter(second).dy, 1),
+    );
+
+    // 双列左滑同样可用。
+    final closedDoubleX = tester.getTopLeft(card).dx;
+    await tester.drag(card, const Offset(-80, 0));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(card).dx, lessThan(closedDoubleX));
+    expect(find.text('设置').hitTestable(), findsOneWidget);
+    // 收起的起点必须落在卡片露出的前缘（滑开后中间已被操作区占据）。
+    final slot = tester.getTopLeft(
+      find.byKey(const ValueKey('picker-drag-c1')),
+    );
+    await tester.dragFrom(slot + const Offset(24, 32), const Offset(140, 0));
+    await tester.pumpAndSettle();
+
+    // 双列里同样支持长按拖动：把右侧的 c1 拖回左侧。
+    await longPressDrag(tester, card, second);
+    expect(tester.getTopLeft(card).dx, lessThan(tester.getTopLeft(second).dx));
+
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(selected, 'c1');
+  });
+  testWidgets('小说/漫画/视频：长按拖动排序仍然生效', (tester) async {
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'v1',
+          name: '视频源甲',
+          version: '1.0.0',
+          enabled: true,
+        ),
+        SourceDescriptor(
+          id: 'v2',
+          name: '视频源乙',
+          version: '1.0.0',
+          enabled: true,
+        ),
+      ],
+    );
+    await showBar(tester, Section.video, manager, (_) {});
+    final first = find.byKey(const ValueKey('picker-source-v1'));
+    final second = find.byKey(const ValueKey('picker-source-v2'));
+    expect(
+      tester.getTopLeft(second).dy,
+      greaterThan(tester.getTopLeft(first).dy),
+    );
+    await longPressDrag(tester, first, second);
+    expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
+  });
+  testWidgets('固定 64 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
+    await SourcePreferences(pinned: true).save(Section.video, 'plain');
+    await tester.runAsync(() => PrivacySettings.instance.setShowAdult(true));
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'plain',
+          name: '普通源',
+          version: '1.0.0',
+          enabled: true,
+        ),
+        SourceDescriptor(
+          id: 'adult',
+          name: '成人内容示例源',
+          version: '1.0.0',
+          enabled: true,
+        ),
+      ],
+    );
+    tester.view.physicalSize = const Size(320, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: FilledButton(
+                onPressed: () => showSourcePicker(
+                  context: context,
+                  section: Section.video,
+                  sources: manager.sources,
+                  currentId: 'adult',
+                  manager: manager,
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SourcePickerSheet), findsOneWidget);
+    for (final id in ['plain', 'adult']) {
+      expect(
+        tester.getSize(find.byKey(ValueKey('picker-source-$id'))).height,
+        64,
+      );
+    }
+    expect(find.text('18'), findsOneWidget);
+    expect(find.byIcon(Icons.push_pin), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() => PrivacySettings.instance.setShowAdult(false));
+  });
+  testWidgets('长按源可设置分类并保存；固定双栏与搜索可用', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
         SourceDescriptor(id: 'a', name: '甲源', version: '1', enabled: true),
@@ -137,23 +392,59 @@ void main() {
     expect(
       tester.getTopLeft(find.byKey(const ValueKey('picker-source-b'))).dx,
       greaterThan(
-        tester.getTopLeft(find.byKey(const ValueKey('picker-source-a'))).dx,
+        tester.getBottomLeft(find.byKey(const ValueKey('picker-source-a'))).dx,
       ),
     );
-    await tester.tap(find.byTooltip('切换为单列'));
-    await tester.pumpAndSettle();
-    expect(
-      tester.getTopLeft(find.byKey(const ValueKey('picker-source-b'))).dx,
-      tester.getTopLeft(find.byKey(const ValueKey('picker-source-a'))).dx,
-    );
+    expect(find.byTooltip('切换为单列'), findsNothing);
+    expect(find.byTooltip('切换为双列'), findsNothing);
     await tester.enterText(find.byType(TextField), '乙');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('picker-source-a')), findsNothing);
     expect(find.byKey(const ValueKey('picker-source-b')), findsOneWidget);
-    expect(
-      ReadingLibrary.find(Section.novel)!.setting('source.picker.columns'),
-      'false',
+  });
+  testWidgets('分类左右独立：组内纵向排列，搜索保留分类位置', (tester) async {
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'v1',
+          name: '视频甲',
+          version: '1',
+          enabled: true,
+          group: '视频',
+        ),
+        SourceDescriptor(
+          id: 'm1',
+          name: '影视甲',
+          version: '1',
+          enabled: true,
+          group: '影视',
+        ),
+        SourceDescriptor(
+          id: 'v2',
+          name: '视频乙',
+          version: '1',
+          enabled: true,
+          group: '视频',
+        ),
+      ],
     );
+    await showBar(tester, Section.video, manager, (_) {});
+    final first = find.byKey(const ValueKey('picker-source-v1'));
+    final second = find.byKey(const ValueKey('picker-source-v2'));
+    final movie = find.byKey(const ValueKey('picker-source-m1'));
+    expect(tester.getTopLeft(first).dx, tester.getTopLeft(second).dx);
+    expect(
+      tester.getTopLeft(second).dy,
+      greaterThan(tester.getBottomLeft(first).dy),
+    );
+    expect(tester.getTopLeft(movie).dx - tester.getTopRight(first).dx, 10);
+    expect(tester.getTopLeft(movie).dy, tester.getTopLeft(first).dy);
+    await tester.enterText(find.byType(TextField), '影视甲');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('picker-group-video')), findsOneWidget);
+    expect(find.text('暂无匹配的源'), findsOneWidget);
+    expect(find.byKey(const ValueKey('picker-group-movie')), findsOneWidget);
+    expect(find.byType(SourceIcon), findsOneWidget);
   });
   testWidgets('隐藏仅影响抽屉，聚合搜索保留全部站点', (tester) async {
     final manager = FakeSourceManager(

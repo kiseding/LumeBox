@@ -1,3 +1,4 @@
+import '../../shared/widgets/drawer_geometry.dart';
 import '../video/tmdb_artwork.dart';
 import '../../shared/widgets/missing_cover.dart';
 
@@ -232,7 +233,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
   }
 
   Future<void> pickEpisode() async {
-    final selected = await showModalBottomSheet<SourceChapter>(
+    final selected = await showLumeBottomSheet<SourceChapter>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -320,7 +321,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 29,
+                    fontSize: LumeTypography.displayMediumSize,
                     fontWeight: FontWeight.w700,
                     color: LumeTheme.textPrimary,
                   ),
@@ -330,7 +331,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                   widget.source.name,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                    fontSize: LumeTypography.bodySize,
                     color: LumeTheme.muted,
                   ),
                 ),
@@ -344,7 +345,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: LumeTheme.textPrimary,
-                        fontSize: 14,
+                        fontSize: LumeTypography.bodySize,
                       ),
                     ),
                   ),
@@ -355,7 +356,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                       detail!.subtitle!,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                        fontSize: LumeTypography.bodySize,
                         color: LumeTheme.muted,
                       ),
                     ),
@@ -411,7 +412,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: LumeTypography.titleSize,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -501,7 +502,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: LumeTypography.descriptionSize,
                           fontWeight: chapter.id == lastChapterId
                               ? FontWeight.w700
                               : FontWeight.w600,
@@ -530,7 +531,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
         const SizedBox(height: 24),
         const Text(
           '简介',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: LumeTypography.sectionTitleSize,
+          ),
         ),
         const SizedBox(height: 10),
         Text(
@@ -571,7 +575,10 @@ class _CatDetailPageState extends State<CatDetailPage> {
         const SizedBox(height: 20),
         const Text(
           '演职人员',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: LumeTypography.sectionTitleSize,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -798,7 +805,7 @@ class _CatEpisodePickerState extends State<CatEpisodePicker> {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: SizedBox(
-      height: MediaQuery.sizeOf(context).height * .75,
+      height: DrawerGeometry.height(context),
       child: Column(
         children: [
           Padding(
@@ -807,7 +814,10 @@ class _CatEpisodePickerState extends State<CatEpisodePicker> {
               children: [
                 const Text(
                   '选集',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 19),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: LumeTypography.pageTitleSize,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -875,7 +885,7 @@ class _CatEpisodePickerState extends State<CatEpisodePicker> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 15,
+                      fontSize: LumeTypography.titleSize,
                     ),
                   ),
                   trailing: const Icon(Icons.play_circle_outline),

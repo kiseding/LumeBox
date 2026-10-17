@@ -1,4 +1,4 @@
-import '../../shared/widgets/module_glass_surface.dart';
+import '../../shared/widgets/module_glass_scope.dart';
 
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
@@ -33,6 +33,7 @@ import '../video/video_page.dart';
 import 'section_preloader.dart';
 import 'shell_dock.dart';
 import '../../core/source/source_subscription_sync.dart';
+import '../../shared/widgets/dock_handle_button.dart';
 
 /// 主导航：五个页签（小说 / 漫画 / 视频 / 猫源 / 设置）。
 ///
@@ -90,6 +91,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 当前页签的**标识**（不是下标：顺序会变、页签会隐藏）。
   String _activeId = _pageCatalog.first.id;
   bool _scrollCollapsed = false;
+
+  /// 收起悬浮球上的水平拖动累计距离：向右滑超过阈值就展开 Dock。
+  double _handleDrag = 0;
   Timer? _backgroundWarmTimer;
   Timer? _subscriptionTimer;
   int _seenSubscriptionChanges = 0;
@@ -98,16 +102,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _backgroundWarming = false;
 
   // 手机导航条使用完整安全区避让；玻璃胶囊内只摆图标与文字。
-  static const double _dockHeight = 56;
+  static const double _dockHeight = 60;
   static const double _dockMargin = 16;
   static const double _dockInnerPadding = 6;
   static const double _dockBottomMargin = 0;
   static const double _dockSpacing = 8;
 
+  /// 胶囊与系统手势条之间再留的呼吸距离。
+  static const double _dockSafeGap = 8;
+
   static double dockMarginFor(double availableWidth) => _dockMargin;
   static double dockContentInset(BuildContext context) => 0;
   static double dockBottomOffset(BuildContext context) =>
-      (MediaQuery.viewPaddingOf(context).bottom - 8).clamp(0, 120).toDouble() +
+      (MediaQuery.viewPaddingOf(context).bottom + _dockSafeGap)
+          .clamp(0, 128)
+          .toDouble() +
       _dockBottomMargin;
 
   /// 页签目录：标识 + 展示文案 + 两个图标 + 页面构造。
@@ -547,14 +556,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       bottomNavigationBar: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) => AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: animation,
-              alignment: Alignment.centerLeft,
-              child: child,
-            ),
+          duration: const Duration(milliseconds: 240),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          // 从左侧滑出/收回，而不是点一下突然闪现。
+          transitionBuilder: (child, animation) => SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(-0.25, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: FadeTransition(opacity: animation, child: child),
           ),
           child:
               _scrollCollapsed &&
@@ -562,17 +573,31 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   MediaQuery.viewInsetsOf(context).bottom == 0
               ? Padding(
                   padding: EdgeInsets.only(
-                    left: 16,
+                    left: 8,
                     bottom: dockBottomOffset(context),
                   ),
                   child: Align(
                     heightFactor: 1,
                     alignment: Alignment.centerLeft,
-                    child: IconButton.filledTonal(
-                      key: AppShell.dockKey,
-                      tooltip: '展开导航',
-                      onPressed: () => setState(() => _scrollCollapsed = false),
-                      icon: const Icon(Icons.menu_rounded),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onHorizontalDragStart: (_) => _handleDrag = 0,
+                      onHorizontalDragUpdate: (details) =>
+                          _handleDrag += details.delta.dx,
+                      onHorizontalDragEnd: (details) {
+                        final velocity = details.primaryVelocity ?? 0;
+                        if (_handleDrag > 24 || velocity > 160) {
+                          setState(() => _scrollCollapsed = false);
+                        }
+                        _handleDrag = 0;
+                      },
+                      child: DockHandleButton(
+                        key: AppShell.dockKey,
+                        style: _shellSettings.handleStyle,
+                        opacity: .86,
+                        onPressed: () =>
+                            setState(() => _scrollCollapsed = false),
+                      ),
                     ),
                   ),
                 )
@@ -747,85 +772,54 @@ class _DockBar extends StatelessWidget {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                        child: ModuleGlassSurface(
-                          module: GlassModule.fromId(activeId),
-                          part: GlassPart.dock,
-                          legacy: BackdropFilter(
-                            filter: ImageFilter.blur(
-                              sigmaX: FloatingModules.instance
-                                  .style(FloatingModule.dock)
-                                  .blur,
-                              sigmaY: FloatingModules.instance
-                                  .style(FloatingModule.dock)
-                                  .blur,
-                            ),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: LumeTheme.glass.withValues(
-                                  alpha: FloatingModules.instance
-                                      .style(FloatingModule.dock)
-                                      .opacity,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  capsuleHeight / 2,
-                                ),
-                                border: Border.all(color: LumeTheme.hairline),
-                              ),
-                              child: SizedBox(
-                                height: capsuleHeight,
-                                child: Padding(
-                                  // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                                  // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                                  padding: EdgeInsets.only(
-                                    bottom: contentInset,
-                                  ),
-                                  // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                                  // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal:
-                                          _AppShellState._dockInnerPadding,
-                                    ),
-                                    child: Row(
-                                      children: <Widget>[
-                                        for (final tab in tabs)
-                                          Expanded(
-                                            child: _DockItem(
-                                              tab: tab,
-                                              selected: tab.id == activeId,
-                                              onTap: () => onSelect(tab.id),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: FloatingModules.instance
+                                .style(FloatingModule.dock)
+                                .blur,
+                            sigmaY: FloatingModules.instance
+                                .style(FloatingModule.dock)
+                                .blur,
                           ),
-                          child: SizedBox(
-                            height: capsuleHeight,
-                            child: Padding(
-                              // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                              // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                              padding: EdgeInsets.only(bottom: contentInset),
-                              // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                              // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: LumeTheme.glass.withValues(
+                                alpha: FloatingModules.instance
+                                    .style(FloatingModule.dock)
+                                    .opacity,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                capsuleHeight / 2,
+                              ),
+                              border: Border.all(color: LumeTheme.hairline),
+                            ),
+                            child: SizedBox(
+                              height: capsuleHeight,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: _AppShellState._dockInnerPadding,
-                                ),
-                                child: Row(
-                                  children: <Widget>[
-                                    for (final tab in tabs)
-                                      Expanded(
-                                        child: _DockItem(
-                                          tab: tab,
-                                          selected: tab.id == activeId,
-                                          onTap: () => onSelect(tab.id),
+                                // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                                // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                                padding: EdgeInsets.only(bottom: contentInset),
+                                // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                                // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal:
+                                        _AppShellState._dockInnerPadding,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: <Widget>[
+                                      for (final tab in tabs)
+                                        Expanded(
+                                          child: _DockItem(
+                                            tab: tab,
+                                            selected: tab.id == activeId,
+                                            onTap: () => onSelect(tab.id),
+                                          ),
                                         ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -861,37 +855,43 @@ class _DockItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          if (selected)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: LumeTheme.accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 2,
+      // 60 高的胶囊里再留 8 上下；Column 居中后图标/文字上下各有约 10 的呼吸空间。
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
+          children: <Widget>[
+            if (selected)
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: LumeTheme.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(tab.selectedIcon, size: 20, color: color),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 1,
+                  ),
+                  child: Icon(tab.selectedIcon, size: 20, color: color),
+                ),
+              )
+            else
+              Icon(tab.icon, size: 20, color: color),
+            const SizedBox(height: 4),
+            Text(
+              tab.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: LumeTypography.captionSize,
+                height: 1.2,
+                fontWeight: FontWeight.w600,
+                color: color,
               ),
-            )
-          else
-            Icon(tab.icon, size: 20, color: color),
-          const SizedBox(height: 3),
-          Text(
-            tab.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
-              color: color,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,3 +1,5 @@
+import '../../shared/widgets/column_list.dart';
+import '../../shared/widgets/drawer_geometry.dart';
 import '../../shared/widgets/source_update_badge.dart';
 import '../../core/reading/browse_layout.dart';
 import '../../core/session/privacy_settings.dart';
@@ -391,43 +393,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       );
       if (mounted) changed();
     },
-    child: service.siteColumns == 1
-        ? child
-        : Material(
-            color: child.selected
-                ? Color.alphaBlend(
-                    LumeTheme.accent.withValues(alpha: .18),
-                    LumeTheme.surfaceAlt,
-                  )
-                : LumeTheme.surfaceAlt,
-            elevation: 2,
-            shadowColor: LumeTheme.cardShadow.first.color,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: LumeTheme.hairline),
-            ),
-            child: InkWell(
-              onTap: child.onTap,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        child.leading!,
-                        const Spacer(),
-                        child.trailing!,
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(child: child.title!),
-                  ],
-                ),
-              ),
-            ),
-          ),
+    child: child,
   );
 
   Future<void> sitePicker() async {
@@ -463,7 +429,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       return rows;
     }
 
-    final selected = await showModalBottomSheet<Object>(
+    final selected = await showLumeBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
@@ -471,184 +437,186 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
           listenable: service,
           builder: (context, _) => SafeArea(
             child: SizedBox(
-              height: MediaQuery.sizeOf(context).height * .7,
-              child: ListView(
-                children: [
-                  ListTile(
-                    title: const Text('选择站点'),
-                    trailing: SegmentedButton<int>(
-                      segments: [
-                        for (final count in [1, 2, 3])
-                          ButtonSegment(
-                            value: count,
-                            label: Text(count == 1 ? '排列' : '$count列网格'),
-                          ),
-                      ],
-                      selected: {service.siteColumns},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (values) =>
-                          unawaited(service.setSiteColumns(values.first)),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: TextField(
-                      onChanged: (value) =>
-                          pickerSetState(() => pickerQuery = value),
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: '搜索站点或订阅',
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: sourceGroup ?? '__all__',
-                      items: [
-                        const DropdownMenuItem(
-                          value: '__all__',
-                          child: Text('总分组（全部）'),
-                        ),
-                        for (final record in service.subscriptions.where(
-                          (record) => record.enabled,
-                        ))
-                          DropdownMenuItem(
-                            value: record.id,
-                            child: Text(record.name),
-                          ),
-                      ],
-                      onChanged: (value) => pickerSetState(
-                        () => sourceGroup = value == '__all__' ? null : value,
-                      ),
-                    ),
-                  ),
-                  for (final record in service.subscriptions.where(
-                    (s) =>
-                        s.enabled &&
-                        (sourceGroup == null || sourceGroup == s.id),
-                  )) ...[
+              height: DrawerGeometry.height(context),
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context)
+                    .copyWith(scrollbars: false),
+                child: ListView(
+                  physics: const BouncingScrollPhysics(),
+                  children: [
                     ListTile(
-                      title: Text(record.name),
-                      subtitle: const Text('加载或刷新包内站点'),
-                      trailing: const Icon(Icons.refresh),
-                      onTap: () => Navigator.pop(context, record),
-                    ),
-                    GridView.count(
-                      crossAxisCount: service.siteColumns,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      mainAxisExtent: service.siteColumns == 1 ? 68 : 140,
-                      children: [
-                        for (final site in choices(record))
-                          _reorderSite(
-                            record,
-                            site,
-                            () => pickerSetState(() {}),
-                            ListTile(
-                              dense: true,
-                              minLeadingWidth: 24,
-                              horizontalTitleGap: 8,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                              ),
-                              leading: SourceIcon(
-                                name: site.name,
-                                siteUrl: site.siteUrl,
-                                siteIcon: site.iconUrl,
-                                iconUrl: SourcePreferences.read(
-                                  Section.cat,
-                                  site.id,
-                                ).iconUrl,
-                                size: 28,
-                                section: Section.cat,
-                                sourceId: site.id,
-                              ),
-                              trailing: IconButton(
-                                tooltip: '站点设置',
-                                icon: const Icon(Icons.more_vert, size: 18),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 28,
-                                  height: 32,
-                                ),
-                                onPressed: () async {
-                                  await Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => SourcePreferencesPage(
-                                        section: Section.cat,
-                                        sourceId: site.id,
-                                        name: site.name,
-                                        siteUrl: site.siteUrl,
-                                        showChapterOrder:
-                                            site.kind == 'novel' ||
-                                            site.kind == 'comic',
-                                        onNetwork: () async {
-                                          final url = await service
-                                              .configurationUrl(record);
-                                          if (!context.mounted) return;
-                                          await Navigator.push(
-                                            context,
-                                            MaterialPageRoute<void>(
-                                              builder: (_) =>
-                                                  CatWebPage(url: url),
-                                            ),
-                                          );
-                                          await service.refreshSites(record);
-                                        },
-                                      ),
-                                    ),
-                                  );
-                                  if (context.mounted) pickerSetState(() {});
-                                },
-                              ),
-                              title: Text.rich(
-                                TextSpan(
-                                  children: [
-                                    TextSpan(text: site.name),
-                                    if (SourceContentRating.isAdult(
-                                          site.key,
-                                          site.name,
-                                        ) ||
-                                        SourceContentRating.isAdult(
-                                          record.id,
-                                          record.name,
-                                        ))
-                                      const WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: SourceRatingBadge(),
-                                      ),
-                                  ],
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: SourceUpdateBadge(
-                                section: Section.cat,
-                                sourceId: site.id,
-                              ),
-                              selected:
-                                  site.id ==
-                                  (source?.site.id ?? service.selectedSiteId),
-                              selectedTileColor: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: .1),
-                              onTap: () => Navigator.pop(context, site),
+                      title: const Text('选择站点'),
+                      trailing: SegmentedButton<int>(
+                        segments: [
+                          for (final count in [1, 2])
+                            ButtonSegment(
+                              value: count,
+                              label: Text(count == 1 ? '单列列表' : '双列列表'),
                             ),
+                        ],
+                        selected: {service.siteColumns.clamp(1, 2)},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (values) =>
+                            unawaited(service.setSiteColumns(values.first)),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        onChanged: (value) =>
+                            pickerSetState(() => pickerQuery = value),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: '搜索站点或订阅',
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: sourceGroup ?? '__all__',
+                        items: [
+                          const DropdownMenuItem(
+                            value: '__all__',
+                            child: Text('总分组（全部）'),
                           ),
-                      ],
+                          for (final record in service.subscriptions.where(
+                            (record) => record.enabled,
+                          ))
+                            DropdownMenuItem(
+                              value: record.id,
+                              child: Text(record.name),
+                            ),
+                        ],
+                        onChanged: (value) => pickerSetState(
+                          () => sourceGroup = value == '__all__' ? null : value,
+                        ),
+                      ),
+                    ),
+                    for (final record in service.subscriptions.where(
+                      (s) =>
+                          s.enabled &&
+                          (sourceGroup == null || sourceGroup == s.id),
+                    )) ...[
+                      ListTile(
+                        title: Text(
+                          record.name,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        subtitle: const Text('加载或刷新包内站点'),
+                        trailing: const Icon(Icons.refresh),
+                        onTap: () => Navigator.pop(context, record),
+                      ),
+                      CatGroupedSourceList(
+                        columns: service.siteColumns.clamp(1, 2),
+                        sites: choices(record),
+                        itemBuilder: (context, site) => _reorderSite(
+                          record,
+                          site,
+                          () => pickerSetState(() {}),
+                          ListTile(
+                            dense: true,
+                            minLeadingWidth: 24,
+                            horizontalTitleGap: 8,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                            ),
+                            leading: SourceIcon(
+                              name: site.name,
+                              siteUrl: site.siteUrl,
+                              siteIcon: site.iconUrl,
+                              iconUrl: SourcePreferences.read(
+                                Section.cat,
+                                site.id,
+                              ).iconUrl,
+                              size: 28,
+                              section: Section.cat,
+                              sourceId: site.id,
+                            ),
+                            trailing: IconButton(
+                              tooltip: '站点设置',
+                              icon: const Icon(Icons.more_vert, size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 28,
+                                height: 32,
+                              ),
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => SourcePreferencesPage(
+                                      section: Section.cat,
+                                      sourceId: site.id,
+                                      name: site.name,
+                                      siteUrl: site.siteUrl,
+                                      showChapterOrder:
+                                          site.kind == 'novel' ||
+                                          site.kind == 'comic',
+                                      onNetwork: () async {
+                                        final url = await service
+                                            .configurationUrl(record);
+                                        if (!context.mounted) return;
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                CatWebPage(url: url),
+                                          ),
+                                        );
+                                        await service.refreshSites(record);
+                                      },
+                                    ),
+                                  ),
+                                );
+                                if (context.mounted) pickerSetState(() {});
+                              },
+                            ),
+                            title: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(text: site.name),
+                                  if (SourceContentRating.isAdult(
+                                        site.key,
+                                        site.name,
+                                      ) ||
+                                      SourceContentRating.isAdult(
+                                        record.id,
+                                        record.name,
+                                      ))
+                                    const WidgetSpan(
+                                      alignment: PlaceholderAlignment.middle,
+                                      child: SourceRatingBadge(),
+                                    ),
+                                ],
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: SourceUpdateBadge(
+                              section: Section.cat,
+                              sourceId: site.id,
+                            ),
+                            selected:
+                                site.id ==
+                                (source?.site.id ?? service.selectedSiteId),
+                            selectedTileColor: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: .1),
+                            onTap: () => Navigator.pop(context, site),
+                          ),
+                        ),
+                      ),
+                    ],
+                    ListTile(
+                      leading: const Icon(Icons.add),
+                      title: const Text('猫源配置中心'),
+                      onTap: () => Navigator.pop(context, 'subscriptions'),
                     ),
                   ],
-                  ListTile(
-                    leading: const Icon(Icons.add),
-                    title: const Text('猫源配置中心'),
-                    onTap: () => Navigator.pop(context, 'subscriptions'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -753,7 +721,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     List<Map<String, dynamic>> records() => favorites
         ? service.favoriteItems
         : service.history.where(service.collectionAllowed).toList();
-    final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+    final chosen = await showLumeBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
@@ -839,7 +807,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
             enabled: !favorites,
             child: SafeArea(
               child: SizedBox(
-                height: MediaQuery.sizeOf(context).height * .7,
+                height: DrawerGeometry.height(context),
                 child: Column(
                   children: [
                     ListTile(
@@ -1056,7 +1024,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 13,
+                                      fontSize: LumeTypography.descriptionSize,
                                     ),
                                   ),
                                 ],
@@ -1118,7 +1086,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 14,
+          fontSize: LumeTypography.bodySize,
           fontWeight: selected ? FontWeight.w600 : FontWeight.w600,
         ),
       ),
@@ -1181,7 +1149,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 Text(
                                   '猫源',
                                   style: TextStyle(
-                                    fontSize: 17,
+                                    fontSize: LumeTypography.sectionTitleSize,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1242,7 +1210,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                         '选择站点'),
                           textAlign: TextAlign.left,
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: LumeTypography.titleSize,
                             fontWeight: FontWeight.w600,
                             color: LumeTheme.textPrimary,
                           ),
@@ -1357,6 +1325,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     final item = items[index];
     if (_layout == BrowseLayoutMode.list || _layout == BrowseLayoutMode.list2) {
       return CompactSourceItemTile(
+        uniformList: true,
+        columns: _layout.columns,
         item: item,
         pipeline: pipeline,
         onTap: () => openItem(item),
@@ -1371,7 +1341,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: LumeTheme.textPrimary,
-          fontSize: 13,
+          fontSize: LumeTypography.descriptionSize,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1478,14 +1448,29 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                     ? SliverList.separated(
                         itemCount: items.length,
                         itemBuilder: browseItem,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        separatorBuilder: (_, _) => const Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: Color(0xFFE5E5EA),
+                        ),
                       )
                     : SliverGrid(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: _layout.columns,
                           childAspectRatio: _layout.tileAspectRatio,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
+                          mainAxisExtent: _layout == BrowseLayoutMode.list2
+                              ? 152 *
+                                    (MediaQuery.textScalerOf(context)
+                                                .scale(14) /
+                                            14)
+                                        .clamp(1.0, 3.0)
+                              : null,
+                          crossAxisSpacing: _layout == BrowseLayoutMode.list2
+                              ? 10
+                              : 12,
+                          mainAxisSpacing: _layout == BrowseLayoutMode.list2
+                              ? 10
+                              : 12,
                         ),
                         delegate: SliverChildBuilderDelegate(
                           browseItem,
@@ -1504,5 +1489,90 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         ),
       ),
     ),
+  );
+}
+
+/// One continuous cat-site panel. Kinds do not create headings or scroll lanes.
+/// The caller retains subscription controls and owns the only scroll view.
+class CatGroupedSourceList extends StatelessWidget {
+  const CatGroupedSourceList({
+    super.key,
+    required this.columns,
+    required this.sites,
+    required this.itemBuilder,
+  });
+  final int columns;
+  final List<CatSite> sites;
+  final Widget Function(BuildContext, CatSite) itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget card(CatSite site) => Material(
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF303034)
+          : const Color(0xFFF7F8FA),
+      borderRadius: BorderRadius.circular(8),
+      child: ListTileTheme.merge(
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+        horizontalTitleGap: 6,
+        minLeadingWidth: 24,
+        minVerticalPadding: 2,
+        minTileHeight: 44,
+        visualDensity: const VisualDensity(vertical: -2),
+        child: itemBuilder(context, site),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < sites.length; i += columns.clamp(1, 2))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: card(sites[i])),
+                  if (columns > 1) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: i + 1 < sites.length
+                          ? card(sites[i + 1])
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class CatSourceList extends StatelessWidget {
+  const CatSourceList({
+    super.key,
+    required this.columns,
+    required this.children,
+    required this.shrinkWrap,
+    required this.physics,
+    required this.padding,
+  });
+  final int columns;
+  final List<Widget> children;
+  final bool shrinkWrap;
+  final ScrollPhysics physics;
+  final EdgeInsetsGeometry padding;
+  @override
+  Widget build(BuildContext context) => ColumnList(
+    columns: columns,
+    itemCount: children.length,
+    itemBuilder: (_, index) => children[index],
+    padding: padding,
+    shrinkWrap: shrinkWrap,
+    physics: physics,
   );
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
@@ -79,6 +80,8 @@ class TabBarSettingsPage extends StatelessWidget {
           const _SettingsHiddenNotice(),
         ],
         const SizedBox(height: 12),
+        _buildHandleStyles(context),
+        const SizedBox(height: 12),
         _buildFooter(context),
       ],
     );
@@ -103,7 +106,7 @@ class TabBarSettingsPage extends StatelessWidget {
           Text(
             '当前显示 $visibleCount 个页签',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: LumeTypography.titleSize,
               fontWeight: FontWeight.w600,
               color: LumeTheme.textPrimary,
             ),
@@ -113,12 +116,54 @@ class TabBarSettingsPage extends StatelessWidget {
             '拖动手柄调整顺序，开关控制显示与隐藏。改动立即生效，不用重启 App。'
             '至少要保留 1 个页签，否则底部导航就空了。',
             style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
               height: 1.5,
-              color: LumeTheme.muted,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHandleStyles(BuildContext context) {
+    final selected = _controller.handleStyle;
+    return GlassCard(
+      radius: 14,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '收起悬浮球',
+            style: TextStyle(
+              fontSize: LumeTypography.titleSize,
+              fontWeight: FontWeight.w600,
+              color: LumeTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '导航栏滚动收起时，左下角悬浮球的样式。点一下立即生效；'
+            '不用时会半透明，向右滑动或点击都能展开导航。',
+            style: TextStyle(
+              fontWeight: FontWeight.w400,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (final style in DockHandleStyle.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _HandleStyleOption(
+                style: style,
+                selected: style == selected,
+                onTap: () => _controller.setHandleStyle(style),
+              ),
+            ),
         ],
       ),
     );
@@ -134,8 +179,9 @@ class TabBarSettingsPage extends StatelessWidget {
           Text(
             '说明',
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontSize: LumeTypography.bodySize,
+              fontWeight: FontWeight.w400,
+              height: 1.5,
               color: LumeTheme.textPrimary,
             ),
           ),
@@ -146,10 +192,10 @@ class TabBarSettingsPage extends StatelessWidget {
             '· 桌面端（Windows / macOS）用的是左侧栏，顺序跟随这里的设置；\n'
             '· 隐藏「设置」后，左下角会出现一个小的设置按钮，点它回来改回这里。',
             style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              height: 1.6,
-              color: LumeTheme.muted,
+              fontWeight: FontWeight.w400,
+              fontSize: LumeTypography.descriptionSize,
+              color: LumeTheme.descriptionColor,
+              height: 1.5,
             ),
           ),
           const SizedBox(height: 12),
@@ -218,18 +264,19 @@ class _TabTile extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.textPrimary,
                     ),
                   ),
                   if (isLastVisible) ...<Widget>[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       '最后一个显示的页签，不能关掉',
                       style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        fontSize: LumeTypography.descriptionSize,
+                        height: 1.5,
                         color: LumeTheme.warning,
                       ),
                     ),
@@ -270,14 +317,97 @@ class _SettingsHiddenNotice extends StatelessWidget {
               '为了避免再也进不来本页，屏幕左下角会出现一个小的设置按钮，'
               '点它就能回到设置（以及本页）。',
               style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+                fontWeight: FontWeight.w400,
+                fontSize: LumeTypography.descriptionSize,
+                color: LumeTheme.descriptionColor,
                 height: 1.5,
-                color: LumeTheme.muted,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 「收起悬浮球」样式选项：左边一个真实可点的预览球，右边文案 + 选中勾。
+class _HandleStyleOption extends StatelessWidget {
+  const _HandleStyleOption({
+    required this.style,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final DockHandleStyle style;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = LumeTheme.accent;
+    return Material(
+      color: selected ? accent.withValues(alpha: .08) : LumeTheme.surfaceAlt,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: ValueKey('dock-handle-style-${style.id}'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [accent.withValues(alpha: .22), LumeTheme.base],
+                  ),
+                ),
+                child: Center(
+                  child: DockHandleButton(
+                    style: style,
+                    size: 46,
+                    onPressed: onTap,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      style.label,
+                      style: TextStyle(
+                        fontSize: LumeTypography.bodySize,
+                        fontWeight: FontWeight.w600,
+                        color: LumeTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      style.description,
+                      style: TextStyle(
+                        fontSize: LumeTypography.descriptionSize,
+                        color: LumeTheme.muted,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                size: 20,
+                color: selected ? accent : LumeTheme.hairline,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

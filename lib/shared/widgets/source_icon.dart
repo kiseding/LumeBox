@@ -19,6 +19,7 @@ class SourceIcon extends StatefulWidget {
     this.iconUrl = '',
     this.siteIcon = '',
     this.size = 40,
+    this.radius = 12,
     this.section,
     this.sourceId,
     this.favicon,
@@ -26,6 +27,9 @@ class SourceIcon extends StatefulWidget {
 
   final String name, siteUrl, iconUrl, siteIcon;
   final double size;
+
+  /// 圆角半径；列表卡片按 iOS 尺寸传 8。
+  final double radius;
 
   /// 这个图标属于哪个板块的哪个源；给了它就带上该源验证过的会话去取图标
   /// （Cloudflare 站不带会话只会拿到 403）。
@@ -41,6 +45,7 @@ class SourceIcon extends StatefulWidget {
 
 class _SourceIconState extends State<SourceIcon> {
   Uint8List? _bytes;
+  int _loadGeneration = 0;
 
   SourceFavicon get _resolver => widget.favicon ?? SourceFavicon.instance;
 
@@ -56,6 +61,7 @@ class _SourceIconState extends State<SourceIcon> {
     if (oldWidget.siteUrl != widget.siteUrl ||
         oldWidget.iconUrl != widget.iconUrl ||
         oldWidget.siteIcon != widget.siteIcon ||
+        oldWidget.section != widget.section ||
         oldWidget.sourceId != widget.sourceId ||
         oldWidget.favicon != widget.favicon) {
       _bytes = null;
@@ -64,6 +70,7 @@ class _SourceIconState extends State<SourceIcon> {
   }
 
   void _load() {
+    final generation = ++_loadGeneration;
     final explicit = <String>[
       if (widget.iconUrl.trim().isNotEmpty) widget.iconUrl.trim(),
       if (widget.siteIcon.trim().isNotEmpty) widget.siteIcon.trim(),
@@ -78,19 +85,21 @@ class _SourceIconState extends State<SourceIcon> {
           sourceId: widget.sourceId,
         )
         .then((bytes) {
-          if (!mounted) return;
+          if (!mounted || generation != _loadGeneration) return;
           setState(() => _bytes = bytes);
         })
         .catchError((Object _) {
           // 解析器自己已经吞掉了「取不到」；这里只防意外异常把列表带崩。
-          if (mounted) setState(() => _bytes = null);
+          if (mounted && generation == _loadGeneration) {
+            setState(() => _bytes = null);
+          }
         });
   }
 
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
-    final radius = BorderRadius.circular(12);
+    final radius = BorderRadius.circular(widget.radius);
     final fallback = _monogram(radius);
     return SizedBox(
       width: widget.size,

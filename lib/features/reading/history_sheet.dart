@@ -1,3 +1,4 @@
+import '../../shared/widgets/column_list.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import 'favorite_folder_dialogs.dart';
 
@@ -31,7 +32,7 @@ Future<void> showReadingHistorySheet({
     return;
   }
   if (!context.mounted) return;
-  return showModalBottomSheet<void>(
+  return showLumeBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
@@ -219,235 +220,8 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
         height: DrawerGeometry.height(context),
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          child: ModuleGlassSurface(
-            module: GlassModule.fromId(widget.section.id),
-            part: GlassPart.panels,
-            legacy: DecoratedBox(
-              decoration: LumeTheme.background,
-              child: SafeArea(
-                top: false,
-                child: SizedBox(
-                  height: double.infinity,
-                  child: Column(
-                    children: [
-                      ListTile(
-                        title: Text('${widget.section.label} · $title'),
-                        subtitle: Text('${items.length} 条 · 最近在前'),
-                        trailing: IconButton(
-                          tooltip: '关闭',
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (favorites) ...[
-                            IconButton(
-                              tooltip: '管理收藏夹',
-                              icon: const Icon(
-                                Icons.create_new_folder_outlined,
-                              ),
-                              onPressed: manageFolders,
-                            ),
-                            IconButton(
-                              tooltip: '检查收藏更新',
-                              icon: checkingUpdates
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : Badge(
-                                      isLabelVisible: widget.library.shelf().any(
-                                        (item) =>
-                                            widget.library.setting(
-                                              'favorite.updated.${item.itemId}',
-                                            ) ==
-                                            'true',
-                                      ),
-                                      child: const Icon(
-                                        Icons.notifications_outlined,
-                                      ),
-                                    ),
-                              onPressed: checkingUpdates ? null : checkUpdates,
-                            ),
-                          ],
-                          IconButton(
-                            tooltip: '搜索记录',
-                            icon: const Icon(Icons.search),
-                            onPressed: () =>
-                                setState(() => showSearch = !showSearch),
-                          ),
-                          if (!favorites) ...[
-                            IconButton(
-                              tooltip: '历史记录锁',
-                              icon: Icon(
-                                (widget.library.setting(
-                                              HistoryPrivacy.lockKey,
-                                            ) ??
-                                            '')
-                                        .isEmpty
-                                    ? Icons.lock_open
-                                    : Icons.lock,
-                              ),
-                              onPressed: () async {
-                                await HistoryPrivacy.toggleLock(
-                                  context,
-                                  widget.library,
-                                );
-                                if (mounted) setState(() {});
-                              },
-                            ),
-                            IconButton(
-                              tooltip: '无痕模式',
-                              isSelected:
-                                  widget.library.setting('history.incognito') ==
-                                  'true',
-                              icon: const Icon(Icons.visibility_off_outlined),
-                              selectedIcon: const Icon(Icons.visibility_off),
-                              onPressed: () {
-                                widget.library.setSetting(
-                                  'history.incognito',
-                                  '${widget.library.setting('history.incognito') != 'true'}',
-                                );
-                                setState(() {});
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (favorites && folders.load().isNotEmpty)
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              ChoiceChip(
-                                label: const Text('全部收藏'),
-                                selected: folder == null,
-                                onSelected: (_) =>
-                                    setState(() => folder = null),
-                              ),
-                              for (final name in folders.load().keys)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8),
-                                  child: ChoiceChip(
-                                    label: Text(name),
-                                    selected: folder == name,
-                                    onSelected: (_) =>
-                                        setState(() => folder = name),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      if (showSearch)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: TextField(
-                            autofocus: true,
-                            decoration: const InputDecoration(hintText: '搜索标题'),
-                            onChanged: (value) => setState(() => query = value),
-                          ),
-                        ),
-                      Expanded(
-                        child: CollectionPanel(
-                          title: title,
-                          ids: items.map((e) => e.itemId).toList(),
-                          library: widget.library,
-                          storageKey:
-                              'collection.${favorites ? 'favorites' : 'history'}.layout',
-                          onDelete: (ids) async {
-                            for (final id in ids) {
-                              if (favorites) {
-                                widget.library.removeFavorite(id);
-                              } else {
-                                widget.library.removeHistory(id);
-                              }
-                            }
-                            setState(() {});
-                          },
-                          itemBuilder: (index) {
-                            final item = items[index];
-                            return GestureDetector(
-                              onLongPress: favorites
-                                  ? () => moveToFolder(item)
-                                  : null,
-                              child: HistoryEntryTile(
-                                pipeline: pipeline,
-                                updated:
-                                    widget.library.setting(
-                                      'favorite.updated.${item.itemId}',
-                                    ) ==
-                                    'true',
-                                item: item,
-                                progress: widget.library.progress(item.itemId),
-                                now: now,
-                                onResume: () => open(item),
-                              ),
-                            );
-                          },
-                          gridBuilder: (index) {
-                            final item = items[index];
-                            return GestureDetector(
-                              onLongPress: favorites
-                                  ? () => moveToFolder(item)
-                                  : null,
-                              child: GlassCard(
-                                onTap: () => open(item),
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: SizedBox(
-                                          width: double.infinity,
-                                          child: PosterCover(
-                                            pipeline: pipeline,
-                                            url: item.cover,
-                                            title: item.title,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      item.title,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    Text(
-                                      widget.library
-                                              .progress(item.itemId)
-                                              ?.describe() ??
-                                          '尚未开始',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          child: DecoratedBox(
+            decoration: LumeTheme.background,
             child: SafeArea(
               top: false,
               child: SizedBox(
@@ -640,7 +414,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 13,
+                                      fontSize: LumeTypography.descriptionSize,
                                     ),
                                   ),
                                   Text(
@@ -652,7 +426,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 12,
+                                      fontSize: LumeTypography.captionSize,
                                     ),
                                   ),
                                 ],
@@ -716,111 +490,149 @@ class HistoryEntryTile extends StatelessWidget {
     final saved = progress;
     final ratio = saved == null ? null : ratioOf(saved);
     final finished = saved != null && isFinished(saved);
-    return GlassCard(
-      radius: 14,
-      padding: EdgeInsets.fromLTRB(14, 12, onRemove == null ? 14 : 6, 12),
-      onTap: onResume,
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 54,
-            height: 76,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: CoverThumb(
-                pipeline: pipeline,
-                url: item.cover,
-                title: item.title,
-                width: 108,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 260;
+        Widget card({required Widget child}) {
+          if (!ColumnListItemScope.contains(context)) {
+            return GlassCard(
+              radius: 8,
+              padding: const EdgeInsets.all(12),
+              onTap: onResume,
+              child: child,
+            );
+          }
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onResume,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: child,
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    if (updated)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 6),
-                        child: Icon(Icons.fiber_new, size: 18),
-                      ),
-                    Expanded(
-                      child: Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      relativeTime(now, progress?.updatedAt ?? item.addedAt),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        color: LumeTheme.muted,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        progress?.describe() ?? '还没开始读',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          color: LumeTheme.muted,
-                        ),
-                      ),
-                    ),
-                    if (finished)
-                      Text(
-                        '已看完',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                          color: LumeTheme.muted,
-                        ),
-                      ),
-                  ],
-                ),
-                if (ratio != null) ...<Widget>[
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: ratio,
-                      minHeight: 3,
-                      backgroundColor: LumeTheme.fillStrong,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        finished ? LumeTheme.muted : LumeTheme.textPrimary,
-                      ),
-                    ),
+          );
+        }
+
+        return card(
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: compact ? 34 : 54,
+                height: compact ? 50 : 76,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: CoverThumb(
+                    pipeline: pipeline,
+                    url: item.cover,
+                    title: item.title,
+                    width: 108,
                   ),
-                ],
-              ],
-            ),
+                ),
+              ),
+              SizedBox(width: compact ? 6 : 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        if (updated)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 6),
+                            child: Icon(Icons.fiber_new, size: 18),
+                          ),
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: LumeTypography.titleSize,
+                              fontWeight: FontWeight.w600,
+                              color: LumeTheme.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (!compact)
+                          Text(
+                            relativeTime(
+                              now,
+                              progress?.updatedAt ?? item.addedAt,
+                            ),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: LumeTypography.captionSize,
+                              color: LumeTheme.muted,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (compact)
+                      Text(
+                        relativeTime(now, progress?.updatedAt ?? item.addedAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: LumeTypography.captionSize,
+                          color: LumeTheme.muted,
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            progress?.describe() ?? '还没开始读',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: LumeTypography.descriptionSize,
+                              color: LumeTheme.descriptionColor,
+                            ),
+                          ),
+                        ),
+                        if (finished)
+                          Text(
+                            '已看完',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: LumeTypography.captionSize,
+                              color: LumeTheme.muted,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (ratio != null) ...<Widget>[
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: ratio,
+                          minHeight: 3,
+                          backgroundColor: LumeTheme.fillStrong,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            finished ? LumeTheme.muted : LumeTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (onRemove != null)
+                IconButton(
+                  tooltip: '删除记录',
+                  icon: Icon(Icons.close, size: 18, color: LumeTheme.muted),
+                  onPressed: onRemove,
+                ),
+            ],
           ),
-          if (onRemove != null)
-            IconButton(
-              tooltip: '删除记录',
-              icon: Icon(Icons.close, size: 18, color: LumeTheme.muted),
-              onPressed: onRemove,
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 

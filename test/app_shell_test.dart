@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
 /// 主导航壳的验证：五页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
 /// 两种排布、切页签只保留当前页面，以及全屏页压栈时自动隐藏 Dock、出栈恢复。
@@ -86,6 +88,42 @@ void main() {
       context: pageContext,
       direction: ScrollDirection.forward,
     ).dispatch(pageContext);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('展开导航'), findsNothing);
+    expect(inDock('漫画'), findsOneWidget);
+  });
+
+  testWidgets('收起悬浮球按设置换样式，向右滑可展开 Dock', (tester) async {
+    ShellSettingsController.instance.apply(
+      const ShellSettings(handleStyle: DockHandleStyle.arrow),
+    );
+    addTearDown(ShellSettingsController.instance.resetForTesting);
+    await pumpShell(tester, desktopRail: false);
+    final pageContext = tester.element(find.byType(NovelPage));
+    final metrics = FixedScrollMetrics(
+      minScrollExtent: 0,
+      maxScrollExtent: 1000,
+      pixels: 200,
+      viewportDimension: 600,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: 1,
+    );
+    UserScrollNotification(
+      metrics: metrics,
+      context: pageContext,
+      direction: ScrollDirection.reverse,
+    ).dispatch(pageContext);
+    await tester.pumpAndSettle();
+
+    final handle = find.byType(DockHandleButton);
+    expect(handle, findsOneWidget);
+    expect(
+      tester.widget<DockHandleButton>(handle).style,
+      DockHandleStyle.arrow,
+    );
+
+    // 向右滑：展开 Dock，而不是点一下突然闪现。
+    await tester.drag(handle, const Offset(64, 0));
     await tester.pumpAndSettle();
     expect(find.byTooltip('展开导航'), findsNothing);
     expect(inDock('漫画'), findsOneWidget);

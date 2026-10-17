@@ -462,7 +462,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             child: Text(
               '分类',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: LumeTypography.bodySize,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textSecondary,
               ),
@@ -536,7 +536,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             style: const TextStyle(
               fontWeight: FontWeight.w600,
               color: Colors.white,
-              fontSize: 13,
+              fontSize: LumeTypography.descriptionSize,
             ),
           ),
           child: PosterCover(
@@ -562,7 +562,7 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
             child: Text(
               group.title,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: LumeTypography.bodySize,
                 fontWeight: FontWeight.w600,
                 color: LumeTheme.textSecondary,
               ),
@@ -593,21 +593,19 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
   Widget _buildBottomBar() {
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-        child: SizedBox(
-          height: 54,
-          child: Align(
-            alignment: Alignment.bottomCenter,
+      // 悬浮卡片：左右 16px 内收，底部至少 24px（有 Home Indicator 时按 34px）。
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: DecoratedBox(
+        decoration: LumeTheme.cardDecoration(radius: 18)
+            .copyWith(border: Border.all(color: LumeTheme.hairline)),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: SizedBox(
+            height: 48,
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                OutlinedButton(
-                  onPressed: _reset,
-                  child: Transform.translate(
-                    offset: const Offset(0, 10),
-                    child: const Text('重置'),
-                  ),
-                ),
+                OutlinedButton(onPressed: _reset, child: const Text('重置')),
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton(
@@ -618,13 +616,10 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
                         filters: _filters,
                       ),
                     ),
-                    child: Transform.translate(
-                      offset: const Offset(0, 10),
-                      child: Text(
-                        _filters.isEmpty
-                            ? '应用（不筛选）'
-                            : '应用筛选（${_filters.length} 组）',
-                      ),
+                    child: Text(
+                      _filters.isEmpty
+                          ? '应用（不筛选）'
+                          : '应用筛选（${_filters.length} 组）',
                     ),
                   ),
                 ),
