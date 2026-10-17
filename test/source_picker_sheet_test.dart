@@ -321,12 +321,12 @@ void main() {
     await longPressDrag(tester, card, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(card).dy));
 
-    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，高度同样 51；
+    // 切到双列：两列各 (390 - 32 - 8) / 2 = 175，高度同样 51；
     // 名称仍然居中。
     await tester.tap(find.byTooltip('切换为双列'));
     await tester.pumpAndSettle();
-    expect(tester.getSize(card).width, 174);
-    expect(tester.getSize(second).width, 174);
+    expect(tester.getSize(card).width, 175);
+    expect(tester.getSize(second).width, 175);
     expect(tester.getSize(card).height, 51);
     expect(tester.getSize(second).height, 51);
     // 单列拖动后 c2 在前，双列里应落在左侧。
@@ -509,7 +509,7 @@ void main() {
       tester.getTopLeft(second).dy,
       greaterThan(tester.getBottomLeft(first).dy),
     );
-    expect(tester.getTopLeft(movie).dx - tester.getTopRight(first).dx, 10);
+    expect(tester.getTopLeft(movie).dx - tester.getTopRight(first).dx, 8);
     expect(tester.getTopLeft(movie).dy, tester.getTopLeft(first).dy);
     await tester.enterText(find.byType(TextField), '影视甲');
     await tester.pumpAndSettle();

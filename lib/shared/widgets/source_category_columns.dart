@@ -61,7 +61,7 @@ class SourceCategoryColumns extends StatelessWidget {
                     ),
                   for (final child in group.children)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.only(bottom: 6),
                       child: child,
                     ),
                 ],
@@ -81,7 +81,7 @@ class SourceCategoryColumns extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: lane(0)),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(child: lane(1)),
           ],
         ),

@@ -1634,7 +1634,7 @@ class CatGroupedSourceList extends StatelessWidget {
                 children: [
                   Expanded(child: card(sites[i])),
                   if (columns > 1) ...[
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: i + 1 < sites.length
                           ? card(sites[i + 1])

@@ -561,13 +561,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: (entries.length + 1) ~/ 2,
           itemBuilder: (context, row) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.only(bottom: 6),
             child: SizedBox(
               height: SourceCardMetrics.height,
               child: Row(
                 children: [
                   Expanded(child: slot(row * 2)),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(child: slot(row * 2 + 1)),
                 ],
               ),
@@ -580,7 +580,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         physics: const NeverScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        separatorBuilder: (_, _) => const SizedBox(height: 6),
         itemBuilder: tile,
       );
     }
