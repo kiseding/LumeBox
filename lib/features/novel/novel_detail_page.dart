@@ -135,6 +135,15 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         _onShelf = widget.library.onShelf(widget.target.itemId);
         _progress = widget.library.novelProgress(widget.target.itemId);
       });
+      // 「查看详情」本身也是历史：只写 favorite = 0 的历史行。
+      widget.library.recordHistoryItem(
+        sourceId: widget.target.sourceId,
+        itemId: widget.target.itemId,
+        title: detail?.title ?? widget.target.title,
+        cover: detail?.cover ?? widget.target.cover,
+        subtitle: detail?.subtitle ?? widget.target.subtitle,
+        chapterCount: chapters.length,
+      );
       if (_mediaResource != null) return;
       if (_onShelf) {
         widget.library.syncChapters(widget.target.itemId, chapters.length);
@@ -214,7 +223,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   }) async {
     final source = _source;
     if (source == null || _chapters.isEmpty) return;
-    if (!_onShelf) _shelve(silent: true);
+    // 阅读不是收藏：这里不再 `_shelve(silent: true)`；阅读器只写历史行。
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NovelReaderPage(
@@ -229,6 +238,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       ),
     );
     if (!mounted) return;
+    widget.library.refresh();
     setState(() {
       _onShelf = widget.library.onShelf(widget.target.itemId);
       _progress = widget.library.novelProgress(widget.target.itemId);
@@ -251,7 +261,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   Future<void> _openCatalog() async {
     final source = _source;
     if (source == null || _chapters.isEmpty) return;
-    if (!_onShelf) _shelve(silent: true);
+    // 目录同样不是收藏：打开目录只留下历史。
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NovelCatalogPage(
@@ -264,6 +274,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       ),
     );
     if (!mounted) return;
+    widget.library.refresh();
     setState(() {
       _onShelf = widget.library.onShelf(widget.target.itemId);
       _progress = widget.library.novelProgress(widget.target.itemId);

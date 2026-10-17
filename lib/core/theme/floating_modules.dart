@@ -70,7 +70,7 @@ class FloatingStyle {
       opacity: read('opacity', .72, 0, 1),
       x: read('x', 0, -40, 40),
       y: read('y', 0, -40, 80),
-      blur: read('blur', 6, 0, 15),
+      blur: read('blur', 6, 0, 30),
     );
   }
 }
@@ -119,7 +119,7 @@ class FloatingModules extends ChangeNotifier {
   }
 
   void set(FloatingModule module, FloatingStyle value) {
-    value = value.copyWith(blur: value.blur.clamp(0, 15));
+    value = value.copyWith(blur: value.blur.clamp(0, 30));
     _styles[module] = module == FloatingModule.dock
         ? value.copyWith(y: value.y.clamp(-40, 20))
         : value;

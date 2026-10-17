@@ -219,6 +219,7 @@ class _VideoPageState extends State<VideoPage> {
           ),
         ),
       );
+      if (mounted) library.refresh();
     } finally {
       _detailRouteOpen = false;
     }

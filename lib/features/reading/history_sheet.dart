@@ -201,11 +201,12 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
   bool get favorites => widget.initialTab == HistoryDrawerTab.favorites;
   @override
   Widget build(BuildContext context) {
-    final entries = widget.library.continueReading(limit: 1000000);
+    // 历史走 history()（含「只看过详情、还没开始」的记录）；收藏走
+    // favorites()（固定 favorite = 1），两条查询不能混用。
     final items =
         (favorites
-                ? widget.library.shelf()
-                : entries.map((e) => e.item).toList())
+                ? widget.library.favorites()
+                : widget.library.history(limit: 1000000))
             .where(
               (item) =>
                   item.title.toLowerCase().contains(query.toLowerCase()) &&
@@ -479,7 +480,7 @@ class HistoryEntryTile extends StatelessWidget {
         Widget card({required Widget child}) {
           if (!ColumnListItemScope.contains(context)) {
             return GlassCard(
-              radius: 8,
+              radius: 10,
               padding: const EdgeInsets.all(12),
               onTap: onResume,
               child: child,
@@ -489,7 +490,7 @@ class HistoryEntryTile extends StatelessWidget {
             color: Colors.transparent,
             child: InkWell(
               onTap: onResume,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: child,
@@ -506,7 +507,7 @@ class HistoryEntryTile extends StatelessWidget {
                 width: compact ? 60 : 80,
                 height: compact ? 80 : 100,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                   child: CoverThumb(
                     pipeline: pipeline,
                     url: item.cover,
@@ -681,7 +682,7 @@ class HistoryGridTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -689,7 +690,7 @@ class HistoryGridTile extends StatelessWidget {
             Expanded(
               child: ClipRRect(
                 key: const ValueKey('history-grid-cover'),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
                 child: CoverThumb(
                   pipeline: pipeline,
                   url: item.cover,

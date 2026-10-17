@@ -94,12 +94,26 @@ void main() {
         : null;
   }
 
+  /// 网格卡片的每一层裁切都必须是统一封面圆角：去掉文字白底后，卡片和
+  /// 图片只要有一层还是直角，屏幕上下两角就会露出来。
+  void expectPosterCorners(WidgetTester tester) {
+    final card = find.byType(PosterCard).first;
+    final clips = tester.widgetList<ClipRRect>(
+      find.descendant(of: card, matching: find.byType(ClipRRect)),
+    );
+    expect(clips, isNotEmpty, reason: '网格卡片必须显式裁封面');
+    for (final clip in clips) {
+      expect(clip.borderRadius, kPosterCoverRadius);
+    }
+  }
+
   testWidgets('默认档：小说单列（无网格），漫画三列网格', (tester) async {
     await pumpExplore(tester, Section.novel, layout: ExploreLayout.list);
     expect(gridColumns(tester), 3, reason: '小说首页统一三列封面');
 
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3, reason: '漫画默认三列网格');
+    expectPosterCorners(tester);
   });
 
   testWidgets('布局菜单保留四档，四列五列已移除，当场生效', (tester) async {
@@ -139,6 +153,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(gridColumns(tester), 2);
       expect(find.byType(CompactSourceItemTile), findsWidgets);
+      final coverClips = tester.widgetList<ClipRRect>(
+        find.descendant(
+          of: find.byKey(const ValueKey('source-tile-cover')).first,
+          matching: find.byType(ClipRRect),
+        ),
+      );
+      expect(coverClips, isNotEmpty);
+      for (final clip in coverClips) {
+        expect(
+          clip.borderRadius,
+          kPosterCoverRadius,
+          reason: '${section.label}双列列表缩略图四角圆角',
+        );
+      }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     }
@@ -163,6 +191,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(gridColumns(tester), 2, reason: '选双列后应当场变成两列网格');
+    expectPosterCorners(tester);
     expect(
       BrowseLayoutSettings.instance.modeFor(Section.novel),
       BrowseLayoutMode.grid2,

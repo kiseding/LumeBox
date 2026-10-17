@@ -9,11 +9,13 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/features/shell/shell_dock_bar.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
 ///
@@ -151,20 +153,20 @@ void main() {
         'shadowOpacity': -1,
         'animationMs': 9999,
       });
-      expect(clamped.horizontalMargin, 40);
-      expect(clamped.height, 48);
-      expect(clamped.safeGap, -25, reason: '负留白允许压进安全区，最低 -25');
-      expect(clamped.borderOpacity, .8);
+      expect(clamped.horizontalMargin, 100);
+      expect(clamped.height, 40);
+      expect(clamped.safeGap, -50, reason: '负留白允许压进/越过安全区，最低 -50');
+      expect(clamped.borderOpacity, 1);
       expect(clamped.shadowOpacity, 0);
-      expect(clamped.animationMs, 400);
+      expect(clamped.animationMs, 2000);
       expect(clamped.animateSelection, isTrue, reason: '缺字段时动效默认开');
 
       final tall = DockAppearance.fromJson(<String, Object?>{
         'height': 999,
         'safeGap': 999,
       });
-      expect(tall.height, 90, reason: '高度上限放开到 90');
-      expect(tall.safeGap, 45, reason: '离底距离上限 45');
+      expect(tall.height, 150, reason: '高度上限放开到 150');
+      expect(tall.safeGap, 100, reason: '离底距离上限 100');
     });
 
     test('ShellSettings 往返带外观；旧配置缺字段回退默认；改页签不丢外观', () {
@@ -788,13 +790,84 @@ void main() {
       );
       expect(find.text('动效时长'), findsNothing);
 
-      // 高度滑块拖到最右端 → 90pt（上限已放开）。
+      // 高度滑块拖到最右端 → 150pt（上限已放开）。
       final height = find.byKey(const ValueKey('dock-appearance-height'));
       await centerInView(height);
       final rect = tester.getRect(height);
       await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
       await tester.pumpAndSettle();
-      expect(ShellSettingsController.instance.appearance.height, 90);
+      expect(ShellSettingsController.instance.appearance.height, 150);
+    });
+
+    testWidgets('外观滑块范围：白度/高光/阴影 0–100%，磨砂 0–30，间距 -50–100', (tester) async {
+      await pumpPage(tester);
+      await tester.scrollUntilVisible(
+        find.text('外观与材质'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      Slider slider(String key) =>
+          tester.widget<Slider>(find.byKey(ValueKey<String>(key)));
+
+      expect(slider('dock-appearance-opacity').min, 0);
+      expect(slider('dock-appearance-opacity').max, 1);
+      expect(slider('dock-appearance-blur').min, 0);
+      expect(slider('dock-appearance-blur').max, 30);
+      expect(slider('dock-appearance-border').min, 0);
+      expect(slider('dock-appearance-border').max, 1);
+      expect(slider('dock-appearance-shadow').min, 0);
+      expect(slider('dock-appearance-shadow').max, 1);
+      expect(slider('dock-appearance-margin').min, 0);
+      expect(slider('dock-appearance-margin').max, 100);
+      expect(slider('dock-appearance-height').min, 40);
+      expect(slider('dock-appearance-height').max, 150);
+      expect(slider('dock-appearance-gap').min, -50);
+      expect(slider('dock-appearance-gap').max, 100);
+      expect(slider('dock-appearance-duration').min, 100);
+      expect(slider('dock-appearance-duration').max, 2000);
+    });
+
+    testWidgets('极限外观值：预览与真实 Dock 都不溢出', (tester) async {
+      await pumpPage(tester);
+      await tester.scrollUntilVisible(
+        find.text('外观与材质'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      final modules = FloatingModules.instance;
+      addTearDown(() => modules.reset(FloatingModule.dock));
+      modules.set(
+        FloatingModule.dock,
+        modules.style(FloatingModule.dock).copyWith(opacity: 1, blur: 30),
+      );
+      await ShellSettingsController.instance.setAppearance(
+        const DockAppearance(
+          horizontalMargin: 100,
+          height: 150,
+          safeGap: -50,
+          borderOpacity: 1,
+          shadowOpacity: 1,
+          animationMs: 2000,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final preview = find.byKey(const ValueKey('dock-appearance-preview'));
+      expect(preview, findsOneWidget);
+      // 预览高度会随「150pt 高」一起长，给胶囊留出完整空间。
+      expect(tester.getSize(preview).height, greaterThan(200));
+      final previewDock = find.descendant(
+        of: preview,
+        matching: find.byType(ShellDockBar),
+      );
+      expect(previewDock, findsOneWidget);
+      expect(tester.getSize(previewDock).height, closeTo(150, .01));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('三种收起悬浮球可选：点击立即生效', (tester) async {

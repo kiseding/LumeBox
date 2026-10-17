@@ -167,8 +167,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _chapterIndex = _chapters.isEmpty
         ? 0
         : widget.initialChapterIndex.clamp(0, _chapters.length - 1);
-    // 进阅读器即入架：书架上要有这条记录，进度才有归属。
-    widget.library.shelve(
+    // 进阅读器只记历史，**不加入收藏**；收藏必须由用户手动点击。
+    // 历史行提供「继续阅读」所需的归属与元数据，favorite 保持 0。
+    widget.library.recordHistoryItem(
       sourceId: widget.target.sourceId,
       itemId: widget.target.itemId,
       title: widget.target.title,

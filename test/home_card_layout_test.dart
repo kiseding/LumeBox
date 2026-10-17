@@ -43,6 +43,13 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('source-tile-cover'))),
       const Size(80, 100),
     );
+    final coverClip = tester.widget<ClipRRect>(
+      find.descendant(
+        of: find.byKey(const ValueKey('source-tile-cover')),
+        matching: find.byType(ClipRRect),
+      ),
+    );
+    expect(coverClip.borderRadius, kPosterCoverRadius, reason: '单列缩略图四角圆角');
     expect(find.byKey(const ValueKey('source-tile-menu')), findsOneWidget);
     expect(find.text('评分 8.4 · 蓝光'), findsOneWidget);
     expect(find.text('2:25:00'), findsOneWidget);
@@ -67,6 +74,13 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('source-tile-cover'))),
       const Size(60, 80),
     );
+    final coverClip = tester.widget<ClipRRect>(
+      find.descendant(
+        of: find.byKey(const ValueKey('source-tile-cover')),
+        matching: find.byType(ClipRRect),
+      ),
+    );
+    expect(coverClip.borderRadius, kPosterCoverRadius, reason: '双列缩略图四角圆角');
     expect(find.byKey(const ValueKey('source-tile-menu')), findsNothing);
     expect(find.text('评分 8.4 · 蓝光'), findsOneWidget);
   });
@@ -85,5 +99,52 @@ void main() {
     final card = tester.widget<PosterCard>(find.byType(PosterCard));
     expect(card.footnoteBelow, isTrue, reason: '文字外置且不再铺白色底板');
     expect(find.text('仙逆剧场版 弑仙之战'), findsOneWidget);
+
+    // 去掉文字白底后，封面自己必须裁四角；卡片与封面的半径要一致。
+    final material = tester.widget<Material>(
+      find
+          .descendant(
+            of: find.byType(PosterCard),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(material.borderRadius, kPosterCoverRadius);
+    final clips = tester.widgetList<ClipRRect>(
+      find.descendant(
+        of: find.byType(PosterCard),
+        matching: find.byType(ClipRRect),
+      ),
+    );
+    expect(clips, isNotEmpty, reason: '外置标题卡片必须自己裁封面');
+    for (final clip in clips) {
+      expect(clip.borderRadius, kPosterCoverRadius);
+    }
+  });
+
+  testWidgets('外置标题卡片：非封面子组件也按同一半径裁切', (tester) async {
+    await pump(
+      tester,
+      SizedBox(
+        width: 112,
+        height: 182,
+        child: PosterCard(
+          footnoteBelow: true,
+          onTap: () {},
+          footnote: const Text('示例标题'),
+          child: const ColoredBox(color: Colors.orange),
+        ),
+      ),
+    );
+    final clips = tester.widgetList<ClipRRect>(
+      find.descendant(
+        of: find.byType(PosterCard),
+        matching: find.byType(ClipRRect),
+      ),
+    );
+    expect(clips, isNotEmpty);
+    for (final clip in clips) {
+      expect(clip.borderRadius, kPosterCoverRadius);
+    }
   });
 }

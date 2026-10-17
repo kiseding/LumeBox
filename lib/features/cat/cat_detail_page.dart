@@ -199,6 +199,8 @@ class _CatDetailPageState extends State<CatDetailPage> {
     } finally {
       if (prelaunch != null) unawaited(prelaunch.discard());
       if (mounted) {
+        // 播放器返回：进度已落库，主动通知历史抽屉重新取数。
+        widget.library.refresh();
         setState(() {
           playing = false;
           lastChapterId =

@@ -166,8 +166,13 @@ void main() {
     expect(progress!.chapterIndex, 0);
     expect(progress.charOffset, 0);
     expect(progress.chapterLength, greaterThan(0));
-    // 进阅读器即入架，书架要能看到这本书。
-    expect(library.onShelf(target.itemId), isTrue);
+    // 阅读不是收藏：只写历史行（favorite = 0），不能自动上书架。
+    expect(library.onShelf(target.itemId), isFalse);
+    expect(library.item(target.itemId), isNotNull, reason: '历史行必须建出来');
+    expect(
+      library.history().map((item) => item.itemId),
+      contains(target.itemId),
+    );
     expect(library.item(target.itemId)!.chapterCount, 3);
   });
 

@@ -4,11 +4,12 @@ import '../../core/theme/lume_theme.dart';
 
 /// 猫源专用极简卡片：没有左侧图标、没有右侧菜单，文字单行居中。
 ///
-/// 高度**写死 64**：双列时两列等宽，长名字（例如「日期:20261017」）只允许
-/// 省略号，不允许折行把卡片撑高。左右各留 16 的内边距，给省略号一点落点。
+/// 双列默认 64 高、单列 56 高：高度只由调用方按列数传入，长名字（例如
+/// 「日期:20261017」）只允许省略号，不允许折行把卡片撑高。左右各留 16 的
+/// 内边距，给省略号一点落点；上下由 [Center] 保持等距呼吸空间。
 ///
-/// 这是猫源独立的外观逻辑，不经过通用 `ListTile` / `ColumnList` 的默认配置，
-/// 因此其它板块的源列表不会被这里的尺寸与对齐方式影响。
+/// 1px 浅灰描边让纯白卡片从浅色抽屉背景中浮起来；选中态把描边换成淡紫，
+/// 同时铺一层极浅的主题色。其它板块的源列表不受这里的尺寸影响。
 class CatSiteTile extends StatelessWidget {
   const CatSiteTile({
     super.key,
@@ -16,10 +17,14 @@ class CatSiteTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.busy = false,
+    this.height = defaultHeight,
   });
 
-  /// 固定高度：所有猫源行（单列 / 双列）都用这一档。
-  static const double height = 64;
+  /// 未显式指定时的卡片高度（双列 / 通用来源列表）。
+  static const double defaultHeight = 60;
+
+  /// 单列列表更紧凑；双列保持 64 以得到接近 2.2 的宽高比。
+  final double height;
 
   final String label;
   final bool selected;
@@ -31,8 +36,17 @@ class CatSiteTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = dark ? LumeTheme.surfaceAlt : const Color(0xFFF7F8FA);
+    final cardColor = dark ? LumeTheme.surfaceAlt : LumeTheme.surface;
     final radius = BorderRadius.circular(8);
+    final borderColor = selected
+        ? LumeTheme.accent.withValues(alpha: .55)
+        : dark
+        ? Colors.white.withValues(alpha: .16)
+        : const Color(0xFFE5E5EA);
+    final shape = RoundedRectangleBorder(
+      borderRadius: radius,
+      side: BorderSide(color: borderColor, width: 1),
+    );
     return SizedBox(
       height: height,
       child: Material(
@@ -42,7 +56,8 @@ class CatSiteTile extends StatelessWidget {
                 cardColor,
               )
             : cardColor,
-        borderRadius: radius,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           borderRadius: radius,
           onTap: onTap,

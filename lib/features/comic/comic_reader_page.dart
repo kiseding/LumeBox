@@ -187,12 +187,13 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     _chapterIndex = widget.chapters.isEmpty
         ? 0
         : widget.initialChapterIndex.clamp(0, widget.chapters.length - 1);
-    // 平台守卫：无运行时平台不落任何副作用（入架 / 进度都属于「真的读过」）。
+    // 平台守卫：无运行时平台不落任何副作用（历史 / 进度都属于「真的读过」）。
     // `didChangeDependencies` 与 `build` 各拦了一道，这里也要拦——否则骨架
-    // 渲染出来了，书架却已经多了一条记录。
+    // 渲染出来了，历史却已经多了一条记录。
     if (!_runtimeAvailable) return;
-    // 进阅读器即入架：书架要有这一条，未读角标才有章节总数口径。
-    widget.library.shelve(
+    // 进阅读器只记历史，**不加入收藏**。书架要有这一条（未读角标才有章节
+    // 总数口径），但收藏必须由用户在详情页点心形 / 加入书架才会发生。
+    widget.library.recordHistoryItem(
       sourceId: widget.target.sourceId,
       itemId: widget.target.itemId,
       title: widget.target.title,

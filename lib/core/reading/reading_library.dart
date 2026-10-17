@@ -75,13 +75,48 @@ class ReadingLibrary {
 
   bool onShelf(String itemId) => _store.isFavorite(itemId);
 
+  /// 收藏列表（`favorite = 1`）。
+  ///
+  /// 收藏页、书架页**只能**走这里：历史行虽然也在 `library_item` 表里，但
+  /// `favorite = 0`，不能出现在收藏列表。查询条件在 [ReadingStore.shelf] 里
+  /// 固定为 `favorite = 1`，这里再留一个有语义的入口，避免调用方拿错查询。
+  List<LibraryItem> favorites() => shelf();
+
+  /// 历史列表：有进度的记录 + 只看过详情、还没开始读的记录。
+  ///
+  /// 与 [continueReading] 的区别只在「没有进度」的行：历史抽屉需要让
+  /// 「点进去看过」也留下记录；收藏页不读这个，收藏了但没读的条目仍只在
+  /// 收藏页出现（`favorite = 1` 且无进度 → 不算历史）。
+  List<LibraryItem> history({int limit = 500}) {
+    final items = <LibraryItem>[];
+    for (final item in _store.shelf(includeHistoryOnly: true)) {
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) ||
+          !MediaLibrary.instance.visibleAtOrigin(
+            section,
+            item.sourceId,
+            item.itemId,
+          )) {
+        continue;
+      }
+      final progress = _store.progress(item.itemId);
+      if (progress == null && _store.isFavorite(item.itemId)) continue;
+      items.add(item);
+      if (items.length >= limit) break;
+    }
+    return List<LibraryItem>.unmodifiable(items);
+  }
+
   void removeFavorite(String itemId) {
     _store.removeFavorite(itemId);
     _touch();
   }
 
   void removeHistory(String itemId) {
+    final wasFavorite = _store.isFavorite(itemId);
     _store.clearProgress(itemId);
+    // 只是历史行（没有收藏）时连元数据一起删掉；否则删了进度、条目还在，
+    // 下一次 history() 会把它当成「看过详情但没开始」继续显示。
+    if (!wasFavorite) _store.removeItem(itemId);
     _touch();
   }
 
@@ -115,10 +150,13 @@ class ReadingLibrary {
     return _store.item(itemId) ?? item;
   }
 
-  /// 记录播放 / 阅读所需的元数据，但**不加入收藏**。
+  /// 记录播放 / 阅读 / 查看详情所需的元数据，但**绝不加入收藏**。
   ///
-  /// 与 [shelve] 的唯一区别是收藏位：新行 favorite = 0，已有行保持不变。
-  /// 播放器落进度必须走这里——之前误用 [shelve]，每播一部就自动收藏一部。
+  /// 新行走 `favorite = 0`，已有行保留原收藏状态；收藏只能由用户点
+  /// [shelve]（心形 / 加入书架）触发。播放器、阅读器、四个板块的详情页都
+  /// 必须走这里，不能再误用 [shelve]。
+  ///
+  /// 无痕模式下不写历史；显式收藏仍由 [shelve] 负责，不受这里影响。
   void recordHistoryItem({
     required String sourceId,
     required String itemId,
@@ -127,6 +165,7 @@ class ReadingLibrary {
     String? subtitle,
     int chapterCount = 0,
   }) {
+    if (setting('history.incognito') == 'true') return;
     final existing = _store.item(itemId);
     final now = DateTime.now();
     _store.ensureHistoryItem(
@@ -147,6 +186,13 @@ class ReadingLibrary {
     );
     _touch();
   }
+
+  /// 从阅读器 / 播放器 / 详情页返回时主动通知一次。
+  ///
+  /// `saveProgress` / `recordHistoryItem` 已经会 `_touch`，但「详情页返回」
+  /// 这种没有新进度的路径也要让历史抽屉重新取数；调用方在 `await push`
+  /// 之后调它即可。
+  void refresh() => _touch();
 
   void unshelve(String itemId) {
     _store.removeItem(itemId);

@@ -164,7 +164,7 @@ void main() {
     expect(title.style?.fontSize, 15);
   });
 
-  testWidgets('漫画详情：点章节进阅读器，并把作品留在书架上', (tester) async {
+  testWidgets('漫画详情：点章节进阅读器，只写历史，不自动收藏', (tester) async {
     await pump(
       tester,
       ComicDetailPage(
@@ -175,11 +175,26 @@ void main() {
       ),
     );
 
+    // 只打开详情页也不该自动收藏；只留下 favorite = 0 的历史行。
+    expect(comicLibrary.onShelf('item-1'), isFalse);
+    expect(
+      comicLibrary.history().map((item) => item.itemId),
+      contains('item-1'),
+    );
+
     await tester.tap(find.text('第 2 章'));
     await tester.pumpAndSettle();
 
     expect(find.byType(ComicReaderPage), findsOneWidget);
-    expect(comicLibrary.onShelf('item-1'), isTrue);
+    expect(
+      comicLibrary.onShelf('item-1'),
+      isFalse,
+      reason: '阅读不是收藏，收藏只能由用户点「加入书架」',
+    );
+    expect(
+      comicLibrary.history().map((item) => item.itemId),
+      contains('item-1'),
+    );
     final progress = comicLibrary.comicProgress('item-1')!;
     expect(progress.chapterIndex, 1);
   });
@@ -197,11 +212,17 @@ void main() {
     expect(find.text('测试作品 item-1'), findsWidgets);
     expect(find.text('共 3 章'), findsOneWidget);
     expect(find.text('完整目录'), findsOneWidget);
+    expect(novelLibrary.onShelf('item-1'), isFalse, reason: '查看详情不是收藏');
+    expect(
+      novelLibrary.history().map((item) => item.itemId),
+      contains('item-1'),
+    );
 
     await tester.tap(find.text('完整目录'));
     await tester.pumpAndSettle();
     expect(find.byType(NovelCatalogPage), findsOneWidget);
     expect(find.text('第 1 章'), findsOneWidget);
+    expect(novelLibrary.onShelf('item-1'), isFalse, reason: '打开目录同样不是收藏');
   });
 
   testWidgets('小说目录页：倒序切换与点章进阅读器', (tester) async {
@@ -233,6 +254,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(NovelReaderPage), findsOneWidget);
     expect(novelLibrary.novelProgress('item-1')!.chapterIndex, 1);
+    expect(
+      novelLibrary.onShelf('item-1'),
+      isFalse,
+      reason: '阅读不是收藏，收藏只能由用户点「加入书架」',
+    );
+    expect(
+      novelLibrary.history().map((item) => item.itemId),
+      contains('item-1'),
+    );
   });
 
   testWidgets('小说目录页：搜索章节标题，只留命中项', (tester) async {

@@ -441,7 +441,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('暂无内容'), findsOneWidget);
 
+    // 只打开详情（还没播放）也写历史；抽屉开着时必须立刻出现。
     library.recordHistoryItem(sourceId: 's', itemId: 'live', title: '刚播完的片');
+    await tester.pump();
+    expect(
+      find.text('刚播完的片'),
+      findsOneWidget,
+      reason: '只看过详情也要立刻出现在历史里（监听库的 revision）',
+    );
+    expect(find.text('尚未开始'), findsOneWidget, reason: '没有进度时显示「尚未开始」，不是收藏');
+    expect(library.shelf(), isEmpty, reason: '历史行不能进收藏');
+
     library.saveProgress(
       VideoProgress(
         section: Section.video,
@@ -456,11 +466,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.text('刚播完的片'),
-      findsOneWidget,
-      reason: '抽屉开着时写入记录也必须立刻出现（监听库的 revision）',
-    );
+    expect(find.text('刚播完的片'), findsOneWidget, reason: '播放进度落库后历史抽屉仍要立刻刷新');
+    expect(find.text('尚未开始'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

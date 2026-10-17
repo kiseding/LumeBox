@@ -42,7 +42,7 @@ void main() {
     expect(clamped.opacity, 0);
     expect(clamped.x, 40);
     expect(clamped.y, -40);
-    expect(clamped.blur, 15);
+    expect(clamped.blur, 30);
     File('${root.path}/floating_modules.json').writeAsStringSync(
       jsonEncode({
         'home': {'opacity': .7, 'x': 8, 'y': 19, 'blur': 24},

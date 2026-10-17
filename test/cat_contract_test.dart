@@ -202,6 +202,23 @@ void main() {
     expect(service.favoriteItems.single['id'], 'two');
   });
 
+  test('猫源记住历史不会自动收藏；只有 toggleFavorite 才进收藏', () async {
+    final site = CatSite(
+      subscriptionId: 'history-only',
+      key: 'a',
+      name: 'A',
+      api: '/spider/a',
+    );
+    await service.remember(site, {'id': 'viewed', 'title': '只看过'});
+
+    expect(service.history.map((e) => e['id']), ['viewed']);
+    expect(service.favoriteItems, isEmpty, reason: '打开内容不是收藏');
+
+    await service.toggleFavorite(site, {'id': 'liked', 'title': '手点收藏'});
+    expect(service.favoriteItems.map((e) => e['id']), ['liked']);
+    expect(service.history.map((e) => e['id']), ['viewed']);
+  });
+
   test('记住最后选择的订阅与站点，正常重开精准恢复，不落到第一个订阅', () async {
     final first = await service.add(
       '第一',

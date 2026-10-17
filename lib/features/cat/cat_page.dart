@@ -549,6 +549,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                           final selected =
                               site.id ==
                               (source?.site.id ?? service.selectedSiteId);
+                          // 单列更紧凑（56），双列保持 64：配合 16pt 外边距，
+                          // 在 320pt 抽屉里得到约 2.2 的宽高比。
+                          final cardHeight = service.siteColumns > 1
+                              ? 64.0
+                              : 56.0;
                           // 猫源专用行：无左侧图标、无右侧三点、文字单行居中。
                           // 长按整行拖拽排序；左滑露出「设置」菜单。
                           return _reorderSite(
@@ -556,6 +561,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                             site,
                             () => pickerSetState(() {}),
                             SourceSwipeTile(
+                              height: cardHeight,
                               actions: <SourceSwipeAction>[
                                 SourceSwipeAction(
                                   label: '设置',
@@ -571,6 +577,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                                 ),
                               ],
                               child: CatSiteTile(
+                                height: cardHeight,
                                 label: site.name,
                                 selected: selected,
                                 onTap: () => Navigator.pop(context, site),
@@ -673,6 +680,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         context,
         MaterialPageRoute<void>(builder: (_) => detail),
       );
+      if (!mounted) return;
+      // 从详情/阅读/播放返回：猫源历史由 service 在打开时写入，阅读进度
+      // 由 lib 落库；两边都主动通知一次，列表无需切页签就会刷新。
+      lib.refresh();
+      setState(() {});
     } catch (failure) {
       toast('$failure');
     }
@@ -1495,9 +1507,9 @@ class CatGroupedSourceList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget card(CatSite site) => Material(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF303034)
-          : const Color(0xFFF7F8FA),
+      // 卡片底色与描边由 CatSiteTile 自己画：外层透明，避免在圆角处
+      // 露出一圈灰色底、把 1px 描边衬成两层。
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(8),
       child: ListTileTheme.merge(
         dense: true,
@@ -1511,7 +1523,9 @@ class CatGroupedSourceList extends StatelessWidget {
       ),
     );
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 28),
+      // 与上方「加载或刷新包内站点」的 ListTile 文本基线对齐（默认 16）；
+      // 之前 28 让卡片整体缩进 12，左右看起来空一大截。
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

@@ -9,6 +9,7 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/core/player/player_factory.dart';
@@ -256,7 +257,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final capsule = tester.getRect(dockCapsule());
-    expect(capsule.height, closeTo(90, .01), reason: '高度上限放开到 90');
+    expect(capsule.height, closeTo(90, .01), reason: '高度 90 档位仍然生效');
     expect(
       height - capsule.bottom,
       closeTo(bottomInset - 25, 0.01),
@@ -305,14 +306,14 @@ void main() {
     );
   });
 
-  testWidgets('切换页签时选中胶囊横向滑动，250ms easeOutBack 有回弹', (tester) async {
+  testWidgets('切换页签时水滴用弹簧滑过去，带轻微过冲', (tester) async {
     await pumpShell(tester);
 
     final pillFinder = find.descendant(
       of: find.byKey(AppShell.dockKey),
       matching: find.byKey(ShellDockBar.selectionPillKey),
     );
-    expect(pillFinder, findsOneWidget, reason: '选中胶囊必须是独立的一层');
+    expect(pillFinder, findsOneWidget, reason: '水滴必须是独立的一层');
 
     final before = tester.getRect(pillFinder);
     expect(before.width, greaterThan(0));
@@ -327,65 +328,229 @@ void main() {
 
     await tester.tap(comicTab());
     await tester.pump();
-    // 前 50ms：胶囊已经离开小说、但还没到漫画——是「滑过去」而不是硬闪。
-    await tester.pump(const Duration(milliseconds: 50));
+    // 前 20ms：水滴已经离开小说、但还没到漫画——是「滑过去」而不是硬闪。
+    await tester.pump(const Duration(milliseconds: 20));
     final moving = tester.getRect(pillFinder);
-    expect(moving.left, greaterThan(before.left), reason: '胶囊应开始向右滑动');
+    expect(moving.left, greaterThan(before.left), reason: '水滴应开始向右滑动');
     expect(
       moving.left,
       lessThan(before.left + 120),
-      reason: '50ms 时不该已经瞬移到目标槽位',
+      reason: '20ms 时不该已经瞬移到目标槽位',
     );
 
-    // 约 100ms：easeOutBack 的过冲把胶囊推过目标位置，再被表面张力拉回来。
-    await tester.pump(const Duration(milliseconds: 50));
-    final overshoot = tester.getRect(pillFinder);
+    // 采样一整段弹簧轨迹：SpringSimulation 会越过目标再被拉回。
+    final samples = <double>[];
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      samples.add(tester.getRect(pillFinder).left);
+    }
+    final peak = samples.reduce((a, b) => a > b ? a : b);
 
     await tester.pumpAndSettle();
     final after = tester.getRect(pillFinder);
-    expect(after.left, greaterThan(before.left), reason: '胶囊应停在漫画槽位');
-    expect(
-      overshoot.left,
-      greaterThan(after.left),
-      reason: 'easeOutBack 要轻微过冲，才有水滴回弹的果冻感',
-    );
-    expect(after.width, closeTo(before.width, .01), reason: '滑动时胶囊宽度不变');
+    expect(after.left, greaterThan(before.left), reason: '水滴应停在漫画槽位');
+    expect(peak, greaterThan(after.left + .5), reason: '弹簧要越过目标再回来，才有水滴回弹的果冻感');
+    expect(after.width, closeTo(before.width, .01), reason: '停稳后宽度回到基准');
     expect(after.height, closeTo(before.height, .01));
   });
 
-  testWidgets('动效时长滑块实时改到 Dock 的滑动层', (tester) async {
+  testWidgets('动效时长改的是弹簧软硬；关掉动效立即吸附', (tester) async {
     await pumpShell(tester);
 
-    AnimatedPositioned sliding() => tester.widget<AnimatedPositioned>(
-      find
-          .descendant(
-            of: find.byKey(AppShell.dockKey),
-            matching: find.byType(AnimatedPositioned),
-          )
-          .first,
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
     );
 
+    Finder novelTab() => find
+        .descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.text(Section.novel.label),
+        )
+        .first;
+    Finder comicTab() => find
+        .descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.text(Section.comic.label),
+        )
+        .first;
+
+    /// 固定看松手后 60ms 的行程比例：时长越短 → 弹簧越硬 → 走得越远。
+    Future<double> progressAfter60ms(int ms) async {
+      await ShellSettingsController.instance.setAppearance(
+        DockAppearance(animationMs: ms),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(novelTab());
+      await tester.pumpAndSettle();
+      final start = tester.getRect(pillFinder).left;
+
+      await tester.tap(comicTab());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final during = tester.getRect(pillFinder).left;
+      await tester.pumpAndSettle();
+      final end = tester.getRect(pillFinder).left;
+
+      expect(end, greaterThan(start), reason: '两槽之间必须有位移');
+      return (during - start) / (end - start);
+    }
+
+    final soft = await progressAfter60ms(400);
+    final stiff = await progressAfter60ms(150);
     expect(
-      sliding().duration,
-      const Duration(milliseconds: 250),
-      reason: '默认 250ms',
+      stiff,
+      greaterThan(soft + .1),
+      reason: '150ms 的弹簧应在同样 60ms 内走得更远（$stiff vs $soft）',
     );
 
-    await ShellSettingsController.instance.setAppearance(
-      const DockAppearance(animationMs: 400),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      sliding().duration,
-      const Duration(milliseconds: 400),
-      reason: '设置页把时长拉到 400ms，滑动层要跟着变',
-    );
-
+    // 关掉「点击弹跳动效」：同一帧就该在目标上，不再有补间。
     await ShellSettingsController.instance.setAppearance(
       const DockAppearance(animateSelection: false),
     );
     await tester.pumpAndSettle();
-    expect(sliding().duration, Duration.zero, reason: '关掉「点击弹跳动效」后立即切换');
+    await tester.tap(novelTab());
+    await tester.pumpAndSettle();
+    final start = tester.getRect(pillFinder).left;
+
+    await tester.tap(comicTab());
+    await tester.pump();
+    final immediate = tester.getRect(pillFinder).left;
+    await tester.pumpAndSettle();
+    final settled = tester.getRect(pillFinder).left;
+
+    expect(settled, greaterThan(start), reason: '仍应切到漫画槽位');
+    expect(immediate, closeTo(settled, .01), reason: '关掉动效后水滴应立即吸附，而不是从旧位置滑过去');
+  });
+
+  testWidgets('水平拖拽水滴：跟手、速度拉宽，松手吸附最近页签', (tester) async {
+    await pumpShell(tester);
+
+    final pillFinder = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.byKey(ShellDockBar.selectionPillKey),
+    );
+    final before = tester.getRect(pillFinder);
+
+    // 从当前水滴中心起手，快速往右拖两段（足够跨进漫画槽位）。
+    final gesture = await tester.startGesture(before.center);
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final dragging = tester.getRect(pillFinder);
+    expect(
+      dragging.center.dx,
+      greaterThan(before.center.dx + 20),
+      reason: '拖动时水滴中心要跟着手指走',
+    );
+    expect(
+      dragging.width,
+      greaterThan(before.width + 2),
+      reason: '滑动速度要像橡皮筋一样把水滴拉宽',
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    final settled = tester.getRect(pillFinder);
+    final comicCenter = tester.getCenter(
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.text(Section.comic.label),
+          )
+          .first,
+    );
+    expect(
+      settled.center.dx,
+      closeTo(comicCenter.dx, 1.5),
+      reason: '松手后应吸附到离手指最近的漫画页签中心',
+    );
+    expect(settled.width, closeTo(before.width, .5), reason: '吸附完成后水滴宽度回到基准值');
+  });
+
+  testWidgets('极限外观参数：150pt 高 / 100pt 留白 / -50pt 离底 / 30 磨砂不报错', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+    final modules = FloatingModules.instance;
+    addTearDown(() => modules.reset(FloatingModule.dock));
+    modules.set(
+      FloatingModule.dock,
+      modules.style(FloatingModule.dock).copyWith(opacity: 1, blur: 30),
+    );
+
+    const extreme = DockAppearance(
+      horizontalMargin: 100,
+      height: 150,
+      safeGap: -50,
+      borderOpacity: 1,
+      shadowOpacity: 1,
+      animationMs: 2000,
+    );
+    await ShellSettingsController.instance.setAppearance(extreme);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    var capsule = tester.getRect(dockCapsule());
+    expect(capsule.height, closeTo(150, .01));
+    expect(capsule.left, closeTo(100, .01));
+    expect(capsule.right, closeTo(width - 100, .01));
+    expect(
+      capsule.bottom,
+      closeTo(height + 16, .01),
+      reason: '离底 -50 = 34pt 安全区 - 50 = -16，胶囊要向屏幕外沉 16pt',
+    );
+
+    // 另一端：40pt 的紧凑下限 + 满留白。文案用 FittedBox 兜底，不能 overflow。
+    // 吸附验证用 -40（-50 时胶囊有 16pt 在屏幕外，点击点会落在屏幕外）。
+    await ShellSettingsController.instance.setAppearance(
+      extreme.copyWith(height: 40, safeGap: -40, animationMs: 2000),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: '40pt 高度不能 RenderFlex overflow',
+    );
+
+    capsule = tester.getRect(dockCapsule());
+    expect(capsule.height, closeTo(40, .01));
+    final item = tester.getRect(
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.byType(InkWell),
+          )
+          .first,
+    );
+    expect(item.height, closeTo(40, .01));
+
+    // 满量程弹簧仍然能吸附，且落定后没有异常。
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.text(Section.comic.label),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester
+          .getRect(
+            find.descendant(
+              of: find.byKey(AppShell.dockKey),
+              matching: find.byKey(ShellDockBar.selectionPillKey),
+            ),
+          )
+          .height,
+      closeTo(32, .01),
+      reason: '40pt 高减上下各 4pt，水滴高 32',
+    );
   });
 
   testWidgets('底栏容器更薄 + 圆角椭圆（只收容器，图标文字尺寸不变）', (tester) async {

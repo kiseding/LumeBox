@@ -130,7 +130,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static double dockContentInset(BuildContext context) => 0;
   static double dockBottomOffset(BuildContext context) =>
       (MediaQuery.viewPaddingOf(context).bottom + _dockSafeGap)
-          .clamp(0, 128)
+          // 负值 = 压进 / 越过系统安全区（-50 在 34pt 手势条机型上为 -16）；
+          // 正值最多抬到 134，给「离底部距离 100」留出完整范围。
+          .clamp(-80, 200)
           .toDouble() +
       _dockBottomMargin;
 
@@ -436,10 +438,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 固定留一大块底部空白，没滚到底时也空着（用户口径：改成动态边距）。
     final dockInset = rail
         ? 0.0
-        : dockBottomOffset(context) +
-              _dockHeight +
-              dockContentInset(context) +
-              _dockSpacing;
+        : (dockBottomOffset(context) +
+                  _dockHeight +
+                  dockContentInset(context) +
+                  _dockSpacing)
+              .clamp(0.0, double.infinity);
     return ShellDockScope(
       controller: _controller,
       dockInset: dockInset,

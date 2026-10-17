@@ -105,7 +105,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('猫源选择面板：极简居中、固定高度、单行省略、双列不折行、左滑菜单', (tester) async {
+  testWidgets('猫源选择面板：16pt 基线、56/64 高、1px 描边、居中与左滑菜单', (tester) async {
     await pumpPicker(tester);
 
     final tiles = find.byType(CatSiteTile);
@@ -113,7 +113,13 @@ void main() {
 
     for (final element in tiles.evaluate()) {
       final tile = find.byWidget(element.widget);
-      expect(tester.getSize(tile).height, 64, reason: '猫源卡片固定 64 高');
+      expect(tester.getSize(tile).height, 56, reason: '单列卡片 56 高');
+      final material = tester.widget<Material>(
+        find.descendant(of: tile, matching: find.byType(Material)).first,
+      );
+      final shape = material.shape! as RoundedRectangleBorder;
+      expect(shape.side.width, 1, reason: '卡片要有 1px 描边');
+      expect(shape.side.color, const Color(0xFFE5E5EA));
       expect(
         find.descendant(of: tile, matching: find.byType(SourceIcon)),
         findsNothing,
@@ -136,6 +142,15 @@ void main() {
       );
     }
 
+    // 最左侧卡片外边缘必须与「加载或刷新包内站点」的文本左基线对齐。
+    final subtitle = find.text('加载或刷新包内站点');
+    expect(subtitle, findsOneWidget);
+    expect(
+      tester.getTopLeft(tiles.first).dx,
+      closeTo(tester.getTopLeft(subtitle).dx, .01),
+      reason: '卡片不应比上方订阅文字更靠内',
+    );
+
     // 底下的板块页头部也可能显示同一个站点名；所有查找都限定在猫源卡片里。
     Finder tileText(String label) => find
         .descendant(of: find.byType(CatSiteTile), matching: find.text(label))
@@ -152,7 +167,8 @@ void main() {
                 .first,
           )
           .height,
-      64,
+      56,
+      reason: '单列卡片 56 高',
     );
 
     // 双列：两列同一行，长日期仍然单行。
@@ -171,6 +187,7 @@ void main() {
           )
           .height,
       64,
+      reason: '双列卡片 64 高（约 2.2 宽高比）',
     );
 
     // 左滑露出菜单；长按拖拽由 SourceDragTile 负责（布局测试另有用例）。
@@ -190,5 +207,34 @@ void main() {
     // 页面退出时可能还有未完成的入场动画/定时器。
     service.subscriptions.clear();
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('猫源卡片选中态：1px 淡紫描边', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 220,
+              child: CatSiteTile(label: '选中的站点', selected: true, onTap: () {}),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final material = tester.widget<Material>(
+      find
+          .descendant(
+            of: find.byType(CatSiteTile),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(shape.side.width, 1);
+    expect(shape.side.color, LumeTheme.accent.withValues(alpha: .55));
   });
 }

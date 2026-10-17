@@ -124,30 +124,36 @@ class DockAppearance {
   /// 与上一轮精修后的实际取值一致：默认即「当前这版外观」。
   static const DockAppearance defaults = DockAppearance();
 
-  /// 左右外边距（逻辑像素）。范围 16–40：再小就顶到屏幕边，再大五项会挤到
-  /// 点不准（320pt 宽屏上仍保 ≥44pt 的单项触达宽度）。
+  /// 左右外边距（逻辑像素）。范围 0–100。
+  ///
+  /// 0 = 贴屏幕边缘；大值会把 Dock 收窄。壳层按剩余宽度均分页签，宽度不够时
+  /// 文案走省略号、图标自动缩放，不会溢出。
   final double horizontalMargin;
 
-  /// 内容条高度（不含手势条避让）。范围 48–90。
+  /// 内容条高度（不含手势条避让）。范围 40–150。
+  ///
+  /// 40 是紧凑下限：图标槽与文案会自动缩放，不会出现 RenderFlex overflow。
   final double height;
 
-  /// 胶囊底边与系统安全区之间再留的距离。范围 -25–45。
+  /// 胶囊底边与系统安全区之间再留的距离。范围 -50–100。
   ///
-  /// 负值会把胶囊**压进安全区**（例如 -25 在 34pt 的 Home Indicator 机型上
-  /// 只剩 9pt 净空），用来满足「再低一点、更贴屏幕底边」的诉求；壳层仍会把
-  /// 最终偏移收敛到 0，不会把胶囊画到屏幕外。
+  /// 负值会把胶囊**压进安全区并继续下沉**（-50 在 34pt 的 Home Indicator 机型上
+  /// 会向屏幕外压 16pt）；正值把胶囊抬高。
   final double safeGap;
 
-  /// 玻璃边框（1px 白色高光）的不透明度。0 = 无边框。
+  /// 玻璃边框（1px 白色高光）的不透明度。范围 0–1。0 = 无边框。
   final double borderOpacity;
 
-  /// 胶囊投影的不透明度（黑色，blurRadius 20）。
+  /// 胶囊投影的不透明度（黑色，blurRadius 20）。范围 0–1。
   final double shadowOpacity;
 
   /// 切换页签时是否播放「水滴 / 果冻」过渡。
   final bool animateSelection;
 
-  /// 选中底座过渡时长（毫秒）。150–400。
+  /// 水滴吸附的弹簧时长（毫秒）。范围 100–2000。
+  ///
+  /// 不是固定补间时长：壳层用它换算 [SpringSimulation] 的刚度与阻尼——数值越大
+  /// 弹簧越软，吸附与回弹越慢。
   final int animationMs;
 
   DockAppearance copyWith({
@@ -189,14 +195,14 @@ class DockAppearance {
 
     final rawMs = json['animationMs'];
     return DockAppearance(
-      horizontalMargin: read('horizontalMargin', 24, 16, 40),
-      height: read('height', 54, 48, 90),
-      safeGap: read('safeGap', 4, -25, 45),
-      borderOpacity: read('borderOpacity', .4, 0, .8),
-      shadowOpacity: read('shadowOpacity', .05, 0, .15),
+      horizontalMargin: read('horizontalMargin', 24, 0, 100),
+      height: read('height', 54, 40, 150),
+      safeGap: read('safeGap', 4, -50, 100),
+      borderOpacity: read('borderOpacity', .4, 0, 1),
+      shadowOpacity: read('shadowOpacity', .05, 0, 1),
       animateSelection: json['animateSelection'] != false,
       animationMs: rawMs is num && rawMs.isFinite
-          ? rawMs.toInt().clamp(150, 400)
+          ? rawMs.toInt().clamp(100, 2000)
           : 250,
     );
   }

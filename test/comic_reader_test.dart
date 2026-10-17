@@ -54,9 +54,9 @@ void main() {
   });
 
   List<SourceChapter> chapters(int count) => <SourceChapter>[
-        for (var index = 1; index <= count; index++)
-          SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
-      ];
+    for (var index = 1; index <= count; index++)
+      SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
+  ];
 
   /// 当前模拟的视口尺寸（[rotate] 会改它，[pumpReader] 建树时读它）。
   Size viewport = const Size(420, 880);
@@ -65,7 +65,8 @@ void main() {
   /// [runtimeAvailable] 默认 true：本文件跑在 Windows 上，平台检测必然为假，
   /// 而这里要测的是阅读器的**业务行为**。平台守卫本身另有用例专门覆盖
   /// （见「平台守卫」两条）。显式传参而不是依赖平台检测，也让断言不随开发机变。
-  Widget readerApp({int imageCount = 6, bool runtimeAvailable = true}) => MaterialApp(
+  Widget readerApp({int imageCount = 6, bool runtimeAvailable = true}) =>
+      MaterialApp(
         home: MediaQuery(
           data: MediaQueryData(size: viewport, devicePixelRatio: 1),
           child: ComicReaderPage(
@@ -122,10 +123,20 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('打开即入架，并在第一页落下进度', (tester) async {
+  testWidgets('打开只写历史，不自动收藏；第一页落下进度', (tester) async {
     await pumpReader(tester);
 
-    expect(library.onShelf(target.itemId), isTrue);
+    expect(
+      library.onShelf(target.itemId),
+      isFalse,
+      reason: '进阅读器不是收藏，收藏只能由用户点按钮',
+    );
+    expect(library.item(target.itemId), isNotNull, reason: '历史行必须建出来');
+    expect(
+      library.history().map((item) => item.itemId),
+      contains(target.itemId),
+      reason: '阅读记录要出现在历史里',
+    );
     final progress = library.comicProgress(target.itemId);
     expect(progress, isNotNull);
     expect(progress!.chapterIndex, 0);
@@ -416,8 +427,9 @@ void main() {
     expect(find.byType(ListView), findsNothing);
     expect(find.byType(PageView), findsNothing);
 
-    // 不落任何进度与书架记录（与板块入口的平台门同口径）。
+    // 不落任何进度、历史或收藏记录（与板块入口的平台门同口径）。
     expect(library.comicProgress(target.itemId), isNull);
+    expect(library.item(target.itemId), isNull);
     expect(library.onShelf(target.itemId), isFalse);
   });
 

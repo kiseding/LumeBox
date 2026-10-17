@@ -141,6 +141,16 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
         _onShelf = widget.library.onShelf(widget.target.itemId);
         _progress = widget.library.progress(widget.target.itemId);
       });
+      // 「查看详情」本身也是历史：只写 favorite = 0 的历史行；收藏必须等
+      // 用户明确点「加入书架」。
+      widget.library.recordHistoryItem(
+        sourceId: widget.target.sourceId,
+        itemId: widget.target.itemId,
+        title: detail?.title ?? widget.target.title,
+        cover: detail?.cover ?? widget.target.cover,
+        subtitle: detail?.subtitle ?? widget.target.subtitle,
+        chapterCount: chapters.length,
+      );
       // 已在书架：同步章节总数，未读角标才有准确口径。
       if (_onShelf) {
         widget.library.syncChapters(widget.target.itemId, chapters.length);
@@ -213,7 +223,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
   Future<void> _openReader(int index, {int page = 0}) async {
     final source = _source;
     if (source == null || _chapters.isEmpty) return;
-    if (!_onShelf) _shelve(silent: true);
+    // 不再在这里 `_shelve(silent: true)`：进阅读器只产生历史记录，
+    // 收藏必须由用户点按钮。阅读器自己会写 favorite = 0 的历史行。
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ComicReaderPage(
@@ -229,7 +240,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
       ),
     );
     if (!mounted) return;
-    // 返回后刷新进度：书架的未读角标与「继续阅读」都依赖它。
+    // 返回后主动通知历史抽屉 / 书架重新取数；不能只靠切换 Tab 刷新。
+    widget.library.refresh();
     setState(() {
       _onShelf = widget.library.onShelf(widget.target.itemId);
       _progress = widget.library.progress(widget.target.itemId);

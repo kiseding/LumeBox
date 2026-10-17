@@ -309,6 +309,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     if (widget.section == Section.cat) {
       return CatSiteTile(
         key: ValueKey('picker-source-${source.id}'),
+        // 单列 56 更紧凑；双列 64 保持宽扁比例。外边距 16 与搜索框同基线。
+        height: columns ? 64 : 56,
         label: source.name,
         selected: selected,
         busy: busyNow,
@@ -496,6 +498,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
 
     // 猫源卡片：左滑露出设置 / 删除；长按拖拽仍由外层 SourceDragTile 负责。
     Widget catCard(SourceDescriptor source) => SourceSwipeTile(
+      height: columns ? 64 : 56,
       actions: <SourceSwipeAction>[
         SourceSwipeAction(
           label: '设置',

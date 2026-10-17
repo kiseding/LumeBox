@@ -44,7 +44,7 @@ class ColumnList extends StatelessWidget {
               : Theme.of(context).brightness == Brightness.dark
               ? const Color(0xFF303034)
               : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           child: child,
         );
       }

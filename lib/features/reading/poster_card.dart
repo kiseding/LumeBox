@@ -9,6 +9,12 @@ import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import 'section_image.dart';
 
+/// 全局封面圆角：网格、单列 / 双列列表缩略图统一用这一档。
+///
+/// 图片和承载它的卡片必须用**同一个**半径，否则去掉文字白底后，图片下方
+/// 两角会露出卡片底色，看起来仍然是直角。
+const BorderRadius kPosterCoverRadius = BorderRadius.all(Radius.circular(10));
+
 /// 海报卡：封面 + 标题，书架与探索的网格单元。
 ///
 /// 刻意不用 [GlassCard]：磨砂模糊逐格算在几十张卡的网格里会明显掉帧，
@@ -48,10 +54,10 @@ class PosterCard extends StatelessWidget {
       // 外置标题的网格卡片**不再铺白底**：文字直接落在页面浅灰底上，
       // 只有封面本身是圆角卡片（用户口径：去掉底部巨大的白色文字底板）。
       color: flat ? Colors.transparent : LumeTheme.surface,
-      borderRadius: BorderRadius.circular(flat ? 12 : 14),
+      borderRadius: kPosterCoverRadius,
       clipBehavior: flat ? Clip.none : Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: kPosterCoverRadius,
         onTap: onTap,
         onLongPress: onLongPress,
         child: footnoteBelow && footnote != null
@@ -64,11 +70,16 @@ class PosterCard extends StatelessWidget {
                       children: <Widget>[
                         DecoratedBox(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: kPosterCoverRadius,
                             boxShadow: LumeTheme.cardShadow,
                           ),
                         ),
-                        child,
+                        // 外置标题时卡片本身不铺底色，必须在这里单独裁封面：
+                        // 否则封面四角（尤其下方两角）会直接顶成直角。
+                        ClipRRect(
+                          borderRadius: kPosterCoverRadius,
+                          child: child,
+                        ),
                         if (badge != null)
                           Positioned(top: 6, right: 6, child: badge!),
                       ],
@@ -87,11 +98,13 @@ class PosterCard extends StatelessWidget {
                 children: <Widget>[
                   DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: kPosterCoverRadius,
                       boxShadow: LumeTheme.cardShadow,
                     ),
                   ),
-                  child,
+                  // Material 已按同一半径裁剪整张卡；这里再包一层让封面
+                  // 的裁切半径与卡片半径显式一致，后续改卡片底色也不会露出直角。
+                  ClipRRect(borderRadius: kPosterCoverRadius, child: child),
                   if (footnote != null)
                     Positioned(
                       left: 0,
@@ -172,6 +185,7 @@ class PosterCover extends StatelessWidget {
     this.width = 300,
     this.headers = const {},
     this.title = 'LumeBox',
+    this.borderRadius = kPosterCoverRadius,
   });
 
   final SectionImagePipeline pipeline;
@@ -183,6 +197,9 @@ class PosterCover extends StatelessWidget {
   /// 解码目标宽度，按卡片实际显示宽度给。
   final int width;
 
+  /// 封面自身圆角；默认与网格卡片共用 10px。
+  final BorderRadius? borderRadius;
+
   @override
   Widget build(BuildContext context) => SectionImage(
     pipeline: pipeline,
@@ -191,6 +208,7 @@ class PosterCover extends StatelessWidget {
     headers: headers,
     targetWidth: width,
     fit: BoxFit.cover,
+    borderRadius: borderRadius,
   );
 }
 
@@ -387,7 +405,7 @@ class CoverThumb extends StatelessWidget {
       return DecoratedBox(
         decoration: BoxDecoration(
           color: LumeTheme.fillStrong,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: kPosterCoverRadius,
         ),
         child: Icon(Icons.image_outlined, size: 18, color: LumeTheme.muted),
       );
@@ -438,7 +456,7 @@ class CompactSourceItemTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final radius = BorderRadius.circular(10);
+    final radius = kPosterCoverRadius;
     final subtitle = (meta ?? item.subtitle ?? '').trim();
     final duration = item.duration;
     final cardColor = flat
@@ -466,7 +484,7 @@ class CompactSourceItemTile extends StatelessWidget {
                 width: coverWidth,
                 height: coverHeight,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: kPosterCoverRadius,
                   child: CoverThumb(
                     pipeline: pipeline,
                     url: item.cover,

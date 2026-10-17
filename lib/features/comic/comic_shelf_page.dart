@@ -77,6 +77,8 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
       ),
     );
     if (!mounted) return;
+    // 返回时主动通知历史/收藏视图重新取数，再刷新本页。
+    widget.library.refresh();
     _reload();
   }
 
@@ -108,7 +110,7 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
     if (_items.isEmpty) {
       return ShelfEmptyHint(
         title: '书架还是空的',
-        subtitle: '去探索页找一本，进详情即会留在书架上',
+        subtitle: '去探索页找一本；阅读只会进历史，点「加入书架」才会收藏',
         action: FilledButton(
           onPressed: () {
             if (Navigator.of(context).canPop()) {

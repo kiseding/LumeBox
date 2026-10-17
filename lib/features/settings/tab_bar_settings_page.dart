@@ -180,10 +180,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-opacity'),
                 label: '玻璃白度',
+                description: '玻璃里白色底的不透明度：0% 全透、100% 接近实心白。',
                 value: style.opacity,
-                min: .3,
-                max: .9,
-                divisions: 60,
+                min: 0,
+                max: 1,
+                divisions: 100,
                 display: '${(style.opacity * 100).round()}%',
                 onChanged: (value) => modules.set(
                   FloatingModule.dock,
@@ -194,10 +195,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-blur'),
                 label: '磨砂强度',
+                description: '背后内容的模糊半径：0 = 完全清晰，30 = 最强雾面。',
                 value: style.blur,
                 min: 0,
-                max: 15,
-                divisions: 15,
+                max: 30,
+                divisions: 30,
                 display: style.blur.toStringAsFixed(0),
                 onChanged: (value) => modules.set(
                   FloatingModule.dock,
@@ -208,10 +210,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-border'),
                 label: '边缘高光',
+                description: '1px 白色描边的亮度：0% 无描边，100% 最亮。',
                 value: appearance.borderOpacity,
                 min: 0,
-                max: .8,
-                divisions: 16,
+                max: 1,
+                divisions: 100,
                 display: '${(appearance.borderOpacity * 100).round()}%',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(borderOpacity: value),
@@ -222,10 +225,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-shadow'),
                 label: '阴影浓度',
+                description: 'Dock 投到页面上的黑色阴影浓度：0% 完全无影。',
                 value: appearance.shadowOpacity,
                 min: 0,
-                max: .15,
-                divisions: 15,
+                max: 1,
+                divisions: 100,
                 display: '${(appearance.shadowOpacity * 100).round()}%',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(shadowOpacity: value),
@@ -236,10 +240,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-margin'),
                 label: '左右留白',
+                description: 'Dock 距屏幕左右边缘的距离：0 pt 贴边，100 pt 最窄。',
                 value: appearance.horizontalMargin,
-                min: 16,
-                max: 40,
-                divisions: 24,
+                min: 0,
+                max: 100,
+                divisions: 100,
                 display: '${appearance.horizontalMargin.round()} pt',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(horizontalMargin: value),
@@ -250,10 +255,11 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-height'),
                 label: '导航栏高度',
+                description: '胶囊总高度；40 pt 以下的内容会自动缩放，图标与文字始终居中。',
                 value: appearance.height,
-                min: 48,
-                max: 90,
-                divisions: 42,
+                min: 40,
+                max: 150,
+                divisions: 110,
                 display: '${appearance.height.round()} pt',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(height: value),
@@ -264,28 +270,17 @@ class TabBarSettingsPage extends StatelessWidget {
               _appearanceSlider(
                 key: const ValueKey('dock-appearance-gap'),
                 label: '离底部距离',
+                description: '正数抬高；负数压进 / 越过系统手势条（-50 会沉到屏幕底边以下）。',
                 value: appearance.safeGap,
-                // 负值 = 压进系统安全区，把胶囊再往下推；0 已经不是最低了。
-                min: -25,
-                max: 45,
-                divisions: 70,
+                min: -50,
+                max: 100,
+                divisions: 150,
                 display: '${appearance.safeGap.round()} pt',
                 onChanged: (value) => _controller.setAppearance(
                   _controller.appearance.copyWith(safeGap: value),
                   persist: false,
                 ),
                 onChangeEnd: (_) => _controller.saveAppearance(),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 4),
-                child: Text(
-                  '负值会把胶囊压进系统安全区（Home Indicator）；0 仍保留安全区高度。',
-                  style: TextStyle(
-                    fontSize: LumeTypography.descriptionSize,
-                    height: 1.4,
-                    color: LumeTheme.descriptionColor,
-                  ),
-                ),
               ),
               // 用普通 Row 而不是 SwitchListTile：ListTile 会注入自己的
               // titleTextStyle（不跟随页面字体），截图/自定义字体下会掉字。
@@ -328,10 +323,11 @@ class TabBarSettingsPage extends StatelessWidget {
                 _appearanceSlider(
                   key: const ValueKey('dock-appearance-duration'),
                   label: '动效时长',
+                  description: '换算成弹簧刚度与阻尼：100 ms 快速吸附，2000 ms 软而慢地回弹。',
                   value: appearance.animationMs.toDouble(),
-                  min: 150,
-                  max: 400,
-                  divisions: 10,
+                  min: 100,
+                  max: 2000,
+                  divisions: 190,
                   display: '${appearance.animationMs} ms',
                   onChanged: (value) => _controller.setAppearance(
                     _controller.appearance.copyWith(animationMs: value.round()),
@@ -372,6 +368,7 @@ class TabBarSettingsPage extends StatelessWidget {
   Widget _appearanceSlider({
     Key? key,
     required String label,
+    required String description,
     required double value,
     required double min,
     required double max,
@@ -419,6 +416,21 @@ class TabBarSettingsPage extends StatelessWidget {
           label: display,
           onChanged: onChanged,
           onChangeEnd: onChangeEnd,
+        ),
+        // 每个滑块下面直接写清「调了会怎样」：这是设置页的主要疑问来源。
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              description,
+              style: TextStyle(
+                fontSize: LumeTypography.descriptionSize,
+                height: 1.4,
+                color: LumeTheme.descriptionColor,
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -733,13 +745,19 @@ class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
 
   @override
   Widget build(BuildContext context) {
+    final appearance = widget.appearance;
+    // 预览高度跟随「高度 + 正离底距离」增长：150pt 高、100pt 抬高时也能完整
+    // 看到胶囊，而不是被裁掉一半。负离底距离让胶囊向下沉，模拟压进安全区。
+    final previewHeight =
+        200.0 +
+        (appearance.height - 54).clamp(0, 96) +
+        appearance.safeGap.clamp(0, 100);
     return ClipRRect(
       key: const ValueKey('dock-appearance-preview'),
       borderRadius: BorderRadius.circular(16),
       child: SizedBox(
         width: double.infinity,
-        // 比上一版更高：彩色海报和真实 Dock 都能占更多面积，滑块变化更明显。
-        height: 200,
+        height: previewHeight,
         child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
@@ -747,12 +765,12 @@ class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
             Positioned(
               left: 0,
               right: 0,
-              bottom: 10,
+              bottom: 10 + appearance.safeGap,
               child: ShellDockBar(
                 entries: widget.entries,
                 activeId: _resolvedActiveId,
                 onSelect: (id) => setState(() => _activeId = id),
-                appearance: widget.appearance,
+                appearance: appearance,
                 applyViewPadding: false,
               ),
             ),

@@ -216,9 +216,14 @@ void main() {
     await tester.pumpAndSettle();
     final card = find.byKey(const ValueKey('picker-source-c1'));
     final second = find.byKey(const ValueKey('picker-source-c2'));
-    expect(tester.getSize(card).height, 64);
-    // 默认单列：卡片铺满 390 - 32 = 358。
+    expect(tester.getSize(card).height, 56, reason: '单列卡片压到 56 高');
+    // 默认单列：卡片铺满 390 - 32 = 358，且左缘与搜索框同基线。
     expect(tester.getSize(card).width, 358);
+    expect(tester.getTopLeft(card).dx, 16);
+    final material = tester.widget<Material>(
+      find.descendant(of: card, matching: find.byType(Material)).first,
+    );
+    expect((material.shape! as RoundedRectangleBorder).side.width, 1);
     expect(find.byType(SourceIcon), findsNothing);
     expect(find.byKey(const ValueKey('picker-more-c1')), findsNothing);
     expect(find.byKey(const ValueKey('picker-drag-c1')), findsOneWidget);
@@ -252,11 +257,14 @@ void main() {
     await longPressDrag(tester, card, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(card).dy));
 
-    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，名称仍然居中。
+    // 切到双列：两列各 (390 - 32 - 10) / 2 = 174，高度 64，
+    // 宽高比约 2.72（小屏 320pt 时约 2.2）；名称仍然居中。
     await tester.tap(find.byTooltip('切换为双列'));
     await tester.pumpAndSettle();
     expect(tester.getSize(card).width, 174);
     expect(tester.getSize(second).width, 174);
+    expect(tester.getSize(card).height, 64);
+    expect(tester.getSize(second).height, 64);
     // 单列拖动后 c2 在前，双列里应落在左侧。
     expect(tester.getTopLeft(second).dx, lessThan(tester.getTopLeft(card).dx));
     expect(tester.getTopLeft(second).dy, tester.getTopLeft(card).dy);

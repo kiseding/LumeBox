@@ -113,6 +113,15 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         selected = index;
         loading = false;
       });
+      // 查看详情只写历史（favorite = 0）；收藏只能由心形按钮触发。
+      widget.library.recordHistoryItem(
+        sourceId: source.id,
+        itemId: widget.item.id,
+        title: metadata?.title ?? widget.item.title,
+        cover: sourceCover,
+        subtitle: metadata?.subtitle ?? widget.item.subtitle,
+        chapterCount: episodes.length,
+      );
     } catch (failure) {
       if (mounted) {
         setState(() {
@@ -160,6 +169,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                 hint: ResourceKind.novel,
               );
         if (mounted) await openMediaResource(context, entry, index: selected);
+        widget.library.refresh();
         return;
       }
       final address =
@@ -194,6 +204,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
               );
         if (!mounted) return;
         await openMediaResource(context, entry, index: selected);
+        widget.library.refresh();
         return;
       }
       if (!mounted) return;
@@ -220,6 +231,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         SourcePlayback.contentQualities(content, source: _source!),
         transferred,
       );
+      widget.library.refresh();
       if (mounted) {
         final last = widget.library.videoProgress(widget.item.id);
         final index = chapters.indexWhere(

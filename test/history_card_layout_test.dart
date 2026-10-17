@@ -105,7 +105,7 @@ void main() {
     final cover = find.byKey(const ValueKey('history-grid-cover'));
     expect(cover, findsOneWidget);
     final clip = tester.widget<ClipRRect>(cover);
-    expect(clip.borderRadius, BorderRadius.circular(12), reason: '封面四角都要圆角');
+    expect(clip.borderRadius, BorderRadius.circular(10), reason: '封面四角都要圆角');
     expect(
       clip.child,
       isA<CoverThumb>(),

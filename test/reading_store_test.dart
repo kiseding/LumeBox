@@ -298,7 +298,6 @@ void main() {
       expect(library.onShelf('a'), isFalse);
       expect(library.progress('a'), isNull, reason: '移出书架会连进度一起清掉');
     });
-
     test('未读角标口径：章节总数 - 已读章节 - 1，未知章节数时不显示', () async {
       final library = await ReadingLibrary.open(Section.comic);
 
@@ -409,6 +408,83 @@ void main() {
       expect(loaded.chapterLength, 2400);
       expect(loaded.chapterRatio, closeTo(0.25, 0.0001));
       expect(loaded.chapterTitle, '第 3 章');
+    });
+  });
+
+  group('历史与收藏严格隔离', () {
+    test('只看详情只写历史：不进收藏，history 可见，收藏查询为空', () async {
+      final library = await ReadingLibrary.open(Section.novel);
+      library.recordHistoryItem(
+        sourceId: 'src',
+        itemId: 'viewed',
+        title: '只看过详情',
+        chapterCount: 3,
+      );
+
+      expect(library.onShelf('viewed'), isFalse);
+      expect(library.favorites(), isEmpty, reason: '收藏页不能出现历史行');
+      expect(library.shelf(), isEmpty);
+      expect(library.history().map((item) => item.itemId), <String>[
+        'viewed',
+      ], reason: '看过详情也要出现在历史里');
+      expect(library.continueReading(), isEmpty, reason: '没有进度不算续读');
+      expect(library.item('viewed')!.chapterCount, 3);
+    });
+
+    test('显式收藏后记历史保留收藏；收藏但没读不进历史', () async {
+      final library = await ReadingLibrary.open(Section.comic);
+      library.shelve(sourceId: 'src', itemId: 'fav', title: '手点收藏');
+
+      expect(library.favorites().single.itemId, 'fav');
+      expect(library.history(), isEmpty, reason: '收藏了但没读只在收藏页');
+
+      library.recordHistoryItem(sourceId: 'src', itemId: 'fav', title: '手点收藏');
+      expect(library.onShelf('fav'), isTrue, reason: '历史写入不能冲掉收藏');
+      expect(library.favorites().single.itemId, 'fav');
+      expect(library.history(), isEmpty);
+
+      library.saveProgress(comicProgress(itemId: 'fav'));
+      expect(
+        library.history().map((item) => item.itemId),
+        contains('fav'),
+        reason: '收藏作品有进度后同时出现在历史里（但收藏位仍是 1）',
+      );
+      expect(library.onShelf('fav'), isTrue);
+    });
+
+    test('删历史：普通历史行连元数据删除，收藏行只清进度保留收藏', () async {
+      final library = await ReadingLibrary.open(Section.comic);
+
+      library.recordHistoryItem(
+        sourceId: 'src',
+        itemId: 'viewed',
+        title: '历史行',
+      );
+      library.removeHistory('viewed');
+      expect(library.item('viewed'), isNull, reason: '没有收藏的历史行应彻底删除');
+      expect(library.history(), isEmpty);
+
+      library.shelve(sourceId: 'src', itemId: 'fav', title: '收藏行');
+      library.saveProgress(comicProgress(itemId: 'fav'));
+      library.removeHistory('fav');
+      expect(library.progress('fav'), isNull);
+      expect(library.onShelf('fav'), isTrue, reason: '删历史不能删收藏');
+      expect(library.favorites().single.itemId, 'fav');
+      expect(library.history(), isEmpty);
+    });
+
+    test('无痕模式下连历史都不写；显式收藏仍然允许', () async {
+      final library = await ReadingLibrary.open(Section.novel);
+      library.setSetting('history.incognito', 'true');
+      library.recordHistoryItem(
+        sourceId: 'src',
+        itemId: 'private',
+        title: '无痕',
+      );
+      expect(library.item('private'), isNull);
+
+      library.shelve(sourceId: 'src', itemId: 'private', title: '无痕');
+      expect(library.onShelf('private'), isTrue, reason: '显式收藏不受无痕影响');
     });
   });
 
