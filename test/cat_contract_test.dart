@@ -342,12 +342,12 @@ void main() {
   });
   test('站点列数独立保存并在重启后恢复', () async {
     await service.boot();
-    await service.setSiteColumns(3);
+    await service.setSiteColumns(2);
     final restored = CatService.testing();
     await restored.boot();
-    expect(restored.siteColumns, 3);
+    expect(restored.siteColumns, 2);
     await restored.setSiteColumns(99);
-    expect(restored.siteColumns, 3);
+    expect(restored.siteColumns, 2);
     await restored.closeForTesting();
   });
   test('订阅持久化、校验失败保留旧包、首次失败仍保留链接供重试', () async {

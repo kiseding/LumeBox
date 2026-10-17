@@ -2078,8 +2078,8 @@ class _ImageActionSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
+      child: Material(
+        color: LumeTheme.base,
         child: SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,

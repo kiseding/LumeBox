@@ -606,8 +606,8 @@ class _ToolbarSheet<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
+      child: Material(
+        color: LumeTheme.base,
         child: SafeArea(
           top: false,
           // **让开键盘**：这个弹窗经常是在「键盘已经弹起来」时打开的
@@ -777,8 +777,8 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: LumeTheme.background,
+      child: Material(
+        color: LumeTheme.base,
         child: SafeArea(
           top: false,
           // 让开键盘：这个面板常在搜索框（autofocus）已经弹起键盘时打开。

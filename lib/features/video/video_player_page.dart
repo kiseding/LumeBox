@@ -4898,56 +4898,59 @@ class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: DecoratedBox(
         decoration: const BoxDecoration(color: Colors.transparent),
-        child: Padding(
-          // 键盘高度由系统的 viewInsets 给：面板整体上移，输入框不会被盖住。
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
+        child: Align(
+          alignment: Alignment.bottomCenter,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Text(
-                  '匹配公共弹幕',
-                  style: TextStyle(
-                    fontSize: LumeTypography.sectionTitleSize,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _submit(),
-                  decoration: const InputDecoration(
-                    labelText: '片名',
-                    hintText: '输入要匹配的番剧名',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('取消'),
-                      ),
+            // 键盘高度由系统的 viewInsets 给：面板整体上移，输入框不会被盖住。
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Text(
+                    '匹配公共弹幕',
+                    style: TextStyle(
+                      fontSize: LumeTypography.sectionTitleSize,
+                      fontWeight: FontWeight.w600,
+                      color: LumeTheme.textPrimary,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _submit,
-                        child: const Text('搜索'),
-                      ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _controller,
+                    autofocus: true,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _submit(),
+                    decoration: const InputDecoration(
+                      labelText: '片名',
+                      hintText: '输入要匹配的番剧名',
+                      border: OutlineInputBorder(),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('取消'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _submit,
+                          child: const Text('搜索'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

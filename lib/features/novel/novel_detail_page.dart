@@ -295,7 +295,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: DecoratedBox(decoration: LumeTheme.background, child: _buildBody()),
+      body: Material(color: LumeTheme.base, child: _buildBody()),
     );
   }
 

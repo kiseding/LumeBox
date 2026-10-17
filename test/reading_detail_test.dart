@@ -159,9 +159,9 @@ void main() {
         reason: '相邻章节之间只有 ${gap}pt 间隔，容易误点相邻行',
       );
     }
-    // 全局可读性调整：文字加大一号，触摸区与行距保持原样。
+    // 全局可读性调整：标题用统一的 LumeTypography.titleSize。
     final title = tester.widget<Text>(find.text('第 1 章'));
-    expect(title.style?.fontSize, 15);
+    expect(title.style?.fontSize, 16);
   });
 
   testWidgets('漫画详情：点章节进阅读器，只写历史，不自动收藏', (tester) async {

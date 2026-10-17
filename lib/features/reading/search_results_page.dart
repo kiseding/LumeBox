@@ -331,8 +331,8 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
   Widget _legacyBuild(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: DecoratedBox(
-        decoration: LumeTheme.background,
+      body: Material(
+        color: LumeTheme.base,
         child: Column(
           children: <Widget>[
             _buildHeader(context),

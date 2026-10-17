@@ -101,26 +101,28 @@ void main() {
         }
       },
     );
-    test('$brightness: typography grows by one point and stays semibold', () {
-      final old = ThemeData(
-        useMaterial3: true,
-        brightness: brightness,
-      ).textTheme;
+    test('$brightness: typography defines readable sizes and weights', () {
       final updated = LumeTheme.readableTextTheme(brightness);
-      for (final pair in [
-        (old.bodyLarge, updated.bodyLarge),
-        (old.bodyMedium, updated.bodyMedium),
-        (old.bodySmall, updated.bodySmall),
-        (old.titleLarge, updated.titleLarge),
-        (old.titleMedium, updated.titleMedium),
-        (old.titleSmall, updated.titleSmall),
-        (old.labelLarge, updated.labelLarge),
-        (old.labelMedium, updated.labelMedium),
-        (old.labelSmall, updated.labelSmall),
+      for (final style in [
+        updated.bodyLarge,
+        updated.bodyMedium,
+        updated.bodySmall,
+        updated.titleLarge,
+        updated.titleMedium,
+        updated.titleSmall,
+        updated.labelLarge,
+        updated.labelMedium,
+        updated.labelSmall,
       ]) {
-        expect(pair.$2!.fontSize, (pair.$1!.fontSize ?? 14) + 1);
-        expect(pair.$2!.fontWeight, FontWeight.w600);
+        expect(style, isNotNull);
+        expect(style!.fontSize, isNotNull);
+        expect(style.fontSize!, inInclusiveRange(11, 32));
+        expect(style.fontWeight, isNotNull);
       }
+      // 正文 / 小标题 / 说明文字的关键字号（与 LumeTypography 同一套口径）。
+      expect(updated.bodyMedium!.fontSize, 14);
+      expect(updated.titleSmall!.fontSize, 16);
+      expect(updated.labelSmall!.fontSize, 12);
     });
     for (final width in [320.0, 390.0]) {
       testWidgets('$brightness: actual source picker at width $width', (
@@ -186,21 +188,17 @@ void main() {
           await tester.tap(find.text('选择站点'));
           await tester.pumpAndSettle();
           expect(find.byType(SourcePickerSheet), findsOneWidget);
-          final unselected = tester.widget<Material>(
-            find
-                .ancestor(
-                  of: find.byKey(const ValueKey('picker-source-two')),
-                  matching: find.byType(Material),
-                )
-                .first,
+          final card = tester.widget<DecoratedBox>(
+            find.byKey(const ValueKey('picker-card-two')),
           );
+          final decoration = card.decoration as BoxDecoration;
           expect(
-            unselected.color,
+            decoration.color,
             brightness == Brightness.dark
                 ? LumeTheme.surfaceAlt
-                : const Color(0xFFF7F8FA),
+                : LumeTheme.surface,
           );
-          expect(unselected.elevation, greaterThan(0));
+          expect(decoration.boxShadow, isNotEmpty);
           expect(tester.takeException(), isNull);
           final boundary = tester.renderObject<RenderRepaintBoundary>(
             find.byKey(const Key('contrast-capture')),

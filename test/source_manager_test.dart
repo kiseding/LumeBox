@@ -418,7 +418,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(manager.groups.single, ('a', '主力'));
-      expect(find.text('主力'), findsOneWidget, reason: '列表上要能看出分组');
+      expect(find.text('主力'), findsNWidgets(2), reason: '分组标题与条目标签都要显示分组名');
       expect(find.textContaining('已归入分组'), findsOneWidget);
     });
 
@@ -435,7 +435,7 @@ void main() {
         ],
       );
       await pumpPage(tester, manager);
-      expect(find.text('主力'), findsOneWidget);
+      expect(find.text('主力'), findsNWidgets(2));
 
       await openMenu(tester);
       await tester.tap(find.text('设置分组'));

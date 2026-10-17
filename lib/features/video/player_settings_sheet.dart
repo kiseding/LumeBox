@@ -431,7 +431,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     );
     final legacy = ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(decoration: LumeTheme.background, child: content),
+      child: Material(color: LumeTheme.base, child: content),
     );
     return legacy;
   }

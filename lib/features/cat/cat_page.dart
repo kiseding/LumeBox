@@ -880,8 +880,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(20),
                   ),
-                  child: DecoratedBox(
-                    decoration: LumeTheme.background,
+                  child: Material(
+                    color: LumeTheme.base,
                     child: SafeArea(
                       top: false,
                       child: SizedBox(

@@ -326,7 +326,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: DecoratedBox(decoration: LumeTheme.background, child: _buildBody()),
+      body: Material(color: LumeTheme.base, child: _buildBody()),
     );
   }
 

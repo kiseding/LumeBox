@@ -4,6 +4,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/reading/browse_layout.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/features/reading/poster_card.dart';
 import 'package:lume_box/features/reading/source_home_view.dart';
 
 /// 首页多板块横滑（用户口径任务 3；视频 / 小说 / 漫画三块共用同一个组件）。
@@ -185,13 +186,13 @@ void main() {
           await tester.pumpAndSettle();
           if (mode == BrowseLayoutMode.list) {
             expect(find.byType(GridView), findsNothing);
-            expect(find.byType(ListTile), findsOneWidget);
+            expect(find.byType(CompactSourceItemTile), findsOneWidget);
           } else {
             final grid = tester.widget<GridView>(find.byType(GridView));
             expect(
               (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
                   .crossAxisCount,
-              mode.columns,
+              BrowseLayoutSettings.normalize(mode).columns,
             );
           }
           expect(find.text('示例条目'), findsOneWidget);

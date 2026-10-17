@@ -151,8 +151,8 @@ class _NovelCatalogPageState extends State<NovelCatalogPage> {
           ),
         ],
       ),
-      body: DecoratedBox(
-        decoration: LumeTheme.background,
+      body: Material(
+        color: LumeTheme.base,
         child: Column(
           children: <Widget>[
             SizedBox(

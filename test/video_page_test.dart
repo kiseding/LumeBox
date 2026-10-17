@@ -673,7 +673,11 @@ void main() {
         lessThan(log.indexOf('player.dispose')),
         reason: '画中画必须在播放器释放之前退出',
       );
-      expect(ReadingLibrary.find(Section.video), isNull, reason: '库句柄已关闭');
+      expect(
+        ReadingLibrary.find(Section.video),
+        isNotNull,
+        reason: '播放页不应关闭板块共享的阅读库',
+      );
     });
   });
 
