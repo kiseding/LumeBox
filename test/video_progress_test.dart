@@ -381,6 +381,89 @@ void main() {
     expect(progress.position, const Duration(minutes: 12, seconds: 30));
   });
 
+  testWidgets('返回播放页的瞬间就落库，且播放不产生收藏', (tester) async {
+    source.items = const <SourceItem>[
+      SourceItem(id: 'movie-pop', title: '立即落库片'),
+    ];
+    source.chapterList = const <SourceChapter>[
+      SourceChapter(id: 'movie-pop-e1', title: '第 1 集'),
+    ];
+    source.contentUrl = 'https://example.com/e1.mp4';
+    final created = await pumpBoard(tester);
+    await tapWithDetailPlay(tester, find.text('立即落库片'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pumpAndSettle();
+    expect(created.single.media, isNotNull);
+
+    final library = await ReadingLibrary.open(Section.video);
+    expect(
+      library.videoProgress('movie-pop'),
+      isNull,
+      reason: '刚起播、位置还是 0，不该提前写记录',
+    );
+
+    // 走返回键同一条路径（maybePop），不等退场动画结束的 dispose。
+    // PopScope 应在 pop 发起时就落盘。
+    await Navigator.of(tester.element(find.byType(VideoPlayerPage))).maybePop();
+    await tester.pump();
+
+    expect(
+      library.videoProgress('movie-pop'),
+      isNotNull,
+      reason: '返回的瞬间就要落库，否则用户立刻打开历史会看不到',
+    );
+    expect(library.onShelf('movie-pop'), isFalse, reason: '播放不是收藏');
+    expect(library.shelf(), isEmpty, reason: '收藏页不该出现只播过的作品');
+
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('历史抽屉打开时新增播放记录会立刻刷新', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final library = await ReadingLibrary.open(Section.video);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: Scaffold(
+          body: ReadingHistorySheet(
+            section: Section.video,
+            library: library,
+            onResume: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('暂无内容'), findsOneWidget);
+
+    library.recordHistoryItem(sourceId: 's', itemId: 'live', title: '刚播完的片');
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'live',
+        chapterIndex: 0,
+        chapterId: 'e1',
+        chapterTitle: '第 1 集',
+        updatedAt: DateTime.now(),
+        position: const Duration(minutes: 3),
+        duration: const Duration(minutes: 45),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('刚播完的片'),
+      findsOneWidget,
+      reason: '抽屉开着时写入记录也必须立刻出现（监听库的 revision）',
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('链接中断重试重新取地址与请求头，保留断点并继续播放', (tester) async {
     source.items = const [SourceItem(id: 'movie-1', title: '示例影片')];
     source.chapterList = const [
@@ -576,10 +659,7 @@ void main() {
       of: find.byType(ReadingHistorySheet),
       matching: find.text('示例影片'),
     );
-    expect(
-      find.text('第 1 集 · 12:00 / 45:00', skipOffstage: false),
-      findsWidgets,
-    );
+    expect(find.text('12:00 / 45:00', skipOffstage: false), findsWidgets);
 
     await tapWithDetailPlay(tester, inSheet);
     await tester.pump();
@@ -872,6 +952,54 @@ void main() {
       saved = library.videoProgress('v1')!;
       expect(saved.position, const Duration(minutes: 18));
       expect(library.continueWatching().length, 1, reason: '同一作品只有一条记录');
+    });
+
+    test('播放只写历史：不产生收藏，显式收藏后不被播放冲掉', () async {
+      final library = await ReadingLibrary.open(Section.video);
+      library.recordHistoryItem(sourceId: 's', itemId: 'played', title: '只看过');
+      library.saveProgress(
+        VideoProgress(
+          section: Section.video,
+          itemId: 'played',
+          chapterIndex: 0,
+          chapterId: 'e1',
+          chapterTitle: '第 1 集',
+          updatedAt: DateTime.now(),
+          position: const Duration(minutes: 5),
+          duration: const Duration(minutes: 45),
+        ),
+      );
+
+      expect(library.onShelf('played'), isFalse, reason: '播放不等于收藏');
+      expect(library.shelf(), isEmpty, reason: '收藏页不该有只播过的作品');
+      expect(
+        library.continueReading().map((entry) => entry.item.itemId),
+        contains('played'),
+        reason: '历史里必须有它',
+      );
+
+      // 用户明确收藏后再播放：收藏位保持不变。
+      library.shelve(sourceId: 's', itemId: 'played', title: '只看过');
+      expect(library.onShelf('played'), isTrue);
+      library.recordHistoryItem(
+        sourceId: 's',
+        itemId: 'played',
+        title: '只看过（改名）',
+      );
+      library.saveProgress(
+        VideoProgress(
+          section: Section.video,
+          itemId: 'played',
+          chapterIndex: 0,
+          chapterId: 'e1',
+          chapterTitle: '第 1 集',
+          updatedAt: DateTime.now(),
+          position: const Duration(minutes: 8),
+          duration: const Duration(minutes: 45),
+        ),
+      );
+      expect(library.onShelf('played'), isTrue, reason: '播放不能把显式收藏冲掉');
+      expect(library.item('played')!.title, '只看过（改名）');
     });
 
     test('已看完判定与比例', () {

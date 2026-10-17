@@ -1,11 +1,20 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
+import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
 
-/// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
+/// 底部导航栏管理：**每个页签独立开关 + 拖拽排序 + 外观材质**。
+///
+/// ## 外观与材质
+///
+/// 尺寸（左右留白 / 高度 / 离底距离）、玻璃边缘高光、投影浓度、选中动效与时长
+/// 都在本页调节，实时写回 [ShellSettingsController]；玻璃白度与磨砂强度与
+/// 「设置 → 悬浮模块」共用同一份 [FloatingModules] 数据，不存第二份真相。
 ///
 /// ## 两条硬约束（界面上都要说清）
 ///
@@ -80,6 +89,8 @@ class TabBarSettingsPage extends StatelessWidget {
           const _SettingsHiddenNotice(),
         ],
         const SizedBox(height: 12),
+        _buildAppearance(context),
+        const SizedBox(height: 12),
         _buildHandleStyles(context),
         const SizedBox(height: 12),
         _buildFooter(context),
@@ -124,6 +135,272 @@ class TabBarSettingsPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// 外观与材质：尺寸 / 玻璃边缘 / 投影 / 点击动效。
+  ///
+  /// 白度与磨砂读写的仍是 [FloatingModules] 里「底部导航」那一份值（与
+  /// 「设置 → 悬浮模块」同源），其余参数在 [ShellSettingsController]。
+  Widget _buildAppearance(BuildContext context) {
+    return ListenableBuilder(
+      listenable: FloatingModules.instance,
+      builder: (context, _) {
+        final appearance = _controller.appearance;
+        final modules = FloatingModules.instance;
+        final style = modules.style(FloatingModule.dock);
+        return GlassCard(
+          radius: 14,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '外观与材质',
+                style: TextStyle(
+                  fontSize: LumeTypography.titleSize,
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '调整底部 Dock 的尺寸与玻璃质感，改动立即生效。'
+                '深色主题下白边会按比例柔化，避免在暗底上变成硬描边。',
+                style: TextStyle(
+                  fontWeight: FontWeight.w400,
+                  fontSize: LumeTypography.descriptionSize,
+                  color: LumeTheme.descriptionColor,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _DockAppearancePreview(appearance: appearance, style: style),
+              const SizedBox(height: 14),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-opacity'),
+                label: '玻璃白度',
+                value: style.opacity,
+                min: .3,
+                max: .9,
+                divisions: 60,
+                display: '${(style.opacity * 100).round()}%',
+                onChanged: (value) => modules.set(
+                  FloatingModule.dock,
+                  style.copyWith(opacity: value),
+                ),
+                onChangeEnd: (_) => modules.save(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-blur'),
+                label: '磨砂强度',
+                value: style.blur,
+                min: 0,
+                max: 15,
+                divisions: 15,
+                display: style.blur.toStringAsFixed(0),
+                onChanged: (value) => modules.set(
+                  FloatingModule.dock,
+                  style.copyWith(blur: value),
+                ),
+                onChangeEnd: (_) => modules.save(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-border'),
+                label: '边缘高光',
+                value: appearance.borderOpacity,
+                min: 0,
+                max: .8,
+                divisions: 16,
+                display: '${(appearance.borderOpacity * 100).round()}%',
+                onChanged: (value) => _controller.setAppearance(
+                  _controller.appearance.copyWith(borderOpacity: value),
+                  persist: false,
+                ),
+                onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-shadow'),
+                label: '阴影浓度',
+                value: appearance.shadowOpacity,
+                min: 0,
+                max: .15,
+                divisions: 15,
+                display: '${(appearance.shadowOpacity * 100).round()}%',
+                onChanged: (value) => _controller.setAppearance(
+                  _controller.appearance.copyWith(shadowOpacity: value),
+                  persist: false,
+                ),
+                onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-margin'),
+                label: '左右留白',
+                value: appearance.horizontalMargin,
+                min: 16,
+                max: 40,
+                divisions: 24,
+                display: '${appearance.horizontalMargin.round()} pt',
+                onChanged: (value) => _controller.setAppearance(
+                  _controller.appearance.copyWith(horizontalMargin: value),
+                  persist: false,
+                ),
+                onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-height'),
+                label: '导航栏高度',
+                value: appearance.height,
+                min: 48,
+                max: 64,
+                divisions: 16,
+                display: '${appearance.height.round()} pt',
+                onChanged: (value) => _controller.setAppearance(
+                  _controller.appearance.copyWith(height: value),
+                  persist: false,
+                ),
+                onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              _appearanceSlider(
+                key: const ValueKey('dock-appearance-gap'),
+                label: '离底部距离',
+                value: appearance.safeGap,
+                min: 0,
+                max: 12,
+                divisions: 12,
+                display: '${appearance.safeGap.round()} pt',
+                onChanged: (value) => _controller.setAppearance(
+                  _controller.appearance.copyWith(safeGap: value),
+                  persist: false,
+                ),
+                onChangeEnd: (_) => _controller.saveAppearance(),
+              ),
+              // 用普通 Row 而不是 SwitchListTile：ListTile 会注入自己的
+              // titleTextStyle（不跟随页面字体），截图/自定义字体下会掉字。
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          '点击弹跳动效',
+                          style: TextStyle(
+                            fontSize: LumeTypography.bodySize,
+                            fontWeight: FontWeight.w500,
+                            color: LumeTheme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '切换页签时选中底座像水滴一样轻微回弹',
+                          style: TextStyle(
+                            fontSize: LumeTypography.descriptionSize,
+                            color: LumeTheme.descriptionColor,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: appearance.animateSelection,
+                    onChanged: (value) => _controller.setAppearance(
+                      _controller.appearance.copyWith(animateSelection: value),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (appearance.animateSelection)
+                _appearanceSlider(
+                  key: const ValueKey('dock-appearance-duration'),
+                  label: '动效时长',
+                  value: appearance.animationMs.toDouble(),
+                  min: 150,
+                  max: 400,
+                  divisions: 10,
+                  display: '${appearance.animationMs} ms',
+                  onChanged: (value) => _controller.setAppearance(
+                    _controller.appearance.copyWith(animationMs: value.round()),
+                    persist: false,
+                  ),
+                  onChangeEnd: (_) => _controller.saveAppearance(),
+                ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _resetAppearance,
+                  icon: const Icon(Icons.restart_alt, size: 18),
+                  label: const Text('恢复材质默认'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _resetAppearance() async {
+    await _controller.setAppearance(DockAppearance.defaults);
+    final modules = FloatingModules.instance;
+    modules.set(
+      FloatingModule.dock,
+      modules
+          .style(FloatingModule.dock)
+          .copyWith(
+            opacity: FloatingStyle.dockDefault.opacity,
+            blur: FloatingStyle.dockDefault.blur,
+          ),
+    );
+    modules.save();
+  }
+
+  Widget _appearanceSlider({
+    Key? key,
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required String display,
+    required ValueChanged<double> onChanged,
+    required ValueChanged<double> onChangeEnd,
+  }) {
+    return Column(
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: LumeTypography.bodySize,
+                  color: LumeTheme.textPrimary,
+                ),
+              ),
+            ),
+            Text(
+              display,
+              style: TextStyle(
+                fontSize: LumeTypography.descriptionSize,
+                color: LumeTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        Slider(
+          key: key,
+          value: value.clamp(min, max).toDouble(),
+          min: min,
+          max: max,
+          divisions: divisions,
+          label: display,
+          onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
+        ),
+      ],
     );
   }
 
@@ -408,6 +685,132 @@ class _HandleStyleOption extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 管理页里的「迷你 Dock」：用真实参数画一颗胶囊。
+///
+/// 它只是外观预览（不是生产 Dock），但模糊、白度、边框、阴影、高度与左右留白
+/// 都直接取当前设置值，调整滑块时能立刻看到玻璃透出的变化。
+class _DockAppearancePreview extends StatelessWidget {
+  const _DockAppearancePreview({required this.appearance, required this.style});
+
+  final DockAppearance appearance;
+  final FloatingStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = LumeTheme.palette.brightness == Brightness.dark;
+    // 预览卡比屏幕窄，留白按比例缩一点即可；不必精确还原 440pt 上的像素。
+    final side = (8 + (appearance.horizontalMargin - 16) * .4)
+        .clamp(8.0, 20.0)
+        .toDouble();
+    final borderAlpha =
+        (dark ? appearance.borderOpacity * .44 : appearance.borderOpacity)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final radius = BorderRadius.circular(appearance.height / 2);
+    return ClipRRect(
+      key: const ValueKey('dock-appearance-preview'),
+      borderRadius: BorderRadius.circular(16),
+      // Card 的 Column 用 start 对齐：显式给满宽，否则 Stack 在松约束下
+      // 会按子项收缩，预览条可能只剩 0 宽（真机截图里就是一片空白）。
+      child: SizedBox(
+        width: double.infinity,
+        height: 126,
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            const Row(
+              // 必须 stretch：ColoredBox 没有子节点，交叉轴松约束下高度会是 0。
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(child: ColoredBox(color: Color(0xFF7C5CFF))),
+                Expanded(child: ColoredBox(color: Color(0xFFFF7675))),
+                Expanded(child: ColoredBox(color: Color(0xFF00B894))),
+                Expanded(child: ColoredBox(color: Color(0xFF0984E3))),
+                Expanded(child: ColoredBox(color: Color(0xFFFDCB6E))),
+              ],
+            ),
+            Positioned(
+              left: side,
+              right: side,
+              bottom: 12,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: appearance.shadowOpacity,
+                      ),
+                      blurRadius: 20,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: radius,
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(
+                      sigmaX: style.blur,
+                      sigmaY: style.blur,
+                    ),
+                    child: Container(
+                      height: appearance.height,
+                      decoration: BoxDecoration(
+                        color: (dark ? LumeTheme.glass : Colors.white)
+                            .withValues(alpha: style.opacity),
+                        borderRadius: radius,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: borderAlpha),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: <Widget>[
+                          _PreviewDockIcon(
+                            Icons.menu_book_rounded,
+                            selected: true,
+                          ),
+                          _PreviewDockIcon(Icons.auto_stories_outlined),
+                          _PreviewDockIcon(Icons.play_circle_outline_rounded),
+                          _PreviewDockIcon(Icons.pets_outlined),
+                          _PreviewDockIcon(Icons.settings_outlined),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewDockIcon extends StatelessWidget {
+  const _PreviewDockIcon(this.icon, {this.selected = false});
+
+  final IconData icon;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? LumeTheme.accent : LumeTheme.textSecondary;
+    if (!selected) return Icon(icon, size: 16, color: color);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: LumeTheme.accent.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Icon(icon, size: 16, color: color),
       ),
     );
   }

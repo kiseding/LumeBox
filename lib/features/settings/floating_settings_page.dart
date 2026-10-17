@@ -94,7 +94,7 @@ class FloatingSettingsPage extends StatelessWidget {
               (v) => style.copyWith(opacity: 1 - v / 100),
             ),
             slider('水平位置', style.x, -40, 40, (v) => style.copyWith(x: v)),
-            slider('微磨砂强度', style.blur, 0, 6, (v) => style.copyWith(blur: v)),
+            slider('磨砂强度', style.blur, 0, 15, (v) => style.copyWith(blur: v)),
             slider(
               '垂直位置',
               style.y.clamp(-40, module == FloatingModule.dock ? 20 : 80),

@@ -101,11 +101,132 @@ enum DockHandleStyle {
   };
 }
 
+/// 底部 Dock 的外观参数：尺寸、玻璃边缘、投影与选中动效。
+///
+/// 与 [FloatingModules] 的分工：
+/// - 这里的参数属于「导航栏本身」（多大、多高、离底边多远、边框/阴影多亮）；
+/// - 玻璃的**白度与磨砂强度**仍在 [FloatingModules]（「悬浮模块」里也能调），
+///   两处读写同一个值，不存在第二份真相。
+///
+/// 所有取值都在 [fromJson] 里收敛到安全区间：旧配置缺字段、手改越界值都不会
+/// 把导航栏画到屏幕外或压没内容。
+class DockAppearance {
+  const DockAppearance({
+    this.horizontalMargin = 24,
+    this.height = 54,
+    this.safeGap = 4,
+    this.borderOpacity = .5,
+    this.shadowOpacity = .05,
+    this.animateSelection = true,
+    this.animationMs = 250,
+  });
+
+  /// 与上一轮精修后的实际取值一致：默认即「当前这版外观」。
+  static const DockAppearance defaults = DockAppearance();
+
+  /// 左右外边距（逻辑像素）。范围 16–40：再小就顶到屏幕边，再大五项会挤到
+  /// 点不准（320pt 宽屏上仍保 ≥44pt 的单项触达宽度）。
+  final double horizontalMargin;
+
+  /// 内容条高度（不含手势条避让）。范围 48–64。
+  final double height;
+
+  /// 胶囊底边与系统安全区之间再留的距离。0 = 紧贴安全区上沿。
+  final double safeGap;
+
+  /// 玻璃边框（1px 白色高光）的不透明度。0 = 无边框。
+  final double borderOpacity;
+
+  /// 胶囊投影的不透明度（黑色，blurRadius 20）。
+  final double shadowOpacity;
+
+  /// 切换页签时是否播放「水滴 / 果冻」过渡。
+  final bool animateSelection;
+
+  /// 选中底座过渡时长（毫秒）。150–400。
+  final int animationMs;
+
+  DockAppearance copyWith({
+    double? horizontalMargin,
+    double? height,
+    double? safeGap,
+    double? borderOpacity,
+    double? shadowOpacity,
+    bool? animateSelection,
+    int? animationMs,
+  }) => DockAppearance(
+    horizontalMargin: horizontalMargin ?? this.horizontalMargin,
+    height: height ?? this.height,
+    safeGap: safeGap ?? this.safeGap,
+    borderOpacity: borderOpacity ?? this.borderOpacity,
+    shadowOpacity: shadowOpacity ?? this.shadowOpacity,
+    animateSelection: animateSelection ?? this.animateSelection,
+    animationMs: animationMs ?? this.animationMs,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'horizontalMargin': horizontalMargin,
+    'height': height,
+    'safeGap': safeGap,
+    'borderOpacity': borderOpacity,
+    'shadowOpacity': shadowOpacity,
+    'animateSelection': animateSelection,
+    'animationMs': animationMs,
+  };
+
+  static DockAppearance fromJson(Object? json) {
+    if (json is! Map) return defaults;
+    double read(String key, double fallback, double min, double max) {
+      final raw = json[key];
+      return raw is num && raw.isFinite
+          ? raw.toDouble().clamp(min, max)
+          : fallback;
+    }
+
+    final rawMs = json['animationMs'];
+    return DockAppearance(
+      horizontalMargin: read('horizontalMargin', 24, 16, 40),
+      height: read('height', 54, 48, 64),
+      safeGap: read('safeGap', 4, 0, 12),
+      borderOpacity: read('borderOpacity', .5, 0, .8),
+      shadowOpacity: read('shadowOpacity', .05, 0, .15),
+      animateSelection: json['animateSelection'] != false,
+      animationMs: rawMs is num && rawMs.isFinite
+          ? rawMs.toInt().clamp(150, 400)
+          : 250,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! DockAppearance) return false;
+    return other.horizontalMargin == horizontalMargin &&
+        other.height == height &&
+        other.safeGap == safeGap &&
+        other.borderOpacity == borderOpacity &&
+        other.shadowOpacity == shadowOpacity &&
+        other.animateSelection == animateSelection &&
+        other.animationMs == animationMs;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    horizontalMargin,
+    height,
+    safeGap,
+    borderOpacity,
+    shadowOpacity,
+    animateSelection,
+    animationMs,
+  );
+}
+
 /// 全局壳层设置：底部导航栏的**每个页签是否显示**与**显示顺序**。
 class ShellSettings {
   const ShellSettings({
     this.tabs = _defaultTabs,
     this.handleStyle = DockHandleStyle.lines,
+    this.appearance = DockAppearance.defaults,
   });
 
   static const List<ShellTabConfig> _defaultTabs = <ShellTabConfig>[
@@ -121,6 +242,9 @@ class ShellSettings {
 
   /// 导航栏滚动收起时，左下角悬浮球的样式。
   final DockHandleStyle handleStyle;
+
+  /// 尺寸、玻璃边缘、投影与选中动效（管理页可调，壳层实时读取）。
+  final DockAppearance appearance;
 
   /// 可见的页签（按显示顺序）。
   List<ShellTabConfig> get visibleTabs =>
@@ -166,7 +290,11 @@ class ShellSettings {
       }
     }
     if (!found) return null;
-    return ShellSettings(tabs: next, handleStyle: handleStyle);
+    return ShellSettings(
+      tabs: next,
+      handleStyle: handleStyle,
+      appearance: appearance,
+    );
   }
 
   /// 拖拽排序：把第 [from] 项移到**最终位置** [to]。
@@ -186,14 +314,35 @@ class ShellSettings {
     final next = List<ShellTabConfig>.of(tabs);
     final moved = next.removeAt(from);
     next.insert(target, moved);
-    return ShellSettings(tabs: next, handleStyle: handleStyle);
+    return ShellSettings(
+      tabs: next,
+      handleStyle: handleStyle,
+      appearance: appearance,
+    );
   }
 
   /// 切换收起悬浮球样式。
   ShellSettings withHandleStyle(DockHandleStyle style) {
     if (style == handleStyle) return this;
-    return ShellSettings(tabs: tabs, handleStyle: style);
+    return ShellSettings(
+      tabs: tabs,
+      handleStyle: style,
+      appearance: appearance,
+    );
   }
+
+  /// 切换外观参数（尺寸 / 玻璃边缘 / 投影 / 动效）。
+  ShellSettings withAppearance(DockAppearance appearance) {
+    if (appearance == this.appearance) return this;
+    return ShellSettings(
+      tabs: tabs,
+      handleStyle: handleStyle,
+      appearance: appearance,
+    );
+  }
+
+  /// 恢复默认顺序与可见性（全部显示、规范顺序），外观参数保持不变。
+  ShellSettings withDefaultTabs() => ShellSettings(appearance: appearance);
 
   /// 恢复默认顺序与可见性（全部显示、规范顺序）。
   static const ShellSettings defaults = ShellSettings();
@@ -201,6 +350,7 @@ class ShellSettings {
   Map<String, Object?> toJson() => <String, Object?>{
     'tabs': <Object?>[for (final tab in tabs) tab.toJson()],
     'handleStyle': handleStyle.id,
+    'appearance': appearance.toJson(),
   };
 
   /// 从落盘 JSON 还原。
@@ -239,6 +389,7 @@ class ShellSettings {
     return ShellSettings(
       tabs: parsed,
       handleStyle: DockHandleStyle.fromId(json['handleStyle']),
+      appearance: DockAppearance.fromJson(json['appearance']),
     );
   }
 
@@ -246,6 +397,7 @@ class ShellSettings {
   bool operator ==(Object other) {
     if (other is! ShellSettings) return false;
     if (other.handleStyle != handleStyle) return false;
+    if (other.appearance != appearance) return false;
     if (other.tabs.length != tabs.length) return false;
     for (var i = 0; i < tabs.length; i++) {
       if (other.tabs[i].id != tabs[i].id) return false;
@@ -257,6 +409,7 @@ class ShellSettings {
   @override
   int get hashCode => Object.hash(
     handleStyle,
+    appearance,
     Object.hashAll(tabs.map((tab) => Object.hash(tab.id, tab.visible))),
   );
 }
@@ -340,6 +493,9 @@ class ShellSettingsController extends ChangeNotifier {
   /// 导航栏收起时左下角悬浮球的样式。
   DockHandleStyle get handleStyle => _settings.handleStyle;
 
+  /// 尺寸 / 玻璃边缘 / 投影 / 动效（管理页实时改，壳层实时读）。
+  DockAppearance get appearance => _settings.appearance;
+
   /// 某个页签当前是否允许被关掉（「至少保留 1 个」）。
   bool canHide(String id) => _settings.canHide(id);
 
@@ -399,12 +555,33 @@ class ShellSettingsController extends ChangeNotifier {
     await _persist();
   }
 
-  /// 恢复默认（全部显示 + 规范顺序）。
+  /// 恢复默认顺序与可见性（全部显示 + 规范顺序）；**外观参数保持不变**。
+  ///
+  /// 外观有自己的复位入口（管理页的「恢复材质默认」），两边分开才不会出现
+  /// 「只想把页签全部打开，结果连调好的玻璃参数也被清掉」。
   Future<void> restoreDefaults() async {
-    _settings = ShellSettings.defaults;
+    final next = _settings.withDefaultTabs();
+    if (next == _settings) return;
+    _settings = next;
     notifyListeners();
     await _persist();
   }
+
+  /// 修改外观参数。滑块拖动时传 `persist: false` 只更新内存与界面，
+  /// 松手（`onChangeEnd`）再走 [saveAppearance] 落盘——避免每一帧都写文件。
+  Future<void> setAppearance(
+    DockAppearance appearance, {
+    bool persist = true,
+  }) async {
+    final next = _settings.withAppearance(appearance);
+    if (next == _settings) return;
+    _settings = next;
+    notifyListeners();
+    if (persist) await _persist();
+  }
+
+  /// 把当前外观参数落盘（滑块松手 / 开关切换后调用）。
+  Future<void> saveAppearance() => _persist();
 
   /// 写盘。**失败不影响本次运行**（内存里已生效），只记日志——
   /// 一个偏好项写不进去，不该让用户觉得「点了没反应」。

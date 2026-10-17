@@ -176,7 +176,7 @@ void main() {
       });
     }
 
-    testWidgets('显示模式：顶栏可切五档，选中的档位按板块记住（真机「找不到了」回归）', (tester) async {
+    testWidgets('显示模式：顶栏保留四档，四列五列已移除（真机「找不到了」回归）', (tester) async {
       await pumpExplore(
         tester,
         section: Section.comic,
@@ -184,15 +184,17 @@ void main() {
       );
       await tester.tap(find.byTooltip('布局'));
       await tester.pumpAndSettle();
-      for (final label in <String>['单列列表', '双列网格', '三列网格', '四列网格', '五列网格']) {
-        expect(find.text(label), findsOneWidget, reason: '五档都在菜单里');
+      for (final label in <String>['单列列表', '双列列表', '双列网格', '三列网格']) {
+        expect(find.text(label), findsOneWidget, reason: '四档都在菜单里');
       }
-      await tester.tap(find.text('五列网格'));
+      expect(find.text('四列网格'), findsNothing);
+      expect(find.text('五列网格'), findsNothing);
+      await tester.tap(find.text('三列网格'));
       await tester.pumpAndSettle();
       expect(
         BrowseLayoutSettings.instance.modeFor(Section.comic),
-        BrowseLayoutMode.grid5,
-        reason: '按板块记住（漫画选五列不影响别的板块）',
+        BrowseLayoutMode.grid3,
+        reason: '按板块记住（漫画选三列不影响别的板块）',
       );
       expect(
         BrowseLayoutSettings.instance.modeFor(Section.video),

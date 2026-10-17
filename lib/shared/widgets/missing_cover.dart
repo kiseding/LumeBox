@@ -36,6 +36,7 @@ class MissingCover extends StatelessWidget {
             icon,
             LumeTheme.accent,
             LumeTheme.textPrimary,
+            DefaultTextStyle.of(context).style.fontFamily,
           ),
           child: const SizedBox.expand(),
         ),
@@ -45,10 +46,17 @@ class MissingCover extends StatelessWidget {
 }
 
 class _CoverPainter extends CustomPainter {
-  const _CoverPainter(this.title, this.icon, this.accent, this.ink);
+  const _CoverPainter(
+    this.title,
+    this.icon,
+    this.accent,
+    this.ink,
+    this.fontFamily,
+  );
   final String title;
   final IconData icon;
   final Color accent, ink;
+  final String? fontFamily;
   void label(
     Canvas canvas,
     String text,
@@ -111,6 +119,7 @@ class _CoverPainter extends CustomPainter {
         canvas,
         title.isEmpty ? 'LumeBox' : title,
         TextStyle(
+          fontFamily: fontFamily,
           fontSize: LumeTypography.titleSize,
           height: 1.5,
           fontWeight: FontWeight.w600,

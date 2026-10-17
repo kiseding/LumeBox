@@ -43,7 +43,6 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
 
   @override
   void dispose() {
-    _store?.close();
     super.dispose();
   }
 
@@ -51,10 +50,7 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
     try {
       final opener = widget.storeOpener ?? VideoPlayerSettingsStore.open;
       final store = await opener();
-      if (!mounted) {
-        store.close();
-        return;
-      }
+      if (!mounted) return;
       // 弹幕设置也在视频板块的库里：全局设置页要能直接改它（用户口径）。
       final library = await ReadingLibrary.open(Section.video);
       if (!mounted) return;

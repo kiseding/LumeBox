@@ -161,22 +161,16 @@ void main() {
 
     final capsule = tester.getRect(dockCapsule());
     // 用户口径第七次：**保留一小段悬浮留白**——上一版怼死屏幕底边「改过头了」。
-    // 本轮：胶囊必须完整避开 iPhone 底部横条，停在安全区上沿再留 8pt。
+    // 本轮（第十三次）：留白 8 → 4，往下沉、更贴近 Home Indicator，但仍不贴死。
     final gap = height - capsule.bottom;
     expect(
       gap,
-      closeTo(bottomInset + 8, 0.01),
-      reason: '胶囊要悬浮在安全区之上 8pt（实测 $gap）',
+      closeTo(bottomInset + 4, 0.01),
+      reason: '胶囊要悬浮在安全区之上 4pt（实测 $gap）',
     );
-    // 用户口径第十二次：五个页签左右两侧**稍微加宽**——胶囊按「最大宽度 360、
-    // 居中」摆放，440pt 的屏幕上两侧各留 (440-360)/2 = 40（第十一次收窄到 320
-    // 时是 60，这一轮往回收一点，但仍不铺满屏宽）。
-    expect(capsule.width, closeTo(width - 32, 0.01), reason: '胶囊按屏宽减左右留边摆放');
-    expect(
-      capsule.left,
-      closeTo(16, 0.01),
-      reason: '胶囊居中：左侧留白 =（屏宽 − 最大宽度）÷ 2',
-    );
+    // 用户口径第十三次：左右再收窄——外边距 16 → 24，两侧留出明显的空白。
+    expect(capsule.width, closeTo(width - 48, 0.01), reason: '胶囊按屏宽减左右各 24 摆放');
+    expect(capsule.left, closeTo(24, 0.01), reason: '胶囊居中：左侧留白 24');
     // 加宽是**稍微**：两侧仍要留白（不铺满屏宽）。
     expect(capsule.left, greaterThan(0));
     expect(width - capsule.right, closeTo(capsule.left, 0.01));
@@ -260,10 +254,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     final capsule = tester.getRect(dockCapsule());
-    expect(capsule.left, closeTo(59 + 16, 0.01));
-    expect(956 - capsule.right, closeTo(59 + 16, 0.01));
-    expect(440 - capsule.bottom, closeTo(21 + 8, 0.01));
-    expect(capsule.height, closeTo(60, 0.01));
+    expect(capsule.left, closeTo(59 + 24, 0.01));
+    expect(956 - capsule.right, closeTo(59 + 24, 0.01));
+    expect(440 - capsule.bottom, closeTo(21 + 4, 0.01));
+    expect(capsule.height, closeTo(54, 0.01));
   });
 
   testWidgets('键盘弹出时隐藏胶囊且取消列表底部导航避让', (tester) async {
@@ -282,17 +276,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       height - tester.getRect(dockCapsule()).bottom,
-      closeTo(bottomInset + 8, 0.01),
+      closeTo(bottomInset + 4, 0.01),
     );
+  });
+
+  testWidgets('切换页签时选中底座走 250ms 果冻过渡（不是硬闪）', (tester) async {
+    await pumpShell(tester);
+
+    Finder chipOf(String label) => find
+        .descendant(
+          of: find
+              .ancestor(
+                of: find
+                    .descendant(
+                      of: find.byKey(AppShell.dockKey),
+                      matching: find.text(label),
+                    )
+                    .first,
+                matching: find.byType(InkWell),
+              )
+              .first,
+          matching: find.byType(DecoratedBox),
+        )
+        .first;
+
+    // 未选中时底座仍在树上，只是缩到 0.72 并透明——这样切换时才有过渡可走。
+    final before = tester.getRect(chipOf(Section.comic.label));
+    final opacity = tester.widget<AnimatedOpacity>(
+      find
+          .ancestor(
+            of: chipOf(Section.comic.label),
+            matching: find.byType(AnimatedOpacity),
+          )
+          .first,
+    );
+    expect(opacity.opacity, 0);
+    expect(opacity.duration, const Duration(milliseconds: 250));
+
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byKey(AppShell.dockKey),
+            matching: find.text(Section.comic.label),
+          )
+          .first,
+    );
+    await tester.pump();
+    // 前 50ms：底座从 0.72 倍往满尺寸长，明显不是一格跳到 40。
+    await tester.pump(const Duration(milliseconds: 50));
+    final growing = tester.getRect(chipOf(Section.comic.label));
+    expect(growing.width, greaterThan(before.width));
+    expect(growing.width, lessThan(40));
+
+    // 约 100ms：easeOutBack 的过冲把底座推到满尺寸之外再回弹——这就是果冻感。
+    await tester.pump(const Duration(milliseconds: 50));
+    final bounce = tester.getRect(chipOf(Section.comic.label));
+    expect(bounce.width, greaterThan(40), reason: 'easeOutBack 要轻微过冲');
+
+    await tester.pumpAndSettle();
+    final after = tester.getRect(chipOf(Section.comic.label));
+    expect(after.width, closeTo(40, 0.01));
+    expect(after.height, closeTo(22, 0.01));
+
+    // 退场的那一项同步收掉，不残留一块底色。
+    final outgoing = tester.getRect(chipOf(Section.novel.label));
+    expect(outgoing.width, closeTo(40 * 0.72, 0.01));
   });
 
   testWidgets('底栏容器更薄 + 圆角椭圆（只收容器，图标文字尺寸不变）', (tester) async {
     await pumpShell(tester);
 
     final capsule = tester.getRect(dockCapsule());
-    // **内容那一条**的高度收窄（用户口径第三次）：64 → 56。注意不是胶囊外框的高
-    // ——外框现在还要把「手势条避让」那一段一起画上（用户口径 6：外框贴屏幕底边，
-    // 内容往上缩），所以外框比内容条高。
+    // 内容条 64 → 56 → 60 → **54**（第十三次：再收上下内边距，容器更扁平）。
+    // 注意这不是胶囊外框的高：外框还要把手势条避让那一段一起画上。
     final item = tester.getRect(
       find
           .descendant(
@@ -301,8 +357,7 @@ void main() {
           )
           .first,
     );
-    // 内容条 64 → 56 → 60：拉高上下留白（图标 20 + 间距 4 + 文字约 14）。
-    expect(item.height, closeTo(60, 0.01), reason: '内容条保持统一高度');
+    expect(item.height, closeTo(54, 0.01), reason: '内容条保持统一高度');
     expect(item.height, greaterThanOrEqualTo(44.0), reason: '别压到里面的控件');
 
     final radius = tester.widget<ClipRRect>(dockCapsule()).borderRadius;

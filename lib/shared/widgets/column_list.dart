@@ -12,6 +12,7 @@ class ColumnList extends StatelessWidget {
     this.shrinkWrap = false,
     this.physics,
     this.childAspectRatio,
+    this.mainAxisExtent,
     this.decorateItems = true,
     this.itemPadding = const EdgeInsets.symmetric(vertical: 12),
   }) : assert(columns > 0);
@@ -22,6 +23,9 @@ class ColumnList extends StatelessWidget {
   final bool shrinkWrap, decorateItems;
   final ScrollPhysics? physics;
   final double? childAspectRatio;
+
+  /// 多列网格的单元高度（未缩放值）；为空时沿用原来的 152。
+  final double? mainAxisExtent;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +64,7 @@ class ColumnList extends StatelessWidget {
           mainAxisSpacing: spacing,
           childAspectRatio: childAspectRatio ?? 1,
           mainAxisExtent: childAspectRatio == null
-              ? 152 * scale.clamp(1.0, 3.0)
+              ? (mainAxisExtent ?? 152) * scale.clamp(1.0, 3.0)
               : null,
         ),
         itemBuilder: item,

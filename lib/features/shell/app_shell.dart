@@ -8,7 +8,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 
 import '../../core/session/app_preferences.dart';
@@ -51,7 +51,12 @@ import '../../shared/widgets/dock_handle_button.dart';
 /// 全屏页（阅读器 / 播放器）压栈时 Dock 由 [ShellDockObserver] 自动隐藏，
 /// 出栈后恢复；视频页在播放中隐藏 Dock 走 [ShellDockScope] 的令牌。
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.controller, this.desktopRail});
+  const AppShell({
+    super.key,
+    this.controller,
+    this.desktopRail,
+    this.pageBuilder,
+  });
 
   /// 底部 Dock 的定位键（测试按它确认 Dock 存在与隐藏）。
   static const Key dockKey = Key('shell.dock');
@@ -71,6 +76,13 @@ class AppShell extends StatefulWidget {
 
   /// 是否用左侧栏；为空时按平台判断（桌面端 → NavigationRail）。
   final bool? desktopRail;
+
+  /// 仅测试 / 截图预览用：替换页签页面（为空时用正式页面）。
+  ///
+  /// 材质预览需要「真实壳层 + 真实 Dock」压在一块彩色内容上，才能看出
+  /// 毛玻璃透出的效果；正式入口永远不传这个参数。
+  @visibleForTesting
+  final Widget Function(String id)? pageBuilder;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -102,14 +114,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _backgroundWarming = false;
 
   // 手机导航条使用完整安全区避让；玻璃胶囊内只摆图标与文字。
-  static const double _dockHeight = 60;
-  static const double _dockMargin = 16;
+
+  /// Dock 外观（尺寸 / 边框 / 阴影 / 动效）：由「设置 → 底部导航栏管理」实时改。
+  ///
+  /// 默认值就是上一轮精修后的取值（左右 24、高度 54、安全区上方 4）；
+  /// 每个字段都在 [DockAppearance.fromJson] 里收敛过范围，壳层直接读即可。
+  static DockAppearance get _dockAppearance =>
+      ShellSettingsController.instance.settings.appearance;
+
+  static double get _dockHeight => _dockAppearance.height;
+  static double get _dockMargin => _dockAppearance.horizontalMargin;
+  static double get _dockSafeGap => _dockAppearance.safeGap;
   static const double _dockInnerPadding = 6;
   static const double _dockBottomMargin = 0;
   static const double _dockSpacing = 8;
-
-  /// 胶囊与系统手势条之间再留的呼吸距离。
-  static const double _dockSafeGap = 8;
 
   static double dockMarginFor(double availableWidth) => _dockMargin;
   static double dockContentInset(BuildContext context) => 0;
@@ -440,7 +458,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 一起算进去：只滑「自身高度」会让按钮停在屏幕里，等于没藏。
   /// 用绝对像素而不是 `AnimatedSlide` 的「自身尺寸倍数」：那个倍数会随图标内边距
   /// 变化而漂移，是条看不见的耦合。这里多给一点余量，滑出屏幕即可。
-  static const double _entryHideTravel =
+  static double get _entryHideTravel =>
       _dockHeight + _dockMargin + _dockBottomMargin + _dockSpacing + 64;
 
   /// 「设置页被隐藏」时的恢复入口。
@@ -609,7 +627,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   visible:
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
-                  height: _dockHeight,
+                  appearance: _dockAppearance,
                   contentInset: contentInset,
                   bottomMargin: dockBottomOffset(context),
                 ),
@@ -670,7 +688,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     key: ValueKey<String>('$_activeId·${LumeTheme.themeId}'),
     child: ModuleGlassScope(
       module: GlassModule.fromId(_activeId),
-      child: _pageOf(_activeId).builder(),
+      child:
+          widget.pageBuilder?.call(_activeId) ?? _pageOf(_activeId).builder(),
     ),
   );
 }
@@ -696,6 +715,9 @@ class _ShellTab {
 
 /// 底部悬浮 Dock：浅色毛玻璃胶囊，各项等宽，选中项品牌紫 + 高亮底座。
 ///
+/// 选中底座用缩放 + 透明度过渡（250ms，easeOutBack），不是直接增删组件——
+/// 切换页签时底座会像水滴一样轻微弹一下，而不是硬闪一块色。
+///
 /// 它悬在页面内容之上（`extendBody`），因此底下的列表与封面会从胶囊里透出来——
 /// 全 App 玻璃感最明显的一处。
 ///
@@ -707,7 +729,7 @@ class _DockBar extends StatelessWidget {
     required this.activeId,
     required this.onSelect,
     required this.visible,
-    required this.height,
+    required this.appearance,
     required this.contentInset,
     required this.bottomMargin,
   });
@@ -717,8 +739,8 @@ class _DockBar extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final bool visible;
 
-  /// 内容条高度（图标 + 文字那一条）。
-  final double height;
+  /// 尺寸 / 玻璃边缘 / 投影 / 动效（设置页实时改）。
+  final DockAppearance appearance;
 
   /// 胶囊**内部**给系统手势条让出的高度：外框照样画到底，只是里面的
   /// 图标与文字往上缩这一段（用户口径 6）。
@@ -728,97 +750,130 @@ class _DockBar extends StatelessWidget {
   final double bottomMargin;
 
   /// 胶囊总高（外框）= 内容条 + 手势条避让。
-  double get capsuleHeight => height + contentInset;
+  double get capsuleHeight => appearance.height + contentInset;
+
+  /// 胶囊投影：默认极淡（约 5%），只交代「浮起」，不压成一块板。
+  BoxShadow get _dockShadow => BoxShadow(
+    color: Colors.black.withValues(alpha: appearance.shadowOpacity),
+    blurRadius: 20,
+    offset: const Offset(0, 6),
+  );
+
+  /// 深色主题下把边框强度按比例柔化：白色 1px 在暗底上比亮底醒目得多，
+  /// 默认 50% 直接照搬会变成一圈硬描边（预览里 22% 左右才像玻璃反光）。
+  double get _borderAlpha {
+    final dark = LumeTheme.palette.brightness == Brightness.dark;
+    return dark ? appearance.borderOpacity * 0.44 : appearance.borderOpacity;
+  }
 
   @override
   Widget build(BuildContext context) {
     // 左右留白按**布局宽度**算（见 [_AppShellState.dockMarginFor]）：收窄 + 居中。
     return ListenableBuilder(
       listenable: FloatingModules.instance,
-      builder: (context, _) => Transform.translate(
-        offset: Offset(
-          FloatingModules.instance.style(FloatingModule.dock).x,
-          FloatingModules.instance.style(FloatingModule.dock).y,
-        ),
-        child: IgnorePointer(
-          ignoring: !visible,
-          child: ExcludeSemantics(
-            excluding: !visible,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final margin = _AppShellState.dockMarginFor(
-                  constraints.maxWidth,
-                );
-                final safe = MediaQuery.viewPaddingOf(context);
-                // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
-                return AnimatedSlide(
-                  offset: visible ? Offset.zero : const Offset(0, 1.2),
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
-                  // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      margin + safe.left,
-                      0,
-                      margin + safe.right,
-                      bottomMargin,
-                    ),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
-                        borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                        boxShadow: LumeTheme.floatShadow,
+      builder: (context, _) {
+        final style = FloatingModules.instance.style(FloatingModule.dock);
+        final dark = LumeTheme.palette.brightness == Brightness.dark;
+        // 上下内边距跟着高度走：48pt 时收到 3，64pt 时放到 10；图标槽 22 +
+        // 间距 4 + 文字 14.4 这一组内容高度不变，因此任何档位都不会挤爆。
+        final verticalPadding = ((appearance.height - 42) / 2).clamp(2.0, 10.0);
+        return Transform.translate(
+          offset: Offset(style.x, style.y),
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: ExcludeSemantics(
+              excluding: !visible,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final margin = _AppShellState.dockMarginFor(
+                    constraints.maxWidth,
+                  );
+                  final safe = MediaQuery.viewPaddingOf(context);
+                  // 隐藏时整块（含内边距）平移到屏幕下沿之外，不占视觉、不响应点击。
+                  return AnimatedSlide(
+                    offset: visible ? Offset.zero : const Offset(0, 1.2),
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    // **不套 SafeArea**（用户口径 6）：胶囊外框直接画到屏幕底边，
+                    // 给手势条让路的是**里面的内容**——见下面的 [contentInset]。
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        margin + safe.left,
+                        0,
+                        margin + safe.right,
+                        bottomMargin,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(capsuleHeight / 2),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(
-                            sigmaX: FloatingModules.instance
-                                .style(FloatingModule.dock)
-                                .blur,
-                            sigmaY: FloatingModules.instance
-                                .style(FloatingModule.dock)
-                                .blur,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          // 圆角椭圆（胶囊）：半径取容器高度的一半，容器越薄越像胶囊。
+                          borderRadius: BorderRadius.circular(
+                            capsuleHeight / 2,
                           ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: LumeTheme.glass.withValues(
-                                alpha: FloatingModules.instance
-                                    .style(FloatingModule.dock)
-                                    .opacity,
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                capsuleHeight / 2,
-                              ),
-                              border: Border.all(color: LumeTheme.hairline),
+                          boxShadow: <BoxShadow>[_dockShadow],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            capsuleHeight / 2,
+                          ),
+                          child: BackdropFilter(
+                            // 参考图口径：模糊 10–15（默认 12），背景色块被糊开
+                            // 但仍能看出颜色走向，才有「透过去」的玻璃感。
+                            filter: ImageFilter.blur(
+                              sigmaX: style.blur,
+                              sigmaY: style.blur,
                             ),
-                            child: SizedBox(
-                              height: capsuleHeight,
-                              child: Padding(
-                                // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
-                                // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
-                                padding: EdgeInsets.only(bottom: contentInset),
-                                // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
-                                // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal:
-                                        _AppShellState._dockInnerPadding,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                // 浅色：纯白半透明（默认 65%），不是实心塑料白；
+                                // 深色：沿用深玻璃，否则深色主题会被一条白条割开。
+                                color: (dark ? LumeTheme.glass : Colors.white)
+                                    .withValues(alpha: style.opacity),
+                                borderRadius: BorderRadius.circular(
+                                  capsuleHeight / 2,
+                                ),
+                                // 玻璃边缘的极细反光（1px），强度由设置页控制。
+                                border: Border.all(
+                                  color: Colors.white.withValues(
+                                    alpha: _borderAlpha,
                                   ),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: <Widget>[
-                                      for (final tab in tabs)
-                                        Expanded(
-                                          child: _DockItem(
-                                            tab: tab,
-                                            selected: tab.id == activeId,
-                                            onTap: () => onSelect(tab.id),
+                                ),
+                              ),
+                              child: SizedBox(
+                                height: capsuleHeight,
+                                child: Padding(
+                                  // 内容往上缩：底部这一段只留给手势条（这一段也不响应点击——
+                                  // 手指从屏幕底边往上划是系统手势，不该先打到胶囊里的按钮）。
+                                  padding: EdgeInsets.only(
+                                    bottom: contentInset,
+                                  ),
+                                  // 胶囊收窄之后，首尾两项离圆角留一档内边距：五项之间的净间距
+                                  // 跟着一起收紧（用户口径：内部 tab 间距同步收紧）。
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal:
+                                          _AppShellState._dockInnerPadding,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: <Widget>[
+                                        for (final tab in tabs)
+                                          Expanded(
+                                            child: _DockItem(
+                                              tab: tab,
+                                              selected: tab.id == activeId,
+                                              onTap: () => onSelect(tab.id),
+                                              verticalPadding: verticalPadding,
+                                              animateSelection:
+                                                  appearance.animateSelection,
+                                              animationDuration: Duration(
+                                                milliseconds:
+                                                    appearance.animationMs,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -827,13 +882,13 @@ class _DockBar extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -843,11 +898,35 @@ class _DockItem extends StatelessWidget {
     required this.tab,
     required this.selected,
     required this.onTap,
+    required this.verticalPadding,
+    required this.animateSelection,
+    required this.animationDuration,
   });
 
   final _ShellTab tab;
   final bool selected;
   final VoidCallback onTap;
+
+  /// 上下内边距：由 Dock 高度反推（48–64 档位里保持内容高度不变）。
+  final double verticalPadding;
+
+  /// 设置页的「点击弹跳动效」开关；关闭时所有过渡时长归零（立即切换）。
+  final bool animateSelection;
+
+  /// 选中底座 / 图标 / 文字过渡时长（设置页可调，150–400ms）。
+  final Duration animationDuration;
+
+  /// 实际生效的时长：关掉动效时直接跳到终态。
+  Duration get _selectionDuration =>
+      animateSelection ? animationDuration : Duration.zero;
+
+  static const Curve _selectionInCurve = Curves.easeOutBack;
+  static const Curve _selectionOutCurve = Curves.easeInCubic;
+
+  /// 图标槽固定高度（选中底座 20 图标 + 上下各 1 = 22）。
+  ///
+  /// 选中 / 未选中都占同一格，切换时文字不会被底座的增删顶得跳一下。
+  static const double _iconSlot = 22;
 
   @override
   Widget build(BuildContext context) {
@@ -855,39 +934,89 @@ class _DockItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      // 60 高的胶囊里再留 8 上下；Column 居中后图标/文字上下各有约 10 的呼吸空间。
+      // 高度由设置页给；上下内边距按高度反推，图标槽 22 + 间距 4 + 文字 14.4
+      // 始终在剩余空间里垂直居中。
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: EdgeInsets.symmetric(vertical: verticalPadding),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.max,
           children: <Widget>[
-            if (selected)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: LumeTheme.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 1,
+            SizedBox(
+              height: _iconSlot,
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  // 底座常驻树上，未选中时缩放 + 透明收掉：切换页签时才有
+                  // 「从旧状态过渡到新状态」可看。直接按 selected 增删组件，
+                  // 表现就是背景色硬闪一下。
+                  AnimatedOpacity(
+                    opacity: selected ? 1 : 0,
+                    duration: _selectionDuration,
+                    curve: selected ? Curves.easeOut : Curves.easeIn,
+                    child: AnimatedScale(
+                      scale: selected ? 1 : 0.72,
+                      duration: _selectionDuration,
+                      curve: selected ? _selectionInCurve : _selectionOutCurve,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: LumeTheme.accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        // 底座本身不画图标（图标是下面的兄弟节点），只留出
+                        // 与旧版一致的 40×22 底色块，图标才能带着颜色一起动。
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 1,
+                          ),
+                          child: SizedBox(width: 20, height: 20),
+                        ),
+                      ),
+                    ),
                   ),
-                  child: Icon(tab.selectedIcon, size: 20, color: color),
-                ),
-              )
-            else
-              Icon(tab.icon, size: 20, color: color),
+                  // 图标：颜色随选中态平滑过渡，实心 / 线框之间做一次轻量交叉淡入。
+                  TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: color),
+                    duration: _selectionDuration,
+                    curve: Curves.easeInOut,
+                    builder: (context, animatedColor, _) => AnimatedSwitcher(
+                      duration: _selectionDuration,
+                      switchInCurve: Curves.easeOutBack,
+                      switchOutCurve: Curves.easeIn,
+                      transitionBuilder: (child, animation) => ScaleTransition(
+                        scale: Tween<double>(
+                          begin: .8,
+                          end: 1,
+                        ).animate(animation),
+                        child: FadeTransition(opacity: animation, child: child),
+                      ),
+                      child: Icon(
+                        selected ? tab.selectedIcon : tab.icon,
+                        key: ValueKey<bool>(selected),
+                        size: 20,
+                        color: animatedColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(
-              tab.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: LumeTypography.captionSize,
-                height: 1.2,
-                fontWeight: FontWeight.w600,
-                color: color,
+            TweenAnimationBuilder<Color?>(
+              tween: ColorTween(end: color),
+              duration: _selectionDuration,
+              curve: Curves.easeInOut,
+              builder: (context, animatedColor, _) => Text(
+                tab.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: LumeTypography.captionSize,
+                  height: 1.2,
+                  fontWeight: FontWeight.w600,
+                  color: animatedColor,
+                ),
               ),
             ),
           ],

@@ -586,17 +586,22 @@ class LumeTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        // 保持极浅灰填充（不回到纯白），再叠 1px 浅灰边界：
-        // 白底页面靠灰底区分，浅灰页面靠边界区分。
-        fillColor: surfaceAlt,
+        // **浅色一律纯白填充**（不再用浅灰）：浅灰页面上的输入框必须靠
+        // 白底 + 1px 浅灰边界浮起来；深色用深色卡面，同样有可见边界。
+        fillColor: isDark ? surfaceAlt : Colors.white,
         hintStyle: TextStyle(
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w500,
           color: textSecondary,
           fontSize: LumeTypography.titleSize,
         ),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w600,
           color: textSecondary,
+          fontSize: LumeTypography.titleSize,
+        ),
+        floatingLabelStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: accentColor,
           fontSize: LumeTypography.titleSize,
         ),
         contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -611,6 +616,14 @@ class LumeTheme {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: accentColor, width: 1.4),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: danger),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: danger, width: 1.4),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
@@ -634,15 +647,25 @@ class LumeTheme {
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
+          // 不覆盖 textStyle：让分段按钮继承 textTheme 的字体与字重，
+          // 否则自定义字体（截图/中文回退）会丢掉字形。
+          // 未选中段：浅色下用**纯白底 + 深色文字**，不再与浅灰页面融在一起；
+          // 选中的一段用品牌紫淡底 + 紫字，三档一眼能分。
           foregroundColor: WidgetStateProperty.resolveWith(
             (states) => states.contains(WidgetState.selected)
                 ? accentColor
-                : textSecondary,
+                : (isDark ? textSecondary : textPrimary),
           ),
           backgroundColor: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.selected) ? fill : surface,
+            (states) => states.contains(WidgetState.selected)
+                ? accentColor.withValues(alpha: isDark ? .18 : .12)
+                : (isDark ? surfaceAlt : Colors.white),
           ),
-          side: WidgetStatePropertyAll<BorderSide>(BorderSide(color: hairline)),
+          // hairline 在浅色下是透明色，会让整个切换器没有边界；这里统一用
+          // 输入框同款浅灰细边。
+          side: WidgetStatePropertyAll<BorderSide>(
+            BorderSide(color: inputBorder),
+          ),
         ),
       ),
       tabBarTheme: TabBarThemeData(

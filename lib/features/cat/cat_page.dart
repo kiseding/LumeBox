@@ -1,21 +1,19 @@
 import '../../shared/widgets/column_list.dart';
+import '../../shared/widgets/cat_site_tile.dart';
 import '../../shared/widgets/drawer_geometry.dart';
-import '../../shared/widgets/source_update_badge.dart';
 import '../../core/reading/browse_layout.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../shared/widgets/source_drag_tile.dart';
-import '../../shared/widgets/source_rating_badge.dart';
+import '../../shared/widgets/source_swipe_tile.dart';
 import '../../shared/widgets/subscription_status_icon.dart';
 import '../reading/source_search_dialog.dart';
 import '../reading/history_privacy.dart';
 import '../reading/favorite_folder_dialogs.dart';
 import '../../core/reading/favorite_folders.dart';
 import '../../core/source/source_order.dart';
-import '../../core/source/source_content_rating.dart';
 import '../../core/search/search_settings.dart';
 import '../reading/collection_panel.dart';
 import '../../core/source/source_preferences.dart';
-import '../../shared/widgets/source_icon.dart';
 import '../source/source_preferences_page.dart';
 import '../../shared/widgets/missing_cover.dart';
 import '../../core/source/home_browse_mode.dart';
@@ -369,7 +367,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     CatSubscription record,
     CatSite site,
     VoidCallback changed,
-    ListTile child,
+    Widget child,
   ) => SourceDragTile(
     id: site.id,
     name: site.name,
@@ -395,6 +393,39 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     },
     child: child,
   );
+
+  /// 打开单个猫源站点的设置页（原右侧三点菜单的动作）。
+  ///
+  /// 现在入口在卡片的**左滑菜单**里：列表行不再常驻三点按钮，名字可以完整居中。
+  Future<void> _editSite(
+    BuildContext context,
+    CatSubscription record,
+    CatSite site,
+    VoidCallback refresh,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => SourcePreferencesPage(
+          section: Section.cat,
+          sourceId: site.id,
+          name: site.name,
+          siteUrl: site.siteUrl,
+          showChapterOrder: site.kind == 'novel' || site.kind == 'comic',
+          onNetwork: () async {
+            final url = await service.configurationUrl(record);
+            if (!context.mounted) return;
+            await Navigator.push(
+              context,
+              MaterialPageRoute<void>(builder: (_) => CatWebPage(url: url)),
+            );
+            await service.refreshSites(record);
+          },
+        ),
+      ),
+    );
+    if (context.mounted) refresh();
+  }
 
   Future<void> sitePicker() async {
     await ReadingLibrary.open(Section.cat);
@@ -511,103 +542,39 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                       CatGroupedSourceList(
                         columns: service.siteColumns.clamp(1, 2),
                         sites: choices(record),
-                        itemBuilder: (context, site) => _reorderSite(
-                          record,
-                          site,
-                          () => pickerSetState(() {}),
-                          ListTile(
-                            dense: true,
-                            minLeadingWidth: 24,
-                            horizontalTitleGap: 8,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                            ),
-                            leading: SourceIcon(
-                              name: site.name,
-                              siteUrl: site.siteUrl,
-                              siteIcon: site.iconUrl,
-                              iconUrl: SourcePreferences.read(
-                                Section.cat,
-                                site.id,
-                              ).iconUrl,
-                              size: 28,
-                              section: Section.cat,
-                              sourceId: site.id,
-                            ),
-                            trailing: IconButton(
-                              tooltip: '站点设置',
-                              icon: const Icon(Icons.more_vert, size: 18),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 28,
-                                height: 32,
-                              ),
-                              onPressed: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SourcePreferencesPage(
-                                      section: Section.cat,
-                                      sourceId: site.id,
-                                      name: site.name,
-                                      siteUrl: site.siteUrl,
-                                      showChapterOrder:
-                                          site.kind == 'novel' ||
-                                          site.kind == 'comic',
-                                      onNetwork: () async {
-                                        final url = await service
-                                            .configurationUrl(record);
-                                        if (!context.mounted) return;
-                                        await Navigator.push(
-                                          context,
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                CatWebPage(url: url),
-                                          ),
-                                        );
-                                        await service.refreshSites(record);
-                                      },
+                        itemBuilder: (context, site) {
+                          final selected =
+                              site.id ==
+                              (source?.site.id ?? service.selectedSiteId);
+                          // 猫源专用行：无左侧图标、无右侧三点、文字单行居中。
+                          // 长按整行拖拽排序；左滑露出「设置」菜单。
+                          return _reorderSite(
+                            record,
+                            site,
+                            () => pickerSetState(() {}),
+                            SourceSwipeTile(
+                              actions: <SourceSwipeAction>[
+                                SourceSwipeAction(
+                                  label: '设置',
+                                  color: LumeTheme.accent,
+                                  onTap: () => unawaited(
+                                    _editSite(
+                                      context,
+                                      record,
+                                      site,
+                                      () => pickerSetState(() {}),
                                     ),
                                   ),
-                                );
-                                if (context.mounted) pickerSetState(() {});
-                              },
-                            ),
-                            title: Text.rich(
-                              TextSpan(
-                                children: [
-                                  TextSpan(text: site.name),
-                                  if (SourceContentRating.isAdult(
-                                        site.key,
-                                        site.name,
-                                      ) ||
-                                      SourceContentRating.isAdult(
-                                        record.id,
-                                        record.name,
-                                      ))
-                                    const WidgetSpan(
-                                      alignment: PlaceholderAlignment.middle,
-                                      child: SourceRatingBadge(),
-                                    ),
-                                ],
+                                ),
+                              ],
+                              child: CatSiteTile(
+                                label: site.name,
+                                selected: selected,
+                                onTap: () => Navigator.pop(context, site),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                            subtitle: SourceUpdateBadge(
-                              section: Section.cat,
-                              sourceId: site.id,
-                            ),
-                            selected:
-                                site.id ==
-                                (source?.site.id ?? service.selectedSiteId),
-                            selectedTileColor: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: .1),
-                            onTap: () => Navigator.pop(context, site),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ],
                     ListTile(
@@ -1235,7 +1202,13 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                 BrowseLayoutSettings.instance.setMode(Section.cat, mode),
               ),
               itemBuilder: (_) => [
-                for (final mode in BrowseLayoutMode.values)
+                // 四列 / 五列在手机上放不下（用户口径：删掉）。
+                for (final mode in const <BrowseLayoutMode>[
+                  BrowseLayoutMode.list,
+                  BrowseLayoutMode.list2,
+                  BrowseLayoutMode.grid2,
+                  BrowseLayoutMode.grid3,
+                ])
                   CheckedPopupMenuItem(
                     value: mode,
                     checked: mode == _layout,
@@ -1324,9 +1297,14 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   Widget browseItem(BuildContext context, int index) {
     final item = items[index];
     if (_layout == BrowseLayoutMode.list || _layout == BrowseLayoutMode.list2) {
+      final single = _layout == BrowseLayoutMode.list;
       return CompactSourceItemTile(
         uniformList: true,
-        columns: _layout.columns,
+        columns: single ? 1 : 2,
+        coverWidth: single ? 80 : 60,
+        coverHeight: single ? 100 : 80,
+        flat: single,
+        showMenu: single,
         item: item,
         pipeline: pipeline,
         onTap: () => openItem(item),
@@ -1335,14 +1313,20 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     return PosterCard(
       footnoteBelow: true,
       onTap: () => openItem(item),
-      footnote: Text(
-        item.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: LumeTheme.textPrimary,
-          fontSize: LumeTypography.descriptionSize,
-          fontWeight: FontWeight.w600,
+      footnote: SizedBox(
+        height: LumeTypography.descriptionSize * 1.25 * 2,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Text(
+            item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: LumeTheme.textPrimary,
+              fontSize: LumeTypography.descriptionSize,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
       child: pipeline == null
@@ -1459,7 +1443,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                           crossAxisCount: _layout.columns,
                           childAspectRatio: _layout.tileAspectRatio,
                           mainAxisExtent: _layout == BrowseLayoutMode.list2
-                              ? 152 *
+                              ? 96 *
                                     (MediaQuery.textScalerOf(context)
                                                 .scale(14) /
                                             14)

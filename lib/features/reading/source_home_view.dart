@@ -358,33 +358,18 @@ class _SourceHomeViewState extends State<SourceHomeView> {
           16 + widget.bottomInset,
         ),
         itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        separatorBuilder: (_, _) => const Divider(height: 1, thickness: 1),
         itemBuilder: (context, index) {
           final item = items[index];
-          return ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 4,
-            ),
-            leading: SizedBox(
-              width: 48,
-              height: 64,
-              child: widget.pipeline == null
-                  ? ColoredBox(color: LumeTheme.fill)
-                  : PosterCover(
-                      pipeline: widget.pipeline!,
-                      url: item.cover,
-                      headers: item.coverHeaders,
-                      title: item.title,
-                      width: 160,
-                    ),
-            ),
-            title: Text(
-              item.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+          return CompactSourceItemTile(
+            item: item,
+            pipeline: widget.pipeline,
             onTap: () => widget.onOpenItem(item),
+            columns: 1,
+            coverWidth: 80,
+            coverHeight: 100,
+            flat: true,
+            showMenu: true,
           );
         },
       );
@@ -401,7 +386,12 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         crossAxisCount: mode.columns,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: mode.tileAspectRatio,
+        // 双列列表是紧凑横向卡片：80 高封面 + 上下 8，别再留 1.35 比例的大白块。
+        mainAxisExtent: mode == BrowseLayoutMode.list2 ? 96 : null,
+        // mainAxisExtent 非空时这个值会被忽略，给它默认 1 即可。
+        childAspectRatio: mode == BrowseLayoutMode.list2
+            ? 1
+            : mode.tileAspectRatio,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => mode == BrowseLayoutMode.list2
@@ -409,6 +399,10 @@ class _SourceHomeViewState extends State<SourceHomeView> {
               item: items[index],
               pipeline: widget.pipeline,
               onTap: () => widget.onOpenItem(items[index]),
+              columns: 2,
+              coverWidth: 60,
+              coverHeight: 80,
+              showMenu: false,
             )
           : _HomeCard(
               item: items[index],
@@ -449,26 +443,32 @@ class _HomeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text(
-            item.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: style == GridTitleStyle.below
-                ? TextStyle(
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.25,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  )
-                : const TextStyle(
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.25,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    shadows: <Shadow>[
-                      Shadow(color: Color(0xB3000000), blurRadius: 4),
-                    ],
-                  ),
+          SizedBox(
+            height: LumeTypography.bodySize * 1.25 * 2,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Text(
+                item.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: style == GridTitleStyle.below
+                    ? TextStyle(
+                        fontSize: LumeTypography.bodySize,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                        color: LumeTheme.textPrimary,
+                      )
+                    : const TextStyle(
+                        fontSize: LumeTypography.bodySize,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        shadows: <Shadow>[
+                          Shadow(color: Color(0xB3000000), blurRadius: 4),
+                        ],
+                      ),
+              ),
+            ),
           ),
         ],
       ),

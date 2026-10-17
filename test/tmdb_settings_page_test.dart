@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/core/tmdb/tmdb.dart';
 import 'package:lume_box/features/settings/tmdb_settings_page.dart';
 
@@ -27,9 +28,25 @@ void main() {
   testWidgets('本地开关、样式、输入清除与确认断开连接', (tester) async {
     await tester.binding.setSurfaceSize(const Size(500, 1100));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(const MaterialApp(home: TmdbSettingsPage()));
+    await tester.pumpWidget(
+      MaterialApp(theme: LumeTheme.build(), home: const TmdbSettingsPage()),
+    );
     await tester.pumpAndSettle();
     expect(find.text('TMDB配置'), findsOneWidget);
+    // 全局表单兜底：浅色输入框纯白底 + 浅灰边框；切换器同款。
+    final theme = Theme.of(tester.element(find.byType(TmdbSettingsPage)));
+    expect(theme.inputDecorationTheme.fillColor, Colors.white);
+    expect(
+      (theme.inputDecorationTheme.enabledBorder! as OutlineInputBorder)
+          .borderSide
+          .color,
+      LumeTheme.inputBorder,
+    );
+    expect(find.byType(SegmentedButton<TmdbPosterStyle>), findsOneWidget);
+    expect(
+      find.byType(DropdownButtonFormField<String>),
+      findsNWidgets(TmdbImageKind.values.length),
+    );
     expect(
       tester
           .widget<OutlinedButton>(

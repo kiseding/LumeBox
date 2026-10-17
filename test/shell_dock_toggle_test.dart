@@ -119,6 +119,92 @@ void main() {
     });
   });
 
+  group('模型 · 外观参数', () {
+    test('默认值就是上一轮精修后的取值', () {
+      const a = DockAppearance.defaults;
+      expect(a.horizontalMargin, 24);
+      expect(a.height, 54);
+      expect(a.safeGap, 4);
+      expect(a.borderOpacity, .5);
+      expect(a.shadowOpacity, .05);
+      expect(a.animateSelection, isTrue);
+      expect(a.animationMs, 250);
+    });
+
+    test('JSON 往返保留全部字段，越界值收敛到安全区间', () {
+      const custom = DockAppearance(
+        horizontalMargin: 32,
+        height: 60,
+        safeGap: 10,
+        borderOpacity: .3,
+        shadowOpacity: .1,
+        animateSelection: false,
+        animationMs: 300,
+      );
+      expect(DockAppearance.fromJson(custom.toJson()), custom);
+
+      final clamped = DockAppearance.fromJson(<String, Object?>{
+        'horizontalMargin': 999,
+        'height': 1,
+        'safeGap': -5,
+        'borderOpacity': 5,
+        'shadowOpacity': -1,
+        'animationMs': 9999,
+      });
+      expect(clamped.horizontalMargin, 40);
+      expect(clamped.height, 48);
+      expect(clamped.safeGap, 0);
+      expect(clamped.borderOpacity, .8);
+      expect(clamped.shadowOpacity, 0);
+      expect(clamped.animationMs, 400);
+      expect(clamped.animateSelection, isTrue, reason: '缺字段时动效默认开');
+    });
+
+    test('ShellSettings 往返带外观；旧配置缺字段回退默认；改页签不丢外观', () {
+      final custom = const ShellSettings().withAppearance(
+        const DockAppearance(height: 60, horizontalMargin: 32),
+      );
+      final back = ShellSettings.fromJson(custom.toJson());
+      expect(back.appearance.height, 60);
+      expect(back.appearance.horizontalMargin, 32);
+
+      final legacy = Map<String, Object?>.of(const ShellSettings().toJson())
+        ..remove('appearance');
+      expect(
+        ShellSettings.fromJson(legacy).appearance,
+        DockAppearance.defaults,
+      );
+
+      final hidden = custom.withVisible('comic', false)!;
+      expect(hidden.appearance, custom.appearance, reason: '改页签不该重置外观');
+      expect(custom.withMove(0, 4).appearance, custom.appearance);
+      expect(
+        custom.withHandleStyle(DockHandleStyle.grid).appearance,
+        custom.appearance,
+      );
+    });
+
+    test('外观落盘：重启后仍是用户值；恢复默认只复位页签', () async {
+      final controller = ShellSettingsController.instance;
+      await controller.setAppearance(
+        const DockAppearance(height: 60, horizontalMargin: 32, safeGap: 10),
+      );
+      await controller.setVisible('comic', false);
+      await controller.boot();
+      expect(controller.appearance.height, 60);
+      expect(controller.appearance.horizontalMargin, 32);
+      expect(controller.appearance.safeGap, 10);
+
+      await controller.restoreDefaults();
+      expect(controller.settings.visibleCount, 5);
+      expect(
+        controller.appearance.height,
+        60,
+        reason: '「恢复默认（全部显示）」不能顺手清掉调好的外观',
+      );
+    });
+  });
+
   group('模型 · 至少保留 1 个页签（硬约束）', () {
     test('关到只剩 1 个：允许', () {
       var settings = const ShellSettings();
@@ -392,6 +478,40 @@ void main() {
         .whereType<String>()
         .toList();
 
+    Finder dockCapsule() => find
+        .descendant(
+          of: find.byKey(AppShell.dockKey),
+          matching: find.byType(ClipRRect),
+        )
+        .first;
+
+    testWidgets('外观参数实时作用到 Dock：留白 / 高度 / 离底距离', (tester) async {
+      await pumpShell(tester);
+
+      await ShellSettingsController.instance.setAppearance(
+        const DockAppearance(horizontalMargin: 32, height: 60, safeGap: 10),
+      );
+      await tester.pumpAndSettle();
+
+      final capsule = tester.getRect(dockCapsule());
+      expect(capsule.left, closeTo(32, .01));
+      expect(capsule.width, closeTo(390 - 64, .01));
+      expect(capsule.height, closeTo(60, .01));
+      expect(844 - capsule.bottom, closeTo(10, .01));
+
+      // 收窄/压扁之后每一项仍然点得到。
+      final item = tester.getRect(
+        find
+            .descendant(
+              of: find.byKey(AppShell.dockKey),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      expect(item.width, greaterThanOrEqualTo(44));
+      expect(item.height, closeTo(60, .01));
+    });
+
     testWidgets('默认五个页签都在', (tester) async {
       await pumpShell(tester);
       expect(dockLabels(tester), <String>['小说', '漫画', '视频', '猫源', '设置']);
@@ -594,18 +714,89 @@ void main() {
       for (final label in <String>['小说', '漫画', '视频', '猫源', '设置']) {
         expect(find.text(label), findsOneWidget);
       }
-      expect(find.byType(Switch), findsNWidgets(5));
+      // 页签行里的开关固定 5 个（外观卡里还有一个「点击弹跳动效」开关，
+      // 不能把它算进页签数）。
+      expect(
+        find.descendant(
+          of: find.byType(ReorderableListView),
+          matching: find.byType(Switch),
+        ),
+        findsNWidgets(5),
+      );
       expect(find.textContaining('当前显示 5 个页签'), findsOneWidget);
+    });
+
+    testWidgets('外观卡：材质/尺寸/动效选项齐全，改动写回模型', (tester) async {
+      await pumpPage(tester);
+
+      final title = find.text('外观与材质');
+      await tester.scrollUntilVisible(
+        title,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(title, findsOneWidget);
+      for (final label in <String>[
+        '玻璃白度',
+        '磨砂强度',
+        '边缘高光',
+        '阴影浓度',
+        '左右留白',
+        '导航栏高度',
+        '离底部距离',
+        '点击弹跳动效',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: '缺少「$label」选项');
+      }
+
+      // 页面是 behindBar（内容从玻璃顶栏下穿过），ensureVisible 会把目标贴到
+      // 视口顶端、被顶栏盖住；这里统一滚到视口中间再点。
+      Future<void> centerInView(Finder finder) async {
+        await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+        await tester.pumpAndSettle();
+      }
+
+      // 关闭动效：写回模型并立刻生效（时长滑块随之隐藏）。
+      final animationSwitch = find.descendant(
+        of: find
+            .ancestor(of: find.text('点击弹跳动效'), matching: find.byType(Row))
+            .first,
+        matching: find.byType(Switch),
+      );
+      await centerInView(animationSwitch);
+      await tester.tap(animationSwitch);
+      await tester.pumpAndSettle();
+      expect(
+        ShellSettingsController.instance.appearance.animateSelection,
+        isFalse,
+      );
+      expect(find.text('动效时长'), findsNothing);
+
+      // 高度滑块拖到最右端 → 64pt。
+      final height = find.byKey(const ValueKey('dock-appearance-height'));
+      await centerInView(height);
+      final rect = tester.getRect(height);
+      await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
+      await tester.pumpAndSettle();
+      expect(ShellSettingsController.instance.appearance.height, 64);
     });
 
     testWidgets('三种收起悬浮球可选：点击立即生效', (tester) async {
       await pumpPage(tester);
 
+      // 外观卡把「收起悬浮球」推到了首屏之外：先滚到它，让 ListView 把它建出来。
+      final arrow = find.byKey(const ValueKey('dock-handle-style-arrow'));
+      await tester.scrollUntilVisible(
+        arrow,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      // ensureVisible 只改滚动位置，要让下一帧重新布局后组件才真的在屏内。
+      await tester.pumpAndSettle();
       for (final style in DockHandleStyle.values) {
         expect(find.text(style.label), findsOneWidget);
       }
-      final arrow = find.byKey(const ValueKey('dock-handle-style-arrow'));
-      await tester.ensureVisible(arrow);
       await tester.tap(arrow);
       await tester.pumpAndSettle();
       expect(
@@ -676,7 +867,8 @@ void main() {
         300,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(restore);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, '恢复默认（全部显示）'));
       await tester.pumpAndSettle();
 
       expect(ShellSettingsController.instance.settings.visibleCount, 5);
@@ -686,6 +878,7 @@ void main() {
         -300,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.pumpAndSettle();
       expect(find.textContaining('当前显示 5 个页签'), findsOneWidget);
     });
 

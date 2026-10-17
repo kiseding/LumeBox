@@ -228,7 +228,12 @@ class CatService extends ChangeNotifier {
   String? selectedSiteId;
   int siteColumns = 1;
   Future<void> setSiteColumns(int value) async {
-    siteColumns = value.clamp(1, 2);
+    final next = value.clamp(1, 2);
+    if (siteColumns == next) return;
+    siteColumns = next;
+    // 先通知界面再落盘：单/双列切换要立刻生效，不能等磁盘写完
+    // （真机上文件 I/O 有延迟，等 save 的通知会显得点了没反应）。
+    notifyListeners();
     await save();
   }
 

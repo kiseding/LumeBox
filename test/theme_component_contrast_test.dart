@@ -13,7 +13,11 @@ void main() {
       final input = theme.inputDecorationTheme;
 
       expect(input.filled, isTrue);
-      expect(input.fillColor, LumeTheme.surfaceAlt);
+      // 用户口径：浅色输入框必须是纯白底 + 浅灰边界；深色用深卡面。
+      expect(
+        input.fillColor,
+        brightness == Brightness.light ? Colors.white : LumeTheme.surfaceAlt,
+      );
       expect(input.hintStyle?.color, LumeTheme.textSecondary);
       expect(
         input.contentPadding,
@@ -40,6 +44,29 @@ void main() {
       final cardShape = theme.cardTheme.shape! as RoundedRectangleBorder;
       expect(cardShape.side.color, LumeTheme.inputBorder);
       expect(cardShape.side.width, 1);
+
+      // 「固定 / 随机 / 轮播」这类切换器：未选中段白底深字，整条有 1px 细边。
+      final segmented = theme.segmentedButtonTheme.style!;
+      final idleFill = segmented.backgroundColor!.resolve(<WidgetState>{});
+      final selectedFill = segmented.backgroundColor!.resolve(<WidgetState>{
+        WidgetState.selected,
+      });
+      expect(
+        idleFill,
+        brightness == Brightness.light ? Colors.white : LumeTheme.surfaceAlt,
+      );
+      expect(selectedFill, isNot(idleFill), reason: '选中态要有可见色块');
+      expect(
+        segmented.foregroundColor!.resolve(<WidgetState>{}),
+        brightness == Brightness.light
+            ? LumeTheme.textPrimary
+            : LumeTheme.textSecondary,
+        reason: '未选中文字不能隐形',
+      );
+      expect(
+        segmented.side!.resolve(<WidgetState>{})!.color,
+        LumeTheme.inputBorder,
+      );
     });
   }
 }

@@ -130,11 +130,24 @@ class BrowseLayoutSettings extends ChangeNotifier {
     await _persist();
   }
 
+  /// 手机端只保留四档：单列、双列、双列网格、三列网格。
+  ///
+  /// 旧配置里的四列 / 五列仍在枚举里（兼容落盘 id），但读出来一律并到三列，
+  /// 不让页面继续以手机上放不下的密度渲染。
+  static BrowseLayoutMode normalize(BrowseLayoutMode mode) =>
+      mode == BrowseLayoutMode.grid4 || mode == BrowseLayoutMode.grid5
+      ? BrowseLayoutMode.grid3
+      : mode;
+
   /// 用户为某板块选过的布局；没选过返回 null（由调用方决定默认档）。
-  BrowseLayoutMode? modeFor(Section section) => _modes[section.id];
+  BrowseLayoutMode? modeFor(Section section) {
+    final mode = _modes[section.id];
+    return mode == null ? null : normalize(mode);
+  }
 
   /// 选用某档并落盘（立刻通知监听者，界面当场重排）。
   Future<void> setMode(Section section, BrowseLayoutMode mode) async {
+    mode = normalize(mode);
     if (_modes[section.id] == mode) return;
     _modes[section.id] = mode;
     notifyListeners();

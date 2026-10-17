@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
+
 import '../media/media_library.dart';
+
 import 'dart:io';
-import 'dart:typed_data';
+
 import '../session/privacy_settings.dart';
 
 import '../session/section.dart';
@@ -17,6 +20,18 @@ class ReadingLibrary {
   ReadingLibrary._(this._store);
 
   final ReadingStore _store;
+
+  bool _disposed = false;
+
+  /// 书架 / 进度 / 收藏任一写入后 +1。
+  ///
+  /// 历史抽屉正在打开时监听它并重建：播放页退出后记录落库，不必切一次 Tab
+  /// 才看见（用户口径：打开就应该是新的）。
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  void _touch() {
+    if (!_disposed) revision.value++;
+  }
 
   static final Map<String, ReadingLibrary> _opened = <String, ReadingLibrary>{};
 
@@ -43,15 +58,32 @@ class ReadingLibrary {
   // ------------------------------------------------------------------ 书架
 
   /// 书架条目，最近加入或阅读的在前。
-  List<LibraryItem> shelf() => _store.shelf().where((item) => PrivacySettings.instance.allowsSource(item.sourceId, item.title) && MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)).toList();
+  List<LibraryItem> shelf() => _store
+      .shelf()
+      .where(
+        (item) =>
+            PrivacySettings.instance.allowsSource(item.sourceId, item.title) &&
+            MediaLibrary.instance.visibleAtOrigin(
+              section,
+              item.sourceId,
+              item.itemId,
+            ),
+      )
+      .toList();
 
   LibraryItem? item(String itemId) => _store.item(itemId);
 
   bool onShelf(String itemId) => _store.isFavorite(itemId);
 
-  void removeFavorite(String itemId) => _store.removeFavorite(itemId);
+  void removeFavorite(String itemId) {
+    _store.removeFavorite(itemId);
+    _touch();
+  }
 
-  void removeHistory(String itemId) => _store.clearProgress(itemId);
+  void removeHistory(String itemId) {
+    _store.clearProgress(itemId);
+    _touch();
+  }
 
   /// 加入书架。已在架时只补全信息（封面、简介、章节数），阅读记录不受影响。
   LibraryItem shelve({
@@ -79,12 +111,47 @@ class ReadingLibrary {
       updatedAt: now,
     );
     _store.upsertItem(item);
+    _touch();
     return _store.item(itemId) ?? item;
+  }
+
+  /// 记录播放 / 阅读所需的元数据，但**不加入收藏**。
+  ///
+  /// 与 [shelve] 的唯一区别是收藏位：新行 favorite = 0，已有行保持不变。
+  /// 播放器落进度必须走这里——之前误用 [shelve]，每播一部就自动收藏一部。
+  void recordHistoryItem({
+    required String sourceId,
+    required String itemId,
+    required String title,
+    String? cover,
+    String? subtitle,
+    int chapterCount = 0,
+  }) {
+    final existing = _store.item(itemId);
+    final now = DateTime.now();
+    _store.ensureHistoryItem(
+      LibraryItem(
+        section: section,
+        itemId: itemId,
+        sourceId: sourceId,
+        title: title,
+        cover: cover,
+        subtitle: subtitle,
+        chapterCount: chapterCount > 0
+            ? chapterCount
+            : existing?.chapterCount ?? 0,
+        readChapterIndex: existing?.readChapterIndex ?? -1,
+        addedAt: existing?.addedAt ?? now,
+        updatedAt: now,
+      ),
+    );
+    _touch();
   }
 
   void unshelve(String itemId) {
     _store.removeItem(itemId);
     _store.clearProgress(itemId);
+    _touch();
   }
 
   /// 同步章节总数（详情页拿到章节列表后调用）。为 0 时忽略，避免图源偶发
@@ -94,6 +161,7 @@ class ReadingLibrary {
     final existing = _store.item(itemId);
     if (existing == null) return;
     _store.setChapterCount(itemId, chapterCount);
+    _touch();
     // 章节数变了，排序时间不动——同步目录不算一次阅读。
   }
 
@@ -126,7 +194,14 @@ class ReadingLibrary {
   List<LibraryItem> continueWatching({int limit = 20}) {
     final items = <LibraryItem>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
-      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) || !MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)) continue;
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) ||
+          !MediaLibrary.instance.visibleAtOrigin(
+            section,
+            item.sourceId,
+            item.itemId,
+          )) {
+        continue;
+      }
       final progress = _store.progress(item.itemId);
       if (progress is! VideoProgress) continue;
       items.add(item);
@@ -145,7 +220,14 @@ class ReadingLibrary {
   }) {
     final entries = <({LibraryItem item, ReadingProgress progress})>[];
     for (final item in _store.shelf(includeHistoryOnly: true)) {
-      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) || !MediaLibrary.instance.visibleAtOrigin(section,item.sourceId,item.itemId)) continue;
+      if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) ||
+          !MediaLibrary.instance.visibleAtOrigin(
+            section,
+            item.sourceId,
+            item.itemId,
+          )) {
+        continue;
+      }
       final progress = _store.progress(item.itemId);
       if (progress == null) continue;
       entries.add((item: item, progress: progress));
@@ -168,6 +250,7 @@ class ReadingLibrary {
       progress.chapterIndex,
       at: progress.updatedAt,
     );
+    _touch();
   }
 
   // ------------------------------------------------------------------ 设置
@@ -209,7 +292,10 @@ class ReadingLibrary {
   static void close(Section section) => _opened.remove(section.id)?.dispose();
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _opened.removeWhere((_, value) => identical(value, this));
+    revision.dispose();
     _store.dispose();
   }
 

@@ -164,7 +164,11 @@ void main() {
       expect(find.byType(ReadingHistorySheet), findsOneWidget);
       expect(find.text('视频 · 历史'), findsOneWidget);
       expect(find.text('示例影片'), findsWidgets);
-      expect(find.textContaining('第 3 集'), findsWidgets);
+      expect(
+        find.textContaining('12:00'),
+        findsWidgets,
+        reason: '进度只显示已播 / 总长，不再带集数',
+      );
     });
 
     testWidgets('视频：抽屉里可以清空（视频的记录就是它的书架）', (tester) async {
@@ -281,14 +285,14 @@ void main() {
           expect(find.byType(ChoiceChip), findsNothing);
           await tester.tap(find.byTooltip('显示模式'));
           await tester.pumpAndSettle();
-          await tester.tap(find.text('双列网格'));
+          await tester.tap(find.text('三列网格'));
           await tester.pumpAndSettle();
           expect(find.byType(GridView), findsOneWidget);
           expect(
             library.setting(
               'collection.${favorites ? 'favorites' : 'history'}.layout',
             ),
-            'grid2',
+            'grid3',
           );
           expect(
             library.setting(

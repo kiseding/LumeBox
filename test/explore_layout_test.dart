@@ -102,7 +102,7 @@ void main() {
     expect(gridColumns(tester), 3, reason: '漫画默认三列网格');
   });
 
-  testWidgets('布局菜单含双列列表、四列与五列网格，当场生效', (tester) async {
+  testWidgets('布局菜单保留四档，四列五列已移除，当场生效', (tester) async {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3);
 
@@ -110,15 +110,14 @@ void main() {
     // 悬浮顶栏那一版把入口藏了，这里改成从 UI 切，入口再丢就会失败）。
     await tester.tap(find.byTooltip('布局'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('四列网格'));
+    for (final label in <String>['单列列表', '双列列表', '双列网格', '三列网格']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('四列网格'), findsNothing);
+    expect(find.text('五列网格'), findsNothing);
+    await tester.tap(find.text('三列网格'));
     await tester.pumpAndSettle();
-    expect(gridColumns(tester), 4);
-
-    await tester.tap(find.byTooltip('布局'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('五列网格'));
-    await tester.pumpAndSettle();
-    expect(gridColumns(tester), 5);
+    expect(gridColumns(tester), 3);
 
     // 列数表与比例表一一对应（少一档都会在渲染时拿到错的比例）。
     for (final mode in BrowseLayoutMode.values) {

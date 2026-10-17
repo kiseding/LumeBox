@@ -324,6 +324,14 @@ final class VideoProgress extends ReadingProgress {
     return '$episode · ${_clock(position)} / ${_clock(duration)}';
   }
 
+  /// 不带集数的短文案：`33:08 / 2:25:00`；总长未知时只给已播时间。
+  ///
+  /// 历史/收藏卡片用这个：集名在标题和详情里已有，进度行只留「已播 / 总长」。
+  String get timeLabel {
+    if (duration <= Duration.zero) return _clock(position);
+    return '${_clock(position)} / ${_clock(duration)}';
+  }
+
   /// 跳到另一集：时间点归零（新一集从头播）。
   @override
   VideoProgress withChapter({

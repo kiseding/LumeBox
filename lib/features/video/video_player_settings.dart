@@ -224,8 +224,11 @@ class VideoPlayerSettingsStore {
     return value == null ? null : Duration(milliseconds: value);
   }
 
-  /// 释放本板块的库（页面退出时调用）。
-  void close() => ReadingLibrary.close(Section.video);
+  /// 兼容旧调用：**不再关闭阅读库**。
+  ///
+  /// 阅读库是板块级共享实例（VideoPage 返回后还要用它打开历史），这个 store
+  /// 只是设置读写门面，不拥有库的生命周期。保留空实现，避免调用方编译失败。
+  void close() {}
 }
 
 /// 读手势灵敏度：没写过 / 解析失败 / 越界都回落到默认 1.0。

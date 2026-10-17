@@ -754,8 +754,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final prelaunch = _prelaunch;
     _prelaunch = null;
     if (prelaunch != null) unawaited(prelaunch.discard());
-    _store?.close();
-    if (widget.library == null) ReadingLibrary.close(Section.video);
+    // **只借不关**：阅读库是板块级共享实例（VideoPage 还会用它打开历史）。
+    // 这里关闭会让返回后的视频页拿着一个已关闭的库，历史抽屉静默读到空列表，
+    // 必须切一次 Tab 重新打开才恢复（真机 bug）。生命周期归板块页管。
     _idleSnapshot.dispose();
     if (widget.speedMeter == null) _networkSpeed.dispose();
     // 注入进来的网速表由调用方释放。
@@ -1019,10 +1020,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final result = await settingsResult;
       if (result is! VideoPlayerSettingsStore) throw result;
       final store = result;
-      if (!mounted) {
-        store.close();
-        return;
-      }
+      if (!mounted) return;
       _store = store;
       // 新播放默认按媒体比例适应，旧的缩小档位不影响新播放。
       _settings = store.load().copyWith(zoom: ZoomMode.fit);
@@ -2172,7 +2170,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (position <= Duration.zero && !force) return;
 
     _lastSavedPosition = position;
-    library.shelve(
+    // **只写历史**：播放不是收藏。这里若调 shelve()，其 upsert 会把
+    // favorite 置 1，播放记录就会跑进收藏页（真机 bug）。
+    library.recordHistoryItem(
       sourceId: target.sourceId,
       itemId: target.itemId,
       title: target.title,
@@ -2771,8 +2771,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   // ------------------------------------------------------------------ 构建
 
   @override
-  Widget build(BuildContext context) =>
-      ModuleGlassScope(module: GlassModule.video, child: _legacyBuild(context));
+  Widget build(BuildContext context) => PopScope<void>(
+    onPopInvokedWithResult: (didPop, _) {
+      // 返回的**那一刻**就落盘：dispose 要等退场动画跑完，用户会在这之前
+      // 点右上角历史（真机现象：不切一次 Tab 就看不到刚播的那条）。
+      if (didPop) _saveProgress(force: true);
+    },
+    child: ModuleGlassScope(
+      module: GlassModule.video,
+      child: _legacyBuild(context),
+    ),
+  );
   Widget _legacyBuild(BuildContext context) {
     final body = _anyKernelAvailable ? _buildBody() : const _VideoSkeleton();
     // 全屏（沉浸）模式：整页只剩画面 + 浮层控制栏——顶栏与标准控制栏都收起。

@@ -1541,9 +1541,13 @@ class _ExploreViewState extends State<ExploreView> {
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: 12 * _spacingScale,
             crossAxisSpacing: 12 * _spacingScale,
-            // 列越少封面越大，卡片比例也相应放宽（两列时标题有一行更宽的余地）——
-            // 比例表在 BrowseLayoutMode.tileAspectRatio 里统一维护。
-            childAspectRatio: _mode.tileAspectRatio,
+            // 双列列表是紧凑横向卡片：80 高封面 + 上下 8，固定 96 高，
+            // 不再用 1.35 的比例撑出一大块空白。
+            mainAxisExtent: _mode == BrowseLayoutMode.list2 ? 96 : null,
+            // mainAxisExtent 非空时会被忽略；给默认 1。
+            childAspectRatio: _mode == BrowseLayoutMode.list2
+                ? 1
+                : _mode.tileAspectRatio,
           ),
           itemCount: _sortedItems.length + 1,
           itemBuilder: (context, index) {
@@ -1589,57 +1593,15 @@ class _ExploreViewState extends State<ExploreView> {
             final items = _sortedItems;
             if (index == items.length) return _buildFooter();
             final item = items[index];
-            return GlassCard(
-              padding: const EdgeInsets.all(10),
+            return CompactSourceItemTile(
+              item: item,
+              pipeline: _imagePipeline,
               onTap: () => _open(item),
-              child: Row(
-                children: <Widget>[
-                  SizedBox(
-                    width: 56,
-                    height: 76,
-                    child: CoverThumb(
-                      pipeline: _imagePipeline,
-                      url: item.cover,
-                      title: item.title,
-                      headers: item.coverHeaders,
-                      width: 160,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: LumeTypography.titleSize,
-                            fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
-                          ),
-                        ),
-                        if (item.subtitle != null) ...<Widget>[
-                          const SizedBox(height: 4),
-                          Text(
-                            item.subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: LumeTypography.descriptionSize,
-                              color: LumeTheme.descriptionColor,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, color: LumeTheme.muted),
-                ],
-              ),
+              columns: 1,
+              coverWidth: 80,
+              coverHeight: 100,
+              flat: true,
+              showMenu: true,
             );
           },
         ),

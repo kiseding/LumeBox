@@ -23,6 +23,20 @@ class FloatingStyle {
     this.y = 0,
     this.blur = 6,
   });
+
+  /// 底部导航的默认材质：更透的白玻璃 + 更深的磨砂。
+  ///
+  /// 参考图口径：半透明白底约 65%、模糊 10–15。其余悬浮模块保持原来的
+  /// 6 度微磨砂——顶部栏贴着文字，糊得太狠会读不清。
+  static const FloatingStyle dockDefault = FloatingStyle(
+    opacity: .65,
+    blur: 12,
+  );
+
+  /// 各模块的默认值（新建配置 / 重置时用）。
+  static FloatingStyle defaultFor(FloatingModule module) =>
+      module == FloatingModule.dock ? dockDefault : const FloatingStyle();
+
   final double opacity, x, y, blur;
   Offset get offset => Offset(x, y);
   FloatingStyle copyWith({
@@ -54,7 +68,7 @@ class FloatingStyle {
       opacity: read('opacity', .72, 0, 1),
       x: read('x', 0, -40, 40),
       y: read('y', 0, -40, 80),
-      blur: read('blur', 6, 0, 6),
+      blur: read('blur', 6, 0, 15),
     );
   }
 }
@@ -65,7 +79,7 @@ class FloatingModules extends ChangeNotifier {
   final Map<FloatingModule, FloatingStyle> _styles = {};
   File? _file;
   FloatingStyle style(FloatingModule module) =>
-      _styles[module] ?? const FloatingStyle();
+      _styles[module] ?? FloatingStyle.defaultFor(module);
   Future<void> boot() async {
     try {
       _styles.clear();
@@ -78,9 +92,19 @@ class FloatingModules extends ChangeNotifier {
             final raw = data[module.name];
             if (raw is Map) {
               final previous = FloatingStyle.fromJson(raw);
-              _styles[module] = data['_readableGlassVersion'] == 1
+              final readable = data['_readableGlassVersion'] == 1
                   ? previous
                   : previous.copyWith(opacity: .72, blur: 6);
+              // 底部导航这一轮换成「更透的白玻璃」：给旧配置做一次性迁移
+              // （沿用旧版的用户也能看到新材质）。迁移后滑块照常生效。
+              _styles[module] =
+                  module == FloatingModule.dock &&
+                      data['_dockGlassVersion'] != 1
+                  ? previous.copyWith(
+                      opacity: FloatingStyle.dockDefault.opacity,
+                      blur: FloatingStyle.dockDefault.blur,
+                    )
+                  : readable;
             }
           }
         }
@@ -93,14 +117,15 @@ class FloatingModules extends ChangeNotifier {
   }
 
   void set(FloatingModule module, FloatingStyle value) {
-    value = value.copyWith(blur: value.blur.clamp(0, 6));
+    value = value.copyWith(blur: value.blur.clamp(0, 15));
     _styles[module] = module == FloatingModule.dock
         ? value.copyWith(y: value.y.clamp(-40, 20))
         : value;
     notifyListeners();
   }
 
-  void reset(FloatingModule module) => set(module, const FloatingStyle());
+  void reset(FloatingModule module) =>
+      set(module, FloatingStyle.defaultFor(module));
   void save() {
     final file = _file;
     if (file == null) return;
@@ -111,6 +136,7 @@ class FloatingModules extends ChangeNotifier {
           '_clearGlassVersion': 1,
           '_microGlassVersion': 1,
           '_readableGlassVersion': 1,
+          '_dockGlassVersion': 1,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

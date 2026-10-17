@@ -104,8 +104,17 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
   );
   @override
   void dispose() {
+    widget.library.revision.removeListener(_onLibraryChanged);
     pipeline.dispose();
     super.dispose();
+  }
+
+  /// 书架 / 进度 / 收藏任一写入后立刻重建。
+  ///
+  /// 抽屉不是「打开时读一次」：播放页返回后、删除记录后、收藏状态变化后，
+  /// 只要抽屉还开着就跟着刷新（不必切 Tab 再回来）。
+  void _onLibraryChanged() {
+    if (mounted) setState(() {});
   }
 
   String? folder;
@@ -116,6 +125,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
   @override
   void initState() {
     super.initState();
+    widget.library.revision.addListener(_onLibraryChanged);
     if (favorites) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(checkUpdates(quiet: true));
@@ -378,6 +388,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                               item: item,
                               progress: widget.library.progress(item.itemId),
                               now: now,
+                              removeLabel: favorites ? '取消收藏' : '删除记录',
+                              onRemove: () => favorites
+                                  ? widget.library.removeFavorite(item.itemId)
+                                  : widget.library.removeHistory(item.itemId),
                               onResume: () => open(item),
                             ),
                           );
@@ -388,49 +402,11 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                             onLongPress: favorites
                                 ? () => moveToFolder(item)
                                 : null,
-                            child: GlassCard(
+                            child: HistoryGridTile(
+                              item: item,
+                              progress: widget.library.progress(item.itemId),
+                              pipeline: pipeline,
                               onTap: () => open(item),
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: SizedBox(
-                                        width: double.infinity,
-                                        child: PosterCover(
-                                          pipeline: pipeline,
-                                          url: item.cover,
-                                          title: item.title,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    item.title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: LumeTypography.descriptionSize,
-                                    ),
-                                  ),
-                                  Text(
-                                    widget.library
-                                            .progress(item.itemId)
-                                            ?.describe() ??
-                                        '尚未开始',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: LumeTypography.captionSize,
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ),
                           );
                         },
@@ -460,9 +436,13 @@ class HistoryEntryTile extends StatelessWidget {
     required this.now,
     required this.onResume,
     this.onRemove,
+    this.removeLabel = '删除记录',
     this.pipeline,
     this.updated = false,
   });
+
+  /// 三点菜单里「删除」那一项的文案（历史=删除记录 / 收藏=取消收藏）。
+  final String removeLabel;
 
   final LibraryItem item;
   final ReadingProgress? progress;
@@ -489,9 +469,10 @@ class HistoryEntryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final saved = progress;
     final ratio = saved == null ? null : ratioOf(saved);
-    final finished = saved != null && isFinished(saved);
+    final relative = relativeTime(now, saved?.updatedAt ?? item.addedAt);
     return LayoutBuilder(
       builder: (context, constraints) {
+        // 双列列表列宽更窄：缩略图 60×80；单列放大到 80×100（用户口径）。
         final compact = constraints.maxWidth < 260;
         Widget card({required Widget child}) {
           if (!ColumnListItemScope.contains(context)) {
@@ -519,103 +500,94 @@ class HistoryEntryTile extends StatelessWidget {
           child: Row(
             children: <Widget>[
               SizedBox(
-                width: compact ? 34 : 54,
-                height: compact ? 50 : 76,
+                key: const ValueKey('history-thumb'),
+                width: compact ? 60 : 80,
+                height: compact ? 80 : 100,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                   child: CoverThumb(
                     pipeline: pipeline,
                     url: item.cover,
                     title: item.title,
-                    width: 108,
+                    width: compact ? 160 : 200,
                   ),
                 ),
               ),
-              SizedBox(width: compact ? 6 : 12),
+              SizedBox(width: compact ? 8 : 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: <Widget>[
                         if (updated)
                           const Padding(
-                            padding: EdgeInsets.only(right: 6),
-                            child: Icon(Icons.fiber_new, size: 18),
+                            padding: EdgeInsets.only(right: 4),
+                            child: Icon(Icons.fiber_new, size: 16),
                           ),
                         Expanded(
                           child: Text(
                             item.title,
-                            maxLines: 1,
+                            maxLines: compact ? 2 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: LumeTypography.titleSize,
+                              fontSize: compact
+                                  ? LumeTypography.bodySize
+                                  : LumeTypography.titleSize,
                               fontWeight: FontWeight.w600,
                               color: LumeTheme.textPrimary,
                             ),
                           ),
                         ),
-                        if (!compact)
-                          Text(
-                            relativeTime(
-                              now,
-                              progress?.updatedAt ?? item.addedAt,
-                            ),
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: LumeTypography.captionSize,
-                              color: LumeTheme.muted,
-                            ),
+                        const SizedBox(width: 6),
+                        // 浅灰色小字，与标题同一行、垂直居中。双列时限制宽度，
+                        // 否则「16 分钟前」会把标题挤到溢出（真机双列只有 ~90pt）。
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: compact ? 58 : 120,
                           ),
-                      ],
-                    ),
-                    if (compact)
-                      Text(
-                        relativeTime(now, progress?.updatedAt ?? item.addedAt),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: LumeTypography.captionSize,
-                          color: LumeTheme.muted,
-                        ),
-                      ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: <Widget>[
-                        Expanded(
                           child: Text(
-                            progress?.describe() ?? '还没开始读',
+                            relative,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
                             style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: LumeTypography.descriptionSize,
+                              fontWeight: FontWeight.w400,
+                              fontSize: compact
+                                  ? 9
+                                  : LumeTypography.captionSize,
                               color: LumeTheme.descriptionColor,
                             ),
                           ),
                         ),
-                        if (finished)
-                          Text(
-                            '已看完',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: LumeTypography.captionSize,
-                              color: LumeTheme.muted,
-                            ),
-                          ),
                       ],
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      progressLabel(saved),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: LumeTypography.descriptionSize,
+                        color: LumeTheme.textSecondary,
+                      ),
+                    ),
                     if (ratio != null) ...<Widget>[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
+                      // 一根连贯的细条：已播主题紫、未播浅灰（不拆成两段）。
                       ClipRRect(
                         borderRadius: BorderRadius.circular(2),
                         child: LinearProgressIndicator(
+                          key: const ValueKey('history-progress'),
                           value: ratio,
                           minHeight: 3,
                           backgroundColor: LumeTheme.fillStrong,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            finished ? LumeTheme.muted : LumeTheme.textPrimary,
+                            LumeTheme.accent,
                           ),
                         ),
                       ),
@@ -623,11 +595,37 @@ class HistoryEntryTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onRemove != null)
-                IconButton(
-                  tooltip: '删除记录',
-                  icon: Icon(Icons.close, size: 18, color: LumeTheme.muted),
-                  onPressed: onRemove,
+              // 三点菜单只放在单列：双列一侧只有 ~90pt 文字区，再塞按钮会把
+              // 标题和时间挤到溢出（用户口径：双列要紧凑）。
+              if (!compact)
+                SizedBox(
+                  width: 32,
+                  height: 40,
+                  child: PopupMenuButton<String>(
+                    tooltip: '更多',
+                    padding: EdgeInsets.zero,
+                    iconSize: 18,
+                    icon: Icon(
+                      Icons.more_vert,
+                      size: 18,
+                      color: LumeTheme.muted,
+                    ),
+                    onSelected: (value) {
+                      if (value == 'open') onResume();
+                      if (value == 'remove') onRemove?.call();
+                    },
+                    itemBuilder: (_) => <PopupMenuEntry<String>>[
+                      const PopupMenuItem<String>(
+                        value: 'open',
+                        child: Text('打开'),
+                      ),
+                      if (onRemove != null)
+                        PopupMenuItem<String>(
+                          value: 'remove',
+                          child: Text(removeLabel),
+                        ),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -636,15 +634,95 @@ class HistoryEntryTile extends StatelessWidget {
     );
   }
 
+  /// 卡片上的一行进度：视频只留「已播 / 总长」，其它形状保留原有章节文案。
+  static String progressLabel(ReadingProgress? progress) {
+    if (progress == null) return '尚未开始';
+    if (progress is VideoProgress) return progress.timeLabel;
+    return progress.describe();
+  }
+
   /// 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / 具体日期。
   static String relativeTime(DateTime now, DateTime time) {
     final diff = now.difference(time);
     if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
-    if (diff.inHours < 24) return '${diff.inHours} 小时前';
-    if (diff.inDays < 30) return '${diff.inDays} 天前';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
+    if (diff.inHours < 24) return '${diff.inHours}小时前';
+    if (diff.inDays < 30) return '${diff.inDays}天前';
     final local = time.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)}';
+  }
+}
+
+/// 三列网格里的历史 / 收藏卡片：海报直接顶到卡片边缘（无白边），
+/// 文字落在透明背景上；标题最多两行，进度只显示「已播 / 总长」。
+class HistoryGridTile extends StatelessWidget {
+  const HistoryGridTile({
+    super.key,
+    required this.item,
+    required this.progress,
+    required this.pipeline,
+    required this.onTap,
+    this.updated = false,
+  });
+
+  final LibraryItem item;
+  final ReadingProgress? progress;
+  final SectionImagePipeline? pipeline;
+  final VoidCallback onTap;
+  final bool updated;
+
+  @override
+  Widget build(BuildContext context) {
+    final saved = progress;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // 无 Padding / 无白底：封面四角自己圆角，上、左、右直接贴卡片边缘。
+            Expanded(
+              child: ClipRRect(
+                key: const ValueKey('history-grid-cover'),
+                borderRadius: BorderRadius.circular(12),
+                child: CoverThumb(
+                  pipeline: pipeline,
+                  url: item.cover,
+                  title: item.title,
+                  width: 240,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: LumeTypography.descriptionSize,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+                color: LumeTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              HistoryEntryTile.progressLabel(saved),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: LumeTypography.captionSize,
+                fontWeight: FontWeight.w500,
+                height: 1.2,
+                color: LumeTheme.descriptionColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

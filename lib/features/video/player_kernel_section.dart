@@ -47,7 +47,6 @@ class _PlayerKernelSectionState extends State<PlayerKernelSection> {
 
   @override
   void dispose() {
-    _store?.close();
     super.dispose();
   }
 
@@ -55,10 +54,7 @@ class _PlayerKernelSectionState extends State<PlayerKernelSection> {
     try {
       final opener = widget.storeOpener ?? VideoPlayerSettingsStore.open;
       final store = await opener();
-      if (!mounted) {
-        store.close();
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _store = store;
         _settings = store.load();

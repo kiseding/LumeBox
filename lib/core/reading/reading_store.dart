@@ -239,6 +239,41 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     );
   }
 
+  /// 只写「历史」需要的作品元数据：新行 favorite = 0，已有行保留原收藏状态。
+  ///
+  /// 播放进度落库必须走这里，**绝不**碰收藏。只有用户明确加书架
+  /// （[upsertItem]）才把 favorite 置 1——否则「播过 = 收藏」会把收藏页污染掉。
+  void ensureHistoryItem(LibraryItem item) {
+    if (_closed) return;
+    _requireOwn(item.section);
+    _db.execute(
+      'INSERT INTO library_item (item_id, section, source_id, title, cover, '
+      'subtitle, chapter_count, read_chapter_index, added_at, updated_at, '
+      'favorite) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0) '
+      'ON CONFLICT(item_id) DO UPDATE SET '
+      'source_id = excluded.source_id, '
+      'title = excluded.title, '
+      'cover = excluded.cover, '
+      'subtitle = excluded.subtitle, '
+      'chapter_count = CASE WHEN excluded.chapter_count > 0 '
+      '  THEN excluded.chapter_count ELSE library_item.chapter_count END, '
+      'updated_at = excluded.updated_at',
+      <Object?>[
+        item.itemId,
+        item.section.id,
+        item.sourceId,
+        item.title,
+        item.cover,
+        item.subtitle,
+        item.chapterCount,
+        item.readChapterIndex,
+        item.addedAt.millisecondsSinceEpoch,
+        item.updatedAt.millisecondsSinceEpoch,
+      ],
+    );
+  }
+
   void removeItem(String itemId) {
     if (_closed) return;
     _db.execute(

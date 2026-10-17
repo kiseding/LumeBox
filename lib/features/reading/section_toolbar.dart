@@ -520,7 +520,13 @@ class SectionToolbar extends StatelessWidget {
       builder: (_) => _ToolbarSheet<BrowseLayoutMode>(
         title: '布局',
         current: layoutMode,
-        options: BrowseLayoutMode.values,
+        // 手机上四列 / 五列字全断行（用户口径：直接删掉这两个入口）。
+        options: const <BrowseLayoutMode>[
+          BrowseLayoutMode.list,
+          BrowseLayoutMode.list2,
+          BrowseLayoutMode.grid2,
+          BrowseLayoutMode.grid3,
+        ],
         labelOf: (value) => value.label,
         // 副标题说清这一档长什么样（旧版探索页的读法，保持一致）。
         detailOf: (value) => value.hint,
@@ -636,41 +642,45 @@ class _ToolbarSheet<T> extends StatelessWidget {
                     ),
                   ),
                   Flexible(
-                    child: ListView(
-                      shrinkWrap: true,
-                      children: <Widget>[
-                        for (final option in options)
-                          ListTile(
-                            dense: true,
-                            leading: Icon(
-                              option == current
-                                  ? Icons.check_circle
-                                  : Icons.circle_outlined,
-                              size: 20,
-                              color: option == current
-                                  ? LumeTheme.accent
-                                  : LumeTheme.muted,
-                            ),
-                            title: Text(
-                              labelOf(option),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: LumeTheme.textPrimary,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: <Widget>[
+                          for (final option in options)
+                            ListTile(
+                              dense: true,
+                              leading: Icon(
+                                option == current
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                size: 20,
+                                color: option == current
+                                    ? LumeTheme.accent
+                                    : LumeTheme.muted,
                               ),
-                            ),
-                            subtitle: detailOf == null
-                                ? null
-                                : Text(
-                                    detailOf!(option),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: LumeTypography.descriptionSize,
-                                      color: LumeTheme.descriptionColor,
+                              title: Text(
+                                labelOf(option),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: LumeTheme.textPrimary,
+                                ),
+                              ),
+                              subtitle: detailOf == null
+                                  ? null
+                                  : Text(
+                                      detailOf!(option),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize:
+                                            LumeTypography.descriptionSize,
+                                        color: LumeTheme.descriptionColor,
+                                      ),
                                     ),
-                                  ),
-                            onTap: () => Navigator.of(context).pop(option),
-                          ),
-                      ],
+                              onTap: () => Navigator.of(context).pop(option),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                   if (note != null)

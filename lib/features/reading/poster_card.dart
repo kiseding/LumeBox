@@ -1,6 +1,7 @@
 import '../../shared/widgets/missing_cover.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
@@ -42,11 +43,15 @@ class PosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final flat = footnoteBelow && footnote != null;
     return Material(
-      color: LumeTheme.surface,
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
+      // 外置标题的网格卡片**不再铺白底**：文字直接落在页面浅灰底上，
+      // 只有封面本身是圆角卡片（用户口径：去掉底部巨大的白色文字底板）。
+      color: flat ? Colors.transparent : LumeTheme.surface,
+      borderRadius: BorderRadius.circular(flat ? 12 : 14),
+      clipBehavior: flat ? Clip.none : Clip.antiAlias,
       child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         onLongPress: onLongPress,
         child: footnoteBelow && footnote != null
@@ -275,6 +280,10 @@ class PosterTile extends StatelessWidget {
         pipeline: pipeline,
         onTap: onTap,
         meta: this.meta,
+        columns: 2,
+        coverWidth: 60,
+        coverHeight: 80,
+        showMenu: false,
       );
     }
     final meta = this.meta;
@@ -289,29 +298,37 @@ class PosterTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text(
-            item.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            // 内置：压在封面底部的深色遮罩上 → **一律白字 + 加粗 + 浅描边**
-            //（原来用 LumeTheme.textPrimary，浅色主题下深色字压深色遮罩，
-            //  真机反馈「标题看着很淡」）；外置：封面外的浅色底 → 主题主文字色。
-            style: style == GridTitleStyle.below
-                ? TextStyle(
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.25,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  )
-                : const TextStyle(
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.25,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    shadows: <Shadow>[
-                      Shadow(color: Color(0xB3000000), blurRadius: 4),
-                    ],
-                  ),
+          // 固定预留两行标题：同一行里一张卡两行、另一张一行时，封面高度
+          // 不会一高一低（用户口径：图片统一裁切）。多出的那半行留白在文字区。
+          SizedBox(
+            height: LumeTypography.bodySize * 1.25 * 2,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Text(
+                item.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                // 内置：压在封面底部的深色遮罩上 → **一律白字 + 加粗 + 浅描边**
+                //（原来用 LumeTheme.textPrimary，浅色主题下深色字压深色遮罩，
+                //  真机反馈「标题看着很淡」）；外置：封面外的浅色底 → 主题主文字色。
+                style: style == GridTitleStyle.below
+                    ? TextStyle(
+                        fontSize: LumeTypography.bodySize,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                        color: LumeTheme.textPrimary,
+                      )
+                    : const TextStyle(
+                        fontSize: LumeTypography.bodySize,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        shadows: <Shadow>[
+                          Shadow(color: Color(0xB3000000), blurRadius: 4),
+                        ],
+                      ),
+              ),
+            ),
           ),
           if (meta != null) ...<Widget>[
             const SizedBox(height: 2),
@@ -395,77 +412,175 @@ class CompactSourceItemTile extends StatelessWidget {
     this.meta,
     this.uniformList = false,
     this.columns = 1,
+    this.coverWidth = 60,
+    this.coverHeight = 80,
+    this.flat = false,
+    this.showMenu = true,
   });
+
   final SourceItem item;
   final SectionImagePipeline? pipeline;
   final VoidCallback onTap;
   final String? meta;
   final bool uniformList;
   final int columns;
+
+  /// 左侧封面尺寸：双列 60×80，单列 80×100（用户口径：不要像邮票那么小）。
+  final double coverWidth;
+  final double coverHeight;
+
+  /// 单列列表用 flat：不铺白色卡片，行与行之间靠分隔线，压缩整体高度。
+  final bool flat;
+
+  /// 三点菜单只放单列；双列列宽不够（会挤压标题与简介）。
+  final bool showMenu;
+
   @override
-  Widget build(BuildContext context) => Material(
-    color: uniformList
-        ? columns == 1
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final radius = BorderRadius.circular(10);
+    final subtitle = (meta ?? item.subtitle ?? '').trim();
+    final duration = item.duration;
+    final cardColor = flat
+        ? Colors.transparent
+        : uniformList
+        ? (columns == 1
               ? Colors.transparent
-              : Theme.of(context).brightness == Brightness.dark
+              : dark
               ? LumeTheme.surfaceAlt
-              : const Color(0xFFF7F8FA)
-        : LumeTheme.surface,
-    borderRadius: BorderRadius.circular(uniformList ? 8 : 12),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: uniformList
-            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 12)
-            : const EdgeInsets.all(8),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 40,
-              height: 60,
-              child: CoverThumb(
-                pipeline: pipeline,
-                url: item.cover,
-                title: item.title,
-                headers: item.coverHeaders,
-                width: 160,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: LumeTypography.bodySize,
-                      fontWeight: FontWeight.w600,
-                    ),
+              : const Color(0xFFF7F8FA))
+        : LumeTheme.surface;
+    return Material(
+      color: cardColor,
+      borderRadius: radius,
+      clipBehavior: flat ? Clip.none : Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                key: const ValueKey('source-tile-cover'),
+                width: coverWidth,
+                height: coverHeight,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CoverThumb(
+                    pipeline: pipeline,
+                    url: item.cover,
+                    title: item.title,
+                    headers: item.coverHeaders,
+                    width: (coverWidth * 2.5).round(),
                   ),
-                  if ((meta ?? item.subtitle ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
                     Text(
-                      meta ?? item.subtitle!,
-                      maxLines: 1,
+                      item.title,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
+                        fontSize: columns > 1
+                            ? LumeTypography.bodySize
+                            : LumeTypography.titleSize,
                         fontWeight: FontWeight.w600,
-                        fontSize: LumeTypography.captionSize,
-                        color: LumeTheme.muted,
+                        color: LumeTheme.textPrimary,
+                        height: 1.25,
                       ),
                     ),
+                    if (subtitle.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: columns > 1 ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: LumeTypography.captionSize,
+                          color: LumeTheme.descriptionColor,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                    if (duration != null) ...<Widget>[
+                      const SizedBox(height: 3),
+                      Text(
+                        _clock(duration),
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: LumeTypography.captionSize,
+                          color: LumeTheme.descriptionColor,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+              if (showMenu && columns <= 1)
+                SizedBox(
+                  key: const ValueKey('source-tile-menu'),
+                  width: 28,
+                  height: 40,
+                  child: PopupMenuButton<String>(
+                    tooltip: '更多',
+                    padding: EdgeInsets.zero,
+                    iconSize: 18,
+                    icon: Icon(
+                      Icons.more_vert,
+                      size: 18,
+                      color: LumeTheme.muted,
+                    ),
+                    onSelected: (value) async {
+                      if (value == 'open') {
+                        onTap();
+                        return;
+                      }
+                      if (value == 'copy') {
+                        await Clipboard.setData(
+                          ClipboardData(text: item.title),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.maybeOf(
+                          context,
+                        )?.showSnackBar(const SnackBar(content: Text('已复制标题')));
+                      }
+                    },
+                    itemBuilder: (_) => <PopupMenuEntry<String>>[
+                      const PopupMenuItem<String>(
+                        value: 'open',
+                        child: Text('打开详情'),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'copy',
+                        child: Text('复制标题'),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+/// `12:34` / `1:02:03`：列表里的时长信息（可选能力，没有就不显示）。
+String _clock(Duration value) {
+  final total = value.inSeconds;
+  final hours = total ~/ 3600;
+  final minutes = (total % 3600) ~/ 60;
+  final seconds = total % 60;
+  final mm = minutes.toString().padLeft(hours > 0 ? 2 : 1, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:$mm:$ss' : '$mm:$ss';
 }

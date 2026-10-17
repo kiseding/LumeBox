@@ -22,6 +22,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:lume_box/core/cat/cat_service.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -34,9 +35,13 @@ import 'package:lume_box/features/comic/comic_detail_page.dart';
 import 'package:lume_box/features/comic/comic_page.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
 import 'package:lume_box/features/novel/novel_reader_page.dart';
+import 'package:lume_box/features/reading/history_sheet.dart';
+import 'package:lume_box/features/reading/poster_card.dart';
 import 'package:lume_box/features/settings/debug_panel_page.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
+import 'package:lume_box/features/settings/tmdb_settings_page.dart';
+import 'package:lume_box/shared/widgets/cat_site_tile.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/video/player_settings_page.dart';
 import 'package:lume_box/features/video/video_page.dart';
@@ -83,18 +88,33 @@ Future<void> _loadFonts() async {
 /// 截图用的主题：在正式主题之上，把文字族换成带中文字形的族。
 ThemeData _snapshotTheme() {
   final base = LumeTheme.build();
+  final textTheme = base.textTheme.apply(fontFamily: 'CJK');
   return base.copyWith(
-    textTheme: base.textTheme.apply(fontFamily: 'CJK'),
+    textTheme: textTheme,
     primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'CJK'),
-    appBarTheme: base.appBarTheme.copyWith(
+    // ListTile 会注入自己的 titleTextStyle，不跟 textTheme 的 CJK 字体；
+    // 不补这一份，截图里的开关标题会变成方块。
+    listTileTheme: base.listTileTheme.copyWith(
       titleTextStyle:
-          base.appBarTheme.titleTextStyle?.copyWith(fontFamily: 'CJK'),
+          (base.listTileTheme.titleTextStyle ?? textTheme.titleMedium)
+              ?.copyWith(fontFamily: 'CJK'),
+      subtitleTextStyle:
+          (base.listTileTheme.subtitleTextStyle ?? textTheme.bodyMedium)
+              ?.copyWith(fontFamily: 'CJK'),
+    ),
+    appBarTheme: base.appBarTheme.copyWith(
+      titleTextStyle: base.appBarTheme.titleTextStyle?.copyWith(
+        fontFamily: 'CJK',
+      ),
     ),
     tabBarTheme: TabBarThemeData(
       labelColor: LumeTheme.accent,
       unselectedLabelColor: LumeTheme.textSecondary,
       labelStyle: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-      unselectedLabelStyle: TextStyle(fontSize: 15, fontWeight: FontWeight.w400),
+      unselectedLabelStyle: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+      ),
       dividerColor: Colors.transparent,
       indicatorColor: LumeTheme.accent,
     ),
@@ -131,7 +151,15 @@ void main() {
     ReadingLibrary.disposeAll();
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
-    if (root.existsSync()) root.deleteSync(recursive: true);
+    // Windows 上 sqlite / CatService 配置文件的句柄释放偶尔晚一拍；重试几次，
+    // 避免临时目录清理把已经捕获好的截图判成失败。
+    for (var i = 0; i < 5 && root.existsSync(); i++) {
+      try {
+        root.deleteSync(recursive: true);
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+    }
   });
 
   FakeSourceManager managerFor(Section section, {int chapterCount = 24}) =>
@@ -384,18 +412,278 @@ void main() {
   });
 
   testWidgets('猫源板块', (tester) async {
-    await pump(
-      tester,
-      const CatPage(),
-    );
+    await pump(tester, const CatPage());
     await capture(tester, '08_cat_board');
   });
 
-  testWidgets('设置页', (tester) async {
+  testWidgets('历史/收藏卡片：三列网格 / 双列列表 / 单列列表', (tester) async {
+    final library = (await tester.runAsync(
+      () => ReadingLibrary.open(Section.video),
+    ))!;
+    final now = DateTime(2026, 10, 17, 12);
+    const samples = <(String, String, Duration, Duration, int)>[
+      (
+        '长夜将尽',
+        'history-one',
+        Duration(minutes: 33, seconds: 8),
+        Duration(hours: 2, minutes: 25),
+        16,
+      ),
+      (
+        '山与海之间',
+        'history-two',
+        Duration(minutes: 12),
+        Duration(minutes: 45),
+        120,
+      ),
+      (
+        '夜市守护者',
+        'history-three',
+        Duration(hours: 1, minutes: 2, seconds: 3),
+        Duration(hours: 2, minutes: 10),
+        1440,
+      ),
+      (
+        '通灵同传',
+        'history-four',
+        Duration(minutes: 5, seconds: 20),
+        Duration(minutes: 24),
+        4320,
+      ),
+      (
+        '石狮醒来时',
+        'history-five',
+        Duration(minutes: 48),
+        Duration(hours: 1, minutes: 30),
+        7200,
+      ),
+    ];
+    for (var i = 0; i < samples.length; i++) {
+      final (title, id, position, duration, minutesAgo) = samples[i];
+      library.recordHistoryItem(sourceId: 'demo', itemId: id, title: title);
+      library.saveProgress(
+        VideoProgress(
+          section: Section.video,
+          itemId: id,
+          chapterIndex: i,
+          chapterId: 'e$i',
+          chapterTitle: '第 ${i + 1} 集',
+          updatedAt: now.subtract(Duration(minutes: minutesAgo)),
+          position: position,
+          duration: duration,
+        ),
+      );
+    }
+    for (final mode in <String>['grid3', 'list2', 'list']) {
+      library.setSetting('collection.history.layout', mode);
+      await pump(
+        tester,
+        Scaffold(
+          body: ReadingHistorySheet(
+            key: ValueKey<String>(mode),
+            section: Section.video,
+            library: library,
+            clock: () => now,
+            onResume: (_, _) {},
+          ),
+        ),
+      );
+      await capture(tester, '27_history_$mode');
+    }
+  });
+
+  testWidgets('TMDB 配置：白底输入框与切换器', (tester) async {
+    await pump(tester, const TmdbSettingsPage());
+    await capture(tester, '22_tmdb_settings_top');
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -430));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    await capture(tester, '23_tmdb_settings_inputs');
+  });
+
+  testWidgets('猫源选择站点：单列 / 双列 / 左滑菜单', (tester) async {
+    final service = CatService.instance;
+    await tester.runAsync(service.boot);
+    await pump(tester, const CatPage());
+    // 猫源板块的 boot 里有真实的阅读库打开；只推假帧不会完成，补几轮
+    // runAsync 让初始化落地，否则页面的转圈会让 pumpAndSettle 一直等。
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pumpAndSettle();
+    service.subscriptions
+      ..clear()
+      ..add(
+        CatSubscription(
+          id: 'demo',
+          name: '牛二',
+          url: 'https://example.test/source',
+          automatic: false,
+          sites: const <CatSite>[
+            CatSite(subscriptionId: 'demo', key: 'a', name: '豆瓣|首页', api: '/a'),
+            CatSite(
+              subscriptionId: 'demo',
+              key: 'b',
+              name: '日期:20261017',
+              api: '/b',
+            ),
+            CatSite(subscriptionId: 'demo', key: 'c', name: '配置|中心', api: '/c'),
+            CatSite(subscriptionId: 'demo', key: 'd', name: '我的|网盘', api: '/d'),
+            CatSite(subscriptionId: 'demo', key: 'e', name: '玩偶|4K', api: '/e'),
+            CatSite(subscriptionId: 'demo', key: 'f', name: '多多|4K', api: '/f'),
+            CatSite(subscriptionId: 'demo', key: 'g', name: '虎斑|4K', api: '/g'),
+            CatSite(subscriptionId: 'demo', key: 'h', name: '木偶|4K', api: '/h'),
+          ],
+        ),
+      );
+    service.siteColumns = 1;
+    await tester.pump();
+    await tester.tap(find.byTooltip('源管理'));
+    await tester.pumpAndSettle();
+    await capture(tester, '24_cat_picker_single');
+
+    await tester.tap(find.text('双列列表'));
+    await tester.pumpAndSettle();
+    await capture(tester, '25_cat_picker_double');
+
+    final first = find.byType(CatSiteTile).first;
+    await tester.drag(first, const Offset(-90, 0));
+    await tester.pumpAndSettle();
+    await capture(tester, '26_cat_picker_swipe');
+
+    service.subscriptions.clear();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('首页卡片：三列网格 / 双列列表 / 单列列表', (tester) async {
+    const items = <SourceItem>[
+      SourceItem(
+        id: 'a',
+        title: '仙逆剧场版 弑仙之战',
+        subtitle: '评分 8.4 · 蓝光',
+        duration: Duration(hours: 2, minutes: 25),
+      ),
+      SourceItem(
+        id: 'b',
+        title: '名侦探柯南：30号杀人事件',
+        subtitle: '评分 4.9 · 蓝光',
+        duration: Duration(hours: 1, minutes: 33),
+      ),
+      SourceItem(
+        id: 'c',
+        title: '坠落2：死点',
+        subtitle: '评分 5.3 · 蓝光',
+        duration: Duration(hours: 1, minutes: 47),
+      ),
+      SourceItem(
+        id: 'd',
+        title: '怒之杀',
+        subtitle: '评分 5.6 · 蓝光',
+        duration: Duration(hours: 1, minutes: 45),
+      ),
+      SourceItem(
+        id: 'e',
+        title: '欢迎来龙餐馆',
+        subtitle: '评分 8.7 · 蓝光',
+        duration: Duration(hours: 2, minutes: 0),
+      ),
+      SourceItem(
+        id: 'f',
+        title: '完美世界剧场版 九劫焚天',
+        subtitle: '评分 7.7 · 蓝光',
+        duration: Duration(hours: 2, minutes: 10),
+      ),
+      SourceItem(
+        id: 'g',
+        title: '年会不能停2',
+        subtitle: '评分 6.2 · 蓝光',
+        duration: Duration(hours: 1, minutes: 55),
+      ),
+      SourceItem(
+        id: 'h',
+        title: '蜘蛛侠：崭新之日',
+        subtitle: '评分 7.7 · 蓝光',
+        duration: Duration(hours: 2, minutes: 25),
+      ),
+      SourceItem(
+        id: 'i',
+        title: '痴迷',
+        subtitle: '评分 7.6 · 蓝光',
+        duration: Duration(hours: 1, minutes: 40),
+      ),
+    ];
     await pump(
       tester,
-      const SettingsPage(runtimeAvailable: true),
+      Scaffold(
+        body: GridView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: .62,
+          ),
+          itemCount: items.length,
+          itemBuilder: (context, index) =>
+              PosterTile(item: items[index], onTap: () {}),
+        ),
+      ),
     );
+    await capture(tester, '28_home_grid3');
+
+    await pump(
+      tester,
+      Scaffold(
+        body: GridView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            mainAxisExtent: 96,
+          ),
+          itemCount: 6,
+          itemBuilder: (context, index) => CompactSourceItemTile(
+            item: items[index],
+            onTap: () {},
+            columns: 2,
+            coverWidth: 60,
+            coverHeight: 80,
+            showMenu: false,
+          ),
+        ),
+      ),
+    );
+    await capture(tester, '29_home_list2');
+
+    await pump(
+      tester,
+      Scaffold(
+        body: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          itemCount: 6,
+          separatorBuilder: (_, _) => const Divider(height: 1, thickness: 1),
+          itemBuilder: (context, index) => CompactSourceItemTile(
+            item: items[index],
+            onTap: () {},
+            columns: 1,
+            coverWidth: 80,
+            coverHeight: 100,
+            flat: true,
+            showMenu: true,
+          ),
+        ),
+      ),
+    );
+    await capture(tester, '30_home_list');
+  });
+
+  testWidgets('设置页', (tester) async {
+    await pump(tester, const SettingsPage(runtimeAvailable: true));
     await capture(tester, '09_settings');
   });
 
@@ -489,6 +777,36 @@ void main() {
     await pumpTabBarSettings(tester, '16_tabbar_settings_hidden_notice');
   });
 
+  testWidgets('底部导航栏管理：外观与材质（可调项）', (tester) async {
+    installShellSettings();
+    await pump(tester, const TabBarSettingsPage());
+
+    Future<void> show(
+      Finder finder,
+      String name, {
+      double alignment = .25,
+    }) async {
+      await Scrollable.ensureVisible(
+        tester.element(finder),
+        alignment: alignment,
+      );
+      await tester.pumpAndSettle();
+      await capture(tester, name);
+    }
+
+    await show(find.text('外观与材质'), '19_tabbar_appearance_top');
+    await show(
+      find.text('点击弹跳动效'),
+      '20_tabbar_appearance_animation',
+      alignment: .5,
+    );
+    await show(
+      find.text('恢复材质默认'),
+      '21_tabbar_appearance_reset',
+      alignment: .8,
+    );
+  });
+
   testWidgets('导航壳：隐藏「设置」后左下角出现恢复入口', (tester) async {
     installShellSettings(hide: <String>['settings']);
     await pump(tester, const AppShell(desktopRail: false));
@@ -528,10 +846,7 @@ void main() {
   testWidgets('播放器设置：字幕与解码区', (tester) async {
     await pump(
       tester,
-      PlayerSettingsPage(
-        settings: const PlayerSettings(),
-        onChanged: (_) {},
-      ),
+      PlayerSettingsPage(settings: const PlayerSettings(), onChanged: (_) {}),
     );
     await capture(tester, '22_player_settings');
     await tester.drag(find.byType(ListView), const Offset(0, -260));

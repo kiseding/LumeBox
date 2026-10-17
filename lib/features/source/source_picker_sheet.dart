@@ -2,7 +2,9 @@ import '../../shared/widgets/source_category_columns.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/source_update_badge.dart';
+import '../../shared/widgets/cat_site_tile.dart';
 import '../../shared/widgets/source_drag_tile.dart';
+import '../../shared/widgets/source_swipe_tile.dart';
 import '../../shared/widgets/source_icon.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
@@ -300,12 +302,22 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   }
 
   Widget sourceTile(SourceDescriptor source) {
-    final prefs = SourcePreferences.read(widget.section, source.id);
     final selected = source.id == widget.currentId;
-    final adult = SourceContentRating.isAdult(source.id, source.name);
-    // 猫源走极简形态：只有名称，长按出菜单；其它板块保留图标与三点菜单。
-    final isCat = widget.section == Section.cat;
+    final busyNow = busy.contains(source.id);
+    // 猫源走**单独的**极简卡片：没有左侧图标、没有右侧三点，文字单行居中。
+    // 不经过下面通用行，避免影响小说 / 漫画 / 视频的源列表。
+    if (widget.section == Section.cat) {
+      return CatSiteTile(
+        key: ValueKey('picker-source-${source.id}'),
+        label: source.name,
+        selected: selected,
+        busy: busyNow,
+        onTap: busyNow ? null : () => Navigator.pop(context, source.id),
+      );
+    }
 
+    final prefs = SourcePreferences.read(widget.section, source.id);
+    final adult = SourceContentRating.isAdult(source.id, source.name);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = dark ? LumeTheme.surfaceAlt : const Color(0xFFF7F8FA);
     final radius = BorderRadius.circular(8);
@@ -324,142 +336,120 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         child: InkWell(
           key: ValueKey('picker-source-${source.id}'),
           borderRadius: radius,
-          onTap: busy.contains(source.id)
-              ? null
-              : () => Navigator.pop(context, source.id),
+          onTap: busyNow ? null : () => Navigator.pop(context, source.id),
           child: Padding(
-            padding: EdgeInsets.only(
-              left: isCat ? 16 : 12,
-              right: isCat ? 16 : 8,
-            ),
-            child: isCat
-                ? Center(
-                    child: Text(
-                      source.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: LumeTheme.textPrimary,
-                        height: 1.2,
-                      ),
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+            padding: const EdgeInsets.only(left: 12, right: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: busyNow
+                      ? const Center(
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : SourceIcon(
+                          key: ValueKey('picker-icon-${source.id}'),
+                          name: source.name,
+                          siteUrl: source.siteUrl,
+                          iconUrl: prefs.iconUrl.trim().isEmpty
+                              ? source.iconUrl
+                              : prefs.iconUrl,
+                          size: 36,
+                          radius: 8,
+                          section: widget.section,
+                          sourceId: source.id,
+                        ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: busy.contains(source.id)
-                            ? const Center(
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
-                            : SourceIcon(
-                                key: ValueKey('picker-icon-${source.id}'),
-                                name: source.name,
-                                siteUrl: source.siteUrl,
-                                iconUrl: prefs.iconUrl.trim().isEmpty
-                                    ? source.iconUrl
-                                    : prefs.iconUrl,
-                                size: 36,
-                                radius: 8,
-                                section: widget.section,
-                                sourceId: source.id,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              source.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                                color: LumeTheme.textPrimary,
+                                height: 1.2,
                               ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    source.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                      color: LumeTheme.textPrimary,
-                                      height: 1.2,
-                                    ),
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 6),
-                                  child: SourceUpdateBadge(
-                                    section: widget.section,
-                                    sourceId: source.id,
-                                  ),
-                                ),
-                              ],
                             ),
-                            const SizedBox(height: 3),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    results[source.id]?.status.label ??
-                                        source.version,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: LumeTheme.muted,
-                                      height: 1.2,
-                                    ),
-                                  ),
-                                ),
-                                if (adult)
-                                  const Padding(
-                                    padding: EdgeInsets.only(left: 4),
-                                    child: SourceRatingBadge(compact: true),
-                                  ),
-                                if (prefs.pinned)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 4),
-                                    child: Icon(
-                                      Icons.push_pin,
-                                      size: 11,
-                                      color: LumeTheme.accent,
-                                    ),
-                                  ),
-                              ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: SourceUpdateBadge(
+                              section: widget.section,
+                              sourceId: source.id,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      // 右侧菜单：卡片最右，距卡片边缘 8px。
-                      IconButton(
-                        key: ValueKey('picker-more-${source.id}'),
-                        tooltip: '源操作',
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        constraints: const BoxConstraints.tightFor(
-                          width: 24,
-                          height: 40,
-                        ),
-                        padding: EdgeInsets.zero,
-                        onPressed: () => action(source),
-                        icon: const Icon(Icons.more_vert, size: 18),
+                      const SizedBox(height: 3),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              results[source.id]?.status.label ??
+                                  source.version,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: LumeTheme.muted,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                          if (adult)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: SourceRatingBadge(compact: true),
+                            ),
+                          if (prefs.pinned)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Icon(
+                                Icons.push_pin,
+                                size: 11,
+                                color: LumeTheme.accent,
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
+                ),
+                // 右侧菜单：卡片最右，距卡片边缘 8px。
+                IconButton(
+                  key: ValueKey('picker-more-${source.id}'),
+                  tooltip: '源操作',
+                  style: IconButton.styleFrom(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 24,
+                    height: 40,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => action(source),
+                  icon: const Icon(Icons.more_vert, size: 18),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -505,9 +495,19 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     }
 
     // 猫源卡片：左滑露出设置 / 删除；长按拖拽仍由外层 SourceDragTile 负责。
-    Widget catCard(SourceDescriptor source) => _CatSwipeTile(
-      onSettings: () => openSettings(source),
-      onDelete: () => deleteSource(source),
+    Widget catCard(SourceDescriptor source) => SourceSwipeTile(
+      actions: <SourceSwipeAction>[
+        SourceSwipeAction(
+          label: '设置',
+          color: LumeTheme.accent,
+          onTap: () => openSettings(source),
+        ),
+        SourceSwipeAction(
+          label: '删除',
+          color: LumeTheme.danger,
+          onTap: () => deleteSource(source),
+        ),
+      ],
       child: sourceTile(source),
     );
 
@@ -707,131 +707,6 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         child: ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: content,
-        ),
-      ),
-    );
-  }
-}
-
-/// 猫源卡片：左滑露出「设置 / 删除」，把菜单从长按手势里彻底让出来。
-///
-/// 手势分工：
-/// - 水平拖动 → 滑动卡片（本组件）；
-/// - 长按不动 → 外层 [SourceDragTile] 的拖拽排序；
-/// - 点击 → 卡片自身的 InkWell 选中源。
-class _CatSwipeTile extends StatefulWidget {
-  const _CatSwipeTile({
-    required this.child,
-    required this.onSettings,
-    required this.onDelete,
-  });
-
-  final Widget child;
-  final VoidCallback onSettings;
-  final VoidCallback onDelete;
-
-  @override
-  State<_CatSwipeTile> createState() => _CatSwipeTileState();
-}
-
-class _CatSwipeTileState extends State<_CatSwipeTile>
-    with SingleTickerProviderStateMixin {
-  static const double _reveal = 112;
-  static final BorderRadius _radius = BorderRadius.circular(8);
-
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 180),
-  )..addListener(_tick);
-  double _dx = 0;
-  double _from = 0;
-  double _to = 0;
-
-  void _tick() {
-    setState(() => _dx = _from + (_to - _from) * _controller.value);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _settle(double target) {
-    _from = _dx;
-    _to = target;
-    _controller.forward(from: 0);
-  }
-
-  void _dragUpdate(DragUpdateDetails details) {
-    if (_controller.isAnimating) _controller.stop();
-    setState(() => _dx = (_dx + details.delta.dx).clamp(-_reveal, 0.0));
-  }
-
-  void _dragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final open = velocity < -260 || (velocity <= 260 && _dx < -_reveal / 2);
-    _settle(open ? -_reveal : 0);
-  }
-
-  void _run(VoidCallback action) {
-    _settle(0);
-    action();
-  }
-
-  Widget _action(String label, Color color, VoidCallback onTap) => Expanded(
-    child: Material(
-      color: color.withValues(alpha: .12),
-      child: InkWell(
-        onTap: () => _run(onTap),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = LumeTheme.accent;
-    final danger = LumeTheme.danger;
-    return SizedBox(
-      height: 64,
-      child: ClipRRect(
-        borderRadius: _radius,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  width: _reveal,
-                  child: Row(
-                    children: [
-                      _action('设置', accent, widget.onSettings),
-                      _action('删除', danger, widget.onDelete),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Transform.translate(
-              offset: Offset(_dx, 0),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragUpdate: _dragUpdate,
-                onHorizontalDragEnd: _dragEnd,
-                child: widget.child,
-              ),
-            ),
-          ],
         ),
       ),
     );
