@@ -33,6 +33,7 @@ import '../../core/player/player_settings.dart';
 import '../../core/player/player_stats.dart';
 import '../../core/player/player_error.dart';
 import '../../core/player/skip_marks.dart';
+import '../../core/bangumi/bangumi_sync.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/session/module_ui_scale.dart';
@@ -2179,18 +2180,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       cover: target.cover,
       chapterCount: 0,
     );
-    library.saveProgress(
-      VideoProgress(
-        section: library.section,
-        itemId: target.itemId,
-        chapterIndex: target.chapterIndex,
-        chapterId: target.chapterId,
-        chapterTitle: target.chapterTitle,
-        updatedAt: DateTime.now(),
-        position: position,
-        duration: snapshot.duration,
-      ),
+    final progress = VideoProgress(
+      section: library.section,
+      itemId: target.itemId,
+      chapterIndex: target.chapterIndex,
+      chapterId: target.chapterId,
+      chapterTitle: target.chapterTitle,
+      updatedAt: DateTime.now(),
+      position: position,
+      duration: snapshot.duration,
     );
+    library.saveProgress(progress);
+    // 绑定了 Bangumi 的作品：按集数同步「看到第几集」。失败只记日志，
+    // 同步服务内部会吞掉异常，不影响播放与本地进度。
+    unawaited(BangumiSyncService.instance.afterProgress(library, progress));
   }
 
   // ---------------------------------------------------------------- 画中画

@@ -56,6 +56,23 @@ void main() {
     () => messenger.setMockMethodCallHandler(ComicImageTools.channel, null),
   );
 
+  test('recognize sorts OCR regions for single-speaker reading', () async {
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method != 'recognize') {
+        throw StateError('unexpected ${call.method}');
+      }
+      return [
+        {'text': '底部', 'x': .1, 'y': .8, 'width': .5, 'height': .1},
+        {'text': '右上', 'x': .6, 'y': .1, 'width': .2, 'height': .1},
+        {'text': '左上', 'x': .1, 'y': .1, 'width': .2, 'height': .1},
+        {'text': '  ', 'x': .3, 'y': .5, 'width': .1, 'height': .1},
+      ];
+    });
+    final tools = ComicImageTools();
+    expect(await tools.recognize(bytes), ['左上', '右上', '底部']);
+    tools.dispose();
+  });
+
   test(
     'model picker supplies an iOS UTI as well as desktop extension filters',
     () {

@@ -12,7 +12,11 @@ class TmdbDetailController extends ChangeNotifier {
     this.settings.addListener(refresh);
     unawaited(refresh());
   }
-  final String title;
+  String title;
+
+  /// 列表标题与详情标题可能不一致（猫源尤其常见）；按顺序回退查询。
+  List<String> _alternateTitles = const <String>[];
+
   final TmdbSettings settings;
   late final TmdbClient client;
   TmdbMetadata? metadata;
@@ -21,6 +25,32 @@ class TmdbDetailController extends ChangeNotifier {
   bool loading = false;
   String? status;
   Future<void> rematch() => refresh(force: true);
+
+  /// 用详情页拿到的标题再次匹配：列表标题可能带站点前缀/别名，而详情标题
+  /// 才是视频模块里能命中的那个干净标题。多个候选按顺序回退，全部失败才
+  /// 显示「未匹配」。
+  void updateTitles(Iterable<String> values) {
+    final unique = <String>[];
+    for (final value in values) {
+      final text = value.trim();
+      if (text.isEmpty || unique.contains(text)) continue;
+      unique.add(text);
+    }
+    if (_closed || unique.isEmpty) return;
+    final samePrimary = unique.first == title;
+    final sameAlternates =
+        unique.length - 1 == _alternateTitles.length &&
+        <int>[
+              for (var i = 1; i < unique.length; i++)
+                if (unique[i] == _alternateTitles[i - 1]) i,
+            ].length ==
+            _alternateTitles.length;
+    if (samePrimary && sameAlternates) return;
+    title = unique.first;
+    _alternateTitles = unique.skip(1).toList(growable: false);
+    unawaited(refresh());
+  }
+
   Timer? _timer;
   Future<void> refresh({bool force = false}) async {
     final sequence = ++_sequence;
@@ -31,8 +61,12 @@ class TmdbDetailController extends ChangeNotifier {
     index = 0;
     if (!_closed) notifyListeners();
     if (!settings.configured) return;
-    final result = await client.lookup(title, force: force);
-    if (_closed || sequence != _sequence || !settings.configured) return;
+    TmdbMetadata? result;
+    for (final candidate in <String>[title, ..._alternateTitles]) {
+      result = await client.lookup(candidate, force: force);
+      if (_closed || sequence != _sequence || !settings.configured) return;
+      if (result != null) break;
+    }
     metadata = result;
     loading = false;
     status = result == null ? (client.lastError ?? '未匹配到 TMDB 资料，保留源信息') : null;

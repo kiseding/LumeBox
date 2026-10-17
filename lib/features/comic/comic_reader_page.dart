@@ -13,6 +13,11 @@ import 'package:path/path.dart' as p;
 
 import '../../core/reading/reading.dart';
 import '../../core/reading/chapter_display_order.dart';
+import '../../core/speech/speech_channel.dart';
+import '../../core/speech/speech_segments.dart';
+import '../../core/speech/speech_session.dart';
+import '../../core/speech/speech_settings.dart';
+import '../novel/novel_speech_modes.dart';
 import '../../shared/widgets/chapter_order_controls.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
@@ -48,6 +53,9 @@ class ComicReaderPage extends StatefulWidget {
     this.initialPage = 0,
     this.runtimeAvailable,
     this.network = NetworkProfile.none,
+    this.speechBackend,
+    this.imageTools,
+    this.pageBytes,
   });
 
   final ReadingLibrary library;
@@ -77,13 +85,20 @@ class ComicReaderPage extends StatefulWidget {
   final bool? runtimeAvailable;
   final NetworkProfile network;
 
+  /// 测试注入：语音后端与 OCR 工具。为空时使用平台默认实现。
+  final SpeechBackend? speechBackend;
+  final ComicImageTools? imageTools;
+
+  /// 测试注入：按图片地址取原始字节；为空时走阅读器自己的图片管线。
+  final Future<Uint8List?> Function(String url)? pageBytes;
+
   @override
   State<ComicReaderPage> createState() => _ComicReaderPageState();
 }
 
 class _ComicReaderPageState extends State<ComicReaderPage> {
   late final SectionImagePipeline _pipeline;
-  final _imageTools = ComicImageTools();
+  late final ComicImageTools _imageTools;
   late final Future<void> _imageModelReady;
 
   Future<void> _chooseSourceImageModel() async {
@@ -125,6 +140,17 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// 手动超分 / 上色后「应用到当前页」的临时结果（仅本次阅读，不写回源文件）。
   final Map<String, Uint8List> _pageOverrides = <String, Uint8List>{};
 
+  /// 漫画朗读：复用听书的同一套 TTS，单说话人（不区分旁白 / 男女声）。
+  SpeechSession? _speech;
+  SpeechSettings _speechSettings = const SpeechSettings();
+  final ValueNotifier<SpeechState> _speechState = ValueNotifier<SpeechState>(
+    SpeechState.unavailable,
+  );
+  final ValueNotifier<String> _speechStatus = ValueNotifier<String>('');
+  bool _speechContinuous = false;
+  int _speechPage = 0;
+  bool _speechWorking = false;
+
   bool _loading = true;
   bool _failed = false;
   String? _failureDetail;
@@ -161,6 +187,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   @override
   void initState() {
     super.initState();
+    _imageTools = widget.imageTools ?? ComicImageTools();
     _imageModelReady = _chooseSourceImageModel();
     _pipeline = SectionImagePipeline(
       decodeTransform: (bytes) async {
@@ -183,6 +210,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     _bookmarks = ComicBookmarks.decode(
       widget.library.setting(ComicBookmarks.keyFor(widget.target.itemId)),
     );
+    _speechSettings = SpeechSettings.decode(
+      widget.library.setting(SpeechSettings.settingKey),
+    ).copyWith(autoDialogue: false);
+    _openComicSpeech();
     _chapters = widget.chapters;
     _chapterIndex = widget.chapters.isEmpty
         ? 0
@@ -233,6 +264,11 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   @override
   void dispose() {
+    final speech = _speech;
+    _speech = null;
+    unawaited(speech?.dispose());
+    _speechState.dispose();
+    _speechStatus.dispose();
     _imageTools.dispose();
     // 先落进度，再释放图片资源；顺序反了进度就丢了。
     _saveTimer?.cancel();
@@ -1104,6 +1140,259 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     onLongPress: () => _onImageLongPress(index),
   );
 
+  // ------------------------------------------------------------------ 朗读
+
+  void _openComicSpeech() {
+    final session = SpeechSession(
+      backend: widget.speechBackend ?? createPlatformSpeechBackend(),
+      onCompleted: _onComicSpeechCompleted,
+      onEvent: _onComicSpeechEvent,
+    );
+    _speech = session;
+    // 把已保存的模式 / 音色 / 语速下发给后端；否则重新进阅读器后会退回系统默认。
+    _applyComicSpeechSettings();
+    session.state.addListener(_mirrorComicSpeechState);
+    _mirrorComicSpeechState();
+  }
+
+  void _mirrorComicSpeechState() {
+    final state = _speech?.state.value;
+    if (state == null) return;
+    if (_speechState.value != state) _speechState.value = state;
+  }
+
+  void _applyComicSpeechSettings() {
+    final backend = _speech?.backend;
+    if (backend is MethodChannelSpeechBackend) {
+      backend.applySettings(_speechSettings);
+    }
+  }
+
+  void _onComicSpeechCompleted() {
+    if (!_speechContinuous) {
+      _speechStatus.value = '本页读完';
+      return;
+    }
+    unawaited(_advanceComicSpeechPage());
+  }
+
+  void _onComicSpeechEvent(SpeechEvent event) {
+    if (event.kind != SpeechEventKind.failed) return;
+    _speechContinuous = false;
+    _speechStatus.value = '朗读中断：${event.message ?? '未知原因'}';
+  }
+
+  Future<void> _advanceComicSpeechPage() async {
+    final next = _speechPage + 1;
+    if (next >= _images.length) {
+      _speechContinuous = false;
+      _speechStatus.value = '本章已读完';
+      return;
+    }
+    _speechPage = next;
+    await _speakComicPage(next);
+  }
+
+  /// 识别一页并交给听书会话朗读。OCR 与朗读串行，避免整章一次占满内存。
+  Future<void> _speakComicPage(int index) async {
+    final session = _speech;
+    if (session == null || _speechWorking) return;
+    if (index < 0 || index >= _images.length) return;
+    _speechWorking = true;
+    _speechStatus.value = '正在识别第 ${index + 1}/${_images.length} 页…';
+    try {
+      final url = _images[index];
+      final bytes =
+          _pageOverrides[url] ??
+          await (widget.pageBytes?.call(url) ?? _pipeline.bytes(url));
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('图片尚未下载完成');
+      }
+      final lines = await _imageTools.recognize(bytes);
+      final text = lines.join('\n').trim();
+      if (text.isEmpty) {
+        _speechStatus.value = '第 ${index + 1} 页没有识别到文字';
+        if (_speechContinuous) {
+          _speechWorking = false;
+          await _advanceComicSpeechPage();
+          return;
+        }
+        return;
+      }
+      final segments = SpeechSegments.split(
+        text,
+        maxChars: _speechSettings.maxCharsPerSegment,
+      );
+      final rejection = await session.start(segments);
+      if (rejection != null) {
+        _speechContinuous = false;
+        _speechStatus.value = rejection;
+        return;
+      }
+      _speechStatus.value = '朗读中 · 第 ${index + 1}/${_images.length} 页';
+    } catch (error) {
+      _speechContinuous = false;
+      _speechStatus.value = '漫画朗读失败：$error';
+    } finally {
+      _speechWorking = false;
+    }
+  }
+
+  Future<void> _startComicSpeech({required bool continuous}) async {
+    if (_images.isEmpty) {
+      _speechStatus.value = '本话还没有可朗读的图片';
+      return;
+    }
+    _speechContinuous = continuous;
+    _speechPage = _page.clamp(0, _images.length - 1);
+    await _speakComicPage(_speechPage);
+  }
+
+  Future<void> _showComicSpeechPanel() async {
+    final session = _speech;
+    if (session == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          top: false,
+          child: ListView(
+            shrinkWrap: true,
+            padding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            children: <Widget>[
+              Text(
+                '漫画朗读',
+                style: TextStyle(
+                  fontSize: LumeTypography.sectionTitleSize,
+                  fontWeight: FontWeight.w600,
+                  color: LumeTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '按页识别文字，使用听书里同一套 TTS；单说话人，不区分旁白与男女声。'
+                '设备端文字识别目前仅 iOS。',
+                style: TextStyle(
+                  fontSize: LumeTypography.descriptionSize,
+                  height: 1.5,
+                  color: LumeTheme.descriptionColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              NovelSpeechModes(
+                settings: _speechSettings,
+                singleSpeaker: true,
+                onChanged: (value) {
+                  final next = value.copyWith(autoDialogue: false);
+                  setState(() => _speechSettings = next);
+                  setSheetState(() {});
+                  _applyComicSpeechSettings();
+                  widget.library.setSetting(
+                    SpeechSettings.settingKey,
+                    next.encode(),
+                  );
+                },
+              ),
+              const Divider(height: 24),
+              ValueListenableBuilder<SpeechState>(
+                valueListenable: _speechState,
+                builder: (context, state, _) {
+                  final active =
+                      state == SpeechState.speaking ||
+                      state == SpeechState.pausing;
+                  final paused = state == SpeechState.paused;
+                  final unavailable = state == SpeechState.unavailable;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: unavailable
+                                  ? null
+                                  : () async {
+                                      if (paused) {
+                                        await session.resume();
+                                      } else if (active) {
+                                        await session.pause();
+                                      } else {
+                                        await _startComicSpeech(
+                                          continuous: false,
+                                        );
+                                      }
+                                      setSheetState(() {});
+                                    },
+                              icon: Icon(
+                                active
+                                    ? Icons.pause
+                                    : paused
+                                    ? Icons.play_arrow
+                                    : Icons.headphones_outlined,
+                              ),
+                              label: Text(
+                                active
+                                    ? '暂停'
+                                    : paused
+                                    ? '继续'
+                                    : '朗读本页',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton(
+                            onPressed: unavailable
+                                ? null
+                                : () async {
+                                    await _startComicSpeech(continuous: true);
+                                    setSheetState(() {});
+                                  },
+                            child: const Text('读到本章末'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _speechStatus,
+                        builder: (context, value, _) => Text(
+                          value.isEmpty
+                              ? (unavailable ? '当前平台不支持语音朗读' : '')
+                              : value,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: LumeTypography.descriptionSize,
+                            fontWeight: FontWeight.w600,
+                            color: LumeTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          _speechContinuous = false;
+                          await session.stop();
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.stop_circle_outlined),
+                        label: const Text('停止'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     final chapter = _chapters.isEmpty ? null : _chapters[_chapterIndex];
     return Positioned(
@@ -1324,6 +1613,13 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                       Divider(height: 1, color: LumeTheme.divider),
                       Row(
                         children: <Widget>[
+                          IconButton(
+                            tooltip: '朗读',
+                            icon: const Icon(Icons.headphones_outlined),
+                            onPressed: _images.isEmpty
+                                ? null
+                                : _showComicSpeechPanel,
+                          ),
                           IconButton(
                             tooltip: '上一章',
                             icon: const Icon(Icons.skip_previous),

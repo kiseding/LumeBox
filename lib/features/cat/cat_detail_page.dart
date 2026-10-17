@@ -104,6 +104,27 @@ class _CatDetailPageState extends State<CatDetailPage> {
               : CatDataSource.flagOf(resumed);
           loading = false;
         });
+        // 猫源列表标题经常带站点前缀/别名；详情标题才是视频模块里能命中的
+        // 那个干净标题。首次列表标题没匹配到 TMDB 时，用详情标题/原始标题
+        // 再回退匹配一次；已经命中则不重复请求。
+        if (tmdb.metadata == null) {
+          final detailTitle = data?.title ?? '';
+          final rawTitle = catText(
+            metadata['vod_name'] ??
+                metadata['book_name'] ??
+                metadata['comic_name'] ??
+                metadata['name'] ??
+                metadata['title'] ??
+                '',
+          );
+          final alias = catText(metadata['vod_en'] ?? metadata['vod_alias']);
+          tmdb.updateTitles(<String>[
+            if (detailTitle.trim().isNotEmpty) detailTitle,
+            if (rawTitle.trim().isNotEmpty) rawTitle,
+            if (alias.trim().isNotEmpty) alias,
+            widget.item.title,
+          ]);
+        }
       }
     } catch (failure) {
       if (mounted) {

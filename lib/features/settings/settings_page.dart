@@ -33,9 +33,11 @@ import 'log_report.dart';
 import 'log_report_page.dart';
 import 'log_viewer_page.dart';
 import 'sandbox_settings_page.dart';
+import 'bangumi_settings_page.dart';
 import 'settings_ui.dart';
 import 'tab_bar_settings_page.dart';
 import 'section_cache.dart';
+import 'usage_guide_page.dart';
 
 /// 设置：按「个性与界面 / 阅读与播放 / 数据与网络 / 存储与安全 / 诊断与关于」
 /// 五组组织全部入口。
@@ -180,6 +182,12 @@ class SettingsPage extends StatelessWidget {
             subtitle: '搜索自动繁转简 / 精确搜索',
             onTap: () => _push(context, const SearchSettingsPage()),
           ),
+          SettingsEntryCard(
+            icon: Icons.live_tv_outlined,
+            title: 'Bangumi 追番同步',
+            subtitle: '账号绑定 · 视频看到第几集自动同步到 Bangumi',
+            onTap: () => _push(context, const BangumiSettingsPage()),
+          ),
 
           const SettingsGroupTitle('存储与安全'),
           SettingsEntryCard(
@@ -203,6 +211,12 @@ class SettingsPage extends StatelessWidget {
           ),
 
           const SettingsGroupTitle('诊断与关于'),
+          SettingsEntryCard(
+            icon: Icons.menu_book_outlined,
+            title: '使用说明',
+            subtitle: '源导入、听书与在线接口、漫画翻译与超分、播放器、备份与隐私',
+            onTap: () => _push(context, const UsageGuidePage()),
+          ),
           SettingsEntryCard(
             icon: Icons.hourglass_bottom_outlined,
             title: '沙箱设置',

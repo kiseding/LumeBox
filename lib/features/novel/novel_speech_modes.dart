@@ -14,8 +14,13 @@ class NovelSpeechModes extends StatefulWidget {
     required this.onChanged,
     this.selectorOnly = false,
     this.optionsOnly = false,
+    this.singleSpeaker = false,
   });
   final bool selectorOnly, optionsOnly;
+
+  /// 单说话人模式（漫画 OCR 朗读）：隐藏「自动切换对话音色」，
+  /// 并强制只用旁白音色。
+  final bool singleSpeaker;
   final SpeechSettings settings;
   final ValueChanged<SpeechSettings> onChanged;
   @override
@@ -61,20 +66,27 @@ class _NovelSpeechModesState extends State<NovelSpeechModes> {
             ],
             onChanged: (value) {
               if (value != null) {
-                widget.onChanged(widget.settings.copyWith(mode: value));
+                widget.onChanged(
+                  widget.settings.copyWith(
+                    mode: value,
+                    autoDialogue: widget.singleSpeaker ? false : null,
+                  ),
+                );
               }
             },
           ),
         if (!widget.selectorOnly) ...[
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            title: const Text('自动识别对话并切换音色'),
-            subtitle: const Text('关闭后全程使用旁白音色'),
-            value: widget.settings.autoDialogue,
-            onChanged: (value) =>
-                widget.onChanged(widget.settings.copyWith(autoDialogue: value)),
-          ),
+          if (!widget.singleSpeaker)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('自动识别对话并切换音色'),
+              subtitle: const Text('关闭后全程使用旁白音色'),
+              value: widget.settings.autoDialogue,
+              onChanged: (value) => widget.onChanged(
+                widget.settings.copyWith(autoDialogue: value),
+              ),
+            ),
           if (!model.ready)
             TextButton.icon(
               onPressed: model.preparing ? null : model.prepare,
@@ -98,7 +110,8 @@ class _NovelSpeechModesState extends State<NovelSpeechModes> {
               ),
             ),
           for (final role in ['旁白', '男声', '女声'])
-            if (role == '旁白' || widget.settings.autoDialogue)
+            if (role == '旁白' ||
+                (!widget.singleSpeaker && widget.settings.autoDialogue))
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
@@ -160,31 +173,62 @@ class _CloudSettingsDialog extends StatefulWidget {
 
 class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
   final config = SpeechCloudConfig.instance;
-  final fields = List.generate(6, (_) => TextEditingController());
+  final ttsUrl = TextEditingController();
+  final ttsModel = TextEditingController();
+  final ttsKey = TextEditingController();
+  final llmUrl = TextEditingController();
+  final llmModel = TextEditingController();
+  final llmKey = TextEditingController();
+  final azureRegion = TextEditingController();
+  final azureKey = TextEditingController();
+  final volcAppId = TextEditingController();
+  final volcToken = TextEditingController();
+  final volcCluster = TextEditingController();
+  SpeechTtsProvider provider = SpeechTtsProvider.openai;
   bool loaded = false, busy = false;
   String? error;
+
   @override
   void initState() {
     super.initState();
     unawaited(_load());
   }
 
+  Future<String> _key(String kind, [String endpoint = '']) async {
+    if (endpoint.isEmpty && (kind == 'azure' || kind == 'volc')) return '';
+    try {
+      return await config.key(
+        kind,
+        forEndpoint: endpoint.isEmpty ? null : endpoint,
+      );
+    } catch (_) {
+      // 地址或服务商改过：旧密钥不再匹配，留空让用户重填。
+      return '';
+    }
+  }
+
   Future<void> _load() async {
     try {
       await config.load();
-      final keys = await Future.wait([config.key('tts'), config.key('llm')]);
+      final values = await Future.wait([
+        _key('tts', config.ttsUrl),
+        _key('llm', config.llmUrl),
+        _key('azure', config.azureRegion.trim()),
+        _key('volc', config.volcAppId.trim()),
+      ]);
       if (!mounted) return;
-      final values = [
-        config.ttsUrl,
-        config.ttsModel,
-        keys[0],
-        config.llmUrl,
-        config.llmModel,
-        keys[1],
-      ];
-      for (var i = 0; i < fields.length; i++) {
-        fields[i].text = values[i];
-      }
+      provider = config.ttsProvider;
+      ttsUrl.text = config.ttsUrl;
+      ttsModel.text = config.ttsModel;
+      ttsKey.text = values[0];
+      llmUrl.text = config.llmUrl;
+      llmModel.text = config.llmModel;
+      llmKey.text = values[1];
+      azureRegion.text = config.azureRegion;
+      azureKey.text = values[2];
+      volcAppId.text = config.volcAppId;
+      volcToken.text = values[3];
+      volcCluster.text = config.volcCluster;
       setState(() => loaded = true);
     } catch (_) {
       if (mounted) setState(() => error = '无法读取本机接口配置');
@@ -193,7 +237,19 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
 
   @override
   void dispose() {
-    for (final field in fields) {
+    for (final field in [
+      ttsUrl,
+      ttsModel,
+      ttsKey,
+      llmUrl,
+      llmModel,
+      llmKey,
+      azureRegion,
+      azureKey,
+      volcAppId,
+      volcToken,
+      volcCluster,
+    ]) {
       field.dispose();
     }
     super.dispose();
@@ -202,44 +258,101 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
   Future<void> _save() async {
     setState(() => busy = true);
     try {
-      for (final index in [0, 3]) {
-        if (fields[index].text.trim().isNotEmpty) {
-          SpeechCloudConfig.endpoint(
-            fields[index].text,
-            index == 0 ? '/audio/speech' : '/chat/completions',
-          );
+      final selected = provider;
+      if (selected == SpeechTtsProvider.openai) {
+        final url = ttsUrl.text.trim();
+        if (url.isNotEmpty) {
+          SpeechCloudConfig.endpoint(url, '/audio/speech');
+        }
+        if (ttsModel.text.trim().isEmpty) {
+          throw const FormatException('请填写 TTS 模型名称');
+        }
+        config.ttsUrl = url;
+        config.ttsModel = ttsModel.text.trim();
+        if (ttsKey.text.trim().isNotEmpty) {
+          await config.setKey('tts', ttsKey.text.trim(), forEndpoint: url);
+        }
+      } else if (selected == SpeechTtsProvider.azure) {
+        final region = azureRegion.text.trim().toLowerCase();
+        if (!RegExp(r'^[a-z0-9-]+$').hasMatch(region)) {
+          throw const FormatException('请填写 Azure 区域，例如 eastasia');
+        }
+        config.azureRegion = region;
+        final typed = azureKey.text.trim();
+        if (typed.isNotEmpty) {
+          await config.setKey('azure', typed, forEndpoint: region);
+        } else if ((await _key('azure', region)).isEmpty) {
+          throw const FormatException('请填写 Azure Speech 密钥');
+        }
+      } else {
+        final appId = volcAppId.text.trim();
+        if (appId.isEmpty) {
+          throw const FormatException('请填写火山引擎 AppID');
+        }
+        config.volcAppId = appId;
+        config.volcCluster = volcCluster.text.trim().isEmpty
+            ? 'volcano_tts'
+            : volcCluster.text.trim();
+        final typed = volcToken.text.trim();
+        if (typed.isNotEmpty) {
+          await config.setKey('volc', typed, forEndpoint: appId);
+        } else if ((await _key('volc', appId)).isEmpty) {
+          throw const FormatException('请填写火山引擎 Access Token');
         }
       }
-      await config.setKey(
-        'tts',
-        fields[2].text.trim(),
-        forEndpoint: fields[0].text.trim(),
-      );
-      await config.setKey(
-        'llm',
-        fields[5].text.trim(),
-        forEndpoint: fields[3].text.trim(),
-      );
-      config.ttsUrl = fields[0].text.trim();
-      config.ttsModel = fields[1].text.trim();
-      config.llmUrl = fields[3].text.trim();
-      config.llmModel = fields[4].text.trim();
+      final llmEndpoint = llmUrl.text.trim();
+      if (llmEndpoint.isNotEmpty) {
+        SpeechCloudConfig.endpoint(llmEndpoint, '/chat/completions');
+      }
+      config.llmUrl = llmEndpoint;
+      config.llmModel = llmModel.text.trim();
+      await config.setKey('llm', llmKey.text.trim(), forEndpoint: llmEndpoint);
       if (config.llmModel.isNotEmpty &&
           !config.llmModels.contains(config.llmModel)) {
         config.llmModels.add(config.llmModel);
       }
+      config.ttsProvider = selected;
       await config.save();
       if (mounted) Navigator.pop(context);
-    } catch (_) {
-      if (mounted) setState(() => error = '保存失败，请检查 HTTPS 地址和本机密钥访问权限');
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => this.error = error is FormatException
+              ? error.message
+              : '保存失败，请检查接口地址和本机密钥访问权限',
+        );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
+  Widget _field(
+    TextEditingController controller,
+    String label, {
+    bool secret = false,
+    String? hint,
+    String? helper,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextField(
+      controller: controller,
+      enabled: loaded && !busy,
+      obscureText: secret,
+      autocorrect: false,
+      enableSuggestions: false,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        helperText: helper,
+        helperMaxLines: 3,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('OpenAI 兼容接口'),
+    title: const Text('在线 TTS 接口'),
     content: SizedBox(
       width: 420,
       child: SingleChildScrollView(
@@ -247,27 +360,65 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!loaded && error == null) const LinearProgressIndicator(),
-            for (var i = 0; i < fields.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextField(
-                  controller: fields[i],
-                  enabled: loaded && !busy,
-                  obscureText: i == 2 || i == 5,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: const [
-                      'TTS 地址',
-                      'TTS 模型',
-                      'TTS API-Key',
-                      '大模型地址',
-                      '大模型名称',
-                      '大模型 API-Key',
-                    ][i],
-                  ),
+            DropdownButtonFormField<SpeechTtsProvider>(
+              key: ValueKey(provider),
+              initialValue: provider,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'TTS 服务商'),
+              items: [
+                for (final value in SpeechTtsProvider.values)
+                  DropdownMenuItem(value: value, child: Text(value.label)),
+              ],
+              onChanged: loaded && !busy
+                  ? (value) {
+                      if (value != null) setState(() => provider = value);
+                    }
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            if (provider == SpeechTtsProvider.openai) ...[
+              _field(ttsUrl, 'TTS 地址', hint: 'https://…/v1'),
+              _field(ttsModel, 'TTS 模型'),
+              _field(ttsKey, 'TTS API-Key', secret: true),
+            ] else if (provider == SpeechTtsProvider.azure) ...[
+              _field(
+                azureRegion,
+                'Azure 区域',
+                hint: 'eastasia / japaneast / westus',
+                helper: '区域在 Azure 语音资源的「密钥和终结点」页面查看。',
+              ),
+              _field(azureKey, 'Azure Speech 密钥', secret: true),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  '音色填完整 Azure 名称（如 zh-CN-XiaoxiaoNeural）；'
+                  '留空或沿用 alloy / onyx / nova 会自动映射到中文音色。',
                 ),
               ),
+            ] else ...[
+              _field(volcAppId, 'AppID'),
+              _field(volcToken, 'Access Token', secret: true),
+              _field(volcCluster, 'Cluster', hint: 'volcano_tts'),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  '音色填火山的 voice_type（如 BV700_streaming）；'
+                  '需使用已开通语音合成、且支持 PCM 的音色。',
+                ),
+              ),
+            ],
+            const Divider(height: 24),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'AI 增强（可选，OpenAI 兼容大模型）',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _field(llmUrl, '大模型地址', hint: 'https://…/v1'),
+            _field(llmModel, '大模型名称'),
+            _field(llmKey, '大模型 API-Key', secret: true),
             if (config.llmModels.isNotEmpty)
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: '已保存的大模型'),
@@ -277,10 +428,14 @@ class _CloudSettingsDialogState extends State<_CloudSettingsDialog> {
                     DropdownMenuItem(value: name, child: Text(name)),
                 ],
                 onChanged: (value) {
-                  if (value != null) fields[4].text = value;
+                  if (value != null) llmModel.text = value;
                 },
               ),
-            const Text('密钥仅保存在本机钥匙串；调用时仅发往对应的自填服务商。简易模式不请求大模型。'),
+            const SizedBox(height: 8),
+            const Text(
+              '密钥仅保存在本机钥匙串；调用时仅发往对应的服务商。'
+              '简易模式不请求大模型；切换服务商或地址后需重新保存对应密钥。',
+            ),
             if (error != null)
               Text(
                 error!,

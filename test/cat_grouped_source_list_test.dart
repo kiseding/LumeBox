@@ -69,7 +69,7 @@ void main() {
       final comic = tester.getRect(find.byKey(const ValueKey('c1')));
       if (columns == 2) {
         expect(comic.top, first.top);
-        expect(comic.left - first.right, 10);
+        expect(comic.left - first.right, 8);
         expect(second.left, first.left);
         expect(second.top, greaterThan(first.bottom));
       } else {

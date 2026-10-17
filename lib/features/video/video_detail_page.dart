@@ -20,6 +20,7 @@ import '../../core/source/source.dart';
 import 'package:flutter/services.dart';
 
 import '../reading/poster_card.dart';
+import 'bangumi_match_sheet.dart';
 import 'source_playback.dart';
 import 'video_play_target.dart';
 
@@ -361,6 +362,16 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   widget.library.onShelf(widget.item.id)
                       ? Icons.favorite
                       : Icons.favorite_border,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Bangumi 追番',
+                icon: const Icon(Icons.live_tv_outlined),
+                onPressed: () => showBangumiMatchSheet(
+                  context: context,
+                  library: widget.library,
+                  item: widget.item,
+                  initialTitle: widget.item.title,
                 ),
               ),
               TmdbRematchMenu(controller: tmdb),

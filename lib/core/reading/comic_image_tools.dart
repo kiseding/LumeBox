@@ -342,6 +342,34 @@ class ComicImageTools {
     }
   }
 
+  /// 只做文字识别、不翻译；漫画朗读用。
+  ///
+  /// 结果按「先上后下、同一行从左到右」排序：OCR 的原始顺序不保证适合朗读，
+  /// 直接拼起来会把对白读反。坐标是归一化值，纵向差 2% 以内视为同一行。
+  Future<List<String>> recognize(Uint8List bytes) async {
+    final raw = await _invoke<List<Object?>>('recognize', {
+      'bytes': bytes,
+      'source': preferences.source,
+    });
+    final regions = <ComicTextRegion>[];
+    for (final item in raw ?? const <Object?>[]) {
+      if (item is! Map) continue;
+      try {
+        regions.add(ComicTextRegion.fromMap(item));
+      } on FormatException {
+        // 单个坏坐标不拖垮整页朗读。
+      }
+    }
+    regions.sort((a, b) {
+      if ((a.y - b.y).abs() > 0.02) return a.y.compareTo(b.y);
+      return a.x.compareTo(b.x);
+    });
+    return [
+      for (final region in regions)
+        if (region.text.trim().isNotEmpty) region.text.trim(),
+    ];
+  }
+
   Future<List<ComicTextRegion>> translate(Uint8List bytes) async {
     final raw = await _invoke<List<Object?>>('recognize', {
       'bytes': bytes,

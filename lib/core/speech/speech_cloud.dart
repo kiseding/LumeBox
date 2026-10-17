@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -8,11 +9,29 @@ import 'package:path_provider/path_provider.dart';
 
 import 'speech_turns.dart';
 
+/// 在线 TTS 服务商。对话/停顿规划仍走 OpenAI 兼容的大模型接口。
+enum SpeechTtsProvider {
+  openai('OpenAI 兼容'),
+  azure('Azure Speech'),
+  volcengine('火山引擎');
+
+  const SpeechTtsProvider(this.label);
+
+  final String label;
+
+  static SpeechTtsProvider parse(Object? name) =>
+      values.where((provider) => provider.name == name).firstOrNull ?? openai;
+}
+
 /// Non-secret preferences live in one local file. Secrets use the device-only
 /// Keychain and are never included in this JSON or a request to another host.
 class SpeechCloudConfig {
   static final instance = SpeechCloudConfig();
+  SpeechTtsProvider ttsProvider = SpeechTtsProvider.openai;
   String ttsUrl = '', ttsModel = '', llmUrl = '', llmModel = '';
+
+  /// Azure：区域（如 eastasia）；火山引擎：AppID 与集群。
+  String azureRegion = '', volcAppId = '', volcCluster = 'volcano_tts';
   List<String> llmModels = [];
   Future<void>? _loading;
   static const _channel = MethodChannel('lumebox/speech');
@@ -28,8 +47,13 @@ class SpeechCloudConfig {
       if (data is! Map) return;
       String field(String key) =>
           data[key] is String ? data[key] as String : '';
+      ttsProvider = SpeechTtsProvider.parse(data['ttsProvider']);
       ttsUrl = field('ttsUrl');
       ttsModel = field('ttsModel');
+      azureRegion = field('azureRegion');
+      volcAppId = field('volcAppId');
+      final cluster = field('volcCluster');
+      volcCluster = cluster.isEmpty ? 'volcano_tts' : cluster;
       llmUrl = field('llmUrl');
       llmModel = field('llmModel');
       if (data['llmModels'] is List) {
@@ -49,8 +73,12 @@ class SpeechCloudConfig {
     final temp = File('${file.path}.tmp');
     await temp.writeAsString(
       jsonEncode({
+        'ttsProvider': ttsProvider.name,
         'ttsUrl': ttsUrl,
         'ttsModel': ttsModel,
+        'azureRegion': azureRegion,
+        'volcAppId': volcAppId,
+        'volcCluster': volcCluster,
         'llmUrl': llmUrl,
         'llmModel': llmModel,
         'llmModels': llmModels,
@@ -178,6 +206,21 @@ class SpeechCloudClient {
   /// backpressure all the way from the native audio queue to HTTP.
   Stream<List<int>> audio(String text, String voice, double speed) async* {
     await config.load();
+    switch (config.ttsProvider) {
+      case SpeechTtsProvider.openai:
+        yield* _openAiAudio(text, voice, speed);
+      case SpeechTtsProvider.azure:
+        yield* _azureAudio(text, voice, speed);
+      case SpeechTtsProvider.volcengine:
+        yield* _volcengineAudio(text, voice, speed);
+    }
+  }
+
+  Stream<List<int>> _openAiAudio(
+    String text,
+    String voice,
+    double speed,
+  ) async* {
     if (config.ttsModel.trim().isEmpty) {
       throw const FormatException('请填写 TTS 模型名称');
     }
@@ -193,6 +236,120 @@ class SpeechCloudClient {
         'speed': speed.clamp(.25, 4),
       },
     );
+    yield* _pcm(response);
+  }
+
+  /// Azure Speech：请求 raw-24khz-16bit-mono-pcm，正好接现有原生 PCM 队列。
+  ///
+  /// 音色填写完整 Azure 名称（如 `zh-CN-XiaoxiaoNeural`）；沿用 OpenAI 默认的
+  /// `alloy / onyx / nova` 时映射到常用的中文音色，避免切服务商后直接报错。
+  Stream<List<int>> _azureAudio(
+    String text,
+    String voice,
+    double speed,
+  ) async* {
+    final region = config.azureRegion.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9-]+$').hasMatch(region)) {
+      throw const FormatException('请填写 Azure 区域，例如 eastasia');
+    }
+    final key = await config.key('azure', forEndpoint: region);
+    if (key.isEmpty) throw const FormatException('请填写 Azure Speech 密钥');
+    final request =
+        http.Request(
+            'POST',
+            Uri.https(
+              '$region.tts.speech.microsoft.com',
+              '/cognitiveservices/v1',
+            ),
+          )
+          ..followRedirects = false
+          ..headers.addAll({
+            'Ocp-Apim-Subscription-Key': key,
+            'Content-Type': 'application/ssml+xml',
+            'X-Microsoft-OutputFormat': 'raw-24khz-16bit-mono-pcm',
+            'User-Agent': 'LumeBox',
+          })
+          ..body = azureSsml(text, voice, speed);
+    yield* _pcm(await _send(request));
+  }
+
+  /// 火山引擎语音合成（HTTP 非流式）：请求 pcm，响应里的 base64 音频解码后
+  /// 按 24 KB 一块交给原生队列，和 OpenAI 分支保持同一种背压粒度。
+  Stream<List<int>> _volcengineAudio(
+    String text,
+    String voice,
+    double speed,
+  ) async* {
+    final appId = config.volcAppId.trim();
+    if (appId.isEmpty) throw const FormatException('请填写火山引擎 AppID');
+    final cluster = config.volcCluster.trim().isEmpty
+        ? 'volcano_tts'
+        : config.volcCluster.trim();
+    final token = await config.key('volc', forEndpoint: appId);
+    if (token.isEmpty) throw const FormatException('请填写火山引擎 Access Token');
+    final request =
+        http.Request(
+            'POST',
+            Uri.https('openspeech.bytedance.com', '/api/v1/tts'),
+          )
+          ..followRedirects = false
+          ..headers.addAll({
+            'Authorization': 'Bearer;$token',
+            'Content-Type': 'application/json',
+          })
+          ..body = jsonEncode({
+            'app': {'appid': appId, 'token': token, 'cluster': cluster},
+            'user': {'uid': 'lumebox'},
+            'audio': {
+              'voice_type': volcVoice(voice),
+              'encoding': 'pcm',
+              'sample_rate': 24000,
+              'speed_ratio': speed.clamp(.2, 3.0),
+            },
+            'request': {
+              'reqid': _requestId(),
+              'text': text,
+              'operation': 'query',
+            },
+          });
+    final response = await _send(request);
+    final body = <int>[];
+    await for (final chunk in response.stream.timeout(
+      const Duration(seconds: 20),
+    )) {
+      body.addAll(chunk);
+      if (body.length > 8 * 1024 * 1024) {
+        throw const FormatException('语音服务响应过大');
+      }
+    }
+    final decoded = jsonDecode(utf8.decode(body));
+    if (decoded is! Map ||
+        decoded['code'] != 3000 ||
+        decoded['data'] is! String) {
+      final message = decoded is Map
+          ? '${decoded['message'] ?? decoded['code'] ?? ''}'
+          : '';
+      throw FormatException('火山引擎返回错误${message.isEmpty ? '' : '：$message'}');
+    }
+    final bytes = base64Decode(decoded['data'] as String);
+    if (bytes.isEmpty) throw const FormatException('服务未返回音频');
+    for (var offset = 0; offset < bytes.length; offset += 24000) {
+      yield bytes.sublist(offset, min(offset + 24000, bytes.length));
+    }
+  }
+
+  Future<http.StreamedResponse> _send(http.Request request) async {
+    final response = await client
+        .send(request)
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.stream.listen(null).cancel();
+      throw HttpException('语音服务返回 ${response.statusCode}');
+    }
+    return response;
+  }
+
+  Stream<List<int>> _pcm(http.StreamedResponse response) async* {
     var size = 0;
     await for (final bytes in response.stream.timeout(
       const Duration(seconds: 20),
@@ -202,5 +359,54 @@ class SpeechCloudClient {
       yield bytes;
     }
     if (size == 0) throw const FormatException('服务未返回音频');
+  }
+
+  /// 组装 Azure SSML。速度入参与 OpenAI 分支一致（1.0 = 原速），
+  /// 转成 Azure 的百分比；文本按 XML 元素转义，避免正文里的 `<`/`&` 破坏 SSML。
+  static String azureSsml(String text, String voice, double speed) {
+    final selected = voice.trim();
+    final name = switch (selected) {
+      '' || 'alloy' => 'zh-CN-XiaoxiaoNeural',
+      'onyx' => 'zh-CN-YunxiNeural',
+      'nova' => 'zh-CN-XiaoyiNeural',
+      _ => selected,
+    };
+    if (!RegExp(r'^[A-Za-z0-9():._-]+$').hasMatch(name)) {
+      throw const FormatException('Azure 音色名称无效');
+    }
+    final language = name.split('-').take(2).join('-');
+    final rate = ((speed.clamp(.5, 2.0) - 1) * 100).round();
+    final escaped = const HtmlEscape(HtmlEscapeMode.element).convert(text);
+    return '<speak version="1.0" '
+        'xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="$language">'
+        '<voice name="$name"><prosody rate="${rate >= 0 ? '+' : ''}$rate%">'
+        '$escaped</prosody></voice></speak>';
+  }
+
+  /// 火山引擎音色：沿用 OpenAI 默认名时映射到常见音色，其余按 `voice_type` 原样发送。
+  /// 本地模型的数字音色下标不能被当成 voice_type 发出去。
+  static String volcVoice(String voice) {
+    final selected = voice.trim();
+    if (selected.isEmpty || int.tryParse(selected) != null) {
+      return 'BV700_streaming';
+    }
+    return switch (selected) {
+      'alloy' => 'BV700_streaming',
+      'onyx' => 'BV705_streaming',
+      'nova' => 'BV001_streaming',
+      _ => selected,
+    };
+  }
+
+  static String _requestId() {
+    final random = Random();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 }

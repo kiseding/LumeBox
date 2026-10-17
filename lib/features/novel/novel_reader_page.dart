@@ -757,6 +757,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       onEvent: _onSpeechEvent,
     );
     _speech = session;
+    // 把已保存的模式 / 音色 / 语速下发给后端；否则重新进阅读器后，
+    // 上次选的云端 / 本地模式要等用户改一次设置才生效。
+    final loaded = session.backend;
+    if (loaded is MethodChannelSpeechBackend) {
+      loaded.applySettings(_speechSettings);
+    }
     session.state.addListener(_mirrorSpeechState);
     _mirrorSpeechState();
   }

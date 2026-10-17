@@ -163,6 +163,53 @@ void main() {
     );
     client.dispose();
   });
+  test('详情标题回退：列表标题未命中时用备用标题重新匹配', () async {
+    final settings = TmdbSettings()
+      ..enabled = true
+      ..apiKey = 'fixture-key';
+    final queries = <String>[];
+    final client = TmdbClient(
+      settings,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/search/multi')) {
+          final query = request.url.queryParameters['query'] ?? '';
+          queries.add(query);
+          return json({
+            'results': query == '正确标题'
+                ? [
+                    {'id': 7, 'media_type': 'movie', 'title': '正确标题'},
+                  ]
+                : <Map<String, Object?>>[],
+          });
+        }
+        if (request.url.path.endsWith('/movie/7')) {
+          return json({
+            'title': '正确标题',
+            'overview': '来自详情标题的 TMDB 简介',
+            'posters': [
+              {'file_path': '/poster.jpg'},
+            ],
+          });
+        }
+        return json(<String, Object?>{});
+      }),
+    );
+    final controller = TmdbDetailController(
+      '猫源列表标题',
+      settings: settings,
+      client: client,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(controller.metadata, isNull);
+    expect(queries, contains('猫源列表标题'));
+
+    controller.updateTitles(<String>['正确标题', '猫源列表标题']);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(controller.metadata?.overview, '来自详情标题的 TMDB 简介');
+    expect(queries, contains('正确标题'));
+    controller.dispose();
+  });
+
   test('未匹配条目或请求失败时回退，不误选不相干作品', () async {
     final settings = TmdbSettings()
       ..enabled = true

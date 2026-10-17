@@ -816,7 +816,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   ? ListTile(
                       title: Text(
                         source.name,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Wrap(
@@ -887,9 +887,9 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     final inset = GlassScaffold.barInset(context)
         .add(
           EdgeInsets.fromLTRB(
+            12,
             16,
-            16,
-            16,
+            12,
             16 + ShellDockScope.bottomInset(context),
           ),
         )
@@ -919,7 +919,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
             child: Semantics(
               header: true,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                padding: const EdgeInsets.fromLTRB(12, 16, 12, 10),
                 child: Text(
                   group.key,
                   style: Theme.of(context).textTheme.headlineSmall,
@@ -929,15 +929,15 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           ),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
-              16,
+              12,
               0,
-              16,
+              12,
               16 + ShellDockScope.bottomInset(context),
             ),
             sliver: SliverList.separated(
               itemCount: group.value.length,
               itemBuilder: (context, i) => entry(context, group.value[i] + 1),
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
             ),
           ),
         ],
@@ -1056,7 +1056,7 @@ class _SourceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
         children: <Widget>[
           SourceIcon(
@@ -1080,7 +1080,7 @@ class _SourceTile extends StatelessWidget {
               children: <Widget>[
                 Text(
                   source.name,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: LumeTypography.sectionTitleSize,
