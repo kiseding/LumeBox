@@ -12,7 +12,9 @@ class MainActivity : AudioServiceActivity() {
     private var exportResult: MethodChannel.Result? = null
     private var exportBytes: ByteArray? = null
     override fun configureFlutterEngine(engine: FlutterEngine) {
+        DanmakuCredentials.register(this, engine.dartExecutor.binaryMessenger)
         super.configureFlutterEngine(engine)
+        IntroRecognition(this, engine.dartExecutor.binaryMessenger)
         MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/app_icon")
             .setMethodCallHandler { call, result ->
                 val names = listOf("default", "Aurora", "Obsidian", "Solar", "Orbit", "Prism", "Spark")

@@ -16,6 +16,7 @@ import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
 import 'package:lume_box/features/shell/shell_dock_bar.dart';
+import 'package:lume_box/features/shell/dock_liquid_lens.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
 ///
@@ -797,6 +798,79 @@ void main() {
       await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
       await tester.pumpAndSettle();
       expect(ShellSettingsController.instance.appearance.height, 150);
+    });
+
+    testWidgets('透镜接入可调外观：滑块实时更新预览且重启后保留自定义值', (tester) async {
+      await pumpPage(tester);
+      final modules = FloatingModules.instance;
+      await modules.boot();
+      addTearDown(() => modules.reset(FloatingModule.dock));
+      Future<void> slide(String id, double value) async {
+        final finder = find.byKey(ValueKey('dock-appearance-$id'));
+        await tester.scrollUntilVisible(
+          finder,
+          160,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+        await tester.pumpAndSettle();
+        final slider = tester.widget<Slider>(finder);
+        final bounds = tester.getRect(finder);
+        // Exercise the actual slider gesture; Flutter leaves 24pt for the thumb.
+        final fraction = (value - slider.min) / (slider.max - slider.min);
+        await tester.tapAt(
+          Offset(
+            bounds.left + 24 + (bounds.width - 48) * fraction,
+            bounds.center.dy,
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await slide('opacity', .31);
+      await slide('blur', 9);
+      await slide('border', .65);
+      await slide('shadow', .12);
+      await slide('margin', 32);
+      await slide('height', 73);
+      await slide('gap', -7);
+      await slide('duration', 820);
+      final appearance = ShellSettingsController.instance.appearance;
+      final material = modules.style(FloatingModule.dock);
+      expect(material.opacity, closeTo(.31, .02));
+      expect(material.blur, closeTo(9, .6));
+      expect(appearance.borderOpacity, closeTo(.65, .02));
+      expect(appearance.shadowOpacity, closeTo(.12, .02));
+      expect(appearance.horizontalMargin, closeTo(32, 2));
+      expect(appearance.height, closeTo(73, 2));
+      expect(appearance.safeGap, closeTo(-7, 2));
+      expect(appearance.animationMs, closeTo(820, 30));
+      // The preview owns the same production dock and optical overlay.
+      final preview = find.byKey(const ValueKey('dock-appearance-preview'));
+      await Scrollable.ensureVisible(tester.element(preview), alignment: .5);
+      await tester.pumpAndSettle();
+      final dock = tester.widget<ShellDockBar>(
+        find.descendant(of: preview, matching: find.byType(ShellDockBar)),
+      );
+      final lens = tester.widget<DockLiquidLens>(
+        find.descendant(of: preview, matching: find.byType(DockLiquidLens)),
+      );
+      expect(dock.appearance, appearance);
+      expect(lens.highlight, appearance.borderOpacity);
+      expect(
+        tester
+            .getSize(
+              find.descendant(of: preview, matching: find.byType(ShellDockBar)),
+            )
+            .height,
+        closeTo(appearance.height, .01),
+      );
+      await ShellSettingsController.instance.boot();
+      await modules.boot();
+      expect(ShellSettingsController.instance.appearance, appearance);
+      expect(modules.style(FloatingModule.dock).opacity, material.opacity);
+      expect(modules.style(FloatingModule.dock).blur, material.blur);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('外观滑块范围：白度/高光/阴影 0–100%，磨砂 0–30，间距 -50–100', (tester) async {

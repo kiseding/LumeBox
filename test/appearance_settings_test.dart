@@ -336,16 +336,16 @@ void main() {
       await tester.tap(find.text('主题色'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(OptionSheet<ThemeAccent>), findsOneWidget);
+      expect(find.byType(OptionSheet<String>), findsOneWidget);
       for (final accent in ThemeAccent.values) {
         await tester.scrollUntilVisible(
           find.descendant(
-            of: find.byType(OptionSheet<ThemeAccent>),
+            of: find.byType(OptionSheet<String>),
             matching: find.text(accent.label),
           ),
           80,
           scrollable: find.descendant(
-            of: find.byType(OptionSheet<ThemeAccent>),
+            of: find.byType(OptionSheet<String>),
             matching: find.byType(Scrollable),
           ),
         );

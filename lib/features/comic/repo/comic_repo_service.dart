@@ -26,9 +26,7 @@ class ComicRepoService {
   }) : _fetcher = fetcher ?? LumeHttpRepoFetcher(),
        _ownsFetcher = fetcher == null {
     if (section != Section.comic) {
-      throw ArgumentError(
-        '漫画扩展仓库只服务漫画板块，收到「${section.id}」——其他板块不得调用相关解析',
-      );
+      throw ArgumentError('漫画扩展仓库只服务漫画板块，收到「${section.id}」——其他板块不得调用相关解析');
     }
   }
 
@@ -85,6 +83,7 @@ class ComicRepoService {
     store.upsertRepo(updated);
     return updated;
   }
+
   /// 删除仓库。已安装的扩展不随之卸载（它们是独立的漫画图源）。
   Future<void> removeRepo(String repoId) async => store.removeRepo(repoId);
 
@@ -99,9 +98,7 @@ class ComicRepoService {
   /// 已安装扩展的启用状态（来自漫画板块图源表）：sourceId → enabled。
   Future<Map<String, bool>> enabledStates() async {
     final list = await sources.list();
-    return <String, bool>{
-      for (final source in list) source.id: source.enabled,
-    };
+    return <String, bool>{for (final source in list) source.id: source.enabled};
   }
 
   /// 安装扩展。
@@ -233,8 +230,7 @@ class ComicRepoService {
       );
     }
     if (_isIndexFile(parsed)) return parsed;
-    final path =
-        parsed.path.endsWith('/') ? parsed.path : '${parsed.path}/';
+    final path = parsed.path.endsWith('/') ? parsed.path : '${parsed.path}/';
     return parsed.replace(path: '$path${kind.indexPath}');
   }
 

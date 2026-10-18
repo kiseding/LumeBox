@@ -46,3 +46,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+}

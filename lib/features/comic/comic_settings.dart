@@ -188,7 +188,8 @@ class ComicReaderSettings {
   final ComicTapAction tapAction;
 
   /// 由比例换算出的左右边距像素。
-  double marginOf(double width) => width * marginRatio.clamp(0.0, maxMarginRatio);
+  double marginOf(double width) =>
+      width * marginRatio.clamp(0.0, maxMarginRatio);
 
   /// 是否从右往左（翻页控件的 `reverse` 取值）。
   bool get isRightToLeft => direction == ComicReadingDirection.rightToLeft;
@@ -229,7 +230,9 @@ class ComicReaderSettings {
   /// 双页模式下的总屏数。
   int spreadCount(int imageCount) {
     if (imageCount <= 0) return 0;
-    if (spreadMode == ComicSpreadMode.pairFromStart) return (imageCount + 1) ~/ 2;
+    if (spreadMode == ComicSpreadMode.pairFromStart) {
+      return (imageCount + 1) ~/ 2;
+    }
     // 首页独占 + 其余两两配对。
     return 1 + (imageCount - 1 + 1) ~/ 2;
   }
@@ -256,8 +259,7 @@ class ComicReaderSettings {
           .toInt(),
       direction: direction ?? this.direction,
       spreadMode: spreadMode ?? this.spreadMode,
-      pageGap:
-          (pageGap ?? this.pageGap).clamp(0.0, maxPageGap).toDouble(),
+      pageGap: (pageGap ?? this.pageGap).clamp(0.0, maxPageGap).toDouble(),
       background: background ?? this.background,
       tapAction: tapAction ?? this.tapAction,
     );

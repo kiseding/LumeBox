@@ -42,8 +42,6 @@ dependencies:
     path: third_party/quickjs_engine
   sqlite3: ^3.7.0
   http: ^1.6.0
-  # AI 上色的 multipart 图片上传需要显式声明 MIME 类型。
-  http_parser: ^4.0.2
   path_provider: ^2.1.6
   path: ^1.9.1
   ffi: ^2.2.0
@@ -59,17 +57,22 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_ios_video: ^1.1.4
+  media_kit_libs_android_video: ^1.3.8
+  media_kit_libs_windows_video: ^1.0.11
   fvp: ^0.39.0
-  crypto: 3.0.7
+  # Current source additions since the archived manifest (2026-10-08).
+  archive: ^4.3.0
+  audio_session: ^0.2.4
+  crypto: ^3.0.7
+  http_parser: ^4.1.2
+  just_audio: ^0.10.6
+  just_audio_background: 0.0.1-beta.17
+  pointycastle: ^4.0.0
+  sherpa_onnx: ^1.13.8
+  tflite_flutter: ^0.12.1
+  xml: ^7.1.0
   lume_cat_node:
     path: third_party/lume_cat_node
-  pointycastle: ^4.0.0
-  sherpa_onnx: 1.13.8
-  xml: 6.6.1
-  archive: 4.3.0
-  just_audio: ^0.10.6
-  just_audio_background: ^0.0.1-beta.17
-  audio_session: ^0.2.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -95,8 +98,7 @@ dev_dependencies:
 # 只存在于原生对象上，而插件不把 AVPlayer 暴露给宿主——只有在插件内部创建播放器
 # 的那一刻才能装上；宿主没配置过时补丁什么都不做（与上游行为一致）。
 dependency_overrides:
-  # archive 4.3 uses the image 4.10 API; image 4.11 requires newer zlib methods.
-  image: 4.10.1
+  # Preserve app-wide audio ownership on iOS; see the vendored PATCHES.md.
   audio_service:
     path: third_party/audio_service_ownership
   video_player_avfoundation:
@@ -104,14 +106,17 @@ dependency_overrides:
 
 flutter:
   uses-material-design: true
+  shaders:
+    - assets/shaders/dock_liquid_lens.frag
+    - assets/shaders/comic_page_filters.frag
+    - assets/shaders/comic_glass.frag
   assets:
-    - assets/speech/vits_aishell3/manifest.json
-    # 超分模型随包提供：用户不必再从文件管理器导入，离线可用。
-    # 8 个模型约 17MB，安装到设备后还会生成同量级的 Core ML 编译缓存。
-    - assets/models/waifu2x/
     - assets/js/
     - assets/cat/
     - assets/icon/
+    - assets/models/waifu2x/
+    - assets/models/intro/
+    - assets/speech/vits_aishell3/
 
 # 图标生成配置：只生成 iOS 图标；remove_alpha_ios 强制抹除 Alpha 通道
 # （iOS 图标不接受透明通道，实色底才能通过系统图标校验）。

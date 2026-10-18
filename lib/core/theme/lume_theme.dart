@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 
 import 'appearance.dart';
 import 'lume_typography.dart';
+import 'interface_typography.dart';
 export 'lume_typography.dart';
+export 'interface_typography.dart' show interfaceFontWeight;
 
 /// 全局主题色板：**浅色与深色两套值**，由 [LumeTheme.of] 按当前亮度取用。
 ///
@@ -170,10 +172,15 @@ class LumePalette {
   LumePalette withAccent(
     ThemeAccent accent, {
     ThemeBackground background = ThemeBackground.white,
+    Color? customAccent,
   }) => LumePalette(
     brightness: brightness,
     accent: LumeTheme.readableForeground(
-      accent.colorFor(brightness),
+      customAccent == null
+          ? accent.colorFor(brightness)
+          : brightness == Brightness.dark
+          ? Color.lerp(customAccent, Colors.white, .22)!
+          : customAccent,
       surfaceAlt,
     ),
     base: brightness == Brightness.light ? background.color : base,
@@ -248,12 +255,14 @@ class LumeTheme {
 
   /// 当前生效主题色（设置页「显示 → 主题色」写入，见 `appearance.dart`）。
   static ThemeAccent _accent = ThemeAccent.fallback;
+  static Color? _customAccent;
   static ThemeBackground _background = ThemeBackground.white;
   static void applyBackground(ThemeBackground value) => _background = value;
 
   /// 当前生效色板：亮度定结构、主题色定主色。
-  static LumePalette get palette =>
-      LumePalette.of(_brightness).withAccent(_accent, background: _background);
+  static LumePalette get palette => LumePalette.of(
+    _brightness,
+  ).withAccent(_accent, background: _background, customAccent: _customAccent);
 
   /// 按亮度取色板（供需要显式区分的场合，如阅读页的工具栏）。
   static LumePalette paletteOf(Brightness brightness) =>
@@ -265,8 +274,9 @@ class LumeTheme {
   }
 
   /// 显式设定主题色（[build] 会调）。
-  static void applyAccent(ThemeAccent accent) {
+  static void applyAccent(ThemeAccent accent, {Color? customAccent}) {
     _accent = accent;
+    _customAccent = customAccent;
   }
 
   /// 当前主题身份（亮度 + 主题色）。
@@ -279,7 +289,7 @@ class LumeTheme {
   /// 换 key **重建不了子树**：`child` 是带 GlobalKey 的 Navigator，换 key 只会
   /// 把它换个位置、子树原样复用（实测，见 settings_page_test 的深色用例）。
   static String get themeId =>
-      '${_brightness.name}-${_accent.id}-${_background.id}';
+      '${_brightness.name}-${_accent.id}-${_background.id}${_customAccent == null ? '' : '-${_customAccent!.toARGB32()}'}';
 
   // ------------------------------------------------------------------ 色板
 
@@ -408,9 +418,13 @@ class LumeTheme {
     Brightness brightness = Brightness.light,
     ThemeAccent accent = ThemeAccent.fallback,
     ThemeBackground background = ThemeBackground.white,
+    Color? customAccent,
+    String? fontFamily,
+    bool fontBold = true,
+    bool fontItalic = false,
   }) {
     applyBrightness(brightness);
-    applyAccent(accent);
+    applyAccent(accent, customAccent: customAccent);
     applyBackground(background);
     // 局部别名：下面所有裸 `accent` 要的都是**颜色**，而参数是档位。
     final accentColor = palette.accent;
@@ -429,7 +443,7 @@ class LumeTheme {
           outlineVariant: divider,
           error: danger,
         );
-    return ThemeData(
+    final theme = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
@@ -674,6 +688,12 @@ class LumeTheme {
         dividerColor: Colors.transparent,
         indicatorColor: accentColor,
       ),
+    );
+    return interfaceTypography(
+      theme,
+      family: fontFamily,
+      bold: fontBold,
+      italic: fontItalic,
     );
   }
 }

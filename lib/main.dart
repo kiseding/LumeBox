@@ -14,11 +14,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
+import 'features/video/player_choice.dart';
 import 'core/js/sandbox_settings.dart';
 import 'core/player/playback_orientation.dart';
 import 'core/reading/browse_layout.dart';
 import 'core/shell/shell_settings.dart';
 import 'core/theme/appearance.dart';
+import 'core/theme/user_fonts.dart';
 import 'core/net/lume_net.dart';
 import 'core/util/developer_mode.dart';
 import 'core/util/lume_log.dart';
@@ -27,6 +29,7 @@ void main() {
   runZonedGuarded<void>(() async {
     WidgetsFlutterBinding.ensureInitialized();
     await AppPreferences.instance.boot();
+    await PlayerChoice.instance.boot();
     await PrivacySettings.instance.boot();
     await MediaLibrary.instance.boot();
     if (AppPreferences.instance.autoBackup) {
@@ -59,6 +62,10 @@ void main() {
     // 外观设置（亮暗模式 + 主题色）与壳层设置同理，**必须 await**：
     // 首帧就该是用户选过的主题，先闪一下默认色再变很难看。
     await AppearanceController.instance.boot();
+    await UserFonts.instance.boot();
+    await UserFonts.instance.ensureLoaded(
+      AppearanceController.instance.settings.fontId,
+    );
     await FloatingModules.instance.boot();
     await FrostedSettings.instance.boot();
     await ComicImageToolsSettings.instance.boot();

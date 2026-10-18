@@ -73,6 +73,83 @@ void main() {
     tools.dispose();
   });
 
+  test('长图相邻行按实际文字高度排序，不把相隔面板误判为同一行', () async {
+    messenger.setMockMethodCallHandler(
+      ComicImageTools.channel,
+      (call) async => [
+        {'text': '下面一行', 'x': .1, 'y': .112, 'width': .3, 'height': .002},
+        {'text': '上面一行', 'x': .8, 'y': .1, 'width': .1, 'height': .002},
+      ],
+    );
+    final tools = ComicImageTools();
+    expect(await tools.recognize(bytes), ['上面一行', '下面一行']);
+    tools.dispose();
+  });
+
+  test('长图多于 250 个文字区域分批翻译，保留文字与全图坐标对应', () async {
+    final batches = <List<String>>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method == 'recognize') {
+        return [
+          for (var i = 0; i < 251; i++)
+            {
+              'text': 'line-$i',
+              'x': .1,
+              'y': i / 300,
+              'width': .5,
+              'height': .001,
+            },
+        ];
+      }
+      if (call.method == 'translate') {
+        final texts = List<String>.from((call.arguments as Map)['texts']);
+        batches.add(texts);
+        return texts.map((value) => '译$value').toList();
+      }
+      return null;
+    });
+    final tools = ComicImageTools();
+    final output = await tools.translate(bytes);
+    expect(batches.map((batch) => batch.length), [100, 100, 51]);
+    expect(output, hasLength(251));
+    expect(output.last.text, 'line-250');
+    expect(output.last.translation, '译line-250');
+    expect(output.last.y, closeTo(250 / 300, .00001));
+    tools.dispose();
+  });
+
+  test('翻译分批同时限制文字长度，单区域超限有明确错误', () async {
+    var oversized = false;
+    final batches = <List<String>>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method == 'recognize') {
+        return [
+          for (var i = 0; i < (oversized ? 1 : 2); i++)
+            {
+              'text': '字' * (oversized ? 40001 : 25000),
+              'x': .1,
+              'y': i * .2,
+              'width': .5,
+              'height': .1,
+            },
+        ];
+      }
+      if (call.method == 'translate') {
+        final texts = List<String>.from((call.arguments as Map)['texts']);
+        batches.add(texts);
+        return texts.map((value) => '译文').toList();
+      }
+      return null;
+    });
+    final tools = ComicImageTools();
+    expect(await tools.translate(bytes), hasLength(2));
+    expect(batches.map((batch) => batch.length), [1, 1]);
+    oversized = true;
+    await expectLater(tools.translate(bytes), throwsFormatException);
+    expect(batches, hasLength(2));
+    tools.dispose();
+  });
+
   test(
     'model picker supplies an iOS UTI as well as desktop extension filters',
     () {

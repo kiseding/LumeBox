@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/appearance.dart';
 import 'floating_settings_page.dart';
+import 'custom_accent_picker.dart';
+import 'font_settings_page.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 
@@ -63,6 +65,34 @@ class DisplaySettingsGroup extends StatelessWidget {
               ),
               const _AccentRow(),
               const _BackgroundRow(),
+              _DisplayRow(
+                icon: Icons.text_fields,
+                title: '字体与字号',
+                value: '',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const FontSettingsPage(),
+                  ),
+                ),
+              ),
+              ListenableBuilder(
+                listenable: AppearanceController.instance,
+                builder: (context, _) => SwitchListTile(
+                  key: const Key('appearance.adaptiveColor'),
+                  secondary: Icon(
+                    Icons.auto_awesome_outlined,
+                    color: LumeTheme.textSecondary,
+                  ),
+                  title: const Text('自适应颜色'),
+                  subtitle: const Text('首页配色跟随顶部推荐封面的主色；无可用封面时使用主题色'),
+                  value: AppearanceController.instance.settings.adaptiveColor,
+                  onChanged: (value) => AppearanceController.instance.apply(
+                    AppearanceController.instance.settings.copyWith(
+                      adaptiveColor: value,
+                    ),
+                  ),
+                ),
+              ),
               if (includeFloating)
                 _DisplayRow(
                   icon: Icons.tune,
@@ -118,21 +148,26 @@ class _DisplayRow extends StatelessWidget {
                 title,
                 style: TextStyle(
                   fontSize: LumeTypography.titleSize,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: interfaceFontWeight(context, FontWeight.w600),
                   color: LumeTheme.textPrimary,
                 ),
               ),
             ),
             if (swatch != null) ...<Widget>[swatch!, const SizedBox(width: 8)],
-            Text(
-              value,
-              style: TextStyle(
-                fontWeight: FontWeight.w400,
-                fontSize: LumeTypography.bodySize,
-                height: 1.5,
-                color: LumeTheme.textSecondary,
+            if (value.isNotEmpty)
+              Flexible(
+                child: Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w400,
+                    fontSize: LumeTypography.bodySize,
+                    height: 1.5,
+                    color: LumeTheme.textSecondary,
+                  ),
+                ),
               ),
-            ),
             const SizedBox(width: 4),
             Icon(Icons.chevron_right, size: 20, color: LumeTheme.muted),
           ],
@@ -200,22 +235,53 @@ class _AccentRow extends StatelessWidget {
         return _DisplayRow(
           icon: Icons.palette_outlined,
           title: '主题色',
-          value: controller.accent.label,
-          swatch: AccentDot(color: controller.accent.colorFor(brightness)),
+          value: controller.settings.accentLabel,
+          swatch: AccentDot(
+            color: controller.settings.accentColorFor(brightness),
+          ),
           onTap: () async {
-            final picked = await showLumeBottomSheet<ThemeAccent>(
+            final picked = await showLumeBottomSheet<String>(
               context: context,
               backgroundColor: Colors.transparent,
-              builder: (_) => OptionSheet<ThemeAccent>(
+              builder: (_) => OptionSheet<String>(
                 title: '主题色',
-                current: controller.accent,
-                options: ThemeAccent.values,
-                labelOf: (accent) => accent.label,
-                swatchOf: (accent) => accent.colorFor(brightness),
+                current: controller.settings.useCustomAccent
+                    ? 'custom'
+                    : controller.accent.id,
+                options: [
+                  ...ThemeAccent.values.map((accent) => accent.id),
+                  'custom',
+                ],
+                labelOf: (id) =>
+                    id == 'custom' ? '自定义颜色' : ThemeAccent.fromId(id).label,
+                swatchOf: (id) => id == 'custom'
+                    ? Color(controller.settings.customAccentArgb)
+                    : ThemeAccent.fromId(id).colorFor(brightness),
               ),
             );
             if (picked == null) return;
-            controller.apply(controller.settings.copyWith(accent: picked));
+            if (picked == 'custom') {
+              if (!context.mounted) return;
+              final color = await showCustomAccentPicker(
+                context,
+                Color(controller.settings.customAccentArgb),
+              );
+              if (color != null) {
+                controller.apply(
+                  controller.settings.copyWith(
+                    customAccentArgb: color.toARGB32(),
+                    useCustomAccent: true,
+                  ),
+                );
+              }
+            } else {
+              controller.apply(
+                controller.settings.copyWith(
+                  accent: ThemeAccent.fromId(picked),
+                  useCustomAccent: false,
+                ),
+              );
+            }
           },
         );
       },
@@ -317,7 +383,7 @@ class OptionSheet<T> extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontSize: LumeTypography.titleSize,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: interfaceFontWeight(context, FontWeight.w600),
                       color: LumeTheme.textPrimary,
                     ),
                   ),
@@ -351,7 +417,10 @@ class OptionSheet<T> extends StatelessWidget {
                         title: Text(
                           labelOf(option),
                           style: TextStyle(
-                            fontWeight: FontWeight.w600,
+                            fontWeight: interfaceFontWeight(
+                              context,
+                              FontWeight.w600,
+                            ),
                             color: LumeTheme.textPrimary,
                           ),
                         ),

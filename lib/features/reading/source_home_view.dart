@@ -17,6 +17,7 @@ import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
 import '../source/waf_webview_page.dart';
 import 'poster_card.dart';
+import 'adaptive_cover_surface.dart';
 import 'section_image.dart';
 import '../shell/section_preloader.dart';
 
@@ -325,20 +326,23 @@ class _SourceHomeViewState extends State<SourceHomeView> {
         ),
       );
     }
-    return RefreshIndicator(
-      onRefresh: () async {
-        await Future.wait([
-          _load(force: true),
-          if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
-        ]);
-      },
-      child: _buildFlat(
-        home.isBoards
-            ? {
-                for (final board in boards)
-                  for (final item in board.items) item.id: item,
-              }.values.toList()
-            : home.items,
+    final items = home.isBoards
+        ? {
+            for (final board in boards)
+              for (final item in board.items) item.id: item,
+          }.values.toList()
+        : home.items;
+    return AdaptiveCoverSurface(
+      pipeline: widget.pipeline,
+      item: items.isEmpty ? null : items.first,
+      child: RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([
+            _load(force: true),
+            if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
+          ]);
+        },
+        child: _buildFlat(items),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import '../../shared/widgets/drawer_geometry.dart';
 import 'diagnostic_export_tile.dart';
 import '../audio_book/audio_book_page.dart';
+import '../video/player_choice.dart';
 import 'configuration_settings_page.dart';
 import 'privacy_settings_page.dart';
 import '../comic/comic_image_tools_page.dart';
@@ -121,6 +122,12 @@ class SettingsPage extends StatelessWidget {
           ),
 
           const SettingsGroupTitle('阅读与播放'),
+          SettingsEntryCard(
+            icon: Icons.switch_video_outlined,
+            title: '播放器方案',
+            subtitle: '现有播放器 / 参考播放器（新）· 切换对比，设置独立',
+            onTap: () => _push(context, const PlayerChoiceSettingsPage()),
+          ),
           SettingsEntryCard(
             icon: Icons.tune,
             title: '各模块独立设置',

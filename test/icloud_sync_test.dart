@@ -54,8 +54,9 @@ void main() {
         return {'account': account, 'documents': documents};
       }
       if (call.method == 'write') {
-        if (failWrite)
+        if (failWrite) {
           throw PlatformException(code: 'icloud', message: 'iCloud 写入失败');
+        }
         uploads++;
         documents = [(call.arguments as Map)['text'] as String];
         return true;

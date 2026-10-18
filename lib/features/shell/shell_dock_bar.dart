@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart' show Ticker;
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
+import 'dock_liquid_lens.dart';
 
 /// 底部 Dock 里的一条页签（只有展示数据，不含页面构造）。
 ///
@@ -43,8 +44,8 @@ class ShellDockEntry {
 ///    **离最近页签的距离**决定；路径在静止胶囊与「尾部收窄、轻微压扁」的
 ///    液态水滴之间插值。松手后分别用 [SpringSimulation] 把「中心所在页签」
 ///    和「宽度 / 形状」弹回目标；
-/// 3. 页签内容层：图标 + 文案，颜色随选中态过渡。内容画在水滴之后，保证
-///    选中的图标 / 文字始终清晰——水滴是玻璃上的装饰层，不是遮罩。
+/// 3. 页签内容层：图标 + 文案，颜色随选中态过渡；
+/// 4. 透镜层：在图标之后折射已经绘制的图标、文字与背景，不重复构建页签。
 ///
 /// 手势全部落在包裹内容的 [GestureDetector] 上：水平拖动由它赢过页签的
 /// [InkWell] 点击；点击则走 [InkWell] 与 [GestureDetector.onTapUp] 两条路，
@@ -812,8 +813,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                   return Stack(
                     fit: StackFit.expand,
                     children: <Widget>[
-                      // 水滴先画：它是玻璃上的装饰层；页签内容后画，选中项的
-                      // 图标与文字不会被水滴的磨砂白底糊掉。
+                      // 先给背景做磨砂与底色，文字不参与这一步模糊。
                       Positioned(
                         left: left,
                         top: ShellDockBar._dropInset,
@@ -854,6 +854,23 @@ class _ShellDockBarState extends State<ShellDockBar>
                               ),
                             ),
                         ],
+                      ),
+                      Positioned(
+                        left: left,
+                        top: ShellDockBar._dropInset,
+                        width: dropWidth,
+                        height: dropHeight,
+                        child: DockLiquidLens(
+                          path: _liquidDropPath(
+                            Size(dropWidth, dropHeight),
+                            stretch: stretch,
+                            press: pressRaw,
+                            direction: _dragDirection,
+                          ),
+                          press: pressRaw,
+                          stretch: stretch,
+                          highlight: widget.appearance.borderOpacity,
+                        ),
                       ),
                     ],
                   );

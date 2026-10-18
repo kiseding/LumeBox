@@ -64,7 +64,7 @@ void main() {
       expect(page.items.length, 32);
       final covers = page.items.map((item) => item.cover).toList();
       expect(
-        covers.where((c) => c == null || c!.isEmpty),
+        covers.where((c) => c == null || c.isEmpty),
         isEmpty,
         reason: '分类页每条都有封面（旧版取容器第一张，除首条外全被覆盖成同一张）',
       );

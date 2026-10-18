@@ -78,6 +78,13 @@ class AppearanceSettings {
     this.mode = ThemeMode.system,
     this.accent = ThemeAccent.fallback,
     this.background = ThemeBackground.white,
+    this.customAccentArgb = 0xFFFF2D55,
+    this.useCustomAccent = false,
+    this.adaptiveColor = false,
+    this.textScale = 1,
+    this.fontBold = true,
+    this.fontItalic = false,
+    this.fontId = '',
   });
 
   /// 亮暗模式：跟随系统 / 浅色 / 深色。
@@ -86,6 +93,20 @@ class AppearanceSettings {
   /// 主题色。
   final ThemeAccent accent;
   final ThemeBackground background;
+  final int customAccentArgb;
+  final bool useCustomAccent, adaptiveColor, fontBold, fontItalic;
+  final double textScale;
+  final String fontId;
+
+  Color? get customAccent => useCustomAccent ? Color(customAccentArgb) : null;
+  String get accentLabel => useCustomAccent ? '自定义颜色' : accent.label;
+  Color accentColorFor(Brightness brightness) {
+    final custom = customAccent;
+    if (custom == null) return accent.colorFor(brightness);
+    return brightness == Brightness.dark
+        ? Color.lerp(custom, Colors.white, .22)!
+        : custom;
+  }
 
   static const AppearanceSettings defaults = AppearanceSettings();
 
@@ -93,16 +114,37 @@ class AppearanceSettings {
     ThemeMode? mode,
     ThemeAccent? accent,
     ThemeBackground? background,
+    int? customAccentArgb,
+    bool? useCustomAccent,
+    bool? adaptiveColor,
+    double? textScale,
+    bool? fontBold,
+    bool? fontItalic,
+    String? fontId,
   }) => AppearanceSettings(
     mode: mode ?? this.mode,
     accent: accent ?? this.accent,
     background: background ?? this.background,
+    customAccentArgb: customAccentArgb ?? this.customAccentArgb,
+    useCustomAccent: useCustomAccent ?? this.useCustomAccent,
+    adaptiveColor: adaptiveColor ?? this.adaptiveColor,
+    textScale: textScale ?? this.textScale,
+    fontBold: fontBold ?? this.fontBold,
+    fontItalic: fontItalic ?? this.fontItalic,
+    fontId: fontId ?? this.fontId,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
     'mode': mode.name,
     'accent': accent.id,
     'background': background.id,
+    'customAccentArgb': customAccentArgb,
+    'useCustomAccent': useCustomAccent,
+    'adaptiveColor': adaptiveColor,
+    'textScale': textScale,
+    'fontBold': fontBold,
+    'fontItalic': fontItalic,
+    'fontId': fontId,
   };
 
   /// 读取落库值；坏值只影响那一项（回落默认），不让设置整块失效。
@@ -114,10 +156,26 @@ class AppearanceSettings {
       'system' => ThemeMode.system,
       _ => defaults.mode,
     };
+    final custom = json['customAccentArgb'];
+    final validCustom =
+        custom is int && custom >= 0xFF000000 && custom <= 0xFFFFFFFF;
+    final scale = json['textScale'];
+    final fontId = json['fontId'];
     return AppearanceSettings(
       mode: mode,
       accent: ThemeAccent.fromId('${json['accent']}'),
       background: ThemeBackground.fromId('${json['background']}'),
+      customAccentArgb: validCustom ? custom : defaults.customAccentArgb,
+      useCustomAccent: validCustom && json['useCustomAccent'] == true,
+      adaptiveColor: json['adaptiveColor'] == true,
+      textScale: scale is num && scale.isFinite
+          ? scale.toDouble().clamp(.7, 1.6)
+          : 1,
+      fontBold: json['fontBold'] is bool ? json['fontBold'] as bool : true,
+      fontItalic: json['fontItalic'] == true,
+      fontId: fontId is String && RegExp(r'^[a-f0-9]{64}$').hasMatch(fontId)
+          ? fontId
+          : '',
     );
   }
 
@@ -126,10 +184,28 @@ class AppearanceSettings {
       other is AppearanceSettings &&
       other.mode == mode &&
       other.accent == accent &&
-      other.background == background;
+      other.background == background &&
+      other.customAccentArgb == customAccentArgb &&
+      other.useCustomAccent == useCustomAccent &&
+      other.adaptiveColor == adaptiveColor &&
+      other.textScale == textScale &&
+      other.fontBold == fontBold &&
+      other.fontItalic == fontItalic &&
+      other.fontId == fontId;
 
   @override
-  int get hashCode => Object.hash(mode, accent, background);
+  int get hashCode => Object.hash(
+    mode,
+    accent,
+    background,
+    customAccentArgb,
+    useCustomAccent,
+    adaptiveColor,
+    textScale,
+    fontBold,
+    fontItalic,
+    fontId,
+  );
 }
 
 /// 外观设置的持久化（应用级，与板块无关）。

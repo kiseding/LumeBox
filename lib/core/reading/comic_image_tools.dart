@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -346,7 +347,12 @@ class ComicImageTools {
   ///
   /// 结果按「先上后下、同一行从左到右」排序：OCR 的原始顺序不保证适合朗读，
   /// 直接拼起来会把对白读反。坐标是归一化值，纵向差 2% 以内视为同一行。
-  Future<List<String>> recognize(Uint8List bytes) async {
+  Future<List<String>> recognize(Uint8List bytes) async => [
+    for (final region in await recognizeRegions(bytes)) region.text.trim(),
+  ];
+
+  /// Preserve OCR boxes for reader highlighting; recognition still stays on device.
+  Future<List<ComicTextRegion>> recognizeRegions(Uint8List bytes) async {
     final raw = await _invoke<List<Object?>>('recognize', {
       'bytes': bytes,
       'source': preferences.source,
@@ -361,33 +367,44 @@ class ComicImageTools {
       }
     }
     regions.sort((a, b) {
-      if ((a.y - b.y).abs() > 0.02) return a.y.compareTo(b.y);
+      // A fixed 2% of a long strip can span several dialogue panels.
+      final sameLine = math.min(.02, math.min(a.height, b.height) * .5);
+      if ((a.y - b.y).abs() > sameLine) return a.y.compareTo(b.y);
       return a.x.compareTo(b.x);
     });
-    return [
-      for (final region in regions)
-        if (region.text.trim().isNotEmpty) region.text.trim(),
-    ];
+    return regions.where((region) => region.text.trim().isNotEmpty).toList();
   }
 
   Future<List<ComicTextRegion>> translate(Uint8List bytes) async {
-    final raw = await _invoke<List<Object?>>('recognize', {
-      'bytes': bytes,
-      'source': preferences.source,
-    });
-    final regions = (raw ?? [])
-        .map((item) => ComicTextRegion.fromMap(item! as Map))
-        .toList();
+    final regions = await recognizeRegions(bytes);
     if (regions.isEmpty) return [];
-    final strings = preferences.ai
-        ? await _translateAI(regions.map((r) => r.text).toList())
-        : (await _invoke<List<Object?>>('translate', {
-            'texts': regions.map((r) => r.text).toList(),
-            'source': preferences.source,
-            'target': preferences.target,
-          }))!.cast<String>();
-    if (strings.length != regions.length) {
-      throw const FormatException('译文数量与识别结果不一致');
+    final strings = <String>[];
+    // Long-strip OCR can exceed a single native translation session's limits.
+    // Keep requests bounded in both count and characters and preserve ordering.
+    var start = 0;
+    while (start < regions.length) {
+      if (_disposed) throw StateError('图片处理已取消');
+      var end = start, characters = 0;
+      while (end < regions.length && end - start < 100) {
+        final length = regions[end].text.runes.length;
+        if (length > 40000) throw const FormatException('单个文字区域过长，请分段处理');
+        if (characters + length > 40000) break;
+        characters += length;
+        end++;
+      }
+      final texts = regions.sublist(start, end).map((r) => r.text).toList();
+      final translated = preferences.ai
+          ? await _translateAI(texts)
+          : (await _invoke<List<Object?>>('translate', {
+              'texts': texts,
+              'source': preferences.source,
+              'target': preferences.target,
+            }))?.cast<String>();
+      if (translated == null || translated.length != texts.length) {
+        throw const FormatException('译文数量与识别结果不一致');
+      }
+      strings.addAll(translated);
+      start = end;
     }
     return [
       for (var i = 0; i < regions.length; i++)

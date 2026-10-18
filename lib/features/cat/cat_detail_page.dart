@@ -23,6 +23,7 @@ import '../../core/player/player_settings.dart';
 import '../video/video_player_settings.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../video/video_player_page.dart';
+import '../video/player_choice.dart';
 import '../video/video_play_target.dart';
 import '../reading/section_image.dart';
 
@@ -175,37 +176,39 @@ class _CatDetailPageState extends State<CatDetailPage> {
       final opening = Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => VideoPlayerPage(
-            prelaunch: transferred,
-            media: PlayerMedia(
-              uri: SourcePlayback.contentAddress(content)!,
-              headers: SourcePlayback.contentHeaders(
+          builder: (_) => PlayerChoiceRoute(
+            original: VideoPlayerPage(
+              prelaunch: transferred,
+              media: PlayerMedia(
+                uri: SourcePlayback.contentAddress(content)!,
+                headers: SourcePlayback.contentHeaders(
+                  content,
+                  source: widget.source,
+                ),
+                title: '${widget.item.title} · ${chapter.title}',
+              ),
+              library: widget.library,
+              sourceManager: CatSourceManager(
+                widget.source.service,
+                widget.source.site,
+                chapterFlag: playbackLine,
+              ),
+              sourceId: widget.source.id,
+              qualities: SourcePlayback.contentQualities(
                 content,
                 source: widget.source,
               ),
-              title: '${widget.item.title} · ${chapter.title}',
-            ),
-            library: widget.library,
-            sourceManager: CatSourceManager(
-              widget.source.service,
-              widget.source.site,
-              chapterFlag: playbackLine,
-            ),
-            sourceId: widget.source.id,
-            qualities: SourcePlayback.contentQualities(
-              content,
-              source: widget.source,
-            ),
-            target: VideoPlayTarget(
-              sourceId: widget.source.id,
-              itemId: widget.item.id,
-              title: widget.item.title,
-              cover: widget.item.cover,
-              chapterIndex: lineEpisodes.indexWhere(
-                (entry) => entry.id == chapter.id,
+              target: VideoPlayTarget(
+                sourceId: widget.source.id,
+                itemId: widget.item.id,
+                title: widget.item.title,
+                cover: widget.item.cover,
+                chapterIndex: lineEpisodes.indexWhere(
+                  (entry) => entry.id == chapter.id,
+                ),
+                chapterId: chapter.id,
+                chapterTitle: chapter.title,
               ),
-              chapterId: chapter.id,
-              chapterTitle: chapter.title,
             ),
           ),
         ),

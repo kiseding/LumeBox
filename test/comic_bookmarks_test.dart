@@ -30,11 +30,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_comic_bookmarks');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     library = await ReadingLibrary.open(Section.comic);
   });
 
@@ -49,19 +49,18 @@ void main() {
     int chapterIndex = 0,
     int page = 0,
     String chapterTitle = '第 1 章',
-  }) =>
-      ComicBookmark(
-        chapterIndex: chapterIndex,
-        chapterId: 'item-1-c${chapterIndex + 1}',
-        chapterTitle: chapterTitle,
-        page: page,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(1700000000000),
-      );
+  }) => ComicBookmark(
+    chapterIndex: chapterIndex,
+    chapterId: 'item-1-c${chapterIndex + 1}',
+    chapterTitle: chapterTitle,
+    page: page,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+  );
 
   List<SourceChapter> chapters(int count) => <SourceChapter>[
-        for (var index = 1; index <= count; index++)
-          SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
-      ];
+    for (var index = 1; index <= count; index++)
+      SourceChapter(id: 'item-1-c$index', title: '第 $index 章'),
+  ];
 
   Future<void> pumpReader(WidgetTester tester, {int imageCount = 6}) async {
     await tester.binding.setSurfaceSize(const Size(420, 880));
@@ -89,16 +88,24 @@ void main() {
   /// 呼出工具栏：点一下之后要等过**双击窗口**（呼出被刻意延后 260ms，
   /// 免得阅读时误触弹出底部面板）。
   Future<void> openToolbar(WidgetTester tester) async {
-    await tester.tapAt(const Offset(210, 440));
-    await tester.pump(const Duration(milliseconds: 320));
+    if (find.byTooltip('更多').evaluate().isEmpty) {
+      await tester.tapAt(const Offset(210, 300));
+      await tester.pump(const Duration(milliseconds: 320));
+      await tester.pumpAndSettle();
+    }
+  }
+
+  Future<void> openBookmarkMenu(WidgetTester tester) async {
+    await openToolbar(tester);
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('书签'));
     await tester.pumpAndSettle();
   }
 
-  /// 书签列表的入口现在在【阅读设置】二级页里（顶栏那个按钮已按用户口径移除）。
   Future<void> openBookmarkList(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('阅读设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, '查看'));
+    await openBookmarkMenu(tester);
+    await tester.tap(find.text('所有书签'));
     await tester.pumpAndSettle();
   }
 
@@ -112,10 +119,7 @@ void main() {
       expect(decoded.first.chapterIndex, 1);
       expect(decoded.first.page, 3);
       expect(decoded.first.chapterTitle, '第 2 章');
-      expect(
-        decoded.first.createdAt.millisecondsSinceEpoch,
-        1700000000000,
-      );
+      expect(decoded.first.createdAt.millisecondsSinceEpoch, 1700000000000);
     });
 
     test('同一章同一页重复添加 = 覆盖，不产生两条', () {
@@ -157,10 +161,7 @@ void main() {
         ComicBookmarks.add(<ComicBookmark>[], first),
         second,
       );
-      expect(
-        ComicBookmarks.at(list, chapterIndex: 0, page: 4),
-        isNotNull,
-      );
+      expect(ComicBookmarks.at(list, chapterIndex: 0, page: 4), isNotNull);
       expect(ComicBookmarks.at(list, chapterIndex: 1, page: 4), isNull);
 
       list = ComicBookmarks.remove(list, second);
@@ -170,10 +171,17 @@ void main() {
 
     test('展示文案：章标题 + 第 N 页（页序号从 0 起，文案从 1 起）', () {
       expect(
-        makeBookmark(chapterIndex: 1, page: 3, chapterTitle: '第 2 章').describe(),
+        makeBookmark(
+          chapterIndex: 1,
+          page: 3,
+          chapterTitle: '第 2 章',
+        ).describe(),
         '第 2 章 · 第 4 页',
       );
-      expect(makeBookmark(page: 0, chapterTitle: '').describe(), '第 1 章 · 第 1 页');
+      expect(
+        makeBookmark(page: 0, chapterTitle: '').describe(),
+        '第 1 章 · 第 1 页',
+      );
     });
   });
 
@@ -182,8 +190,8 @@ void main() {
       await pumpReader(tester);
       await openToolbar(tester);
 
-      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.bookmark_add_outlined));
+      await openBookmarkMenu(tester);
+      await tester.tap(find.text('为此页添加书签'));
       await tester.pumpAndSettle();
 
       final stored = ComicBookmarks.decode(
@@ -193,9 +201,9 @@ void main() {
       expect(stored.first.chapterIndex, 0);
       expect(stored.first.page, 0);
       // 有书签：按钮变实心。
-      expect(find.byIcon(Icons.bookmark), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.bookmark));
+      await openBookmarkMenu(tester);
+      expect(find.text('移除此页书签'), findsOneWidget);
+      await tester.tap(find.text('移除此页书签'));
       await tester.pumpAndSettle();
       expect(
         ComicBookmarks.decode(
@@ -203,7 +211,8 @@ void main() {
         ),
         isEmpty,
       );
-      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+      await openBookmarkMenu(tester);
+      expect(find.text('为此页添加书签'), findsOneWidget);
     });
 
     testWidgets('书签列表：可见、删除即时生效、跨章跳回书签页', (tester) async {

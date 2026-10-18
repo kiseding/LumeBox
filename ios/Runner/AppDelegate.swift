@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import Security
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -24,6 +25,8 @@ import UIKit
   private let configurationExport = ConfigurationExportController()
   private let comicImages = ComicImageToolsController()
   private let privacy = PrivacyController()
+  private let introRecognition = IntroRecognitionController()
+  private let referenceCredentials = ReferenceDanmakuCredentialsController()
 
   override func application(
     _ application: UIApplication,
@@ -36,6 +39,8 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxConfiguration")?.messenger() {
       configurationExport.register(with: messenger)
+      introRecognition.register(with: messenger)
+      referenceCredentials.register(with: messenger)
       FlutterMethodChannel(name: "lumebox/app_icon", binaryMessenger: messenger).setMethodCallHandler { call, result in
         if call.method == "current" { result(UIApplication.shared.alternateIconName ?? "default"); return }
         guard call.method == "set" else { result(FlutterMethodNotImplemented); return }
@@ -96,6 +101,41 @@ import UIKit
     }
     if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxPrivacy")?.messenger() {
       privacy.register(with: messenger)
+    }
+  }
+}
+
+/// The comparison player has its own Keychain item and method channel.
+private final class ReferenceDanmakuCredentialsController {
+  func register(with messenger: FlutterBinaryMessenger) {
+    FlutterMethodChannel(name: "lumebox/reference_danmaku_credentials", binaryMessenger: messenger).setMethodCallHandler { call, result in
+      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "com.lumebox.reference.danmaku", kSecAttrAccount as String: "profiles"]
+      if call.method == "read" {
+        var read = query; read[kSecReturnData as String] = true; read[kSecMatchLimit as String] = kSecMatchLimitOne
+        var value: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &value)
+        if status == errSecItemNotFound { result([String: String]()); return }
+        guard status == errSecSuccess, let data = value as? Data,
+          let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+          result(FlutterError(code: "credentials", message: "Unable to read reference credentials", details: nil)); return
+        }
+        result(dictionary)
+      } else if call.method == "write" {
+        guard let dictionary = call.arguments as? [String: String],
+          let data = try? JSONSerialization.data(withJSONObject: dictionary), data.count <= 256 * 1024 else {
+          result(FlutterError(code: "credentials", message: "Invalid reference credentials", details: nil)); return
+        }
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        var finalStatus = status
+        if status == errSecItemNotFound {
+          var add = query; add[kSecValueData as String] = data
+          add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+          finalStatus = SecItemAdd(add as CFDictionary, nil)
+        }
+        if finalStatus == errSecSuccess { result(nil) }
+        else { result(FlutterError(code: "credentials", message: "Unable to save reference credentials", details: nil)) }
+      } else { result(FlutterMethodNotImplemented) }
     }
   }
 }

@@ -26,9 +26,9 @@ enum RepoKind {
 
   /// 仓库地址给的是根地址（不以 .json 结尾）时，按类型补全索引文件名。
   String get indexPath => switch (this) {
-        RepoKind.mihon => 'index.min.json',
-        RepoKind.venera => 'index.json',
-      };
+    RepoKind.mihon => 'index.min.json',
+    RepoKind.venera => 'index.json',
+  };
 
   /// 读取落库值；无法识别时回退 Venera（JS 载体，iOS 可运行）。
   static RepoKind fromId(String? id) {
@@ -140,15 +140,14 @@ class ComicRepo {
   /// 最近一次刷新时间；从未刷新过为 null。
   final DateTime? refreshedAt;
 
-  ComicRepo copyWith({int? extensionCount, DateTime? refreshedAt}) =>
-      ComicRepo(
-        id: id,
-        name: name,
-        url: url,
-        kind: kind,
-        extensionCount: extensionCount ?? this.extensionCount,
-        refreshedAt: refreshedAt ?? this.refreshedAt,
-      );
+  ComicRepo copyWith({int? extensionCount, DateTime? refreshedAt}) => ComicRepo(
+    id: id,
+    name: name,
+    url: url,
+    kind: kind,
+    extensionCount: extensionCount ?? this.extensionCount,
+    refreshedAt: refreshedAt ?? this.refreshedAt,
+  );
 }
 
 /// 扩展安装记录：仓库扩展 → 漫画板块里的图源 id。
@@ -176,11 +175,11 @@ class InstalledExtension {
 /// 安装结果：成功带上落地的图源；失败带可读原因。
 class RepoInstallResult {
   const RepoInstallResult.success(this.sourceId, this.sourceName)
-      : message = null;
+    : message = null;
 
   const RepoInstallResult.failure(this.message)
-      : sourceId = null,
-        sourceName = null;
+    : sourceId = null,
+      sourceName = null;
 
   final String? sourceId;
   final String? sourceName;

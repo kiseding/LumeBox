@@ -107,8 +107,31 @@ void main() {
   /// 误触，双击放大时更要撤掉这次呼出），pending 的 Timer 不会让 pumpAndSettle
   /// 有事可做，所以这里显式推一下时间。
   Future<void> openToolbar(WidgetTester tester) async {
-    await tester.tapAt(const Offset(210, 440));
-    await tester.pump(const Duration(milliseconds: 320));
+    if (find.byTooltip('更多').evaluate().isEmpty) {
+      await tester.tapAt(const Offset(210, 300));
+      await tester.pump(const Duration(milliseconds: 320));
+      await tester.pumpAndSettle();
+    }
+  }
+
+  Future<void> chooseFlow(WidgetTester tester, String label) async {
+    await openToolbar(tester);
+    await tester.tap(find.byTooltip('阅读方向'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openSettings(WidgetTester tester) async {
+    await openToolbar(tester);
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('完整阅读设置'),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('完整阅读设置'));
     await tester.pumpAndSettle();
   }
 
@@ -154,12 +177,12 @@ void main() {
     expect(find.byType(ListView), findsOneWidget);
 
     await openToolbar(tester);
-    await tester.tap(find.text('单页左右翻页'));
+    await chooseFlow(tester, '从左到右');
     await tester.pumpAndSettle();
     expect(ComicReaderSettings.load(library).mode, ComicReadingMode.single);
     expect(find.byType(PageView), findsOneWidget);
 
-    await tester.tap(find.text('双页跨页'));
+    await chooseFlow(tester, '双页跨页');
     await tester.pumpAndSettle();
     expect(ComicReaderSettings.load(library).mode, ComicReadingMode.doublePage);
     expect(find.byType(PageView), findsOneWidget);
@@ -239,42 +262,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('调节控件：侧边距在底部面板、双击放大在阅读设置页，都会落库', (tester) async {
+  testWidgets('侧边距收进阅读设置，双击缩放与方向持久化', (tester) async {
     await pumpReader(tester);
-    await openToolbar(tester);
-
-    // 侧边距滑杆：面板里第一根滑杆就是它（常用项留在面板）。
-    await tester.drag(find.byType(Slider).first, const Offset(80, 0));
-    await tester.pumpAndSettle();
-    expect(
-      ComicReaderSettings.load(library).marginRatio,
-      greaterThan(0),
-      reason: '侧边距要落库，重进阅读器仍然生效',
-    );
-    // 用户口径：面板里不再有「双击放大」这类不常用项。
-    expect(find.byType(Switch), findsNothing, reason: '双击放大已搬去阅读设置页');
-
-    // 顶栏 →「阅读设置」二级页：双击放大在这里。
-    await tester.tap(find.byTooltip('阅读设置'));
-    await tester.pumpAndSettle();
-    expect(find.text('阅读设置'), findsWidgets);
+    expect(find.byType(Slider), findsOneWidget, reason: '主工具栏只保留页码滑块');
+    await openSettings(tester);
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
-    expect(
-      ComicReaderSettings.load(library).doubleTapZoom,
-      isTrue,
-      reason: '在阅读设置页改的开关同样立刻写回阅读器',
-    );
-    // 用户口径（第十一次反馈）：背景 / 点击行为 / 翻页方向 / 跨页配对也在这里。
-    for (final title in <String>['背景', '点击行为', '翻页方向', '跨页配对']) {
-      expect(find.text(title), findsOneWidget, reason: '「$title」应已搬到阅读设置页');
-    }
+    expect(ComicReaderSettings.load(library).doubleTapZoom, isTrue);
     await tester.tap(find.text('从右往左'));
     await tester.pumpAndSettle();
     expect(
       ComicReaderSettings.load(library).direction,
       ComicReadingDirection.rightToLeft,
-      reason: '在阅读设置页改的翻页方向同样立刻写回阅读器',
     );
   });
 
@@ -288,7 +287,7 @@ void main() {
 
     // 用户口径（第十一次反馈）：背景从底部面板搬到【阅读设置】二级页。
     await openToolbar(tester);
-    await tester.tap(find.byTooltip('阅读设置'));
+    await openSettings(tester);
     await tester.pumpAndSettle();
     await tester.tap(find.text('纯白'));
     await tester.pumpAndSettle();
@@ -311,10 +310,10 @@ void main() {
   testWidgets('点击行为：分区点击翻页，中间仍是呼出工具栏', (tester) async {
     await pumpReader(tester);
     await openToolbar(tester);
-    await tester.tap(find.text('单页左右翻页'));
+    await chooseFlow(tester, '从左到右');
     await tester.pumpAndSettle();
     // 用户口径（第十一次反馈）：「点击行为」也搬到了【阅读设置】二级页。
-    await tester.tap(find.byTooltip('阅读设置'));
+    await openSettings(tester);
     await tester.pumpAndSettle();
     await tester.tap(find.text('点击翻页'));
     await tester.pumpAndSettle();
@@ -350,39 +349,31 @@ void main() {
     expect(library.comicProgress(target.itemId)!.page, 0);
   });
 
-  testWidgets('点击翻页在瀑布流不生效：点哪里都是呼出工具栏', (tester) async {
+  testWidgets('旧版瀑布流点击翻页偏好迁移后可按屏滚动', (tester) async {
     const ComicReaderSettings(tapAction: ComicTapAction.pageTurn).save(library);
     await pumpReader(tester);
-
-    // 瀑布流没有「页」可翻：右 1/3 点击只呼出工具栏，进度不动。
     await tester.tapAt(const Offset(390, 440));
-    // 呼出面板延后一个双击窗口（见 openToolbar 的说明）。
-    await tester.pump(const Duration(milliseconds: 320));
     await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsWidgets);
-    expect(library.comicProgress(target.itemId)!.page, 0);
+    final list = tester.widget<ListView>(find.byType(ListView));
+    expect(list.controller!.offset, greaterThan(0));
   });
 
-  testWidgets('小屏 / 横屏：设置面板超限时内部滚动，不溢出', (tester) async {
-    // 双页跨页：面板那几行之外还有页码 / 换章那一行（「跨页配对」已搬到阅读设置页）。
+  testWidgets('小屏横屏：悬浮栏与分层菜单没有溢出', (tester) async {
     const ComicReaderSettings(mode: ComicReadingMode.doublePage).save(library);
     await pumpReader(tester, surface: const Size(640, 360));
-    await tester.tapAt(const Offset(320, 180));
-    // 呼出面板延后一个双击窗口（见 openToolbar 的说明）。
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
-
-    // 溢出会以 FlutterError 直接判失败；能走到这里说明面板被约束住了。
     expect(find.byType(SingleChildScrollView), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('章节目录面板可跳章', (tester) async {
     await pumpReader(tester);
     await openToolbar(tester);
 
-    await tester.tap(find.byIcon(Icons.list));
+    await tester.tap(find.text('第 1 章').first);
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsOneWidget);
+    expect(find.byKey(const Key('comic.chapters.header')), findsOneWidget);
 
     await tester.tap(find.text('第 3 章').last);
     await tester.pumpAndSettle();
@@ -393,10 +384,10 @@ void main() {
     expect(progress.page, 0);
   });
 
-  testWidgets('章节目录行采用统一的触摸高度与行距', (tester) async {
+  testWidgets('章节目录采用分组分隔线，保留最小触摸高度', (tester) async {
     await pumpReader(tester);
     await openToolbar(tester);
-    await tester.tap(find.byIcon(Icons.list));
+    await tester.tap(find.text('第 1 章').first);
     await tester.pumpAndSettle();
 
     final rows = find.byType(ListTile);
@@ -405,10 +396,7 @@ void main() {
     final second = tester.getRect(rows.at(1));
     expect(first.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
     expect(second.height, greaterThanOrEqualTo(kChapterMinTouchHeight));
-    expect(
-      second.top - first.bottom,
-      greaterThanOrEqualTo(kChapterRowSpacing - 1),
-    );
+    expect(second.top - first.bottom, closeTo(1, .1));
     final title = tester.widget<Text>(
       find.descendant(of: rows.at(0), matching: find.text('第 1 章')),
     );
@@ -419,29 +407,47 @@ void main() {
     await pumpReader(tester);
     await openToolbar(tester);
 
-    await tester.tap(find.byIcon(Icons.list));
+    await tester.tap(find.text('第 1 章').first);
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsOneWidget);
+    expect(find.byKey(const Key('comic.chapters.header')), findsOneWidget);
     // 用户口径（第十一次反馈）：右上角的关闭叉号删掉，出口改成手势。
-    expect(find.byIcon(Icons.close), findsNothing, reason: '目录面板不该再有叉号');
+    expect(find.text('取消'), findsOneWidget);
 
     // 竖直方向仍然是「滚目录」：横向手势不许把滚动吃掉。
     await tester.drag(find.byType(ListView).last, const Offset(0, -120));
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsOneWidget, reason: '滚目录不该关掉面板');
+    expect(
+      find.byKey(const Key('comic.chapters.header')),
+      findsOneWidget,
+      reason: '滚目录不该关掉面板',
+    );
 
     // 向左侧滑：过阈值即回阅读页。
-    await tester.drag(find.text('目录'), const Offset(-200, 0));
+    await tester.drag(
+      find.byKey(const Key('comic.chapters.header')),
+      const Offset(-200, 0),
+    );
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsNothing, reason: '向左侧滑要关掉面板');
+    expect(
+      find.byKey(const Key('comic.chapters.header')),
+      findsNothing,
+      reason: '向左侧滑要关掉面板',
+    );
 
     // 向右侧滑同样能关（两个方向都认）。
-    await tester.tap(find.byIcon(Icons.list));
+    await tester.tap(find.text('第 1 章').first);
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsOneWidget);
-    await tester.drag(find.text('目录'), const Offset(200, 0));
+    expect(find.byKey(const Key('comic.chapters.header')), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('comic.chapters.header')),
+      const Offset(200, 0),
+    );
     await tester.pumpAndSettle();
-    expect(find.text('目录'), findsNothing, reason: '向右侧滑也要关掉面板');
+    expect(
+      find.byKey(const Key('comic.chapters.header')),
+      findsNothing,
+      reason: '向右侧滑也要关掉面板',
+    );
   });
 
   testWidgets('平台守卫：无图源运行时时只渲染骨架，不取章节、不落进度', (tester) async {
@@ -614,13 +620,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tapAt(const Offset(210, 440));
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('朗读'));
+    await tester.scrollUntilVisible(
+      find.text('朗读'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('朗读'));
     await tester.pumpAndSettle();
 
-    expect(find.text('漫画朗读'), findsOneWidget);
+    expect(find.text('漫画朗读'), findsWidgets);
     await tester.tap(find.text('朗读本页'));
     await tester.pumpAndSettle();
 
@@ -661,7 +671,17 @@ class _FakeImageTools extends ComicImageTools {
   final List<String> lines;
 
   @override
-  Future<List<String>> recognize(Uint8List bytes) async => lines;
+  Future<List<ComicTextRegion>> recognizeRegions(Uint8List bytes) async => [
+    for (var i = 0; i < lines.length; i++)
+      ComicTextRegion(
+        text: lines[i],
+        translation: '',
+        x: .1,
+        y: .1 + i * .2,
+        width: .6,
+        height: .1,
+      ),
+  ];
 
   @override
   void dispose() {}

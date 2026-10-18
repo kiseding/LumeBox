@@ -27,6 +27,7 @@ import '../source/source_section_page.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
 import 'video_player_page.dart';
+import 'player_choice.dart';
 import 'video_player_settings.dart';
 
 /// 视频板块：**只保留【浏览】**（真机反馈：播放子页签移除）。
@@ -253,19 +254,21 @@ class _VideoPageState extends State<VideoPage> {
         PageRouteBuilder<void>(
           transitionDuration: Duration.zero,
           reverseTransitionDuration: Duration.zero,
-          pageBuilder: (_, animation, secondaryAnimation) => VideoPlayerPage(
-            media: media,
-            title: target?.title,
-            target: target,
-            sourceId: target?.sourceId,
-            playerFactory: widget.playerFactory,
-            catalog: widget.catalog,
-            pipBackend: widget.pipBackend,
-            brightnessBackend: widget.brightnessBackend,
-            sourceManager: widget.sourceManager,
-            library: _library,
-            qualities: qualities,
-            prelaunch: prelaunch,
+          pageBuilder: (_, animation, secondaryAnimation) => PlayerChoiceRoute(
+            original: VideoPlayerPage(
+              media: media,
+              title: target?.title,
+              target: target,
+              sourceId: target?.sourceId,
+              playerFactory: widget.playerFactory,
+              catalog: widget.catalog,
+              pipBackend: widget.pipBackend,
+              brightnessBackend: widget.brightnessBackend,
+              sourceManager: widget.sourceManager,
+              library: _library,
+              qualities: qualities,
+              prelaunch: prelaunch,
+            ),
           ),
         ),
       );

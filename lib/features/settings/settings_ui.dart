@@ -29,7 +29,7 @@ class SettingsGroupTitle extends StatelessWidget {
         text,
         style: TextStyle(
           fontSize: LumeTypography.sectionTitleSize,
-          fontWeight: FontWeight.w600,
+          fontWeight: interfaceFontWeight(context, FontWeight.w600),
           height: 1.5,
           color: LumeTheme.textPrimary,
         ),
@@ -96,7 +96,7 @@ class SettingsEntryCard extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontSize: LumeTypography.titleSize,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: interfaceFontWeight(context, FontWeight.w600),
                       color: LumeTheme.textPrimary,
                     ),
                   ),

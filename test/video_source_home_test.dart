@@ -21,6 +21,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/section_image.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
+import 'package:lume_box/features/video/player_choice.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -52,6 +53,7 @@ void main() {
         );
     // 视频板块的设置库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await MediaLibrary.instance.boot();
+    await PlayerChoice.instance.boot();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('lumebox/mediaTracks'),

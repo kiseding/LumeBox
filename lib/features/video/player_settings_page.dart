@@ -44,7 +44,8 @@ class PlayerSettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(effectModule: GlassModule.video,
+    return GlassScaffold(
+      effectModule: GlassModule.video,
       behindBar: true,
       title: '播放器设置',
       child: ListView(

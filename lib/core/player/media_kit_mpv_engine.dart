@@ -38,8 +38,17 @@ class MediaKitMpvEngine
   /// 私有构造：只接受**已经**建好的 Player。
   ///
   /// 外部只能走 [create]——它保证 media_kit 先初始化、再碰任何 media_kit API。
-  MediaKitMpvEngine._(this._player) {
-    _video = VideoController(_player);
+  MediaKitMpvEngine._(this._player, {bool emulatorSurfacePreview = false})
+    : _emulatorSurfacePreview = emulatorSurfacePreview {
+    _video = VideoController(
+      _player,
+      configuration: emulatorSurfacePreview
+          ? const VideoControllerConfiguration(
+              vo: 'mediacodec_embed',
+              hwdec: 'mediacodec',
+            )
+          : const VideoControllerConfiguration(),
+    );
     _subscribe();
     _speedTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -61,7 +70,10 @@ class MediaKitMpvEngine
   /// `ensureInitialized` 在 media_kit 1.2.6 是**同步幂等** API（装载原生库），
   /// 因此无需 await；它本身抛错时由启动器按初始化失败处理（超时/异常一律
   /// 丢弃实例并回退 AVPlayer）。
-  static MediaKitMpvEngine create({String? title}) {
+  static MediaKitMpvEngine create({
+    String? title,
+    bool emulatorSurfacePreview = false,
+  }) {
     // 第一步：初始化 media_kit（幂等）。
     MediaKit.ensureInitialized();
     // 第二步：初始化完成之后才允许创建 Player。
@@ -72,10 +84,67 @@ class MediaKitMpvEngine
         logLevel: MPVLogLevel.error,
       ),
     );
-    return MediaKitMpvEngine._(player);
+    return MediaKitMpvEngine._(
+      player,
+      emulatorSurfacePreview: emulatorSurfacePreview,
+    );
   }
 
   final Player _player;
+  final bool _emulatorSurfacePreview;
+
+  /// Read-only metadata for the opt-in reference recognizer. The original
+  /// player's controls, filters and rendering configuration are unchanged.
+  Future<Map<String, Object?>> readIntroMetadata() async {
+    final platform = _player.platform;
+    if (_disposed || platform is! NativePlayer) return {};
+    Future<String?> read(String key) async {
+      try {
+        return await platform
+            .getProperty(key)
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final count = (int.tryParse(await read('chapter-list/count') ?? '') ?? 0)
+        .clamp(0, 512);
+    final chapters = <Map<String, Object?>>[];
+    for (var i = 0; i < count && !_disposed; i++) {
+      final seconds = double.tryParse(await read('chapter-list/$i/time') ?? '');
+      if (seconds == null || !seconds.isFinite) continue;
+      chapters.add({
+        'title': await read('chapter-list/$i/title') ?? '',
+        'startMs': (seconds * 1000).round(),
+      });
+    }
+    final tags = <Map<String, Object?>>[];
+    double? seconds(String? value) {
+      if (value == null || value.trim().isEmpty) return null;
+      var result = 0.0;
+      for (final part in value.split(':')) {
+        final number = double.tryParse(part);
+        if (number == null || !number.isFinite || number < 0) return null;
+        result = result * 60 + number;
+      }
+      return result;
+    }
+
+    for (final prefix in ['OP', 'ED', 'INTRO', 'OUTRO', 'RECAP']) {
+      final start = seconds(await read('metadata/by-key/${prefix}_START'));
+      final end = seconds(await read('metadata/by-key/${prefix}_END'));
+      if (start != null && end != null) {
+        tags.add({
+          'title': prefix,
+          'startMs': (start * 1000).round(),
+          'endMs': (end * 1000).round(),
+        });
+      }
+    }
+    return {'chapters': chapters, 'mkvTags': tags};
+  }
+
   late final VideoController _video;
   final List<StreamSubscription<Object?>> _subscriptions =
       <StreamSubscription<Object?>>[];
@@ -253,6 +322,12 @@ class MediaKitMpvEngine
   @override
   Future<void> setHardwareDecoding(bool enabled) async {
     if (_disposed) return;
+    // Explicit development-only opt-in from android_player_preview.dart.
+    // Physical-device and shipping factories always keep their normal path.
+    if (_emulatorSurfacePreview) {
+      await _setProperties({'hwdec': 'mediacodec'});
+      return;
+    }
     if (_hardwareDecoding == enabled) return;
     _hardwareDecoding = enabled;
     // hwdec 是 libmpv 的**解码链初始化期**属性：这里写进去，对随后打开的媒体生效

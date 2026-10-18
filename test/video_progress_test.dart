@@ -1,6 +1,7 @@
 import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
+import 'package:lume_box/features/video/player_choice.dart';
 import 'package:lume_box/features/video/player_settings_sheet.dart';
 
 import 'dart:io';
@@ -48,6 +49,8 @@ void main() {
               : null,
         );
     await MediaLibrary.instance.boot();
+    // Load file-backed routing outside the widget fake clock.
+    await PlayerChoice.instance.boot();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('lumebox/mediaTracks'),

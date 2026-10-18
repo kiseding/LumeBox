@@ -13,6 +13,7 @@ import '../../core/player/abstract_player.dart';
 import '../audio_book/audio_book_page.dart';
 import '../novel/novel_reader_page.dart';
 import '../video/video_player_page.dart';
+import '../video/player_choice.dart';
 
 Future<void> openMediaResource(
   BuildContext context,
@@ -42,13 +43,15 @@ Future<void> openMediaResource(
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => VideoPlayerPage(
-          media: PlayerMedia(
-            uri: media.url,
-            headers: media.headers,
+        builder: (_) => PlayerChoiceRoute(
+          original: VideoPlayerPage(
+            media: PlayerMedia(
+              uri: media.url,
+              headers: media.headers,
+              title: entry.title,
+            ),
             title: entry.title,
           ),
-          title: entry.title,
         ),
       ),
     );

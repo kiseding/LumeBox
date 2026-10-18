@@ -112,7 +112,12 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
                   let width = properties[kCGImagePropertyPixelWidth] as? Int,
                   let height = properties[kCGImagePropertyPixelHeight] as? Int,
-                  width > 0, height > 0, width <= 20000, height <= 100000, width * height <= 8_000_000 else { throw self.failure("图片过大或格式不支持，原图保留") }
+                  width > 0, height > 0, width <= 20000, height <= 100000 else { throw self.failure("图片过大或格式不支持，原图保留") }
+            if call.method == "recognize" {
+              return try self.recognizeSource(source, width: width, height: height,
+                sourceLanguage: args["source"] as? String ?? "auto", id: id)
+            }
+            guard width * height <= 8_000_000 else { throw self.failure("图片超过超分内存限制，原图保留") }
             if call.method == "superResolve", let threshold = args["threshold"] as? Int, width >= threshold { return bytes }
             guard let decoded = UIImage(data: bytes.data) else { throw self.failure("图片解码失败") }
             let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
@@ -121,7 +126,6 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
               decoded.draw(in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
             }
             guard let image = normalized.cgImage else { throw self.failure("图片解码失败") }
-            if call.method == "recognize" { return try self.recognize(image, source: args["source"] as? String ?? "auto", id: id) }
             guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
             return FlutterStandardTypedData(bytes: try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id))
           }
@@ -163,6 +167,55 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     // Keep only the current variant resident.
     models = [modelKey: loaded]
     return loaded
+  }
+
+  /// Decode a bounded, orientation-correct working image. Vision only receives
+  /// overlapping tiles; coordinates are mapped back to the complete page.
+  /// Ownership by each tile's core prevents overlap text from being read twice.
+  private func recognizeSource(_ source: CGImageSource, width: Int, height: Int,
+    sourceLanguage: String, id: String) throws -> [[String: Any]] {
+    try check(id)
+    let scale = min(1.0, min(sqrt(16_000_000.0 / (Double(width) * Double(height))),
+      65536.0 / Double(max(width, height))))
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: max(1, Int(Double(max(width, height)) * scale)),
+      kCGImageSourceShouldCacheImmediately: false,
+    ]
+    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+      else { throw failure("文字识别图片解码失败") }
+    let fullWidth = CGFloat(image.width), fullHeight = CGFloat(image.height)
+    let coreSize = 1792, overlap = 128
+    var output = [[String: Any]]()
+    for top in stride(from: 0, to: image.height, by: coreSize) {
+      for left in stride(from: 0, to: image.width, by: coreSize) {
+        try check(id)
+        let core = CGRect(x: CGFloat(left), y: CGFloat(top),
+          width: CGFloat(min(coreSize, image.width - left)),
+          height: CGFloat(min(coreSize, image.height - top)))
+        let crop = core.insetBy(dx: -CGFloat(overlap), dy: -CGFloat(overlap))
+          .intersection(CGRect(x: 0, y: 0, width: fullWidth, height: fullHeight)).integral
+        let found: [[String: Any]] = try autoreleasepool {
+          guard let tile = image.cropping(to: crop) else { throw self.failure("文字识别分块失败") }
+          return try self.recognize(tile, source: sourceLanguage, id: id)
+        }
+        for var region in found {
+          guard let x = region["x"] as? CGFloat, let y = region["y"] as? CGFloat,
+            let w = region["width"] as? CGFloat, let h = region["height"] as? CGFloat else { continue }
+          let box = CGRect(x: crop.minX + x * crop.width, y: crop.minY + y * crop.height,
+            width: w * crop.width, height: h * crop.height)
+          guard box.midX >= core.minX, box.midX < core.maxX,
+            box.midY >= core.minY, box.midY < core.maxY else { continue }
+          region["x"] = box.minX / fullWidth; region["y"] = box.minY / fullHeight
+          region["width"] = box.width / fullWidth; region["height"] = box.height / fullHeight
+          output.append(region)
+          guard output.count <= 2000 else { throw failure("当前长图文字超过 2000 个区域，请分段处理") }
+        }
+      }
+    }
+    try check(id)
+    return output
   }
 
   private func recognize(_ image: CGImage, source: String, id: String) throws -> [[String: Any]] {

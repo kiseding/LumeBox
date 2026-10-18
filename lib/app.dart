@@ -5,6 +5,8 @@ import 'shared/widgets/app_privacy_guard.dart';
 
 import 'core/theme/appearance.dart';
 import 'core/theme/lume_theme.dart';
+import 'core/theme/user_fonts.dart';
+import 'core/theme/interface_typography.dart';
 import 'features/settings/cache_pruner.dart';
 import 'features/shell/app_shell.dart';
 import 'features/shell/shell_dock.dart';
@@ -47,7 +49,10 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
     // - 主题色只换主色，两套亮度下的分层与对比度结构保持不变。
     // 阅读器不受这里影响——小说 / 漫画阅读页有自己的阅读主题（见类文档）。
     return ListenableBuilder(
-      listenable: AppearanceController.instance,
+      listenable: Listenable.merge([
+        AppearanceController.instance,
+        UserFonts.instance,
+      ]),
       builder: (context, _) {
         final appearance = AppearanceController.instance.settings;
         return MaterialApp(
@@ -56,11 +61,19 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
           theme: LumeTheme.build(
             brightness: Brightness.light,
             accent: appearance.accent,
+            customAccent: appearance.customAccent,
+            fontFamily: UserFonts.instance.familyFor(appearance.fontId),
+            fontBold: appearance.fontBold,
+            fontItalic: appearance.fontItalic,
             background: appearance.background,
           ),
           darkTheme: LumeTheme.build(
             brightness: Brightness.dark,
             accent: appearance.accent,
+            customAccent: appearance.customAccent,
+            fontFamily: UserFonts.instance.familyFor(appearance.fontId),
+            fontBold: appearance.fontBold,
+            fontItalic: appearance.fontItalic,
             background: appearance.background,
           ),
           themeMode: appearance.mode,
@@ -72,7 +85,10 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
           builder: (context, child) {
             final brightness = Theme.of(context).brightness;
             LumeTheme.applyBrightness(brightness);
-            LumeTheme.applyAccent(appearance.accent);
+            LumeTheme.applyAccent(
+              appearance.accent,
+              customAccent: appearance.customAccent,
+            );
             LumeTheme.applyBackground(appearance.background);
             return KeyedSubtree(
               key: ValueKey<String>(LumeTheme.themeId),
@@ -82,7 +98,17 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
               // `AppShell._buildPage` 按页签标识 + 主题身份建当前页签，
               // 主题一变当前页签整体重建，页内静态色名（`LumeTheme.textPrimary`
               // 等）才重新取值。这一层保留是为了兄弟子树（弹层等）也跟着重建。
-              child: AppPrivacyGuard(child: child ?? const SizedBox.shrink()),
+              child: MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: appearance.textScale == 1
+                      ? MediaQuery.textScalerOf(context)
+                      : InterfaceTextScaler(
+                          MediaQuery.textScalerOf(context),
+                          appearance.textScale,
+                        ),
+                ),
+                child: AppPrivacyGuard(child: child ?? const SizedBox.shrink()),
+              ),
             );
           },
           navigatorObservers: <NavigatorObserver>[ShellDockObserver(_dock)],

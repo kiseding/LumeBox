@@ -92,10 +92,10 @@ CREATE TABLE IF NOT EXISTS comic_extension (
       <Object?>[_ownerKey],
     );
     if (rows.isEmpty) {
-      _db.execute(
-        'INSERT INTO repo_meta (key, value) VALUES (?, ?)',
-        <Object?>[_ownerKey, _ownerValue],
-      );
+      _db.execute('INSERT INTO repo_meta (key, value) VALUES (?, ?)', <Object?>[
+        _ownerKey,
+        _ownerValue,
+      ]);
       return;
     }
     final owner = rows.first['value'] as String;
@@ -148,7 +148,9 @@ CREATE TABLE IF NOT EXISTS comic_extension (
   /// 已安装的扩展不会被卸载——它们已经是漫画板块图源表里的独立图源，
   /// 由「图源管理」继续管理（调用方负责把这句提示给用户）。
   void removeRepo(String repoId) {
-    _db.execute('DELETE FROM comic_extension WHERE repo_id = ?', <Object?>[repoId]);
+    _db.execute('DELETE FROM comic_extension WHERE repo_id = ?', <Object?>[
+      repoId,
+    ]);
     _db.execute('DELETE FROM comic_repo WHERE id = ?', <Object?>[repoId]);
   }
 
@@ -272,27 +274,27 @@ CREATE TABLE IF NOT EXISTS comic_extension (
   // ------------------------------------------------------------------ 内部
 
   ComicRepo _repoFromRow(Row row) => ComicRepo(
-        id: row['id'] as String,
-        name: row['name'] as String,
-        url: Uri.parse(row['url'] as String),
-        kind: RepoKind.fromId(row['kind'] as String?),
-        extensionCount: (row['extension_count'] as int?) ?? 0,
-        refreshedAt: switch (row['refreshed_at'] as int?) {
-          final int stamp => DateTime.fromMillisecondsSinceEpoch(stamp),
-          null => null,
-        },
-      );
+    id: row['id'] as String,
+    name: row['name'] as String,
+    url: Uri.parse(row['url'] as String),
+    kind: RepoKind.fromId(row['kind'] as String?),
+    extensionCount: (row['extension_count'] as int?) ?? 0,
+    refreshedAt: switch (row['refreshed_at'] as int?) {
+      final int stamp => DateTime.fromMillisecondsSinceEpoch(stamp),
+      null => null,
+    },
+  );
 
   RepoExtension _extensionFromRow(Row row) => RepoExtension(
-        id: row['extension_id'] as String,
-        name: row['name'] as String,
-        version: (row['version'] as String?) ?? '',
-        language: (row['language'] as String?) ?? '',
-        artifact: ExtensionArtifact.fromId(row['artifact'] as String?),
-        url: Uri.parse(row['url'] as String),
-        nsfw: ((row['nsfw'] as int?) ?? 0) != 0,
-        sourceNames: _decodeNames(row['source_names'] as String?),
-      );
+    id: row['extension_id'] as String,
+    name: row['name'] as String,
+    version: (row['version'] as String?) ?? '',
+    language: (row['language'] as String?) ?? '',
+    artifact: ExtensionArtifact.fromId(row['artifact'] as String?),
+    url: Uri.parse(row['url'] as String),
+    nsfw: ((row['nsfw'] as int?) ?? 0) != 0,
+    sourceNames: _decodeNames(row['source_names'] as String?),
+  );
 
   static List<String> _decodeNames(String? raw) {
     if (raw == null || raw.isEmpty) return const <String>[];
