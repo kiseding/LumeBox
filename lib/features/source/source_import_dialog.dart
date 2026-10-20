@@ -372,7 +372,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     Text(
       '脚本头部写一行「// LumeSource: {"id":"…","name":"…"}」即可被识别；'
       '只写顶层函数（getList(page) 等）的脚本同样支持。'
-      '视频板块还支持 Python Spider、ESM / CommonJS 单文件模块。'
+      '视频板块还支持 Python Spider、ESM / CommonJS、ZIP 多文件源包与远程 Spider JSON。'
       'Python 源会执行代码，请仅导入可信来源。'
       '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
       '会按订阅逐个拉取并记下来源地址。',

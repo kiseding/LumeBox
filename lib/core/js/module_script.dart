@@ -3,7 +3,7 @@ import 'dart:convert';
 import '../source/source_bundle.dart';
 import 'spider_module_adapter.dart';
 
-/// Single-file ESM/CommonJS modules. Source spans are tokenized before rewriting
+/// ESM/CommonJS module graphs. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
   static Set<String> dependencies(String script) {

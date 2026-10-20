@@ -12,7 +12,7 @@ A new Flutter project.
 
 参考播放器的视频 AI 采用实验性的 MobileCLIP 零样本分类。准确率、温控和耗电最终以 iPhone 真机为准；评论服务、DLNA 与 AirPlay 路由尚未接入。浏览器 UA、字幕语言自动优选及详情页“只选中不播放”已接到实际行为，仍需真机验收。
 
-视频源支持通用 Python Spider 与单文件 ESM／CommonJS 模块，见 [Python 与模块源接入](docs/2026-10-20_Python与模块源接入.md)。Python 来源代码在 App 进程内执行，请仅导入可信来源；依赖 Android 或特定客户端接口的脚本仍有兼容边界。
+底部导航为漫画／视频／设置，猫源从视频选择器进入，网页主页支持长按排序。视频源支持通用 Python Spider、Python／JS 多文件 ZIP 源包、ESM／CommonJS 依赖加载、JS Spider 及远程 T4／RPC，见 [三 TAB 与多文件源包](docs/2026-10-20_三TAB与多文件源包.md)。Python 代码在 App 进程内执行，请仅导入可信来源；Android Java／DEX 需外部后端，原生扩展需随 iOS 构建签名。
 
 ## 图源（脚本不随本仓库分发）
 

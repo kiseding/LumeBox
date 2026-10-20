@@ -64,7 +64,7 @@ class TabBarSettingsPage extends StatelessWidget {
         _buildIntro(visibleCount),
         const SizedBox(height: 12),
         // 拖拽排序：ReorderableListView 需要有限高度，这里用 shrinkWrap
-        // 嵌在 ListView 里（本页条目固定 5 条，不存在长列表性能问题）。
+        // 嵌在 ListView 里（本页条目固定 3 条，不存在长列表性能问题）。
         ReorderableListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
