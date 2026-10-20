@@ -129,9 +129,13 @@ class SourceDescriptor {
     this.group = '',
     this.failureCount = 0,
     this.broken = false,
+    this.runtimeKind = 'javascript',
   });
 
   final String id;
+
+  /// Interpreter classification; derived from the stored script at read time.
+  final String runtimeKind;
   final String name;
   final String version;
   final bool enabled;

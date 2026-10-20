@@ -14,6 +14,7 @@ class NetworkRequest {
     this.method = 'GET',
     this.headers = const <String, String>{},
     this.body,
+    this.bodyBytes,
     this.source = '宿主',
     this.retryOn = true,
     this.proxy = '',
@@ -28,6 +29,7 @@ class NetworkRequest {
   final String method;
   final Map<String, String> headers;
   final String? body;
+  final List<int>? bodyBytes;
 
   /// 请求来源标记（图源 id / 「订阅拉取」/「图片缓存」…）：日志里区分谁在发请求。
   final String source;

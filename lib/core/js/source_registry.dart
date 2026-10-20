@@ -13,6 +13,7 @@ import 'cat_engines.dart';
 import 'lume_js_engine.dart';
 import 'source_engine.dart';
 import 'source_script.dart';
+import '../source/source_package.dart';
 
 /// 图源导入结果：成功携带落库记录，失败携带可读原因。
 ///
@@ -192,8 +193,9 @@ class SourceRegistry {
       LumeLog.warn('[${section.id}] 当前平台不提供源引擎');
       return const SourceImportOutcome.failure('当前平台不提供源引擎');
     }
-    final text = stripScriptBom(script);
-    final probe = await SourceEngineRegistry.create(
+    final text = SourcePackage.prepare(script, originUrl: originUrl);
+    final probe = await SourceEngineRegistry.createForScript(
+      script: text,
       kind: CatEngineSettings.engineKindFor(section, _database),
       sourceId: 'probe${DateTime.now().microsecondsSinceEpoch}',
       http: _http,
@@ -533,7 +535,8 @@ class SourceRegistry {
     if (record == null || !_belongs(record) || !record.enabled) return null;
     if (!_engineAvailable) return null;
     // 运行时分支：猫源按自己的选择取引擎（Android 可二选一），其余板块恒为 QuickJS。
-    final engine = await SourceEngineRegistry.create(
+    final engine = await SourceEngineRegistry.createForScript(
+      script: record.script,
       kind: CatEngineSettings.engineKindFor(section, _database),
       sourceId: sourceId,
       http: httpFor(sourceId),

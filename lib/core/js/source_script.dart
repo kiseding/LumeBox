@@ -60,6 +60,7 @@ class SourceMetadata {
   /// 头部声明注释的匹配式：`//` 行注释与 `/* */` 块注释，分隔符 `:` / `=`，
   /// 前缀允许 `@`。第三个式子是 `key=value` 列表写法（`{` 开头的不走这条）。
   static final List<RegExp> _headerPatterns = <RegExp>[
+    RegExp(r'^[ \t]*#[ \t]*LumeSource:[ \t]*(\{[^\r\n]*\})', multiLine: true),
     RegExp(
       r'^[ \t]*//[ \t]*@?LumeSource\b[ \t]*[:=]?[ \t]*(\{[^\r\n]*\})',
       multiLine: true,

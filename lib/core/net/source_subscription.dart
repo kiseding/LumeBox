@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../util/lume_log.dart';
 import '../util/md5.dart';
 import 'lume_http.dart';
+import '../source/source_package.dart';
 
 /// 一次订阅拉取的结果。
 ///
@@ -142,13 +143,21 @@ class SourceSubscription {
         throw StateError('MD5 校验不一致（清单 $expected，实际 $actual）');
       }
       // 记**校验清单**的地址：更新时重新核对 MD5 才是它存在的意义。
-      return <SourceScriptRef>[SourceScriptRef(script: entity.text, url: url)];
+      return <SourceScriptRef>[
+        SourceScriptRef(
+          script: SourcePackage.prepare(entity.text, originUrl: url),
+          url: url,
+        ),
+      ];
     }
 
     // 形态二：正文就是脚本。
     if (looksLikeScript(download.text)) {
       return <SourceScriptRef>[
-        SourceScriptRef(script: download.text, url: url),
+        SourceScriptRef(
+          script: SourcePackage.prepare(download.text, originUrl: url),
+          url: url,
+        ),
       ];
     }
 
@@ -220,7 +229,9 @@ class SourceSubscription {
 
   /// 是不是图源脚本：认头部元信息声明，也认脚本里的 `LumeSource` 全局对象。
   static bool looksLikeScript(String text) =>
-      SourceMetadataHeader.hasHeader(text) || text.contains('LumeSource');
+      SourceMetadataHeader.hasHeader(text) ||
+      text.contains('LumeSource') ||
+      SourcePackage.looksLikeScript(text);
 
   static bool isHttpUrl(String value) {
     final uri = Uri.tryParse(value);

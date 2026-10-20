@@ -5,6 +5,7 @@ import '../util/lume_log.dart';
 import '../session/section.dart';
 import 'data_source.dart';
 import 'source_models.dart';
+import '../cat/cat_web_parse.dart';
 
 /// JS 图源运行时端口：数据源适配器认识的最小能力集。
 ///
@@ -236,6 +237,19 @@ class JsDataSource
       'chapterId': chapterId,
     });
     try {
+      if (value is Map && value['webParse'] == true) {
+        final uri = Uri.tryParse('${value['url'] ?? ''}');
+        if (uri == null ||
+            !['http', 'https'].contains(uri.scheme) ||
+            uri.host.isEmpty) {
+          throw const FormatException('网页解析地址无效');
+        }
+        final headers = value['headers'];
+        throw CatWebParseRequired(
+          uri,
+          headers is Map ? headers.map((k, v) => MapEntry('$k', '$v')) : {},
+        );
+      }
       return ChapterContent.parse(value);
     } on FormatException catch (error) {
       throw SourceException(

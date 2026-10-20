@@ -21,6 +21,9 @@ import '../util/lume_log.dart';
 import 'lume_js_engine.dart';
 import 'node_mobile_engine.dart';
 import 'sandbox/sandbox_result.dart';
+import '../source/source_package.dart';
+import 'module_script.dart';
+import 'python_source_engine.dart';
 
 /// 图源引擎种类。
 enum CatEngineKind {
@@ -99,13 +102,29 @@ abstract interface class ScriptConfigCapable {
 /// 内置登记 QuickJS-NG；Android 构建额外登记 Node-Mobile（原生探测失败时
 /// 工厂返回 null，引擎如实不可用）。测试可以覆盖登记项来驱动分支。
 class SourceEngineRegistry {
+  static Future<SourceEngine?> createForScript({
+    required String script,
+    required CatEngineKind kind,
+    required String sourceId,
+    required LumeHttp http,
+    required Section section,
+  }) {
+    if (SourcePackage.kindOf(script) == SourcePackageKind.python) {
+      if (section != Section.video) {
+        return Future.value(null);
+      }
+      return Future.value(PythonSourceEngine(sourceId: sourceId, http: http));
+    }
+    return create(kind: kind, sourceId: sourceId, http: http, section: section);
+  }
+
   SourceEngineRegistry._();
 
   static final Map<String, SourceEngineFactory> _builtIn =
       <String, SourceEngineFactory>{
-    CatEngineKind.quickjs.id: _createQuickJs,
-    if (Platform.isAndroid) CatEngineKind.nodeMobile.id: _createNodeMobile,
-  };
+        CatEngineKind.quickjs.id: _createQuickJs,
+        if (Platform.isAndroid) CatEngineKind.nodeMobile.id: _createNodeMobile,
+      };
 
   static final Map<String, SourceEngineFactory> _factories =
       Map<String, SourceEngineFactory>.of(_builtIn);
@@ -117,14 +136,13 @@ class SourceEngineRegistry {
   /// 该引擎在本平台是否可用（同步近似：只看登记与平台能力；
   /// Node-Mobile 的原生就绪由 [probe] 异步确认）。
   static bool isAvailable(CatEngineKind kind) => switch (kind) {
-        CatEngineKind.quickjs => LumeJsEngine.isSupported,
-        CatEngineKind.nodeMobile => Platform.isAndroid && isRegistered(kind),
-      };
+    CatEngineKind.quickjs => LumeJsEngine.isSupported,
+    CatEngineKind.nodeMobile => Platform.isAndroid && isRegistered(kind),
+  };
 
   /// 本平台可用的引擎列表（顺序即展示顺序）。
-  static List<CatEngineKind> availableKinds() => CatEngineKind.values
-      .where(isAvailable)
-      .toList(growable: false);
+  static List<CatEngineKind> availableKinds() =>
+      CatEngineKind.values.where(isAvailable).toList(growable: false);
 
   /// 造引擎。未登记、平台不支持或原生不可用时返回 null。
   static Future<SourceEngine?> create({
@@ -151,9 +169,8 @@ class SourceEngineRegistry {
           if (!Platform.isAndroid) {
             result[kind] = false;
           } else {
-            result[kind] = await NodeMobileEngine(
-              sourceId: '__probe__',
-            ).isSupported();
+            result[kind] = await NodeMobileEngine(sourceId: '__probe__')
+                .isSupported();
           }
       }
     }
@@ -221,10 +238,24 @@ class QuickJsSourceEngine implements SourceEngine, ScriptConfigCapable {
   Future<Set<String>?> contractMethods() => engine.contractMethods();
 
   @override
-  Future<bool> loadScript(String script) => engine.loadScript(script);
+  Future<bool> loadScript(String script) async {
+    _moduleFailure = null;
+    try {
+      return await engine.loadScript(
+        SourcePackage.kindOf(script) == SourcePackageKind.module
+            ? ModuleScript.wrap(script)
+            : script,
+      );
+    } on FormatException catch (error) {
+      _moduleFailure = error.message;
+      return false;
+    }
+  }
+
+  String? _moduleFailure;
 
   @override
-  String? get loadFailure => engine.lastLoadFailure?.message;
+  String? get loadFailure => _moduleFailure ?? engine.lastLoadFailure?.message;
 
   @override
   Future<Map<String, Object?>?> metadata() => engine.metadata();

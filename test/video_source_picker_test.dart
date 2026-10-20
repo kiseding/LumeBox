@@ -136,12 +136,37 @@ void main() {
     expect(manager.selectedIds, isEmpty);
   });
 
-  testWidgets('未接入的类型明确显示状态，关闭不会导入空源', (tester) async {
+  testWidgets('Python 和模块分类显示真实源，普通分类不混入', (tester) async {
+    manager.sources.addAll(const [
+      SourceDescriptor(
+        id: 'py-one',
+        name: 'Python 测试源',
+        version: '1',
+        enabled: true,
+        runtimeKind: 'python',
+      ),
+      SourceDescriptor(
+        id: 'module-one',
+        name: '模块测试源',
+        version: '1',
+        enabled: true,
+        runtimeKind: 'module',
+      ),
+    ]);
     await pump(tester);
     await tester.tap(find.byKey(const ValueKey('video-source-type-python')));
     await tester.pumpAndSettle();
-    expect(find.text('PY源尚未接入'), findsOneWidget);
+    expect(find.text('Python 测试源'), findsOneWidget);
+    expect(find.text('模块测试源'), findsNothing);
     expect(find.text('普通视频长名称测试'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-module')));
+    await tester.pumpAndSettle();
+    expect(find.text('模块测试源'), findsOneWidget);
+    expect(find.text('Python 测试源'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-ordinary')));
+    await tester.pumpAndSettle();
+    expect(find.text('普通视频长名称测试'), findsOneWidget);
+    expect(find.text('Python 测试源'), findsNothing);
     expect(manager.imported, isEmpty);
   });
 

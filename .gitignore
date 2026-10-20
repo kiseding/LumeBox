@@ -67,3 +67,6 @@ app.*.map.json
 # 源脚本的本地缓存（脚本在独立仓库 teng662858/LumeBox-Sources，
 # 用 `dart run tool/fetch_sources.dart` 拉一份；原生用例读它）
 .sources-cache/
+
+# Downloaded CPython runtime and hash-locked wheels
+ios/PythonRuntime/

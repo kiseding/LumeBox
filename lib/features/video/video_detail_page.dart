@@ -26,6 +26,8 @@ import '../reading/poster_card.dart';
 import 'bangumi_match_sheet.dart';
 import 'source_playback.dart';
 import 'video_play_target.dart';
+import '../../core/cat/cat_web_parse.dart';
+import '../cat/cat_web_parse_page.dart';
 
 typedef OpenVideoPlayer = Future<void> Function(
   PlayerMedia media,
@@ -149,12 +151,23 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     try {
       final chapter = chapters[selected];
       final direct = SourcePlayback.itemAddress(widget.item.id);
-      final content = direct == null
-          ? await _source!.content(
-              itemId: widget.item.id,
-              chapterId: chapter.id,
-            )
-          : null;
+      ChapterContent? content;
+      if (direct == null) {
+        try {
+          content = await _source!.content(
+            itemId: widget.item.id,
+            chapterId: chapter.id,
+          );
+        } on CatWebParseRequired catch (request) {
+          if (!mounted) return;
+          final parsed = await showCatWebParsePage(context, request);
+          if (parsed == null || !mounted) return;
+          content = VideoContent(
+            url: parsed,
+            headers: {...request.headers, 'Referer': request.page.toString()},
+          );
+        }
+      }
       await MediaLibrary.instance.boot();
       final saved = MediaLibrary.instance.byId(
         MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),

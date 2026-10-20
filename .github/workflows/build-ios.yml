@@ -45,6 +45,9 @@ jobs:
         if: ${{ inputs.typecheck_only != true }}
         run: python3 tool/prepare_intro_models.py
 
+      - name: 准备 Python 运行环境（锁定版本与校验值）
+        run: python3 tool/prepare_python_runtime.py
+
       # 只编译不签名：flutter 会打 xcarchive；签名与导出（exportArchive）由本地重签名流程负责。
       #
       # **每个构建一个可辨认的版本号**（1.0.<run_number>）：设置 →「关于」会显示它。

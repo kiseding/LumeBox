@@ -31,6 +31,7 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		AA2010200000000000000001 /* LumePythonController.m in Sources */ = {isa = PBXBuildFile; fileRef = AA2010200000000000000002 /* LumePythonController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +90,8 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA2010200000000000000002 /* LumePythonController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LumePythonController.m; sourceTree = "<group>"; };
+		AA2010200000000000000003 /* LumePythonController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LumePythonController.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -164,6 +167,8 @@
 				A1B2C3D4000000000000000B /* PlaybackSessionController.swift */,
 				A1B2C3D4000000000000000D /* WafCookieController.swift */,
 				A1B2C3D4000000000000000F /* BatteryController.swift */,
+				AA2010200000000000000002 /* LumePythonController.m */,
+				AA2010200000000000000003 /* LumePythonController.h */,
 				AC0160160000000000000006 /* LumeGlassBackdrop.swift */,
 				AC0160160000000000000001 /* ComicImageToolsController.swift */,
 				AC0160160000000000000003 /* PrivacyController.swift */,
@@ -197,10 +202,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
+				AA2010200000000000000004 /* Prepare Python Runtime */,
 				9740EEB61CF901F6004384FC /* Run Script */,
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
+				AA2010200000000000000005 /* Embed Python Runtime */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 			);
@@ -311,6 +318,30 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
+		AA2010200000000000000004 /* Prepare Python Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Prepare Python Runtime";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\npython3 \"$SRCROOT/../tool/prepare_python_runtime.py\"\n";
+		};
+		AA2010200000000000000005 /* Embed Python Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Embed Python Runtime";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\npython3 \"$SRCROOT/../tool/prepare_python_runtime.py\" --embed\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -339,6 +370,7 @@
 				A1B2C3D4000000000000000C /* PlaybackSessionController.swift in Sources */,
 				A1B2C3D4000000000000000E /* WafCookieController.swift in Sources */,
 				A1B2C3D40000000000000010 /* BatteryController.swift in Sources */,
+				AA2010200000000000000001 /* LumePythonController.m in Sources */,
 				AC0160160000000000000005 /* LumeGlassBackdrop.swift in Sources */,
 				AC0160160000000000000002 /* ComicImageToolsController.swift in Sources */,
 				AC0160160000000000000004 /* PrivacyController.swift in Sources */,

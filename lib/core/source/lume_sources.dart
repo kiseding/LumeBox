@@ -18,6 +18,7 @@ import 'data_source.dart';
 import 'js_data_source.dart';
 import '../net/source_subscription.dart';
 import 'source_manager.dart';
+import 'source_package.dart';
 
 /// 数据源门面：UI 侧访问图源的唯一入口，也是全项目唯一选择实现的地方。
 ///
@@ -437,6 +438,7 @@ class LumeSources {
 
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
     id: record.id,
+    runtimeKind: SourcePackage.kindOf(record.script).name,
     // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
     name: SourceDisplayNames.of(record.id, record.name),
     version: record.version,

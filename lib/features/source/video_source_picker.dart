@@ -180,12 +180,17 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
             for (final row in [
               (VideoSourceType.ordinary, Icons.code, '普通视频源', '导入 JS 文件或订阅链接'),
               (VideoSourceType.cat, Icons.pets_outlined, '猫源订阅', '管理订阅包与包内站点'),
-              (VideoSourceType.python, Icons.terminal, 'Python 源', '运行环境尚未接入'),
+              (
+                VideoSourceType.python,
+                Icons.terminal,
+                'Python 源',
+                '导入 Spider .py 文件或订阅链接',
+              ),
               (
                 VideoSourceType.module,
                 Icons.extension_outlined,
                 '模块源',
-                '模块兼容尚未接入',
+                '导入单文件 ESM / CommonJS 源模块',
               ),
               (VideoSourceType.web, Icons.language, '网页主页', '添加、编辑网页主页'),
             ])
@@ -204,12 +209,17 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       ),
     );
     if (!mounted || target == null) return;
-    if (target == VideoSourceType.ordinary) {
+    if ([
+      VideoSourceType.ordinary,
+      VideoSourceType.python,
+      VideoSourceType.module,
+    ].contains(target)) {
       await runSourceImport(
         context,
         section: Section.video,
         manager: widget.manager,
       );
+      if (mounted) setState(() => type = target);
     } else if (target == VideoSourceType.cat) {
       await Navigator.push<void>(
         context,
@@ -508,6 +518,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         .where(
           (s) =>
               s.enabled &&
+              (type == VideoSourceType.all ||
+                  type == VideoSourceType.ordinary &&
+                      s.runtimeKind == 'javascript' ||
+                  type == VideoSourceType.python && s.runtimeKind == 'python' ||
+                  type == VideoSourceType.module &&
+                      s.runtimeKind == 'module') &&
               SourceContentVisibility.instance.allows(Section.video, s) &&
               matches('${s.name} ${s.id} ${s.group}'),
         )
@@ -539,12 +555,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     final filteredWeb = webHomes
         .where((home) => matches('${home.name} ${home.url}'))
         .toList();
-    final planned = [
+    final showOrdinary = [
+      VideoSourceType.all,
+      VideoSourceType.ordinary,
       VideoSourceType.python,
       VideoSourceType.module,
     ].contains(type);
-    final showOrdinary =
-        type == VideoSourceType.all || type == VideoSourceType.ordinary;
     final showCat = type == VideoSourceType.all || type == VideoSourceType.cat;
     final showWeb = type == VideoSourceType.all || type == VideoSourceType.web;
     final empty =
@@ -653,39 +669,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                           : ListView(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                               children: [
-                                if (planned)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 48,
-                                      horizontal: 20,
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        Text(
-                                          '${type.label}源尚未接入',
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          switch (type) {
-                                            VideoSourceType.python => '正在规划 Python 运行环境；本版可继续使用普通视频源和猫源。',
-                                            VideoSourceType.module =>
-                                              '后续接入兼容模块后，会在这里显示可用的源。',
-                                            _ => '后续可从这里打开添加的网页主页。',
-                                          },
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            color: LumeTheme.muted,
-                                            height: 1.5,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                if (!planned && empty)
+                                if (empty)
                                   Padding(
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 48,
@@ -704,7 +688,16 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                     ),
                                   ),
                                 if (showOrdinary && ordinary.isNotEmpty) ...[
-                                  heading('普通视频源', ordinary.length),
+                                  heading(
+                                    type == VideoSourceType.python
+                                        ? 'Python 源'
+                                        : type == VideoSourceType.module
+                                        ? '模块源'
+                                        : type == VideoSourceType.ordinary
+                                        ? '普通视频源'
+                                        : '视频源',
+                                    ordinary.length,
+                                  ),
                                   grid([
                                     for (final s in ordinary)
                                       SourceDragTile(
@@ -735,7 +728,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                               !widget.showingCat &&
                                                   currentId == s.id
                                               ? '当前使用'
-                                              : 'JS · ${s.version}',
+                                              : '${s.runtimeKind == 'python'
+                                                    ? 'PY'
+                                                    : s.runtimeKind == 'module'
+                                                    ? '模块'
+                                                    : 'JS'} · ${s.version}',
                                           descriptor: s,
                                           selected:
                                               !widget.showingCat &&

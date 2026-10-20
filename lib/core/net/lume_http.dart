@@ -199,6 +199,7 @@ class LumeHttp {
     String method = 'GET',
     Map<String, String>? headers,
     String? body,
+    List<int>? bodyBytes,
     Duration? timeout,
     int? maxBytes,
     bool followRedirects = true,
@@ -228,6 +229,7 @@ class LumeHttp {
       timeout: timeout ?? _settings.timeout,
       headers: outgoingHeaders,
       body: body,
+      bodyBytes: bodyBytes,
       source: _source,
       // 只有幂等方法参与重试：POST 重试可能造成重复提交。
       retryOn: _isIdempotent(method),
@@ -293,7 +295,11 @@ class LumeHttp {
     final outgoing = http.Request(request.method, Uri.parse(request.url));
     outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
-    if (request.body != null) outgoing.body = request.body!;
+    if (request.bodyBytes != null) {
+      outgoing.bodyBytes = request.bodyBytes!;
+    } else if (request.body != null) {
+      outgoing.body = request.body!;
+    }
     final streamed = await _client
         .send(outgoing)
         .timeout(request.timeout ?? _settings.timeout);
@@ -357,4 +363,25 @@ class LumeHttp {
       error is TimeoutException;
 
   void dispose() => _client.close();
+}
+
+extension LumeHttpBinary on LumeHttp {
+  /// Binary uploads used by Python requests; preserves the existing send port.
+  Future<LumeHttpResponse> sendBytes({
+    required String url,
+    String method = 'GET',
+    Map<String, String>? headers,
+    List<int>? bodyBytes,
+    bool followRedirects = true,
+    Duration? timeout,
+    int? maxBytes,
+  }) => _send(
+    url: url,
+    method: method,
+    headers: headers,
+    bodyBytes: bodyBytes,
+    followRedirects: followRedirects,
+    timeout: timeout,
+    maxBytes: maxBytes,
+  );
 }

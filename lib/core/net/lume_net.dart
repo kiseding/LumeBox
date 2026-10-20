@@ -106,7 +106,11 @@ class LumeNet {
     final outgoing = http.Request(request.method, Uri.parse(request.url));
     outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
-    if (request.body != null) outgoing.body = request.body!;
+    if (request.bodyBytes != null) {
+      outgoing.bodyBytes = request.bodyBytes!;
+    } else if (request.body != null) {
+      outgoing.body = request.body!;
+    }
     final streamed = await client
         .send(outgoing)
         .timeout(request.timeout ?? _settings.timeout);
