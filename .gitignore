@@ -52,6 +52,9 @@ app.*.map.json
 # 体积 18MB 且可随时重新下载，不入版本库。
 *.ipa
 
+# 整体升级/预览导出的静态站点（生成物，本地查看用）
+/sites/
+
 # Widget Preview related
 .widget_preview/
 
