@@ -148,6 +148,12 @@ void main() {
       modules.set(FloatingModule.dock, original.copyWith(opacity: opacity));
       await scene(tester, (_) {});
       Color fill() {
+        final surface = tester.widget<DockLiquidSurface>(
+          find.byType(DockLiquidSurface),
+        );
+        if (DockLiquidSurface.shaderSupported) {
+          return surface.tintColor.withValues(alpha: surface.tintOpacity);
+        }
         final filter = tester.widget<BackdropFilter>(
           find.byKey(ShellDockBar.capsuleFilterKey),
         );
@@ -200,23 +206,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('局部收腰默认关闭，开启后按压才裁剪底座轮廓', (tester) async {
+  testWidgets('局部收腰与水滴膨胀同步，关闭后恢复规则底座', (tester) async {
     Path? waistPath() => tester
         .widget<DockLiquidSurface>(find.byType(DockLiquidSurface))
         .clipPath;
     await scene(tester, (_) {});
+    expect(waistPath(), isNull, reason: '静止时底座保持规则轮廓');
+    final pill = find.byKey(ShellDockBar.selectionPillKey);
+    final idleHeight = tester.getSize(pill).height;
     var gesture = await tester.startGesture(
       tester.getCenter(find.byKey(ShellDockBar.selectionPillKey)),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(waistPath(), isNull, reason: '默认参数下不应出现收腰裁剪');
+    expect(waistPath(), isNotNull, reason: '按下局部内收');
+    expect(tester.getSize(pill).height, greaterThan(idleHeight));
     await gesture.up();
     await tester.pumpAndSettle();
 
     final waisted = const DockLiquidSettings().withValue(
       DockLiquidParameter.waist,
-      1,
+      0,
     );
     await scene(tester, (_) {}, appearance: DockAppearance(liquid: waisted));
     expect(waistPath(), isNull, reason: '未按压时保持规则胶囊');
@@ -225,7 +235,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(waistPath(), isNotNull, reason: '开启收腰后按压应使用自定义轮廓');
+    expect(waistPath(), isNull, reason: '强度为零时关闭局部内收');
     await gesture.up();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

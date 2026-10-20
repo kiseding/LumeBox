@@ -40,7 +40,12 @@ class _StripesPainter extends CustomPainter {
 }
 
 class _DockScene extends StatelessWidget {
-  const _DockScene();
+  const _DockScene({
+    this.appearance = const DockAppearance(),
+    this.white = false,
+  });
+  final DockAppearance appearance;
+  final bool white;
 
   static const List<ShellDockEntry> entries = [
     ShellDockEntry(
@@ -78,8 +83,12 @@ class _DockScene extends StatelessWidget {
       child: Scaffold(
         body: Stack(
           children: [
-            Positioned.fill(child: CustomPaint(painter: _StripesPainter())),
-            const Positioned(
+            Positioned.fill(
+              child: white
+                  ? const ColoredBox(color: Colors.white)
+                  : CustomPaint(painter: _StripesPainter()),
+            ),
+            Positioned(
               left: 0,
               right: 0,
               bottom: 40,
@@ -87,7 +96,7 @@ class _DockScene extends StatelessWidget {
                 entries: entries,
                 activeId: 'comic',
                 onSelect: _noop,
-                appearance: DockAppearance(),
+                appearance: appearance,
               ),
             ),
           ],
@@ -129,6 +138,56 @@ double _edgeEnergy(Uint8List data, int width, Rect area) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('玻璃背景提亮至最大仍保留选中图标文字的饱和原色', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 360));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final glow in [0.0, 1.0]) {
+      await tester.pumpWidget(
+        _DockScene(
+          white: true,
+          appearance: DockAppearance(
+            liquid: const DockLiquidSettings().withValue(
+              DockLiquidParameter.lensGlow,
+              glow,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('视频')),
+      );
+      for (var i = 0; i < 16; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+      }
+      final region = tester
+          .getRect(find.byKey(ShellDockBar.selectionPillKey))
+          .deflate(8);
+      final pixels = await _pixels(tester);
+      final target = LumeTheme.accent;
+      var matching = 0;
+      for (var y = region.top.ceil(); y < region.bottom.floor(); y++) {
+        for (var x = region.left.ceil(); x < region.right.floor(); x++) {
+          final at = (y * 440 + x) * 4;
+          if ((pixels[at] - target.r * 255).abs() < 10 &&
+              (pixels[at + 1] - target.g * 255).abs() < 10 &&
+              (pixels[at + 2] - target.b * 255).abs() < 10) {
+            matching++;
+          }
+        }
+      }
+      expect(matching, greaterThan(20), reason: '背景提亮 $glow 时前景不能被白色洗淡');
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('回退路径保留底座磨砂与胶囊滤镜入口', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 360));

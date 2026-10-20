@@ -113,8 +113,8 @@ enum DockLiquidParameter {
   ),
   waist(
     '局部收腰',
-    '参考实测未证实真实收腰；保留为默认关闭的附加效果，按住时底座上下缘向触点轻收。',
-    0,
+    '按住时底座在触点附近轻收，与浮起膨胀的水滴配合；0% 关闭。',
+    .28,
     0,
     1,
     DockLiquidEffect.capsule,
@@ -239,12 +239,12 @@ enum DockLiquidParameter {
 /// 底座玻璃的渲染路线（对比用开关）。
 ///
 /// - [flutter]：本项目自绘的 Shader 方案，跨平台、可调形状与透镜；
-/// - [nativeIos]：把底座交给 iOS 原生 `UIVisualEffectView` 系统材质（iOS 26
-///   会自动采用 Liquid Glass 外观）。仅 iPhone 真机有效，其他平台自动回退。
+/// - [nativeIos]：iOS 26 使用 `UIGlassEffect`，旧系统使用磨砂。
+///   其他平台自动回退自绘。
 ///   受 Flutter 平台视图限制，该模式会关闭自绘透镜的 Backdrop 折射。
 enum DockGlassRenderer {
   flutter('Flutter 自绘', 'Shader 取样 + 局部清澈 + 透镜折射，跨平台一致'),
-  nativeIos('iOS 原生材质', '系统材质底座；仅 iPhone 有效，iOS 26 自动玻璃外观');
+  nativeIos('iOS 原生材质', 'iOS 26 系统玻璃，旧系统回退磨砂');
 
   const DockGlassRenderer(this.label, this.description);
   final String label, description;
@@ -259,9 +259,9 @@ enum DockGlassRenderer {
 
 /// 原生系统材质的厚度风格（仅 iOS 原生渲染模式生效）。
 enum DockNativeGlassStyle {
-  thin('清透', 'systemUltraThinMaterial，背景更可见'),
-  regular('标准', 'systemMaterial，默认系统材质'),
-  thick('厚实', 'systemThinMaterial，磨砂更重');
+  thin('清透', 'iOS 26 清透玻璃；旧系统为超薄磨砂'),
+  regular('标准', 'iOS 26 标准玻璃；旧系统为系统磨砂'),
+  thick('厚实', '加厚磨砂，优先保证文字可读');
 
   const DockNativeGlassStyle(this.label, this.description);
   final String label, description;
@@ -337,6 +337,7 @@ class DockLiquidSettings {
       freeDeform: freeDeform,
       glassRenderer: glassRenderer,
       nativeGlassStyle: nativeGlassStyle,
+      reduceTransparency: reduceTransparency,
     );
   }
 

@@ -297,6 +297,7 @@ class _ExploreViewState extends State<ExploreView> {
   Future<void> _bootstrap() async {
     setState(() {
       _state = SourceStateKind.loading;
+      _headerHidden = false;
       _title = null;
       _detail = null;
     });
@@ -384,6 +385,13 @@ class _ExploreViewState extends State<ExploreView> {
       // 点重试即回到「全部」——可恢复，且比每次都多等一拍划算。
       unawaited(_loadCategories());
       await _loadPage();
+      if (mounted &&
+          identical(source, _source) &&
+          (_categories.isEmpty || _filterGroups.isEmpty)) {
+        // Some script hosts populate metadata during their first list request.
+        // Recheck once after it completes instead of waiting for a pull refresh.
+        await _loadCategories();
+      }
     } on SourceException catch (error) {
       LumeLog.warn('[${widget.section.id}] 探索页源状态异常: $error');
       _settle(state: stateForError(error), detail: error.message);
@@ -433,58 +441,61 @@ class _ExploreViewState extends State<ExploreView> {
     final source = _source;
     if (source == null) return;
     final seq = ++_facetRequestSeq;
-    await Future.wait<void>([
-      () async {
-        try {
-          final categories = await source.categories();
-          if (!mounted ||
-              seq != _facetRequestSeq ||
-              !identical(source, _source)) {
-            return;
-          }
-          setState(() {
-            _categories = categories;
-            if (_categoryId != null &&
-                !categories.any((item) => item.id == _categoryId)) {
-              _categoryId = null;
-            }
-          });
-        } catch (error) {
-          LumeLog.warn('[${source.id}] 分类获取失败: $error');
+    // Filters can be populated by categories()/homeClassContent(). Fetch them
+    // after categories rather than racing the script's initialization.
+    await (() async {
+      try {
+        final categories = await source.categories();
+        if (!mounted ||
+            seq != _facetRequestSeq ||
+            !identical(source, _source)) {
+          return;
         }
-      }(),
-      () async {
-        try {
-          final groups = await loadSourceFilters(
-            source: source,
-            cache: _inlineFilterCache,
-            force: true,
-            categoryId: _categoryId,
-            selection: Map.of(_facetFilters),
-          );
-          if (!mounted ||
-              seq != _facetRequestSeq ||
-              !identical(source, _source)) {
-            return;
+        setState(() {
+          _categories = categories;
+          if (_categoryId != null &&
+              !categories.any((item) => item.id == _categoryId)) {
+            _categoryId = null;
           }
-          setState(() {
-            _filterGroups = groups
-                .where((group) => group.options.isNotEmpty)
-                .toList();
-            _facetFilters = Map.of(_facetFilters)
-              ..removeWhere(
-                (key, value) => !groups.any(
-                  (group) =>
-                      group.id == key &&
-                      group.options.any((option) => option.id == value),
-                ),
-              );
-          });
-        } catch (error) {
-          LumeLog.warn('[${source.id}] 筛选获取失败: $error');
+        });
+      } catch (error) {
+        LumeLog.warn('[${source.id}] 分类获取失败: $error');
+      }
+    })();
+    if (!mounted || seq != _facetRequestSeq || !identical(source, _source)) {
+      return;
+    }
+    await (() async {
+      try {
+        final groups = await loadSourceFilters(
+          source: source,
+          cache: _inlineFilterCache,
+          force: true,
+          categoryId: _categoryId,
+          selection: Map.of(_facetFilters),
+        );
+        if (!mounted ||
+            seq != _facetRequestSeq ||
+            !identical(source, _source)) {
+          return;
         }
-      }(),
-    ]);
+        setState(() {
+          _filterGroups = groups
+              .where((group) => group.options.isNotEmpty)
+              .toList();
+          _facetFilters = Map.of(_facetFilters)
+            ..removeWhere(
+              (key, value) => !groups.any(
+                (group) =>
+                    group.id == key &&
+                    group.options.any((option) => option.id == value),
+              ),
+            );
+        });
+      } catch (error) {
+        LumeLog.warn('[${source.id}] 筛选获取失败: $error');
+      }
+    })();
   }
 
   Future<void> _openCombinedFilters() async {
@@ -1470,6 +1481,11 @@ class _ExploreViewState extends State<ExploreView> {
         topInset: _contentTop,
         bottomInset: ShellDockScope.bottomInset(context),
         onRefreshMetadata: _loadCategories,
+        onHomeLoaded: () {
+          if (_categories.isEmpty || _filterGroups.isEmpty) {
+            unawaited(_loadCategories());
+          }
+        },
         pipeline: _imagePipeline,
         originUrl: _current?.originUrl ?? '',
         onOpenItem: _open,

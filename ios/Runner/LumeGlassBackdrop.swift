@@ -3,9 +3,8 @@ import UIKit
 
 /// 原生系统材质底座：给 Flutter 侧“iOS 原生材质”开关使用。
 ///
-/// 这里用系统的 `UIVisualEffectView` + `UIBlurEffect` 材质；iOS 26 上系统
-/// 材质会自动采用 Liquid Glass 外观，旧系统则保持系统磨砂。这样不依赖
-/// iOS 26 SDK 的新符号，CI 的 Xcode 版本变化不会让工程编译失败。
+/// iOS 26 使用 UIGlassEffect；旧系统、厚实风格及降低透明度使用磨砂。
+/// 普通 UIBlurEffect 不会自动升级为 Liquid Glass。
 ///
 /// 限制：Flutter 平台视图是独立层，不能参与 Flutter 的 `BackdropFilter`
 /// 取样，因此 Dart 侧在该模式下会关闭自绘透镜的 Backdrop 折射。
@@ -38,6 +37,7 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
   private let container = UIView()
   private let effectView: UIVisualEffectView
   private let channel: FlutterMethodChannel
+  private var materialKey = ""
 
   init(
     frame: CGRect,
@@ -45,26 +45,23 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     args: Any?,
     messenger: FlutterBinaryMessenger
   ) {
-    effectView = UIVisualEffectView(effect: Self.effect(from: args))
+    effectView = UIVisualEffectView()
     channel = FlutterMethodChannel(
       name: "lumebox/glass_backdrop_\(viewId)",
       binaryMessenger: messenger
     )
     super.init()
 
-    let radius = Self.cornerRadius(from: args)
     container.frame = frame
     container.backgroundColor = .clear
-    container.clipsToBounds = true
-    container.layer.cornerRadius = radius
+    container.isUserInteractionEnabled = false
     container.layer.cornerCurve = .continuous
 
     effectView.frame = container.bounds
     effectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    effectView.clipsToBounds = true
-    effectView.layer.cornerRadius = radius
     effectView.layer.cornerCurve = .continuous
     container.addSubview(effectView)
+    update(args)
 
     channel.setMethodCallHandler { [weak self] call, result in
       guard call.method == "update" else {
@@ -75,7 +72,7 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
         result(nil)
         return
       }
-      self.effectView.effect = Self.effect(from: call.arguments)
+      self.update(call.arguments)
       result(nil)
     }
   }
@@ -88,13 +85,47 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     container
   }
 
-  private static func effect(from args: Any?) -> UIVisualEffect {
-    let style = (args as? [String: Any])?["style"] as? String
+  private func update(_ args: Any?) {
+    let params = args as? [String: Any] ?? [:]
+    let style = params["style"] as? String ?? "regular"
+    let reduced = params["reduceTransparency"] as? Bool ?? false
+    let radius = Self.cornerRadius(from: args)
+    container.layer.cornerRadius = radius
+    effectView.layer.cornerRadius = radius
+    // Native traits must follow the app theme, including a manually chosen theme.
+    container.overrideUserInterfaceStyle = params["brightness"] as? String == "dark"
+      ? .dark : .light
+    effectView.clipsToBounds = true
+    #if compiler(>=6.2)
+    if #available(iOS 26.0, *) {
+      effectView.cornerConfiguration = .fixed(radius)
+      effectView.clipsToBounds = style == "thick" || reduced
+    }
+    #endif
+    let key = "\(style):\(reduced)"
+    if key != materialKey {
+      materialKey = key
+      effectView.effect = Self.effect(style: style, reduced: reduced)
+    }
+  }
+
+  private static func effect(style: String, reduced: Bool) -> UIVisualEffect {
+    // Xcode 26 / Swift 6.2 provides the new SDK symbols. Older toolchains can
+    // still compile the project and retain the documented material fallback.
+    #if compiler(>=6.2)
+    if #available(iOS 26.0, *), style != "thick", !reduced {
+      let glass = UIGlassEffect(style: style == "thin" ? .clear : .regular)
+      // Flutter owns hit testing and pressure animation for this backdrop.
+      glass.isInteractive = false
+      return glass
+    }
+    #endif
+    if reduced { return UIBlurEffect(style: .systemThickMaterial) }
     switch style {
     case "thin":
       return UIBlurEffect(style: .systemUltraThinMaterial)
     case "thick":
-      return UIBlurEffect(style: .systemThinMaterial)
+      return UIBlurEffect(style: .systemThickMaterial)
     default:
       return UIBlurEffect(style: .systemMaterial)
     }
@@ -107,6 +138,7 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     else {
       return 0
     }
-    return CGFloat(truncating: value)
+    let radius = value.doubleValue
+    return radius.isFinite ? CGFloat(max(0, radius)) : 0
   }
 }

@@ -148,11 +148,12 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   late final AnimationController _gripController;
   int? _pressedPointer;
+  bool _disableAnimations = false;
 
   bool get _motionEnabled =>
       widget.appearance.animateSelection &&
       !IconCustomization.instance.editMode &&
-      !MediaQuery.disableAnimationsOf(context);
+      !_disableAnimations;
 
   /// 手指在内容区的位置对「聚焦」的贡献（0 = 页签边缘，1 = 图标/文字中心）。
   ///
@@ -284,6 +285,7 @@ class _ShellDockBarState extends State<ShellDockBar>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _disableAnimations = MediaQuery.disableAnimationsOf(context);
     if (!_motionEnabled || !TickerMode.valuesOf(context).enabled) _stopMotion();
   }
 
@@ -853,8 +855,9 @@ class _ShellDockBarState extends State<ShellDockBar>
               stops: const [0, .55, 1],
             );
             final border = Border.all(
-              color: Colors.white.withValues(
-                alpha: (borderAlpha * (1 + gain * .58)).clamp(0.0, 1.0),
+              color: (dark ? Colors.white : const Color(0xFF6E6E73)).withValues(
+                alpha: (borderAlpha * (dark ? 1 : .28) * (1 + gain * .58))
+                    .clamp(0.0, 1.0),
               ),
             );
             // 回退路径：白度 + 渐变 + 描边都在 BackdropFilter 的子节点里，
@@ -927,6 +930,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                     borderRadius: radius,
                     cornerRadius: widget.capsuleHeight / 2,
                     style: _liquid.nativeGlassStyle,
+                    reduceTransparency: reduceTransparency,
                     tintColor: glassColor,
                     tintOpacity: reduceTransparency
                         ? math
@@ -977,12 +981,29 @@ class _ShellDockBarState extends State<ShellDockBar>
                   ),
                 ],
               ),
-              child: (shaderPath || useNativeGlass)
+              child: (shaderPath || useNativeGlass || waistPath != null)
                   ? Stack(
                       fit: StackFit.expand,
                       children: <Widget>[
                         surface,
-                        IgnorePointer(child: overlay),
+                        if (!useNativeGlass && shaderPath)
+                          IgnorePointer(
+                            child: waistPath == null
+                                ? overlay
+                                : ClipPath(
+                                    clipper: _LiquidDropClipper(waistPath),
+                                    child: overlay,
+                                  ),
+                          ),
+                        if (!useNativeGlass && waistPath != null)
+                          IgnorePointer(
+                            child: CustomPaint(
+                              painter: _LiquidDropBorderPainter(
+                                path: waistPath,
+                                color: border.top.color,
+                              ),
+                            ),
+                          ),
                       ],
                     )
                   : surface,
@@ -1076,9 +1097,26 @@ class _ShellDockBarState extends State<ShellDockBar>
                                   .66)
                               .clamp(0.0, 1.0)))
               .clamp(0.0, style.blur);
-    final dropFilter = _blurFilter(sigma);
+    final finishEnabled =
+        !useNativeGlass &&
+        !reduceTransparency &&
+        _liquid.enabled(DockLiquidEffect.optics);
+    final brighten = finishEnabled
+        ? geometry.press *
+              _amount(DockLiquidParameter.lensGlow) *
+              (dark ? .18 : 1)
+        : 0.0;
+    final desaturate = finishEnabled
+        ? geometry.press * _amount(DockLiquidParameter.lensDesaturate)
+        : 0.0;
+    // Finish the background before drawing glyphs. Applying this to the final
+    // optical overlay washes out both the selected accent and dark labels.
+    final dropFilter = ImageFilter.compose(
+      outer: ColorFilter.matrix(_glassFinishMatrix(brighten, desaturate)),
+      inner: _blurFilter(sigma),
+    );
     final glassColor = dark ? LumeTheme.glass : Colors.white;
-    final dropFill = shaderPath
+    final heldFill = shaderPath
         ? glassColor.withValues(
             alpha: (dropOpacity * (1 - geometry.clarity * .92)).clamp(0.0, 1.0),
           )
@@ -1092,11 +1130,15 @@ class _ShellDockBarState extends State<ShellDockBar>
                                 (1 - dropOpacity)))
                     .clamp(0.0, 1.0),
           );
-    final dropBorder = Colors.white.withValues(
-      alpha: (_borderAlpha(dark) * (1 + gain)).clamp(0.0, 1.0),
+    final restingFill = (dark ? Colors.white : Colors.black).withValues(
+      alpha: (dark ? .10 : .07) * (dropOpacity / .6075).clamp(0.0, 1.0),
     );
-    final whiteGlow = (style.opacity * (.40 + .20 * gain)).clamp(0.0, .65);
-    final accentGlow = (style.opacity * .26).clamp(0.0, .35);
+    final dropFill = Color.lerp(restingFill, heldFill, geometry.press)!;
+    final dropBorder = Colors.white.withValues(
+      alpha: (_borderAlpha(dark) * (1 + gain) * geometry.press).clamp(0.0, 1.0),
+    );
+    final whiteGlow = (style.opacity * (.40 + .20 * gain) * geometry.press)
+        .clamp(0.0, .65);
 
     final dropPath = _dockLensPath(
       Size(geometry.dropWidth, geometry.raisedHeight),
@@ -1152,7 +1194,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                       // refract its own outline into a double ring.
                       border: Colors.transparent,
                       whiteGlow: whiteGlow,
-                      accentGlow: accentGlow,
+                      accentGlow: 0,
                       stretch: geometry.stretch,
                       press: geometry.pressRaw,
                       direction: _dragDirection,
@@ -1211,8 +1253,8 @@ class _ShellDockBarState extends State<ShellDockBar>
                     dispersion: highContrast
                         ? 0
                         : _amount(DockLiquidParameter.dispersion),
-                    glow: _amount(DockLiquidParameter.lensGlow),
-                    desaturate: _amount(DockLiquidParameter.lensDesaturate),
+                    glow: 0,
+                    desaturate: 0,
                   ),
                 ),
               Positioned(
@@ -1251,6 +1293,38 @@ class _ShellDockBarState extends State<ShellDockBar>
 /// 白度 / 磨砂强度），边框来自 [DockAppearance.borderOpacity]（边缘高光）。
 /// 它叠在外层 Dock 玻璃之上，所以背后的颜色会先被外层磨砂一次、再被水滴轻磨
 /// 一次——选中底座才有「一滴水」的体积感，而不是一块纯色圆角矩形。
+List<double> _glassFinishMatrix(double brighten, double desaturate) {
+  final remaining = 1 - brighten.clamp(0.0, 1.0);
+  final saturation = 1 - desaturate.clamp(0.0, 1.0);
+  final r = .2126 * (1 - saturation) * remaining;
+  final g = .7152 * (1 - saturation) * remaining;
+  final b = .0722 * (1 - saturation) * remaining;
+  final keep = saturation * remaining;
+  final lift = 255 * (1 - remaining);
+  return <double>[
+    r + keep,
+    g,
+    b,
+    0,
+    lift,
+    r,
+    g + keep,
+    b,
+    0,
+    lift,
+    r,
+    g,
+    b + keep,
+    0,
+    lift,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+}
+
 class _WaterDrop extends StatelessWidget {
   const _WaterDrop({
     super.key,
@@ -1375,8 +1449,7 @@ class _WaterDrop extends StatelessWidget {
 
 /// 底座局部收腰路径：在胶囊上/下缘按触点位置切出两个浅椭圆缺口。
 ///
-/// 参考帧核对没有证实真实收腰，因此这里只作为**默认关闭**的附加效果：
-/// [depth] 为 0 时返回标准胶囊，不影响默认观感。
+/// 局部内收与上层透镜膨胀同步；[depth] 为 0 时返回标准胶囊。
 Path _dockWaistPath(
   Size size, {
   required double centerX,

@@ -44,8 +44,7 @@ import 'section_cache.dart';
 import 'usage_guide_page.dart';
 import '../media/audio_player_page.dart';
 
-/// 设置：按「个性与界面 / 阅读与播放 / 数据与网络 / 存储与安全 / 诊断与关于」
-/// 五组组织全部入口。
+/// 设置按外观、导航、播放、来源、网络、存储与诊断七组组织入口。
 ///
 /// 平台边界（任务书第 3 条 + 宪法第 1 条）：完整业务只在 iOS；Android /
 /// Windows 只保留页面骨架占位——不做缓存统计清理，也不做报告导出。
@@ -111,11 +110,12 @@ class SettingsPage extends StatelessWidget {
             subtitle: '逐项换图标 · 长按编辑 · 导入自己的图片和图标包',
             onTap: () => _push(context, const IconLibraryPage()),
           ),
+          const SettingsGroupTitle('导航与首页'),
           const GridTitleStyleRow(),
           SettingsEntryCard(
             icon: Icons.dashboard_customize_outlined,
             title: '底部导航栏管理',
-            subtitle: '每个页签独立开关 + 拖拽排序（至少保留 1 个；改动立即生效）',
+            subtitle: '页签开关与排序 · 导航尺寸 · 液态玻璃动效',
             onTap: () => _push(context, const TabBarSettingsPage()),
           ),
           SettingsEntryCard(
@@ -127,7 +127,7 @@ class SettingsPage extends StatelessWidget {
           SettingsEntryCard(
             icon: Icons.visibility_outlined,
             title: '内容分类显示',
-            subtitle: '漫画 / 美图 / 视频 / 影视独立显示或隐藏',
+            subtitle: '选择首页可见的内容类型',
             onTap: () => _push(context, const ContentVisibilityPage()),
           ),
 
@@ -168,7 +168,7 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
 
-          const SettingsGroupTitle('数据与网络'),
+          const SettingsGroupTitle('内容与订阅'),
           SettingsEntryCard(
             icon: Icons.subscriptions_outlined,
             title: '总订阅导入导出',
@@ -178,13 +178,20 @@ class SettingsPage extends StatelessWidget {
           SettingsEntryCard(
             icon: Icons.tune,
             title: '源总管理',
-            subtitle: '四个板块的源总览与批量管理（漫画 / 视频 / 猫源互相独立）',
+            subtitle: '漫画 / 视频 / 猫源的源总览与批量管理',
             onTap: () => _push(context, const GlobalSourcePage()),
           ),
           SettingsEntryCard(
+            icon: Icons.search,
+            title: '搜索',
+            subtitle: '搜索自动繁转简 / 精确搜索',
+            onTap: () => _push(context, const SearchSettingsPage()),
+          ),
+          const SettingsGroupTitle('网络与服务'),
+          SettingsEntryCard(
             icon: Icons.wifi_tethering,
             title: '网络设置',
-            subtitle: '全局并发、单域名并发、UA、代理、超时与重试（四板块共用）',
+            subtitle: '并发 · UA · 代理 · 超时与重试',
             onTap: () => _push(context, const NetworkSettingsPage()),
           ),
           SettingsEntryCard(
@@ -192,12 +199,6 @@ class SettingsPage extends StatelessWidget {
             title: 'TMDB配置',
             subtitle: '海报样式 / API Key / 接口与图片代理',
             onTap: () => _push(context, const TmdbSettingsPage()),
-          ),
-          SettingsEntryCard(
-            icon: Icons.search,
-            title: '搜索',
-            subtitle: '搜索自动繁转简 / 精确搜索',
-            onTap: () => _push(context, const SearchSettingsPage()),
           ),
           SettingsEntryCard(
             icon: Icons.live_tv_outlined,
@@ -237,7 +238,7 @@ class SettingsPage extends StatelessWidget {
           SettingsEntryCard(
             icon: Icons.hourglass_bottom_outlined,
             title: '沙箱设置',
-            subtitle: 'JS 脚本执行超时（3–10 秒，默认 10，四板块共用）；其余安全上限不可调',
+            subtitle: '脚本执行超时与运行限制',
             onTap: () => _push(context, const SandboxSettingsPage()),
           ),
           SettingsEntryCard(

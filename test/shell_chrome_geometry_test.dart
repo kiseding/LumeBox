@@ -97,7 +97,7 @@ void main() {
   Finder dockCapsule() => find
       .descendant(
         of: find.byKey(AppShell.dockKey),
-        matching: find.byType(ClipRRect),
+        matching: find.byKey(ShellDockBar.capsuleFilterKey),
       )
       .first;
 
@@ -527,7 +527,9 @@ void main() {
     double sigma() {
       final text = tester.widget<BackdropFilter>(dropBlur()).filter.toString();
       return double.parse(
-        RegExp(r'ImageFilter\.blur\(([0-9.]+)').firstMatch(text)!.group(1)!,
+        RegExp(r'(?:ImageFilter\.)?blur\(([0-9.]+)')
+            .firstMatch(text)!
+            .group(1)!,
       );
     }
 
@@ -730,7 +732,13 @@ void main() {
     expect(item.height, closeTo(54, 0.01), reason: '内容条保持统一高度');
     expect(item.height, greaterThanOrEqualTo(44.0), reason: '别压到里面的控件');
 
-    final radius = tester.widget<ClipRRect>(dockCapsule()).borderRadius;
+    final radius = tester
+        .widget<ClipRRect>(
+          find
+              .ancestor(of: dockCapsule(), matching: find.byType(ClipRRect))
+              .first,
+        )
+        .borderRadius;
     expect(
       radius,
       BorderRadius.circular(capsule.height / 2),

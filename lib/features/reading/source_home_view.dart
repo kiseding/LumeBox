@@ -45,6 +45,7 @@ class SourceHomeView extends StatefulWidget {
     this.topInset = 8,
     this.bottomInset = 0,
     this.onRefreshMetadata,
+    this.onHomeLoaded,
     this.browseMode,
   });
 
@@ -53,6 +54,7 @@ class SourceHomeView extends StatefulWidget {
   final double topInset;
   final double bottomInset;
   final Future<void> Function()? onRefreshMetadata;
+  final VoidCallback? onHomeLoaded;
 
   /// 图源的订阅地址（可选）：过 WAF 时用它兜底拿站点 origin。
   final String originUrl;
@@ -144,6 +146,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       if (!mounted || seq != _seq) return;
       setState(() => _home = home);
       _preloadFirstScreen(home);
+      widget.onHomeLoaded?.call();
     } catch (error) {
       if (!mounted || seq != _seq) return;
       setState(() => _error = error);

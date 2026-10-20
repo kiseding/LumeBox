@@ -73,7 +73,10 @@ void main() {
       260,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.ensureVisible(find.text(label));
+    await Scrollable.ensureVisible(
+      tester.element(find.text(label)),
+      alignment: .5,
+    );
     await tester.pumpAndSettle();
   }
 
@@ -359,7 +362,7 @@ void main() {
     expect(find.textContaining('导出失败'), findsOneWidget);
   });
 
-  testWidgets('主菜单按五组重排，设置项全部落在指定分组里', (tester) async {
+  testWidgets('主菜单按七组重排，设置项全部保留且顺序清晰', (tester) async {
     // 拉高视口让整个设置列表一次建完，按 y 坐标验证分组顺序。
     await tester.binding.setSurfaceSize(const Size(900, 3400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -371,7 +374,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    const groups = <String>['个性与界面', '阅读与播放', '数据与网络', '存储与安全', '诊断与关于'];
+    const groups = <String>[
+      '个性与界面',
+      '导航与首页',
+      '阅读与播放',
+      '内容与订阅',
+      '网络与服务',
+      '存储与安全',
+      '诊断与关于',
+    ];
     for (final group in groups) {
       expect(find.text(group), findsOneWidget, reason: '缺少分组「$group」');
     }

@@ -1372,14 +1372,20 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
               controller: scroll,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(
-                    HomePanelLayout.sidePadding,
-                    trimmedTopInset(MediaQuery.paddingOf(context).top),
-                    HomePanelLayout.sidePadding,
-                    HomePanelLayout.contentGap,
+                SliverFloatingHeader(
+                  animationStyle: const AnimationStyle(
+                    duration: Duration(milliseconds: 180),
+                    reverseDuration: Duration(milliseconds: 160),
                   ),
-                  sliver: SliverToBoxAdapter(child: header()),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      HomePanelLayout.sidePadding,
+                      trimmedTopInset(MediaQuery.paddingOf(context).top),
+                      HomePanelLayout.sidePadding,
+                      HomePanelLayout.contentGap,
+                    ),
+                    child: header(),
+                  ),
                 ),
                 if (service.busy)
                   SliverToBoxAdapter(

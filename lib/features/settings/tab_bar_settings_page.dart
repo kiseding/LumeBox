@@ -906,7 +906,7 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
                       child: Text(
                         DockNativeGlass.supported
-                            ? 'iOS 原生材质由系统 UIVisualEffectView 提供；该模式会关闭自绘透镜折射，只保留原生底座与 Flutter 图标文字。'
+                            ? 'iOS 26 使用系统液态玻璃，旧系统和厚实风格使用磨砂；图标与切换动效由应用绘制。'
                             : '当前设备不是 iPhone：选择“iOS 原生材质”会自动回退为 Flutter 自绘，便于在模拟器/桌面上先保存配置。',
                         style: TextStyle(
                           fontSize: 12,
