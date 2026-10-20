@@ -144,13 +144,13 @@ void main() {
     });
 
     test('全新库建出来的表结构与迁移后的旧库一致（列齐全）', () async {
-      final scope = await SectionScope.open(Section.novel);
+      final scope = await SectionScope.open(Section.video);
       final database = await SectionDatabase.open(scope);
       database.upsertSource(
         id: 'fresh',
         name: '新库源',
         version: '1.0.0',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {};',
       );
 
@@ -164,7 +164,7 @@ void main() {
         proxy: 'http://127.0.0.1:8888',
       );
       final record = database.source('fresh')!;
-      expect(record.section, Section.novel.id);
+      expect(record.section, Section.video.id);
       expect(record.originUrl, 'https://example.com/sub.js');
       expect(record.network.userAgent, 'UA');
       expect(record.network.cookie, 'c');

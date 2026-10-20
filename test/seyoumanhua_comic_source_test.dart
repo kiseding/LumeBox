@@ -130,7 +130,7 @@ void main() {
       });
       final source = await _boot(
         _script('99xs_novel.js'),
-        section: Section.novel,
+        section: Section.video,
         http: http,
       );
       addTearDown(source.dispose);

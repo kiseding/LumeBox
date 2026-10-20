@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -30,7 +32,10 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
         padding: const EdgeInsets.all(16),
         children: [
           ListTile(
-            leading: const Icon(Icons.cloud_outlined),
+            leading: const LumeIcon(
+              Icons.cloud_outlined,
+              slot: 'icloud_settings_page.1',
+            ),
             title: Text(cloud.status),
             subtitle: Text(
               cloud.lastSync == null
@@ -63,7 +68,7 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
           ),
           SwitchListTile.adaptive(
             title: const Text('同步源订阅地址'),
-            subtitle: const Text('小说 / 漫画 / 视频的 JS 源订阅地址；源脚本与猫源运行包留在本机'),
+            subtitle: const Text('漫画 / 视频的 JS 源订阅地址；源脚本与猫源运行包留在本机'),
             value: cloud.includeSubscriptions,
             onChanged: cloud.busy
                 ? null
@@ -83,7 +88,7 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.sync),
+                : const LumeIcon(Icons.sync, slot: 'icloud_settings_page.2'),
             label: const Text('立即同步'),
           ),
           TextButton(

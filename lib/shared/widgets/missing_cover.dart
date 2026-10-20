@@ -13,7 +13,6 @@ class MissingCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = switch (section) {
-      Section.novel => Icons.menu_book_outlined,
       Section.comic => Icons.auto_stories_outlined,
       Section.video => Icons.play_circle_outline,
       Section.cat => Icons.pets_outlined,

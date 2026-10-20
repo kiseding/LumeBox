@@ -34,11 +34,21 @@ class ReadingLibrary {
   }
 
   static final Map<String, ReadingLibrary> _opened = <String, ReadingLibrary>{};
+  static final Map<String, Future<ReadingLibrary>> _opening = {};
 
   /// 打开（必要时创建）板块阅读门面。同一板块重复调用返回同一实例。
   static Future<ReadingLibrary> open(Section section) async {
     final existing = _opened[section.id];
     if (existing != null) return existing;
+    return _opening.putIfAbsent(
+      section.id,
+      () => _open(section).whenComplete(() {
+        _opening.remove(section.id);
+      }),
+    );
+  }
+
+  static Future<ReadingLibrary> _open(Section section) async {
     final library = ReadingLibrary._(await ReadingStore.open(section));
     _opened[section.id] = library;
     return library;
@@ -221,12 +231,6 @@ class ReadingLibrary {
     return saved is ComicProgress ? saved : null;
   }
 
-  /// 已保存的小说进度；形状不符时返回 null。
-  NovelProgress? novelProgress(String itemId) {
-    final saved = _store.progress(itemId);
-    return saved is NovelProgress ? saved : null;
-  }
-
   /// 已保存的视频进度；形状不符时返回 null。
   VideoProgress? videoProgress(String itemId) {
     final saved = _store.progress(itemId);
@@ -256,11 +260,10 @@ class ReadingLibrary {
     return List<LibraryItem>.unmodifiable(items);
   }
 
-  /// 本板块最近的阅读记录（**任何进度形状**：小说 / 漫画 / 视频），按更新时间倒序。
+  /// 本板块最近的阅读记录（**任何进度形状**：漫画 / 视频），按更新时间倒序。
   ///
   /// 与 [continueWatching] 的区别只有「要不要筛视频进度」：历史抽屉与追更日历都
   /// 要跨形状地看「最近在看什么」，因此这里不带形状过滤；文档形状的取舍由调用方
-  /// 按 [ReadingProgress] 的具体类型判断（例如只有视频与小说算得出百分比）。
   List<({LibraryItem item, ReadingProgress progress})> continueReading({
     int limit = 50,
   }) {

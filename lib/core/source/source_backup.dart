@@ -37,14 +37,14 @@ class SourceBackup {
       sections.values.fold(0, (sum, entries) => sum + entries.length);
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'format': 'lume.sources',
-        'version': version,
-        'createdAt': createdAt.toIso8601String(),
-        'sections': <String, Object?>{
-          for (final entry in sections.entries)
-            entry.key: <Object?>[for (final item in entry.value) item.toJson()],
-        },
-      };
+    'format': 'lume.sources',
+    'version': version,
+    'createdAt': createdAt.toIso8601String(),
+    'sections': <String, Object?>{
+      for (final entry in sections.entries)
+        entry.key: <Object?>[for (final item in entry.value) item.toJson()],
+    },
+  };
 
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
 
@@ -71,6 +71,7 @@ class SourceBackup {
     final sections = <String, List<SourceBackupEntry>>{};
     for (final entry in rawSections.entries) {
       final sectionId = '${entry.key}';
+      if (sectionId == 'novel') continue;
       final rawList = entry.value;
       if (rawList is! List) continue;
       final items = <SourceBackupEntry>[];
@@ -83,7 +84,11 @@ class SourceBackup {
 
     final createdAt =
         DateTime.tryParse('${json['createdAt'] ?? ''}') ?? DateTime.now();
-    return SourceBackup(version: version, createdAt: createdAt, sections: sections);
+    return SourceBackup(
+      version: version,
+      createdAt: createdAt,
+      sections: sections,
+    );
   }
 }
 
@@ -116,16 +121,16 @@ class SourceBackupEntry {
   final String group;
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        'name': name,
-        'version': version,
-        'script': script,
-        'enabled': enabled,
-        if (originUrl.isNotEmpty) 'originUrl': originUrl,
-        if (userAgent.isNotEmpty) 'userAgent': userAgent,
-        if (proxy.isNotEmpty) 'proxy': proxy,
-        if (group.isNotEmpty) 'group': group,
-      };
+    'id': id,
+    'name': name,
+    'version': version,
+    'script': script,
+    'enabled': enabled,
+    if (originUrl.isNotEmpty) 'originUrl': originUrl,
+    if (userAgent.isNotEmpty) 'userAgent': userAgent,
+    if (proxy.isNotEmpty) 'proxy': proxy,
+    if (group.isNotEmpty) 'group': group,
+  };
 
   static SourceBackupEntry? parse(Object? json) {
     if (json is! Map) return null;
@@ -169,7 +174,8 @@ class SourceRestoreResult {
 
   int get total => imported + updated + failed + skipped;
 
-  String describe() => '恢复完成：新增 $imported'
+  String describe() =>
+      '恢复完成：新增 $imported'
       '${updated > 0 ? ' · 覆盖 $updated' : ''}'
       '${failed > 0 ? ' · 失败 $failed' : ''}'
       '${skipped > 0 ? ' · 跳过 $skipped' : ''}';
@@ -190,7 +196,8 @@ class SourceBackupService {
   final bool Function(Section section)? runtimeAvailableFor;
 
   bool _available(Section section) =>
-      runtimeAvailableFor?.call(section) ?? LumeSources.runtimeAvailableFor(section);
+      runtimeAvailableFor?.call(section) ??
+      LumeSources.runtimeAvailableFor(section);
 
   /// 导出备份：四个板块的全部图源（只读）。
   ///
@@ -248,7 +255,9 @@ class SourceBackupService {
       }
 
       final registry = await SourceRegistry.open(section);
-      final existing = <String>{for (final record in registry.sources) record.id};
+      final existing = <String>{
+        for (final record in registry.sources) record.id,
+      };
 
       for (final item in entry.value) {
         try {

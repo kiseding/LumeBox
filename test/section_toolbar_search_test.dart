@@ -15,6 +15,7 @@ import 'package:lume_box/features/reading/search_results_page.dart';
 import 'package:lume_box/features/reading/section_toolbar.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/shared/widgets/home_browse_navigation.dart';
+import 'package:lume_box/shared/widgets/source_switch_button.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -111,7 +112,7 @@ void main() {
 
   group('工具栏（三板块同一套）', () {
     for (final section in <Section>[
-      Section.novel,
+      Section.cat,
       Section.comic,
       Section.video,
     ]) {
@@ -121,6 +122,8 @@ void main() {
 
         final toolbar = find.byType(SectionToolbar);
         expect(toolbar, findsOneWidget);
+        expect(find.byType(SourceSwitchButton), findsOneWidget);
+        expect(find.text('切换'), findsOneWidget);
 
         expect(
           find.descendant(of: toolbar, matching: find.byTooltip('搜索')),
@@ -176,7 +179,7 @@ void main() {
       });
     }
 
-    testWidgets('显示模式：顶栏保留四档，四列五列已移除（真机「找不到了」回归）', (tester) async {
+    testWidgets('显示模式：只保留双列列表和三列网格', (tester) async {
       await pumpExplore(
         tester,
         section: Section.comic,
@@ -184,9 +187,11 @@ void main() {
       );
       await tester.tap(find.byTooltip('布局'));
       await tester.pumpAndSettle();
-      for (final label in <String>['单列列表', '双列列表', '双列网格', '三列网格']) {
-        expect(find.text(label), findsOneWidget, reason: '四档都在菜单里');
+      for (final label in <String>['双列列表', '三列网格']) {
+        expect(find.text(label), findsOneWidget);
       }
+      expect(find.text('单列列表'), findsNothing);
+      expect(find.text('双列网格'), findsNothing);
       expect(find.text('四列网格'), findsNothing);
       expect(find.text('五列网格'), findsNothing);
       await tester.tap(find.text('三列网格'));
@@ -381,7 +386,7 @@ void main() {
   });
 
   group('聚合搜索站点选择', () {
-    for (final section in [Section.novel, Section.comic, Section.video]) {
+    for (final section in [Section.cat, Section.comic, Section.video]) {
       testWidgets('${section.label}：只请求勾选站点，结果页可修改并记住选择', (tester) async {
         final first = _SearchSource(
           section: section,
@@ -548,13 +553,13 @@ void main() {
 
     test('站点选择落库、重开后保留、各版块隔离；全选恢复默认', () async {
       var novel = SearchSourceSelectionStore(
-        await ReadingLibrary.open(Section.novel),
+        await ReadingLibrary.open(Section.cat),
       );
       expect(novel.load(), isNull);
       novel.save({'source-a'});
-      ReadingLibrary.close(Section.novel);
+      ReadingLibrary.close(Section.cat);
       novel = SearchSourceSelectionStore(
-        await ReadingLibrary.open(Section.novel),
+        await ReadingLibrary.open(Section.cat),
       );
       expect(novel.load(), {'source-a'});
       final comic = SearchSourceSelectionStore(
@@ -858,8 +863,8 @@ void main() {
     });
 
     test('搜索历史：去重、最新在前、上限 20 条', () async {
-      final library = await ReadingLibrary.open(Section.novel);
-      final store = SearchHistoryStore(Section.novel, library);
+      final library = await ReadingLibrary.open(Section.cat);
+      final store = SearchHistoryStore(Section.cat, library);
       store.clear();
       for (var i = 0; i < 25; i++) {
         store.remember('关键词 $i');

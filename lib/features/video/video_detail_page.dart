@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import '../../core/theme/lume_theme.dart';
 import '../../core/media/media_library.dart';
 import '../../core/media/media_resource_service.dart';
@@ -156,23 +158,6 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       final saved = MediaLibrary.instance.byId(
         MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),
       );
-      if (saved?.manual == true && saved!.kind == ResourceKind.novel ||
-          saved?.manual != true &&
-              content is TextContent &&
-              MediaResourceService.address(content) == null) {
-        final entry = saved?.manual == true
-            ? saved!
-            : await MediaResourceService().source(
-                source: _source!,
-                item: widget.item,
-                chapters: chapters,
-                firstContent: content,
-                hint: ResourceKind.novel,
-              );
-        if (mounted) await openMediaResource(context, entry, index: selected);
-        widget.library.refresh();
-        return;
-      }
       final address =
           direct ??
           SourcePlayback.contentAddress(content) ??
@@ -352,21 +337,26 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
             actions: [
               IconButton(
                 tooltip: '搜索当前视频',
-                icon: const Icon(Icons.search),
+                icon: const LumeIcon(Icons.search, slot: 'video_detail_page.1'),
                 onPressed: _source == null ? null : searchCurrentVideo,
               ),
               IconButton(
                 tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
                 onPressed: _source == null ? null : favorite,
-                icon: Icon(
+                icon: LumeIcon(
                   widget.library.onShelf(widget.item.id)
                       ? Icons.favorite
                       : Icons.favorite_border,
+                  slot: 'video_detail_page.2',
+                  variant: true,
                 ),
               ),
               IconButton(
                 tooltip: 'Bangumi 追番',
-                icon: const Icon(Icons.live_tv_outlined),
+                icon: const LumeIcon(
+                  Icons.live_tv_outlined,
+                  slot: 'video_detail_page.3',
+                ),
                 onPressed: () => showBangumiMatchSheet(
                   context: context,
                   library: widget.library,
@@ -488,7 +478,10 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(Icons.play_arrow),
+                                : const LumeIcon(
+                                    Icons.play_arrow,
+                                    slot: 'video_detail_page.4',
+                                  ),
                             label: Text(
                               resolving
                                   ? '正在解析'
@@ -572,8 +565,9 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                                               ),
                                               if (index == selected)
                                                 const Center(
-                                                  child: Icon(
+                                                  child: LumeIcon(
                                                     Icons.play_circle_fill,
+                                                    slot: 'video_detail_page.5',
                                                     color: Colors.white,
                                                   ),
                                                 ),
@@ -641,8 +635,9 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                                                     tmdb.metadata!.profiles[i],
                                                   )
                                                 : null,
-                                            child: const Icon(
+                                            child: const LumeIcon(
                                               Icons.person,
+                                              slot: 'video_detail_page.6',
                                               color: Colors.white,
                                             ),
                                           ),

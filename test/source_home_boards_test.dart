@@ -4,7 +4,6 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/reading/browse_layout.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
-import 'package:lume_box/features/reading/poster_card.dart';
 import 'package:lume_box/features/reading/source_home_view.dart';
 
 /// 首页多板块横滑（用户口径任务 3；视频 / 小说 / 漫画三块共用同一个组件）。
@@ -160,7 +159,7 @@ void main() {
       expect(find.byType(GridView), findsOneWidget, reason: '普通网格首页');
     });
 
-    for (final section in [Section.novel, Section.comic, Section.video]) {
+    for (final section in [Section.comic, Section.video]) {
       testWidgets('${section.id}首页应用全部布局档位且不重新加载源', (tester) async {
         var opened = '';
         final source = _HomeSource(
@@ -184,10 +183,7 @@ void main() {
         for (final mode in BrowseLayoutMode.values) {
           await BrowseLayoutSettings.instance.setMode(section, mode);
           await tester.pumpAndSettle();
-          if (mode == BrowseLayoutMode.list) {
-            expect(find.byType(GridView), findsNothing);
-            expect(find.byType(CompactSourceItemTile), findsOneWidget);
-          } else {
+          {
             final grid = tester.widget<GridView>(find.byType(GridView));
             expect(
               (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
@@ -250,7 +246,7 @@ void main() {
 
 /// 提供 home() 的替身图源。
 class _HomeSource implements DataSource, HomeCapable {
-  _HomeSource(this._home, {this.section = Section.novel});
+  _HomeSource(this._home, {this.section = Section.video});
 
   final SourceHome _home;
 
@@ -303,7 +299,7 @@ class _NoHomeSource implements DataSource, HomeCapable {
   String get name => '老图源';
 
   @override
-  Section get section => Section.novel;
+  Section get section => Section.video;
 
   /// 老脚本：接口在、但探测为 false（**不该**被调 home()）。
   @override

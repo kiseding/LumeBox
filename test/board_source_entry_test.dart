@@ -13,7 +13,6 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/cat/cat_page.dart';
 import 'package:lume_box/features/comic/comic_page.dart';
-import 'package:lume_box/features/novel/novel_page.dart';
 import 'package:lume_box/features/video/video_page.dart';
 
 import 'support/fake_source_manager.dart';
@@ -40,11 +39,11 @@ void main() {
               ? root.path
               : null,
         );
-    await SectionScope.open(Section.novel);
+    await SectionScope.open(Section.video);
     await SectionScope.open(Section.comic);
     await SectionScope.open(Section.video);
     // 阅读库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
-    await ReadingLibrary.open(Section.novel);
+    await ReadingLibrary.open(Section.video);
     await ReadingLibrary.open(Section.comic);
     await ReadingLibrary.open(Section.cat);
     await CatService.instance.boot();
@@ -70,19 +69,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('小说板块：右上角「图源管理」打开本板块管理页', (tester) async {
-    await pumpBoard(
-      tester,
-      NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
-    );
 
-    expect(find.byTooltip('订阅'), findsOneWidget);
-    await tester.tap(find.byTooltip('源管理'));
-    await tester.pumpAndSettle();
-
-    expect(find.widgetWithText(AppBar, '小说 · 源管理'), findsOneWidget);
-    expect(find.text('暂无源'), findsOneWidget, reason: '展示的是本板块源列表');
-  });
 
   testWidgets('漫画板块：右上角「图源管理」，原有入口照旧', (tester) async {
     await pumpBoard(
@@ -152,7 +139,7 @@ void main() {
     );
     await pumpBoard(
       tester,
-      SourceSectionPage(section: Section.novel, manager: manager),
+      SourceSectionPage(section: Section.video, manager: manager),
     );
 
     expect(find.text('公开样片测试源'), findsOneWidget);

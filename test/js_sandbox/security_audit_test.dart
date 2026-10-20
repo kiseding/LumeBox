@@ -160,7 +160,7 @@ var LumeSource = {
         final bystander = await openEngine(
           sourceId: 'bystander',
           script: fixture('isolation_beta.js'),
-          section: Section.novel,
+          section: Section.video,
         );
         addTearDown(victim.dispose);
         addTearDown(bystander.dispose);
@@ -198,7 +198,7 @@ var LumeSource = {
         final novel = await openEngine(
           sourceId: 'audit-shared-id',
           script: storeProbeScript,
-          section: Section.novel,
+          section: Section.video,
         );
         addTearDown(comic.dispose);
         addTearDown(novel.dispose);
@@ -227,7 +227,7 @@ var LumeSource = {
         // 沙箱身份自带板块前缀：两个引擎的身份必须不同。
         expect(
           LumeSourceHost.sandboxIdFor(Section.comic, 'audit-shared-id'),
-          isNot(LumeSourceHost.sandboxIdFor(Section.novel, 'audit-shared-id')),
+          isNot(LumeSourceHost.sandboxIdFor(Section.video, 'audit-shared-id')),
         );
       },
       skip: skipReason,
@@ -247,7 +247,7 @@ var LumeSource = {
         final novel = await openEngine(
           sourceId: 'audit-shared-id',
           script: storeProbeScript,
-          section: Section.novel,
+          section: Section.video,
         );
         addTearDown(comic.dispose);
         addTearDown(novel.dispose);

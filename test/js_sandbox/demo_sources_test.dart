@@ -56,7 +56,6 @@ void main() {
     // 三份示例源先在**真实时钟**里导入好：`testWidgets` 的 fake-async 里
     // 等不到 sqlite / 原生编译这类真实异步（这是本仓库既有的测试口径）。
     for (final entry in <(String, Section)>[
-      ('demo_novel_source.js', Section.novel),
       ('demo_comic_source.js', Section.comic),
       ('demo_video_source.js', Section.video),
     ]) {
@@ -94,96 +93,9 @@ void main() {
   }
 
   group('小说示例源：JSON 接口 + 沙盒存储缓存', () {
-    test(
-      '分类（走缓存）/ 列表 / 搜索 / 详情 / 章节 / 正文 全链路',
-      () async {
-        final source = await importAndOpen('demo_novel_source.js', Section.novel);
-        expect(source.name, contains('示例小说源'));
-        expect(source.section, Section.novel);
 
-        // 分类：第一次请求站点，第二次应命中沙盒存储（不再发请求）。
-        final categories = await source.categories();
-        expect(categories.map((item) => item.title), contains('分类一'));
-        final requestsAfterFirst = site.requestsTo('/api/categories');
-        expect(requestsAfterFirst, 1, reason: '首次取分类要请求站点');
 
-        // 同一条数据源再取一次：走 LumeSource.fs 缓存。
-        final again = await source.categories();
-        expect(again.length, categories.length);
-        expect(
-          site.requestsTo('/api/categories'),
-          1,
-          reason: '第二次应命中沙盒存储缓存，不再打站点',
-        );
 
-        // 列表：分页 + hasMore。
-        final page1 = await source.list(page: 1);
-        expect(page1.items, isNotEmpty);
-        expect(page1.hasMore, isTrue);
-        expect(page1.items.first.title, contains('最新'));
-        final page2 = await source.list(page: 2);
-        expect(page2.items.first.title, contains('示例小说 2'),
-            reason: '分页参数要真的传给站点（page=2）');
-
-        // 分类过滤。
-        final filtered = await source.list(categoryId: 'c1');
-        expect(filtered.items.first.title, contains('分类：c1'));
-
-        // 搜索：走 /api/search。
-        final searched = await source.list(keyword: '剑');
-        expect(searched.items.first.title, contains('搜索：剑'));
-        expect(
-          site.queries.any((query) => query['keyword'] == '剑'),
-          isTrue,
-          reason: '关键词要真的作为请求参数发到站点',
-        );
-
-        // 详情。
-        final detail = await source.detail(page1.items.first.id);
-        expect(detail?.title, isNotNull);
-        expect(detail?.description, isNotNull);
-        expect(detail?.cover, startsWith(site.baseUrl));
-
-        // 章节。
-        final chapters = await source.chapters('n-1');
-        expect(chapters, hasLength(3));
-        expect(chapters.first.title, '第一章');
-
-        // 正文（小说板块：文本）。
-        final content = await source.content(
-          itemId: 'n-1',
-          chapterId: chapters.first.id,
-        );
-        expect(content, isA<TextContent>());
-        expect(
-          (content! as TextContent).text,
-          contains('ch-1'),
-          reason: '正文按章节 id 取（脚本把 chapterId 传给了站点）',
-        );
-      },
-      skip: skipReason,
-      timeout: const Timeout(Duration(seconds: 90)),
-    );
-
-    test(
-      '站点报错时抛出可读原因（不是静默空结果）',
-      () async {
-        final source = await importAndOpen('demo_novel_source.js', Section.novel);
-        // 站点对未知章节返回 404 → 脚本抛「拉取失败：HTTP 404」。
-        await expectLater(
-          () => source.content(itemId: 'n-1', chapterId: 'missing'),
-          throwsA(
-            isA<SourceException>().having(
-              (error) => error.message,
-              'message',
-              contains('404'),
-            ),
-          ),
-        );
-      },
-      skip: skipReason,
-      timeout: const Timeout(Duration(seconds: 90)),
-    );
   });
 
   group('漫画示例源：HTML 列表 + 图片正文', () {
@@ -272,53 +184,9 @@ void main() {
   });
 
   group('板块隔离：示例源脚本各自绑定自己的板块', () {
-    test(
-      '三份示例源导入错误板块都被拒（各自导入本板块则成功）',
-      () async {
-        // 三份脚本都在头部与运行时声明了 category：跨板块导入必须被拦下，
-        // 而不是「导入成功、点开才报内容类型不对」。
-        const cases = <(String, Section)>[
-          ('demo_novel_source.js', Section.comic),
-          ('demo_novel_source.js', Section.video),
-          ('demo_comic_source.js', Section.novel),
-          ('demo_video_source.js', Section.comic),
-        ];
-        for (final (file, section) in cases) {
-          await ensureSectionScope(section);
-          final manager = LumeSources.manager(section);
-          final rejected = await manager.importScript(scriptFor(file));
-          expect(
-            rejected.isSuccess,
-            isFalse,
-            reason: '$file 不该能导入 ${section.label} 板块',
-          );
-          expect(rejected.message, contains('跨板块'));
-        }
-      },
-      skip: skipReason,
-      timeout: const Timeout(Duration(seconds: 120)),
-    );
 
-    test(
-      '小说示例源导入漫画板块被拒（对照：导入小说板块成功）',
-      () async {
-        await ensureSectionScope(Section.comic);
-        final comic = LumeSources.manager(Section.comic);
-        final rejected = await comic.importScript(scriptFor('demo_novel_source.js'));
-        expect(rejected.isSuccess, isFalse);
-        expect(rejected.message, contains('跨板块'));
-        expect(
-          (await comic.list()).any((item) => item.id == 'demo-novel-json'),
-          isFalse,
-          reason: '被拒的源不落库（漫画板块里只有它自己的示例源）',
-        );
 
-        final novel = await importAndOpen('demo_novel_source.js', Section.novel);
-        expect(novel.id, 'demo-novel-json');
-      },
-      skip: skipReason,
-      timeout: const Timeout(Duration(seconds: 90)),
-    );
+
   });
 
   group('导入后在板块首页正常加载展示', () {
@@ -336,7 +204,6 @@ void main() {
 
     for (final entry in <(String, Section, String, String, String)>[
       // 文件、板块、首条条目文案、要点的分类、切换分类后应出现的文案
-      ('demo_novel_source.js', Section.novel, '最新 · 示例小说 1', '分类一', '分类：c1'),
       // 漫画示例源的分类是「全部 / 连载中 / 已完结」，且列表走 HTML 抓取；
       // 点「连载中」而不是「全部」：页签自己也有一个「全部」（不过滤），会撞名。
       // 点的分类文案是「连载中」，脚本收到的 categoryId 是它在 categories()

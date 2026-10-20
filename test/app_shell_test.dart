@@ -1,5 +1,5 @@
 import 'package:flutter/rendering.dart' show ScrollDirection;
-import 'package:lume_box/features/novel/novel_page.dart';
+import 'package:lume_box/features/comic/comic_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,7 +10,7 @@ import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
 import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
-/// 主导航壳的验证：五页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
+/// 主导航壳的验证：四页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
 /// 两种排布、切页签只保留当前页面，以及全屏页压栈时自动隐藏 Dock、出栈恢复。
 void main() {
   late ShellDockController controller;
@@ -40,13 +40,13 @@ void main() {
     matching: find.text(text),
   );
 
-  testWidgets('移动端：底部 Dock 五页签，顺序为 小说 / 漫画 / 视频 / 猫源 / 设置', (tester) async {
+  testWidgets('移动端：底部 Dock 四页签，顺序为 漫画 / 漫画 / 视频 / 猫源 / 设置', (tester) async {
     await pumpShell(tester, desktopRail: false);
 
     expect(find.byKey(AppShell.dockKey), findsOneWidget);
     expect(find.byKey(AppShell.railKey), findsNothing);
 
-    const expected = <String>['小说', '漫画', '视频', '猫源', '设置'];
+    const expected = <String>['漫画', '视频', '猫源', '设置'];
     for (final label in expected) {
       expect(inDock(label), findsOneWidget, reason: 'Dock 缺少页签：$label');
     }
@@ -64,9 +64,9 @@ void main() {
     }
   });
 
-  testWidgets('向上浏览收成左侧入口，向下浏览恢复五个页签', (tester) async {
+  testWidgets('向上浏览收成左侧入口，向下浏览恢复四个页签', (tester) async {
     await pumpShell(tester, desktopRail: false);
-    final pageContext = tester.element(find.byType(NovelPage));
+    final pageContext = tester.element(find.byType(ComicPage));
     final metrics = FixedScrollMetrics(
       minScrollExtent: 0,
       maxScrollExtent: 1000,
@@ -99,7 +99,7 @@ void main() {
     );
     addTearDown(ShellSettingsController.instance.resetForTesting);
     await pumpShell(tester, desktopRail: false);
-    final pageContext = tester.element(find.byType(NovelPage));
+    final pageContext = tester.element(find.byType(ComicPage));
     final metrics = FixedScrollMetrics(
       minScrollExtent: 0,
       maxScrollExtent: 1000,
@@ -134,7 +134,7 @@ void main() {
 
     expect(find.byKey(AppShell.railKey), findsOneWidget);
     expect(find.byKey(AppShell.dockKey), findsNothing);
-    for (final label in <String>['小说', '漫画', '视频', '猫源', '设置']) {
+    for (final label in <String>['漫画', '视频', '猫源', '设置']) {
       expect(
         find.descendant(
           of: find.byKey(AppShell.railKey),
@@ -148,18 +148,16 @@ void main() {
   testWidgets('切页签只保留当前板块页面', (tester) async {
     await pumpShell(tester, desktopRail: false);
 
-    // 启动落在第一个页签：小说。
-    expect(find.widgetWithText(AppBar, '小说'), findsOneWidget);
+    // 启动落在第一个页签：漫画。
+    expect(find.widgetWithText(AppBar, '漫画'), findsOneWidget);
 
     await tester.tap(inDock('漫画'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(AppBar, '漫画'), findsOneWidget);
-    expect(find.widgetWithText(AppBar, '小说'), findsNothing);
 
     await tester.tap(inDock('设置'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(AppBar, '设置'), findsOneWidget);
-    expect(find.widgetWithText(AppBar, '漫画'), findsNothing);
   });
 
   testWidgets('全屏页压栈隐藏 Dock，出栈恢复', (tester) async {
@@ -197,6 +195,41 @@ void main() {
       tester.widget<AnimatedSlide>(find.byType(AnimatedSlide)).offset,
       Offset.zero,
     );
+  });
+
+  testWidgets('底栏收起后进入设置二级页，返回首页展开完整 TAB 栏', (tester) async {
+    await pumpShell(tester, desktopRail: false);
+    final pageContext = tester.element(find.byType(ComicPage));
+    UserScrollNotification(
+      metrics: FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 1000,
+        pixels: 200,
+        viewportDimension: 600,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: 1,
+      ),
+      context: pageContext,
+      direction: ScrollDirection.reverse,
+    ).dispatch(pageContext);
+    await tester.pumpAndSettle();
+    expect(find.byType(DockHandleButton), findsOneWidget);
+    final navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('二级设置')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(controller.visible, isTrue);
+    expect(find.byType(DockHandleButton), findsNothing);
+    expect(inDock('漫画'), findsOneWidget);
+    expect(inDock('设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('弹窗（非全屏路由）不影响 Dock 显隐', (tester) async {

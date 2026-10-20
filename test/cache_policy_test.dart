@@ -117,7 +117,7 @@ void main() {
     });
 
     test('不过期（0 天）时一个都不删', () async {
-      const section = Section.novel;
+      const section = Section.cat;
       final file = await writeCacheFile(
         section,
         'old.jpg',
@@ -210,7 +210,7 @@ void main() {
 
     test('板块隔离：修剪一个板块不影响另一个', () async {
       final videoFile = await writeCacheFile(Section.video, 'v.jpg', 4096);
-      final novelFile = await writeCacheFile(Section.novel, 'n.jpg', 4096);
+      final novelFile = await writeCacheFile(Section.cat, 'n.jpg', 4096);
 
       const service = SectionCacheService();
       await service.prune(
@@ -230,14 +230,14 @@ void main() {
   group('策略持久化（按板块独立）', () {
     test('存读往返：每个板块各存各的', () async {
       final video = await ReadingLibrary.open(Section.video);
-      final novel = await ReadingLibrary.open(Section.novel);
+      final novel = await ReadingLibrary.open(Section.cat);
 
       CachePolicyStore(video).save(
         Section.video,
         const SectionCachePolicy(maxBytes: 100 * 1024 * 1024, maxAgeDays: 7),
       );
       CachePolicyStore(novel).save(
-        Section.novel,
+        Section.cat,
         const SectionCachePolicy(maxAgeDays: 3),
       );
 
@@ -246,7 +246,7 @@ void main() {
         const SectionCachePolicy(maxBytes: 100 * 1024 * 1024, maxAgeDays: 7),
       );
       expect(
-        CachePolicyStore(novel).load(Section.novel),
+        CachePolicyStore(novel).load(Section.cat),
         const SectionCachePolicy(maxAgeDays: 3),
         reason: '两个板块的策略互不干扰',
       );

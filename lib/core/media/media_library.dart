@@ -10,13 +10,12 @@ import '../session/section.dart';
 import '../session/privacy_settings.dart';
 
 enum ResourceKind {
-  novel('文字小说'),
-  audioBook('有声小说'),
+  audioBook('音频'),
   video('视频');
 
   const ResourceKind(this.label);
   final String label;
-  Section get defaultSection => this == video ? Section.video : Section.novel;
+  Section get defaultSection => Section.video;
 }
 
 class MediaTrackInfo {
@@ -114,14 +113,13 @@ class MediaResource {
     this.itemId,
     this.cover,
     this.manual = false,
-    this.textPath,
   });
   final String id, title;
   final ResourceKind kind;
   final Section destination;
   final bool manual;
   final Section? originSection;
-  final String? sourceId, itemId, cover, textPath;
+  final String? sourceId, itemId, cover;
   final List<ResourceEpisode> episodes;
   static String sourceKey(Section section, String source, String item) => sha256
       .convert(utf8.encode(jsonEncode([section.id, source, item])))
@@ -137,7 +135,6 @@ class MediaResource {
     itemId: itemId,
     cover: cover,
     manual: true,
-    textPath: textPath,
   );
   Map<String, Object?> toJson() => {
     'id': id,
@@ -150,13 +147,14 @@ class MediaResource {
     'itemId': itemId,
     'cover': cover,
     'manual': manual,
-    'textPath': textPath,
   };
   static MediaResource fromJson(Map data) => MediaResource(
     id: data['id'] as String,
     title: data['title'] as String,
     kind: ResourceKind.values.byName(data['kind'] as String),
-    destination: Section.values.singleWhere((s) => s.id == data['destination']),
+    destination: data['destination'] == 'novel' && data['kind'] == 'audioBook'
+        ? Section.video
+        : Section.values.singleWhere((s) => s.id == data['destination']),
     episodes: (data['episodes'] as List)
         .map((e) => ResourceEpisode.fromJson(e as Map))
         .toList(),
@@ -167,7 +165,6 @@ class MediaResource {
     itemId: data['itemId'] as String?,
     cover: data['cover'] as String?,
     manual: data['manual'] == true,
-    textPath: data['textPath'] as String?,
   );
 }
 
@@ -232,7 +229,7 @@ class MediaLibrary extends ChangeNotifier {
     Section section,
   ) async {
     await boot();
-    if (section != Section.novel && section != Section.video) {
+    if (section != Section.video) {
       throw ArgumentError('不支持的目标库');
     }
     final item = _items[id];

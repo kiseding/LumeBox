@@ -1,3 +1,4 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:lume_box/core/theme/lume_typography.dart';
 
 import '../../core/media/playback_focus.dart';
@@ -54,7 +55,10 @@ class VideoPage extends StatefulWidget {
     this.brightnessBackend,
     this.sourceManager,
     this.library,
+    this.sourceRevision = 0,
   });
+
+  final int sourceRevision;
 
   /// 播放器创建端口（按内核）。为空时用 [PlayerFactory.create]。
   ///
@@ -358,19 +362,19 @@ class _VideoPageState extends State<VideoPage> {
   List<Widget> _buildActions() => <Widget>[
     IconButton(
       tooltip: '播放历史',
-      icon: const Icon(Icons.history),
+      icon: const LumeIcon(Icons.history, slot: 'video_page.1'),
       onPressed: _openHistory,
     ),
     const SizedBox(width: 2),
     IconButton(
       tooltip: '收藏',
-      icon: const Icon(Icons.bookmark_outline),
+      icon: const LumeIcon(Icons.bookmark_outline, slot: 'video_page.2'),
       onPressed: () => _openHistory(favorites: true),
     ),
     const SizedBox(width: 2),
     IconButton(
       tooltip: '源管理',
-      icon: const Icon(Icons.dns_outlined),
+      icon: const LumeIcon(Icons.dns_outlined, slot: 'video_page.3'),
       onPressed: () async {
         await Navigator.push(
           context,
@@ -384,7 +388,7 @@ class _VideoPageState extends State<VideoPage> {
         if (mounted) _onSourcesChanged();
       },
     ),
-    // 右上角统一的「+」添加图源：导入完成即刷新首页（与小说 / 漫画同口径）。
+    // 右上角统一的「+」添加图源：导入完成即刷新首页（与漫画同口径）。
     const SizedBox(width: 2),
     Tooltip(
       message: '订阅',
@@ -452,7 +456,7 @@ class _VideoPageState extends State<VideoPage> {
               ),
             ),
           )
-        // 与小说 / 漫画**同一个浏览组件**：同款工具栏（源下拉 → 排序 → 布局 →
+        // 与漫画**同一个浏览组件**：同款工具栏（源下拉 → 排序 → 布局 →
         // 搜索 → 筛选）、同款搜索（聚合 / 当前源）与分页 / 预热。视频板块因此
         // 不再有一套自己的浏览实现——三块的肌肉记忆真正一致。
         : ExploreView(
@@ -465,7 +469,7 @@ class _VideoPageState extends State<VideoPage> {
             showSourceManage: false,
             // 导入 / 删除图源后原地重解析（不重挂：重挂会与旧实例的 dispose
             // 抢同一份板块注册表，真机上会报「图源存储不可用」）。
-            revision: _browseRevision,
+            revision: _browseRevision + widget.sourceRevision,
             onOpenItem: _playFromSelection,
             // 视频筛选：一级分类（底部弹窗）→ 独立筛选子页（分页跳转模式，用户口径）。
             onOpenFacetFilter: _openFacetFilter,

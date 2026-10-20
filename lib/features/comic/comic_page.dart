@@ -1,3 +1,4 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -23,7 +24,6 @@ import 'comic_shelf_page.dart';
 /// 与 `reading_cache/`），持有一份封面用的图片管线，退出本页时释放。
 /// 书架、探索、详情、阅读器都只从宿主拿到「本板块的库与管线」。
 ///
-/// 隔离：阅读库、缓存目录、图源都只属于漫画板块；小说板块走同一套代码，
 /// 但拿到的 Section 不同，因此两边数据、缓存、图源完全不交叉。
 class ComicPage extends StatefulWidget {
   const ComicPage({
@@ -154,21 +154,20 @@ class _ComicPageState extends State<ComicPage> {
       onSubscriptionsClosed: _onSourcesChanged,
       onFavorites: () => _openHistory(library, sourceManager, favorites: true),
       actions: <Widget>[
-        // 右上角统一的入口（与视频 / 小说同一套设计）：⏱️ 历史（底部抽屉）。
         IconButton(
           tooltip: '阅读历史',
-          icon: const Icon(Icons.history),
+          icon: const LumeIcon(Icons.history, slot: 'comic_page.1'),
           onPressed: () => _openHistory(library, sourceManager),
         ),
         // 右上角「图源管理」：本板块已导入图源的统一入口。
         IconButton(
           tooltip: '源管理',
-          icon: const Icon(Icons.source_outlined),
+          icon: const LumeIcon(Icons.source_outlined, slot: 'comic_page.2'),
           onPressed: _manageSources,
         ),
         IconButton(
           tooltip: '扩展仓库',
-          icon: const Icon(Icons.extension_outlined),
+          icon: const LumeIcon(Icons.extension_outlined, slot: 'comic_page.3'),
           onPressed: _manageRepos,
         ),
         // 右上角统一的「+」添加图源：本地文件 / 订阅链接，只写漫画板块。

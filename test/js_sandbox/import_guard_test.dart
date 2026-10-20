@@ -142,14 +142,14 @@ async function getList(page) {
   return [{ id: 'x', title: '条目' }];
 }
 ''';
-        await ensureSectionScope(Section.novel);
-        final manager = LumeSources.manager(Section.novel);
+        await ensureSectionScope(Section.video);
+        final manager = LumeSources.manager(Section.video);
         final outcome = await manager.importScript(minimal);
 
         expect(outcome.isSuccess, isTrue, reason: outcome.message ?? '');
         expect(outcome.descriptor!.id, 'only-list');
 
-        final source = await LumeSources.open(Section.novel, 'only-list');
+        final source = await LumeSources.open(Section.video, 'only-list');
         expect(source, isNotNull);
         final list = await source!.list(page: 1);
         expect(list.items.single.title, '条目', reason: '导入后要能真的用到');

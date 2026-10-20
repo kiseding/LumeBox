@@ -35,7 +35,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
-        home: SourceSectionPage(section: Section.novel, manager: manager),
+        home: SourceSectionPage(section: Section.video, manager: manager),
       ),
     );
     await tester.pumpAndSettle();
@@ -161,7 +161,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
-        home: SourceSectionPage(section: Section.novel, manager: manager),
+        home: SourceSectionPage(section: Section.video, manager: manager),
       ),
     );
     await tester.pumpAndSettle();

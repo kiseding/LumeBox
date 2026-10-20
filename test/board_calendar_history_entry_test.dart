@@ -10,7 +10,6 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/comic/comic_page.dart';
-import 'package:lume_box/features/novel/novel_page.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
 import 'package:lume_box/features/video/video_page.dart';
 
@@ -39,7 +38,7 @@ void main() {
               : null,
         );
     await SectionScope.open(Section.video);
-    await SectionScope.open(Section.novel);
+    await SectionScope.open(Section.video);
     await SectionScope.open(Section.comic);
     await ReadingLibrary.open(Section.cat);
   });
@@ -102,16 +101,6 @@ void main() {
         duration: const Duration(minutes: 45),
       );
 
-  NovelProgress novelProgressAt(String itemId) => NovelProgress(
-    section: Section.novel,
-    itemId: itemId,
-    chapterIndex: 4,
-    chapterId: '$itemId-c5',
-    chapterTitle: '第 5 章',
-    updatedAt: DateTime.now(),
-    charOffset: 500,
-    chapterLength: 1000,
-  );
 
   group('右上角两枚独立图标', () {
     testWidgets('视频：「播放历史」在、日历已删，顶部无页签条', (tester) async {
@@ -126,15 +115,7 @@ void main() {
       expect(find.widgetWithText(Tab, '播放'), findsNothing);
     });
 
-    testWidgets('小说：「阅读历史」在、日历已删', (tester) async {
-      await pump(
-        tester,
-        NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
-      );
 
-      expect(find.byTooltip('阅读历史'), findsOneWidget);
-      expect(find.byTooltip('追更日历'), findsNothing, reason: '日历已按用户要求删除');
-    });
 
     testWidgets('漫画：「阅读历史」在、日历已删（与小说同款）', (tester) async {
       await pump(
@@ -186,26 +167,7 @@ void main() {
       expect(find.text('多选'), findsOneWidget);
     });
 
-    testWidgets('小说：抽屉里是阅读记录，且**只读**（书架是书库，不许顺手清）', (tester) async {
-      await seed(
-        Section.novel,
-        itemId: 'novel-1',
-        title: '示例小说',
-        progress: novelProgressAt('novel-1'),
-      );
-      await pump(
-        tester,
-        NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
-      );
-      await tester.tap(find.byTooltip('阅读历史'));
-      await tester.pumpAndSettle();
 
-      expect(find.byType(ReadingHistorySheet), findsOneWidget);
-      expect(find.text('小说 · 历史'), findsOneWidget);
-      expect(find.text('示例小说'), findsWidgets);
-      expect(find.text('清空'), findsOneWidget);
-      expect(find.byTooltip('删除记录'), findsNothing);
-    });
 
     testWidgets('漫画：抽屉里是阅读记录，只读', (tester) async {
       await seed(
@@ -245,7 +207,6 @@ void main() {
   });
 
   for (final section in [
-    Section.novel,
     Section.comic,
     Section.video,
     Section.cat,
@@ -324,7 +285,7 @@ void main() {
   }
 
   group('历史与收藏独立入口', () {
-    for (final section in [Section.novel, Section.comic, Section.video]) {
+    for (final section in [Section.comic, Section.video]) {
       testWidgets('${section.label}收藏：未读条目可打开，且没有分栏', (tester) async {
         await shelveOnly(section, itemId: 'unread', title: '收藏未读的书');
         final library = await ReadingLibrary.open(section);

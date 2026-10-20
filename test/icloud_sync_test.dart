@@ -68,7 +68,7 @@ void main() {
     account = 'account-a';
     fail = false;
     failWrite = false;
-    library = await ReadingLibrary.open(Section.novel);
+    library = await ReadingLibrary.open(Section.video);
     cloud = ICloudSync(platformSupported: true, directory: root)
       ..includeSettings = false
       ..includeSubscriptions = false;
@@ -89,16 +89,16 @@ void main() {
       title: '本机作品',
       chapterCount: 2,
     );
-    final store = await ReadingStore.open(Section.novel);
+    final store = await ReadingStore.open(Section.video);
     final localRow = Map<String, Object?>.from(
       store.cloudRecords(includeSettings: false)[jsonEncode([
-            'novel',
+            'video',
             'library_item',
             'local',
           ])]
           as Map,
     );
-    final remoteKey = jsonEncode(['novel', 'library_item', 'remote']);
+    final remoteKey = jsonEncode(['video', 'library_item', 'remote']);
     documents = [
       CloudMerge.encode({
         remoteKey: {
@@ -135,8 +135,8 @@ void main() {
         title: '本机作品',
         chapterCount: 2,
       );
-      final store = await ReadingStore.open(Section.novel);
-      final key = jsonEncode(['novel', 'library_item', 'local']);
+      final store = await ReadingStore.open(Section.video);
+      final key = jsonEncode(['video', 'library_item', 'local']);
       final row = Map<String, Object?>.from(
         store.cloudRecords(includeSettings: false)[key] as Map,
       );
@@ -177,10 +177,10 @@ void main() {
   test(
     'cloud rows reject cross-section data without mutating the library',
     () async {
-      final store = await ReadingStore.open(Section.novel);
+      final store = await ReadingStore.open(Section.video);
       expect(
         () => store.applyCloudRecords({
-          jsonEncode(['video', 'reading_setting', 'favorites.folders']): {
+          jsonEncode(['comic', 'reading_setting', 'favorites.folders']): {
             'key': 'favorites.folders',
             'value': '{}',
           },
@@ -189,7 +189,7 @@ void main() {
       );
       expect(
         () => store.applyCloudRecords({
-          jsonEncode(['novel', 'reading_setting', 'waf.cookies']): {
+          jsonEncode(['video', 'reading_setting', 'waf.cookies']): {
             'key': 'waf.cookies',
             'value': 'secret',
           },

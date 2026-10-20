@@ -1,6 +1,7 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import '../../shared/widgets/drawer_geometry.dart';
 import 'diagnostic_export_tile.dart';
-import '../audio_book/audio_book_page.dart';
 import '../video/player_choice.dart';
 import 'configuration_settings_page.dart';
 import 'privacy_settings_page.dart';
@@ -11,6 +12,8 @@ import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
 
 import 'dart:async';
+
+import 'icon_library_page.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -39,6 +42,7 @@ import 'settings_ui.dart';
 import 'tab_bar_settings_page.dart';
 import 'section_cache.dart';
 import 'usage_guide_page.dart';
+import '../media/audio_player_page.dart';
 
 /// 设置：按「个性与界面 / 阅读与播放 / 数据与网络 / 存储与安全 / 诊断与关于」
 /// 五组组织全部入口。
@@ -101,6 +105,12 @@ class SettingsPage extends StatelessWidget {
             subtitle: '更换主屏幕图标（7 种配色）',
             onTap: () => _push(context, const AppIconSettingsPage()),
           ),
+          SettingsEntryCard(
+            icon: Icons.interests_outlined,
+            title: '应用图标库',
+            subtitle: '逐项换图标 · 长按编辑 · 导入自己的图片和图标包',
+            onTap: () => _push(context, const IconLibraryPage()),
+          ),
           const GridTitleStyleRow(),
           SettingsEntryCard(
             icon: Icons.dashboard_customize_outlined,
@@ -117,7 +127,7 @@ class SettingsPage extends StatelessWidget {
           SettingsEntryCard(
             icon: Icons.visibility_outlined,
             title: '内容分类显示',
-            subtitle: '小说 / 听书 / 漫画 / 美图 / 视频 / 影视独立显示或隐藏',
+            subtitle: '漫画 / 美图 / 视频 / 影视独立显示或隐藏',
             onTap: () => _push(context, const ContentVisibilityPage()),
           ),
 
@@ -132,15 +142,15 @@ class SettingsPage extends StatelessWidget {
             icon: Icons.tune,
             title: '各模块独立设置',
             subtitle:
-                '小说 / 漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
+                '漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
                 '阅读页与播放页里的就地设置仍然保留）',
             onTap: () => _push(context, const ModuleSettingsHubPage()),
           ),
           SettingsEntryCard(
             icon: Icons.headphones_outlined,
-            title: '有声小说播放器',
-            subtitle: '纯音频播放 · 播放器选择 · 后台与锁屏控制',
-            onTap: () => _push(context, const AudioBookSettingsPage()),
+            title: '音频播放器',
+            subtitle: '独立音频内核 · 后台与锁屏控制',
+            onTap: () => _push(context, const AudioPlaybackSettingsPage()),
           ),
           SettingsEntryCard(
             icon: Icons.auto_fix_high_outlined,
@@ -162,13 +172,13 @@ class SettingsPage extends StatelessWidget {
           SettingsEntryCard(
             icon: Icons.subscriptions_outlined,
             title: '总订阅导入导出',
-            subtitle: '小说、漫画、视频订阅一键导入，或导出订阅地址',
+            subtitle: '漫画、视频订阅一键导入，或导出订阅地址',
             onTap: () => _push(context, const TotalSubscriptionPage()),
           ),
           SettingsEntryCard(
             icon: Icons.tune,
             title: '源总管理',
-            subtitle: '四个板块的源总览与批量管理（小说 / 漫画 / 视频 / 猫源互相独立）',
+            subtitle: '四个板块的源总览与批量管理（漫画 / 视频 / 猫源互相独立）',
             onTap: () => _push(context, const GlobalSourcePage()),
           ),
           SettingsEntryCard(
@@ -343,7 +353,12 @@ class _BuildInfoRowState extends State<_BuildInfoRow> {
       subtitle: _line,
       showChevron: false,
       marginBottom: 0,
-      trailing: Icon(Icons.copy_rounded, size: 18, color: LumeTheme.muted),
+      trailing: LumeIcon(
+        Icons.copy_rounded,
+        slot: 'settings_page.1',
+        size: 18,
+        color: LumeTheme.muted,
+      ),
       // 这一行不需要「进入下一页」：点一下复制版本信息。
       onTap: () async {
         await Clipboard.setData(

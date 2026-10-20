@@ -88,8 +88,10 @@ class SourceMetadata {
     if (_idPattern.hasMatch(value)) return null;
     final illegal = _firstIllegalChar(value);
     if (illegal == null) return 'id 含不允许的字符';
-    final code =
-        illegal.runes.first.toRadixString(16).toUpperCase().padLeft(4, '0');
+    final code = illegal.runes.first
+        .toRadixString(16)
+        .toUpperCase()
+        .padLeft(4, '0');
     return 'id 含不允许的字符「$illegal」（U+$code）';
   }
 
@@ -122,8 +124,9 @@ class SourceMetadata {
     Object? runtimeMetadata, {
     String? script,
   }) {
-    final runtimeId =
-        runtimeMetadata is Map ? '${runtimeMetadata['id'] ?? ''}' : '';
+    final runtimeId = runtimeMetadata is Map
+        ? '${runtimeMetadata['id'] ?? ''}'
+        : '';
     final candidates = <String>[
       runtimeId.trim(),
       if (script != null) (headerIdOf(script) ?? '').trim(),
@@ -179,7 +182,6 @@ class SourceMetadata {
     return parse(_parseKeyValues(trimmed));
   }
 
-  /// `id=lume-example, name=示例源, version=1.0.0, category=novel` 这类列表写法。
   static Map<String, Object?>? _parseKeyValues(String text) {
     final values = <String, Object?>{};
     for (final pair in text.split(RegExp(r'[,;]'))) {
@@ -212,7 +214,10 @@ class SourceMetadata {
   /// 而头部注释通常只声明 id / name / version。若直接「头部命中就整体采用」，
   /// 头部里没写 category 的脚本会绕过板块校验——脚本自报的板块必须无论写在
   /// 哪一处都被看见。镜像表同理：两处声明合并后整体替换库里的旧值。
-  static SourceMetadata? merge(SourceMetadata? header, SourceMetadata? runtime) {
+  static SourceMetadata? merge(
+    SourceMetadata? header,
+    SourceMetadata? runtime,
+  ) {
     if (header == null) return runtime;
     if (runtime == null) return header;
     return SourceMetadata(
@@ -230,8 +235,6 @@ class SourceMetadata {
   /// **解析阶段**拒绝加载——跨板块混用图源必须被严格拦下，而不是等运行期
   /// 才因为契约不符而莫名其妙地失败。
   ///
-  /// 比对用板块的稳定标识（[Section.id]）：`novel` / `comic` / `video` / `cat`。
-  /// 中文展示名（[Section.label]）也接受——脚本作者写「小说」比写 `novel` 更自然，
   /// 两者指向同一个板块，不该因此被误判成跨板块。
   String? sectionMismatch(Section target) {
     final declared = category.trim();
@@ -252,7 +255,6 @@ class SourceMetadata {
 
   /// 把脚本声明的板块文本归一成 [Section.id]；无法识别返回 null。
   ///
-  /// 大小写与空白不敏感：`Novel`、` novel ` 都认。中文展示名同样认。
   static String? _normalizeSection(String declared) {
     final value = declared.trim().toLowerCase();
     for (final section in Section.values) {
@@ -269,14 +271,15 @@ class SourceMetadata {
     return null;
   }
 
-  static String _sectionNames() =>
-      Section.values.map((section) => '${section.id}（${section.label}）').join('、');
+  static String _sectionNames() => Section.values
+      .map((section) => '${section.id}（${section.label}）')
+      .join('、');
 
   String toJson() => jsonEncode(<String, Object?>{
-        'id': id,
-        'name': name,
-        'version': version,
-        'category': category,
-        if (mirrors.isNotEmpty) 'mirrors': mirrors,
-      });
+    'id': id,
+    'name': name,
+    'version': version,
+    'category': category,
+    if (mirrors.isNotEmpty) 'mirrors': mirrors,
+  });
 }

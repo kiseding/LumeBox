@@ -20,7 +20,7 @@ import 'support/fake_source_manager.dart';
 ///   1. 键盘弹起前后，搜索框的矩形**不动**，且完整落在键盘顶沿之上；
 ///   2. 不产生布局溢出异常。
 void main() {
-  const sections = <Section>[Section.novel, Section.comic, Section.video];
+  const sections = <Section>[Section.comic, Section.video];
 
   for (final section in sections) {
     testWidgets('${section.label}：唤起键盘后搜索框仍在屏幕内且不移位', (tester) async {

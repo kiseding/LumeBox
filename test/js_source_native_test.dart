@@ -43,41 +43,14 @@ void main() {
       source = JsDataSource(
         id: 'lume-example',
         name: 'Lume Box 示例源',
-        section: Section.novel,
+        section: Section.video,
         runtime: _SandboxRuntime(sandbox),
       );
     });
 
     tearDown(() => sandbox.dispose());
 
-    test('分类 / 列表 / 搜索 / 详情 / 章节 / 内容 全链路', () async {
-      final categories = await source.categories();
-      expect(categories.length, 2);
-      expect(categories.first.title, '分类一');
 
-      final list = await source.list(categoryId: categories.first.id);
-      expect(list.items.single.title, '分类：cat-1 · 示例条目 1');
-      expect(list.hasMore, isTrue);
-      expect(list.items.single.id, 'demo-1');
-
-      final search = await source.list(keyword: '关键词');
-      expect(search.items.single.title, contains('搜索：关键词'));
-
-      final detail = await source.detail('demo-1');
-      expect(detail?.title, '示例详情');
-      expect(detail?.description, isNotNull);
-
-      final chapters = await source.chapters('demo-1');
-      expect(chapters.length, 3);
-      expect(chapters.first.title, '第一章');
-
-      final content = await source.content(
-        itemId: 'demo-1',
-        chapterId: chapters.first.id,
-      );
-      expect(content, isA<TextContent>());
-      expect((content! as TextContent).text, contains('chapter-1'));
-    });
 
     test('脚本缺方法时归一到 callFailed，而不是静默空结果', () async {
       await sandbox.load('var LumeSource = { id: "x", name: "y" };');

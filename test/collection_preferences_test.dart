@@ -38,7 +38,7 @@ void main() {
     'saved double grid becomes a double list with row actions intact',
     (tester) async {
       final library = (await tester.runAsync(
-        () => ReadingLibrary.open(Section.novel),
+        () => ReadingLibrary.open(Section.video),
       ))!;
       library.setSetting('collection.history.layout', 'grid2');
       tester.view.devicePixelRatio = 1;
@@ -78,19 +78,19 @@ void main() {
   test(
     'dragging a filtered subset preserves hidden sources and section isolation',
     () async {
-      await ReadingLibrary.open(Section.novel);
+      await ReadingLibrary.open(Section.video);
       await SourceOrder.move(
-        Section.novel,
+        Section.video,
         ['a', 'hidden', 'b', 'c'],
         ['a', 'b', 'c'],
         0,
         2,
       );
-      expect(SourceOrder.read(Section.novel), ['b', 'hidden', 'c', 'a']);
+      expect(SourceOrder.read(Section.video), ['b', 'hidden', 'c', 'a']);
       expect(SourceOrder.read(Section.comic), isEmpty);
-      ReadingLibrary.close(Section.novel);
-      await ReadingLibrary.open(Section.novel);
-      expect(SourceOrder.read(Section.novel), ['b', 'hidden', 'c', 'a']);
+      ReadingLibrary.close(Section.video);
+      await ReadingLibrary.open(Section.video);
+      expect(SourceOrder.read(Section.video), ['b', 'hidden', 'c', 'a']);
     },
   );
   test('folder moves persist, duplicate names are rejected, deleting a folder retains favorites', () async {
@@ -139,14 +139,14 @@ void main() {
     },
   );
   test('configuration backup roundtrips preferences without exporting history locks or cookies', () async {
-    final library = await ReadingLibrary.open(Section.novel);
+    final library = await ReadingLibrary.open(Section.video);
     library.setSetting('reader.fontSize', '22');
     library.setSetting('history.lock', 'secret');
     library.setSetting('waf.cookies.site', 'credential');
     final service = ConfigurationBackup();
     final encoded = await service.export();
     final decoded = jsonDecode(encoded) as Map;
-    expect(decoded['sections']['novel']['reader.fontSize'], '22');
+    expect(decoded['sections']['video']['reader.fontSize'], '22');
     expect(encoded, isNot(contains('credential')));
     expect(encoded, isNot(contains('secret')));
     library.setSetting('reader.fontSize', '16');

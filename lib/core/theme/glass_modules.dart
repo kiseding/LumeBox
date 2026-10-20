@@ -1,10 +1,8 @@
 enum GlassModule {
   all('全 App 通用'),
-  novel('小说'),
   comic('漫画 / 美图'),
   video('视频 / 影视'),
   cat('猫源'),
-  audioBook('有声小说'),
   sources('源管理 / 订阅'),
   settings('全局设置'),
   search('搜索');

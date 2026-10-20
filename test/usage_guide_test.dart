@@ -16,7 +16,7 @@ void main() {
     for (final title in [
       '第一次使用',
       '源与订阅',
-      '小说阅读与听书',
+      '漫画朗读与音色',
       '漫画与美图',
       '视频与播放器',
       'Bangumi 追番同步',
@@ -30,7 +30,7 @@ void main() {
     // 第一次使用默认展开，先确认正文真的挂在页面上。
     expect(find.textContaining('总订阅导入导出'), findsOneWidget);
 
-    await tester.tap(find.text('小说阅读与听书'));
+    await tester.tap(find.text('漫画朗读与音色'));
     await tester.pumpAndSettle();
     for (final mode in [
       '系统自带 TTS',

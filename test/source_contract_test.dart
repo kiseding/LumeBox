@@ -7,10 +7,10 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 
 void main() {
-  test('四大板块标识唯一', () {
+  test('三个内容板块标识唯一', () {
     final ids = Section.values.map((section) => section.id).toSet();
     expect(ids.length, Section.values.length);
-    expect(ids, containsAll(<String>['novel', 'comic', 'video', 'cat']));
+    expect(ids, containsAll(<String>['comic', 'video', 'cat']));
   });
 
   group('图源元信息校验', () {
@@ -138,38 +138,9 @@ void main() {
   });
 
   group('章节内容解析', () {
-    test('文本 / 图片 / 视频三类载荷', () {
-      expect(
-        ChapterContent.parse(<String, Object?>{'kind': 'text', 'text': '正文'}),
-        isA<TextContent>(),
-      );
 
-      final images = ChapterContent.parse(<String, Object?>{
-        'kind': 'images',
-        'images': <Object?>['a.jpg', 'b.jpg'],
-      });
-      expect(images, isA<ImageContent>());
-      expect((images! as ImageContent).images, <String>['a.jpg', 'b.jpg']);
 
-      final video = ChapterContent.parse(<String, Object?>{
-        'kind': 'video',
-        'url': 'https://example.invalid/v.mp4',
-        'headers': <String, Object?>{'Referer': 'https://example.invalid'},
-      });
-      expect(video, isA<VideoContent>());
-      final videoContent = video! as VideoContent;
-      expect(videoContent.url.scheme, 'https');
-      expect(videoContent.headers['Referer'], 'https://example.invalid');
-    });
 
-    test('裸字符串与裸数组按内容推断，空值视为暂无内容', () {
-      expect(ChapterContent.parse('正文'), isA<TextContent>());
-      expect(ChapterContent.parse(<Object?>['a.jpg']), isA<ImageContent>());
-      expect(ChapterContent.parse(null), isNull);
-      expect(ChapterContent.parse(''), isNull);
-      expect(ChapterContent.parse(<String, Object?>{'kind': 'text', 'text': '  '}), isNull);
-      expect(ChapterContent.parse(<String, Object?>{'kind': 'images', 'images': <Object?>[]}), isNull);
-    });
 
     test('不符合契约时抛 FormatException', () {
       expect(

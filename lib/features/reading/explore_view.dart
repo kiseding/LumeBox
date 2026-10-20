@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import '../../core/media/media_library.dart';
 
 import 'dart:async';
@@ -30,7 +32,6 @@ import 'search_results_page.dart';
 import 'section_toolbar.dart';
 import '../shell/board_tabs.dart';
 
-/// 探索内容布局：漫画是海报墙（网格），小说是条目列表（网格同样是海报形状，
 /// 但列表更适合展示章节数与简介）。
 enum ExploreLayout { grid, list }
 
@@ -95,7 +96,7 @@ class ExploreView extends StatefulWidget {
   /// 用户会以为是两个不同的东西（视频板块就是这种情况）。
   final bool showSourceManage;
 
-  /// 是否显示「排序」按钮（用户要求小说 / 漫画去掉，视频保留）。
+  /// 是否显示「排序」按钮（用户要求漫画去掉，视频保留）。
   final bool showSort;
 
   /// 外挂的「筛选」入口（**视频板块专用**：分页跳转式筛选）。
@@ -153,7 +154,7 @@ class _ExploreViewState extends State<ExploreView> {
       GlassScaffold.barHeight(context, extra: BoardTabHeader.height) +
       _floatingHeaderHeight +
       FloatingModules.instance.style(FloatingModule.home).y.clamp(0, 80) +
-      8;
+      HomePanelLayout.contentGap;
 
   void _measureFloatingHeader() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -282,7 +283,6 @@ class _ExploreViewState extends State<ExploreView> {
     // 关掉它等于关掉整个板块的图源库与运行时——本页在图源变更后会原地刷新、
     // 也可能被宿主重挂，而板块里的书架 / 详情 / 播放页还在用它，关了它们随后
     // 就报「This database has already been closed」（真机复现过两次）。
-    // 板块资源的释放归**宿主板块页**（见 ComicPage / NovelPage / VideoPage 的
     // dispose，同一条纪律），与播放器页对图源管理器的口径一致。
     super.dispose();
   }
@@ -509,7 +509,7 @@ class _ExploreViewState extends State<ExploreView> {
           child: IconButton(
             tooltip: '展开全部筛选',
             onPressed: _openCombinedFilters,
-            icon: const Icon(Icons.tune),
+            icon: const LumeIcon(Icons.tune, slot: 'explore_view.1'),
           ),
         ),
       if (_categories.isNotEmpty)
@@ -1077,7 +1077,7 @@ class _ExploreViewState extends State<ExploreView> {
       listenable: FloatingModules.instance,
       builder: (context, _) => Scaffold(
         // **本页不随键盘收缩**（真机反馈：唤起键盘后顶部搜索框被顶出屏幕，
-        // 小说 / 漫画 / 视频三块都复现）。这里的布局契约是：
+        // 漫画 / 视频三块都复现）。这里的布局契约是：
         //   顶栏占位 + 搜索行是**固定头部**，键盘只能影响下面的内容列表。
         // 交给 Scaffold 收缩的话，头部会跟着被挤压/位移；因此关掉自动收缩，
         // 让键盘的高度由列表自己用底部内边距让出来（见 _keyboardInset）。
@@ -1131,9 +1131,11 @@ class _ExploreViewState extends State<ExploreView> {
                     ) +
                     FloatingModules.instance.style(FloatingModule.home).y,
                 left:
-                    16 + FloatingModules.instance.style(FloatingModule.home).x,
+                    HomePanelLayout.sidePadding +
+                    FloatingModules.instance.style(FloatingModule.home).x,
                 right:
-                    16 - FloatingModules.instance.style(FloatingModule.home).x,
+                    HomePanelLayout.sidePadding -
+                    FloatingModules.instance.style(FloatingModule.home).x,
                 child: IgnorePointer(
                   ignoring: _headerHidden,
                   child: AnimatedOpacity(
@@ -1153,7 +1155,7 @@ class _ExploreViewState extends State<ExploreView> {
                             child: GlassPanel(
                               module: null,
                               key: _floatingHeaderKey,
-                              radius: 24,
+                              radius: HomePanelLayout.radius,
                               color: LumeTheme.glass.withValues(
                                 alpha: FloatingModules.instance
                                     .style(FloatingModule.home)
@@ -1162,10 +1164,7 @@ class _ExploreViewState extends State<ExploreView> {
                               blur: FloatingModules.instance
                                   .style(FloatingModule.home)
                                   .blur,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
+                              padding: HomePanelLayout.padding,
                               child: SingleChildScrollView(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
@@ -1255,7 +1254,11 @@ class _ExploreViewState extends State<ExploreView> {
                       fontWeight: FontWeight.w600,
                       color: LumeTheme.muted,
                     ),
-                    icon: Icon(Icons.search, color: LumeTheme.muted),
+                    icon: LumeIcon(
+                      Icons.search,
+                      slot: 'explore_view.2',
+                      color: LumeTheme.muted,
+                    ),
                     suffixIcon: TextButton(
                       onPressed: _openSearch,
                       child: Text(
@@ -1326,7 +1329,12 @@ class _ExploreViewState extends State<ExploreView> {
                   ),
                   child: Row(
                     children: <Widget>[
-                      Icon(Icons.search, size: 16, color: LumeTheme.muted),
+                      LumeIcon(
+                        Icons.search,
+                        slot: 'explore_view.3',
+                        size: 16,
+                        color: LumeTheme.muted,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text.rich(
@@ -1389,7 +1397,7 @@ class _ExploreViewState extends State<ExploreView> {
   /// 当前生效的布局档位。
   ///
   /// 用户选过的优先（按板块分别记住）；没选过时回落到本页的默认档
-  /// （小说默认单列、漫画默认三列网格——由板块页传进来的 [ExploreLayout] 决定）。
+  /// （四个板块首页统一默认三列网格）。
   BrowseLayoutMode get _mode =>
       BrowseLayoutSettings.instance.modeFor(widget.section) ??
       BrowseLayoutMode.grid3;
@@ -1495,7 +1503,11 @@ class _ExploreViewState extends State<ExploreView> {
         action: offerWebView && _source != null
             ? OutlinedButton.icon(
                 onPressed: _openWebViewForWaf,
-                icon: const Icon(Icons.public, size: 18),
+                icon: const LumeIcon(
+                  Icons.public,
+                  slot: 'explore_view.4',
+                  size: 18,
+                ),
                 label: Text(hasSession ? '网页视图（已存会话）' : '网页视图'),
               )
             : null,
@@ -1516,51 +1528,69 @@ class _ExploreViewState extends State<ExploreView> {
   }
 
   Widget _buildGrid({int crossAxisCount = 3}) {
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          if (notification.metrics.extentAfter < _preloadExtent) {
-            _loadPage(more: true);
-          }
-          return false;
-        },
-        child: GridView.builder(
-          // 内容不足一屏时也要能下拉刷新。
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(
-            16 * _spacingScale,
-            _contentTop,
-            16 * _spacingScale,
-            // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
-            // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
-            //（用户口径：不要固定预留一大块空白）。
-            16 + _keyboardInset(context) + ShellDockScope.bottomInset(context),
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 12 * _spacingScale,
-            crossAxisSpacing: 12 * _spacingScale,
-            // 双列列表是紧凑横向卡片：80 高封面 + 上下 8，固定 96 高，
-            // 不再用 1.35 的比例撑出一大块空白。
-            mainAxisExtent: _mode == BrowseLayoutMode.list2 ? 96 : null,
-            // mainAxisExtent 非空时会被忽略；给默认 1。
-            childAspectRatio: _mode == BrowseLayoutMode.list2
-                ? 1
-                : _mode.tileAspectRatio,
-          ),
-          itemCount: _sortedItems.length + 1,
-          itemBuilder: (context, index) {
-            final items = _sortedItems;
-            if (index == items.length) return _buildFooter();
-            final item = items[index];
-            return PosterTile(
-              horizontal: _mode == BrowseLayoutMode.list2,
-              item: item,
-              pipeline: _imagePipeline,
-              onTap: () => _open(item),
-            );
+    final compactGrid = crossAxisCount == 3;
+    final sidePadding = compactGrid
+        ? ThreeColumnPosterLayout.sidePadding
+        : TwoColumnSourceLayout.sidePadding;
+    final spacing = compactGrid
+        ? ThreeColumnPosterLayout.spacing
+        : TwoColumnSourceLayout.spacing;
+    return LayoutBuilder(
+      builder: (context, constraints) => RefreshIndicator(
+        onRefresh: _refresh,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.extentAfter < _preloadExtent) {
+              _loadPage(more: true);
+            }
+            return false;
           },
+          child: GridView.builder(
+            // 内容不足一屏时也要能下拉刷新。
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              sidePadding,
+              _contentTop,
+              sidePadding,
+              // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
+              // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
+              //（用户口径：不要固定预留一大块空白）。
+              16 +
+                  _keyboardInset(context) +
+                  ShellDockScope.bottomInset(context),
+            ),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: compactGrid
+                  ? ThreeColumnPosterLayout.rowSpacing
+                  : TwoColumnSourceLayout.rowSpacing,
+              crossAxisSpacing: spacing,
+              // 双列行高同时适配实际列宽和系统字号。
+              mainAxisExtent: _mode == BrowseLayoutMode.list2
+                  ? TwoColumnSourceLayout.itemExtent(
+                      context,
+                      TwoColumnSourceLayout.cellWidth(constraints.maxWidth),
+                    )
+                  : null,
+              // mainAxisExtent 非空时会被忽略；给默认 1。
+              childAspectRatio: _mode == BrowseLayoutMode.list2
+                  ? 1
+                  : _mode.tileAspectRatio,
+            ),
+            itemCount: _sortedItems.length + 1,
+            itemBuilder: (context, index) {
+              final items = _sortedItems;
+              if (index == items.length) return _buildFooter();
+              final item = items[index];
+              return PosterTile(
+                compactGrid: compactGrid,
+                horizontal: _mode == BrowseLayoutMode.list2,
+                item: item,
+                pipeline: _imagePipeline,
+                onTap: () => _open(item),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1691,7 +1721,13 @@ class _RoundAction extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(11),
-            child: Icon(icon, size: 20, color: LumeTheme.textPrimary),
+            child: LumeIcon(
+              icon,
+              slot: 'explore_view.5',
+              variant: true,
+              size: 20,
+              color: LumeTheme.textPrimary,
+            ),
           ),
         ),
       ),

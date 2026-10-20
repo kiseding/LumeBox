@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../session/section.dart';
 import '../util/lume_log.dart';
+import 'dock_liquid_settings.dart';
+export 'dock_liquid_settings.dart';
 
 /// 底部导航栏里的一个页签（稳定标识 + 展示名）。
 ///
@@ -24,7 +26,6 @@ class ShellTab {
   /// 用户拖拽只改「显示顺序」，不改这个规范顺序——它决定了新页签将来插入的
   /// 位置，也让「恢复默认」有据可依。
   static const List<ShellTab> all = <ShellTab>[
-    ShellTab('novel', '小说'),
     ShellTab('comic', '漫画'),
     ShellTab('video', '视频'),
     ShellTab('cat', '猫源'),
@@ -119,6 +120,7 @@ class DockAppearance {
     this.shadowOpacity = .05,
     this.animateSelection = true,
     this.animationMs = 250,
+    this.liquid = const DockLiquidSettings(),
   });
 
   /// 与上一轮精修后的实际取值一致：默认即「当前这版外观」。
@@ -155,6 +157,7 @@ class DockAppearance {
   /// 不是固定补间时长：壳层用它换算 [SpringSimulation] 的刚度与阻尼——数值越大
   /// 弹簧越软，吸附与回弹越慢。
   final int animationMs;
+  final DockLiquidSettings liquid;
 
   DockAppearance copyWith({
     double? horizontalMargin,
@@ -164,6 +167,7 @@ class DockAppearance {
     double? shadowOpacity,
     bool? animateSelection,
     int? animationMs,
+    DockLiquidSettings? liquid,
   }) => DockAppearance(
     horizontalMargin: horizontalMargin ?? this.horizontalMargin,
     height: height ?? this.height,
@@ -172,6 +176,7 @@ class DockAppearance {
     shadowOpacity: shadowOpacity ?? this.shadowOpacity,
     animateSelection: animateSelection ?? this.animateSelection,
     animationMs: animationMs ?? this.animationMs,
+    liquid: liquid ?? this.liquid,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -182,6 +187,7 @@ class DockAppearance {
     'shadowOpacity': shadowOpacity,
     'animateSelection': animateSelection,
     'animationMs': animationMs,
+    'liquid': liquid.toJson(),
   };
 
   static DockAppearance fromJson(Object? json) {
@@ -195,6 +201,7 @@ class DockAppearance {
 
     final rawMs = json['animationMs'];
     return DockAppearance(
+      liquid: DockLiquidSettings.fromJson(json['liquid']),
       horizontalMargin: read('horizontalMargin', 24, 0, 100),
       height: read('height', 54, 40, 150),
       safeGap: read('safeGap', 4, -50, 100),
@@ -216,7 +223,8 @@ class DockAppearance {
         other.borderOpacity == borderOpacity &&
         other.shadowOpacity == shadowOpacity &&
         other.animateSelection == animateSelection &&
-        other.animationMs == animationMs;
+        other.animationMs == animationMs &&
+        other.liquid == liquid;
   }
 
   @override
@@ -228,6 +236,7 @@ class DockAppearance {
     shadowOpacity,
     animateSelection,
     animationMs,
+    liquid,
   );
 }
 
@@ -240,7 +249,6 @@ class ShellSettings {
   });
 
   static const List<ShellTabConfig> _defaultTabs = <ShellTabConfig>[
-    ShellTabConfig(id: 'novel'),
     ShellTabConfig(id: 'comic'),
     ShellTabConfig(id: 'video'),
     ShellTabConfig(id: 'cat'),

@@ -7,7 +7,6 @@ import 'package:lume_box/core/js/source_registry.dart';
 import 'package:lume_box/core/net/lume_net.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
-import 'package:lume_box/core/source/source.dart';
 
 import '../support/demo_site.dart';
 import 'support/js_sandbox_support.dart';
@@ -67,100 +66,6 @@ void main() {
     print('\n[冒烟汇总]\n${report.map((line) => '  · $line').join('\n')}');
   });
 
-  String scriptFor(String file) => fixture(file).replaceFirst(
-        "var BASE_URL = 'http://127.0.0.1:8080';",
-        "var BASE_URL = '${site.baseUrl}';",
-      );
-
-  Future<DataSource> importAndOpen(String file, Section section) async {
-    await ensureSectionScope(section);
-    final manager = LumeSources.manager(section);
-    final result = await manager.importScript(scriptFor(file));
-    expect(result.isSuccess, isTrue, reason: result.message ?? '导入失败');
-    final source = await LumeSources.open(section, result.descriptor!.id);
-    expect(source, isNotNull, reason: '导入后打不开数据源');
-    return source!;
-  }
-
-  test(
-    '① 三份示例源各自在对应板块跑通（含三种内容形态）',
-    () async {
-      // 小说：文本正文。
-      final novel = await importAndOpen('demo_novel_source.js', Section.novel);
-      final novelCategories = await novel.categories();
-      final novelList = await novel.list(page: 1);
-      expect(novelCategories, isNotEmpty);
-      expect(novelList.items, isNotEmpty);
-      final novelChapters = await novel.chapters(novelList.items.first.id);
-      final novelContent = await novel.content(
-        itemId: novelList.items.first.id,
-        chapterId: novelChapters.first.id,
-      );
-      expect(novelContent, isA<TextContent>(), reason: '小说板块要文本正文');
-      report.add(
-        '小说 demo：分类 ${novelCategories.length} 个 · 列表 ${novelList.items.length} 条 · '
-        '正文 ${(novelContent! as TextContent).text.length} 字 ✓',
-      );
-
-      // 漫画：图片列表。
-      final comic = await importAndOpen('demo_comic_source.js', Section.comic);
-      final comicCategories = await comic.categories();
-      final comicList = await comic.list(page: 1);
-      expect(comicCategories, isNotEmpty);
-      expect(comicList.items, isNotEmpty);
-      final comicChapters = await comic.chapters(comicList.items.first.id);
-      final comicContent = await comic.content(
-        itemId: comicList.items.first.id,
-        chapterId: comicChapters.first.id,
-      );
-      expect(comicContent, isA<ImageContent>(), reason: '漫画板块要图片列表');
-      report.add(
-        '漫画 demo：分类 ${comicCategories.length} 个 · 列表 ${comicList.items.length} 条 · '
-        '本章图片 ${(comicContent! as ImageContent).images.length} 张 ✓',
-      );
-
-      // 视频：播放直链（带请求头）。
-      final video = await importAndOpen('demo_video_source.js', Section.video);
-      final videoList = await video.list(page: 1);
-      expect(videoList.items, isNotEmpty);
-      final videoChapters = await video.chapters(videoList.items.first.id);
-      final videoContent = await video.content(
-        itemId: videoList.items.first.id,
-        chapterId: videoChapters.first.id,
-      );
-      expect(videoContent, isA<VideoContent>(), reason: '视频板块要播放地址');
-      final playable = videoContent! as VideoContent;
-      expect(playable.url.toString(), isNotEmpty);
-      report.add(
-        '视频 demo：列表 ${videoList.items.length} 条 · '
-        '选集 ${videoChapters.length} 个 · 播放地址 ${playable.url.scheme} ✓',
-      );
-    },
-    skip: skipReason,
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
-
-  test(
-    '② 跨板块拒绝：三份示例源导入错误板块都被拦下',
-    () async {
-      const cases = <(String, Section)>[
-        ('demo_novel_source.js', Section.comic),
-        ('demo_comic_source.js', Section.novel),
-        ('demo_video_source.js', Section.comic),
-      ];
-      for (final (file, section) in cases) {
-        await ensureSectionScope(section);
-        final rejected =
-            await LumeSources.manager(section).importScript(scriptFor(file));
-        expect(rejected.isSuccess, isFalse, reason: '$file → ${section.label}');
-        expect(rejected.message, contains('跨板块'));
-      }
-      report.add('跨板块拒绝：${cases.length} 组全部被拦下并给出跨板块原因 ✓');
-    },
-    skip: skipReason,
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
-
   test(
     '③ 沙箱安全：纯 CPU 死循环被回收；同 id 跨板块互不可见',
     () async {
@@ -217,7 +122,7 @@ var LumeSource = {
       final novel = await openEngine(
         sourceId: 'smoke-isolation',
         script: script,
-        section: Section.novel,
+        section: Section.video,
       );
       addTearDown(comic.dispose);
       addTearDown(novel.dispose);

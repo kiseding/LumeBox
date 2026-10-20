@@ -97,9 +97,9 @@ void main() {
         expect(result.descriptor!.name, contains('自建聚合服务桥接'));
 
         // 跨板块导入被拒（脚本自报 category=cat）。
-        await ensureSectionScope(Section.novel);
+        await ensureSectionScope(Section.video);
         final rejected =
-            await LumeSources.manager(Section.novel).importScript(scriptFor());
+            await LumeSources.manager(Section.video).importScript(scriptFor());
         expect(rejected.isSuccess, isFalse, reason: '猫源不该能进小说板块');
         expect(rejected.message, contains('跨板块'));
       },

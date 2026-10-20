@@ -14,8 +14,10 @@ class ConfigurationBackup {
   static Future<File>? _automatic;
   static const files = <String>{
     'app_preferences.json',
+    'audio_book_settings.json',
     'tmdb_settings.json',
     'appearance_settings.json',
+    'custom_icons.json',
     'shell_settings.json',
     'source_content_visibility.json',
     'search_settings.json',
@@ -23,7 +25,6 @@ class ConfigurationBackup {
     'frosted_settings.json',
     'comic_image_tools.json',
     'speech_cloud.json',
-    'audio_book_settings.json',
     'browse_layout.json',
     'network_settings.json',
   };
@@ -86,6 +87,7 @@ class ConfigurationBackup {
         ? null
         : SourceBackup.decode(jsonEncode(data['sources']));
     final subscriptions = data['subscriptions'] ?? {};
+    if (subscriptions is Map) subscriptions.remove('novel');
     if (subscriptions is! Map ||
         subscriptions.keys.any(
           (key) => !Section.values

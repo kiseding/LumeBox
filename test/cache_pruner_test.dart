@@ -63,7 +63,7 @@ void main() {
     );
     addTearDown(pruner.dispose);
     final videoFile = await cacheFile(Section.video, 'a.jpg', 4096);
-    final novelFile = await cacheFile(Section.novel, 'b.jpg', 4096);
+    final novelFile = await cacheFile(Section.cat, 'b.jpg', 4096);
 
     final pruned = await pruner.pruneNow();
 

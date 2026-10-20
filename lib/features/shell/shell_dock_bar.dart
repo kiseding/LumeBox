@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -10,6 +12,8 @@ import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
 import 'dock_liquid_lens.dart';
+import 'dock_liquid_surface.dart';
+import '../../core/theme/icon_customization.dart';
 
 /// 底部 Dock 里的一条页签（只有展示数据，不含页面构造）。
 ///
@@ -35,11 +39,11 @@ class ShellDockEntry {
 
 /// 底部悬浮 Dock：真实毛玻璃胶囊 + 可拖拽、会拉伸、松手弹簧吸附的水滴。
 ///
-/// 结构分三层：
+/// 结构分四层，基础胶囊与水滴各自裁剪，按压水滴可越过胶囊边缘：
 /// 1. [ClipRRect] + [BackdropFilter]：把**背后的页面内容**真正模糊掉，
 ///    白度（[FloatingStyle.opacity]）与磨砂强度（[FloatingStyle.blur]）都来自
 ///    「设置 → 底部导航栏管理」，滑块拖动时立刻重绘；
-/// 2. 水滴层：单独一颗 [Positioned] 的水滴，位置、宽度与形状由两个
+/// 2. 水滴层：单独一颗 [Positioned] 的水滴，位置、宽度与形状由
 ///    [AnimationController] 驱动。拖动时直接写值跟手，宽度同时由**速度**和
 ///    **离最近页签的距离**决定；路径在静止胶囊与「尾部收窄、轻微压扁」的
 ///    液态水滴之间插值。松手后分别用 [SpringSimulation] 把「中心所在页签」
@@ -53,7 +57,7 @@ class ShellDockEntry {
 ///
 /// **设置绑定**：尺寸（高度 / 左右留白 / 离底，含负数压底）、玻璃白度、
 /// 磨砂强度、边缘高光、阴影、点击弹跳开关与动效时长全部沿用原有字段，
-/// 本组件不新增或写死任何可调外观值。
+/// 新增液态参数来自 [DockAppearance.liquid]，设置页与实际底栏实时共用。
 class ShellDockBar extends StatefulWidget {
   const ShellDockBar({
     super.key,
@@ -69,6 +73,8 @@ class ShellDockBar extends StatefulWidget {
 
   /// 水滴（选中底座）的定位键（测试与截图预览按它量位置 / 宽度）。
   static const Key selectionPillKey = Key('shell.dock.selectionPill');
+  static const Key capsuleSurfaceKey = Key('shell.dock.capsuleSurface');
+  static const Key capsuleFilterKey = Key('shell.dock.capsuleFilter');
 
   /// 胶囊内左右留白：首尾页签离圆角留一档，五项之间的净间距也跟着收紧。
   static const double innerPadding = 6;
@@ -108,7 +114,7 @@ class ShellDockBar extends StatefulWidget {
 }
 
 class _ShellDockBarState extends State<ShellDockBar>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   /// 水滴中心所在的「连续页签坐标」：0 = 第一项中心，1 = 第二项中心……
   ///
   /// 用页签坐标而不是像素：横竖屏切换、隐藏页签、改左右留白时槽宽会变，
@@ -123,6 +129,28 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   /// 按压进度：0 = 未按，1 = 按到底。松手用同一个弹簧回 0，产生水球回弹。
   late final AnimationController _pressController;
+
+  // Vertical grip has its own short response and release spring. It is sampled
+  // from touch position, not device pressure (normally constant on iPhones).
+  DockLiquidSettings get _liquid => widget.appearance.liquid;
+  double _amount(DockLiquidParameter p) => _liquid.value(p);
+  double get _stretchFraction {
+    final range = _amount(DockLiquidParameter.stretch);
+    if (!_liquid.freeDeform ||
+        !_liquid.enabled(DockLiquidEffect.drag) ||
+        range <= 0) {
+      return 0;
+    }
+    return ((_widthController.value - 1) / range).clamp(0.0, 1.0);
+  }
+
+  late final AnimationController _gripController;
+  int? _pressedPointer;
+
+  bool get _motionEnabled =>
+      widget.appearance.animateSelection &&
+      !IconCustomization.instance.editMode &&
+      !MediaQuery.disableAnimationsOf(context);
 
   /// 手指在内容区的位置对「聚焦」的贡献（0 = 页签边缘，1 = 图标/文字中心）。
   ///
@@ -166,6 +194,7 @@ class _ShellDockBarState extends State<ShellDockBar>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _resolvedIndex = _indexOf(widget.activeId);
     _targetIndex = _resolvedIndex;
     _indexController = AnimationController.unbounded(
@@ -174,11 +203,13 @@ class _ShellDockBarState extends State<ShellDockBar>
     );
     _widthController = AnimationController.unbounded(vsync: this, value: 1);
     _pressController = AnimationController.unbounded(vsync: this, value: 0);
+    _gripController = AnimationController.unbounded(vsync: this, value: 0);
     _dragTicker = createTicker(_onDragTick);
     _dropAnimation = Listenable.merge(<Listenable>[
       _indexController,
       _widthController,
       _pressController,
+      _gripController,
       _pointerFocus,
     ]);
     // 弹簧的 isDone 有容差，落定时把值钉死在目标上，避免留下半个像素。
@@ -202,6 +233,12 @@ class _ShellDockBarState extends State<ShellDockBar>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_motionEnabled || !TickerMode.valuesOf(context).enabled) _stopMotion();
+  }
+
+  @override
   void didUpdateWidget(ShellDockBar oldWidget) {
     super.didUpdateWidget(oldWidget);
     final index = _indexOf(widget.activeId);
@@ -216,6 +253,14 @@ class _ShellDockBarState extends State<ShellDockBar>
         oldWidget.appearance.animateSelection) {
       _stopMotion();
     }
+    if (widget.visible != oldWidget.visible) _stopMotion();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A route transition or system interruption can consume pointer-up.
+    // Returning to the dock must never restore a held or stretched droplet.
+    _stopMotion();
   }
 
   /// 停止一切位移 / 宽度弹簧，直接落到当前已选页签。
@@ -225,20 +270,27 @@ class _ShellDockBarState extends State<ShellDockBar>
     _widthController.stop();
     _dragging = false;
     _dragVelocity = 0;
+    _dragAcceleration = 0;
     _dragPull = 0;
+    _lastDragStamp = null;
     _pressController.stop();
     _pressController.value = 0;
     _pointerFocus.value = 0;
+    _gripController.stop();
+    _gripController.value = 0;
+    _pressedPointer = null;
     _indexController.value = _resolvedIndex.toDouble();
     _widthController.value = 1;
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _dragTicker.dispose();
     _indexController.dispose();
     _widthController.dispose();
     _pressController.dispose();
+    _gripController.dispose();
     _pointerFocus.dispose();
     super.dispose();
   }
@@ -284,7 +336,7 @@ class _ShellDockBarState extends State<ShellDockBar>
     _dragPull = _pullFor(focus);
     _dragDirection = focus >= _resolvedIndex ? 1 : -1;
     setState(() => _dragging = true);
-    if (!widget.appearance.animateSelection) {
+    if (!_motionEnabled) {
       _widthController.value = 1;
       return;
     }
@@ -305,7 +357,7 @@ class _ShellDockBarState extends State<ShellDockBar>
     _indexController.value = focus;
     _dragPull = _pullFor(focus);
     // 关掉「点击弹跳动效」时不再做拉伸；拖动仍然跟手，但松手直接瞬移。
-    _widthController.value = widget.appearance.animateSelection
+    _widthController.value = _motionEnabled
         ? _widthScaleFor(_dragVelocity, _dragPull)
         : 1;
   }
@@ -314,7 +366,14 @@ class _ShellDockBarState extends State<ShellDockBar>
     _finishDrag(velocityPx: details.velocity.pixelsPerSecond.dx, slot: slot);
   }
 
-  void _onDragCancel(double slot) => _finishDrag(velocityPx: 0, slot: slot);
+  void _onDragCancel(double slot) {
+    _dragTicker.stop();
+    _dragVelocity = 0;
+    _dragAcceleration = 0;
+    _dragPull = 0;
+    setState(() => _dragging = false);
+    _animateToIndex(_resolvedIndex);
+  }
 
   // ------------------------------------------------------------------ 按压 / 聚焦
 
@@ -335,15 +394,24 @@ class _ShellDockBarState extends State<ShellDockBar>
   ///
   /// 时长仍从 [DockAppearance.animationMs] 推导，不新增第二套动效参数。
   void _onPressDown(PointerDownEvent event, double slot) {
+    if (_pressedPointer != null) return;
+    _pressedPointer = event.pointer;
     _pointerVelocity = VelocityTracker.withKind(PointerDeviceKind.touch)
       ..addPosition(event.timeStamp, event.position);
     _pointerFocus.value = _focusForX(event.localPosition.dx, slot);
-    if (!widget.appearance.animateSelection) {
+    if (!_motionEnabled) {
       _pressController.stop();
       _pressController.value = 0;
       return;
     }
-    final ms = (widget.appearance.animationMs * 2).clamp(180, 1400);
+    final ms = _amount(DockLiquidParameter.pressMs).round();
+    _updateGrip(event.localPosition.dy);
+    final nearest = _indexForX(
+      event.localPosition.dx,
+      slot,
+    ).round().clamp(0, widget.entries.length - 1);
+    // Preview the touched tab while held; page selection is committed on up.
+    _animateToIndex(nearest);
     // 有压感的设备用压力修正目标；没有压感（恒为 1 或 0）时按满。
     final pressure = event.pressure.isFinite && event.pressure > 0
         ? event.pressure.clamp(.35, 1.0)
@@ -357,20 +425,36 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   /// 手指在内容区移动：从页签边缘移到图标 / 文字上时，聚焦平滑上升。
   void _onPressMove(PointerMoveEvent event, double slot) {
+    if (event.pointer != _pressedPointer) return;
     _pointerVelocity.addPosition(event.timeStamp, event.position);
     final tracked = _pointerVelocity.getVelocity().pixelsPerSecond.dx;
     if (tracked.abs() > 80) _dragDirection = tracked.sign;
     _pointerFocus.value = _focusForX(event.localPosition.dx, slot);
+    if (_motionEnabled) _updateGrip(event.localPosition.dy);
+  }
+
+  void _updateGrip(double y) {
+    final halfHeight = math.max(widget.appearance.height / 2, 1.0);
+    final target = ((y - halfHeight) / halfHeight).clamp(-1.0, 1.0);
+    _gripController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 70),
+      curve: Curves.easeOut,
+    );
   }
 
   /// 松手：按压进度用当前弹簧参数弹回 0，水球带一点过冲恢复。
   void _releasePress() {
+    _pressedPointer = null;
     _pointerFocus.value = 0;
-    if (!widget.appearance.animateSelection) {
+    if (!_motionEnabled) {
       _pressController.stop();
       _pressController.value = 0;
       return;
     }
+    _gripController.animateWith(
+      SpringSimulation(_springDescription(), _gripController.value, 0, 0),
+    );
     if (_pressController.value.abs() < .001) {
       _pressController.value = 0;
       return;
@@ -399,7 +483,7 @@ class _ShellDockBarState extends State<ShellDockBar>
         ? 0.0
         : (velocityPx / slot).clamp(-10.0, 10.0);
     _dragPull = 0;
-    if (!widget.appearance.animateSelection) _widthController.value = 1;
+    if (!_motionEnabled) _widthController.value = 1;
     _selectIndex(nearest, velocity: velocityIndex);
   }
 
@@ -445,13 +529,16 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   /// 速度 + 拉力 → 宽度倍率：越快 / 离落点越远，拉得越长，但有上限。
   double _widthScaleFor(double velocityPx, double pull) {
+    if (!_liquid.freeDeform || !_liquid.enabled(DockLiquidEffect.drag)) {
+      return 1;
+    }
     final speed = (velocityPx.abs() / 1800).clamp(0.0, 1.0);
     final tug = pull.clamp(0.0, 1.0);
     final accel = (_dragAcceleration.abs() / 12000).clamp(0.0, 1.0);
     final amount = math
         .max(speed, math.max(tug * .85, accel * .35))
         .clamp(0.0, 1.0);
-    return 1 + amount * .65;
+    return 1 + amount * _amount(DockLiquidParameter.stretch);
   }
 
   void _updateDragVelocity(DragUpdateDetails details) {
@@ -490,7 +577,7 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   /// 手指停住时速度衰减；只要还离落点有距离，就保留被拉长的余量。
   void _onDragTick(Duration _) {
-    if (!_dragging || !widget.appearance.animateSelection) {
+    if (!_dragging || !_motionEnabled) {
       _dragTicker.stop();
       _widthController.value = 1;
       return;
@@ -511,7 +598,8 @@ class _ShellDockBarState extends State<ShellDockBar>
     final ms = widget.appearance.animationMs.clamp(100, 2000);
     final period = (ms / 1000) * .56;
     final stiffness = math.pow((2 * math.pi) / period, 2).toDouble();
-    final damping = 2 * .58 * math.sqrt(stiffness);
+    final damping =
+        2 * _amount(DockLiquidParameter.damping) * math.sqrt(stiffness);
     return SpringDescription(mass: 1, stiffness: stiffness, damping: damping);
   }
 
@@ -528,7 +616,7 @@ class _ShellDockBarState extends State<ShellDockBar>
     final target = index.toDouble();
     final from = _indexController.value;
     final widthFrom = _widthController.value;
-    final animate = widget.appearance.animateSelection;
+    final animate = _motionEnabled;
 
     if (!animate) {
       _indexController.stop();
@@ -557,329 +645,502 @@ class _ShellDockBarState extends State<ShellDockBar>
   // ------------------------------------------------------------------ 构建
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: FloatingModules.instance,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: FloatingModules.instance,
+    builder: (context, _) {
+      final style = FloatingModules.instance.style(FloatingModule.dock);
+      final dark = LumeTheme.palette.brightness == Brightness.dark;
+      final layoutBottom = math.max(widget.bottomMargin, 0.0);
+      final sink = math.max(-widget.bottomMargin, 0.0);
+      return Transform.translate(
+        offset: Offset(style.x, style.y),
+        child: IgnorePointer(
+          ignoring: !widget.visible,
+          child: ExcludeSemantics(
+            excluding: !widget.visible,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final safe = widget.applyViewPadding
+                    ? MediaQuery.viewPaddingOf(context)
+                    : EdgeInsets.zero;
+                return AnimatedSlide(
+                  offset: widget.visible ? Offset.zero : const Offset(0, 1.2),
+                  duration: _motionEnabled
+                      ? const Duration(milliseconds: 180)
+                      : Duration.zero,
+                  curve: Curves.easeOut,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      widget.appearance.horizontalMargin + safe.left,
+                      0,
+                      widget.appearance.horizontalMargin + safe.right,
+                      layoutBottom,
+                    ),
+                    child: Transform.translate(
+                      offset: Offset(0, sink),
+                      child: _buildCapsule(style, dark),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  /// 内容舞台（水滴/透镜坐标所在层）的全局原点。
+  ///
+  /// 底座清澈遮罩与透镜必须落在同一坐标系里：透镜矩形来自内容层局部坐标，
+  /// 绘制时再补上这一层在屏幕上的实际位置。
+  final GlobalKey _contentStageKey = GlobalKey(
+    debugLabel: 'dock.content.stage',
+  );
+
+  Offset _contentStageOrigin() {
+    final box = _contentStageKey.currentContext?.findRenderObject();
+    return box is RenderBox ? box.localToGlobal(Offset.zero) : Offset.zero;
+  }
+
+  Widget _buildCapsule(FloatingStyle style, bool dark) => SizedBox(
+    height: widget.capsuleHeight,
+    child: AnimatedBuilder(
+      animation: _dropAnimation,
       builder: (context, _) {
-        final style = FloatingModules.instance.style(FloatingModule.dock);
-        final dark = LumeTheme.palette.brightness == Brightness.dark;
-        final radius = BorderRadius.circular(widget.capsuleHeight / 2);
-        final borderAlpha = _borderAlpha(dark);
-        final fill = (dark ? LumeTheme.glass : Colors.white).withValues(
-          alpha: style.opacity,
-        );
-        // 水滴与外层玻璃共用同一份材质设置：白度、磨砂、边缘高光全部来自
-        // FloatingModules / DockAppearance，不在组件里另写一套固定颜色。
-        // 水滴是叠在玻璃上的第二层，白度取同一变量的 1.35 倍：默认 45% 时约
-        // 61%，水珠才浮得出来；两端仍严格跟随设置（0% 全透、100% 全白）。
-        final dropFill = (dark ? LumeTheme.glass : Colors.white).withValues(
-          alpha: (style.opacity * 1.35).clamp(0.0, 1.0),
-        );
-        final dropFilter = _blurFilter(style.blur);
-        final whiteGlow = (style.opacity * .40).clamp(0.0, .50);
-        final accentGlow = (style.opacity * .26).clamp(0.0, .35);
-        // 玻璃上沿高光也跟随白度：白度 0 时整块玻璃没有反光，100% 时最亮。
-        final sheenTop = (style.opacity * (dark ? .22 : .44)).clamp(0.0, .32);
-        final sheenBottom = (style.opacity * (dark ? .04 : .10)).clamp(
-          0.0,
-          .12,
-        );
-        // 正的离底距离用 Padding 抬高（参与布局）；负值不能塞进 Padding
-        // （EdgeInsets 不允许负的 bottom），改用 Transform 向下平移，既保留
-        // 「压进安全区」的语义，也不会触发 RenderPadding 的断言。
-        final layoutBottom = widget.bottomMargin > 0
-            ? widget.bottomMargin
+        final press = _motionEnabled
+            ? _pressController.value.clamp(0.0, 1.0)
             : 0.0;
-        final sink = widget.bottomMargin < 0 ? -widget.bottomMargin : 0.0;
+        final rebound = _motionEnabled
+            ? math.max(-_pressController.value, 0.0)
+            : 0.0;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final geometry = _DockGeometry.compute(
+              contentWidth:
+                  (constraints.maxWidth - ShellDockBar.innerPadding * 2).clamp(
+                    0.0,
+                    double.infinity,
+                  ),
+              contentHeight: (widget.capsuleHeight - widget.contentInset).clamp(
+                0.0,
+                double.infinity,
+              ),
+              entryCount: widget.entries.length,
+              indexFocus: _indexController.value,
+              widthScale: _widthController.value,
+              pressRaw: _pressController.value,
+              press: press,
+              rebound: rebound,
+              stretch: _stretchFraction,
+              grip: _gripController.value.clamp(-1.0, 1.0),
+              lift: _liquid.enabled(DockLiquidEffect.lift) ? press : 0.0,
+              pointerFocus: _pointerFocus.value,
+              clarityEnabled: _liquid.enabled(DockLiquidEffect.clarity),
+              clarityStrength: _amount(DockLiquidParameter.blurReduction),
+              opacityReduction: _amount(DockLiquidParameter.opacityReduction),
+              spread: _amount(DockLiquidParameter.spread),
+              vertical: _amount(DockLiquidParameter.vertical),
+              liftAmount: _amount(DockLiquidParameter.lift),
+              blur: style.blur,
+              opacity: style.opacity,
+              shape: _liquid.shape,
+              shapeWidth: _amount(DockLiquidParameter.shapeWidth),
+              shapeHeight: _amount(DockLiquidParameter.shapeHeight),
+              roundness: _amount(DockLiquidParameter.shapeRoundness),
+              freeDeform: _liquid.freeDeform,
+              pressScale: _amount(DockLiquidParameter.pressScale),
+              pressWhiten: _amount(DockLiquidParameter.pressWhiten),
+            );
+            final clear = _liquid.enabled(DockLiquidEffect.clarity)
+                ? geometry.press
+                : 0.0;
+            final light = _liquid.enabled(DockLiquidEffect.lighting)
+                ? geometry.press
+                : 0.0;
+            final gain = _amount(DockLiquidParameter.highlight) * light;
+            final focus = widget.entries.length <= 1
+                ? 0.0
+                : (_indexController.value / (widget.entries.length - 1) * 2 - 1)
+                      .clamp(-1.0, 1.0);
+            final radius = BorderRadius.circular(widget.capsuleHeight / 2);
+            final glassColor = dark ? LumeTheme.glass : Colors.white;
+            final borderAlpha = _borderAlpha(dark);
+            // Shader 路径下透镜核心已经透明，白色高光渐变同步减弱，
+            // 避免又在清澈区域盖一层白纱。回退路径沿用原公式。
+            final sheenScale = DockLiquidSurface.shaderSupported
+                ? 1 - geometry.clarity * .85
+                : 1.0;
+            final sheen = style.opacity * (dark ? .22 : .44) * sheenScale;
+            final bottomSheen = style.opacity * .10 * sheenScale;
+            final shaderPath = DockLiquidSurface.shaderSupported;
 
-        // 上下内边距跟着高度走：40pt 时收到 2，54pt 时 6，150pt 时封顶 10。
-        // 文案用 Flexible + FittedBox 兜底，40pt 的极限高度也不会 RenderFlex
-        // overflow；默认档位的图标 20 / 文字 14.4 尺寸完全不变。
-        final verticalPadding = ((widget.appearance.height - 42) / 2).clamp(
-          2.0,
-          10.0,
-        );
+            final gradient = LinearGradient(
+              begin: Alignment(-.25 * focus, -1),
+              end: Alignment(.25 * focus, 1),
+              colors: [
+                Colors.white.withValues(
+                  alpha: (sheen * (1 + gain * .5)).clamp(0.0, .42),
+                ),
+                Colors.white.withValues(alpha: 0),
+                Colors.white.withValues(alpha: bottomSheen.clamp(0.0, .12)),
+              ],
+              stops: const [0, .55, 1],
+            );
+            final border = Border.all(
+              color: Colors.white.withValues(
+                alpha: (borderAlpha * (1 + gain * .58)).clamp(0.0, 1.0),
+              ),
+            );
+            // 回退路径：白度 + 渐变 + 描边都在 BackdropFilter 的子节点里，
+            // 与改造前的像素表现保持一致（Skia/非 Impeller 后端）。
+            final fallbackChild = DecoratedBox(
+              decoration: BoxDecoration(
+                color: glassColor.withValues(alpha: geometry.fallbackOpacity),
+                borderRadius: radius,
+                border: border,
+                gradient: gradient,
+              ),
+            );
+            // Shader 路径：白度由遮罩 shader 负责，这里只叠渐变与描边。
+            final overlay = DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                border: border,
+                gradient: gradient,
+              ),
+            );
 
-        return Transform.translate(
-          offset: Offset(style.x, style.y),
-          child: IgnorePointer(
-            ignoring: !widget.visible,
-            child: ExcludeSemantics(
-              excluding: !widget.visible,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final safe = widget.applyViewPadding
-                      ? MediaQuery.viewPaddingOf(context)
-                      : EdgeInsets.zero;
-                  return AnimatedSlide(
-                    offset: widget.visible ? Offset.zero : const Offset(0, 1.2),
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        widget.appearance.horizontalMargin + safe.left,
-                        0,
-                        widget.appearance.horizontalMargin + safe.right,
-                        layoutBottom,
+            final capsule = _liquid.enabled(DockLiquidEffect.capsule)
+                ? 1.0
+                : 0.0;
+            final dropOpacity = (style.opacity * 1.35).clamp(0.0, 1.0);
+            // 底座单独的横向/纵向伸缩降为辅助效果（默认 0）；按压主行为是
+            // 整条底栏统一放大 + 变白，见 geometry.wholeScale。
+            final transform = Matrix4.identity()
+              ..setEntry(
+                0,
+                0,
+                1 +
+                    capsule *
+                        _amount(DockLiquidParameter.capsuleX) *
+                        (geometry.press +
+                            .35 * geometry.stretch -
+                            .55 * geometry.rebound),
+              )
+              ..setEntry(
+                1,
+                1,
+                1 +
+                    capsule *
+                        _amount(DockLiquidParameter.capsuleY) *
+                        (geometry.press -
+                            .38 * geometry.stretch -
+                            .38 * geometry.rebound),
+              );
+
+            final waist = _amount(DockLiquidParameter.waist);
+            final waistDepth =
+                waist * geometry.press * widget.capsuleHeight * .18;
+            final waistPath = waistDepth > .01
+                ? _dockWaistPath(
+                    Size(constraints.maxWidth, widget.capsuleHeight),
+                    centerX:
+                        ShellDockBar.innerPadding +
+                        geometry.left +
+                        geometry.dropWidth / 2,
+                    halfWidth: geometry.dropWidth * .75,
+                    depth: waistDepth,
+                  )
+                : null;
+
+            final surface = DockLiquidSurface(
+              borderRadius: radius,
+              blurSigma: style.blur,
+              fallbackSigma: geometry.fallbackSigma,
+              fallbackChild: fallbackChild,
+              lensRect: geometry.lensRect,
+              lensRadius: geometry.dropHeight / 2,
+              lensScale: geometry.wholeScale,
+              feather:
+                  geometry.dropHeight *
+                  _amount(DockLiquidParameter.clarityFeather),
+              clarity: geometry.clarity,
+              coreAlpha: _amount(DockLiquidParameter.coreAlpha),
+              backgroundAdapt: _amount(DockLiquidParameter.backgroundAdapt),
+              tintColor: glassColor,
+              tintOpacity: geometry.shaderTintOpacity,
+              pixelRatio: MediaQuery.devicePixelRatioOf(context),
+              stageOrigin: _contentStageOrigin,
+              clipPath: waistPath,
+              filterKey: ShellDockBar.capsuleFilterKey,
+            );
+
+            final base = DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha:
+                          (widget.appearance.shadowOpacity *
+                                  (1 +
+                                      light *
+                                          _amount(DockLiquidParameter.shadow) /
+                                          2.2))
+                              .clamp(0.0, 1.0),
+                    ),
+                    blurRadius: 20 + 4 * light,
+                    offset: Offset(0, 6 + 2 * light),
+                  ),
+                ],
+              ),
+              child: shaderPath
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        surface,
+                        IgnorePointer(child: overlay),
+                      ],
+                    )
+                  : surface,
+            );
+
+            return Transform(
+              key: ShellDockBar.capsuleSurfaceKey,
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(
+                geometry.wholeScale,
+                geometry.wholeScale,
+                1,
+              ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                fit: StackFit.expand,
+                children: <Widget>[
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: transform,
+                        child: base,
                       ),
-                      child: Transform.translate(
-                        offset: Offset(0, sink),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: radius,
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(
-                                color: Colors.black.withValues(
-                                  alpha: widget.appearance.shadowOpacity,
-                                ),
-                                blurRadius: 20,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: radius,
-                            child: BackdropFilter(
-                              // 真正吃背后页面内容的一层：白度与 sigma 全部来自
-                              // 设置（FloatingModules 的 dock 样式）。少了这一层，
-                              // 下面那层白色半透明只会是一块塑料板。
-                              filter: dropFilter,
-                              child: SizedBox(
-                                height: widget.capsuleHeight,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: <Widget>[
-                                    // ① 半透明白底（不是实心白）。
-                                    ColoredBox(color: fill),
-                                    // ② 玻璃上沿的一道光：上亮下暗，像有厚度的玻璃
-                                    // 反光；强度跟随白度设置，白度 0 时完全消失。
-                                    IgnorePointer(
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          borderRadius: radius,
-                                          gradient: LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: <Color>[
-                                              Colors.white.withValues(
-                                                alpha: sheenTop,
-                                              ),
-                                              Colors.white.withValues(alpha: 0),
-                                              Colors.white.withValues(
-                                                alpha: sheenBottom,
-                                              ),
-                                            ],
-                                            stops: const <double>[0, .55, 1],
-                                          ),
-                                          // 极细的白色描边：模拟玻璃边缘反光。
-                                          border: Border.all(
-                                            color: Colors.white.withValues(
-                                              alpha: borderAlpha,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    // ③ 内容：水滴层 + 页签层。
-                                    Padding(
-                                      padding: EdgeInsets.only(
-                                        bottom: widget.contentInset,
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: ShellDockBar.innerPadding,
-                                        ),
-                                        child: _buildContent(
-                                          verticalPadding: verticalPadding,
-                                          dropFill: dropFill,
-                                          dropBlurSigma: style.blur,
-                                          dropBorder: Colors.white.withValues(
-                                            alpha: borderAlpha,
-                                          ),
-                                          whiteGlow: whiteGlow,
-                                          accentGlow: accentGlow,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(bottom: widget.contentInset),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: ShellDockBar.innerPadding,
+                      ),
+                      child: _buildContent(
+                        geometry: geometry,
+                        style: style,
+                        dark: dark,
+                        clear: clear,
+                        light: light,
+                        focus: focus,
+                        gain: gain,
+                        dropOpacity: dropOpacity,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ),
+  );
+
+  Widget _buildContent({
+    required _DockGeometry geometry,
+    required FloatingStyle style,
+    required bool dark,
+    required double clear,
+    required double light,
+    required double focus,
+    required double gain,
+    required double dropOpacity,
+  }) {
+    final entries = widget.entries;
+    if (entries.isEmpty) return const SizedBox.expand();
+
+    final shaderPath = DockLiquidSurface.shaderSupported;
+    final dropRadius = geometry.dropRadius;
+    final activeIndex =
+        (_dragging || _pressedPointer != null
+                ? geometry.indexFocus.round()
+                : _resolvedIndex)
+            .clamp(0, entries.length - 1);
+
+    // 底座已经在透镜区域变清澈时，水滴自身不能再糊一次，否则刚恢复的
+    // 背景细节会被第二次模糊抹掉。回退路径保持原来的按压减弱公式。
+    final sigma = shaderPath
+        ? (style.blur * (1 - geometry.clarity)).clamp(0.0, style.blur)
+        : (style.blur *
+                  (1 -
+                      geometry.pointerFocus *
+                          clear *
+                          (_amount(DockLiquidParameter.blurReduction) /
+                                  .62 *
+                                  .66)
+                              .clamp(0.0, 1.0)))
+              .clamp(0.0, style.blur);
+    final dropFilter = _blurFilter(sigma);
+    final glassColor = dark ? LumeTheme.glass : Colors.white;
+    final dropFill = shaderPath
+        ? glassColor.withValues(
+            alpha: (dropOpacity * (1 - geometry.clarity * .92)).clamp(0.0, 1.0),
+          )
+        : glassColor.withValues(
+            alpha:
+                (dropOpacity *
+                        (1 -
+                            _amount(DockLiquidParameter.opacityReduction) *
+                                1.875 *
+                                clear *
+                                (1 - dropOpacity)))
+                    .clamp(0.0, 1.0),
+          );
+    final dropBorder = Colors.white.withValues(
+      alpha: (_borderAlpha(dark) * (1 + gain)).clamp(0.0, 1.0),
+    );
+    final whiteGlow = (style.opacity * (.40 + .20 * gain)).clamp(0.0, .65);
+    final accentGlow = (style.opacity * .26).clamp(0.0, .35);
+
+    final dropPath = _dockLensPath(
+      Size(geometry.dropWidth, geometry.raisedHeight),
+      shape: geometry.shape,
+      roundness: geometry.roundness,
+      freeDeform: geometry.freeDeform,
+      stretch: geometry.stretch,
+      press: geometry.pressRaw,
+      direction: _dragDirection,
+      grip: geometry.grip,
+      tail: _amount(DockLiquidParameter.tail),
+    );
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (details) => _onDragStart(details, geometry.slot),
+      onHorizontalDragUpdate: (details) =>
+          _onDragUpdate(details, geometry.slot),
+      onHorizontalDragEnd: (details) => _onDragEnd(details, geometry.slot),
+      onHorizontalDragCancel: () => _onDragCancel(geometry.slot),
+      onTapUp: (details) => _onTapUp(details, geometry.slot),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (event) => _onPressDown(event, geometry.slot),
+        onPointerMove: (event) => _onPressMove(event, geometry.slot),
+        onPointerUp: (event) {
+          if (event.pointer == _pressedPointer) _releasePress();
+        },
+        onPointerCancel: (event) {
+          if (event.pointer != _pressedPointer) return;
+          _releasePress();
+          _animateToIndex(_resolvedIndex);
+        },
+        child: RepaintBoundary(
+          key: _contentStageKey,
+          child: Stack(
+            clipBehavior: Clip.none,
+            fit: StackFit.expand,
+            children: <Widget>[
+              Positioned(
+                left: geometry.left,
+                top: geometry.top,
+                width: geometry.dropWidth,
+                height: geometry.raisedHeight,
+                child: IgnorePointer(
+                  child: RepaintBoundary(
+                    child: _WaterDrop(
+                      key: ShellDockBar.selectionPillKey,
+                      radius: dropRadius,
+                      fill: dropFill,
+                      filter: dropFilter,
+                      // Draw the rim after the optical layer so it cannot
+                      // refract its own outline into a double ring.
+                      border: Colors.transparent,
+                      whiteGlow: whiteGlow,
+                      accentGlow: accentGlow,
+                      stretch: geometry.stretch,
+                      press: geometry.pressRaw,
+                      direction: _dragDirection,
+                      grip: geometry.grip,
+                      tail: _amount(DockLiquidParameter.tail),
+                      shape: geometry.shape,
+                      roundness: geometry.roundness,
+                      freeDeform: geometry.freeDeform,
+                      shadowOpacity:
+                          (widget.appearance.shadowOpacity *
+                                  geometry.press *
+                                  (_liquid.enabled(DockLiquidEffect.lighting)
+                                      ? _amount(DockLiquidParameter.shadow)
+                                      : 0))
+                              .clamp(0.0, .45),
+                    ),
+                  ),
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  for (var index = 0; index < entries.length; index++)
+                    Expanded(
+                      child: _DockItem(
+                        entry: entries[index],
+                        selected: index == activeIndex,
+                        onTap: () => _onItemTap(index),
+                        verticalPadding: ((widget.appearance.height - 42) / 2)
+                            .clamp(2.0, 10.0),
+                        animateSelection: _motionEnabled,
+                        animationDuration: Duration(
+                          milliseconds: widget.appearance.animationMs,
                         ),
                       ),
                     ),
-                  );
-                },
+                ],
               ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildContent({
-    required double verticalPadding,
-    required Color dropFill,
-    required double dropBlurSigma,
-    required Color dropBorder,
-    required double whiteGlow,
-    required double accentGlow,
-  }) {
-    final entries = widget.entries;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final contentWidth = constraints.maxWidth;
-        if (entries.isEmpty) return const SizedBox.expand();
-
-        final slot = contentWidth / entries.length;
-        final baseWidth = (slot - 12).clamp(0.0, ShellDockBar.maxPillWidth);
-        final dropHeight = (constraints.maxHeight - ShellDockBar._dropInset * 2)
-            .clamp(0.0, double.infinity);
-        final dropRadius = BorderRadius.circular(dropHeight / 2);
-
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // 拖动过程中每一步都用 localPosition.dx 重算水滴中心；
-          // 速度只影响宽度，不改变「水滴贴着手指」这条主逻辑。
-          onHorizontalDragStart: (details) => _onDragStart(details, slot),
-          onHorizontalDragUpdate: (details) => _onDragUpdate(details, slot),
-          onHorizontalDragEnd: (details) => _onDragEnd(details, slot),
-          onHorizontalDragCancel: () => _onDragCancel(slot),
-          // 覆盖页签之间的空隙；页签自身的 InkWell 仍保留点击语义。
-          onTapUp: (details) => _onTapUp(details, slot),
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (event) => _onPressDown(event, slot),
-            onPointerMove: (event) => _onPressMove(event, slot),
-            onPointerUp: (_) => _releasePress(),
-            onPointerCancel: (_) => _releasePress(),
-            child: RepaintBoundary(
-              child: AnimatedBuilder(
-                animation: _dropAnimation,
-                builder: (context, _) {
-                  // 水滴中心始终取连续坐标：拖动时它等于手指位置，松手后由弹簧
-                  // 一帧帧推到目标中心，不能在松手瞬间直接换成整数下标。
-                  final indexFocus = _indexController.value.clamp(
-                    0.0,
-                    (entries.length - 1).toDouble(),
-                  );
-                  final activeIndex =
-                      (_dragging ? indexFocus.round() : _resolvedIndex).clamp(
-                        0,
-                        entries.length - 1,
-                      );
-
-                  // 按压进度与指针位置共同决定「擦亮玻璃」的程度：
-                  // - 按住不放：press 从 0 → 1，sigma 逐渐降低；
-                  // - 从页签边缘移到图标 / 文字：pointerFocus 平滑升高。
-                  // 基础 sigma 始终来自当前的 FloatingStyle.blur，不写死。
-                  final pressRaw = _pressController.value.clamp(-.18, 1.0);
-                  final press = pressRaw.clamp(0.0, 1.0);
-                  final pointerFocus =
-                      (press * (.45 + .55 * _pointerFocus.value)).clamp(
-                        0.0,
-                        1.0,
-                      );
-                  final sigma = (dropBlurSigma * (1 - pointerFocus * .66))
-                      .clamp(0.0, dropBlurSigma);
-                  final dropFilter = _blurFilter(sigma);
-
-                  // 水珠宽度 = 基准宽度 × 速度/拉力倍率 + 按压膨胀；夹取只防极端值。
-                  // 基准宽度来自当前留白 / 页签数量；按压膨胀量按当前高度比例
-                  // 计算——拉动「导航栏高度」滑块时，膨胀幅度会一起变化。
-                  final pressBulge = dropHeight * .10 * pressRaw;
-                  final dropWidth =
-                      (baseWidth * _widthController.value + pressBulge).clamp(
-                        baseWidth * .75,
-                        contentWidth,
-                      );
-                  // 形变量 0–1：宽度倍率 1–1.65 映射回液体路径的「拉长程度」。
-                  final stretch = ((_widthController.value - 1) / .65).clamp(
-                    0.0,
-                    1.0,
-                  );
-                  // 中心跟着连续坐标走，left 永远 = 中心 - 半宽（橡皮筋拉伸时
-                  // 向两侧同时长，而不是只向右长）。
-                  final center = indexFocus * slot + slot / 2;
-                  final maxLeft = (contentWidth - dropWidth).clamp(
-                    0.0,
-                    double.infinity,
-                  );
-                  final left = (center - dropWidth / 2).clamp(0.0, maxLeft);
-
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      // 先给背景做磨砂与底色，文字不参与这一步模糊。
-                      Positioned(
-                        left: left,
-                        top: ShellDockBar._dropInset,
-                        width: dropWidth,
-                        height: dropHeight,
-                        child: IgnorePointer(
-                          child: RepaintBoundary(
-                            child: _WaterDrop(
-                              key: ShellDockBar.selectionPillKey,
-                              radius: dropRadius,
-                              fill: dropFill,
-                              filter: dropFilter,
-                              border: dropBorder,
-                              whiteGlow: whiteGlow,
-                              accentGlow: accentGlow,
-                              stretch: stretch,
-                              press: pressRaw,
-                              direction: _dragDirection,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          for (var index = 0; index < entries.length; index++)
-                            Expanded(
-                              child: _DockItem(
-                                entry: entries[index],
-                                selected: index == activeIndex,
-                                onTap: () => _onItemTap(index),
-                                verticalPadding: verticalPadding,
-                                animateSelection:
-                                    widget.appearance.animateSelection,
-                                animationDuration: Duration(
-                                  milliseconds: widget.appearance.animationMs,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      Positioned(
-                        left: left,
-                        top: ShellDockBar._dropInset,
-                        width: dropWidth,
-                        height: dropHeight,
-                        child: DockLiquidLens(
-                          path: _liquidDropPath(
-                            Size(dropWidth, dropHeight),
-                            stretch: stretch,
-                            press: pressRaw,
-                            direction: _dragDirection,
-                          ),
-                          press: pressRaw,
-                          stretch: stretch,
-                          highlight: widget.appearance.borderOpacity,
-                        ),
-                      ),
-                    ],
-                  );
-                },
+              if (_liquid.enabled(DockLiquidEffect.optics))
+                Positioned(
+                  left: geometry.left,
+                  top: geometry.top,
+                  width: geometry.dropWidth,
+                  height: geometry.raisedHeight,
+                  child: DockLiquidLens(
+                    path: dropPath,
+                    press: geometry.pressRaw,
+                    stretch: geometry.stretch,
+                    highlight: widget.appearance.borderOpacity,
+                    lean: _dragDirection * geometry.stretch,
+                    grip: geometry.grip,
+                    refraction: _amount(DockLiquidParameter.refraction),
+                    dispersion: _amount(DockLiquidParameter.dispersion),
+                    glow: _amount(DockLiquidParameter.lensGlow),
+                    desaturate: _amount(DockLiquidParameter.lensDesaturate),
+                  ),
+                ),
+              Positioned(
+                left: geometry.left,
+                top: geometry.top,
+                width: geometry.dropWidth,
+                height: geometry.raisedHeight,
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    key: const Key('shell.dock.selectionRim'),
+                    painter: _LiquidDropBorderPainter(
+                      path: dropPath,
+                      color: dropBorder,
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -909,6 +1170,12 @@ class _WaterDrop extends StatelessWidget {
     required this.stretch,
     required this.press,
     required this.direction,
+    required this.grip,
+    required this.shadowOpacity,
+    required this.tail,
+    required this.shape,
+    required this.roundness,
+    required this.freeDeform,
   });
 
   final BorderRadius radius;
@@ -934,23 +1201,38 @@ class _WaterDrop extends StatelessWidget {
 
   /// 拖动方向：+1 向右、-1 向左；尾巴朝着来路。
   final double direction;
+  final double grip, shadowOpacity, tail;
+  final DockLensShape shape;
+  final double roundness;
+  final bool freeDeform;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final path = _liquidDropPath(
+        final path = _dockLensPath(
           size,
+          shape: shape,
+          roundness: roundness,
+          freeDeform: freeDeform,
           stretch: stretch,
           press: press,
           direction: direction,
+          grip: grip,
+          tail: tail,
         );
         return DecoratedBox(
           // 外发光模拟水珠边缘的折射：不额外加底色，纯光晕。
           decoration: BoxDecoration(
             borderRadius: radius,
             boxShadow: <BoxShadow>[
+              if (shadowOpacity > 0)
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: shadowOpacity),
+                  blurRadius: 12 + 12 * press.clamp(0.0, 1.0),
+                  offset: Offset(0, 4 + 6 * press.clamp(0.0, 1.0)),
+                ),
               if (whiteGlow > 0)
                 BoxShadow(
                   color: Colors.white.withValues(alpha: whiteGlow),
@@ -992,6 +1274,97 @@ class _WaterDrop extends StatelessWidget {
   }
 }
 
+/// 底座局部收腰路径：在胶囊上/下缘按触点位置切出两个浅椭圆缺口。
+///
+/// 参考帧核对没有证实真实收腰，因此这里只作为**默认关闭**的附加效果：
+/// [depth] 为 0 时返回标准胶囊，不影响默认观感。
+Path _dockWaistPath(
+  Size size, {
+  required double centerX,
+  required double halfWidth,
+  required double depth,
+}) {
+  final capsule = Path()
+    ..addRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & size,
+        Radius.circular(size.height / 2),
+      ),
+    );
+  if (size.isEmpty || depth <= .01) return capsule;
+  final biteHeight = size.height * .45;
+  final cx = centerX.clamp(0.0, size.width);
+  final hw = halfWidth.clamp(size.height * .4, size.width * .6);
+  final topBite = Path()
+    ..addOval(
+      Rect.fromCenter(
+        center: Offset(cx, depth - biteHeight),
+        width: hw * 2,
+        height: biteHeight * 2,
+      ),
+    );
+  final bottomBite = Path()
+    ..addOval(
+      Rect.fromCenter(
+        center: Offset(cx, size.height - depth + biteHeight),
+        width: hw * 2,
+        height: biteHeight * 2,
+      ),
+    );
+  final bites = Path.combine(PathOperation.union, topBite, bottomBite);
+  return Path.combine(PathOperation.difference, capsule, bites);
+}
+
+/// 按设置里的基础形状生成透镜 / 选中药丸的路径。
+///
+/// 自由形变关闭时严格返回规则轮廓（胶囊 / 圆角矩形 / 椭圆 / 圆形）；
+/// 开启后胶囊才叠加速度驱动的拉伸与拖尾，圆角矩形只做轻微收角。
+Path _dockLensPath(
+  Size size, {
+  required DockLensShape shape,
+  required double roundness,
+  required bool freeDeform,
+  required double stretch,
+  required double press,
+  required double direction,
+  double grip = 0,
+  double tail = .55,
+}) {
+  if (size.width <= 0 || size.height <= 0) return Path();
+  switch (shape) {
+    case DockLensShape.circle:
+    case DockLensShape.ellipse:
+      return Path()..addOval(Offset.zero & size);
+    case DockLensShape.roundedRect:
+      final t = freeDeform ? stretch.clamp(0.0, 1.0) : 0.0;
+      final radius =
+          size.height / 2 * roundness.clamp(0.0, 1.0) * (1 - .35 * t);
+      return Path()..addRRect(
+        RRect.fromRectAndRadius(
+          Offset.zero & size,
+          Radius.circular(radius.clamp(0.0, size.height / 2)),
+        ),
+      );
+    case DockLensShape.capsule:
+      if (!freeDeform || (stretch <= .0001 && press <= .0001)) {
+        return Path()..addRRect(
+          RRect.fromRectAndRadius(
+            Offset.zero & size,
+            Radius.circular(size.height / 2),
+          ),
+        );
+      }
+      return _liquidDropPath(
+        size,
+        stretch: stretch,
+        press: press,
+        direction: direction,
+        grip: grip,
+        tail: tail,
+      );
+  }
+}
+
 /// 把静止胶囊与拖动中的水滴统一成一条路径。
 ///
 /// [stretch] 为 0 时精确退化成圆角胶囊；大于 0 时尾端半径收窄、上下缘轻微
@@ -1001,18 +1374,24 @@ Path _liquidDropPath(
   required double stretch,
   required double press,
   required double direction,
+  double grip = 0,
+  double tail = .55,
 }) {
   final t = stretch.clamp(0.0, 1.0);
   final p = press.clamp(-.18, 1.0);
   final pressed = p.clamp(0.0, 1.0);
   final rebound = math.max(-p, 0.0);
   if (size.width <= 0 || size.height <= 0) return Path();
-  // 按压：高度收缩（体积感）；松手过冲时轻微回弹、高度略高于静止值。
-  final h = size.height * (1 - .12 * t - .10 * pressed + .04 * rebound);
+  // The positioned layer already includes the press lift; do not flatten it.
+  final h = size.height * (1 - .06 * t + .04 * rebound);
   final top = (size.height - h) / 2;
   final w = size.width;
+  if (w < h) {
+    // Tall bars and narrow slots must not create intersecting semicircles.
+    return Path()..addOval(Rect.fromLTWH(0, top, w, h));
+  }
   final r = h / 2;
-  final tipR = r * (1 - .55 * t + .08 * pressed);
+  final tipR = r * (1 - tail * t + .08 * pressed);
   final tipX = tipR;
   final right = math.max(tipR + .01, w - r);
   const kappa = .5522847498;
@@ -1031,12 +1410,13 @@ Path _liquidDropPath(
     );
 
   // 下缘：向尾部收窄，中段轻微外鼓（水的体积感）。
-  final bulge = r * (.10 * t + .08 * pressed);
+  final bulge = r * (.10 * t + .06 * pressed);
+  final verticalGrip = grip.clamp(-1.0, 1.0) * r * .12 * pressed;
   path.cubicTo(
     right - (right - tipX) * .38,
-    top + h + bulge,
+    top + h + bulge + verticalGrip,
     tipX + (right - tipX) * .28,
-    top + r + tipR + bulge * .35,
+    top + r + tipR + bulge * .35 + verticalGrip,
     tipX,
     top + r + tipR,
   );
@@ -1064,9 +1444,9 @@ Path _liquidDropPath(
   // 上缘：回到前缘。
   path.cubicTo(
     tipX + (right - tipX) * .28,
-    top + r - tipR - bulge * .35,
+    top + r - tipR - bulge * .35 + verticalGrip,
     right - (right - tipX) * .38,
-    top - bulge,
+    top - bulge + verticalGrip,
     right,
     top,
   );
@@ -1191,8 +1571,12 @@ class _DockItem extends StatelessWidget {
                                 child: child,
                               ),
                             ),
-                        child: Icon(
+                        child: LumeIcon(
                           selected ? entry.selectedIcon : entry.icon,
+                          slot:
+                              'dock.${entry.id}.${selected ? 'selected' : 'normal'}',
+                          label: '${entry.label} · ${selected ? '选中' : '未选中'}',
+                          group: '底部导航',
                           key: ValueKey<bool>(selected),
                           size: 20,
                           color: animatedColor,
@@ -1231,6 +1615,186 @@ class _DockItem extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 一帧内底座、水滴和透镜共用的几何量。
+///
+/// 抽出来是因为底座清澈遮罩必须和透镜落在同一矩形上：以前这些值只在
+/// `_buildContent` 的 LayoutBuilder 里计算，底座拿不到，只能整条统一变清。
+class _DockGeometry {
+  const _DockGeometry({
+    required this.contentWidth,
+    required this.slot,
+    required this.baseWidth,
+    required this.dropHeight,
+    required this.dropRadius,
+    required this.indexFocus,
+    required this.pressRaw,
+    required this.press,
+    required this.rebound,
+    required this.stretch,
+    required this.grip,
+    required this.pointerFocus,
+    required this.clarity,
+    required this.fallbackSigma,
+    required this.fallbackOpacity,
+    required this.dropWidth,
+    required this.raisedHeight,
+    required this.top,
+    required this.left,
+    required this.shape,
+    required this.roundness,
+    required this.freeDeform,
+    required this.wholeScale,
+    required this.shaderTintOpacity,
+  });
+
+  final double contentWidth;
+  final double slot;
+  final double baseWidth;
+  final double dropHeight;
+  final BorderRadius dropRadius;
+  final double indexFocus;
+  final double pressRaw;
+  final double press;
+  final double rebound;
+  final double stretch;
+  final double grip;
+  final double pointerFocus;
+  final double clarity;
+  final double fallbackSigma;
+  final double fallbackOpacity;
+  final double dropWidth;
+  final double raisedHeight;
+  final double top;
+  final double left;
+  final DockLensShape shape;
+  final double roundness;
+  final bool freeDeform;
+
+  /// 按压时整条底栏（含图标文字与透镜）统一缩放的比例。
+  final double wholeScale;
+
+  /// Shader 路径底座白度：按压提亮后的实际透明度。
+  final double shaderTintOpacity;
+
+  Rect get lensRect => Rect.fromLTWH(left, top, dropWidth, raisedHeight);
+
+  static _DockGeometry compute({
+    required double contentWidth,
+    required double contentHeight,
+    required int entryCount,
+    required double indexFocus,
+    required double widthScale,
+    required double pressRaw,
+    required double press,
+    required double rebound,
+    required double stretch,
+    required double grip,
+    required double lift,
+    required double pointerFocus,
+    required bool clarityEnabled,
+    required double clarityStrength,
+    required double opacityReduction,
+    required double spread,
+    required double vertical,
+    required double liftAmount,
+    required double blur,
+    required double opacity,
+    required DockLensShape shape,
+    required double shapeWidth,
+    required double shapeHeight,
+    required double roundness,
+    required bool freeDeform,
+    required double pressScale,
+    required double pressWhiten,
+  }) {
+    final slot = entryCount <= 0 ? 0.0 : contentWidth / entryCount;
+    final baseWidth = (slot - 12).clamp(0.0, ShellDockBar.maxPillWidth);
+    final dropHeight = (contentHeight - ShellDockBar._dropInset * 2).clamp(
+      0.0,
+      double.infinity,
+    );
+    final rawPress = pressRaw.clamp(-.18, 1.0);
+    final pressed = rawPress.clamp(0.0, 1.0);
+    final focus = (press * (.45 + .55 * pointerFocus.clamp(0.0, 1.0))).clamp(
+      0.0,
+      1.0,
+    );
+    final visibleClear = clarityEnabled ? pressed : 0.0;
+    // 参考录屏：按压时整条底栏一起放大并变白（不是只缩放底座）。
+    final wholeScale = 1 + pressScale * pressed;
+    final shaderTintOpacity = (opacity + pressWhiten * pressed * (1 - opacity))
+        .clamp(0.0, 1.0);
+    // 回退路径：原有按压减弱先算，再叠按压提亮；全白端点保持全白，全透
+    // 端点按压时会被提亮（与参考录屏一致）。
+    final fallbackSigma = (blur * (1 - clarityStrength * visibleClear)).clamp(
+      0.0,
+      blur,
+    );
+    final dimmedOpacity =
+        opacity * (1 - opacityReduction * visibleClear * (1 - opacity));
+    final fallbackOpacity =
+        (dimmedOpacity + pressWhiten * pressed * (1 - dimmedOpacity)).clamp(
+          0.0,
+          1.0,
+        );
+    // Shader 路径把默认的 62% 视作“满强度”，滑杆越小清澈越弱。
+    final clarity = clarityEnabled
+        ? (pressed * (clarityStrength / .62).clamp(0.0, 1.0)).clamp(0.0, 1.0)
+        : 0.0;
+    final pressBulge = dropHeight * spread * lift;
+    final stretched = stretch.clamp(0.0, 1.0);
+    var dropWidth = (baseWidth * widthScale + pressBulge) * shapeWidth;
+    var raisedHeight =
+        dropHeight * (1 + liftAmount * lift - .08 * stretched) * shapeHeight;
+    if (shape == DockLensShape.circle) {
+      // 圆形保持正圆：直径取高度（受内容宽度限制），宽度跟随高度。
+      final diameter = math.min(raisedHeight, contentWidth);
+      dropWidth = diameter;
+      raisedHeight = diameter;
+    }
+    // 圆形/椭圆可以比常规选中药丸更窄或更宽，只限制不越出内容区。
+    dropWidth = dropWidth.clamp(0.0, contentWidth);
+    final top =
+        ShellDockBar._dropInset -
+        (raisedHeight - dropHeight) / 2 +
+        grip * dropHeight * vertical;
+    final clampedFocus = entryCount <= 1
+        ? 0.0
+        : indexFocus.clamp(0.0, (entryCount - 1).toDouble());
+    final center = clampedFocus * slot + slot / 2;
+    final maxLeft = (contentWidth - dropWidth).clamp(0.0, double.infinity);
+    final edgeGive = pressed * dropHeight * .16;
+    final left = (center - dropWidth / 2).clamp(-edgeGive, maxLeft + edgeGive);
+
+    return _DockGeometry(
+      contentWidth: contentWidth,
+      slot: slot,
+      baseWidth: baseWidth,
+      dropHeight: dropHeight,
+      dropRadius: BorderRadius.circular(dropHeight / 2),
+      indexFocus: clampedFocus,
+      pressRaw: rawPress,
+      press: pressed,
+      rebound: rebound,
+      stretch: stretched,
+      grip: grip,
+      pointerFocus: focus,
+      clarity: clarity,
+      fallbackSigma: fallbackSigma,
+      fallbackOpacity: fallbackOpacity,
+      dropWidth: dropWidth,
+      raisedHeight: raisedHeight,
+      top: top,
+      left: left,
+      shape: shape,
+      roundness: roundness.clamp(0.0, 1.0),
+      freeDeform: freeDeform,
+      wholeScale: wholeScale,
+      shaderTintOpacity: shaderTintOpacity,
     );
   }
 }

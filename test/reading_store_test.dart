@@ -8,7 +8,6 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/features/comic/comic_settings.dart';
-import 'package:lume_box/features/novel/novel_typesetting.dart';
 
 /// 阅读底座的验证：板块独占的库与缓存、归属校验、书架与两套进度口径。
 ///
@@ -35,6 +34,24 @@ void main() {
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
     if (root.existsSync()) root.deleteSync(recursive: true);
+  });
+
+  test('并发打开同一板块共用句柄，关闭后可重新打开', () async {
+    final libraries = await Future.wait(
+      List.generate(8, (_) => ReadingLibrary.open(Section.video)),
+    );
+    expect(
+      libraries.every((library) => identical(library, libraries.first)),
+      isTrue,
+    );
+    final stores = await Future.wait(
+      List.generate(8, (_) => ReadingStore.open(Section.video)),
+    );
+    expect(stores.every((store) => identical(store, stores.first)), isTrue);
+    ReadingLibrary.close(Section.video);
+    expect(stores.first.isClosed, isTrue);
+    final reopened = await ReadingLibrary.open(Section.video);
+    expect(identical(reopened, libraries.first), isFalse);
   });
 
   test('版本二收藏迁移保留条目，移出收藏后历史在重开后仍可读取', () async {
@@ -124,15 +141,15 @@ void main() {
       ),
     );
     library.saveProgress(
-      NovelProgress(
+      VideoProgress(
         section: Section.cat,
         itemId: 'novel',
         chapterIndex: 3,
         chapterId: 'chapter4',
         chapterTitle: '第四章',
         updatedAt: now,
-        charOffset: 600,
-        chapterLength: 3000,
+        position: const Duration(milliseconds: 600),
+        duration: const Duration(milliseconds: 3000),
       ),
     );
     ReadingLibrary.close(Section.cat);
@@ -142,7 +159,10 @@ void main() {
       const Duration(seconds: 90),
     );
     expect(restored.progress('comic'), isA<ComicProgress>());
-    expect((restored.progress('novel') as NovelProgress).charOffset, 600);
+    expect(
+      (restored.progress('novel') as VideoProgress).position.inMilliseconds,
+      600,
+    );
     expect(restored.progress('video')?.section, Section.cat);
   });
 
@@ -162,20 +182,20 @@ void main() {
     pageFraction: fraction,
   );
 
-  NovelProgress novelProgress({
+  VideoProgress videoProgress({
     String itemId = 'book',
     int chapterIndex = 2,
-    int charOffset = 1200,
-    int chapterLength = 4800,
-  }) => NovelProgress(
-    section: Section.novel,
+    Duration position = const Duration(milliseconds: 1200),
+    Duration duration = const Duration(milliseconds: 4800),
+  }) => VideoProgress(
+    section: Section.video,
     itemId: itemId,
     chapterIndex: chapterIndex,
     chapterId: 'c$chapterIndex',
     chapterTitle: '第 ${chapterIndex + 1} 章',
     updatedAt: DateTime.now(),
-    charOffset: charOffset,
-    chapterLength: chapterLength,
+    position: position,
+    duration: duration,
   );
 
   group('板块隔离', () {
@@ -196,7 +216,7 @@ void main() {
 
     test('漫画与小说各存各的：同一个 itemId 互不影响', () async {
       final comic = await ReadingLibrary.open(Section.comic);
-      final novel = await ReadingLibrary.open(Section.novel);
+      final novel = await ReadingLibrary.open(Section.video);
 
       comic.shelve(
         sourceId: 'comic-src',
@@ -211,21 +231,26 @@ void main() {
         chapterCount: 20,
       );
       comic.saveProgress(comicProgress(itemId: 'shared-id', page: 7));
-      novel.saveProgress(novelProgress(itemId: 'shared-id', charOffset: 900));
+      novel.saveProgress(
+        videoProgress(
+          itemId: 'shared-id',
+          position: const Duration(milliseconds: 900),
+        ),
+      );
 
       expect(comic.shelf().single.title, '漫画书');
       expect(novel.shelf().single.title, '小说书');
       expect(comic.comicProgress('shared-id')!.page, 7);
-      expect(novel.novelProgress('shared-id')!.charOffset, 900);
+      expect(novel.videoProgress('shared-id')!.position.inMilliseconds, 900);
       // 形状不对的进度不会被当成本板块的进度。
       expect(novel.comicProgress('shared-id'), isNull);
-      expect(comic.novelProgress('shared-id'), isNull);
+      expect(comic.videoProgress('shared-id'), isNull);
       // 缓存目录也不交叉。
       expect(comic.imageCacheDir, isNot(novel.imageCacheDir));
     });
 
     test('库内自证归属：标记不符时拒绝打开', () async {
-      final scope = await SectionScope.open(Section.novel);
+      final scope = await SectionScope.open(Section.video);
       final path = '${scope.root.path}/reading.db';
       final raw = sqlite3.open(path);
       raw.execute(
@@ -239,13 +264,13 @@ void main() {
       raw.close();
 
       await expectLater(
-        ReadingStore.open(Section.novel),
+        ReadingStore.open(Section.video),
         throwsA(isA<StateError>()),
       );
     });
 
     test('跨板块写入书架与进度都被拒绝', () async {
-      final library = await ReadingLibrary.open(Section.novel);
+      final library = await ReadingLibrary.open(Section.video);
 
       // 进度带归属标记，跨板块直接抛错。
       expect(
@@ -341,7 +366,7 @@ void main() {
     });
 
     test('书架按最近阅读排序', () async {
-      final library = await ReadingLibrary.open(Section.novel);
+      final library = await ReadingLibrary.open(Section.video);
       library.shelve(
         sourceId: 'src',
         itemId: 'first',
@@ -359,15 +384,15 @@ void main() {
       expect(library.shelf().first.itemId, 'second');
 
       library.saveProgress(
-        NovelProgress(
-          section: Section.novel,
+        VideoProgress(
+          section: Section.video,
           itemId: 'first',
           chapterIndex: 1,
           chapterId: 'c1',
           chapterTitle: '第 2 章',
           updatedAt: DateTime.now().add(const Duration(seconds: 1)),
-          charOffset: 100,
-          chapterLength: 1000,
+          position: const Duration(milliseconds: 100),
+          duration: const Duration(milliseconds: 1000),
         ),
       );
       expect(library.shelf().first.itemId, 'first', reason: '刚读过的排最前');
@@ -389,31 +414,31 @@ void main() {
     });
 
     test('小说进度记录字符偏移，比例由章节长度算出', () async {
-      final library = await ReadingLibrary.open(Section.novel);
+      final library = await ReadingLibrary.open(Section.video);
       library.shelve(
         sourceId: 'src',
         itemId: 'n',
         title: '小说',
         chapterCount: 10,
       );
-      final saved = novelProgress(
+      final saved = videoProgress(
         itemId: 'n',
-        charOffset: 600,
-        chapterLength: 2400,
+        position: const Duration(milliseconds: 600),
+        duration: const Duration(milliseconds: 2400),
       );
       library.saveProgress(saved);
 
-      final loaded = library.novelProgress('n')!;
-      expect(loaded.charOffset, 600);
-      expect(loaded.chapterLength, 2400);
-      expect(loaded.chapterRatio, closeTo(0.25, 0.0001));
+      final loaded = library.videoProgress('n')!;
+      expect(loaded.position.inMilliseconds, 600);
+      expect(loaded.duration.inMilliseconds, 2400);
+      expect(loaded.ratio, closeTo(0.25, 0.0001));
       expect(loaded.chapterTitle, '第 3 章');
     });
   });
 
   group('历史与收藏严格隔离', () {
     test('只看详情只写历史：不进收藏，history 可见，收藏查询为空', () async {
-      final library = await ReadingLibrary.open(Section.novel);
+      final library = await ReadingLibrary.open(Section.video);
       library.recordHistoryItem(
         sourceId: 'src',
         itemId: 'viewed',
@@ -474,7 +499,7 @@ void main() {
     });
 
     test('无痕模式下连历史都不写；显式收藏仍然允许', () async {
-      final library = await ReadingLibrary.open(Section.novel);
+      final library = await ReadingLibrary.open(Section.video);
       library.setSetting('history.incognito', 'true');
       library.recordHistoryItem(
         sourceId: 'src',
@@ -489,40 +514,6 @@ void main() {
   });
 
   group('阅读偏好与缓存', () {
-    test('排版参数与主题按板块各存各的', () async {
-      final comic = await ReadingLibrary.open(Section.comic);
-      final novel = await ReadingLibrary.open(Section.novel);
-
-      final typesetting = const NovelTypesetting().copyWith(
-        fontSize: 22,
-        lineHeight: 2.2,
-        paragraphSpacing: 14,
-        margin: 30,
-      );
-      novel.setSetting(NovelTypesetting.settingKey, typesetting.encode());
-      NovelReaderTheme.custom(const Color(0xFF123456)).save(novel);
-
-      final reloaded = NovelTypesetting.decode(
-        novel.setting(NovelTypesetting.settingKey),
-      );
-      expect(reloaded.fontSize, 22);
-      expect(reloaded.lineHeight, closeTo(2.2, 0.0001));
-      expect(reloaded.margin, 30);
-      expect(reloaded.signature, typesetting.signature);
-
-      final theme = NovelReaderTheme.load(novel);
-      expect(theme.isCustom, isTrue);
-      expect(theme.background.toARGB32(), const Color(0xFF123456).toARGB32());
-
-      // 漫画板块没有写过这些键，读到的是默认主题与默认排版。
-      expect(NovelReaderTheme.load(comic).id, NovelReaderTheme.parchment.id);
-      expect(
-        NovelTypesetting.decode(comic.setting(NovelTypesetting.settingKey))
-            .fontSize,
-        const NovelTypesetting().fontSize,
-      );
-    });
-
     test('漫画阅读器设置往返', () async {
       final library = await ReadingLibrary.open(Section.comic);
       const settings = ComicReaderSettings(

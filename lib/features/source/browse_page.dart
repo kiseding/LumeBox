@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -36,7 +38,7 @@ class BrowsePage extends StatelessWidget {
 /// Phase1 的浏览链路止于详情与章节列表，不进入阅读器。
 ///
 /// 封面：宿主提供图片管线（[pipeline]）时，条目行左侧渲染封面缩略图
-/// （与小说 / 漫画的探索列表同一范式：56×76、按 160px 解码）；没提供管线
+/// （与漫画的探索列表同一范式：56×76、按 160px 解码）；没提供管线
 /// 的宿主（图源管理里的浏览入口）保持纯文字排布，行为与从前完全一致。
 class BrowseView extends StatefulWidget {
   const BrowseView({
@@ -304,7 +306,11 @@ class _BrowseViewState extends State<BrowseView> {
                   fontWeight: FontWeight.w600,
                   color: LumeTheme.muted,
                 ),
-                icon: Icon(Icons.search, color: LumeTheme.muted),
+                icon: LumeIcon(
+                  Icons.search,
+                  slot: 'browse_page.1',
+                  color: LumeTheme.muted,
+                ),
               ),
               onSubmitted: (value) {
                 _keyword = value.trim();
@@ -347,7 +353,7 @@ class _BrowseViewState extends State<BrowseView> {
   /// 封面缩略图：宿主给了管线、且条目带封面时才占位；否则整块不出现，
   /// 列表与从前一样是纯文字排布（条目没封面时也不会留一块空图位）。
   ///
-  /// 尺寸与小说 / 漫画的探索列表一致：56×76、按 160px 解码，取不到图时
+  /// 尺寸与漫画的探索列表一致：56×76、按 160px 解码，取不到图时
   /// [PosterCover] 显示主题占位，不抛异常。
   List<Widget> _buildCover(SourceItem item) {
     final pipeline = widget.pipeline;
@@ -436,7 +442,11 @@ class _BrowseViewState extends State<BrowseView> {
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right, color: LumeTheme.muted),
+                  LumeIcon(
+                    Icons.chevron_right,
+                    slot: 'browse_page.2',
+                    color: LumeTheme.muted,
+                  ),
                 ],
               ),
             );

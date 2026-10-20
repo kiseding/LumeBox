@@ -45,8 +45,8 @@ class WafDetector {
     }
     final text = body.toLowerCase();
     return text.contains('need_webview_verify') ||
-      text.contains('waf_recaptcha_v3') ||
-      text.contains('just a moment') ||
+        text.contains('waf_recaptcha_v3') ||
+        text.contains('just a moment') ||
         text.contains('attention required') ||
         text.contains('__cf_chl') ||
         text.contains('cf-chl-') ||
@@ -104,7 +104,9 @@ class WafSessionStore {
       for (final part in existing.split(';')) {
         final index = part.indexOf('=');
         if (index <= 0) continue;
-        merged[part.substring(0, index).trim()] = part.substring(index + 1).trim();
+        merged[part.substring(0, index).trim()] = part
+            .substring(index + 1)
+            .trim();
       }
     }
     cookies.forEach((name, value) {
@@ -114,7 +116,9 @@ class WafSessionStore {
     });
     library.setSetting(keyFor(sourceId), jsonEncode(merged));
     LumeLog.info('[waf] $sourceId 保存会话 Cookie ${merged.length} 项');
-    return merged.entries.map((entry) => '${entry.key}=${entry.value}').join('; ');
+    return merged.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
   }
 
   /// 清掉某图源的会话（网页视图里被拒 / 用户手动重置时用）。
@@ -164,7 +168,9 @@ String? mergeCookieHeader({
     if (index <= 0) continue;
     merged[part.substring(0, index).trim()] = part.substring(index + 1).trim();
   }
-  return merged.entries.map((entry) => '${entry.key}=${entry.value}').join('; ');
+  return merged.entries
+      .map((entry) => '${entry.key}=${entry.value}')
+      .join('; ');
 }
 
 /// 从失败信息里认出「WAF 挑战」这一类（供页面决定要不要显示【网页视图】）。
@@ -199,7 +205,8 @@ Future<WafSessionStore> openWafSessionStore(Section section) async {
 class WafSessions {
   WafSessions._();
 
-  static final Map<String, WafSessionStore> _stores = <String, WafSessionStore>{};
+  static final Map<String, WafSessionStore> _stores =
+      <String, WafSessionStore>{};
 
   /// 某板块的会话存储（库没打开时为 null）。
   static WafSessionStore? storeOf(Section section) {
@@ -220,8 +227,11 @@ class WafSessions {
       storeOf(section)?.cookieHeader(sourceId);
 
   /// 保存（网页视图关闭时调用）；库没打开则返回 null。
-  static String? save(Section section, String sourceId, Map<String, String> cookies) =>
-      storeOf(section)?.save(sourceId, cookies);
+  static String? save(
+    Section section,
+    String sourceId,
+    Map<String, String> cookies,
+  ) => storeOf(section)?.save(sourceId, cookies);
 
   /// 某个图源当前有没有会话（页面据此显示「已取回会话」）。
   static int countFor(Section section, String sourceId) =>
@@ -232,8 +242,11 @@ class WafSessions {
       storeOf(section)?.userAgent(sourceId);
 
   /// 保存验证时用的 UA。
-  static void saveUserAgent(Section section, String sourceId, String? userAgent) =>
-      storeOf(section)?.saveUserAgent(sourceId, userAgent);
+  static void saveUserAgent(
+    Section section,
+    String sourceId,
+    String? userAgent,
+  ) => storeOf(section)?.saveUserAgent(sourceId, userAgent);
 
   /// 仅测试用：丢掉缓存句柄。
   static void resetForTesting() => _stores.clear();
@@ -250,26 +263,37 @@ Map<String, String> webViewCookiesForUrl(List<Object?> entries, String url) {
   for (final entry in entries) {
     if (entry is! Map) continue;
     final rawDomain = '${entry['domain'] ?? ''}'.toLowerCase();
-    final domain = rawDomain.startsWith('.') ? rawDomain.substring(1) : rawDomain;
+    final domain = rawDomain.startsWith('.')
+        ? rawDomain.substring(1)
+        : rawDomain;
     if (domain.isEmpty) continue;
-    final matches = host == domain ||
+    final matches =
+        host == domain ||
         (rawDomain.startsWith('.') && host.endsWith('.$domain'));
     if (!matches) continue;
     final cookiePath = '${entry['path'] ?? '/'}';
     if (path != cookiePath &&
         !(path.startsWith(cookiePath) &&
             (cookiePath.endsWith('/') ||
-                (path.length > cookiePath.length && path[cookiePath.length] == '/')))) {
+                (path.length > cookiePath.length &&
+                    path[cookiePath.length] == '/')))) {
       continue;
     }
     if (entry['secure'] == true && uri.scheme != 'https') continue;
     final expires = entry['expires'];
-    if (expires is num && expires * 1000 <= DateTime.now().millisecondsSinceEpoch) continue;
+    if (expires is num &&
+        expires * 1000 <= DateTime.now().millisecondsSinceEpoch) {
+      continue;
+    }
     candidates.add(entry);
   }
   candidates.sort((a, b) {
-    final pathOrder = '${a['path'] ?? '/'}'.length.compareTo('${b['path'] ?? '/'}'.length);
-    return pathOrder != 0 ? pathOrder : '${a['domain']}'.length.compareTo('${b['domain']}'.length);
+    final pathOrder = '${a['path'] ?? '/'}'.length.compareTo(
+      '${b['path'] ?? '/'}'.length,
+    );
+    return pathOrder != 0
+        ? pathOrder
+        : '${a['domain']}'.length.compareTo('${b['domain']}'.length);
   });
   final result = <String, String>{};
   for (final entry in candidates) {
@@ -318,7 +342,9 @@ bool webViewMayHelp(String? message) {
   if (kind == WafFailureKind.bridge) return false;
   if (kind == WafFailureKind.webView) return true;
   final text = (message ?? '').toUpperCase();
-  if (text.contains('超时') || text.contains('TIMEOUT') || text.contains('TIMED OUT')) {
+  if (text.contains('超时') ||
+      text.contains('TIMEOUT') ||
+      text.contains('TIMED OUT')) {
     return true;
   }
   if (text.contains('网络') ||
@@ -386,10 +412,15 @@ String? resolveWebViewOrigin({
   // ①② 拿得到具体地址就用具体地址（挑战按路径下发）。
   final fromMessage = _absoluteUrlFrom(urlFromFailure(failureMessage));
   if (fromMessage != null) return fromMessage;
-  final fromLog = _absoluteUrlFrom(SourceRequestLog.lastFor(sourceId ?? '', quiet: quiet));
+  final fromLog = _absoluteUrlFrom(
+    SourceRequestLog.lastFor(sourceId ?? '', quiet: quiet),
+  );
   if (fromLog != null) return fromLog;
   // ③④ 只有订阅地址 / 源 id 里的域名可用时，退回域名（聊胜于无）。
-  final fallback = guessWebViewAddress(sourceId: sourceId, originUrl: originUrl);
+  final fallback = guessWebViewAddress(
+    sourceId: sourceId,
+    originUrl: originUrl,
+  );
   return fallback.isEmpty ? null : fallback;
 }
 
@@ -437,7 +468,9 @@ String? normalizeWebViewAddress(String? input) {
   // 百分号编码的 host，直接拿去开窗只会打不开——那又变成「点了没反应」。
   if (!_looksLikeHost(host)) return null;
   final scheme = uri?.scheme == 'http' ? 'http' : 'https';
-  return uri?.hasPort == true ? '$scheme://$host:${uri!.port}' : '$scheme://$host';
+  return uri?.hasPort == true
+      ? '$scheme://$host:${uri!.port}'
+      : '$scheme://$host';
 }
 
 /// 域名形状：ASCII 字母数字与短横线，至少两段（`www.example.com`）。

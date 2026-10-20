@@ -76,7 +76,6 @@ enum ComicSpreadMode {
 
 /// 阅读背景：图片之外的留白底色（只改底色，不动图片本身）。
 ///
-/// 与小说侧阅读主题同一套色板（深灰 / 护眼绿 / 纯白取同值），漫画另加纯黑默认。
 enum ComicReaderBackground {
   black('black', '纯黑', Color(0xFF000000)),
   gray('gray', '深灰', Color(0xFF1B1B20)),
@@ -125,7 +124,6 @@ enum ComicTapAction {
 /// 阅读背景、点击行为。
 ///
 /// 持久化在本板块的 `reading.db`（reading_setting 表）里，键名带板块前缀，
-/// 因此漫画与小说的阅读偏好各存各的，互不影响。
 class ComicReaderSettings {
   const ComicReaderSettings({
     this.mode = ComicReadingMode.waterfall,

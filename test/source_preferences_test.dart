@@ -45,7 +45,7 @@ void main() {
               null,
             );
       });
-      await tester.runAsync(() => ReadingLibrary.open(Section.novel));
+      await tester.runAsync(() => ReadingLibrary.open(Section.video));
       tester.view.physicalSize = const Size(375, 812);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -71,7 +71,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             theme: LumeTheme.build(),
-            home: SourceSectionPage(section: Section.novel, manager: manager),
+            home: SourceSectionPage(section: Section.video, manager: manager),
           ),
         );
         await tester.pumpAndSettle();
@@ -84,7 +84,7 @@ void main() {
       expect(find.text('乙源'), findsOneWidget);
       showSourcePicker(
         context: tester.element(find.byType(SourceSectionPage)),
-        section: Section.novel,
+        section: Section.video,
         sources: manager.sources,
         currentId: null,
         manager: manager,
@@ -97,7 +97,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 30));
       });
       await tester.pumpAndSettle();
-      expect(SourcePreferences.read(Section.novel, 'b').pinned, isTrue);
+      expect(SourcePreferences.read(Section.video, 'b').pinned, isTrue);
       await tester.pumpWidget(const SizedBox());
       await showPage();
       expect(
@@ -180,7 +180,7 @@ void main() {
                 size: size,
                 child: const MissingCover(
                   title: '作品标题示例',
-                  section: Section.novel,
+                  section: Section.video,
                 ),
               ),
             ),
@@ -207,9 +207,9 @@ void main() {
           iconUrl: 'https://example.com/icon.png',
         ).save(Section.comic, 'same');
         await const SourcePreferences(pinned: false)
-            .save(Section.novel, 'same');
+            .save(Section.video, 'same');
         expect(SourcePreferences.read(Section.comic, 'same').pinned, isTrue);
-        expect(SourcePreferences.read(Section.novel, 'same').pinned, isFalse);
+        expect(SourcePreferences.read(Section.video, 'same').pinned, isFalse);
         ReadingLibrary.disposeAll();
         ReadingStore.disposeAll();
         await SectionScope.closeAll();

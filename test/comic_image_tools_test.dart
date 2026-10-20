@@ -378,13 +378,10 @@ void main() {
     expect(tools.surfaceEnabled(UpscaleSurface.reader), isTrue);
     expect(tools.surfaceEnabled(UpscaleSurface.cover), isFalse);
     expect(tools.surfaceEnabled(UpscaleSurface.videoPoster), isFalse);
-    expect(tools.surfaceEnabled(UpscaleSurface.novelIllustration), isFalse);
     settings.upscaleCovers = true;
     settings.upscaleVideoPosters = true;
-    settings.upscaleNovelIllustrations = true;
     expect(tools.surfaceEnabled(UpscaleSurface.cover), isTrue);
     expect(tools.surfaceEnabled(UpscaleSurface.videoPoster), isTrue);
-    expect(tools.surfaceEnabled(UpscaleSurface.novelIllustration), isTrue);
     tools.dispose();
   });
 
@@ -408,7 +405,6 @@ void main() {
         ..automatic = true
         ..upscaleCovers = true
         ..upscaleVideoPosters = true
-        ..upscaleNovelIllustrations = true
         ..concurrency = 9
         ..colorizeEndpoint = 'https://image.example/v1/images/edits'
         ..colorizeModel = 'image-model'
@@ -419,7 +415,6 @@ void main() {
       expect(reloaded.automatic, isTrue);
       expect(reloaded.upscaleCovers, isTrue);
       expect(reloaded.upscaleVideoPosters, isTrue);
-      expect(reloaded.upscaleNovelIllustrations, isTrue);
       expect(reloaded.concurrency, 4);
       expect(
         reloaded.colorizeEndpoint,
@@ -603,7 +598,6 @@ void main() {
       '自动超分的额外范围',
       '漫画 / 猫源封面',
       '视频海报',
-      '小说封面 / 插图',
       '安装内置模型（8 个）',
       'AI 上色（实验性 · 云端）',
       '保存上色配置',

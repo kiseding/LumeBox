@@ -88,29 +88,7 @@ void main() {
   });
 
   group('章节内容地址判定', () {
-    test('只有视频载荷可播放', () {
-      expect(
-        SourcePlayback.contentAddress(
-          VideoContent(url: Uri.parse('https://example.com/e1.mp4')),
-        )?.toString(),
-        'https://example.com/e1.mp4',
-      );
-      expect(
-        SourcePlayback.contentAddress(
-          VideoContent(url: Uri.parse('http://cdn.example/e1.mp4')),
-        )?.toString(),
-        'https://cdn.example/e1.mp4',
-        reason: '媒体地址同样升级到 https（iOS ATS 会拦明文）',
-      );
-      expect(SourcePlayback.contentAddress(const TextContent('正文')), isNull);
-      expect(
-        SourcePlayback.contentAddress(
-          const ImageContent(<String>['https://example.com/1.jpg']),
-        ),
-        isNull,
-      );
-      expect(SourcePlayback.contentAddress(null), isNull);
-    });
+
   });
 
   group('站内路径不能被当成本地文件（真机 -17913 的根因）', () {

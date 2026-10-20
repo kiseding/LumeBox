@@ -55,7 +55,7 @@ void main() {
       final name = script.uri.pathSegments.last;
       final section = Section.values.firstWhere(
         (item) => script.uri.pathSegments.contains(item.id),
-        orElse: () => Section.novel,
+        orElse: () => Section.video,
       );
       final report = await _audit(script, section);
       stdout.writeln('[audit] $name → ${report.summary}');
@@ -364,7 +364,6 @@ Future<_Outcome> _call(JsDataSource source, String method) async {
       final List<Object?> list => list.isEmpty,
       final SourceList list => list.items.isEmpty,
       final ImageContent content => content.images.isEmpty,
-      final TextContent content => content.text.isEmpty,
       _ => false,
     };
     return _Outcome(_OutcomeKind.ok, empty ? '空结果' : '有数据', '');

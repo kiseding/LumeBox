@@ -5,7 +5,6 @@
 /// 与打开它的板块不符的记录在读写两条路径上都被拒绝——库文件被挪到别的板块
 /// 目录下也不会被误用。
 ///
-/// 板块差异：漫画、小说、视频的进度形状不同（页位置 / 字符偏移 / 剧集+时间点），
 /// 用密封类 [ReadingProgress] 的各支表达；读取方按板块断言具体类型，口径不会混用。
 library;
 
@@ -48,7 +47,6 @@ class ReadingTarget {
   String toString() => 'ReadingTarget($sourceId, $itemId, $title)';
 }
 
-/// 书架条目。漫画书架、小说书架共用同一形状，展示口径各自决定。
 class LibraryItem {
   const LibraryItem({
     required this.section,
@@ -151,7 +149,6 @@ class LibraryItem {
 
 /// 阅读进度基类。
 ///
-/// 漫画与小说的进度形状不同，因此分两支；两支都带板块标记，且只在所属板块的
 /// 库里读写。进度与书架条目分表存放：清空书架不应连带丢掉阅读记录，
 /// 反之亦然。
 sealed class ReadingProgress {
@@ -177,7 +174,6 @@ sealed class ReadingProgress {
 
   final DateTime updatedAt;
 
-  /// 跳到另一章：章内位置归零（漫画回第 1 页，小说回字符 0，视频回 0:00）。
   ReadingProgress withChapter({
     required int chapterIndex,
     required String chapterId,
@@ -229,59 +225,9 @@ final class ComicProgress extends ReadingProgress {
   String describe() => '第 ${chapterIndex + 1} 章 · 第 ${page + 1} 页';
 }
 
-/// 小说进度：章节索引 + 章节内文本字符偏移量。
-final class NovelProgress extends ReadingProgress {
-  const NovelProgress({
-    required super.section,
-    required super.itemId,
-    required super.chapterIndex,
-    required super.chapterId,
-    required super.chapterTitle,
-    required super.updatedAt,
-    required this.charOffset,
-    this.chapterLength = 0,
-  });
-
-  /// 章节内字符偏移量（相对规范化后的章节文本）。
-  final int charOffset;
-
-  /// 章节字符数快照；0 表示未知。用于书架展示百分比。
-  final int chapterLength;
-
-  /// 本章读了多少（0..1）。长度未知时返回 0。
-  double get chapterRatio {
-    if (chapterLength <= 0) return 0;
-    return (charOffset / chapterLength).clamp(0.0, 1.0);
-  }
-
-  @override
-  NovelProgress withChapter({
-    required int chapterIndex,
-    required String chapterId,
-    required String chapterTitle,
-  }) {
-    return NovelProgress(
-      section: section,
-      itemId: itemId,
-      chapterIndex: chapterIndex,
-      chapterId: chapterId,
-      chapterTitle: chapterTitle,
-      updatedAt: DateTime.now(),
-      charOffset: 0,
-    );
-  }
-
-  @override
-  String describe() {
-    final percent = (chapterRatio * 100).round();
-    return '第 ${chapterIndex + 1} 章 · $percent%';
-  }
-}
-
 /// 视频进度：剧集序号 + 播放时间点（文档要求「视频记忆到集数 + 播放时间点」）。
 ///
 /// 与阅读进度的差别在于「位置」的含义：这里是**播放时间**（毫秒），而漫画是页
-/// 序号、小说是字符偏移。三者共用一张表，靠板块与形状区分（见 [ReadingProgress]）。
 ///
 /// 剧集序号沿用 [chapterIndex]：视频的「章」就是剧集，选集列表的下标即它。
 final class VideoProgress extends ReadingProgress {

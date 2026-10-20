@@ -39,7 +39,7 @@ void main() {
         ),
       );
       expect(entry.kind, ResourceKind.audioBook);
-      expect(entry.destination, Section.novel);
+      expect(entry.destination, Section.video);
       expect(entry.originSection, Section.video);
       expect(entry.manual, false);
     },
@@ -51,7 +51,7 @@ void main() {
           (_) async => {'known': true, 'audio': true, 'video': true},
         );
     final entry = await MediaResourceService(library: library).source(
-      source: FakeReadingDataSource(section: Section.novel),
+      source: FakeReadingDataSource(section: Section.video),
       item: const SourceItem(id: 'video', title: '视频'),
       chapters: const [SourceChapter(id: '1', title: '第1集')],
       firstContent: VideoContent(
@@ -62,55 +62,7 @@ void main() {
     expect(entry.kind, ResourceKind.video);
     expect(entry.destination, Section.video);
   });
-  test(
-    'manual migration survives detection and reopen without rewriting origin',
-    () async {
-      const item = SourceItem(id: 'manual', title: '可迁移');
-      final source = FakeReadingDataSource(section: Section.video);
-      final service = MediaResourceService(library: library);
-      final entry = await service.source(
-        source: source,
-        item: item,
-        chapters: const [SourceChapter(id: 'c', title: '章节')],
-        firstContent: const TextContent('这是真正的小说正文。'),
-      );
-      expect(entry.kind, ResourceKind.novel);
-      expect(entry.destination, Section.novel);
-      final moved = await library.move(
-        entry.id,
-        ResourceKind.audioBook,
-        Section.video,
-      );
-      expect(moved.manual, true);
-      expect(moved.originSection, Section.video);
-      final rediscovered = await service.source(
-        source: source,
-        item: item,
-        chapters: const [],
-        firstContent: const TextContent('正文仍然不变'),
-      );
-      expect(rediscovered.kind, ResourceKind.audioBook);
-      expect(rediscovered.destination, Section.video);
-      final updated = await service.source(
-        source: source,
-        item: item,
-        chapters: const [SourceChapter(id: 'new', title: '更新章节')],
-      );
-      expect(updated.kind, ResourceKind.audioBook);
-      expect(updated.destination, Section.video);
-      expect(updated.episodes.single.id, 'new');
-      final reopened = MediaLibrary();
-      await reopened.boot(directory: root);
-      expect(reopened.byId(entry.id)!.kind, ResourceKind.audioBook);
-      await reopened.move(entry.id, ResourceKind.audioBook, Section.novel);
-      expect(
-        reopened.visibleAtOrigin(Section.video, source.id, item.id),
-        false,
-      );
-      expect(reopened.entries(Section.novel).single.itemId, item.id);
-      reopened.dispose();
-    },
-  );
+
   test('audio payload kinds retain audio classification hint', () {
     final content = ChapterContent.parse({
       'kind': 'audio',
@@ -123,5 +75,51 @@ void main() {
       ResourceKind.audioBook,
     );
     expect(const MediaTrackInfo().kind, null);
+  });
+
+  test('旧小说库中的成品音频仍保留，文本小说不会恢复', () {
+    final entry = MediaResource.fromJson({
+      'id': 'old-audio',
+      'title': '音频',
+      'kind': 'audioBook',
+      'destination': 'novel',
+      'episodes': [
+        {'id': 'one', 'title': '第一集', 'url': 'file:///audio/one.mp3'},
+      ],
+    });
+    expect(entry.destination, Section.video);
+    expect(entry.episodes.single.url.toString(), 'file:///audio/one.mp3');
+    expect(
+      () => MediaResource.fromJson({
+        'id': 'old-text',
+        'title': '正文',
+        'kind': 'textNovel',
+        'destination': 'novel',
+        'episodes': [],
+      }),
+      throwsArgumentError,
+    );
+  });
+
+  test('音频播放队列保留延迟解析地址与请求头', () async {
+    final entry = MediaResource(
+      id: 'playlist',
+      title: '音频合集',
+      kind: ResourceKind.audioBook,
+      destination: Section.video,
+      episodes: [
+        ResourceEpisode(
+          id: 'one',
+          title: '第一集',
+          url: Uri.parse('https://example.test/audio.mp3'),
+          headers: const {'Referer': 'https://example.test/'},
+        ),
+      ],
+    );
+    final tracks = MediaResourceService(library: library).audioTracks(entry);
+    expect(tracks.single.album, entry.title);
+    final resolved = await tracks.single.resolve!();
+    expect(resolved.url, entry.episodes.single.url);
+    expect(resolved.headers, entry.episodes.single.headers);
   });
 }

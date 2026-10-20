@@ -97,7 +97,6 @@ class FakeReadingDataSource implements DataSource {
   }) async {
     _tick();
     return switch (section) {
-      Section.novel => TextContent(chapterText(itemId, chapterId)),
       Section.comic => ImageContent(<String>[
           for (var index = 1; index <= imageCount; index++)
             '$imageHost/$chapterId/$index.jpg',

@@ -49,7 +49,7 @@ void main() {
     expect(cat.contains('lume.source.fetch'), isTrue);
 
     for (final section in <Section>[
-      Section.novel,
+      Section.video,
       Section.comic,
       Section.video,
     ]) {

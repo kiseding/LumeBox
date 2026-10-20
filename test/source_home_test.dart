@@ -8,19 +8,19 @@ import 'package:lume_box/features/source/source_home_page.dart';
 
 import 'support/fake_source_manager.dart';
 
-/// 板块业务页（小说 / 漫画）的功能验证：用替身管理器 + 模拟数据源驱动**真实页面**，
+/// 板块业务页（视频 / 漫画）的功能验证：用替身管理器 + 模拟数据源驱动**真实页面**，
 /// 走通「当前图源 → 分类 → 列表 → 搜索 → 详情 → 章节提示」以及图源切换与管理入口。
 ///
 /// 替身只存在于测试里，生产代码不带任何 Mock 或 Debug 入口；正式实现由
 /// `LumeSources.manager(section)` 提供。因此没有图源运行时的 Windows 上，
 /// 这套页面粘合逻辑依然可以被完整验证。
 void main() {
-  const novel = Section.novel;
+  const video = Section.video;
 
   Future<void> pumpHome(
     WidgetTester tester,
     SourceManager manager, {
-    Section section = novel,
+    Section section = video,
   }) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -40,8 +40,8 @@ void main() {
       FakeSourceManager(
         sources: <SourceDescriptor>[
           const SourceDescriptor(
-            id: 'novel-1',
-            name: '小说示例源',
+            id: 'video-1',
+            name: '视频示例源',
             version: '2.0.0',
             enabled: true,
           ),
@@ -49,15 +49,15 @@ void main() {
         ],
         opened: opened ??
             <String, DataSource>{
-              'novel-1': const MockDataSource(section: novel),
+              'video-1': const MockDataSource(section: video),
             },
       );
 
   /// 与模拟源区分得开的第二图源，用于验证切换后页面确实换了数据源。
   const backup = _NamedSource(
-    id: 'novel-2',
+    id: 'video-2',
     name: '备用图源',
-    section: novel,
+    section: video,
     itemTitle: '备用条目',
   );
 
@@ -66,21 +66,21 @@ void main() {
     await pumpHome(tester, manager);
 
     // 图源条显示板块内当前图源。
-    expect(find.text('小说示例源'), findsOneWidget);
+    expect(find.text('视频示例源'), findsOneWidget);
 
     // 分类与列表来自图源。
     expect(find.text('全部'), findsOneWidget);
-    expect(find.text('玄幻'), findsOneWidget);
+    expect(find.text('电影'), findsOneWidget);
     expect(find.text('最新 · 模拟条目 1'), findsOneWidget);
-    expect(manager.openedIds, <String>['novel-1']);
+    expect(manager.openedIds, <String>['video-1']);
   });
 
   testWidgets('分类切换与搜索都走同一个列表入口', (tester) async {
     await pumpHome(tester, managerWithNovelSource());
 
-    await tester.tap(find.text('玄幻'));
+    await tester.tap(find.text('电影'));
     await tester.pumpAndSettle();
-    expect(find.text('玄幻 · 模拟条目 1'), findsOneWidget);
+    expect(find.text('电影 · 模拟条目 1'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), '测试');
     await tester.testTextInput.receiveAction(TextInputAction.search);
@@ -104,26 +104,26 @@ void main() {
     final manager = managerWithNovelSource(
       extra: const <SourceDescriptor>[
         SourceDescriptor(
-          id: 'novel-2',
+          id: 'video-2',
           name: '备用图源',
           version: '1.0.0',
           enabled: true,
         ),
         SourceDescriptor(
-          id: 'novel-9',
+          id: 'video-9',
           name: '停用图源',
           version: '1.0.0',
           enabled: false,
         ),
       ],
       opened: <String, DataSource>{
-        'novel-1': const MockDataSource(section: novel),
-        'novel-2': backup,
+        'video-1': const MockDataSource(section: video),
+        'video-2': backup,
       },
     );
     await pumpHome(tester, manager);
 
-    await tester.tap(find.text('小说示例源'));
+    await tester.tap(find.text('视频示例源'));
     await tester.pumpAndSettle();
     expect(find.text('切换源'), findsOneWidget);
     expect(find.text('备用图源'), findsOneWidget);
@@ -133,7 +133,7 @@ void main() {
     await tester.tap(find.text('备用图源'));
     await tester.pumpAndSettle();
 
-    expect(manager.selectedIds, <String>['novel-2']);
+    expect(manager.selectedIds, <String>['video-2']);
     expect(find.text('备用条目'), findsOneWidget);
     expect(find.text('备用图源'), findsOneWidget, reason: '源条应显示新的当前源');
     expect(find.text('最新 · 模拟条目 1'), findsNothing);
@@ -144,7 +144,7 @@ void main() {
       sources: const <SourceDescriptor>[
         SourceDescriptor(id: 'alien', name: '外来图源', version: '', enabled: true),
       ],
-      // 小说明面上是小说板块的图源，实际交出漫画板块的数据源。
+      // 视频明面上是视频板块的图源，实际交出漫画板块的数据源。
       opened: <String, DataSource>{
         'alien': const MockDataSource(section: Section.comic),
       },
@@ -159,7 +159,7 @@ void main() {
     final manager = FakeSourceManager(
       sources: const <SourceDescriptor>[
         SourceDescriptor(
-          id: 'novel-1',
+          id: 'video-1',
           name: '停用图源',
           version: '',
           enabled: false,
@@ -196,8 +196,8 @@ void main() {
   testWidgets('网络异常：浏览面单独呈现，重试后恢复', (tester) async {
     final manager = managerWithNovelSource(
       opened: <String, DataSource>{
-        'novel-1': _FailingSource(
-          section: novel,
+        'video-1': _FailingSource(
+          section: video,
           failure: const SourceException(
             SourceErrorKind.network,
             '网络请求失败：连接被拒绝',
@@ -220,8 +220,8 @@ void main() {
   testWidgets('脚本报错：浏览面呈现脚本错误原因，且不冒充网络异常', (tester) async {
     final manager = managerWithNovelSource(
       opened: <String, DataSource>{
-        'novel-1': _FailingSource(
-          section: novel,
+        'video-1': _FailingSource(
+          section: video,
           failure: const SourceException(
             SourceErrorKind.callFailed,
             'TypeError: x is not a function',
@@ -241,15 +241,15 @@ void main() {
     final manager = managerWithNovelSource(
       extra: const <SourceDescriptor>[
         SourceDescriptor(
-          id: 'novel-2',
+          id: 'video-2',
           name: '备用图源',
           version: '1.0.0',
           enabled: true,
         ),
       ],
       opened: <String, DataSource>{
-        'novel-1': const MockDataSource(section: novel),
-        'novel-2': backup,
+        'video-1': const MockDataSource(section: video),
+        'video-2': backup,
       },
     );
     await pumpHome(tester, manager);
@@ -262,7 +262,7 @@ void main() {
     // 在图源管理里停用当前图源。
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
-    expect(manager.toggled.single, ('novel-1', false));
+    expect(manager.toggled.single, ('video-1', false));
 
     await tester.pageBack();
     await tester.pumpAndSettle();

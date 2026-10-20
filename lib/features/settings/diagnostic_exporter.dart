@@ -150,8 +150,7 @@ class DiagnosticExporter {
           data['settings'] = {
             for (final entry in library.exportSettings().entries)
               if (entry.key.startsWith('video.player.') ||
-                  entry.key.startsWith('comic.reader.') ||
-                  entry.key.startsWith('novel.reader.'))
+                  entry.key.startsWith('comic.reader.'))
                 entry.key: entry.value,
           };
         }

@@ -17,19 +17,19 @@ import 'support/fake_source_manager.dart';
 /// 每个板块各用一个替身管理器驱动真实页面；断言不只看界面，还看「操作是否只
 /// 落到目标板块的端口上」——板块隔离（宪法第 3 条）在这里有页面级证据。
 void main() {
-  const novel = Section.novel;
+  const novel = Section.video;
   const comic = Section.comic;
   const cat = Section.cat;
 
   const novelA = SourceDescriptor(
     id: 'n1',
-    name: '小说源A',
+    name: '视频源A',
     version: '1.0.0',
     enabled: true,
   );
   const novelB = SourceDescriptor(
     id: 'n2',
-    name: '小说源B',
+    name: '视频源B',
     version: '',
     enabled: false,
   );
@@ -82,7 +82,7 @@ void main() {
       },
     );
     await pumpPage(tester, managers);
-    await tester.tap(find.text('小说 1/2'));
+    await tester.tap(find.text('视频 1/2'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('站点维护'));
     await tester.pumpAndSettle();
@@ -97,7 +97,7 @@ void main() {
     expect((await managers[comic]!.list()).single.enabled, isTrue);
     await tester.tap(find.text('删除所选'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('范围：小说'), findsOneWidget);
+    expect(find.textContaining('范围：视频'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect((await managers[novel]!.list()).length, 2);
@@ -121,22 +121,21 @@ void main() {
 
     // 筛选行：全部 + 每板块「启用 / 总数」。
     expect(find.text('全部 2/3'), findsOneWidget);
-    expect(find.text('小说 1/2'), findsOneWidget);
+    expect(find.text('视频 1/2'), findsOneWidget);
     expect(find.text('漫画 1/1'), findsOneWidget);
-    expect(find.text('视频 0/0'), findsOneWidget);
     expect(find.text('猫源 0/0'), findsOneWidget);
 
     // 分组与条目：名称、版本、停用标记；版本为空时回退项目名。
-    expect(find.text('小说'), findsOneWidget);
-    expect(find.text('小说源A'), findsOneWidget);
+    expect(find.text('视频'), findsOneWidget);
+    expect(find.text('视频源A'), findsOneWidget);
     expect(find.text('1.0.0'), findsOneWidget);
-    expect(find.text('小说源B'), findsOneWidget);
+    expect(find.text('视频源B'), findsOneWidget);
     expect(find.text('已停用'), findsOneWidget);
     expect(find.text(LumeTheme.appName), findsWidgets);
     expect(find.text('漫画源'), findsOneWidget);
 
     // 没有图源的板块给出空提示。
-    expect(find.text('暂无源'), findsNWidgets(2));
+    expect(find.text('暂无源'), findsNWidgets(1));
   });
 
   testWidgets('筛选：只显示所选板块的分组', (tester) async {
@@ -153,13 +152,13 @@ void main() {
 
     expect(find.text('漫画源'), findsOneWidget);
     expect(find.text('漫画'), findsOneWidget);
-    expect(find.text('小说源A'), findsNothing);
-    expect(find.text('小说'), findsNothing);
+    expect(find.text('视频源A'), findsNothing);
+    expect(find.text('视频'), findsNothing);
 
-    // 回到「全部」后小说分组回来。
+    // 回到「全部」后视频分组回来。
     await tester.tap(find.text('全部 2/2'));
     await tester.pumpAndSettle();
-    expect(find.text('小说源A'), findsOneWidget);
+    expect(find.text('视频源A'), findsOneWidget);
   });
 
   testWidgets('导入：只写入所选板块，列表随即刷新', (tester) async {
@@ -224,7 +223,7 @@ void main() {
     );
     await pumpPage(tester, managers);
 
-    await tester.tap(find.byTooltip('导入到小说'));
+    await tester.tap(find.byTooltip('导入到视频'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
@@ -352,8 +351,8 @@ void main() {
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
 
-    expect(managers[novel]!.imported.single, contains('剪贴板源'));
-    expect(managers[comic]!.imported, isEmpty);
+    expect(managers[comic]!.imported.single, contains('剪贴板源'));
+    expect(managers[novel]!.imported, isEmpty);
   });
 
   testWidgets('启停：只写入所属板块，停用后浏览入口禁用', (tester) async {
@@ -486,7 +485,7 @@ void main() {
     await pumpPage(tester, managers, size: const Size(390, 844));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('小说 1/1'), findsOneWidget);
+    expect(find.text('视频 1/1'), findsOneWidget);
     expect(
       tester.widget<Text>(find.text('一个非常长的图源名称用于验证省略号是否生效')).overflow,
       TextOverflow.ellipsis,
@@ -518,7 +517,7 @@ void main() {
     /// 一条「有订阅地址」的源（可刷新）。
     const novelSubscribed = SourceDescriptor(
       id: 'n-sub',
-      name: '订阅小说源',
+      name: '订阅视频源',
       version: '1.0.0',
       enabled: true,
       originUrl: 'https://example.com/novel.js',
@@ -527,7 +526,7 @@ void main() {
     /// 一条本地导入的源（没有订阅地址，不该被刷新）。
     const novelLocal = SourceDescriptor(
       id: 'n-local',
-      name: '本地小说源',
+      name: '本地视频源',
       version: '1.0.0',
       enabled: true,
     );
@@ -566,11 +565,10 @@ void main() {
         reason: '本地导入的源没有订阅地址，不该出现在刷新范围里',
       );
       // 其他板块没被误伤。
-      expect(managers[Section.video]!.updatedIds, isEmpty);
       expect(managers[Section.cat]!.updatedIds, isEmpty);
     });
 
-    testWidgets('刷新按板块隔离：小说源只经小说板块的端口', (tester) async {
+    testWidgets('刷新按板块隔离：视频源只经视频板块的端口', (tester) async {
       final managers = fakeManagers(
         sources: <Section, List<SourceDescriptor>>{
           novel: const <SourceDescriptor>[novelSubscribed],
@@ -605,7 +603,7 @@ void main() {
           const SourceUpdateResult.updated(
             SourceDescriptor(
               id: 'n-sub',
-              name: '订阅小说源',
+              name: '订阅视频源',
               version: '2.0.0',
               enabled: true,
               originUrl: 'https://example.com/novel.js',

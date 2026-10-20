@@ -1303,7 +1303,6 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       bridge.id = String(instance.key == null ? name : instance.key);
       bridge.name = String(instance.name == null ? name : instance.name);
       bridge.version = String(instance.version == null ? '' : instance.version);
-      // 板块自报为漫画：于是「Venera 源被导入小说 / 视频板块」会走**既有的**
       // 跨板块校验被拦下，报的是人话（跨板块），而不是一句
       // 「ComicSource is not defined」（那正是用户先前遇到的那类报错）。
       bridge.category = 'comic';

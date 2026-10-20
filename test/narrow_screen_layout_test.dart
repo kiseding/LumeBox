@@ -20,7 +20,6 @@ import 'package:lume_box/features/settings/log_viewer_page.dart';
 import 'package:lume_box/features/settings/network_settings_page.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
 import 'package:lume_box/features/comic/comic_page.dart';
-import 'package:lume_box/features/novel/novel_page.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
@@ -173,7 +172,6 @@ void main() {
   // 320pt 下最容易挤爆的就是这一排；播放器页的控制栏也是一排图标。
   sweep('板块与播放器', <String, Widget Function()>{
     '视频浏览页（四枚图标）': () => const VideoPage(catalog: _NoKernelCatalog()),
-    '小说板块': () => NovelPage(runtimeAvailable: true, manager: FakeSourceManager()),
     '漫画板块': () => ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
     '播放器页': () => VideoPlayerPage(
           fullscreenOnly: false,
@@ -203,7 +201,7 @@ void main() {
     // 「只剩 1 个页签」时管理页会多出「不能关掉」提示行，一并扫到。
     '底部导航栏管理（剩 1 个）': () {
       final controller = ShellSettingsController.instance;
-      for (final id in <String>['comic', 'video', 'cat', 'settings']) {
+      for (final id in <String>['video', 'cat', 'settings']) {
         controller.apply(controller.settings.withVisible(id, false)!);
       }
       return const TabBarSettingsPage();
@@ -220,7 +218,7 @@ void main() {
           managerFactory: (_) => FakeSourceManager(sources: crowdedSources()),
         ),
     '板块源管理': () => SourceSectionPage(
-          section: Section.novel,
+          section: Section.video,
           manager: FakeSourceManager(sources: crowdedSources()),
         ),
   });

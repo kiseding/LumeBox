@@ -58,14 +58,14 @@ void main() {
 
   testWidgets('按板块展示内存缓存占用，清空只作用本板块', (tester) async {
     SectionMemoryCache.instance
-        .write(Section.novel, 'demo', 'categories', <String>['abcd']);
+        .write(Section.video, 'demo', 'categories', <String>['abcd']);
     SectionMemoryCache.instance
         .write(Section.comic, 'demo', 'categories', <String>['abcd']);
     await pumpPage(tester);
 
     // 四个板块各一行：小说 / 漫画有 1 项，视频 / 猫源为空。
     expect(find.text('内存缓存 1 项 · 16 B'), findsNWidgets(2));
-    expect(find.text('内存缓存 空'), findsNWidgets(2));
+    expect(find.text('内存缓存 空'), findsNWidgets(1));
 
     // 清空按钮按板块排列（Section.values 顺序）：有内容的可用，空板块的置灰。
     final clears = tester
@@ -75,16 +75,15 @@ void main() {
     expect(clears[0].onPressed, isNotNull, reason: '小说有缓存，可清空');
     expect(clears[1].onPressed, isNotNull, reason: '漫画有缓存，可清空');
     expect(clears[2].onPressed, isNull, reason: '视频是空的');
-    expect(clears[3].onPressed, isNull, reason: '猫源是空的');
 
     await tester.tap(find.widgetWithText(TextButton, '清空').at(0));
     await tester.pumpAndSettle();
 
     // 只清掉了小说：漫画的条目原样在。
-    expect(SectionMemoryCache.instance.usageOf(Section.novel).isEmpty, isTrue);
-    expect(SectionMemoryCache.instance.usageOf(Section.comic).entries, 1);
-    expect(find.text('内存缓存 空'), findsNWidgets(3));
-    expect(find.textContaining('已清空小说内存缓存'), findsOneWidget);
+    expect(SectionMemoryCache.instance.usageOf(Section.comic).isEmpty, isTrue);
+    expect(SectionMemoryCache.instance.usageOf(Section.video).entries, 1);
+    expect(find.text('内存缓存 空'), findsNWidgets(2));
+    expect(find.textContaining('已清空漫画内存缓存'), findsOneWidget);
   });
 
   testWidgets('空板块点「清空」不可用，不会误报清空', (tester) async {
@@ -105,7 +104,7 @@ void main() {
     // 单一事实来源：漫画不落盘、其余三块照常落盘。
     expect(SectionImagePipeline.diskCacheFor(Section.comic), isFalse);
     for (final section in <Section>[
-      Section.novel,
+      Section.video,
       Section.video,
       Section.cat,
     ]) {

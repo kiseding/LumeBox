@@ -55,7 +55,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   }
 }
 
-/// 全屏页监听：任何全屏页面（小说 / 漫画阅读器、详情、二级设置页）压栈时
+/// 全屏页监听：任何全屏页面（漫画阅读器、详情、二级设置页）压栈时
 /// 自动隐藏 Dock，出栈后恢复。
 ///
 /// 只认 [PageRoute]：对话框、底部面板这类弹出层属于 PopupRoute，不改变底部

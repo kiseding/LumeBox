@@ -25,21 +25,21 @@ void main() {
   }
 
   testWidgets('模拟源驱动整条链路：分类 → 列表 → 详情 → 章节 → 阅读器提示', (tester) async {
-    await pumpBrowse(tester, const MockDataSource(section: Section.novel));
+    await pumpBrowse(tester, const MockDataSource(section: Section.video));
 
     // 标题：板块 · 图源名；分类行：全部 + 图源提供的分类。
-    expect(find.text('小说 · 小说模拟源'), findsOneWidget);
+    expect(find.text('视频 · 视频模拟源'), findsOneWidget);
     expect(find.text('全部'), findsOneWidget);
-    expect(find.text('玄幻'), findsOneWidget);
+    expect(find.text('电影'), findsOneWidget);
     expect(find.text('最新 · 模拟条目 1'), findsOneWidget);
 
     // 切分类后列表走同一个入口重新加载。
-    await tester.tap(find.text('玄幻'));
+    await tester.tap(find.text('电影'));
     await tester.pumpAndSettle();
-    expect(find.text('玄幻 · 模拟条目 1'), findsOneWidget);
+    expect(find.text('电影 · 模拟条目 1'), findsOneWidget);
 
     // 进详情：图源名字与章节数来自接口。
-    await tester.tap(find.text('玄幻 · 模拟条目 1'));
+    await tester.tap(find.text('电影 · 模拟条目 1'));
     await tester.pumpAndSettle();
     expect(find.text('章节（5）'), findsOneWidget);
     expect(find.text('第 1 章'), findsOneWidget);
@@ -91,7 +91,7 @@ class _CoverSource implements DataSource {
   String get name => '带封面源';
 
   @override
-  Section get section => Section.novel;
+  Section get section => Section.video;
 
   @override
   Future<List<SourceCategory>> categories() async => const <SourceCategory>[];
@@ -142,7 +142,7 @@ class _NoCategorySource implements DataSource {
   String get name => '无分类源';
 
   @override
-  Section get section => Section.novel;
+  Section get section => Section.video;
 
   @override
   Future<List<SourceCategory>> categories() async => const <SourceCategory>[];

@@ -7,13 +7,16 @@ import 'core/theme/appearance.dart';
 import 'core/theme/lume_theme.dart';
 import 'core/theme/user_fonts.dart';
 import 'core/theme/interface_typography.dart';
+import 'core/theme/icon_customization.dart';
+import 'shared/widgets/lume_icon.dart';
+import 'features/settings/icon_library_page.dart';
 import 'features/settings/cache_pruner.dart';
 import 'features/shell/app_shell.dart';
 import 'features/shell/shell_dock.dart';
 
 /// Lume Box 应用入口。
 ///
-/// 启动即进入主导航壳（五个页签：小说 / 漫画 / 视频 / 猫源 / 设置），
+/// 启动即进入主导航壳（四个页签：漫画 / 视频 / 猫源 / 设置），
 /// 没有中间首页。全屏页（阅读器 / 播放器）由 [ShellDockObserver] 联动隐藏
 /// 底部 Dock —— 观察者与导航壳共享同一个 [ShellDockController] 实例。
 class LumeBoxApp extends StatefulWidget {
@@ -25,6 +28,7 @@ class LumeBoxApp extends StatefulWidget {
 
 class _LumeBoxAppState extends State<LumeBoxApp> {
   final ShellDockController _dock = ShellDockController();
+  late final ShellDockObserver _dockObserver = ShellDockObserver(_dock);
 
   /// 缓存策略的后台执行器：启动后延迟首跑，之后定期复查（只在配了策略时才干活）。
   final CachePruner _cachePruner = CachePruner();
@@ -33,6 +37,7 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
   void initState() {
     super.initState();
     _cachePruner.start();
+    IconCustomization.instance.boot();
   }
 
   @override
@@ -47,7 +52,7 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
     // 全局外观由「设置 → 显示」决定（亮暗模式 + 主题色），见 `appearance.dart`：
     // - 模式默认跟随系统（文档「全局主题补充」），用户也可以锁定浅色 / 深色；
     // - 主题色只换主色，两套亮度下的分层与对比度结构保持不变。
-    // 阅读器不受这里影响——小说 / 漫画阅读页有自己的阅读主题（见类文档）。
+    // 阅读器不受这里影响——漫画阅读页有自己的阅读主题（见类文档）。
     return ListenableBuilder(
       listenable: Listenable.merge([
         AppearanceController.instance,
@@ -107,11 +112,16 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
                           appearance.textScale,
                         ),
                 ),
-                child: AppPrivacyGuard(child: child ?? const SizedBox.shrink()),
+                child: AppIconEditingScope(
+                  onEdit: editAppIcon,
+                  child: AppPrivacyGuard(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
               ),
             );
           },
-          navigatorObservers: <NavigatorObserver>[ShellDockObserver(_dock)],
+          navigatorObservers: <NavigatorObserver>[_dockObserver],
           home: ListenableBuilder(
             listenable: PrivacySettings.instance,
             builder: (context, _) => AppShell(

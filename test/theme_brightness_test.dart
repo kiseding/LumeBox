@@ -176,21 +176,6 @@ void main() {
   });
 
   group('阅读器不受全局主题影响（文档硬性要求）', () {
-    test('阅读主题有自己的颜色来源，不读 LumeTheme 的色板', () {
-      // 设计约定：小说阅读页读 NovelTypesetting 的阅读主题，漫画阅读页读
-      // ComicSettings 的底色。这里用一个「切换全局亮度不影响阅读主题色」的
-      // 断言把这条约定钉住——阅读页若哪天改成读 LumeTheme，这条会失败。
-      LumeTheme.build(brightness: Brightness.light);
-      final lightPrimary = LumeTheme.textPrimary;
 
-      LumeTheme.build(brightness: Brightness.dark);
-      final darkPrimary = LumeTheme.textPrimary;
-
-      expect(lightPrimary, isNot(darkPrimary), reason: '全局色确实随亮度变了');
-      // 阅读页的主题值来自各自的 store（见 novel_typesetting / comic_settings），
-      // 与上面两个值无关——它们是独立的常量集，不在这里被改写。
-      expect(LumePalette.light.textPrimary, const Color(0xFF1A1A1A));
-      expect(LumePalette.dark.textPrimary, const Color(0xFFF2F2F4));
-    });
   });
 }

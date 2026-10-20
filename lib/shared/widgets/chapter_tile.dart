@@ -1,3 +1,4 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/lume_theme.dart';
@@ -16,7 +17,7 @@ const double kChapterRowHorizontalPadding = 14;
 const int kChapterTitleMaxLines = 2;
 const double kChapterMinTouchHeight = 44;
 
-/// 章节 / 集数列表行：**三个板块共用这一套**（小说 / 漫画的章节、视频的剧集）。
+/// 章节 / 集数列表行：**三个板块共用这一套**（漫画的章节、视频的剧集）。
 ///
 /// 真机出过的问题（用户报「章节项被渲染成短小浅白预览条，文字不清晰，也无法
 /// 正常点击」）：行内垂直内边距只有 2、标题颜色用的是最浅的 `muted`，再加上
@@ -99,8 +100,9 @@ class ChapterTile extends StatelessWidget {
             else if (read)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
-                child: Icon(
+                child: LumeIcon(
                   Icons.done,
+                  slot: 'chapter_tile.1',
                   size: 14,
                   color: LumeTheme.textSecondary,
                 ),
@@ -108,8 +110,9 @@ class ChapterTile extends StatelessWidget {
             ?trailing,
             Padding(
               padding: const EdgeInsets.only(left: 4),
-              child: Icon(
+              child: LumeIcon(
                 Icons.chevron_right,
+                slot: 'chapter_tile.2',
                 size: 20,
                 color: LumeTheme.textSecondary,
               ),

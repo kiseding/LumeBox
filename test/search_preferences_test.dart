@@ -13,7 +13,7 @@ import 'support/fake_reading_source.dart';
 import 'support/fake_source_manager.dart';
 
 class SearchFixture extends FakeReadingDataSource {
-  SearchFixture() : super(section: Section.novel);
+  SearchFixture() : super(section: Section.video);
   String? received;
   @override
   Future<SourceList> list({
@@ -76,7 +76,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: SearchResultsPage(
-            section: Section.novel,
+            section: Section.video,
             keyword: '龍馬',
             mode: mode,
             manager: manager,

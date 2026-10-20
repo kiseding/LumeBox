@@ -110,7 +110,7 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   static Future<void>? _background;
   static Future<void> initialize() => _background ??= JustAudioBackground.init(
     androidNotificationChannelId: 'lumebox.audioBooks',
-    androidNotificationChannelName: '有声小说播放',
+    androidNotificationChannelName: '音频播放',
     androidNotificationOngoing: true,
   );
   @override
@@ -180,10 +180,10 @@ class AudioBookSession extends ChangeNotifier {
     AudioBookPlayer Function()? factory,
     Future<void> Function()? initialize,
     AudioBookSettings? settings,
-    Timer Function(Duration,void Function())? schedule,
+    Timer Function(Duration, void Function())? schedule,
   }) : _factory = factory ?? JustAudioBookPlayer.new,
        _initialize = initialize ?? JustAudioBookPlayer.initialize,
-       _schedule=schedule ?? Timer.new,
+       _schedule = schedule ?? Timer.new,
        settings = settings ?? AudioBookSettings.instance {
     PlaybackFocus.register('audioBook', release);
   }
@@ -191,7 +191,7 @@ class AudioBookSession extends ChangeNotifier {
   final AudioBookPlayer Function() _factory;
   final Future<void> Function() _initialize;
   final AudioBookSettings settings;
-  final Timer Function(Duration,void Function()) _schedule;
+  final Timer Function(Duration, void Function()) _schedule;
   AudioBookPlayer? _player;
   MediaResource? resource;
   Duration position = Duration.zero, duration = Duration.zero;
@@ -239,17 +239,18 @@ class AudioBookSession extends ChangeNotifier {
         _player = _factory();
         _subscriptions.addAll([
           _player!.position.listen((value) {
-            if(!_ready && !loading) return;
+            if (!_ready && !loading) return;
             if (!seeking) {
               position = value;
               notifyListeners();
             }
-            if (!loading && DateTime.now().difference(_savedAt).inSeconds >= 5) {
+            if (!loading &&
+                DateTime.now().difference(_savedAt).inSeconds >= 5) {
               _remember();
             }
           }),
           _player!.duration.listen((value) {
-            if(!_ready && !loading) return;
+            if (!_ready && !loading) return;
             duration = value ?? Duration.zero;
             notifyListeners();
           }),
@@ -259,7 +260,7 @@ class AudioBookSession extends ChangeNotifier {
             if (!loading && !value) _remember();
           }),
           _player!.index.listen((value) {
-            if(!_ready && !loading) return;
+            if (!_ready && !loading) return;
             current = value ?? 0;
             notifyListeners();
           }),

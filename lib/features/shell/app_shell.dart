@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import '../../shared/widgets/module_glass_scope.dart';
 
 import 'package:flutter/rendering.dart' show ScrollDirection;
@@ -7,6 +9,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/session/app_preferences.dart';
 import '../../core/session/configuration_backup.dart';
@@ -23,17 +26,16 @@ import '../cat/cat_page.dart';
 import '../cat/cat_preloader.dart';
 import '../../core/cat/cat_service.dart';
 import '../comic/comic_page.dart';
-import '../novel/novel_page.dart';
 import '../settings/settings_page.dart';
 import '../source/waf_webview_page.dart';
-import '../video/video_page.dart';
+import '../video/video_source_hub.dart';
 import 'section_preloader.dart';
 import 'shell_dock.dart';
 import 'shell_dock_bar.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 
-/// 主导航：五个页签（小说 / 漫画 / 视频 / 猫源 / 设置）。
+/// 主导航：四个页签（漫画 / 视频 / 猫源 / 设置）。
 ///
 /// 移动端是底部悬浮 Dock（毛玻璃胶囊）；桌面端（Windows / macOS / Linux）
 /// 自动换成左侧 NavigationRail —— 同一套页签，两种排布，页签内容不变。
@@ -143,34 +145,27 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static final List<_ShellTab> _pageCatalog = <_ShellTab>[
     _ShellTab(
       id: ShellTab.all[0].id,
-      label: Section.novel.label,
-      icon: Icons.menu_book_outlined,
-      selectedIcon: Icons.menu_book_rounded,
-      builder: () => const NovelPage(),
-    ),
-    _ShellTab(
-      id: ShellTab.all[1].id,
       label: Section.comic.label,
       icon: Icons.auto_stories_outlined,
       selectedIcon: Icons.auto_stories_rounded,
       builder: () => const ComicPage(),
     ),
     _ShellTab(
-      id: ShellTab.all[2].id,
+      id: ShellTab.all[1].id,
       label: Section.video.label,
       icon: Icons.play_circle_outline_rounded,
       selectedIcon: Icons.play_circle_fill_rounded,
-      builder: () => const VideoPage(),
+      builder: () => const VideoSourceHub(),
     ),
     _ShellTab(
-      id: ShellTab.all[3].id,
+      id: ShellTab.all[2].id,
       label: Section.cat.label,
       icon: Icons.pets_outlined,
       selectedIcon: Icons.pets_rounded,
       builder: () => const CatPage(),
     ),
     _ShellTab(
-      id: ShellTab.all[4].id,
+      id: ShellTab.all[3].id,
       label: '设置',
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings_rounded,
@@ -210,7 +205,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 移动端的**设置页恒为可达**：它在 Dock 上时点得到，被隐藏时左下角还有恢复
   /// 入口（见 [_buildSettingsEntry]）。这一点必须体现在这里，否则会踩一个很难
   /// 发现的坑——用户隐藏设置 → 点左下角入口进设置 → 在管理页里改任意一个页签，
-  /// 就会被当成「停在一个不可达的页签上」而被弹回小说板块，于是**永远改不完配置**。
   List<_ShellTab> get _reachableTabs {
     final rail = widget.desktopRail ?? _isDesktopPlatform;
     if (rail) return _orderedTabs;
@@ -228,6 +222,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_onDockVisibilityChanged);
     WidgetsBinding.instance.addObserver(this);
     for (final section in Section.values) {
       _seenSubscriptionChanges += SourceSubscriptionSync.changeCount(section)
@@ -276,6 +271,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _controller.removeListener(_onDockVisibilityChanged);
     _subscriptionTimer?.cancel();
     for (final section in Section.values) {
       SourceSubscriptionSync.changeCount(section)
@@ -286,6 +282,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _shellSettings.removeListener(_onShellSettingsChanged);
     if (_ownsController) _controller.dispose();
     super.dispose();
+  }
+
+  void _onDockVisibilityChanged() {
+    if (mounted && _controller.visible && _scrollCollapsed) {
+      setState(() => _scrollCollapsed = false);
+    }
   }
 
   void _syncSubscriptions({bool force = false}) {
@@ -443,10 +445,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   dockContentInset(context) +
                   _dockSpacing)
               .clamp(0.0, double.infinity);
-    return ShellDockScope(
-      controller: _controller,
-      dockInset: dockInset,
-      child: rail ? _buildRail() : _buildDock(),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: Theme.of(context).brightness == Brightness.dark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
+      child: ShellDockScope(
+        controller: _controller,
+        dockInset: dockInset,
+        child: rail ? _buildRail() : _buildDock(),
+      ),
     );
   }
 
@@ -516,8 +523,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       onTap: () => _select(ShellTab.settingsId),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Icon(
+                        child: LumeIcon(
                           Icons.settings_outlined,
+                          slot: 'app_shell.1',
                           size: 22,
                           color: LumeTheme.textSecondary,
                         ),
@@ -667,8 +675,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             destinations: <NavigationRailDestination>[
               for (final tab in tabs)
                 NavigationRailDestination(
-                  icon: Icon(tab.icon),
-                  selectedIcon: Icon(tab.selectedIcon),
+                  icon: LumeIcon(tab.icon, slot: 'app_shell.2', variant: true),
+                  selectedIcon: LumeIcon(
+                    tab.selectedIcon,
+                    slot: 'app_shell.3',
+                    variant: true,
+                  ),
                   label: Text(tab.label),
                 ),
             ],

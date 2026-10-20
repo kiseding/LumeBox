@@ -28,14 +28,12 @@ enum ModuleLayoutPreset {
 ///
 /// ## 隔离口径（用户要求：各媒介配置互不影响）
 ///
-/// 每个板块有自己的库（`sections/<id>/reading.db`），本模型就写在自己板块的库里
-/// （键 [key]）——小说改字号不会碰漫画的；漫画调手势阈值不会碰视频的。
+/// 每个板块有自己的库（`sections/<id>/reading.db`），本模型写在对应板块的库里。
 /// 阅读器 / 播放器里的**就地设置**与这里读写的是**同一份数据**，因此两边永远一致
 ///（双向同步：任意一处改，另一处立刻是同一个值）。
 ///
-/// 什么该放这里：跨阅读器 / 播放器**通用**的数值——手势触发阈值、控件尺寸、
-/// 间距、动画开关、播放缓冲。什么不放：具体业务的选项（漫画的排版模式、小说的
-/// 字体族、视频的内核……）各归各的现有设置，这里只做**入口聚合**（见模块设置页）。
+/// 这里存放阅读器 / 播放器通用的手势阈值、控件尺寸、间距与动画开关。
+/// 漫画排版、视频内核等业务选项仍使用各自的设置，这里只聚合入口。
 class SectionModuleSettings {
   const SectionModuleSettings({
     this.layoutPreset = ModuleLayoutPreset.standard,
@@ -103,39 +101,36 @@ class SectionModuleSettings {
     int? swipeTurnThresholdPx,
     int? longPressMs,
     int? bufferSeconds,
-  }) =>
-      SectionModuleSettings(
-        layoutPreset: layoutPreset ?? this.layoutPreset,
-        controlScale: controlScale ?? this.controlScale,
-        spacingScale: spacingScale ?? this.spacingScale,
-        animationEnabled: animationEnabled ?? this.animationEnabled,
-        toolbarToggleDelayMs:
-            toolbarToggleDelayMs ?? this.toolbarToggleDelayMs,
-        doubleTapWindowMs: doubleTapWindowMs ?? this.doubleTapWindowMs,
-        swipeTurnThresholdPx:
-            swipeTurnThresholdPx ?? this.swipeTurnThresholdPx,
-        longPressMs: longPressMs ?? this.longPressMs,
-        bufferSeconds: bufferSeconds ?? this.bufferSeconds,
-      );
+  }) => SectionModuleSettings(
+    layoutPreset: layoutPreset ?? this.layoutPreset,
+    controlScale: controlScale ?? this.controlScale,
+    spacingScale: spacingScale ?? this.spacingScale,
+    animationEnabled: animationEnabled ?? this.animationEnabled,
+    toolbarToggleDelayMs: toolbarToggleDelayMs ?? this.toolbarToggleDelayMs,
+    doubleTapWindowMs: doubleTapWindowMs ?? this.doubleTapWindowMs,
+    swipeTurnThresholdPx: swipeTurnThresholdPx ?? this.swipeTurnThresholdPx,
+    longPressMs: longPressMs ?? this.longPressMs,
+    bufferSeconds: bufferSeconds ?? this.bufferSeconds,
+  );
 
   /// 套用一套预制方案：尺寸与间距跟着方案走（阈值等其它项不动）。
   SectionModuleSettings withPreset(ModuleLayoutPreset preset) => copyWith(
-        layoutPreset: preset,
-        controlScale: preset.controlScale,
-        spacingScale: preset.spacingScale,
-      );
+    layoutPreset: preset,
+    controlScale: preset.controlScale,
+    spacingScale: preset.spacingScale,
+  );
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'preset': layoutPreset.name,
-        'controlScale': controlScale,
-        'spacingScale': spacingScale,
-        'animation': animationEnabled,
-        'toggleDelayMs': toolbarToggleDelayMs,
-        'doubleTapMs': doubleTapWindowMs,
-        'swipeThresholdPx': swipeTurnThresholdPx,
-        'longPressMs': longPressMs,
-        'bufferSeconds': bufferSeconds,
-      };
+    'preset': layoutPreset.name,
+    'controlScale': controlScale,
+    'spacingScale': spacingScale,
+    'animation': animationEnabled,
+    'toggleDelayMs': toolbarToggleDelayMs,
+    'doubleTapMs': doubleTapWindowMs,
+    'swipeThresholdPx': swipeTurnThresholdPx,
+    'longPressMs': longPressMs,
+    'bufferSeconds': bufferSeconds,
+  };
 
   /// 从落盘 JSON 还原；缺项与非法值一律回退默认（旧配置不会让页面起不来），
   /// 越界值钳到区间内（与网络 / 沙箱设置同一套口径）。
@@ -206,7 +201,12 @@ class SectionModuleSettings {
   void save(ReadingLibrary library) =>
       library.setSetting(key, jsonEncode(toJson()));
 
-  static double _clampDouble(Object? value, double min, double max, double fallback) {
+  static double _clampDouble(
+    Object? value,
+    double min,
+    double max,
+    double fallback,
+  ) {
     final number = value is num ? value.toDouble() : null;
     if (number == null || number.isNaN) return fallback;
     if (number < min) return min;

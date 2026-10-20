@@ -192,11 +192,11 @@ void main() {
       expect(videoDb.existsSync(), isTrue);
 
       // 其他板块的库里没有这个键；小说库是另一个文件。
-      final novel = await ReadingLibrary.open(Section.novel);
+      final novel = await ReadingLibrary.open(Section.cat);
       expect(novel.setting(VideoPlayerSettingsStore.keySpeed), isNull);
       expect(novel.setting(VideoPlayerSettingsStore.keyKernel), isNull);
       expect(
-        File('${root.path}/sections/novel/reading.db').path,
+        File('${root.path}/sections/cat/reading.db').path,
         isNot(videoDb.path),
       );
     });

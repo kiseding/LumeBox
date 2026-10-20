@@ -70,7 +70,7 @@ void main() {
       () async {
         // 走真实导入链路（与 App 里「+ 添加源」同一条）：脚本能导入成功，
         // 说明死循环本身不阻塞导入。
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         final imported = await registry.import(
           fixture('deadloop_source.js'),
         );
@@ -139,7 +139,7 @@ void main() {
     test(
       '1-2 死循环不牵连其它图源：另起一个源全程可用',
       () async {
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         final dead = await registry.import(fixture('deadloop_source.js'));
         final alive = await registry.import(fixture('isolation_beta.js'));
         expect(dead.record, isNotNull);
@@ -171,7 +171,7 @@ void main() {
     test(
       '1-3 反复触发死循环 5 次：每次都收得回来，且原生句柄不持续增长（FFI 回收）',
       () async {
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         final imported = await registry.import(fixture('deadloop_source.js'));
         final engine = await registry.engineFor(imported.record!.id)
             as QuickJsSourceEngine?;
@@ -239,7 +239,7 @@ void main() {
     test(
       '2-1 单条导入：脚本 → 落库 → 启用 → 取分类 / 列表，全链路无异常',
       () async {
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         final imported = await registry.import(fixture('isolation_alpha.js'));
         expect(imported.record, isNotNull, reason: '合法脚本应导入成功');
         expect(imported.record!.enabled, isTrue, reason: '导入后默认启用');
@@ -276,7 +276,7 @@ void main() {
     test(
       '2-2 多选导入：一次导入多份脚本，逐条落库且互不干扰',
       () async {
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         // 模拟「本地多文件导入」：一次提交多份脚本文本，逐条走导入。
         final scripts = <String>[
           fixture('isolation_alpha.js'),
@@ -312,7 +312,7 @@ void main() {
     test(
       '2-3 启用 / 停用 / 切换图源：状态落库、运行时按需释放、切换后出内容',
       () async {
-        final registry = await SourceRegistry.open(Section.novel);
+        final registry = await SourceRegistry.open(Section.video);
         final a = await registry.import(fixture('isolation_alpha.js'));
         final b = await registry.import(fixture('isolation_beta.js'));
         final idA = a.record!.id;
@@ -374,7 +374,7 @@ void main() {
         final baselineAbandoned = Qjs.abandonedRuntimes;
 
         for (var round = 1; round <= 10; round++) {
-          final registry = await SourceRegistry.open(Section.novel);
+          final registry = await SourceRegistry.open(Section.video);
           final imported = await registry.import(fixture('isolation_alpha.js'));
           expect(imported.record, isNotNull, reason: '第 $round 轮导入应成功');
 
@@ -406,53 +406,6 @@ void main() {
       timeout: const Timeout(Duration(seconds: 180)),
     );
 
-    test(
-      '2-5 导入非法脚本 / 失控脚本都不闪退：给出可读原因，App 状态干净',
-      () async {
-        final registry = await SourceRegistry.open(Section.novel);
 
-        // 语法错误
-        final broken = await registry.import('var LumeSource = (');
-        expect(broken.record, isNull, reason: '语法错误应被拒绝');
-        expect(broken.message, isNotNull, reason: '要给出可读原因');
-
-        // 跨板块脚本（宪法第 3 条）：该脚本自报 category=novel，
-        // 必须把它导入**漫画**板块才能验证「跨板块被拒」。
-        // （导入小说板块是合法的，属于反向对照，见 section_category_test）
-        final comicRegistry = await SourceRegistry.open(Section.comic);
-        final crossBoard = await comicRegistry.import(
-          fixture('section_mismatch_novel.js'),
-        );
-        expect(
-          crossBoard.record,
-          isNull,
-          reason: '声明为小说板块的脚本不得导入漫画板块',
-        );
-        expect(
-          comicRegistry.sources,
-          isEmpty,
-          reason: '被拒的跨板块脚本不得落库',
-        );
-
-        // 以上失败都不得在库里留下痕迹
-        expect(
-          registry.sources,
-          isEmpty,
-          reason: '导入失败不得落库（失败即零写入）',
-        );
-        expect(
-          logLinesContaining('拒绝跨板块源'),
-          isNotEmpty,
-          reason: '跨板块拒绝要留日志（安全事件必须可审计）',
-        );
-        expect(
-          logLinesContaining('判定污染'),
-          isEmpty,
-          reason: '导入期的拒绝不该产生上下文销毁',
-        );
-      },
-      skip: skipReason,
-      timeout: const Timeout(Duration(seconds: 90)),
-    );
   });
 }

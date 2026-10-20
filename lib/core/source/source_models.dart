@@ -1,6 +1,6 @@
 /// 图源数据模型与契约解析。
 ///
-/// 四个板块（小说 / 漫画 / 自定义视频 / 猫源）共用这一套模型：模型本身不持有
+/// 三个板块（漫画 / 自定义视频 / 猫源）共用这一套模型：模型本身不持有
 /// 任何跨板块状态，也不认识沙箱、脚本与数据库。JS 适配器与模拟实现都产出
 /// 这里的类型，UI 只认这些类型。
 ///
@@ -445,7 +445,7 @@ class SourceChapter {
 
 /// 章节内容载荷：播放 / 阅读的统一出口。
 ///
-/// 用密封类表达三类载荷，Phase2 的阅读器与播放器可以对它做穷尽 switch，
+/// 用密封类表达图片和视频载荷，阅读器与播放器可以对它做穷尽 switch，
 /// 不会因为漏掉一类内容而出错。
 sealed class ChapterContent {
   const ChapterContent();
@@ -453,16 +453,11 @@ sealed class ChapterContent {
   /// 解析契约 JSON。供 JS 适配器与测试使用。
   ///
   /// - `null` → null（该章节暂无内容）；
-  /// - 字符串 → [TextContent]（空串视为暂无内容）；
   /// - 字符串数组 → [ImageContent]；
-  /// - `{kind: 'text' | 'images' | 'video', ...}` → 对应类型；
+  /// - `{kind: 'images' | 'video', ...}` → 对应类型；
   /// - 其他输入 → 抛 [FormatException]（不符合契约）。
   static ChapterContent? parse(Object? json) {
     if (json == null) return null;
-    if (json is String) {
-      final text = json.trim();
-      return text.isEmpty ? null : TextContent(text);
-    }
     if (json is List) {
       final images = _imageList(json);
       return images.isEmpty ? null : ImageContent(images);
@@ -472,9 +467,6 @@ sealed class ChapterContent {
     }
     final kind = '${json['kind'] ?? ''}'.trim().toLowerCase();
     switch (kind) {
-      case 'text':
-        final text = '${json['text'] ?? ''}';
-        return text.trim().isEmpty ? null : TextContent(text);
       case 'images':
       case 'image':
         final images = _imageList(json['images']);
@@ -512,13 +504,6 @@ sealed class ChapterContent {
         throw FormatException('未知的章节内容 kind: $kind');
     }
   }
-}
-
-/// 文本正文（小说类）。
-final class TextContent extends ChapterContent {
-  const TextContent(this.text);
-
-  final String text;
 }
 
 /// 图片列表（漫画 / 图集类）。

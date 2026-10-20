@@ -1,3 +1,4 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/net/source_subscription.dart';
@@ -8,7 +9,7 @@ import 'source_import_dialog.dart';
 /// 再导出：既有调用方（含测试）仍可从本文件取到该类型。
 export '../../core/net/source_subscription.dart' show SourceFetchResult;
 
-/// 板块页右上角的「+」添加源按钮（小说 / 漫画 / 视频 / 猫源统一入口）。
+/// 板块页右上角的「+」添加源按钮（漫画 / 视频 / 猫源统一入口）。
 ///
 /// 弹窗本身在 [SourceImportDialog]（与「源总管理」页共用一份实现），三条通道：
 /// 本地文件（可多选）/ 订阅链接 / 剪贴板；导入一律归属当前板块。
@@ -53,7 +54,7 @@ class AddSourceButton extends StatelessWidget {
     if (!target.runtimeAvailable) return const SizedBox.shrink();
     return IconButton(
       tooltip: '添加源',
-      icon: const Icon(Icons.add),
+      icon: const LumeIcon(Icons.add, slot: 'add_source_button.1'),
       onPressed: () => _open(context, target),
     );
   }

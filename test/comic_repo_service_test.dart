@@ -305,7 +305,7 @@ void main() {
         store: store,
         sources: manager,
         fetcher: fetcher,
-        section: Section.novel,
+        section: Section.video,
       ),
       throwsA(
         isA<ArgumentError>().having(

@@ -50,7 +50,6 @@ class CrawlerConfigRecord {
   /// 详情页规则。
   final String detailRule;
 
-  /// 正文（小说文本 / 漫画图片 / 视频地址）规则。
   final String contentRule;
 
   /// 分页参数名（如 `page`）。
@@ -70,20 +69,20 @@ class CrawlerConfigRecord {
 
   /// 从数据库行还原。缺列按默认值处理，便于将来加列时不破坏旧数据。
   static CrawlerConfigRecord fromRow(Row row) => CrawlerConfigRecord(
-        id: '${row['id']}',
-        name: '${row['name'] ?? ''}',
-        targetUrl: '${row['target_url'] ?? ''}',
-        section: '${row['section'] ?? ''}',
-        listRule: '${row['list_rule'] ?? ''}',
-        detailRule: '${row['detail_rule'] ?? ''}',
-        contentRule: '${row['content_rule'] ?? ''}',
-        pageParam: '${row['page_param'] ?? ''}',
-        encoding: '${row['encoding'] ?? 'utf-8'}',
-        headersJson: '${row['headers_json'] ?? '{}'}',
-        generatedScript: '${row['generated_script'] ?? ''}',
-        createdAt: row['created_at'] as int?,
-        updatedAt: row['updated_at'] as int?,
-      );
+    id: '${row['id']}',
+    name: '${row['name'] ?? ''}',
+    targetUrl: '${row['target_url'] ?? ''}',
+    section: '${row['section'] ?? ''}',
+    listRule: '${row['list_rule'] ?? ''}',
+    detailRule: '${row['detail_rule'] ?? ''}',
+    contentRule: '${row['content_rule'] ?? ''}',
+    pageParam: '${row['page_param'] ?? ''}',
+    encoding: '${row['encoding'] ?? 'utf-8'}',
+    headersJson: '${row['headers_json'] ?? '{}'}',
+    generatedScript: '${row['generated_script'] ?? ''}',
+    createdAt: row['created_at'] as int?,
+    updatedAt: row['updated_at'] as int?,
+  );
 }
 
 /// 图源生成器（可视化爬虫模块）的**预留**存储。
@@ -240,16 +239,18 @@ CREATE TABLE IF NOT EXISTS generator_setting (
       .toList(growable: false);
 
   String? setting(String key) {
-    final rows =
-        _db.select('SELECT value FROM generator_setting WHERE key = ?', [key]);
+    final rows = _db.select(
+      'SELECT value FROM generator_setting WHERE key = ?',
+      [key],
+    );
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
 
   void setSetting(String key, String value) => _db.execute(
-        'INSERT INTO generator_setting (key, value) VALUES (?, ?) '
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        [key, value],
-      );
+    'INSERT INTO generator_setting (key, value) VALUES (?, ?) '
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [key, value],
+  );
 
   void dispose() {
     if (identical(_opened, this)) _opened = null;

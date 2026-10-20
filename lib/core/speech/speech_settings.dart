@@ -3,10 +3,9 @@ import 'dart:convert';
 import 'speech_mode.dart';
 export 'speech_mode.dart';
 
-/// 听书设置：语速、音调、音量、是否跟读翻页、每片字数、后台播放。
+/// 漫画朗读设置：语速、音调、音量、跟读翻页、每片字数、后台播放。
 ///
-/// 与排版参数一样按板块存在阅读库里（键 [settingKey]），因此小说板块的设置
-/// 不与其他板块互相污染。所有数值都在 [decode] / [copyWith] 里收敛到合法范围，
+/// 设置保存在漫画阅读库中。所有数值都在 [decode] / [copyWith] 里收敛到合法范围，
 /// 库被改坏也不会把非法值送到引擎（引擎拿到越界值会直接抛错）。
 class SpeechSettings {
   const SpeechSettings({
@@ -24,7 +23,7 @@ class SpeechSettings {
     this.profiles = const {},
   });
 
-  static const String settingKey = 'novel.speech.settings';
+  static const String settingKey = 'speech.settings';
   final SpeechMode mode;
   final bool autoDialogue;
   final String narratorVoice, maleVoice, femaleVoice;

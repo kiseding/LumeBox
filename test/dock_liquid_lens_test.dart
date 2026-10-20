@@ -29,7 +29,12 @@ void main() {
     return bytes;
   }))!;
 
-  List<Widget> lensContents(bool lens, Rect rect, VoidCallback? onTap) => [
+  List<Widget> lensContents(
+    bool lens,
+    Rect rect,
+    VoidCallback? onTap,
+    double press,
+  ) => [
     Positioned.fromRect(
       rect: rect,
       child: GestureDetector(
@@ -49,7 +54,7 @@ void main() {
                 const Radius.circular(25),
               ),
             ),
-          press: 1,
+          press: press,
           stretch: 0,
           highlight: 0,
         ),
@@ -61,6 +66,7 @@ void main() {
     VoidCallback? onTap,
     Rect rect = lensRect,
     bool nested = false,
+    double press = 1,
   }) => MaterialApp(
     home: RepaintBoundary(
       key: captureKey,
@@ -83,18 +89,33 @@ void main() {
                         filter: ui.ImageFilter.blur(sigmaX: 9, sigmaY: 9),
                         child: RepaintBoundary(
                           child: Stack(
-                            children: lensContents(lens, rect, onTap),
+                            children: lensContents(lens, rect, onTap, press),
                           ),
                         ),
                       ),
                     ),
                   )
-                : Stack(children: lensContents(lens, rect, onTap)),
+                : Stack(children: lensContents(lens, rect, onTap, press)),
           ),
         ],
       ),
     ),
   );
+
+  testWidgets('松手静止及页面返回后，透镜保留原像素而非第二个选中圆片', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 240));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(scene(lens: false));
+    final original = await pixels(tester);
+    await tester.pumpWidget(scene(lens: true, press: 1));
+    await tester.pump();
+    await tester.pumpWidget(scene(lens: true, press: 0));
+    await tester.pumpAndSettle();
+    expect(find.byKey(DockLiquidLens.filterKey), findsNothing);
+    expect(await pixels(tester), orderedEquals(original));
+  });
 
   testWidgets('兼容透镜实时放大背景且中心不漂移，点击穿透并保留裁剪', (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -367,8 +388,20 @@ void main() {
           )
           .first,
     );
-    expect(stack.children.last, isA<Positioned>());
-    expect((stack.children.last as Positioned).child, isA<DockLiquidLens>());
+    final lensIndex = stack.children.indexWhere(
+      (child) => child is Positioned && child.child is DockLiquidLens,
+    );
+    expect(lensIndex, greaterThan(0));
+    final rimIndex = stack.children.indexWhere(
+      (child) => find
+          .descendant(
+            of: find.byWidget(child),
+            matching: find.byKey(const Key('shell.dock.selectionRim')),
+          )
+          .evaluate()
+          .isNotEmpty,
+    );
+    expect(rimIndex, greaterThan(lensIndex), reason: '边框在透镜之后画，避免边框被折射成双圈');
     if (const bool.fromEnvironment('DOCK_LENS_PREVIEW')) {
       final png = await pixels(tester, png: true);
       final dir = Directory('build/dock-lens-previews')

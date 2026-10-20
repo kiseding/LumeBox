@@ -62,9 +62,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('四个模块入口都在', (tester) async {
+  testWidgets('三个模块入口都在，小说入口已移除', (tester) async {
     await pumpHub(tester);
-    expect(find.text('小说设置'), findsOneWidget);
+    expect(find.text('小说设置'), findsNothing);
     expect(find.text('漫画设置'), findsOneWidget);
     expect(find.text('视频设置'), findsOneWidget);
     expect(find.text('猫源设置'), findsOneWidget);
@@ -85,7 +85,7 @@ void main() {
 
   testWidgets('参数按板块隔离：改漫画的不动小说（各存各的库）', (tester) async {
     final comicLibrary = await ReadingLibrary.open(Section.comic);
-    final novelLibrary = await ReadingLibrary.open(Section.novel);
+    final novelLibrary = await ReadingLibrary.open(Section.video);
 
     // 漫画这边改呼出延时。
     SectionModuleSettings()

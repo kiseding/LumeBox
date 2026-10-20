@@ -41,7 +41,7 @@ void main() {
           (_) async => root.path,
         );
     for (final section in [
-      Section.novel,
+      Section.video,
       Section.comic,
       Section.video,
       Section.cat,
@@ -94,7 +94,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  for (final section in [Section.novel, Section.comic, Section.video]) {
+  for (final section in [Section.comic, Section.video]) {
     testWidgets('${section.label} 抽屉两列、独立操作菜单，浏览只选择目标源', (tester) async {
       ReadingLibrary.find(section)!
           .setSetting('source.picker.columns', 'false');
@@ -362,7 +362,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, 'c1');
   });
-  testWidgets('小说/漫画/视频：长按拖动排序仍然生效', (tester) async {
+  testWidgets('视频/漫画/视频：长按拖动排序仍然生效', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
         SourceDescriptor(
@@ -452,15 +452,15 @@ void main() {
         SourceDescriptor(id: 'b', name: '乙源', version: '1', enabled: true),
       ],
     );
-    await showBar(tester, Section.novel, manager, (_) {});
+    await showBar(tester, Section.video, manager, (_) {});
     await tester.tap(find.byKey(const ValueKey('picker-more-b')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '有声小说'));
+    await tester.tap(find.widgetWithText(ChoiceChip, '影视'));
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
-    expect(SourcePreferences.read(Section.novel, 'b').pickerGroup, 'audiobook');
+    expect(SourcePreferences.read(Section.video, 'b').pickerGroup, 'movie');
     expect(
       tester.getTopLeft(find.byKey(const ValueKey('picker-source-b'))).dx,
       greaterThan(
@@ -571,7 +571,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: ReadingSourceBar(
-            section: Section.novel,
+            section: Section.video,
             manager: manager,
             sources: manager.sources,
             currentId: 'a',
@@ -595,7 +595,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '有声小说'));
+    await tester.tap(find.widgetWithText(ChoiceChip, '影视'));
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭'));
@@ -607,11 +607,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: ContentVisibilityPage(controller: controller)),
     );
-    expect(find.byType(SwitchListTile), findsNWidgets(6));
-    await tester.tap(find.byKey(const ValueKey('content-visible-novel')));
+    expect(find.byType(SwitchListTile), findsNWidgets(4));
+    await tester.tap(find.byKey(const ValueKey('content-visible-video')));
     await tester.pumpAndSettle();
-    expect(controller.isVisible('novel'), false);
-    expect(controller.isVisible('audiobook'), true);
+    expect(controller.isVisible('video'), false);
+    expect(controller.isVisible('movie'), true);
     controller.dispose();
   });
   test('归类遵从内容目录、人工设置优先；六类显示落库恢复', () async {
@@ -620,9 +620,9 @@ void main() {
       name: '有声站',
       version: '1',
       enabled: true,
-      originUrl: 'https://example.com/main/audiobook/有声站.js',
+      originUrl: 'https://example.com/main/movie/有声站.js',
     );
-    expect(SourcePickerGroups.groupFor(Section.novel, audio), 'audiobook');
+    expect(SourcePickerGroups.groupFor(Section.video, audio), 'movie');
     expect(
       SourcePickerGroups.groupFor(
         Section.comic,
@@ -650,9 +650,9 @@ void main() {
       'movie',
     );
 
-    await const SourcePreferences(pickerGroup: 'novel')
-        .save(Section.novel, audio.id);
-    expect(SourcePickerGroups.groupFor(Section.novel, audio), 'novel');
+    await const SourcePreferences(pickerGroup: 'video')
+        .save(Section.video, audio.id);
+    expect(SourcePickerGroups.groupFor(Section.video, audio), 'video');
     final file = File('${root.path}/separate.json');
     final first = SourceContentVisibility();
     await first.boot(file: file);
@@ -661,13 +661,13 @@ void main() {
     }
     final second = SourceContentVisibility();
     await second.boot(file: file);
-    expect(second.sectionVisible(Section.novel), false);
+    expect(second.sectionVisible(Section.video), false);
     expect(second.sectionVisible(Section.comic), false);
     expect(second.sectionVisible(Section.video), false);
     expect(second.sectionVisible(Section.cat), true);
-    second.setVisible('audiobook', true);
-    expect(second.sectionVisible(Section.novel), true);
-    expect(second.isVisible('novel'), false);
+    second.setVisible('movie', true);
+    expect(second.sectionVisible(Section.video), true);
+    expect(second.isVisible('video'), false);
     first.dispose();
     second.dispose();
   });

@@ -82,12 +82,12 @@ void main() {
 
   group('分组：落库与隔离', () {
     test('设置分组后读回，取消分组也生效', () async {
-      final database = await openDatabase(Section.novel);
+      final database = await openDatabase(Section.video);
       database.upsertSource(
         id: 'a',
         name: '示例源',
         version: '1.0.0',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {};',
       );
 
@@ -102,7 +102,7 @@ void main() {
     });
 
     test('分组不跨板块：小说板块设的分组，漫画板块看不到也改不到', () async {
-      final novel = await seed(Section.novel);
+      final novel = await seed(Section.video);
       novel.setGroup('a', '主力');
       expect(novel.source('a')!.group, '主力');
 
@@ -118,13 +118,13 @@ void main() {
     });
 
     test('分组不改变归属板块：源仍在原板块、脚本与启停状态不动', () async {
-      final novel = await seed(Section.novel);
+      final novel = await seed(Section.video);
       novel.setEnabled('a', false);
       final before = novel.source('a')!;
 
       novel.setGroup('a', '主力');
       final after = novel.source('a')!;
-      expect(after.section, Section.novel.id);
+      expect(after.section, Section.video.id);
       expect(after.script, before.script);
       expect(after.enabled, isFalse, reason: '分组是展示归类，不该动启停');
       expect(after.version, before.version);
@@ -133,7 +133,7 @@ void main() {
 
   group('失效标记：阈值、恢复与不再重试', () {
     test('失败计数累加，达到阈值（3 次）才标记失效', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
 
       registry.recordFailure('a');
       expect(registry.source('a')!.failureCount, 1);
@@ -150,7 +150,7 @@ void main() {
     });
 
     test('已失效后继续失败：计数继续加，但失效时间不反复刷新', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         registry.recordFailure('a');
       }
@@ -166,7 +166,7 @@ void main() {
     });
 
     test('恢复：清零计数并解除标记，可重新参与自动流程', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         registry.recordFailure('a');
       }
@@ -180,19 +180,19 @@ void main() {
     });
 
     test('失效标记在重开板块后仍在（落库，不是内存态）', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         registry.recordFailure('a');
       }
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
 
-      final reopened = await SourceRegistry.open(Section.novel);
+      final reopened = await SourceRegistry.open(Section.video);
       expect(reopened.source('a')!.isBroken, isTrue);
       expect(reopened.source('a')!.failureCount, 3);
     });
 
     test('跨板块改不动失效状态', () async {
-      final novel = await seed(Section.novel);
+      final novel = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         novel.recordFailure('a');
       }
@@ -208,7 +208,7 @@ void main() {
     test('失效的源不再参与自动重试（连通性测试直接拒绝并说明）', () async {
       // 这条走的是 LumeSources.testConnectivity 的入口判定；这里只验存储层的
       // 前提条件成立（isBroken 可读），入口行为由 source_connectivity_test 覆盖。
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         registry.recordFailure('a');
       }
@@ -218,7 +218,7 @@ void main() {
     });
 
     test('失效在日志里留痕（真机排障要看）', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       for (var i = 0; i < 3; i++) {
         registry.recordFailure('a');
       }

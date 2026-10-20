@@ -123,7 +123,7 @@ void main() {
     setUp(() => host = LumeSourceHost(
           LumeHttp(),
           timeout: const Duration(seconds: 1),
-          section: Section.novel,
+          section: Section.video,
           sourceId: 'src',
         ));
 

@@ -77,7 +77,7 @@ class _CoverMatrix extends StatelessWidget {
   final SectionImagePipeline pipeline;
 
   static const List<Section> _sections = <Section>[
-    Section.novel,
+    Section.video,
     Section.comic,
     Section.video,
     Section.cat,

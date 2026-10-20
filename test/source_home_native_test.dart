@@ -120,7 +120,7 @@ void main() {
 
     testWidgets(
       '小说业务页：样板脚本驱动分类 / 列表 / 搜索',
-      (tester) => runBoardFlow(tester, Section.novel),
+      (tester) => runBoardFlow(tester, Section.video),
     );
 
     testWidgets(

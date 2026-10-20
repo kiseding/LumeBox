@@ -15,12 +15,23 @@ class DockLiquidLens extends StatefulWidget {
     required this.press,
     required this.stretch,
     required this.highlight,
+    this.lean = 0,
+    this.grip = 0,
+    this.refraction = 1,
+    this.dispersion = 1,
+    this.glow = .42,
+    this.desaturate = .30,
   });
 
   static const shaderAsset = 'assets/shaders/dock_liquid_lens.frag';
   static const filterKey = Key('shell.dock.lens.filter');
   final Path path;
   final double press, stretch, highlight;
+  final double lean, grip;
+  final double refraction, dispersion;
+
+  /// 按到底时的中心提亮 / 降饱和幅度（0–1）。
+  final double glow, desaturate;
 
   @override
   State<DockLiquidLens> createState() => _DockLiquidLensState();
@@ -65,18 +76,38 @@ class _DockLiquidLensState extends State<DockLiquidLens> {
           final reduced = MediaQuery.disableAnimationsOf(context);
           final press = reduced ? 0.0 : widget.press.clamp(0.0, 1.0);
           final stretch = reduced ? 0.0 : widget.stretch.clamp(0.0, 1.0);
-          final strength = .07 + .13 * press + .10 * stretch;
+          // Resting glass already has its own blur and rim. A second backdrop
+          // pass at rest can retain a displaced copy during route transitions.
+          if (press <= .0001 && stretch <= .0001) {
+            return const SizedBox.expand();
+          }
+          // Reference measurement: the lens magnifies the centre by ~1.13–1.17x
+          // (about 1.19x before the base's own press scale), not 1.3x.
+          final strength = (.19 * press + .12 * stretch) * widget.refraction;
+          final glow = press * widget.glow.clamp(0.0, 1.0);
+          final desaturate = press * widget.desaturate.clamp(0.0, 1.0);
           final shader = _shader;
           final ImageFilterConfig filter;
           if (shader != null && ui.ImageFilter.isShaderFilterSupported) {
             // Floats 0/1 and sampler 0 are owned by ImageFilter.shader.
             shader
               ..setFloat(2, strength)
-              ..setFloat(3, .004 + .012 * press + .008 * stretch)
-              ..setFloat(4, widget.highlight.clamp(0.0, 1.0) * .16);
+              ..setFloat(
+                3,
+                (.004 + .018 * press + .014 * stretch) * widget.dispersion,
+              )
+              ..setFloat(4, widget.highlight.clamp(0.0, 1.0) * .22)
+              ..setFloat(9, reduced ? 0 : widget.lean.clamp(-1.0, 1.0))
+              ..setFloat(10, reduced ? 0 : widget.grip.clamp(-1.0, 1.0))
+              ..setFloat(11, press)
+              ..setFloat(12, reduced ? 0 : glow)
+              ..setFloat(13, reduced ? 0 : desaturate);
             filter = _LensShaderFilter(
               shader,
               MediaQuery.devicePixelRatioOf(context),
+              () => (context.findRenderObject()! as RenderBox).localToGlobal(
+                Offset.zero,
+              ),
             );
           } else {
             // Keep the backdrop stable while Impeller loads the shader. The
@@ -104,9 +135,10 @@ class _DockLiquidLensState extends State<DockLiquidLens> {
 /// Resolve the capsule's current canvas bounds at paint time and convert them
 /// to physical pixels. This also handles preview repaint boundaries and DPR.
 class _LensShaderFilter implements ImageFilterConfig {
-  const _LensShaderFilter(this.shader, this.pixelRatio);
+  const _LensShaderFilter(this.shader, this.pixelRatio, this.origin);
   final ui.FragmentShader shader;
   final double pixelRatio;
+  final Offset Function() origin;
   @override
   String get debugShortDescription => 'dockLensShader';
   @override
@@ -114,9 +146,10 @@ class _LensShaderFilter implements ImageFilterConfig {
   @override
   ui.ImageFilter resolve(ImageFilterContext context) {
     final bounds = context.bounds;
+    final position = origin();
     shader
-      ..setFloat(5, bounds.left * pixelRatio)
-      ..setFloat(6, bounds.top * pixelRatio)
+      ..setFloat(5, position.dx * pixelRatio)
+      ..setFloat(6, position.dy * pixelRatio)
       ..setFloat(7, bounds.width * pixelRatio)
       ..setFloat(8, bounds.height * pixelRatio);
     return filter;

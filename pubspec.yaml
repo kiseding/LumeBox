@@ -98,7 +98,7 @@ dev_dependencies:
 # 只存在于原生对象上，而插件不把 AVPlayer 暴露给宿主——只有在插件内部创建播放器
 # 的那一刻才能装上；宿主没配置过时补丁什么都不做（与上游行为一致）。
 dependency_overrides:
-  # Preserve app-wide audio ownership on iOS; see the vendored PATCHES.md.
+  # Keep pure audio playback separate from video and comic speech ownership.
   audio_service:
     path: third_party/audio_service_ownership
   video_player_avfoundation:
@@ -108,6 +108,7 @@ flutter:
   uses-material-design: true
   shaders:
     - assets/shaders/dock_liquid_lens.frag
+    - assets/shaders/dock_liquid_surface.frag
     - assets/shaders/comic_page_filters.frag
     - assets/shaders/comic_glass.frag
   assets:

@@ -109,7 +109,7 @@ void main() {
     await pump(
       tester,
       SourceSectionPage(
-        section: Section.novel,
+        section: Section.video,
         manager: FakeSourceManager(
           sources: <SourceDescriptor>[
             const SourceDescriptor(

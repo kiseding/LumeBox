@@ -170,7 +170,7 @@ var LumeSource = {
   async content(argument) { return { kind: 'text', text: '正文' }; }
 };
 ''';
-        final novel = await openRegistryFor(Section.novel);
+        final novel = await openRegistryFor(Section.comic);
         final video = await openRegistryFor(Section.video);
 
         final novelOutcome = await novel.import(script);

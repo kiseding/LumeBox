@@ -228,7 +228,7 @@ void main() {
       final engine = await LumeJsEngine.create(
         sourceId: 'mirror-source',
         http: _RecordingHttp(),
-        section: Section.novel,
+        section: Section.video,
       );
       addTearDown(engine.dispose);
       final loaded = await engine.loadScript(script);

@@ -1,16 +1,6 @@
 /// Explicitly identified adult sources. Unknown sources stay unclassified.
 class SourceContentRating {
   static const adultIds = <String>{
-    '99xs_novel',
-    'xxiaoshuo_novel',
-    'xnovel_novel',
-    'hhhbook_novel',
-    'hlib_novel',
-    'aaccoo_novel',
-    'xchina_novel',
-    'alicesw_novel',
-    'jinshuge_novel',
-    'book18_novel',
     'mmcg18_comic',
     'jm18_comic',
     'mh18_comic',
@@ -27,6 +17,11 @@ class SourceContentRating {
   };
   static bool isAdult(String id, String name) =>
       adultIds.contains(id) ||
-      adultIds.any((known) => id.endsWith(':$known') || id.endsWith('|$known')) ||
-      RegExp(r'成人|18禁|18H|18\+|R18|小黄书|色情|NSFW', caseSensitive: false).hasMatch(name);
+      adultIds.any(
+        (known) => id.endsWith(':$known') || id.endsWith('|$known'),
+      ) ||
+      RegExp(
+        r'成人|18禁|18H|18\+|R18|小黄书|色情|NSFW',
+        caseSensitive: false,
+      ).hasMatch(name);
 }

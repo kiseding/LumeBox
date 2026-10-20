@@ -41,21 +41,21 @@ void main() {
 
   group('板块库：归属标记', () {
     test('标记随图源落库，读取时回得到', () async {
-      final database = await openDatabase(Section.novel);
+      final database = await openDatabase(Section.video);
       database.upsertSource(
         id: 'demo',
         name: '示例源',
         version: '1.0.0',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {};',
       );
 
-      expect(database.source('demo')!.section, Section.novel.id);
-      expect(database.sources().single.section, Section.novel.id);
+      expect(database.source('demo')!.section, Section.video.id);
+      expect(database.sources().single.section, Section.video.id);
     });
 
     test('跨板块写入被拒绝，库里不留痕迹', () async {
-      final database = await openDatabase(Section.novel);
+      final database = await openDatabase(Section.video);
       expect(
         () => database.upsertSource(
           id: 'demo',
@@ -104,17 +104,17 @@ CREATE TABLE section_setting (
     });
 
     test('库文件被挪到别的板块目录：归属不符即拒绝打开', () async {
-      final novel = await openDatabase(Section.novel);
+      final novel = await openDatabase(Section.video);
       novel.upsertSource(
         id: 'demo',
         name: '示例源',
         version: '',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {};',
       );
       novel.dispose();
 
-      final novelScope = await SectionScope.open(Section.novel);
+      final novelScope = await SectionScope.open(Section.video);
       final comicScope = await SectionScope.open(Section.comic);
       File(novelScope.dbPath).copySync(comicScope.dbPath);
 
@@ -156,20 +156,20 @@ CREATE TABLE section_setting (
     });
 
     test('错配记录：不被列出、不可加载、不可启停与删除', () async {
-      final scope = await SectionScope.open(Section.novel);
+      final scope = await SectionScope.open(Section.video);
       final database = await SectionDatabase.open(scope);
       for (final id in <String>['demo', 'alien']) {
         database.upsertSource(
           id: id,
           name: id == 'demo' ? '示例源' : '外来图源',
           version: '',
-          section: Section.novel.id,
+          section: Section.video.id,
           script: 'var LumeSource = {};',
         );
       }
       forgeSection(scope, 'alien', Section.comic.id);
 
-      final registry = await SourceRegistry.open(Section.novel);
+      final registry = await SourceRegistry.open(Section.video);
       expect(registry.sources.map((record) => record.id), <String>['demo']);
       expect(await registry.engineFor('alien'), isNull);
 
@@ -181,7 +181,7 @@ CREATE TABLE section_setting (
       expect(rows.length, 1, reason: '外来记录不应被删除');
       expect(rows.single['enabled'], 1, reason: '外来记录不应被停用');
       check.close();
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
   });
 
@@ -206,32 +206,32 @@ CREATE TABLE section_setting (
     }
 
     test('未显式选择时回退到排序后的第一个启用图源', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       expect(registry.currentSource()!.id, 'a');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('选择落库，重开板块后仍然生效', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       expect(registry.selectSource('b')!.id, 'b');
       expect(registry.currentSource()!.id, 'b');
 
       // 模拟重启：关掉板块再打开，选择应还在。
-      SourceRegistry.close(Section.novel);
-      final reopened = await SourceRegistry.open(Section.novel);
+      SourceRegistry.close(Section.video);
+      final reopened = await SourceRegistry.open(Section.video);
       expect(reopened.currentSource()!.id, 'b');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('不存在的图源不能被选中，且不改变现状', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       expect(registry.selectSource('missing'), isNull);
       expect(registry.currentSource()!.id, 'a', reason: '失败不应写入脏值');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('跨板块的图源不能被选为当前', () async {
-      final novel = await seed(Section.novel);
+      final novel = await seed(Section.video);
       final comic = await seed(Section.comic);
       final comicDatabase = await SectionDatabase.open(
         await SectionScope.open(Section.comic),
@@ -252,20 +252,20 @@ CREATE TABLE section_setting (
       );
       expect(comic.selectSource('comic-only')!.id, 'comic-only');
 
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
       SourceRegistry.close(Section.comic);
     });
 
     test('已停用的图源不能被选为当前', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       registry.setEnabled('b', false);
       expect(registry.selectSource('b'), isNull);
       expect(registry.currentSource()!.id, 'a');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('当前图源被停用或删除后自动回退，无可用图源则为空', () async {
-      final registry = await seed(Section.novel);
+      final registry = await seed(Section.video);
       registry.selectSource('b');
 
       registry.setEnabled('b', false);
@@ -277,7 +277,7 @@ CREATE TABLE section_setting (
 
       registry.setEnabled('b', true);
       expect(registry.currentSource()!.id, 'b', reason: '重新启用后重新可用');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
   });
 
@@ -297,7 +297,7 @@ CREATE TABLE section_setting (
     }
 
     test('脚本声明的镜像随导入落库', () async {
-      final registry = await seeded(Section.novel, <String>[
+      final registry = await seeded(Section.video, <String>[
         'https://main.example',
         'https://m1.example',
       ]);
@@ -305,12 +305,12 @@ CREATE TABLE section_setting (
         'https://main.example',
         'https://m1.example',
       ]);
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('保存后的配置读得回来，且只影响本源', () async {
       final registry = await seeded(
-        Section.novel,
+        Section.video,
         <String>['https://main.example'],
       );
       registry.setSourceSiteConfig(
@@ -338,11 +338,11 @@ CREATE TABLE section_setting (
         <String>['https://comic.example'],
       );
       SourceRegistry.close(Section.comic);
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('重新导入：镜像整体替换，用户自己的选择与账号保留', () async {
-      final registry = await seeded(Section.novel, <String>[
+      final registry = await seeded(Section.video, <String>[
         'https://main.example',
         'https://m1.example',
       ]);
@@ -357,13 +357,13 @@ CREATE TABLE section_setting (
       );
 
       // 覆盖导入一份把镜像换成别的站的脚本。
-      final scope = await SectionScope.open(Section.novel);
+      final scope = await SectionScope.open(Section.video);
       final database = await SectionDatabase.open(scope);
       database.upsertSource(
         id: 'mirror',
         name: '镜像源',
         version: '2.0.0',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {version: "2.0.0"};',
         mirrors: <String>['https://new.example'],
       );
@@ -382,7 +382,7 @@ CREATE TABLE section_setting (
       );
       expect(record.siteConfig.account, 'reader', reason: '账号属于用户配置，不动');
       expect(record.siteConfig.password, 'secret');
-      SourceRegistry.close(Section.novel);
+      SourceRegistry.close(Section.video);
     });
 
     test('老库（没有 site_config 列）打开后读默认值，写入也正常', () async {

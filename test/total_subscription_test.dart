@@ -98,8 +98,8 @@ void main() {
     );
     expect(exported.entries[Section.video]!.single.enabled, isFalse);
     expect(
-      exported.entries[Section.novel]!.single.url,
-      total.entries[Section.novel]!.single.url,
+      exported.entries[Section.video]!.single.url,
+      total.entries[Section.video]!.single.url,
     );
     expect(exported.encode(), isNot(contains('manual')));
   });
@@ -145,10 +145,10 @@ void main() {
     );
     expect(
       SubscriptionCatalog.canonical(
-        '${SubscriptionCatalog.base}audiobooks',
-        Section.novel,
+        '${SubscriptionCatalog.base}movies',
+        Section.video,
       ),
-      '${SubscriptionCatalog.base}novels',
+      '${SubscriptionCatalog.base}videos',
     );
   });
 
@@ -156,7 +156,7 @@ void main() {
     await expectLater(
       service.import(
         TotalSubscription({
-          Section.novel: [(url: 'file:///bad', enabled: true)],
+          Section.video: [(url: 'file:///bad', enabled: true)],
         }),
       ),
       throwsFormatException,
@@ -171,7 +171,7 @@ void main() {
     remote.remove(total.entries[Section.comic]!.single.url);
     final results = await service.import(total);
     expect(results[Section.comic]!.errors, isNotEmpty);
-    expect(results[Section.novel]!.added, 1);
+    expect(results[Section.video]!.added, 1);
     expect(results[Section.video]!.added, 1);
   });
 
@@ -193,7 +193,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        '小说：1 个订阅\n漫画：1 个订阅\n视频：1 个订阅\n\n按板块保存并立即同步。保留其他订阅和手动导入的源；同名订阅源会更新。',
+        '漫画：1 个订阅\n视频：1 个订阅\n\n按板块保存并立即同步。保留其他订阅和手动导入的源；同名订阅源会更新。',
       ),
       findsOneWidget,
     );

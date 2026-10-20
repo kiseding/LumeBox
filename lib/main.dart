@@ -8,6 +8,7 @@ import 'core/theme/floating_modules.dart';
 import 'core/theme/frosted_settings.dart';
 import 'core/reading/comic_image_tools.dart';
 import 'core/session/privacy_settings.dart';
+import 'core/session/retired_module_cache.dart';
 
 import 'dart:async';
 
@@ -28,6 +29,7 @@ import 'core/util/lume_log.dart';
 void main() {
   runZonedGuarded<void>(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await clearRetiredModuleCache();
     await AppPreferences.instance.boot();
     await PlayerChoice.instance.boot();
     await PrivacySettings.instance.boot();

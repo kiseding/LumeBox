@@ -34,6 +34,7 @@ class TotalSubscription {
     }
     final entries = <Section, List<({String url, bool enabled})>>{};
     for (final entry in (data['sections'] as Map).entries) {
+      if (entry.key == 'novel') continue;
       final section = SubscriptionCatalog.sections
           .where((s) => s.id == entry.key)
           .firstOrNull;

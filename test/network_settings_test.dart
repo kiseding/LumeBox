@@ -111,13 +111,13 @@ void main() {
 
   group('单图源网络覆盖（库 schema v3）', () {
     test('写入后读回：UA / Cookie / 代理', () async {
-      final scope = await SectionScope.open(Section.novel);
+      final scope = await SectionScope.open(Section.video);
       final db = await SectionDatabase.open(scope);
       db.upsertSource(
         id: 'src-1',
         name: '测试源',
         version: '1.0.0',
-        section: Section.novel.id,
+        section: Section.video.id,
         script: 'var LumeSource = {};',
       );
 

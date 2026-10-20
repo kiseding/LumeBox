@@ -158,10 +158,11 @@ class SourceSubscription {
       for (final raw in const LineSplitter().convert(download.text)) {
         final line = raw.trim();
         // 注释两种都认：`#` 与 `//`。**这条必须留着 `//`**——源仓库的清单是三份
-        // `.js`（`comic/novel/video/sources.js`），里面用的就是 `//` 注释；
         // 只认 `#` 时整份清单会被判成「非地址内容」，同步直接失败
         // （真机表现：明明推送了新增源，「更新已保存的订阅」后一个都没多）。
-        if (line.isEmpty || line.startsWith('#') || line.startsWith('//')) continue;
+        if (line.isEmpty || line.startsWith('#') || line.startsWith('//')) {
+          continue;
+        }
         final uri = Uri.tryParse(line);
         if (uri == null ||
             !['http', 'https'].contains(uri.scheme) ||

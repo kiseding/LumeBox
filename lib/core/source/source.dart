@@ -1,7 +1,7 @@
 /// 数据源抽象接口层。
 ///
 /// 分层：
-/// - [DataSource]：四个板块（小说 / 漫画 / 自定义视频 / 猫源）共用的统一接口，
+/// - [DataSource]：四个板块（漫画 / 自定义视频 / 猫源）共用的统一接口，
 ///   UI 只依赖它；
 /// - [SourceCategory] / [SourceItem] / [SourceDetail] / [SourceChapter] /
 ///   [ChapterContent]：共享数据模型与契约解析；

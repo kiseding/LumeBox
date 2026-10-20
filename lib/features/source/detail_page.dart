@@ -8,7 +8,6 @@ import '../../shared/widgets/state_view.dart';
 
 /// 详情页：作品信息 + 章节列表，全部经统一数据源接口取得。
 ///
-/// Phase1 到此为止——章节仅展示，不进入阅读器（漫画阅读器、小说阅读器属 Phase2）。
 /// 章节内容接口（[DataSource.content]）已在接口层就绪，但本页不消费它。
 class DetailPage extends StatefulWidget {
   const DetailPage({super.key, required this.dataSource, required this.item});
@@ -142,7 +141,7 @@ class _DetailPageState extends State<DetailPage> {
               ),
             )
           else
-            // 章节行与小说 / 漫画 / 视频三个板块共用同一套（用户口径 6）。
+            // 章节行与漫画 / 视频三个板块共用同一套（用户口径 6）。
             for (final chapter in _chapters)
               ChapterTile(title: chapter.title, onTap: _notifyReaderPending),
         ],

@@ -56,7 +56,6 @@ class CatDataSource
   @override
   Section get section => switch (site.kind) {
     'comic' => Section.comic,
-    'novel' => Section.novel,
     _ => Section.video,
   };
   Future<Map<String, dynamic>> homeData({bool force = false}) async {
@@ -395,9 +394,6 @@ class CatDataSource
           imageHeaders: {for (final url in urls) url: requestHeaders},
         );
       }
-    }
-    if (site.kind == 'novel') {
-      return TextContent(catText(data['content'] ?? data['text']));
     }
     final uri = address(catText(data['url']));
     if (data['parse'] == 1 || data['parse'] == '1') {

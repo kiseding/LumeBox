@@ -11,7 +11,7 @@ import 'support/js_sandbox_support.dart';
 
 /// 安全测试第 3 条：板块 category 隔离校验。
 ///
-/// 构造「元数据与板块不匹配」的脚本（`category: "novel"` 的 JS 拿到漫画板块
+/// 构造「元数据与板块不匹配」的脚本（`category: "video"` 的 JS 拿到漫画板块
 /// 加载），要求：
 /// - 解析阶段直接拒绝加载；
 /// - 输出明确的错误日志；
@@ -57,9 +57,9 @@ void main() {
       final metadata = SourceMetadata.parse(<String, Object?>{
         'id': 'a',
         'name': '甲',
-        'category': 'novel',
+        'category': 'video',
       });
-      expect(metadata!.category, 'novel');
+      expect(metadata!.category, 'video');
     });
 
     test('未声明 category 时为空串（既有脚本不受影响）', () {
@@ -77,16 +77,16 @@ void main() {
       const chinese = SourceMetadata(id: 'a', name: '甲', version: '', category: '漫画');
       expect(chinese.sectionMismatch(Section.comic), isNull);
 
-      const padded = SourceMetadata(id: 'a', name: '甲', version: '', category: ' Novel ');
-      expect(padded.sectionMismatch(Section.novel), isNull);
+      const padded = SourceMetadata(id: 'a', name: '甲', version: '', category: ' Video ');
+      expect(padded.sectionMismatch(Section.video), isNull);
     });
 
     test('声明与目标不符时给出点名到板块的可读原因', () {
-      const novel = SourceMetadata(id: 'a', name: '甲', version: '', category: 'novel');
+      const novel = SourceMetadata(id: 'a', name: '甲', version: '', category: 'video');
       final issue = novel.sectionMismatch(Section.comic);
       expect(issue, isNotNull);
       expect(issue, contains('跨板块'));
-      expect(issue, contains('novel'));
+      expect(issue, contains('video'));
       expect(issue, contains('comic'));
       expect(issue, contains('漫画'), reason: '提示里应带上目标板块的中文名');
     });
@@ -117,21 +117,21 @@ void main() {
 
   group('3b 跨板块导入被解析阶段拒绝（真实引擎）', () {
     test(
-      '小说脚本导入漫画板块：拒绝落库、日志点名跨板块',
+      '视频脚本导入漫画板块：拒绝落库、日志点名跨板块',
       () async {
         final comic = await openRegistryFor(Section.comic);
-        final outcome = await comic.import(fixture('section_mismatch_novel.js'));
+        final outcome = await comic.import(fixture('section_mismatch_video.js'));
 
         expect(outcome.isSuccess, isFalse, reason: '跨板块源必须被拒绝');
         expect(outcome.message, contains('跨板块'));
-        expect(outcome.message, contains('novel'));
+        expect(outcome.message, contains('video'));
         expect(outcome.message, contains('comic'));
         expect(comic.sources, isEmpty, reason: '失败不落库');
-        expect(comic.source('test-section-novel'), isNull);
+        expect(comic.source('test-section-video'), isNull);
 
         // 明确错误日志：点名被拒的图源与两个板块。
         final rejected =
-            logLinesContaining('拒绝跨板块源').where((l) => l.contains('test-section-novel'));
+            logLinesContaining('拒绝跨板块源').where((l) => l.contains('test-section-video'));
         expect(rejected, isNotEmpty, reason: '拒绝行为必须在日志里留痕');
       },
       skip: skipReason,
@@ -139,13 +139,13 @@ void main() {
     );
 
     test(
-      '同一份脚本导入小说板块：正常成功（对照）',
+      '同一份脚本导入视频板块：正常成功（对照）',
       () async {
-        final novel = await openRegistryFor(Section.novel);
-        final outcome = await novel.import(fixture('section_mismatch_novel.js'));
+        final novel = await openRegistryFor(Section.video);
+        final outcome = await novel.import(fixture('section_mismatch_video.js'));
 
         expect(outcome.isSuccess, isTrue, reason: outcome.message ?? '');
-        expect(outcome.record!.id, 'test-section-novel');
+        expect(outcome.record!.id, 'test-section-video');
         expect(novel.sources.length, 1);
       },
       skip: skipReason,
@@ -161,7 +161,7 @@ var LumeSource = {
   id: 'runtime-cat',
   name: '运行时声明板块',
   version: '1.0.0',
-  category: 'novel',
+  category: 'video',
   async categories() { return [{ id: 'c1', title: '分类一' }]; }
 };
 ''';
@@ -184,24 +184,24 @@ var LumeSource = {
       '头部声明与运行时声明冲突时，头部优先且仍按头部判定',
       () async {
         const script = '''
-// LumeSource: {"id":"conflict-cat","name":"冲突声明","version":"1.0.0","category":"novel"}
+// LumeSource: {"id":"conflict-cat","name":"冲突声明","version":"1.0.0","category":"video"}
 var LumeSource = {
   id: 'conflict-cat',
   name: '冲突声明',
   version: '1.0.0',
-  category: 'video',
+  category: 'comic',
   async categories() { return [{ id: 'c1', title: '分类一' }]; }
 };
 ''';
-        // 头部说小说：导入小说成功。
-        final novel = await openRegistryFor(Section.novel);
+        // 头部说视频：导入视频成功。
+        final novel = await openRegistryFor(Section.video);
         expect((await novel.import(script)).isSuccess, isTrue);
 
         // 导入视频被拒（按头部判，而不是按运行时的 video 放行）。
-        final video = await openRegistryFor(Section.video);
+        final video = await openRegistryFor(Section.comic);
         final outcome = await video.import(script);
         expect(outcome.isSuccess, isFalse);
-        expect(outcome.message, contains('novel'));
+        expect(outcome.message, contains('video'));
       },
       skip: skipReason,
       timeout: const Timeout(Duration(seconds: 90)),
@@ -219,7 +219,7 @@ var LumeSource = {
   async categories() { return [{ id: 'c1', title: '分类一' }]; }
 };
 ''';
-        for (final section in <Section>[Section.novel, Section.comic, Section.video]) {
+        for (final section in <Section>[Section.video, Section.comic, Section.video]) {
           final registry = await openRegistryFor(section);
           final outcome = await registry.import(script);
           expect(
@@ -236,14 +236,14 @@ var LumeSource = {
     test(
       '库内记录同样守住板块边界：跨板块记录在读取路径上不可见',
       () async {
-        // 先正常导入小说板块，再确认漫画板块看不见它。
-        final novel = await openRegistryFor(Section.novel);
-        expect((await novel.import(fixture('section_mismatch_novel.js'))).isSuccess, isTrue);
+        // 先正常导入视频板块，再确认漫画板块看不见它。
+        final novel = await openRegistryFor(Section.video);
+        expect((await novel.import(fixture('section_mismatch_video.js'))).isSuccess, isTrue);
 
         final comic = await openRegistryFor(Section.comic);
         expect(comic.sources, isEmpty);
-        expect(comic.source('test-section-novel'), isNull);
-        expect(await comic.engineFor('test-section-novel'), isNull);
+        expect(comic.source('test-section-video'), isNull);
+        expect(await comic.engineFor('test-section-video'), isNull);
       },
       skip: skipReason,
       timeout: const Timeout(Duration(seconds: 60)),

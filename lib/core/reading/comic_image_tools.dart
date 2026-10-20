@@ -21,8 +21,6 @@ enum UpscaleSurface {
   /// 视频海报。
   videoPoster,
 
-  /// 小说封面（小说阅读器目前是纯文本排版，没有正文插图管线）。
-  novelIllustration,
 }
 
 class ComicImageToolsSettings extends ChangeNotifier {
@@ -31,7 +29,6 @@ class ComicImageToolsSettings extends ChangeNotifier {
   bool automatic = false;
   bool upscaleCovers = false;
   bool upscaleVideoPosters = false;
-  bool upscaleNovelIllustrations = false;
   int concurrency = 1;
   int threshold = 1080;
   int noise = 0;
@@ -60,7 +57,6 @@ class ComicImageToolsSettings extends ChangeNotifier {
       automatic = data['automatic'] == true;
       upscaleCovers = data['upscaleCovers'] == true;
       upscaleVideoPosters = data['upscaleVideoPosters'] == true;
-      upscaleNovelIllustrations = data['upscaleNovelIllustrations'] == true;
       final rawConcurrency = data['concurrency'];
       concurrency = rawConcurrency is int ? rawConcurrency.clamp(1, 4) : 1;
       imageStyle = data['imageStyle'] == 'photo' ? 'photo' : 'anime';
@@ -98,7 +94,6 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'automatic': automatic,
       'upscaleCovers': upscaleCovers,
       'upscaleVideoPosters': upscaleVideoPosters,
-      'upscaleNovelIllustrations': upscaleNovelIllustrations,
       'concurrency': concurrency.clamp(1, 4),
       'threshold': threshold,
       'noise': noise,
@@ -141,7 +136,6 @@ class ComicImageToolsSettings extends ChangeNotifier {
 
 /// 给非阅读器管线用的解码增强入口。
 ///
-/// 封面 / 海报 / 小说封面共用 [ComicImageTools.shared]；阅读器用自己的实例，
 /// 退出时取消本页任务。
 Future<Uint8List> automaticUpscale(Uint8List bytes, UpscaleSurface surface) =>
     ComicImageTools.shared.automatic(bytes, surface: surface);
@@ -244,7 +238,6 @@ class ComicImageTools {
 
   /// 某个范围当前是否应该自动超分。
   ///
-  /// 「自动超分」是总开关；封面 / 海报 / 小说封面是它下面的三个范围开关。
   /// 阅读器正文不受范围开关影响（总开关打开就处理）。
   bool surfaceEnabled(UpscaleSurface surface) {
     final prefs = preferences;
@@ -253,7 +246,6 @@ class ComicImageTools {
       UpscaleSurface.reader => true,
       UpscaleSurface.cover => prefs.upscaleCovers,
       UpscaleSurface.videoPoster => prefs.upscaleVideoPosters,
-      UpscaleSurface.novelIllustration => prefs.upscaleNovelIllustrations,
     };
   }
 

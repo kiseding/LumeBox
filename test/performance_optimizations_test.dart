@@ -183,17 +183,17 @@ void main() {
   });
 
   test('板块关闭等待正在执行的调用，完成后释放且重开获得新上下文', () async {
-    final registry = await SourceRegistry.open(Section.novel);
+    final registry = await SourceRegistry.open(Section.video);
     final gate = Completer<void>();
     final leased = registry.withLease(() => gate.future);
-    SourceRegistry.close(Section.novel);
+    SourceRegistry.close(Section.video);
     expect(registry.isDisposed, isFalse);
     gate.complete();
     await leased;
     expect(registry.isDisposed, isTrue);
-    final reopened = await SourceRegistry.open(Section.novel);
+    final reopened = await SourceRegistry.open(Section.video);
     expect(reopened, isNot(same(registry)));
-    SourceRegistry.close(Section.novel);
+    SourceRegistry.close(Section.video);
   });
 
   test('推荐首页预热与分类第一页分别复用，并发预热不重复请求', () async {
@@ -341,8 +341,8 @@ void main() {
         // 未登记 → open 返回 null → 预热到此为止。
         opened: const <String, DataSource>{},
       );
-      await SectionPreloader.warm(Section.novel, manager: manager);
-      expect(SectionPreloader.hasWarm(Section.novel), isFalse);
+      await SectionPreloader.warm(Section.video, manager: manager);
+      expect(SectionPreloader.hasWarm(Section.video), isFalse);
     });
   });
 }

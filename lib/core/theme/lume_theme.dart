@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../shared/widgets/lume_icon.dart';
+
 import 'package:flutter/services.dart';
 
 import 'appearance.dart';
@@ -25,9 +28,7 @@ export 'interface_typography.dart' show interfaceFontWeight;
 ///
 /// ## 阅读器为什么不在这里
 ///
-/// 小说阅读页有自己的一套阅读主题（羊皮纸 / 夜间深灰 / 护眼绿 / 纯白 / 自定义），
 /// 漫画阅读页的底色由阅读设置决定——两者都**不受全局主题控制**（文档要求）。
-/// 它们读的是 `NovelTypesetting` / `ComicSettings` 里的颜色，与本文件无关。
 class LumePalette {
   const LumePalette({
     required this.brightness,
@@ -220,7 +221,6 @@ class LumePalette {
 /// 文字三档：[textPrimary] / [textSecondary] / [textHint]；装饰与交互元素一律用
 /// 低饱和品牌紫 [accent]。
 ///
-/// **阅读器不属于这里**：小说阅读页有自己的一套阅读主题（浅色 / 暗色 / 护眼等），
 /// 漫画阅读页的底色与工具栏也由阅读设置决定，两者都不读本文件的颜色。
 ///
 /// ## 当前亮度从哪来
@@ -690,7 +690,18 @@ class LumeTheme {
       ),
     );
     return interfaceTypography(
-      theme,
+      theme.copyWith(
+        actionIconTheme: ActionIconThemeData(
+          backButtonIconBuilder: (_) =>
+              const LumeIcon(Icons.arrow_back_ios_new, slot: 'app.back'),
+          closeButtonIconBuilder: (_) =>
+              const LumeIcon(Icons.close, slot: 'app.close'),
+          drawerButtonIconBuilder: (_) =>
+              const LumeIcon(Icons.menu, slot: 'app.drawer'),
+          endDrawerButtonIconBuilder: (_) =>
+              const LumeIcon(Icons.menu, slot: 'app.end-drawer'),
+        ),
+      ),
       family: fontFamily,
       bold: fontBold,
       italic: fontItalic,

@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/lume_icon.dart';
+
 import '../video/player_settings_host.dart';
 import 'playback_settings_group.dart';
 
@@ -12,7 +14,6 @@ import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
 import '../comic/comic_settings.dart';
-import '../novel/novel_typesetting.dart';
 import '../shell/shell_dock.dart';
 import '../video/video_player_settings.dart';
 
@@ -27,7 +28,6 @@ class ModuleSettingsHubPage extends StatelessWidget {
   const ModuleSettingsHubPage({super.key});
 
   static const List<Section> sections = <Section>[
-    Section.novel,
     Section.comic,
     Section.video,
     Section.cat,
@@ -96,14 +96,12 @@ class _ModuleEntry extends StatelessWidget {
   }
 
   static IconData _iconFor(Section section) => switch (section) {
-    Section.novel => Icons.menu_book_outlined,
     Section.comic => Icons.auto_stories_outlined,
     Section.video => Icons.play_circle_outline_rounded,
     Section.cat => Icons.pets_outlined,
   };
 
   static String _subtitleFor(Section section) => switch (section) {
-    Section.novel => '排版（字号 / 行距）、翻页方式、手势阈值、动画与控件尺寸',
     Section.comic => '阅读模式、边距、背景、点击行为、手势阈值、控件尺寸',
     Section.video => '播放行为（连播 / 倍速）、缓冲、手势灵敏度、控件尺寸',
     Section.cat => '浏览布局、手势阈值、动画与控件尺寸（猫源的播放沿用视频模块设置）',
@@ -112,7 +110,6 @@ class _ModuleEntry extends StatelessWidget {
 
 /// 单个板块的设置页：五个**可折叠分组**（用户口径：不要把所有项堆在一页）。
 ///
-/// 组内数值来自各自的现有存储（漫画阅读设置 / 小说排版 / 播放设置 / 模块通用设置），
 /// 因此与阅读页、播放页里的就地调整天然同步——同一份数据，两边都只是入口。
 class SectionModuleSettingsPage extends StatefulWidget {
   const SectionModuleSettingsPage({super.key, required this.section});
@@ -328,63 +325,12 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   ];
 
   String _layoutSubtitle() => switch (widget.section) {
-    Section.novel => '字号 / 行距 / 段间距 / 页边距（与阅读器里的排版面板同一份数据）',
     Section.comic => '阅读模式 / 边距 / 背景 / 页间距（与阅读页底部面板同一份数据）',
     _ => '这个模块没有排版项（播放 / 浏览界面用固定排版）',
   };
 
   List<Widget> _layoutChildren(ReadingLibrary? library) {
     if (library == null) return <Widget>[const _Note('设置库还没就绪，稍后重试。')];
-    if (widget.section == Section.novel) {
-      final typesetting = NovelTypesetting.decode(
-        library.setting(NovelTypesetting.settingKey),
-      );
-      return <Widget>[
-        _Slider(
-          label: '字号',
-          value: typesetting.fontSize,
-          min: NovelTypesetting.minFontSize,
-          max: NovelTypesetting.maxFontSize,
-          divisions:
-              (NovelTypesetting.maxFontSize - NovelTypesetting.minFontSize)
-                  .round(),
-          display: '${typesetting.fontSize.round()}pt',
-          onChanged: (value) =>
-              _saveTypesetting(library, typesetting.copyWith(fontSize: value)),
-        ),
-        _Slider(
-          label: '行距',
-          value: typesetting.lineHeight,
-          min: NovelTypesetting.minLineHeight,
-          max: NovelTypesetting.maxLineHeight,
-          display: typesetting.lineHeight.toStringAsFixed(2),
-          onChanged: (value) => _saveTypesetting(
-            library,
-            typesetting.copyWith(lineHeight: value),
-          ),
-        ),
-        _Slider(
-          label: '段间距',
-          value: typesetting.paragraphSpacing,
-          min: NovelTypesetting.minParagraphSpacing,
-          max: NovelTypesetting.maxParagraphSpacing,
-          display: typesetting.paragraphSpacing.round().toString(),
-          onChanged: (value) => _saveTypesetting(
-            library,
-            typesetting.copyWith(paragraphSpacing: value),
-          ),
-        ),
-        _Slider(
-          label: '页边距',
-          value: typesetting.margin,
-          min: NovelTypesetting.minMargin,
-          max: NovelTypesetting.maxMargin,
-          display: typesetting.margin.round().toString(),
-          onChanged: (value) =>
-              _saveTypesetting(library, typesetting.copyWith(margin: value)),
-        ),
-      ];
-    }
     if (widget.section == Section.comic) {
       final comic = ComicReaderSettings.load(library);
       return <Widget>[
@@ -470,7 +416,6 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
   }
 
   String _behaviorSubtitle() => switch (widget.section) {
-    Section.novel => '翻页方式、预加载（阅读器里的设置同一份数据）',
     Section.comic => '点击行为、翻页方向、预加载半径（阅读页面板同一份数据）',
     Section.video => '切集连播、倍速、跳过片头片尾（播放页设置同一份数据）',
     Section.cat => '猫源沿用视频模块的播放行为；本页只管浏览与手势',
@@ -608,11 +553,6 @@ class _SectionModuleSettingsPageState extends State<SectionModuleSettingsPage> {
     setState(() {});
   }
 
-  void _saveTypesetting(ReadingLibrary library, NovelTypesetting next) {
-    library.setSetting(NovelTypesetting.settingKey, next.encode());
-    setState(() {});
-  }
-
   /// 播放设置走它自己的存储（与播放页共用），不是本页自造的键。
   PlayerSettings _videoSettings(ReadingLibrary library) =>
       VideoPlayerSettingsStore(library).load();
@@ -659,7 +599,13 @@ class _Group extends StatelessWidget {
             tilePadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             // 统一线条风格的灰色小图标，不要彩色大图标抢内容。
-            leading: Icon(icon, size: 20, color: LumeTheme.textSecondary),
+            leading: LumeIcon(
+              icon,
+              slot: 'module_settings_pages.1',
+              variant: true,
+              size: 20,
+              color: LumeTheme.textSecondary,
+            ),
             title: Text(
               title,
               style: TextStyle(

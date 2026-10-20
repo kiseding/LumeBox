@@ -194,7 +194,7 @@ void main() {
   });
 
   group('小说 / 漫画首页列表（ExploreView）', () {
-    for (final section in <Section>[Section.novel, Section.comic]) {
+    for (final section in <Section>[Section.video, Section.comic]) {
       testWidgets('${section.label}：触底加载多页 + 换图源重置分页', (tester) async {
         final pipeline = await openPipeline(section);
         addTearDown(pipeline.dispose);
@@ -277,13 +277,13 @@ void main() {
     }
 
     testWidgets('下拉刷新：重置分页并回到第 1 页', (tester) async {
-      final pipeline = await openPipeline(Section.novel);
+      final pipeline = await openPipeline(Section.video);
       addTearDown(pipeline.dispose);
-      final source = _PagedSource(section: Section.novel, totalPages: 3);
+      final source = _PagedSource(section: Section.video, totalPages: 3);
       await pump(
         tester,
         ExploreView(
-          section: Section.novel,
+          section: Section.video,
           pipeline: pipeline,
           manager: FakeSourceManager(
             sources: const <SourceDescriptor>[

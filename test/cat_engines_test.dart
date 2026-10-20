@@ -60,7 +60,7 @@ void main() {
       expect(CatEngines.available, isTrue);
       expect(CatEngines.showsEngineSwitch(Section.cat), isTrue);
       for (final section in <Section>[
-        Section.novel,
+        Section.video,
         Section.comic,
         Section.video,
       ]) {
@@ -118,7 +118,7 @@ void main() {
         reason: '选择落在猫源自己的源库里',
       );
 
-      final novel = await SectionDatabase.open(await SectionScope.open(Section.novel));
+      final novel = await SectionDatabase.open(await SectionScope.open(Section.video));
       expect(novel.setting(CatEngineSettings.key), isNull);
     });
 
@@ -134,7 +134,7 @@ void main() {
 
       final comic = await SectionDatabase.open(await SectionScope.open(Section.comic));
       for (final section in <Section>[
-        Section.novel,
+        Section.video,
         Section.comic,
         Section.video,
       ]) {
@@ -288,7 +288,7 @@ void main() {
 
     testWidgets('Android 非猫源板块：没有引擎入口', (tester) async {
       CatEngines.debugPlatformOverride = 'android';
-      await pumpSection(tester, Section.novel, FakeSourceManager());
+      await pumpSection(tester, Section.video, FakeSourceManager());
 
       expect(find.byTooltip('猫源引擎'), findsNothing);
     });

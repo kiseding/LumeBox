@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import '../session/privacy_settings.dart';
 
 import 'package:flutter/foundation.dart';
@@ -15,8 +16,6 @@ class SourceContentVisibility extends ChangeNotifier {
   SourceContentVisibility();
   static final instance = SourceContentVisibility();
   static const types = [
-    ('novel', '小说', '文字阅读'),
-    ('audiobook', '听书', '有声内容与音频'),
     ('comic', '漫画', '漫画作品'),
     ('photo', '美图', '网络美图与写真图库'),
     ('video', '视频', '网络小视频及现有泛视频源'),

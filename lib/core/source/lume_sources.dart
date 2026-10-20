@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import '../session/privacy_settings.dart';
 
 import '../cache/section_memory_cache.dart';
@@ -30,7 +31,7 @@ class LumeSources {
 
   /// 当前平台是否提供图源运行时（Phase1 只在 iOS 成立）。
   ///
-  /// 这是「小说 / 漫画 / 视频」的口径；猫源可能更宽（Android 上也有引擎），
+  /// 这是「漫画 / 视频」的口径；猫源可能更宽（Android 上也有引擎），
   /// 按板块判断请用 [runtimeAvailableFor]。
   static bool get runtimeAvailable => LumeJsEngine.isSupported;
 
@@ -99,8 +100,15 @@ class LumeSources {
     if (!runtimeAvailableFor(section)) return null;
     final registry = await SourceRegistry.open(section);
     var record = registry.currentSource();
-    if (record != null && !PrivacySettings.instance.allowsSource(record.id, record.name)) {
-      record = registry.sources.where((s) => s.enabled && PrivacySettings.instance.allowsSource(s.id, s.name)).firstOrNull;
+    if (record != null &&
+        !PrivacySettings.instance.allowsSource(record.id, record.name)) {
+      record = registry.sources
+          .where(
+            (s) =>
+                s.enabled &&
+                PrivacySettings.instance.allowsSource(s.id, s.name),
+          )
+          .firstOrNull;
     }
     return record == null ? null : _describe(record);
   }
@@ -113,7 +121,10 @@ class LumeSources {
     if (!runtimeAvailableFor(section)) return null;
     final registry = await SourceRegistry.open(section);
     final candidate = registry.source(sourceId);
-    if (candidate != null && !PrivacySettings.instance.allowsSource(candidate.id, candidate.name)) return null;
+    if (candidate != null &&
+        !PrivacySettings.instance.allowsSource(candidate.id, candidate.name)) {
+      return null;
+    }
     final record = registry.selectSource(sourceId);
     return record == null ? null : _describe(record);
   }
@@ -227,7 +238,9 @@ class LumeSources {
       }
     }
     if (record == null) return null;
-    if (!PrivacySettings.instance.allowsSource(record.id, record.name)) return null;
+    if (!PrivacySettings.instance.allowsSource(record.id, record.name)) {
+      return null;
+    }
     if (await registry.engineFor(sourceId) == null) return null;
     return JsDataSource(
       id: record.id,
@@ -417,9 +430,8 @@ class LumeSources {
 
   /// `HOSTS = ['https://a.com', …]` / `HOSTS = ["https://a.com"]` 里的第一个主机。
   static String? _firstHost(String script) {
-    final match = RegExp(
-      r'''HOSTS\s*=\s*\[\s*['"](https?://[^'"]+)''',
-    ).firstMatch(script);
+    final match = RegExp(r'''HOSTS\s*=\s*\[\s*['"](https?://[^'"]+)''')
+        .firstMatch(script);
     return match?.group(1);
   }
 
@@ -650,7 +662,8 @@ class _EngineRuntime implements JsSourceRuntime {
     SourceEngine engine,
   ) async {
     if (engine is! ScriptConfigCapable) return;
-    await (engine as ScriptConfigCapable)
-        .applyScriptConfig(registry.scriptConfigFor(_sourceId));
+    await (engine as ScriptConfigCapable).applyScriptConfig(
+      registry.scriptConfigFor(_sourceId),
+    );
   }
 }

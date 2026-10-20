@@ -165,7 +165,7 @@ loop();
         final host = LumeSourceHost(
           http,
           timeout: const Duration(seconds: 2),
-          section: Section.novel,
+          section: Section.video,
           sourceId: 'storm',
         );
         final sandbox = LumeSandbox.create(
@@ -271,7 +271,7 @@ for (var i = 0; i < 500; i++) { setTimeout(tick, 1); }
         final host = LumeSourceHost(
           http,
           timeout: const Duration(seconds: 2),
-          section: Section.novel,
+          section: Section.video,
           sourceId: 'real-source',
         );
         addTearDown(host.dispose);

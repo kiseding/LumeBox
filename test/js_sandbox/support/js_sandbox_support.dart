@@ -78,7 +78,7 @@ SandboxPolicy smokePolicy({bool allowHostAccess = true}) =>
 Future<LumeJsEngine> openEngine({
   required String sourceId,
   required String script,
-  Section section = Section.novel,
+  Section section = Section.video,
 }) async {
   final engine = await LumeJsEngine.create(
     sourceId: sourceId,

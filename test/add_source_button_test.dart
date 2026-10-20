@@ -44,7 +44,7 @@ void main() {
           appBar: AppBar(
             actions: <Widget>[
               AddSourceButton(
-                section: Section.novel,
+                section: Section.video,
                 manager: manager,
                 onImported: () => importedCount.add(1),
                 readLocalScripts: readLocalScripts,

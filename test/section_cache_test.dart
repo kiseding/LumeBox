@@ -40,7 +40,7 @@ void main() {
     // 漫画：图片缓存 + 用户保存的图片；小说：图片缓存；猫源：板块缓存目录。
     writeFile('sections/comic/reading_cache/images/a.img', 100);
     writeFile('sections/comic/reading_cache/exports/saved.png', 50);
-    writeFile('sections/novel/reading_cache/images/b.img', 200);
+    writeFile('sections/cat/reading_cache/images/b.img', 200);
     writeFile('sections/cat/cache/c.tmp', 30);
   });
 
@@ -64,10 +64,9 @@ void main() {
     expect(bySection[Section.comic]!.savedBytes, 50);
     expect(bySection[Section.comic]!.savedFiles, 1);
 
-    expect(bySection[Section.novel]!.cacheBytes, 200);
-    expect(bySection[Section.novel]!.savedBytes, 0);
+    expect(bySection[Section.cat]!.cacheBytes, 230);
+    expect(bySection[Section.cat]!.savedBytes, 0);
 
-    expect(bySection[Section.cat]!.cacheBytes, 30);
 
     // 没有缓存数据的板块就是 0，不是失败。
     expect(bySection[Section.video]!.cacheBytes, 0);
@@ -85,7 +84,7 @@ void main() {
       reason: '用户保存的图片不参与清理',
     );
     expect(
-      sizeOf('sections/novel/reading_cache/images/b.img'),
+      sizeOf('sections/cat/reading_cache/images/b.img'),
       200,
       reason: '小说板块的缓存不受漫画清理影响',
     );
@@ -100,8 +99,8 @@ void main() {
     expect(afterComic.savedBytes, 50);
 
     // 其他板块的统计值也没有被算错。
-    final novel = await service.inspect(Section.novel);
-    expect(novel.cacheBytes, 200);
+    final novel = await service.inspect(Section.cat);
+    expect(novel.cacheBytes, 230);
   });
 
   test('清理空板块：返回 0，不报错', () async {
@@ -109,13 +108,13 @@ void main() {
   });
 
   test('清理后仍可继续统计：状态自洽', () async {
-    await service.clear(Section.novel);
+    await service.clear(Section.cat);
     await service.clear(Section.cat);
 
     final bySection = <Section, SectionCacheStats>{
       for (final item in await service.inspectAll()) item.section: item,
     };
-    expect(bySection[Section.novel]!.cacheBytes, 0);
+    expect(bySection[Section.cat]!.cacheBytes, 0);
     expect(bySection[Section.cat]!.cacheBytes, 0);
     expect(bySection[Section.video]!.cacheBytes, 0);
     expect(

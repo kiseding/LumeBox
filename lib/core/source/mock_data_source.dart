@@ -30,11 +30,10 @@ class MockDataSource implements DataSource {
 
   static const Map<Section, List<String>> _categoryLabels =
       <Section, List<String>>{
-    Section.novel: <String>['玄幻', '都市', '科幻'],
-    Section.comic: <String>['热血', '恋爱', '悬疑'],
-    Section.video: <String>['电影', '剧集', '短片'],
-    Section.cat: <String>['推荐', '关注', '默认'],
-  };
+        Section.comic: <String>['热血', '恋爱', '悬疑'],
+        Section.video: <String>['电影', '剧集', '短片'],
+        Section.cat: <String>['推荐', '关注', '默认'],
+      };
 
   @override
   String get id => 'lume.mock.${section.id}';
@@ -64,8 +63,8 @@ class MockDataSource implements DataSource {
     final scope = trimmedKeyword.isNotEmpty
         ? '搜索 $trimmedKeyword'
         : trimmedCategory.isEmpty
-            ? '最新'
-            : _categoryTitle(trimmedCategory);
+        ? '最新'
+        : _categoryTitle(trimmedCategory);
     final effectivePage = page < 1 ? 1 : page;
     return SourceList(
       items: <SourceItem>[
@@ -89,7 +88,8 @@ class MockDataSource implements DataSource {
       id: id,
       title: '模拟作品 $id',
       subtitle: '${section.label} · 模拟数据',
-      description: '数据源抽象接口层的模拟实现，用于验证分类、列表、详情、'
+      description:
+          '数据源抽象接口层的模拟实现，用于验证分类、列表、详情、'
           '章节与内容链路；不包含任何真实抓取逻辑。',
     );
   }
@@ -110,11 +110,6 @@ class MockDataSource implements DataSource {
   }) async {
     await _tick();
     switch (section) {
-      case Section.novel:
-        return TextContent(
-          '模拟正文：$itemId / $chapterId。真实源按所属板块返回文本、'
-          '图片列表或视频地址之一。',
-        );
       case Section.comic:
         return ImageContent(<String>[
           for (var index = 1; index <= 3; index++)
@@ -123,7 +118,9 @@ class MockDataSource implements DataSource {
       case Section.video:
       case Section.cat:
         // 猫源可以返回任意一种内容，模拟实现统一按视频处理。
-        return VideoContent(url: Uri.parse('https://example.invalid/mock/$chapterId.mp4'));
+        return VideoContent(
+          url: Uri.parse('https://example.invalid/mock/$chapterId.mp4'),
+        );
     }
   }
 

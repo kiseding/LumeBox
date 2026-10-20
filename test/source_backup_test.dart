@@ -56,10 +56,10 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  /// 只有视频与小说板块「有运行时」，其余跳过（模拟平台边界）。
+  /// 只有视频与视频板块「有运行时」，其余跳过（模拟平台边界）。
   SourceBackupService service() => SourceBackupService(
         runtimeAvailableFor: (section) =>
-            section == Section.video || section == Section.novel,
+            section == Section.video || section == Section.cat,
       );
 
   Future<SourceRegistry> seed(Section section, String id, String title) async {
@@ -97,11 +97,11 @@ async function getList(page) { return { list: [{ id: 'a', title: '$title' }] }; 
 
     test('板块归属正确：四个板块各归各的', () async {
       await seed(Section.video, 'v1', '视频源');
-      await seed(Section.novel, 'n1', '小说源');
+      await seed(Section.cat, 'n1', '猫源');
 
       final backup = await service().export();
       expect(backup.sections[Section.video.id]!.single.id, 'v1');
-      expect(backup.sections[Section.novel.id]!.single.id, 'n1');
+      expect(backup.sections[Section.cat.id]!.single.id, 'n1');
       // 没有运行时的板块留空，而不是把别的板块塞进去。
       expect(backup.sections[Section.comic.id], isEmpty);
       expect(backup.totalCount, 2);

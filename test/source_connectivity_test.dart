@@ -352,7 +352,7 @@ void main() {
         'src-${section.id}',
       ], reason: '${section.label} 板块的源应当被测到');
     }
-    expect(find.textContaining('测试完成（4 个）'), findsOneWidget);
+    expect(find.textContaining('测试完成（3 个）'), findsOneWidget);
   });
 
   group('更新订阅源', () {

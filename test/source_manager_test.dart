@@ -22,7 +22,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
-        home: SourceSectionPage(section: Section.novel, manager: manager),
+        home: SourceSectionPage(section: Section.video, manager: manager),
       ),
     );
     await tester.pumpAndSettle();
@@ -254,7 +254,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('移除所有站点数据'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('仅清理「小说」版块'), findsOneWidget);
+    expect(find.textContaining('仅清理「视频」版块'), findsOneWidget);
     expect(find.textContaining('书架、阅读／播放进度'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();

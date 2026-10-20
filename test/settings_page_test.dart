@@ -180,7 +180,7 @@ void main() {
   testWidgets('缓存管理：分板块统计，清理只动所选板块', (tester) async {
     writeFile('sections/comic/reading_cache/images/a.img', 100);
     writeFile('sections/comic/reading_cache/exports/saved.png', 50);
-    writeFile('sections/novel/reading_cache/images/b.img', 200);
+    writeFile('sections/video/reading_cache/images/b.img', 200);
 
     await pumpSettings(tester);
     await scrollTo(tester, '缓存管理');
@@ -196,7 +196,7 @@ void main() {
 
     // 四个板块各一行；漫画显示缓存与已保存图片。
     expect(find.text('漫画'), findsOneWidget);
-    expect(find.text('小说'), findsOneWidget);
+    expect(find.text('小说'), findsNothing);
     expect(find.text('视频'), findsOneWidget);
     expect(find.text('猫源'), findsOneWidget);
     expect(find.textContaining('缓存 100 B'), findsOneWidget);
@@ -223,10 +223,10 @@ void main() {
       reason: '用户保存的图片不参与清理',
     );
     expect(
-      File('${root.path}/sections/novel/reading_cache/images/b.img')
+      File('${root.path}/sections/video/reading_cache/images/b.img')
           .existsSync(),
       isTrue,
-      reason: '小说板块的缓存不受漫画清理影响',
+      reason: '视频板块的缓存不受漫画清理影响',
     );
     expect(find.text('缓存 200 B（1 个文件）'), findsOneWidget);
   });
@@ -385,7 +385,6 @@ void main() {
       '底部导航栏管理',
       '悬浮模块',
       '各模块独立设置',
-      '有声小说播放器',
       'AI 图片超分与上色',
       '漫画翻译',
       '总订阅导入导出',
@@ -442,13 +441,11 @@ void main() {
     // 展示文案（label）与内部标识（id）是两回事：视频板块显示「视频」，
     // 但库、缓存、图源归属仍走 id 'video'。
     expect(Section.values.map((section) => section.label).toList(), <String>[
-      '小说',
       '漫画',
       '视频',
       '猫源',
     ]);
     expect(Section.values.map((section) => section.id).toList(), <String>[
-      'novel',
       'comic',
       'video',
       'cat',

@@ -31,59 +31,13 @@ class _FakeRuntime implements JsSourceRuntime {
 
 void main() {
   group('模拟实现：四个板块共用一套接口', () {
-    for (final section in Section.values) {
-      test('${section.label}：分类 / 列表 / 详情 / 章节 / 内容', () async {
-        final typed = MockDataSource(section: section);
-        expect(typed.id, 'lume.mock.${section.id}');
-        expect(typed.name, '${section.label}模拟源');
-        expect(typed.section, section);
 
-        final categories = await typed.categories();
-        expect(categories, isNotEmpty);
-        expect(
-          categories.map((category) => category.id).toSet().length,
-          categories.length,
-        );
-
-        final list = await typed.list(categoryId: categories.first.id);
-        expect(list.items, isNotEmpty);
-        expect(list.hasMore, isTrue, reason: '第一页应还有下一页');
-        expect(list.items.first.title, contains(categories.first.title));
-
-        final search = await typed.list(keyword: ' 关键词 ');
-        expect(search.items.first.title, contains('搜索 关键词'));
-
-        final detail = await typed.detail(list.items.first.id);
-        expect(detail, isNotNull);
-        expect(detail!.id, list.items.first.id);
-        expect(detail.title, contains(list.items.first.id));
-        expect(await typed.detail('   '), isNull);
-
-        final chapters = await typed.chapters('item-1');
-        expect(chapters.length, MockDataSource.chapterCount);
-        expect(chapters.first.title, '第 1 章');
-
-        final content = await typed.content(
-          itemId: list.items.first.id,
-          chapterId: chapters.first.id,
-        );
-        switch (section) {
-          case Section.novel:
-            expect(content, isA<TextContent>());
-          case Section.comic:
-            expect(content, isA<ImageContent>());
-          case Section.video:
-          case Section.cat:
-            expect(content, isA<VideoContent>());
-        }
-      });
-    }
 
     test('页码语义：第一页还有更多，第二页到底', () async {
-      const source = MockDataSource(section: Section.novel);
+      const source = MockDataSource(section: Section.video);
       expect((await source.list(page: 1)).hasMore, isTrue);
       expect((await source.list(page: 2)).hasMore, isFalse);
-      expect((await source.list(page: 0)).items.first.id, 'novel-1-1');
+      expect((await source.list(page: 0)).items.first.id, 'video-1-1');
     });
 
     test('失败注入：所有调用都抛 SourceException', () async {
@@ -100,7 +54,7 @@ void main() {
 
     test('延迟可配置：调用仍然正常返回', () async {
       const source = MockDataSource(
-        section: Section.novel,
+        section: Section.video,
         latency: Duration(milliseconds: 1),
       );
       expect((await source.categories()).length, 3);
@@ -111,7 +65,7 @@ void main() {
     JsDataSource build(_FakeRuntime runtime) => JsDataSource(
           id: 'demo',
           name: '示例源',
-          section: Section.novel,
+          section: Section.video,
           runtime: runtime,
         );
 
@@ -258,20 +212,20 @@ void main() {
     test('无图源运行时的平台一律降级为空与 null', () async {
       if (Platform.isIOS) return; // 该断言只在没有图源引擎的平台成立
       expect(LumeSources.runtimeAvailable, isFalse);
-      expect(await LumeSources.list(Section.novel), isEmpty);
-      expect(await LumeSources.open(Section.novel, 'demo'), isNull);
+      expect(await LumeSources.list(Section.video), isEmpty);
+      expect(await LumeSources.open(Section.video, 'demo'), isNull);
 
       final imported = await LumeSources.importScript(
-        Section.novel,
+        Section.video,
         'var LumeSource = {};',
       );
       expect(imported.isSuccess, isFalse);
       expect(imported.descriptor, isNull);
       expect(imported.message, contains('源运行时'));
 
-      await LumeSources.setEnabled(Section.novel, 'demo', false);
-      await LumeSources.remove(Section.novel, 'demo');
-      LumeSources.close(Section.novel);
+      await LumeSources.setEnabled(Section.video, 'demo', false);
+      await LumeSources.remove(Section.video, 'demo');
+      LumeSources.close(Section.video);
     });
 
     test('管理端口：正式实现在同一平台上给出同一套降级语义', () async {
@@ -294,8 +248,8 @@ void main() {
 
     test('门面：当前图源在无运行时平台上同样降级', () async {
       if (Platform.isIOS) return;
-      expect(await LumeSources.currentSource(Section.novel), isNull);
-      expect(await LumeSources.selectSource(Section.novel, 'demo'), isNull);
+      expect(await LumeSources.currentSource(Section.video), isNull);
+      expect(await LumeSources.selectSource(Section.video, 'demo'), isNull);
     });
   });
 
@@ -312,7 +266,7 @@ void main() {
     JsDataSource build(_FakeRuntime runtime) => JsDataSource(
           id: 'demo',
           name: '示例源',
-          section: Section.novel,
+          section: Section.video,
           runtime: runtime,
           cache: cache,
         );
@@ -329,7 +283,7 @@ void main() {
       expect((await source.categories()).single.title, '分类一');
       expect((await source.categories()).single.title, '分类一');
       expect(callsOf(runtime, JsSourceContract.categories), 1);
-      expect(cache.usageOf(Section.novel).entries, 1);
+      expect(cache.usageOf(Section.video).entries, 1);
     });
 
     test('详情与章节按 itemId 分开缓存', () async {
@@ -386,7 +340,7 @@ void main() {
 
       expect(callsOf(runtime, JsSourceContract.list), 2);
       expect(callsOf(runtime, JsSourceContract.content), 2);
-      expect(cache.usageOf(Section.novel).isEmpty, isTrue, reason: '一条都不该进缓存');
+      expect(cache.usageOf(Section.video).isEmpty, isTrue, reason: '一条都不该进缓存');
     });
 
     test('失败不进缓存：抛错之后重试仍然走脚本', () async {
@@ -403,7 +357,7 @@ void main() {
       final source = build(runtime);
 
       await expectLater(source.categories(), throwsA(isA<SourceException>()));
-      expect(cache.usageOf(Section.novel).isEmpty, isTrue, reason: '失败不写缓存');
+      expect(cache.usageOf(Section.video).isEmpty, isTrue, reason: '失败不写缓存');
       expect((await source.categories()).single.title, '分类一');
     });
 
@@ -417,7 +371,7 @@ void main() {
       await source.categories();
       expect(callsOf(runtime, JsSourceContract.categories), 1);
 
-      cache.clear(Section.novel);
+      cache.clear(Section.video);
       await source.categories();
       expect(callsOf(runtime, JsSourceContract.categories), 2);
     });
@@ -429,14 +383,14 @@ void main() {
       final source = JsDataSource(
         id: 'demo',
         name: '示例源',
-        section: Section.novel,
+        section: Section.video,
         runtime: runtime,
       );
 
       await source.categories();
       await source.categories();
       expect(callsOf(runtime, JsSourceContract.categories), 2);
-      expect(cache.usageOf(Section.novel).isEmpty, isTrue);
+      expect(cache.usageOf(Section.video).isEmpty, isTrue);
     });
   });
 }

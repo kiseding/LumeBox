@@ -107,8 +107,8 @@ void main() {
         expect(result.descriptor!.version, '1.0.0');
 
         // 跨板块导入照样被拦：垫片把板块自报写成了 comic。
-        await ensureSectionScope(Section.novel);
-        final novel = LumeSources.manager(Section.novel);
+        await ensureSectionScope(Section.video);
+        final novel = LumeSources.manager(Section.video);
         final rejected = await novel.importScript(
           scriptFor('venera_demo_json.js'),
         );

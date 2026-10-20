@@ -17,7 +17,7 @@ void main() {
     root=await Directory.systemTemp.createTemp('lume-drawers-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/path_provider'),(_) async=>root.path);
-    library=await ReadingLibrary.open(Section.novel);
+    library=await ReadingLibrary.open(Section.video);
   });
   tearDown(() async {ReadingLibrary.disposeAll();ReadingStore.disposeAll();await SectionScope.closeAll();await root.delete(recursive:true);});
   for(final height in [667.0,844.0]) {
@@ -34,7 +34,7 @@ void main() {
       final bounds=tester.getRect(find.byKey(const Key('classification-drawer-frame')));
       Navigator.pop(page);await tester.pumpAndSettle();
       for(final tab in HistoryDrawerTab.values) {
-        unawaited(showReadingHistorySheet(context:page,section:Section.novel,library:library,
+        unawaited(showReadingHistorySheet(context:page,section:Section.video,library:library,
           initialTab:tab,onResume:(_,progress){}));
         await tester.pumpAndSettle();
         expect(tester.getRect(find.byKey(const Key('history-drawer-frame'))),bounds);

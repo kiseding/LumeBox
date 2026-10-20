@@ -43,38 +43,7 @@ void main() {
       final refreshed = await source.data.refreshImage('${url.split('?').first}?expired=1', page);
       expect(refreshed, url);
     }, skip: _skipUnless(['jcomic_comic.js', 'jcomic_cat.html']));
-    test('99xs 小说：列表 / 详情 / 分页正文', () async {
-      final source = await _boot(
-        _script('99xs_novel.js'),
-        section: Section.novel,
-        http: _SnapshotHttp(
-          get: <String, String>{
-            'https://99xs.sbs/enter': _read('99xs.html'),
-            'https://99xs.sbs/article/529': _read('99xs_detail.html'),
-            'https://99xs.sbs/article/529/2': _read('99xs_detail.html'),
-          },
-        ),
-      );
-      addTearDown(source.dispose);
 
-      final list = await source.data.list(page: 1);
-      expect(list.items, isNotEmpty);
-      expect(list.items.first.id, '529');
-
-      final detail = await source.data.detail('529');
-      expect(detail?.title, '处女表妹被表哥诱奸');
-
-      final chapters = await source.data.chapters('529');
-      expect(chapters.length, 2);
-      expect(chapters.last.id, '529/2');
-
-      final content = await source.data.content(
-        itemId: '529',
-        chapterId: chapters.last.id,
-      );
-      expect(content, isA<TextContent>());
-      expect((content! as TextContent).text, isNotEmpty);
-    }, skip: _skipUnless(<String>['99xs_novel.js', '99xs.html', '99xs_detail.html']));
 
     test('daniao5 漫画：列表 / 详情 / 章节 / 图片', () async {
       final source = await _boot(
@@ -321,76 +290,9 @@ void main() {
       expect((content! as ImageContent).images.length, greaterThanOrEqualTo(55));
     }, skip: _skipUnless(<String>['p5mh_comic.js', 'p5mh_list.html', 'p5mh_detail.html']));
 
-    test('xxs 小说：列表 / 详情 / 章节 / 正文', () async {
-      final source = await _boot(
-        _script('xxiaoshuo_novel.js'),
-        section: Section.novel,
-        http: _SnapshotHttp(
-          get: <String, String>{
-            'https://book.xn--x-ny6am91b6ug0se.com/books': _read('xxs_list.html'),
-            'https://book.xn--x-ny6am91b6ug0se.com/book/ffbc92cddbf85a848309e580dd593265':
-                _read('xxs_book.html'),
-            'https://book.xn--x-ny6am91b6ug0se.com/read/ffbc92cddbf85a848309e580dd593265/32567':
-                _read('xxs_read.html'),
-          },
-        ),
-      );
-      addTearDown(source.dispose);
 
-      final list = await source.data.list(page: 1);
-      expect(list.items, isNotEmpty);
 
-      final detail = await source.data.detail('book:ffbc92cddbf85a848309e580dd593265');
-      expect(detail?.title, isNotEmpty);
 
-      final chapters = await source.data.chapters(
-        'book:ffbc92cddbf85a848309e580dd593265',
-      );
-      expect(chapters.length, greaterThan(1));
-
-      final content = await source.data.content(
-        itemId: 'book:ffbc92cddbf85a848309e580dd593265',
-        chapterId: chapters.first.id,
-      );
-      expect(content, isA<TextContent>());
-      expect((content! as TextContent).text, isNotEmpty);
-    }, skip: _skipUnless(<String>['xxiaoshuo_novel.js', 'xxs_list.html', 'xxs_book.html', 'xxs_read.html']));
-
-    test('xchina 小说：列表 / 详情 / 章节 / 正文', () async {
-      final source = await _boot(
-        _script('xchina_novel.js'),
-        section: Section.novel,
-        http: _SnapshotHttp(
-          get: <String, String>{
-            'https://xchina.co/fictions/1.html': _read('xchina_list.html'),
-            'https://xchina.co/fiction/id-6ac68dd9db5c9.html': _read(
-              'xchina_series.html',
-            ),
-            'https://xchina.co/fiction/id-dGhpc19pc19hX2ZpeGVkMHJhTmJoelVjMjJWNm1iZG5WTXF1L2c9PQ==.html':
-                _read('xchina_chapter.html'),
-          },
-        ),
-      );
-      addTearDown(source.dispose);
-
-      final list = await source.data.list(page: 1);
-      expect(list.items, isNotEmpty);
-      expect(list.items.first.id, 'series:6ac68dd9db5c9');
-
-      final detail = await source.data.detail('series:6ac68dd9db5c9');
-      expect(detail?.title, '豪乳老师刘艳——第七部06');
-      expect(detail?.cover, startsWith('http'));
-
-      final chapters = await source.data.chapters('series:6ac68dd9db5c9');
-      expect(chapters.length, 25);
-
-      final content = await source.data.content(
-        itemId: 'series:6ac68dd9db5c9',
-        chapterId: chapters.first.id,
-      );
-      expect(content, isA<TextContent>());
-      expect((content! as TextContent).text, isNotEmpty);
-    }, skip: _skipUnless(<String>['xchina_novel.js', 'xchina_list.html', 'xchina_chapter.html']) ?? 'xchina 快照与当前脚本的章节结构不一致（快照无 hasPart），待重新抓取后再启用');
   }, skip: skipReason);
 }
 

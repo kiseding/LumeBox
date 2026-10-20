@@ -39,36 +39,36 @@ void main() {
         );
   });
   test('移除全部站点数据按版块隔离，保留书架、进度、界面设置和导出图片', () async {
-    final novel = await ReadingLibrary.open(Section.novel);
+    final novel = await ReadingLibrary.open(Section.video);
     final comic = await ReadingLibrary.open(Section.comic);
     novel.shelve(sourceId: 'a', itemId: 'book', title: '保留作品', chapterCount: 3);
     novel.saveProgress(
-      NovelProgress(
-        section: Section.novel,
+      VideoProgress(
+        section: Section.video,
         itemId: 'book',
         chapterIndex: 1,
         chapterId: 'ch2',
         chapterTitle: '第二章',
         updatedAt: DateTime(2026),
-        charOffset: 40,
+        position: const Duration(milliseconds: 40),
       ),
     );
     await const SourcePreferences(
       pinned: true,
       customOrigin: 'https://mirror.example',
-    ).save(Section.novel, 'a');
+    ).save(Section.video, 'a');
     await const SourcePreferences(pinned: true).save(Section.comic, 'a');
     novel.setSetting('source.preferences.old-orphan', '{}');
     novel.setSetting('player.unrelated', 'keep');
-    WafSessions.save(Section.novel, 'a', {'cf_clearance': 'test'});
-    WafSessions.saveUserAgent(Section.novel, 'a', 'test-UA');
+    WafSessions.save(Section.video, 'a', {'cf_clearance': 'test'});
+    WafSessions.saveUserAgent(Section.video, 'a', 'test-UA');
     WafSessions.save(Section.comic, 'a', {'cf_clearance': 'other'});
     final cached = File('${novel.imageCacheDir}/test.img')
       ..writeAsStringSync('cache');
     final other = File('${comic.imageCacheDir}/test.img')
       ..writeAsStringSync('keep');
     final saved = novel.saveImage('saved.png', Uint8List.fromList([1, 2, 3]));
-    SectionMemoryCache.instance.write(Section.novel, 'a', 'test', 'cached');
+    SectionMemoryCache.instance.write(Section.video, 'a', 'test', 'cached');
     SectionMemoryCache.instance.write(Section.comic, 'a', 'test', 'keep');
     final manager = FakeSourceManager(
       sources: const [
@@ -81,16 +81,16 @@ void main() {
         ),
       ],
     );
-    final scope = await SectionScope.open(Section.novel);
+    final scope = await SectionScope.open(Section.video);
     final subscriptions = SourceSubscriptionSync(
-      section: Section.novel,
+      section: Section.video,
       manager: manager,
       file: File(scope.resolve('subscriptions.json')),
     );
     await subscriptions.register(['https://example.com/novels']);
     final domains = <String>{};
     final result = await SourceMaintenance(
-      section: Section.novel,
+      section: Section.video,
       manager: manager,
       subscriptions: subscriptions,
       clearWebData: (hosts, protected) async {
@@ -101,24 +101,24 @@ void main() {
     expect(manager.sources, isEmpty);
     expect(subscriptions.subscriptions, isEmpty);
     expect(novel.onShelf('book'), true);
-    expect((novel.progress('book') as NovelProgress).charOffset, 40);
+    expect((novel.progress('book') as VideoProgress).position.inMilliseconds, 40);
     expect(novel.setting('player.unrelated'), 'keep');
     expect(novel.setting('source.preferences.old-orphan'), isNull);
-    expect(SourcePreferences.read(Section.novel, 'a').pinned, false);
-    expect(WafSessions.cookiesFor(Section.novel, 'a'), isNull);
-    expect(WafSessions.userAgentFor(Section.novel, 'a'), isNull);
+    expect(SourcePreferences.read(Section.video, 'a').pinned, false);
+    expect(WafSessions.cookiesFor(Section.video, 'a'), isNull);
+    expect(WafSessions.userAgentFor(Section.video, 'a'), isNull);
     expect(SourcePreferences.read(Section.comic, 'a').pinned, true);
     expect(WafSessions.cookiesFor(Section.comic, 'a'), contains('other'));
     expect(cached.existsSync(), false);
     expect(other.existsSync(), true);
     expect(saved.existsSync(), true);
-    expect(SectionMemoryCache.instance.usageOf(Section.novel).isEmpty, true);
+    expect(SectionMemoryCache.instance.usageOf(Section.video).isEmpty, true);
     expect(SectionMemoryCache.instance.usageOf(Section.comic).isEmpty, false);
     expect(domains, containsAll(['novel.example', 'mirror.example']));
   });
   test('普通卸载保留源设置，部分失败逐项报告', () async {
-    await ReadingLibrary.open(Section.novel);
-    await const SourcePreferences(pinned: true).save(Section.novel, 'a');
+    await ReadingLibrary.open(Section.video);
+    await const SourcePreferences(pinned: true).save(Section.video, 'a');
     final manager = _FailingManager(
       sources: const [
         SourceDescriptor(id: 'a', name: '甲站', version: '1', enabled: true),
@@ -126,13 +126,13 @@ void main() {
       ],
     );
     final result = await SourceMaintenance(
-      section: Section.novel,
+      section: Section.video,
       manager: manager,
     ).remove(List.of(manager.sources));
     expect(result.removed.map((source) => source.id), ['a']);
     expect(result.errors.single, contains('乙站'));
     expect(manager.sources.single.id, 'b');
-    expect(SourcePreferences.read(Section.novel, 'a').pinned, true);
+    expect(SourcePreferences.read(Section.video, 'a').pinned, true);
   });
 }
 

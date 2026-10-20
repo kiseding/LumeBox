@@ -256,9 +256,10 @@ class LumeJsEngine {
   /// `jsonEncode` 已转义引号 / 反斜杠 / 控制字符，只剩行分隔符
   /// （U+2028 / U+2029）在 JS 字符串字面量里不合法——用户手填的域名或密码
   /// 带上它会把整句求值拆成两行，这里补一道转义。
-  static String _jsStringLiteral(String text) => jsonEncode(text)
-      .replaceAll('\u2028', r'\u2028')
-      .replaceAll('\u2029', r'\u2029');
+  static String _jsStringLiteral(String text) =>
+      jsonEncode(text)
+          .replaceAll('\u2028', r'\u2028')
+          .replaceAll('\u2029', r'\u2029');
 
   /// 调用图源方法并解析其 JSON 结果。失败返回 null。
   Future<Object?> call(String method, [Object? argument]) async {
@@ -479,7 +480,6 @@ class LumeSourcePolyfills {
   ///
   /// Venera 兼容层（`ComicSource` / `Network` / `HtmlDocument` 等）放在**通用表**
   /// 里，是为了让「Venera 源被导入错板块」给出人话：脚本载入后自报 comic，
-  /// 于是小说 / 视频板块的导入会走既有的跨板块校验被拦下；
   /// 若只在漫画板块注入，误导入的报错会是「ComicSource is not defined」——
   /// 用户看不出这是板块问题。猫源有自己的登记表，拿不到这一层。
   static final PolyfillRegistry registry = PolyfillRegistry(<SandboxPolyfill>[

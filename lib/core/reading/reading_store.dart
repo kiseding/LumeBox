@@ -21,9 +21,8 @@ import 'reading_models.dart';
 /// - **归属标记**：库内自证 `owner_section`，不符即拒绝打开（库文件被挪也不误用）；
 /// - **写入拦截**：条目与进度都带板块标记，跨板块写入直接抛错。
 ///
-/// 缓存目录同样独占：`sections/<id>/reading_cache/`，其下 `images/` 放图片缓存
-/// （可清理），`exports/` 放用户长按保存的图片（不参与清理）。小说大章节文本
-/// 与排版结果只在内存里缓存，因此不需要额外的磁盘目录。
+/// 缓存目录同样独占：`sections/<id>/reading_cache/`，其下 `images/` 放图片缓存，
+/// `exports/` 保留用户手动保存的图片，不参与缓存清理。
 class ReadingStore {
   ReadingStore._(this.section, this._scope, this._db);
 
@@ -71,6 +70,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   final Database _db;
 
   static final Map<String, ReadingStore> _opened = <String, ReadingStore>{};
+  static final Map<String, Future<ReadingStore>> _opening = {};
 
   /// 库是否已释放。
   ///
@@ -86,6 +86,15 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   static Future<ReadingStore> open(Section section) async {
     final existing = _opened[section.id];
     if (existing != null) return existing;
+    return _opening.putIfAbsent(
+      section.id,
+      () => _open(section).whenComplete(() {
+        _opening.remove(section.id);
+      }),
+    );
+  }
+
+  static Future<ReadingStore> _open(Section section) async {
     final scope = await SectionScope.open(section);
     final store = ReadingStore._(
       section,
@@ -325,17 +334,11 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   void saveProgress(ReadingProgress progress) {
     if (_closed) return;
     _requireOwn(progress.section);
-    // position 的含义按形状而定：漫画是页序号、小说是字符偏移、视频是播放毫秒。
     final (position, fraction, chapterLength) = switch (progress) {
       ComicProgress(:final page, :final pageFraction) => (
         page,
         pageFraction,
         0,
-      ),
-      NovelProgress(:final charOffset, :final chapterLength) => (
-        charOffset,
-        0.0,
-        chapterLength,
       ),
       VideoProgress(:final position, :final duration) => (
         position.inMilliseconds,
@@ -345,7 +348,6 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     };
     final kind = switch (progress) {
       ComicProgress() => 'comic',
-      NovelProgress() => 'novel',
       VideoProgress() => 'video',
     };
     _db.execute(
@@ -454,7 +456,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       ).hasMatch(key) &&
       (key.startsWith('video.player.') ||
           key.startsWith('comic.') ||
-          key.startsWith('novel.') ||
+          key.startsWith('speech.') ||
           key.startsWith('favorites.') ||
           key.startsWith('reader.') ||
           key.startsWith('browse.'));
@@ -751,7 +753,6 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       chapterTitle: row['chapter_title'] as String,
       updatedAt: updatedAt,
     );
-    // 进度形状由板块决定：漫画存页位置，小说存字符偏移。
     final kind = section == Section.cat
         ? sectionFromId(row['progress_kind'] as String)
         : section;
@@ -765,16 +766,6 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         updatedAt: common.updatedAt,
         page: row['position'] as int,
         pageFraction: (row['fraction'] as num).toDouble(),
-      ),
-      Section.novel => NovelProgress(
-        section: section,
-        itemId: common.itemId,
-        chapterIndex: common.chapterIndex,
-        chapterId: common.chapterId,
-        chapterTitle: common.chapterTitle,
-        updatedAt: common.updatedAt,
-        charOffset: row['position'] as int,
-        chapterLength: row['chapter_length'] as int,
       ),
       Section.video => VideoProgress(
         section: section,

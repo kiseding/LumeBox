@@ -5,9 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import '../source/source.dart';
 import '../net/waf.dart';
 import '../net/source_request_log.dart';
-import '../session/section.dart';
-import '../audio_book/audio_book_track.dart';
 import 'media_library.dart';
+import '../audio_book/audio_book_track.dart';
 
 class MediaResourceService {
   MediaResourceService({
@@ -16,19 +15,21 @@ class MediaResourceService {
   }) : library = library ?? MediaLibrary.instance;
   final MediaTrackProbe probe;
   final MediaLibrary library;
+  List<AudioBookTrack> audioTracks(MediaResource resource) => [
+    for (final episode in resource.episodes)
+      AudioBookTrack(
+        id: '${resource.id}/${episode.id}',
+        episode: episode,
+        album: resource.title,
+        cover: resource.cover,
+        resolve: () async {
+          final media = await resolve(resource, episode);
+          return ResolvedAudio(media.url, headers: media.headers);
+        },
+      ),
+  ];
   static Uri? address(ChapterContent? content) {
     if (content is VideoContent) return content.url;
-    if (content is TextContent) {
-      final value = Uri.tryParse(content.text.trim());
-      if (value != null &&
-          ['http', 'https', 'file'].contains(value.scheme) &&
-          RegExp(
-            r'\.(mp3|m4a|aac|flac|ogg|opus|wav|mp4|mkv|m3u8)$',
-            caseSensitive: false,
-          ).hasMatch(value.path)) {
-        return value;
-      }
-    }
     return null;
   }
 
@@ -80,7 +81,6 @@ class MediaResourceService {
           sourceId: source.id,
           itemId: item.id,
           cover: item.cover ?? previous.cover,
-          textPath: previous.textPath,
           episodes: chapters.isEmpty
               ? previous.episodes
               : [
@@ -102,21 +102,7 @@ class MediaResourceService {
     final tracks = uri == null
         ? const MediaTrackInfo()
         : await probe.inspect(uri, headers: headers(content, source: source));
-    final kind =
-        tracks.kind ??
-        (content is TextContent && uri == null
-            ? ResourceKind.novel
-            : content is VideoContent && content.audioOnly ||
-                  uri != null &&
-                      RegExp(
-                        r'\.(mp3|m4a|aac|flac|ogg|opus|wav)$',
-                        caseSensitive: false,
-                      ).hasMatch(uri.path)
-            ? ResourceKind.audioBook
-            : hint) ??
-        (source.section == Section.novel
-            ? ResourceKind.audioBook
-            : ResourceKind.video);
+    final kind = tracks.kind ?? hint ?? ResourceKind.video;
     return library.add(
       MediaResource(
         id: id,
@@ -147,18 +133,8 @@ class MediaResourceService {
     );
     await target.parent.create(recursive: true);
     await input.copy(target.path);
-    final text = name.toLowerCase().endsWith('.txt');
-    final tracks = text
-        ? const MediaTrackInfo()
-        : await probe.inspect(target.uri);
-    final hint =
-        RegExp(
-          r'\.(mp3|m4a|aac|flac|ogg|opus|wav)$',
-          caseSensitive: false,
-        ).hasMatch(name)
-        ? ResourceKind.audioBook
-        : ResourceKind.video;
-    final kind = chosen ?? (text ? ResourceKind.novel : tracks.kind ?? hint);
+    final tracks = await probe.inspect(target.uri);
+    final kind = chosen ?? tracks.kind ?? ResourceKind.video;
     return library.add(
       MediaResource(
         id: id,
@@ -166,18 +142,17 @@ class MediaResourceService {
         kind: kind,
         destination: kind.defaultSection,
         manual: chosen != null,
-        textPath: text ? target.path : null,
         episodes: [ResourceEpisode(id: id, title: name, url: target.uri)],
       ),
     );
   }
 
-  Future<ResolvedAudio> resolve(
+  Future<ResolvedMedia> resolve(
     MediaResource resource,
     ResourceEpisode episode,
   ) async {
     if (episode.url != null) {
-      return ResolvedAudio(episode.url!, headers: episode.headers);
+      return ResolvedMedia(episode.url!, headers: episode.headers);
     }
     final section = resource.originSection,
         sourceId = resource.sourceId,
@@ -190,17 +165,12 @@ class MediaResourceService {
     final content = await source.content(itemId: item, chapterId: episode.id);
     final uri = address(content);
     if (uri == null) throw StateError('源没有返回媒体地址');
-    return ResolvedAudio(uri, headers: headers(content, source: source));
+    return ResolvedMedia(uri, headers: headers(content, source: source));
   }
+}
 
-  List<AudioBookTrack> audioTracks(MediaResource resource) => [
-    for (final episode in resource.episodes)
-      AudioBookTrack(
-        id: '${resource.id}:${episode.id}',
-        album: resource.title,
-        cover: resource.cover,
-        episode: episode,
-        resolve: () => resolve(resource, episode),
-      ),
-  ];
+class ResolvedMedia {
+  const ResolvedMedia(this.url, {this.headers = const {}});
+  final Uri url;
+  final Map<String, String> headers;
 }

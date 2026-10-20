@@ -13,10 +13,7 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/comic/comic_detail_page.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
-import 'package:lume_box/features/novel/novel_catalog_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
-import 'package:lume_box/features/novel/novel_detail_page.dart';
-import 'package:lume_box/features/novel/novel_reader_page.dart';
 
 import 'support/fake_reading_source.dart';
 import 'support/fake_source_manager.dart';
@@ -27,7 +24,6 @@ void main() {
 
   late Directory root;
   late ReadingLibrary comicLibrary;
-  late ReadingLibrary novelLibrary;
 
   setUp(() async {
     root = Directory.systemTemp.createTempSync('lume_box_detail');
@@ -45,7 +41,7 @@ void main() {
           (_) async => {'known': true, 'audio': true, 'video': true},
         );
     comicLibrary = await ReadingLibrary.open(Section.comic);
-    novelLibrary = await ReadingLibrary.open(Section.novel);
+    await ReadingLibrary.open(Section.video);
   });
 
   tearDown(() async {
@@ -78,11 +74,6 @@ void main() {
     sourceId: 'a',
     itemId: 'item-1',
     title: '测试漫画',
-  );
-  const novelTarget = ReadingTarget(
-    sourceId: 'a',
-    itemId: 'item-1',
-    title: '测试小说',
   );
 
   testWidgets('漫画详情：元信息、章节列表与倒序切换', (tester) async {
@@ -199,226 +190,17 @@ void main() {
     expect(progress.chapterIndex, 1);
   });
 
-  testWidgets('小说详情：元信息 + 完整目录入口', (tester) async {
-    await pump(
-      tester,
-      NovelDetailPage(
-        library: novelLibrary,
-        manager: managerFor(Section.novel),
-        target: novelTarget,
-      ),
-    );
 
-    expect(find.text('测试作品 item-1'), findsWidgets);
-    expect(find.text('共 3 章'), findsOneWidget);
-    expect(find.text('完整目录'), findsOneWidget);
-    expect(novelLibrary.onShelf('item-1'), isFalse, reason: '查看详情不是收藏');
-    expect(
-      novelLibrary.history().map((item) => item.itemId),
-      contains('item-1'),
-    );
 
-    await tester.tap(find.text('完整目录'));
-    await tester.pumpAndSettle();
-    expect(find.byType(NovelCatalogPage), findsOneWidget);
-    expect(find.text('第 1 章'), findsOneWidget);
-    expect(novelLibrary.onShelf('item-1'), isFalse, reason: '打开目录同样不是收藏');
-  });
 
-  testWidgets('小说目录页：倒序切换与点章进阅读器', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 3,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
 
-    expect(find.text('第 1 章'), findsOneWidget);
-    await tester.tap(find.text('正序'));
-    await tester.pumpAndSettle();
-    expect(find.text('倒序'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.text('第 3 章')).dy,
-      lessThan(tester.getTopLeft(find.text('第 1 章')).dy),
-    );
 
-    await tester.tap(find.text('第 2 章'));
-    await tester.pumpAndSettle();
-    expect(find.byType(NovelReaderPage), findsOneWidget);
-    expect(novelLibrary.novelProgress('item-1')!.chapterIndex, 1);
-    expect(
-      novelLibrary.onShelf('item-1'),
-      isFalse,
-      reason: '阅读不是收藏，收藏只能由用户点「加入书架」',
-    );
-    expect(
-      novelLibrary.history().map((item) => item.itemId),
-      contains('item-1'),
-    );
-  });
 
-  testWidgets('小说目录页：搜索章节标题，只留命中项', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 5,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
 
-    // 搜索框默认收起（不挤占目录可视区）。
-    expect(find.byType(TextField), findsNothing);
 
-    await tester.tap(find.byTooltip('搜索章节'));
-    await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsOneWidget);
 
-    // 假数据源的章节标题形如「第 N 章」：搜「3」应只剩第 3 章。
-    await tester.enterText(find.byType(TextField), '3');
-    await tester.pumpAndSettle();
 
-    expect(find.text('第 3 章'), findsOneWidget);
-    expect(find.text('第 1 章'), findsNothing);
-    expect(find.text('第 2 章'), findsNothing);
-    expect(find.text('第 4 章'), findsNothing);
-  });
 
-  testWidgets('小说目录页：搜不到时给空态提示，不是白屏', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 3,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
 
-    await tester.tap(find.byTooltip('搜索章节'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '不存在的章节名');
-    await tester.pumpAndSettle();
 
-    expect(find.text('没有匹配的章节'), findsOneWidget);
-    expect(find.text('第 1 章'), findsNothing);
-  });
-
-  testWidgets('小说目录页：搜索与倒序正交，可叠加', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 5,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
-
-    // 先倒序，再搜索：命中的多项应按倒序排列。
-    await tester.tap(find.text('正序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('搜索章节'));
-    await tester.pumpAndSettle();
-    // 搜「章」命中全部 5 章（标题都含「章」），倒序下第 5 章应在最上。
-    await tester.enterText(find.byType(TextField), '章');
-    await tester.pumpAndSettle();
-
-    expect(
-      tester.getTopLeft(find.text('第 5 章')).dy,
-      lessThan(tester.getTopLeft(find.text('第 1 章')).dy),
-      reason: '搜索应保留倒序，两者叠加而不是互相覆盖',
-    );
-  });
-
-  testWidgets('小说目录页：清空搜索与收起搜索都恢复完整目录', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 3,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
-
-    await tester.tap(find.byTooltip('搜索章节'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '2');
-    await tester.pumpAndSettle();
-    expect(find.text('第 1 章'), findsNothing);
-
-    // 清空按钮：恢复完整目录。
-    await tester.tap(find.byTooltip('清空'));
-    await tester.pumpAndSettle();
-    expect(find.text('第 1 章'), findsOneWidget);
-    expect(find.text('第 3 章'), findsOneWidget);
-
-    // 收起搜索：同样恢复，且搜索框消失。
-    await tester.tap(find.byTooltip('收起搜索'));
-    await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNothing);
-    expect(find.text('第 1 章'), findsOneWidget);
-  });
-
-  testWidgets('小说目录页：搜索结果里点章进阅读器，落的是正序下标', (tester) async {
-    final source = FakeReadingDataSource(
-      section: Section.novel,
-      chapterCount: 5,
-    );
-    await pump(
-      tester,
-      NovelCatalogPage(
-        library: novelLibrary,
-        dataSource: source,
-        target: novelTarget,
-        chapters: await source.chapters('item-1'),
-        initialChapterIndex: 0,
-      ),
-    );
-
-    await tester.tap(find.byTooltip('搜索章节'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '4');
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('第 4 章'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(NovelReaderPage), findsOneWidget);
-    expect(
-      novelLibrary.novelProgress('item-1')!.chapterIndex,
-      3,
-      reason: '搜索只筛显示行，下标仍是正序（第 4 章 → 下标 3）',
-    );
-  });
 }
