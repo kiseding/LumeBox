@@ -118,7 +118,7 @@ import Security
         }
         result([
           "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
-          "increaseContrast": UIAccessibility.isIncreaseContrastEnabled,
+          "increaseContrast": UIAccessibility.isDarkerSystemColorsEnabled,
         ])
       }
     }
