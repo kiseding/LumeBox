@@ -853,9 +853,18 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                               tooltip: preset.description,
                               onPressed: () => controller.setAppearance(
                                 controller.appearance.copyWith(
-                                  liquid: preset.build().withGlassRenderer(
-                                    liquid.glassRenderer,
-                                  ),
+                                  liquid: preset
+                                      .build()
+                                      .withGlassRenderer(liquid.glassRenderer)
+                                      .withNativeGlassStyle(
+                                        liquid.nativeGlassStyle,
+                                      )
+                                      .withValue(
+                                        DockLiquidParameter.nativeTint,
+                                        liquid.value(
+                                          DockLiquidParameter.nativeTint,
+                                        ),
+                                      ),
                                 ),
                               ),
                             ),
@@ -902,6 +911,48 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (liquid.glassRenderer ==
+                        DockGlassRenderer.nativeIos) ...[
+                      const Divider(),
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: Text('原生材质参数'),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final style in DockNativeGlassStyle.values)
+                              ChoiceChip(
+                                key: ValueKey(
+                                  'dock-native-style-${style.name}',
+                                ),
+                                label: Text(style.label),
+                                selected: liquid.nativeGlassStyle == style,
+                                onSelected: (_) => controller.setAppearance(
+                                  controller.appearance.copyWith(
+                                    liquid: controller.appearance.liquid
+                                        .withNativeGlassStyle(style),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      slider(DockLiquidParameter.nativeTint),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Text(
+                          '原生模式下“透镜折射/清澈”参数不生效；形状、白度、按压放大、整体提亮、阴影与原生材质参数仍可调。',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: LumeTheme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
                     const Divider(),
                     const Padding(
                       padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -977,7 +1028,9 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                       ),
                       if (liquid.enabled(effect))
                         for (final p in DockLiquidParameter.values.where(
-                          (p) => p.effect == effect,
+                          (p) =>
+                              p.effect == effect &&
+                              p != DockLiquidParameter.nativeTint,
                         ))
                           slider(p),
                     ],

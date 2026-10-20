@@ -10,12 +10,23 @@ import UIKit
 /// 限制：Flutter 平台视图是独立层，不能参与 Flutter 的 `BackdropFilter`
 /// 取样，因此 Dart 侧在该模式下会关闭自绘透镜的 Backdrop 折射。
 final class LumeGlassBackdropFactory: NSObject, FlutterPlatformViewFactory {
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+  }
+
+  private let messenger: FlutterBinaryMessenger
+
   func create(
     withFrame frame: CGRect,
     viewIdentifier viewId: Int64,
     arguments args: Any?
   ) -> FlutterPlatformView {
-    LumeGlassBackdropView(frame: frame, args: args)
+    LumeGlassBackdropView(
+      frame: frame,
+      viewId: viewId,
+      args: args,
+      messenger: messenger
+    )
   }
 
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
@@ -26,10 +37,18 @@ final class LumeGlassBackdropFactory: NSObject, FlutterPlatformViewFactory {
 final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
   private let container = UIView()
   private let effectView: UIVisualEffectView
+  private let channel: FlutterMethodChannel
 
-  init(frame: CGRect, args: Any?) {
-    effectView = UIVisualEffectView(
-      effect: UIBlurEffect(style: .systemUltraThinMaterial)
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    args: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    effectView = UIVisualEffectView(effect: Self.effect(from: args))
+    channel = FlutterMethodChannel(
+      name: "lumebox/glass_backdrop_\(viewId)",
+      binaryMessenger: messenger
     )
     super.init()
 
@@ -46,10 +65,39 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     effectView.layer.cornerRadius = radius
     effectView.layer.cornerCurve = .continuous
     container.addSubview(effectView)
+
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "update" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let self else {
+        result(nil)
+        return
+      }
+      self.effectView.effect = Self.effect(from: call.arguments)
+      result(nil)
+    }
+  }
+
+  deinit {
+    channel.setMethodCallHandler(nil)
   }
 
   func view() -> UIView {
     container
+  }
+
+  private static func effect(from args: Any?) -> UIVisualEffect {
+    let style = (args as? [String: Any])?["style"] as? String
+    switch style {
+    case "thin":
+      return UIBlurEffect(style: .systemUltraThinMaterial)
+    case "thick":
+      return UIBlurEffect(style: .systemThinMaterial)
+    default:
+      return UIBlurEffect(style: .systemMaterial)
+    }
   }
 
   private static func cornerRadius(from args: Any?) -> CGFloat {

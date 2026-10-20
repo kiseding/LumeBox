@@ -243,6 +243,20 @@ void main() {
       DockLiquidSettings.fromJson({'glassRenderer': 'unknown'}).glassRenderer,
       DockGlassRenderer.flutter,
     );
+    expect(
+      const DockLiquidSettings().nativeGlassStyle,
+      DockNativeGlassStyle.regular,
+    );
+    final styled = native
+        .withNativeGlassStyle(DockNativeGlassStyle.thin)
+        .withValue(DockLiquidParameter.nativeTint, .2);
+    expect(DockLiquidSettings.fromJson(styled.toJson()), styled);
+    expect(
+      DockLiquidSettings.fromJson({'nativeGlassStyle': 'unknown'})
+          .nativeGlassStyle,
+      DockNativeGlassStyle.regular,
+    );
+    expect(styled.value(DockLiquidParameter.nativeTint), closeTo(.2, .001));
   });
 
   testWidgets('非 iOS 设备选择原生材质时自动回退 Flutter 自绘', (tester) async {
@@ -285,6 +299,18 @@ void main() {
     expect(
       controller.appearance.liquid.glassRenderer,
       DockGlassRenderer.nativeIos,
+    );
+    final thin = find.byKey(const ValueKey('dock-native-style-thin'));
+    await tester.scrollUntilVisible(
+      thin,
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(thin);
+    await tester.pumpAndSettle();
+    expect(
+      controller.appearance.liquid.nativeGlassStyle,
+      DockNativeGlassStyle.thin,
     );
   });
 

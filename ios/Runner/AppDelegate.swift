@@ -104,7 +104,10 @@ import Security
     }
     // 液态玻璃 A/B 对比：iOS 原生系统材质底座（Dart 侧 UiKitView）。
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxGlassBackdrop") {
-      registrar.register(LumeGlassBackdropFactory(), withId: "lumebox/glass_backdrop")
+      registrar.register(
+        LumeGlassBackdropFactory(messenger: registrar.messenger()),
+        withId: "lumebox/glass_backdrop"
+      )
     }
   }
 }

@@ -183,6 +183,14 @@ enum DockLiquidParameter {
     1,
     DockLiquidEffect.optics,
   ),
+  nativeTint(
+    '原生材质白度',
+    '仅 iOS 原生材质模式：叠在系统材质上的白色/主题色薄层。',
+    .06,
+    0,
+    .35,
+    DockLiquidEffect.optics,
+  ),
   clarityFeather(
     '清澈过渡宽度',
     '透镜边缘从清澈变回磨砂的过渡带宽（相对透镜高度）。',
@@ -249,6 +257,23 @@ enum DockGlassRenderer {
   }
 }
 
+/// 原生系统材质的厚度风格（仅 iOS 原生渲染模式生效）。
+enum DockNativeGlassStyle {
+  thin('清透', 'systemUltraThinMaterial，背景更可见'),
+  regular('标准', 'systemMaterial，默认系统材质'),
+  thick('厚实', 'systemThinMaterial，磨砂更重');
+
+  const DockNativeGlassStyle(this.label, this.description);
+  final String label, description;
+
+  static DockNativeGlassStyle fromName(Object? name) {
+    for (final style in values) {
+      if (style.name == name) return style;
+    }
+    return regular;
+  }
+}
+
 /// Stored inside the existing dock appearance; missing fields use safe defaults.
 @immutable
 class DockLiquidSettings {
@@ -258,6 +283,7 @@ class DockLiquidSettings {
     this.shape = DockLensShape.capsule,
     this.freeDeform = true,
     this.glassRenderer = DockGlassRenderer.flutter,
+    this.nativeGlassStyle = DockNativeGlassStyle.regular,
   });
   final Map<String, double> values;
   final Set<String> disabled;
@@ -268,6 +294,9 @@ class DockLiquidSettings {
 
   /// A/B 对比用：Flutter 自绘或 iOS 原生系统材质底座。
   final DockGlassRenderer glassRenderer;
+
+  /// 原生系统材质的厚度风格（仅 [DockGlassRenderer.nativeIos] 生效）。
+  final DockNativeGlassStyle nativeGlassStyle;
 
   double value(DockLiquidParameter parameter) =>
       values[parameter.name] ?? parameter.initial;
@@ -285,6 +314,7 @@ class DockLiquidSettings {
         shape: shape,
         freeDeform: freeDeform,
         glassRenderer: glassRenderer,
+        nativeGlassStyle: nativeGlassStyle,
       );
 
   DockLiquidSettings withEnabled(DockLiquidEffect effect, bool enable) {
@@ -300,6 +330,7 @@ class DockLiquidSettings {
       shape: shape,
       freeDeform: freeDeform,
       glassRenderer: glassRenderer,
+      nativeGlassStyle: nativeGlassStyle,
     );
   }
 
@@ -309,6 +340,7 @@ class DockLiquidSettings {
     shape: next,
     freeDeform: freeDeform,
     glassRenderer: glassRenderer,
+    nativeGlassStyle: nativeGlassStyle,
   );
 
   DockLiquidSettings withFreeDeform(bool next) => DockLiquidSettings(
@@ -317,6 +349,7 @@ class DockLiquidSettings {
     shape: shape,
     freeDeform: next,
     glassRenderer: glassRenderer,
+    nativeGlassStyle: nativeGlassStyle,
   );
 
   DockLiquidSettings withGlassRenderer(DockGlassRenderer next) =>
@@ -326,6 +359,17 @@ class DockLiquidSettings {
         shape: shape,
         freeDeform: freeDeform,
         glassRenderer: next,
+        nativeGlassStyle: nativeGlassStyle,
+      );
+
+  DockLiquidSettings withNativeGlassStyle(DockNativeGlassStyle next) =>
+      DockLiquidSettings(
+        values: values,
+        disabled: disabled,
+        shape: shape,
+        freeDeform: freeDeform,
+        glassRenderer: glassRenderer,
+        nativeGlassStyle: next,
       );
 
   Map<String, Object?> toJson() => {
@@ -334,6 +378,7 @@ class DockLiquidSettings {
     'shape': shape.name,
     'freeDeform': freeDeform,
     'glassRenderer': glassRenderer.name,
+    'nativeGlassStyle': nativeGlassStyle.name,
   };
   static DockLiquidSettings fromJson(Object? data) {
     if (data is! Map) return const DockLiquidSettings();
@@ -361,6 +406,9 @@ class DockLiquidSettings {
     result = result.withGlassRenderer(
       DockGlassRenderer.fromName(data['glassRenderer']),
     );
+    result = result.withNativeGlassStyle(
+      DockNativeGlassStyle.fromName(data['nativeGlassStyle']),
+    );
     return result;
   }
 
@@ -370,6 +418,7 @@ class DockLiquidSettings {
       shape == other.shape &&
       freeDeform == other.freeDeform &&
       glassRenderer == other.glassRenderer &&
+      nativeGlassStyle == other.nativeGlassStyle &&
       DockLiquidParameter.values.every((p) => value(p) == other.value(p)) &&
       DockLiquidEffect.values.every((e) => enabled(e) == other.enabled(e));
   @override
@@ -377,6 +426,7 @@ class DockLiquidSettings {
     shape,
     freeDeform,
     glassRenderer,
+    nativeGlassStyle,
     Object.hashAll(DockLiquidParameter.values.map(value)),
     Object.hashAll(DockLiquidEffect.values.map(enabled)),
   );

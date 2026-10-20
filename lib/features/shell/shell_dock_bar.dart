@@ -862,6 +862,9 @@ class _ShellDockBarState extends State<ShellDockBar>
                 ? DockNativeGlass(
                     borderRadius: radius,
                     cornerRadius: widget.capsuleHeight / 2,
+                    style: _liquid.nativeGlassStyle,
+                    tintColor: glassColor,
+                    tintOpacity: _amount(DockLiquidParameter.nativeTint),
                   )
                 : DockLiquidSurface(
                     borderRadius: radius,
