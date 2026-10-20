@@ -13,6 +13,7 @@ import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
 import 'dock_liquid_lens.dart';
 import 'dock_liquid_surface.dart';
+import 'dock_native_glass.dart';
 import '../../core/theme/icon_customization.dart';
 
 /// 底部 Dock 里的一条页签（只有展示数据，不含页面构造）。
@@ -854,27 +855,37 @@ class _ShellDockBarState extends State<ShellDockBar>
                   )
                 : null;
 
-            final surface = DockLiquidSurface(
-              borderRadius: radius,
-              blurSigma: style.blur,
-              fallbackSigma: geometry.fallbackSigma,
-              fallbackChild: fallbackChild,
-              lensRect: geometry.lensRect,
-              lensRadius: geometry.dropHeight / 2,
-              lensScale: geometry.wholeScale,
-              feather:
-                  geometry.dropHeight *
-                  _amount(DockLiquidParameter.clarityFeather),
-              clarity: geometry.clarity,
-              coreAlpha: _amount(DockLiquidParameter.coreAlpha),
-              backgroundAdapt: _amount(DockLiquidParameter.backgroundAdapt),
-              tintColor: glassColor,
-              tintOpacity: geometry.shaderTintOpacity,
-              pixelRatio: MediaQuery.devicePixelRatioOf(context),
-              stageOrigin: _contentStageOrigin,
-              clipPath: waistPath,
-              filterKey: ShellDockBar.capsuleFilterKey,
-            );
+            final useNativeGlass =
+                _liquid.glassRenderer == DockGlassRenderer.nativeIos &&
+                DockNativeGlass.supported;
+            final Widget surface = useNativeGlass
+                ? DockNativeGlass(
+                    borderRadius: radius,
+                    cornerRadius: widget.capsuleHeight / 2,
+                  )
+                : DockLiquidSurface(
+                    borderRadius: radius,
+                    blurSigma: style.blur,
+                    fallbackSigma: geometry.fallbackSigma,
+                    fallbackChild: fallbackChild,
+                    lensRect: geometry.lensRect,
+                    lensRadius: geometry.dropHeight / 2,
+                    lensScale: geometry.wholeScale,
+                    feather:
+                        geometry.dropHeight *
+                        _amount(DockLiquidParameter.clarityFeather),
+                    clarity: geometry.clarity,
+                    coreAlpha: _amount(DockLiquidParameter.coreAlpha),
+                    backgroundAdapt: _amount(
+                      DockLiquidParameter.backgroundAdapt,
+                    ),
+                    tintColor: glassColor,
+                    tintOpacity: geometry.shaderTintOpacity,
+                    pixelRatio: MediaQuery.devicePixelRatioOf(context),
+                    stageOrigin: _contentStageOrigin,
+                    clipPath: waistPath,
+                    filterKey: ShellDockBar.capsuleFilterKey,
+                  );
 
             final base = DecoratedBox(
               decoration: BoxDecoration(
@@ -895,7 +906,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                   ),
                 ],
               ),
-              child: shaderPath
+              child: (shaderPath || useNativeGlass)
                   ? Stack(
                       fit: StackFit.expand,
                       children: <Widget>[
@@ -942,6 +953,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                         focus: focus,
                         gain: gain,
                         dropOpacity: dropOpacity,
+                        useNativeGlass: useNativeGlass,
                       ),
                     ),
                   ),
@@ -963,6 +975,7 @@ class _ShellDockBarState extends State<ShellDockBar>
     required double focus,
     required double gain,
     required double dropOpacity,
+    required bool useNativeGlass,
   }) {
     final entries = widget.entries;
     if (entries.isEmpty) return const SizedBox.expand();
@@ -1073,6 +1086,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                       shape: geometry.shape,
                       roundness: geometry.roundness,
                       freeDeform: geometry.freeDeform,
+                      useBackdrop: !useNativeGlass,
                       shadowOpacity:
                           (widget.appearance.shadowOpacity *
                                   geometry.press *
@@ -1103,7 +1117,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                     ),
                 ],
               ),
-              if (_liquid.enabled(DockLiquidEffect.optics))
+              if (!useNativeGlass && _liquid.enabled(DockLiquidEffect.optics))
                 Positioned(
                   left: geometry.left,
                   top: geometry.top,
@@ -1176,6 +1190,7 @@ class _WaterDrop extends StatelessWidget {
     required this.shape,
     required this.roundness,
     required this.freeDeform,
+    this.useBackdrop = true,
   });
 
   final BorderRadius radius;
@@ -1205,6 +1220,9 @@ class _WaterDrop extends StatelessWidget {
   final DockLensShape shape;
   final double roundness;
   final bool freeDeform;
+
+  /// 原生材质模式（iOS）下不能对平台视图做 BackdropFilter，水滴改成纯色填充。
+  final bool useBackdrop;
 
   @override
   Widget build(BuildContext context) {
@@ -1256,10 +1274,12 @@ class _WaterDrop extends StatelessWidget {
               // 仍然来自设置，边缘高光用同一路径描边。
               ClipPath(
                 clipper: _LiquidDropClipper(path),
-                child: BackdropFilter(
-                  filter: filter,
-                  child: ColoredBox(color: fill),
-                ),
+                child: useBackdrop
+                    ? BackdropFilter(
+                        filter: filter,
+                        child: ColoredBox(color: fill),
+                      )
+                    : ColoredBox(color: fill),
               ),
               IgnorePointer(
                 child: CustomPaint(

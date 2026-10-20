@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
+import '../shell/dock_native_glass.dart';
 import '../shell/shell_dock_bar.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -852,11 +853,53 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                               tooltip: preset.description,
                               onPressed: () => controller.setAppearance(
                                 controller.appearance.copyWith(
-                                  liquid: preset.build(),
+                                  liquid: preset.build().withGlassRenderer(
+                                    liquid.glassRenderer,
+                                  ),
                                 ),
                               ),
                             ),
                         ],
+                      ),
+                    ),
+                    const Divider(),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Text('渲染方式（A/B 对比）'),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final renderer in DockGlassRenderer.values)
+                            ChoiceChip(
+                              key: ValueKey(
+                                'dock-glass-renderer-${renderer.name}',
+                              ),
+                              label: Text(renderer.label),
+                              selected: liquid.glassRenderer == renderer,
+                              onSelected: (_) => controller.setAppearance(
+                                controller.appearance.copyWith(
+                                  liquid: controller.appearance.liquid
+                                      .withGlassRenderer(renderer),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                      child: Text(
+                        DockNativeGlass.supported
+                            ? 'iOS 原生材质由系统 UIVisualEffectView 提供；该模式会关闭自绘透镜折射，只保留原生底座与 Flutter 图标文字。'
+                            : '当前设备不是 iPhone：选择“iOS 原生材质”会自动回退为 Flutter 自绘，便于在模拟器/桌面上先保存配置。',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: LumeTheme.textSecondary,
+                        ),
                       ),
                     ),
                     const Divider(),

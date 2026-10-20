@@ -228,6 +228,27 @@ enum DockLiquidParameter {
       : '${(value * 100).toStringAsFixed(this == capsuleX || this == capsuleY ? 1 : 0)}%';
 }
 
+/// 底座玻璃的渲染路线（对比用开关）。
+///
+/// - [flutter]：本项目自绘的 Shader 方案，跨平台、可调形状与透镜；
+/// - [nativeIos]：把底座交给 iOS 原生 `UIVisualEffectView` 系统材质（iOS 26
+///   会自动采用 Liquid Glass 外观）。仅 iPhone 真机有效，其他平台自动回退。
+///   受 Flutter 平台视图限制，该模式会关闭自绘透镜的 Backdrop 折射。
+enum DockGlassRenderer {
+  flutter('Flutter 自绘', 'Shader 取样 + 局部清澈 + 透镜折射，跨平台一致'),
+  nativeIos('iOS 原生材质', '系统材质底座；仅 iPhone 有效，iOS 26 自动玻璃外观');
+
+  const DockGlassRenderer(this.label, this.description);
+  final String label, description;
+
+  static DockGlassRenderer fromName(Object? name) {
+    for (final renderer in values) {
+      if (renderer.name == name) return renderer;
+    }
+    return flutter;
+  }
+}
+
 /// Stored inside the existing dock appearance; missing fields use safe defaults.
 @immutable
 class DockLiquidSettings {
@@ -236,6 +257,7 @@ class DockLiquidSettings {
     this.disabled = const {},
     this.shape = DockLensShape.capsule,
     this.freeDeform = true,
+    this.glassRenderer = DockGlassRenderer.flutter,
   });
   final Map<String, double> values;
   final Set<String> disabled;
@@ -243,6 +265,9 @@ class DockLiquidSettings {
 
   /// 开启后才允许拖动拉伸、拖尾与倾斜；关闭时保持规则轮廓。
   final bool freeDeform;
+
+  /// A/B 对比用：Flutter 自绘或 iOS 原生系统材质底座。
+  final DockGlassRenderer glassRenderer;
 
   double value(DockLiquidParameter parameter) =>
       values[parameter.name] ?? parameter.initial;
@@ -259,6 +284,7 @@ class DockLiquidSettings {
         disabled: disabled,
         shape: shape,
         freeDeform: freeDeform,
+        glassRenderer: glassRenderer,
       );
 
   DockLiquidSettings withEnabled(DockLiquidEffect effect, bool enable) {
@@ -273,6 +299,7 @@ class DockLiquidSettings {
       disabled: Set.unmodifiable(next),
       shape: shape,
       freeDeform: freeDeform,
+      glassRenderer: glassRenderer,
     );
   }
 
@@ -281,6 +308,7 @@ class DockLiquidSettings {
     disabled: disabled,
     shape: next,
     freeDeform: freeDeform,
+    glassRenderer: glassRenderer,
   );
 
   DockLiquidSettings withFreeDeform(bool next) => DockLiquidSettings(
@@ -288,13 +316,24 @@ class DockLiquidSettings {
     disabled: disabled,
     shape: shape,
     freeDeform: next,
+    glassRenderer: glassRenderer,
   );
+
+  DockLiquidSettings withGlassRenderer(DockGlassRenderer next) =>
+      DockLiquidSettings(
+        values: values,
+        disabled: disabled,
+        shape: shape,
+        freeDeform: freeDeform,
+        glassRenderer: next,
+      );
 
   Map<String, Object?> toJson() => {
     'values': values,
     'disabled': disabled.toList(),
     'shape': shape.name,
     'freeDeform': freeDeform,
+    'glassRenderer': glassRenderer.name,
   };
   static DockLiquidSettings fromJson(Object? data) {
     if (data is! Map) return const DockLiquidSettings();
@@ -319,6 +358,9 @@ class DockLiquidSettings {
     if (rawFreeDeform is bool) {
       result = result.withFreeDeform(rawFreeDeform);
     }
+    result = result.withGlassRenderer(
+      DockGlassRenderer.fromName(data['glassRenderer']),
+    );
     return result;
   }
 
@@ -327,12 +369,14 @@ class DockLiquidSettings {
       other is DockLiquidSettings &&
       shape == other.shape &&
       freeDeform == other.freeDeform &&
+      glassRenderer == other.glassRenderer &&
       DockLiquidParameter.values.every((p) => value(p) == other.value(p)) &&
       DockLiquidEffect.values.every((e) => enabled(e) == other.enabled(e));
   @override
   int get hashCode => Object.hash(
     shape,
     freeDeform,
+    glassRenderer,
     Object.hashAll(DockLiquidParameter.values.map(value)),
     Object.hashAll(DockLiquidEffect.values.map(enabled)),
   );

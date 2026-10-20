@@ -6,6 +6,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/shell/dock_liquid_lens.dart';
 import 'package:lume_box/features/shell/dock_liquid_surface.dart';
+import 'package:lume_box/features/shell/dock_native_glass.dart';
 import 'package:lume_box/features/shell/shell_dock_bar.dart';
 
 void main() {
@@ -230,6 +231,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  test('玻璃渲染方式默认 Flutter 自绘，旧配置迁移与序列化安全', () {
+    expect(const DockLiquidSettings().glassRenderer, DockGlassRenderer.flutter);
+    final native = const DockLiquidSettings().withGlassRenderer(
+      DockGlassRenderer.nativeIos,
+    );
+    final restored = DockLiquidSettings.fromJson(native.toJson());
+    expect(restored.glassRenderer, DockGlassRenderer.nativeIos);
+    expect(restored, native);
+    expect(
+      DockLiquidSettings.fromJson({'glassRenderer': 'unknown'}).glassRenderer,
+      DockGlassRenderer.flutter,
+    );
+  });
+
+  testWidgets('非 iOS 设备选择原生材质时自动回退 Flutter 自绘', (tester) async {
+    final native = const DockLiquidSettings().withGlassRenderer(
+      DockGlassRenderer.nativeIos,
+    );
+    await scene(tester, (_) {}, appearance: DockAppearance(liquid: native));
+    expect(find.byType(DockLiquidSurface), findsOneWidget);
+    expect(find.byType(DockNativeGlass), findsNothing);
+    expect(find.byType(UiKitView), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设置页预设一键应用到液态参数', (tester) async {
     final controller = ShellSettingsController.instance;
     final original = controller.appearance;
@@ -246,6 +272,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('dock-liquid-preset-softFree')));
     await tester.pumpAndSettle();
     expect(controller.appearance.liquid, DockLiquidPreset.softFree.build());
+    final nativeChip = find.byKey(
+      const ValueKey('dock-glass-renderer-nativeIos'),
+    );
+    await tester.scrollUntilVisible(
+      nativeChip,
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(nativeChip);
+    await tester.pumpAndSettle();
+    expect(
+      controller.appearance.liquid.glassRenderer,
+      DockGlassRenderer.nativeIos,
+    );
   });
 
   testWidgets('按压时整条底栏与图标文字一起放大', (tester) async {

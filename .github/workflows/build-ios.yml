@@ -67,7 +67,7 @@ jobs:
             -target arm64-apple-ios13.0-simulator -F "$FRAMEWORKS" \
             ios/Runner/SpeechStream.swift ios/Runner/SpeechController.swift \
             ios/Runner/ICloudSyncController.swift ios/Runner/ComicImageToolsController.swift \
-            ios/Runner/IntroRecognitionController.swift
+            ios/Runner/IntroRecognitionController.swift ios/Runner/LumeGlassBackdrop.swift
 
       - name: 编译（--no-codesign，带构建号）
         if: ${{ inputs.typecheck_only != true }}
