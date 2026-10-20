@@ -55,6 +55,8 @@ import 'player_hud.dart';
 import 'player_control_glyph.dart';
 import 'playback_source_validator.dart';
 import 'playback_quality_preference.dart';
+import 'playback_preference_wiring.dart';
+import '../../core/player/player_experience_store.dart';
 import 'player_kernel_picker.dart';
 import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
@@ -219,6 +221,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   AbstractPlayer? _player;
   PipSession? _session;
   PlayerMedia? _media;
+  bool _preferredSubtitleApplied = false;
 
   /// 媒体是否已加载成功（画中画的就绪边界检查用它）。
   bool _loaded = false;
@@ -1298,6 +1301,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool alreadyLoaded = false,
   }) async {
     _nextEpisodeBuffer.discard();
+    // 浏览器 UA：片源/会话自带的 User-Agent 优先，否则补上全局偏好。
+    media = PlaybackPreferenceWiring.applyUserAgent(
+      media,
+      PlayerExperienceStore.current,
+    );
+    _preferredSubtitleApplied = false;
     final player = _player;
     if (player == null) return;
     if (_session?.state != PipState.active) {
@@ -1451,6 +1460,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (resume > Duration.zero) await player.seek(resume);
     if (playing) await player.play();
     if (!mounted) return;
+    unawaited(_applyPreferredSubtitle());
     _showToast('已切换到 ${quality.label}');
   }
 
@@ -1558,6 +1568,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 免得播放器在 seek 之前就开跑、位置被拉回开头。
     if (_player != null && mounted) {
       await _player!.play();
+      unawaited(_applyPreferredSubtitle());
     }
   }
 
@@ -2776,6 +2787,44 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (mounted) _showToast('已切换音轨');
   }
 
+  /// 按设置里的“字幕语言”自动选一次字幕；用户手动选过就不再覆盖。
+  Future<void> _applyPreferredSubtitle() async {
+    if (_preferredSubtitleApplied) return;
+    final preference = PlayerExperienceStore.current.subtitleLanguage;
+    if (preference == 'source') {
+      _preferredSubtitleApplied = true;
+      return;
+    }
+    final player = _player;
+    if (player == null) return;
+    if (preference == 'off') {
+      _preferredSubtitleApplied = true;
+      if (_settings.subtitlesEnabled) {
+        _settings = _settings.copyWith(subtitlesEnabled: false);
+        _store?.save(_settings);
+      }
+      await player.selectSubtitleTrack(null);
+      return;
+    }
+    // 起播瞬间部分内核还没填好轨道列表；给几次短重试，避免设置“没生效”。
+    var tracks = const <PlayerTrack>[];
+    for (var attempt = 0; attempt < 4; attempt++) {
+      tracks = await player.subtitleTracks();
+      if (tracks.isNotEmpty) break;
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted || !identical(player, _player)) return;
+    }
+    if (!mounted || !identical(player, _player)) return;
+    _preferredSubtitleApplied = true;
+    final id = PlaybackPreferenceWiring.chooseSubtitleTrack(tracks, preference);
+    if (id == null) return;
+    if (!_settings.subtitlesEnabled) {
+      _settings = _settings.copyWith(subtitlesEnabled: true);
+      _store?.save(_settings);
+    }
+    await player.selectSubtitleTrack(id);
+  }
+
   /// 选字幕轨（含「关闭字幕」）。
   Future<void> _pickSubtitleTrack() async {
     final player = _player;
@@ -2796,6 +2845,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           _TrackSheet(title: '选择字幕轨', tracks: tracks, allowOff: true),
     );
     if (selected == null || !mounted) return;
+    _preferredSubtitleApplied = true;
     await player.selectSubtitleTrack(
       selected == _TrackSheet.offId ? null : selected,
     );
@@ -2814,6 +2864,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     final file = await openFile(acceptedTypeGroups: _subtitleTypes);
     if (file == null || !mounted) return;
+    _preferredSubtitleApplied = true;
     final ok = await player.loadSubtitleFile(file.path);
     if (!mounted) return;
     if (!ok) {

@@ -14,6 +14,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/player/abstract_player.dart';
+import '../../core/player/player_experience_store.dart';
 import '../../core/player/player_kernel_launcher.dart';
 import '../../core/reading/comic_image_tools.dart';
 import '../../core/reading/reading.dart';
@@ -541,6 +542,25 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                                       ? null
                                       : () {
                                           setState(() => selected = index);
+                                          // “只选中不播放”：竖屏详情页点选集只切换
+                                          // 选中态，由下方播放按钮真正起播。
+                                          if (PlayerExperienceStore
+                                              .current
+                                              .selectEpisodeOnly) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  '已选中第 ${index + 1} 集，点下方“播放”开始',
+                                                ),
+                                                duration: const Duration(
+                                                  milliseconds: 1400,
+                                                ),
+                                              ),
+                                            );
+                                            return;
+                                          }
                                           play();
                                         },
                                   child: Column(

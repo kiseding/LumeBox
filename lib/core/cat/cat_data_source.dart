@@ -4,6 +4,7 @@ import 'dart:io';
 import '../session/section.dart';
 import '../source/source.dart';
 import 'cat_service.dart';
+import 'cat_web_parse.dart';
 
 Map<String, dynamic> catPayload(Map<String, dynamic> payload) {
   final data = payload['data'];
@@ -397,7 +398,8 @@ class CatDataSource
     }
     final uri = address(catText(data['url']));
     if (data['parse'] == 1 || data['parse'] == '1') {
-      throw StateError('站点返回网页解析地址，请换一条直连线路');
+      if (uri == null) throw StateError('站点返回了无效的网页解析地址');
+      throw CatWebParseRequired(uri, requestHeaders);
     }
     if (uri == null ||
         !['http', 'https', 'rtmp', 'rtsp'].contains(uri.scheme)) {

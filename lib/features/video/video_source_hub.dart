@@ -5,9 +5,11 @@ import '../../core/reading/reading_library.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
+import '../../core/web/web_home_sources.dart';
 import '../cat/cat_page.dart';
 import '../source/video_source_picker.dart';
 import '../source/video_source_scope.dart';
+import '../web/web_home_page.dart';
 import 'video_page.dart';
 
 /// A single video surface, with no migration of source IDs or reading records.
@@ -22,6 +24,7 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
   bool _cat = false;
   bool _catCreated = false;
   CatSite? _site;
+  WebHomeSource? _webHome;
   int _revision = 0;
   int _selection = 0;
 
@@ -36,11 +39,18 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
       final generation = _selection;
       final library = await ReadingLibrary.open(Section.video);
       if (!mounted || generation != _selection) return;
-      if (library.setting('video.source.kind') == 'cat') {
+      final kind = library.setting('video.source.kind');
+      if (kind == 'cat') {
         setState(() {
           _cat = true;
           _catCreated = true;
         });
+      } else if (kind == 'web') {
+        final id = library.setting('video.web.selected');
+        final store = await WebHomeStore.open();
+        final home = store.byId(id);
+        if (!mounted || generation != _selection) return;
+        if (home != null) setState(() => _webHome = home);
       }
     } catch (error, stackTrace) {
       // The content page owns its storage error UI; a missing preference must
@@ -67,6 +77,7 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
       context: context,
       manager: manager,
       currentCatId: _cat ? CatService.instance.selectedSiteId : null,
+      currentWebId: _webHome?.id,
       showingCat: _cat,
     );
     if (!mounted) return;
@@ -81,11 +92,27 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
         _site = site;
         _cat = true;
         _catCreated = true;
+        _webHome = null;
       });
+    } else if (selected.webHome case final home?) {
+      final library = await ReadingLibrary.open(Section.video);
+      library.setSetting('video.source.kind', 'web');
+      library.setSetting('video.web.selected', home.id);
+      if (!context.mounted) return;
+      setState(() {
+        _cat = false;
+        _webHome = home;
+      });
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(builder: (_) => WebHomePage(source: home)),
+      );
+      return;
     } else if (selected.sourceId case final id?) {
       if (await manager.select(id) == null || !mounted) return;
       setState(() {
         _cat = false;
+        _webHome = null;
         _revision++;
       });
     }

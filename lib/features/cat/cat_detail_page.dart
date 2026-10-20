@@ -15,13 +15,16 @@ import '../video/source_playback.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/cat/cat_data_source.dart';
+import '../../core/cat/cat_web_parse.dart';
 import '../../core/source/source.dart';
 import '../../core/reading/reading.dart';
 import '../../core/reading/comic_image_tools.dart';
 import '../../core/player/abstract_player.dart';
+import '../../core/player/player_experience_store.dart';
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
 import '../../core/player/player_settings.dart';
+import 'cat_web_parse_page.dart';
 import '../video/video_player_settings.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../video/video_player_page.dart';
@@ -160,10 +163,21 @@ class _CatDetailPageState extends State<CatDetailPage> {
       final chapter = chapters[index];
       final playbackLine = CatDataSource.flagOf(chapter);
       final lineEpisodes = lines[playbackLine] ?? [chapter];
-      final content = await widget.source.content(
-        itemId: widget.item.id,
-        chapterId: chapter.id,
-      );
+      ChapterContent? content;
+      try {
+        content = await widget.source.content(
+          itemId: widget.item.id,
+          chapterId: chapter.id,
+        );
+      } on CatWebParseRequired catch (request) {
+        if (!mounted) return;
+        final resolved = await showCatWebParsePage(context, request);
+        if (resolved == null || !mounted) return;
+        content = VideoContent(
+          url: resolved,
+          headers: {...request.headers, 'Referer': request.page.toString()},
+        );
+      }
       if (content is! VideoContent) throw StateError('站点未返回视频地址');
       if (!mounted) return;
       widget.source.service.playInfo = {
@@ -258,6 +272,16 @@ class _CatDetailPageState extends State<CatDetailPage> {
         selectedChapterId = chapter.id;
         line = CatDataSource.flagOf(chapter);
       });
+      // “只选中不播放”：详情页点选集只切换选中态，主播放按钮起播。
+      if (PlayerExperienceStore.current.selectEpisodeOnly) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已选中第 ${index + 1} 集，点“播放”开始'),
+            duration: const Duration(milliseconds: 1400),
+          ),
+        );
+        return;
+      }
       unawaited(play(index));
     }
   }

@@ -11,6 +11,7 @@ import '../../core/source/source_content_visibility.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../core/web/web_home_sources.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_card_metrics.dart';
@@ -33,16 +34,21 @@ enum VideoSourceType {
 }
 
 class VideoSourceChoice {
-  const VideoSourceChoice.ordinary(this.sourceId) : site = null;
-  const VideoSourceChoice.cat(this.site) : sourceId = null;
+  const VideoSourceChoice.ordinary(this.sourceId) : site = null, webHome = null;
+  const VideoSourceChoice.cat(this.site) : sourceId = null, webHome = null;
+  const VideoSourceChoice.web(WebHomeSource this.webHome)
+    : sourceId = null,
+      site = null;
   final String? sourceId;
   final CatSite? site;
+  final WebHomeSource? webHome;
 }
 
 Future<VideoSourceChoice?> showVideoSourcePicker({
   required BuildContext context,
   required SourceManager manager,
   String? currentCatId,
+  String? currentWebId,
   bool showingCat = false,
 }) => showLumeBottomSheet<VideoSourceChoice>(
   context: context,
@@ -50,6 +56,7 @@ Future<VideoSourceChoice?> showVideoSourcePicker({
   builder: (_) => VideoSourcePicker(
     manager: manager,
     currentCatId: currentCatId,
+    currentWebId: currentWebId,
     showingCat: showingCat,
   ),
 );
@@ -61,11 +68,13 @@ class VideoSourcePicker extends StatefulWidget {
     super.key,
     required this.manager,
     this.currentCatId,
+    this.currentWebId,
     this.showingCat = false,
     this.service,
   });
   final SourceManager manager;
   final String? currentCatId;
+  final String? currentWebId;
   final bool showingCat;
   final CatService? service;
 
@@ -81,6 +90,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   String? currentId, error;
   bool loading = true;
   final busy = <String>{};
+  WebHomeStore? _webStore;
+  List<WebHomeSource> webHomes = const [];
 
   @override
   void initState() {
@@ -100,6 +111,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     service.removeListener(changed);
     SourceContentVisibility.instance.removeListener(changed);
     PrivacySettings.instance.removeListener(changed);
+    _webStore?.removeListener(changed);
     super.dispose();
   }
 
@@ -108,12 +120,19 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       await ReadingLibrary.open(Section.video);
       await ReadingLibrary.open(Section.cat);
       await service.boot();
+      final webStore = await WebHomeStore.open();
       final rows = await widget.manager.list();
       final current = await widget.manager.current();
       if (!mounted) return;
+      if (!identical(webStore, _webStore)) {
+        _webStore?.removeListener(changed);
+        webStore.addListener(changed);
+        _webStore = webStore;
+      }
       setState(() {
         sources = rows;
         currentId = current?.id;
+        webHomes = webStore.items;
         loading = false;
         error = null;
       });
@@ -168,7 +187,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 '模块源',
                 '模块兼容尚未接入',
               ),
-              (VideoSourceType.web, Icons.language, '网页主页', '网页入口尚未接入'),
+              (VideoSourceType.web, Icons.language, '网页主页', '添加、编辑网页主页'),
             ])
               ListTile(
                 leading: LumeIcon(
@@ -196,11 +215,123 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         context,
         MaterialPageRoute(builder: (_) => const CatSubscriptionPage()),
       );
+    } else if (target == VideoSourceType.web) {
+      await _addWebHome();
+      return;
     } else {
       setState(() => type = target);
       return;
     }
     if (mounted) await load();
+  }
+
+  Future<void> _addWebHome() async {
+    final store = await WebHomeStore.open();
+    if (!mounted) return;
+    final source = await _webHomeDialog(store: store);
+    if (source == null) return;
+    store.upsert(source);
+    if (!mounted) return;
+    setState(() => type = VideoSourceType.web);
+    await load();
+  }
+
+  Future<void> _editWebHome(WebHomeSource source) async {
+    final store = await WebHomeStore.open();
+    if (!mounted) return;
+    final updated = await _webHomeDialog(store: store, existing: source);
+    if (updated != null) store.upsert(updated);
+    if (mounted) await load();
+  }
+
+  Future<WebHomeSource?> _webHomeDialog({
+    required WebHomeStore store,
+    WebHomeSource? existing,
+  }) async {
+    final nameController = TextEditingController(text: existing?.name ?? '');
+    final urlController = TextEditingController(text: existing?.url ?? '');
+    String? error;
+    final result = await showDialog<WebHomeSource>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(existing == null ? '添加网页主页' : '编辑网页主页'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: '名称',
+                  hintText: '例如：影视主页',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: urlController,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  labelText: '主页地址',
+                  hintText: 'https://example.com',
+                ),
+              ),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            if (existing != null)
+              TextButton(
+                onPressed: () {
+                  store.remove(existing.id);
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('删除'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                var url = urlController.text.trim();
+                if (!url.contains('://')) url = 'https://$url';
+                if (name.isEmpty) {
+                  setDialogState(() => error = '请填写名称');
+                  return;
+                }
+                if (!isValidWebHomeUrl(url)) {
+                  setDialogState(() => error = '请输入有效的 http(s) 地址');
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  WebHomeSource(
+                    id: existing?.id ?? store.nextId(),
+                    name: name,
+                    url: url,
+                  ),
+                );
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    urlController.dispose();
+    return result;
   }
 
   Future<void> refresh(CatSubscription record) async {
@@ -405,16 +536,21 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         groups.add((record, sites));
       }
     }
+    final filteredWeb = webHomes
+        .where((home) => matches('${home.name} ${home.url}'))
+        .toList();
     final planned = [
       VideoSourceType.python,
       VideoSourceType.module,
-      VideoSourceType.web,
     ].contains(type);
     final showOrdinary =
         type == VideoSourceType.all || type == VideoSourceType.ordinary;
     final showCat = type == VideoSourceType.all || type == VideoSourceType.cat;
+    final showWeb = type == VideoSourceType.all || type == VideoSourceType.web;
     final empty =
-        (!showOrdinary || ordinary.isEmpty) && (!showCat || groups.isEmpty);
+        (!showOrdinary || ordinary.isEmpty) &&
+        (!showCat || groups.isEmpty) &&
+        (!showWeb || filteredWeb.isEmpty);
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Material(
@@ -699,6 +835,50 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                         ),
                                     ]),
                                   ],
+                                if (showWeb) ...[
+                                  heading(
+                                    '网页主页',
+                                    filteredWeb.length,
+                                    trailing: IconButton(
+                                      tooltip: '添加网页主页',
+                                      onPressed: _addWebHome,
+                                      icon: const LumeIcon(
+                                        Icons.add,
+                                        size: 20,
+                                        slot: 'video_source_picker.add_web',
+                                      ),
+                                    ),
+                                  ),
+                                  if (filteredWeb.isEmpty)
+                                    TextButton.icon(
+                                      onPressed: _addWebHome,
+                                      icon: const LumeIcon(
+                                        Icons.language,
+                                        size: 20,
+                                        slot: 'video_source_picker.web_empty',
+                                      ),
+                                      label: const Text('添加网页主页地址'),
+                                    )
+                                  else
+                                    grid([
+                                      for (final home in filteredWeb)
+                                        card(
+                                          id: home.id,
+                                          name: home.name,
+                                          subtitle:
+                                              widget.currentWebId == home.id
+                                              ? '当前使用'
+                                              : home.url,
+                                          selected:
+                                              widget.currentWebId == home.id,
+                                          onTap: () => Navigator.pop(
+                                            context,
+                                            VideoSourceChoice.web(home),
+                                          ),
+                                          onMore: () => _editWebHome(home),
+                                        ),
+                                    ]),
+                                ],
                               ],
                             ),
                     ),
