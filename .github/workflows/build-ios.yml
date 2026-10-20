@@ -70,6 +70,10 @@ jobs:
             ios/Runner/ICloudSyncController.swift ios/Runner/ComicImageToolsController.swift \
             ios/Runner/IntroRecognitionController.swift ios/Runner/LumeGlassBackdrop.swift
 
+      - name: Python native bridge and simulator check (no IPA)
+        if: ${{ inputs.typecheck_only == true }}
+        run: bash tool/check_ios_python.sh
+
       - name: 编译（--no-codesign，带构建号）
         if: ${{ inputs.typecheck_only != true }}
         run: |
