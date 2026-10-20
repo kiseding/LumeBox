@@ -198,8 +198,9 @@ class SourceBundle {
     if (specifier.contains(':') || specifier.startsWith('/')) {
       throw FormatException('模块依赖须放入源包：$specifier');
     }
+    final relative = Uri.parse(specifier).path;
     final path = specifier.startsWith('.')
-        ? p.posix.normalize(p.posix.join(p.posix.dirname(parent), specifier))
+        ? p.posix.normalize(p.posix.join(p.posix.dirname(parent), relative))
         : 'node_modules/$specifier';
     checkedPath(path);
     for (final candidate in [

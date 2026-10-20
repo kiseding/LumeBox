@@ -14,6 +14,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
 import 'package:lume_box/features/source/video_source_scope.dart';
+import 'package:lume_box/core/web/web_home_sources.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -134,6 +135,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的源'), findsOneWidget);
     expect(manager.selectedIds, isEmpty);
+  });
+
+  testWidgets('网页源长按排序，搜索过滤后仍保留未显示项位置', (tester) async {
+    final store = await WebHomeStore.open();
+    for (final id in ['first', 'hidden', 'last']) {
+      store.upsert(
+        WebHomeSource(
+          id: id,
+          name: id == 'hidden' ? '别的网页' : '排序$id',
+          url: 'https://$id.test',
+        ),
+      );
+    }
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '排序');
+    await tester.pumpAndSettle();
+    final from = find.byKey(const ValueKey('web-picker-drag-last'));
+    final to = find.byKey(const ValueKey('web-picker-drag-first'));
+    final gesture = await tester.startGesture(tester.getCenter(from));
+    await tester.pump(const Duration(milliseconds: 700));
+    await gesture.moveTo(tester.getCenter(to));
+    await tester.pump(const Duration(milliseconds: 100));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(store.items.map((row) => row.id), ['last', 'hidden', 'first']);
+    expect(find.text('排序last'), findsOneWidget);
   });
 
   testWidgets('Python 和模块分类显示真实源，普通分类不混入', (tester) async {

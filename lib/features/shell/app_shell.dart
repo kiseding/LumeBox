@@ -34,7 +34,7 @@ import 'shell_dock_bar.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 
-/// 主导航：四个页签（漫画 / 视频 / 猫源 / 设置）。
+/// 主导航：三个页签（漫画 / 视频 / 设置），猫源从视频页进入。
 ///
 /// 移动端是底部悬浮 Dock（毛玻璃胶囊）；桌面端（Windows / macOS / Linux）
 /// 自动换成左侧 NavigationRail —— 同一套页签，两种排布，页签内容不变。

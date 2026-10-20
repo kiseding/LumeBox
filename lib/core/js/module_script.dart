@@ -6,6 +6,15 @@ import 'spider_module_adapter.dart';
 /// Single-file ESM/CommonJS modules. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
+  static Set<String> dependencies(String script) {
+    final result = <String>{};
+    _body(script, (path) {
+      result.add(path);
+      return path;
+    });
+    return result;
+  }
+
   static String wrap(String script) {
     final bundle = SourceBundle.parse(script);
     final bodies = <String, String>{};

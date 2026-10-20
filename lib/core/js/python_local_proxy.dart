@@ -48,6 +48,7 @@ class PythonLocalProxy {
         'action': 'proxy',
         'params': request.uri.queryParameters,
         'headers': headers,
+        'method': request.method,
         'timeout': 30,
       });
       if (_disposed) {

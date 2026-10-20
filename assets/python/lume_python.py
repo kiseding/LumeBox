@@ -527,6 +527,9 @@ def _proxy_response(state, request):
         state["initialized"] = True
     params = dict(request.get("params") or {})
     params.setdefault("headers", request.get("headers") or {})
+    if params['headers'].get('range'):
+        params.setdefault('range', params['headers']['range'])
+    params.setdefault('method', request.get('method', 'GET'))
     result = _invoke(spider, "localProxy", (params,))
     if not isinstance(result, (list, tuple)) or len(result) < 3:
         raise ValueError("localProxy 须返回 [状态码, MIME, 响应体, 可选响应头, 可选Base64标记]")
@@ -689,9 +692,10 @@ def execute(request):
         for name in sorted(imports):
             if name in ("java", "jnius", "android", "dalvik", "chaquopy"):
                 warnings.append("含 Android 专属依赖 " + name + "；对应功能需要其他实现或外部后端")
-            elif name not in sys.modules:
+            elif name not in sys.modules and name not in state.get("modules", {}):
                 try:
-                    found = importlib.util.find_spec(name)
+                    bundled = state.get("root") and ((Path(state["root"]) / (name + '.py')).exists() or (Path(state["root"]) / name).is_dir())
+                    found = True if bundled else importlib.util.find_spec(name)
                 except (ValueError, ImportError, AttributeError):
                     found = None
                 if found is None:

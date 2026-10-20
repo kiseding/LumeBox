@@ -10,7 +10,7 @@ import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
 import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
-/// 主导航壳的验证：四页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
+/// 主导航壳的验证：三页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
 /// 两种排布、切页签只保留当前页面，以及全屏页压栈时自动隐藏 Dock、出栈恢复。
 void main() {
   late ShellDockController controller;
@@ -40,13 +40,13 @@ void main() {
     matching: find.text(text),
   );
 
-  testWidgets('移动端：底部 Dock 四页签，顺序为 漫画 / 漫画 / 视频 / 猫源 / 设置', (tester) async {
+  testWidgets('移动端：底部 Dock 三页签，顺序为 漫画 / 视频 / 设置', (tester) async {
     await pumpShell(tester, desktopRail: false);
 
     expect(find.byKey(AppShell.dockKey), findsOneWidget);
     expect(find.byKey(AppShell.railKey), findsNothing);
 
-    const expected = <String>['漫画', '视频', '猫源', '设置'];
+    const expected = <String>['漫画', '视频', '设置'];
     for (final label in expected) {
       expect(inDock(label), findsOneWidget, reason: 'Dock 缺少页签：$label');
     }
@@ -64,7 +64,7 @@ void main() {
     }
   });
 
-  testWidgets('向上浏览收成左侧入口，向下浏览恢复四个页签', (tester) async {
+  testWidgets('向上浏览收成左侧入口，向下浏览恢复三个页签', (tester) async {
     await pumpShell(tester, desktopRail: false);
     final pageContext = tester.element(find.byType(ComicPage));
     final metrics = FixedScrollMetrics(
@@ -134,7 +134,7 @@ void main() {
 
     expect(find.byKey(AppShell.railKey), findsOneWidget);
     expect(find.byKey(AppShell.dockKey), findsNothing);
-    for (final label in <String>['漫画', '视频', '猫源', '设置']) {
+    for (final label in <String>['漫画', '视频', '设置']) {
       expect(
         find.descendant(
           of: find.byKey(AppShell.railKey),

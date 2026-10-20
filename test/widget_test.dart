@@ -7,7 +7,7 @@ import 'package:lume_box/app.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 
-/// 应用入口的验证：启动直接进入四页签导航壳（不再有卡片仪表盘首页）、
+/// 应用入口的验证：启动直接进入三页签导航壳（不再有卡片仪表盘首页）、
 /// 页签文案与顺序、板块页平台边界，以及设置里的图源总管理入口。
 void main() {
   Future<void> pumpApp(WidgetTester tester) async {
@@ -26,14 +26,12 @@ void main() {
   Finder navItem(String label) =>
       find.descendant(of: navItemFinder(), matching: find.text(label));
 
-  testWidgets('启动即导航壳：四个页签，文案为 漫画 / 漫画 / 视频 / 猫源 / 设置', (tester) async {
+  testWidgets('启动即导航壳：三个页签，文案为 漫画 / 视频 / 设置', (tester) async {
     await pumpApp(tester);
 
     for (final label in <String>[
-      Section.video.label,
       Section.comic.label,
       Section.video.label,
-      Section.cat.label,
       '设置',
     ]) {
       expect(navItem(label), findsOneWidget, reason: '导航缺少页签：$label');
@@ -47,7 +45,7 @@ void main() {
   testWidgets('板块页标题显示对应板块名称', (tester) async {
     await pumpApp(tester);
 
-    for (final section in Section.values) {
+    for (final section in [Section.comic, Section.video]) {
       await tester.tap(navItem(section.label));
       for (var n = 0; n < 8; n++) {
         await tester.pump();
@@ -57,8 +55,7 @@ void main() {
       }
       await tester.pumpAndSettle();
 
-      // 猫源板块页本身就是该板块的源管理页（标题用「· 源管理」口径），
-      // 其余板块是内容页，标题就是板块名。
+      // 猫源通过视频页源选择器进入，不再有独立导航项。
       final expectedTitle = section.label;
       expect(find.text(expectedTitle), findsWidgets);
       expect(

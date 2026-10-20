@@ -21,6 +21,29 @@ List<int> sourceZip(Map<String, Object> files) {
 }
 
 void main() {
+  test('JS 订阅自动递归加载相对依赖与循环依赖，更新后仍可离线重读', () async {
+    final responses = {
+      'https://fixture.invalid/src/main.mjs': "import {home} from '../lib/helper.mjs'; export default {categories:home};",
+      'https://fixture.invalid/lib/helper.mjs':
+          "import '../src/main.mjs'; export function home(){return [];}",
+    };
+    final visited = <String>[];
+    final subscription = SourceSubscription(
+      fetch: (url) async {
+        visited.add(url);
+        final text = responses[url]!;
+        return SourceFetchResult(
+          bytes: base64Decode(base64Encode(utf8.encode(text))),
+          text: text,
+        );
+      },
+    );
+    final refs = await subscription.scriptRefsAt(responses.keys.first, {});
+    final bundle = SourceBundle.parse(refs.single.script)!;
+    expect(visited, responses.keys.toList());
+    expect(bundle.files.keys, containsAll(['src/main.mjs', 'lib/helper.mjs']));
+    expect(bundle.resolve(bundle.entry, '../lib/helper.mjs'), 'lib/helper.mjs');
+  });
   test('ZIP 源包原始字节订阅、备份重读、目录越界与原生代码校验', () async {
     final bytes = sourceZip({
       'lume.json': '{"entry":"pkg/main.py"}',
@@ -41,12 +64,7 @@ void main() {
     );
     final refs = await sub.scriptRefsAt('https://fixture.invalid/file', {});
     expect(SourceBundle.parse(refs.single.script)!.entry, 'pkg/main.py');
-    for (final path in [
-      '../escape.py',
-      '/escape.py',
-      'x.so',
-      'x.fwork',
-    ]) {
+    for (final path in ['../escape.py', '/escape.py', 'x.so', 'x.fwork']) {
       expect(
         () => SourcePackage.fromBytes(
           sourceZip({

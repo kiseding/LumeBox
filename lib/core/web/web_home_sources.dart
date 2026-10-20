@@ -110,6 +110,19 @@ class WebHomeStore extends ChangeNotifier {
     _save(next);
   }
 
+  /// Reorder only visible search results; other home pages keep their slots.
+  void moveVisible(List<String> ids, String from, String to) {
+    final visible = _items.where((row) => ids.contains(row.id)).toList();
+    final source = visible.indexWhere((row) => row.id == from);
+    final target = visible.indexWhere((row) => row.id == to);
+    if (source < 0 || target < 0 || source == target) return;
+    visible.insert(target, visible.removeAt(source));
+    var index = 0;
+    _save([
+      for (final row in _items) ids.contains(row.id) ? visible[index++] : row,
+    ]);
+  }
+
   /// Stable id for a newly added home page; callers don't need timestamps.
   String nextId() =>
       'web-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';

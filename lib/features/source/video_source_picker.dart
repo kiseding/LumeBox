@@ -376,6 +376,9 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     return Tooltip(
       message: name,
+      // Long press belongs to SourceDragTile; Tooltip's recognizer otherwise
+      // wins the gesture arena before the parent can begin dragging.
+      triggerMode: TooltipTriggerMode.manual,
       child: Semantics(
         selected: selected,
         child: Container(
@@ -875,14 +878,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                           onMove: (from, to) async {
                                             final store = _webStore;
                                             if (store == null) return;
-                                            final order = store.items;
-                                            store.move(
-                                              order.indexWhere(
-                                                (row) => row.id == from,
-                                              ),
-                                              order.indexWhere(
-                                                (row) => row.id == to,
-                                              ),
+                                            store.moveVisible(
+                                              filteredWeb
+                                                  .map((row) => row.id)
+                                                  .toList(),
+                                              from,
+                                              to,
                                             );
                                           },
                                           child: card(

@@ -18,18 +18,51 @@ class SourcePackage {
     String originUrl = '',
   }) {
     if (SourceBundle.isZip(bytes)) {
-      final bundle = SourceBundle.fromZip(bytes);
-      final prefix = bundle.runtime == 'python' ? '#' : '//';
-      final header = '$prefix LumeRuntime: ${bundle.runtime}\n';
-      final metadata = bundle.metadata.isEmpty
-          ? ''
-          : '$prefix LumeSource: ${jsonEncode(bundle.metadata)}\n';
-      return prepare(
-        '$header$metadata$prefix LumeBundle: ${bundle.encode()}',
+      return fromBundle(
+        SourceBundle.fromZip(bytes),
         name: name,
         originUrl: originUrl,
       );
     }
+    return _fromTextBytes(bytes, name: name, originUrl: originUrl);
+  }
+
+  static String fromBundle(
+    SourceBundle bundle, {
+    String name = '',
+    String originUrl = '',
+  }) {
+    final prefix = bundle.runtime == 'python' ? '#' : '//';
+    final header = '$prefix LumeRuntime: ${bundle.runtime}\n';
+    final original = SourceMetadata.parseHeader(
+      utf8.decode(bundle.files[bundle.entry]!, allowMalformed: true),
+    );
+    final info = bundle.metadata.isNotEmpty
+        ? bundle.metadata
+        : original == null
+        ? <String, Object?>{}
+        : <String, Object?>{
+            'id': original.id,
+            'name': original.name,
+            'version': original.version,
+            'category': original.category,
+            'mirrors': original.mirrors,
+          };
+    final metadata = info.isEmpty
+        ? ''
+        : '$prefix LumeSource: ${jsonEncode(info)}\n';
+    return prepare(
+      '$header$metadata$prefix LumeBundle: ${bundle.encode()}',
+      name: name,
+      originUrl: originUrl,
+    );
+  }
+
+  static String _fromTextBytes(
+    List<int> bytes, {
+    String name = '',
+    String originUrl = '',
+  }) {
     final preview = utf8.decode(bytes, allowMalformed: true);
     final python =
         name.toLowerCase().endsWith('.py') ||
@@ -85,6 +118,10 @@ class SourcePackage {
         ).hasMatch(script) ||
         RegExp(
           r'^\s*export\s+(default|const|let|var|function|async|class|\{)',
+          multiLine: true,
+        ).hasMatch(script) ||
+        RegExp(
+          r'''^\s*import\s*(?:\(|["'{*]|[\w$]+\s*(?:,|from))''',
           multiLine: true,
         ).hasMatch(script) ||
         script.contains('module.exports')) {

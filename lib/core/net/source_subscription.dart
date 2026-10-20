@@ -8,6 +8,7 @@ import '../util/md5.dart';
 import 'lume_http.dart';
 import '../source/source_package.dart';
 import '../source/source_bundle.dart';
+import '../js/module_script.dart';
 
 /// 一次订阅拉取的结果。
 ///
@@ -146,10 +147,13 @@ class SourceSubscription {
       // 记**校验清单**的地址：更新时重新核对 MD5 才是它存在的意义。
       return <SourceScriptRef>[
         SourceScriptRef(
-          script: SourcePackage.fromBytes(
-            entity.bytes,
-            name: Uri.parse(target).pathSegments.lastOrNull ?? '',
-            originUrl: url,
+          script: await _moduleDependencies(
+            SourcePackage.fromBytes(
+              entity.bytes,
+              name: Uri.parse(target).pathSegments.lastOrNull ?? '',
+              originUrl: url,
+            ),
+            target,
           ),
           url: url,
         ),
@@ -162,9 +166,12 @@ class SourceSubscription {
         SourceBundle.isZip(download.bytes)) {
       return <SourceScriptRef>[
         SourceScriptRef(
-          script: SourcePackage.prepare(
-            SourcePackage.fromBytes(download.bytes, originUrl: url),
-            originUrl: url,
+          script: await _moduleDependencies(
+            SourcePackage.prepare(
+              SourcePackage.fromBytes(download.bytes, originUrl: url),
+              originUrl: url,
+            ),
+            url,
           ),
           url: url,
         ),
@@ -208,6 +215,53 @@ class SourceSubscription {
       }
     }
     return refs;
+  }
+
+  Future<String> _moduleDependencies(String script, String origin) async {
+    if (SourcePackage.kindOf(script) != SourcePackageKind.module ||
+        SourceBundle.parse(script) != null)
+      return script;
+    if (ModuleScript.dependencies(script).isEmpty) return script;
+    final base = Uri.parse(origin);
+    final entry = SourceBundle.checkedPath(
+      base.path.replaceFirst(RegExp(r'^/'), ''),
+    );
+    final files = <String, List<int>>{entry: utf8.encode(script)};
+    final locations = <String, String>{entry: base.toString()};
+    var total = files[entry]!.length;
+    Future<void> visit(String path, String text) async {
+      for (final dependency in ModuleScript.dependencies(text)) {
+        if (!dependency.startsWith('.'))
+          throw FormatException('订阅模块依赖须为相对路径；$dependency 请放入 ZIP 源包');
+        final target = Uri.parse(locations[path]!).resolve(dependency);
+        if (target.origin != base.origin || target.fragment.isNotEmpty)
+          throw const FormatException('模块依赖不能跨订阅站点或携带 fragment；请使用 ZIP 源包');
+        final name = SourceBundle.checkedPath(
+          target.path.replaceFirst(RegExp(r'^/'), ''),
+        );
+        if (files.containsKey(name)) {
+          if (locations[name] != target.toString())
+            throw const FormatException('同名模块带有不同查询参数；请使用 ZIP 源包');
+          continue;
+        }
+        if (files.length >= SourceBundle.maxFiles)
+          throw const FormatException('模块依赖超过 256 个文件');
+        final reply = await fetch(target.toString());
+        total += reply.bytes.length;
+        if (total > SourceBundle.maxBytes)
+          throw const FormatException('模块依赖合计超过 8MB');
+        files[name] = reply.bytes;
+        locations[name] = target.toString();
+        if (!name.endsWith('.json'))
+          await visit(name, utf8.decode(reply.bytes));
+      }
+    }
+
+    await visit(entry, script);
+    return SourcePackage.fromBundle(
+      SourceBundle(entry, 'module', 'lume', files, {}),
+      originUrl: origin,
+    );
   }
 
   /// `.js.md5` 约定：清单地址去掉 `.md5` 后缀就是脚本实体地址。

@@ -201,7 +201,7 @@ void main() {
     // 「只剩 1 个页签」时管理页会多出「不能关掉」提示行，一并扫到。
     '底部导航栏管理（剩 1 个）': () {
       final controller = ShellSettingsController.instance;
-      for (final id in <String>['video', 'cat', 'settings']) {
+      for (final id in <String>['video', 'settings']) {
         controller.apply(controller.settings.withVisible(id, false)!);
       }
       return const TabBarSettingsPage();

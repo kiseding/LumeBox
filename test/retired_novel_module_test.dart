@@ -15,13 +15,12 @@ void main() {
     expect(ShellTab.all.map((t) => t.id), [
       'comic',
       'video',
-      'cat',
       'settings',
     ]);
     expect(SpeechSettings.settingKey, 'speech.settings');
   });
 
-  test('old navigation removes only retired entry and retains ordering', () {
+  test('old navigation removes retired and merged entries, retaining ordering', () {
     final settings = ShellSettings.fromJson({
       'tabs': [
         {'id': 'novel', 'visible': true},
@@ -35,7 +34,6 @@ void main() {
       'settings',
       'video',
       'comic',
-      'cat',
     ]);
     expect(settings.isVisible('video'), isFalse);
   });
