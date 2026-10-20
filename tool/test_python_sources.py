@@ -186,6 +186,8 @@ def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4
         assert pq('<a href="/one">第一集</a>')('a').attr('href') == '/one'
         assert self.cleanText('<b>文字</b>') == '文字'
         assert httpx.get('https://fixture.invalid/cookie').json()['ok']
+        with httpx.Client(headers={'User-Agent':'fixture-custom-UA'}) as client:
+            assert client.get('https://fixture.invalid/cookie').json()['ok']
         async def run():
             async with httpx.AsyncClient() as client:
                 return (await client.get('https://fixture.invalid/cookie')).json()['ok']
@@ -197,6 +199,7 @@ def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4
         item = self.value('home')[0]
         self.assertEqual(item['title'], '通用兼容')
         self.assertEqual(item['id'], 'py:https://fixture.invalid/album/1')
+        self.assertTrue(any(request['payload'].get('headers', {}).get('user-agent') == 'fixture-custom-UA' for request in CALLS))
 
     def test_legacy_encoding_and_dependency_diagnostics(self):
         encoded = base64.b64encode(('# coding: gbk\n' + FIXTURE).encode('gbk')).decode()

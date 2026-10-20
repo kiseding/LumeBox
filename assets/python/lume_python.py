@@ -356,7 +356,11 @@ def _crypto_module():
     def aes_new(key, mode, iv=b"", **kw):
         if len(key) not in (16, 24, 32) or mode not in (1, 2, 3, 5, 6, 11):
             raise ValueError("不支持的 AES 密钥长度或模式")
-        nonce = kw.get("nonce", os.urandom(12) if mode == 11 else b"")
+        if "counter" in kw:
+            raise ValueError("AES CTR 请使用 nonce 与 initial_value；自定义 counter 尚未支持")
+        if kw.get("mac_len", 16) != 16:
+            raise ValueError("认证加密当前支持 16 字节认证标签")
+        nonce = kw.get("nonce", os.urandom(12) if mode == 11 else os.urandom(8) if mode == 6 else b"")
         if mode == 6:
             if len(nonce) >= 16:
                 raise ValueError("AES CTR nonce 过长")

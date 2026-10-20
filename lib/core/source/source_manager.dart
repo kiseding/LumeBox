@@ -243,7 +243,7 @@ class SourceImportResult {
 
   final SourceDescriptor? descriptor;
 
-  /// 失败原因（成功时为 null）。
+  /// 失败原因，或成功时需要展示的兼容性说明。
   final String? message;
 
   bool get isSuccess => descriptor != null;

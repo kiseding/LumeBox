@@ -30,13 +30,15 @@ def install(host):
         kwargs["transport"] = Transport()
         kwargs["trust_env"] = False
         client_init(self, *args, **kwargs)
-        self.headers.pop("User-Agent", None)
+        if "user-agent" not in httpx.Headers(kwargs.get("headers")):
+            self.headers.pop("User-Agent", None)
 
     def init_async(self, *args, **kwargs):
         kwargs["transport"] = AsyncTransport()
         kwargs["trust_env"] = False
         async_init(self, *args, **kwargs)
-        self.headers.pop("User-Agent", None)
+        if "user-agent" not in httpx.Headers(kwargs.get("headers")):
+            self.headers.pop("User-Agent", None)
 
     httpx.Client.__init__ = init
     httpx.AsyncClient.__init__ = init_async
