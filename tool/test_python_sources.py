@@ -97,7 +97,7 @@ class HostTests(unittest.TestCase):
 
     def test_bundle_relative_and_delayed_import_isolation_and_cleanup(self):
         def bundle(title):
-            files = {'pkg/main.py': FIXTURE + '\nfrom . import helper\nSpider.homeContent = lambda self, filter: {"class":[{"type_id":"1","type_name":helper.title()}]}',
+            files = {'pkg/main.py': FIXTURE + '\nfrom dataclasses import dataclass\n@dataclass\nclass Entry: title: str\nfrom . import helper\nSpider.homeContent = lambda self, filter: {"class":[{"type_id":"1","type_name":Entry(helper.title()).title}]}',
                      'pkg/__init__.py': '', 'pkg/helper.py': 'def title():\n from .value import TITLE\n return TITLE',
                      'pkg/value.py': 'TITLE = ' + repr(title)}
             data = {'entry': 'pkg/main.py', 'runtime': 'python', 'files': {name: base64.b64encode(value.encode()).decode() for name, value in files.items()}}

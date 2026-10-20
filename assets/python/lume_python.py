@@ -452,17 +452,20 @@ def _budget(state, seconds):
 def _source_modules(state):
     """Serial native calls temporarily install only this source's imports."""
     root = state.get("root")
-    if not root:
-        yield
-        return
-    root = Path(root)
-    roots = {path.stem if path.suffix == '.py' else path.name for path in root.iterdir()}
+    root = Path(root) if root else None
+    roots = {path.stem if path.suffix == '.py' else path.name for path in root.iterdir()} if root else set()
+    entry_module = state.get('entry_module')
+    if entry_module:
+        roots.add(entry_module.__name__.split('.')[0])
     saved = {name: module for name, module in sys.modules.copy().items() if name.split('.')[0] in roots}
     for name in saved:
         sys.modules.pop(name, None)
     sys.modules.update(state.get("modules", {}))
+    if entry_module:
+        sys.modules[entry_module.__name__] = entry_module
     old_path = sys.path[:]
-    sys.path[:0] = [str(root), str(root / PurePosixPath(state["entry"]).parent)]
+    if root:
+        sys.path[:0] = [str(root), str(root / PurePosixPath(state["entry"]).parent)]
     importlib.invalidate_caches()
     try:
         yield
@@ -470,7 +473,7 @@ def _source_modules(state):
         owned = {}
         for name, module in sys.modules.copy().items():
             file = getattr(module, "__file__", None)
-            if file and Path(file).is_relative_to(root):
+            if module is entry_module or (root and file and Path(file).is_relative_to(root)):
                 owned[name] = module
                 sys.modules.pop(name, None)
         state["modules"] = owned
@@ -661,12 +664,17 @@ def execute(request):
         _close_source(_contexts.pop(source_id, None))
         _contexts[source_id] = state
         source, filename = _unpack_source(state, request["script"])
+        package = '.'.join(PurePosixPath(state.get('entry', '')).parts[:-1])
+        module_name = (package + '.' + Path(filename).stem) if package else 'lume_import_' + hashlib.sha256(source_id.encode()).hexdigest()[:16]
+        module = types.ModuleType(module_name)
+        module.__file__, module.__package__ = filename, package
+        module.__spec__ = importlib.util.spec_from_file_location(module_name, filename)
+        state['entry_module'] = module
         with _budget(state, request.get("timeout", 15)):
             encoded = re.search(r"^# LumePythonBytes: ([A-Za-z0-9+/=]+)$", source, re.M) if isinstance(source, str) else None
             if encoded:
                 source = base64.b64decode(encoded[1], validate=True)
-            package = '.'.join(PurePosixPath(state.get('entry', '')).parts[:-1])
-            namespace = {"__name__": (package + '.main') if package else "lume_import_" + source_id, "__package__": package, "__file__": filename}
+            namespace = module.__dict__
             exec(compile(source, filename, "exec"), namespace)
             cls = namespace.get("Spider")
             spider = cls() if isinstance(cls, type) else namespace.get("spider") or types.SimpleNamespace(**namespace)

@@ -219,8 +219,9 @@ class SourceSubscription {
 
   Future<String> _moduleDependencies(String script, String origin) async {
     if (SourcePackage.kindOf(script) != SourcePackageKind.module ||
-        SourceBundle.parse(script) != null)
+        SourceBundle.parse(script) != null) {
       return script;
+    }
     if (ModuleScript.dependencies(script).isEmpty) return script;
     final base = Uri.parse(origin);
     final entry = SourceBundle.checkedPath(
@@ -231,29 +232,35 @@ class SourceSubscription {
     var total = files[entry]!.length;
     Future<void> visit(String path, String text) async {
       for (final dependency in ModuleScript.dependencies(text)) {
-        if (!dependency.startsWith('.'))
+        if (!dependency.startsWith('.')) {
           throw FormatException('订阅模块依赖须为相对路径；$dependency 请放入 ZIP 源包');
+        }
         final target = Uri.parse(locations[path]!).resolve(dependency);
-        if (target.origin != base.origin || target.fragment.isNotEmpty)
+        if (target.origin != base.origin || target.fragment.isNotEmpty) {
           throw const FormatException('模块依赖不能跨订阅站点或携带 fragment；请使用 ZIP 源包');
+        }
         final name = SourceBundle.checkedPath(
           target.path.replaceFirst(RegExp(r'^/'), ''),
         );
         if (files.containsKey(name)) {
-          if (locations[name] != target.toString())
+          if (locations[name] != target.toString()) {
             throw const FormatException('同名模块带有不同查询参数；请使用 ZIP 源包');
+          }
           continue;
         }
-        if (files.length >= SourceBundle.maxFiles)
+        if (files.length >= SourceBundle.maxFiles) {
           throw const FormatException('模块依赖超过 256 个文件');
+        }
         final reply = await fetch(target.toString());
         total += reply.bytes.length;
-        if (total > SourceBundle.maxBytes)
+        if (total > SourceBundle.maxBytes) {
           throw const FormatException('模块依赖合计超过 8MB');
+        }
         files[name] = reply.bytes;
         locations[name] = target.toString();
-        if (!name.endsWith('.json'))
+        if (!name.endsWith('.json')) {
           await visit(name, utf8.decode(reply.bytes));
+        }
       }
     }
 
