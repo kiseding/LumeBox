@@ -464,52 +464,14 @@ class _HomeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = BrowseLayoutSettings.instance.gridTitleStyle;
-    final singleLine = compactGrid && style == GridTitleStyle.below;
-    final titleSize = singleLine
-        ? ThreeColumnPosterLayout.titleSize
-        : LumeTypography.bodySize;
     return PosterCard(
       onTap: onTap,
       footnoteBelow: style == GridTitleStyle.below,
-      footnoteGap: singleLine ? ThreeColumnPosterLayout.titleGap : 6,
-      footnotePadding: singleLine
-          ? const EdgeInsets.symmetric(horizontal: 2)
-          : const EdgeInsets.fromLTRB(2, 0, 2, 2),
-      // 与探索页同一套标题呈现（遮罩内置白字 / 外置独立黑字）。
-      footnote: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          SizedBox(
-            height: singleLine
-                ? MediaQuery.textScalerOf(context).scale(titleSize) * 1.25
-                : LumeTypography.bodySize * 1.25 * 2,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Text(
-                item.title,
-                maxLines: singleLine ? 1 : 2,
-                overflow: TextOverflow.ellipsis,
-                style: style == GridTitleStyle.below
-                    ? TextStyle(
-                        fontSize: titleSize,
-                        height: 1.25,
-                        fontWeight: FontWeight.w600,
-                        color: LumeTheme.textPrimary,
-                      )
-                    : const TextStyle(
-                        fontSize: LumeTypography.bodySize,
-                        height: 1.25,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        shadows: <Shadow>[
-                          Shadow(color: Color(0xB3000000), blurRadius: 4),
-                        ],
-                      ),
-              ),
-            ),
-          ),
-        ],
+      footnoteGap: ThreeColumnPosterLayout.titleGap,
+      footnotePadding: const EdgeInsets.symmetric(horizontal: 2),
+      footnote: PosterTitle(
+        item.title,
+        overlay: style == GridTitleStyle.overlay,
       ),
       child: pipeline == null
           // 管线还在准备（封面先出占位，与探索页同口径）。

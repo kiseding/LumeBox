@@ -20,7 +20,6 @@ import '../reading/collection_panel.dart';
 import '../../core/source/source_preferences.dart';
 import '../source/source_preferences_page.dart';
 import '../source/video_source_scope.dart';
-import '../../shared/widgets/missing_cover.dart';
 import '../../core/source/home_browse_mode.dart';
 
 import 'dart:async';
@@ -37,8 +36,7 @@ import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/source_switch_button.dart';
 import '../reading/poster_card.dart';
-import '../reading/browse_layout_button.dart';
-import '../reading/section_image.dart';
+import '../reading/compact_browse_header.dart';
 import '../reading/browse_choice_access.dart';
 import '../comic/comic_detail_page.dart';
 import '../shell/shell_dock.dart';
@@ -1238,124 +1236,32 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          height: 36,
-          child: IconButtonTheme(
-            data: IconButtonThemeData(
-              style: IconButton.styleFrom(
-                minimumSize: const Size(40, 40),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: VideoSourceScope.maybeOf(context) != null
-                              ? null
-                              : service.busy
-                              ? null
-                              : sitePicker,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  VideoSourceScope.maybeOf(context) != null
-                                      ? '视频'
-                                      : '猫源',
-                                  style: TextStyle(
-                                    fontSize: LumeTypography.sectionTitleSize,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (VideoSourceScope.maybeOf(context) == null)
-                                  const LumeIcon(
-                                    Icons.expand_more,
-                                    slot: 'cat_page.11',
-                                    size: 16,
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '历史',
-                  onPressed: () => collection(false),
-                  icon: const LumeIcon(Icons.history, slot: 'cat_page.12'),
-                ),
-                const SizedBox(width: 2),
-                IconButton(
-                  tooltip: '收藏',
-                  onPressed: () => collection(true),
-                  icon: const LumeIcon(
-                    Icons.bookmark_outline,
-                    slot: 'cat_page.13',
-                  ),
-                ),
-                const SizedBox(width: 2),
-                IconButton(
-                  tooltip: '源管理',
-                  onPressed: sitePicker,
-                  icon: const LumeIcon(Icons.dns_outlined, slot: 'cat_page.14'),
-                ),
-                const SizedBox(width: 2),
-                Tooltip(
-                  message: '订阅',
-                  child: IconButton(
-                    onPressed: subscriptions,
-                    icon: const SubscriptionStatusIcon(section: Section.cat),
-                  ),
-                ),
-              ],
-            ),
+        CompactBrowseHeader(
+          source: SourceSwitchButton(
+            key: const ValueKey('open-cat-source-picker'),
+            onPressed: service.busy ? null : sitePicker,
+            iconSlot: 'cat_page.15',
+            compact: true,
+            name:
+                source?.name ??
+                (service.needsSiteSelection
+                    ? '选择站点'
+                    : CatPreloader.selectedSite(service)?.name ?? '选择站点'),
           ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
-                child: SourceSwitchButton(
-                  key: const ValueKey('open-cat-source-picker'),
-                  onPressed: service.busy ? null : sitePicker,
-                  iconSlot: 'cat_page.15',
-                  name:
-                      source?.name ??
-                      (service.needsSiteSelection
-                          ? '选择站点'
-                          : CatPreloader.selectedSite(service)?.name ?? '选择站点'),
-                ),
-              ),
+          actions: [
+            TextButton(
+              onPressed: () => collection(false),
+              child: const Text('历史'),
             ),
-            BrowseLayoutButton(
-              mode: _layout,
-              onChanged: (mode) => unawaited(
-                BrowseLayoutSettings.instance.setMode(Section.cat, mode),
-              ),
-            ),
-            IconButton(
-              tooltip: '搜索',
-              onPressed: source == null ? null : search,
-              icon: const LumeIcon(Icons.search, slot: 'cat_page.17'),
+            TextButton(
+              onPressed: () => collection(true),
+              child: const Text('收藏'),
             ),
           ],
+          mode: _layout,
+          onLayoutChanged: (mode) => unawaited(
+            BrowseLayoutSettings.instance.setMode(Section.cat, mode),
+          ),
         ),
         if (categories.isNotEmpty)
           BrowseChoiceAccess(
@@ -1445,38 +1351,10 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         onTap: () => openItem(item),
       );
     }
-    return PosterCard(
-      footnoteBelow: true,
+    return PosterTile(
+      item: item,
+      pipeline: pipeline,
       onTap: () => openItem(item),
-      footnote: SizedBox(
-        height: LumeTypography.descriptionSize * 1.25 * 2,
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: Text(
-            item.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: LumeTheme.textPrimary,
-              fontSize: LumeTypography.descriptionSize,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-      child: pipeline == null
-          ? const SizedBox()
-          : SectionImage(
-              pipeline: pipeline!,
-              url: item.cover ?? '',
-              placeholder: MissingCover(
-                title: item.title,
-                section: pipeline!.section,
-              ),
-              headers: item.coverHeaders,
-              targetWidth: 300,
-              fit: BoxFit.cover,
-            ),
     );
   }
 
@@ -1486,141 +1364,149 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     body: SafeArea(
       top: false,
       bottom: false,
-      child: RefreshIndicator(
-        onRefresh: refresh,
-        child: CustomScrollView(
-          controller: scroll,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                HomePanelLayout.sidePadding,
-                trimmedTopInset(MediaQuery.paddingOf(context).top),
-                HomePanelLayout.sidePadding,
-                HomePanelLayout.contentGap,
-              ),
-              sliver: SliverToBoxAdapter(child: header()),
-            ),
-            if (service.busy)
-              SliverToBoxAdapter(
-                child: Column(
-                  children: [
-                    const LinearProgressIndicator(),
-                    Text(service.status),
-                  ],
-                ),
-              ),
-            if (loading)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (error != null)
-              SliverToBoxAdapter(
-                child: GlassCard(
-                  child: Column(
-                    children: [
-                      Text(error!),
-                      TextButton(
-                        onPressed: source == null ? boot : refresh,
-                        child: const Text('重试'),
-                      ),
-                      TextButton(
-                        onPressed: subscriptions,
-                        child: const Text('管理订阅'),
-                      ),
-                    ],
+      child: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: refresh,
+            child: CustomScrollView(
+              controller: scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    HomePanelLayout.sidePadding,
+                    trimmedTopInset(MediaQuery.paddingOf(context).top),
+                    HomePanelLayout.sidePadding,
+                    HomePanelLayout.contentGap,
                   ),
+                  sliver: SliverToBoxAdapter(child: header()),
                 ),
-              )
-            else if (source == null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    children: [
-                      const Text('添加猫源订阅后，选择包内站点即可浏览。'),
-                      FilledButton.icon(
-                        onPressed: subscriptions,
-                        icon: const SubscriptionStatusIcon(
-                          section: Section.cat,
-                        ),
-                        label: const Text('添加订阅'),
-                      ),
-                    ],
+                if (service.busy)
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: [
+                        const LinearProgressIndicator(),
+                        Text(service.status),
+                      ],
+                    ),
                   ),
-                ),
-              )
-            else if (items.isEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Center(child: Text('暂无内容，请选择分类或其他站点')),
-                ),
-              )
-            else
-              SliverPadding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: _layout == BrowseLayoutMode.grid3
-                      ? ThreeColumnPosterLayout.sidePadding
-                      : TwoColumnSourceLayout.sidePadding,
-                ),
-                sliver: _layout == BrowseLayoutMode.list
-                    ? SliverList.separated(
-                        itemCount: items.length,
-                        itemBuilder: browseItem,
-                        separatorBuilder: (_, _) => const Divider(
-                          height: 1,
-                          thickness: 1,
-                          color: Color(0xFFE5E5EA),
-                        ),
-                      )
-                    : SliverLayoutBuilder(
-                        builder: (context, constraints) => SliverGrid(
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: _layout.columns,
-                                childAspectRatio: _layout.tileAspectRatio,
-                                mainAxisExtent:
-                                    _layout == BrowseLayoutMode.list2
-                                    ? TwoColumnSourceLayout.itemExtent(
-                                        context,
-                                        (constraints.crossAxisExtent -
-                                                TwoColumnSourceLayout.spacing) /
-                                            2,
-                                      )
-                                    : null,
-                                crossAxisSpacing:
-                                    _layout == BrowseLayoutMode.grid3
-                                    ? ThreeColumnPosterLayout.spacing
-                                    : _layout == BrowseLayoutMode.list2
-                                    ? TwoColumnSourceLayout.spacing
-                                    : 12,
-                                mainAxisSpacing:
-                                    _layout == BrowseLayoutMode.grid3
-                                    ? ThreeColumnPosterLayout.rowSpacing
-                                    : _layout == BrowseLayoutMode.list2
-                                    ? TwoColumnSourceLayout.rowSpacing
-                                    : 12,
-                              ),
-                          delegate: SliverChildBuilderDelegate(
-                            browseItem,
-                            childCount: items.length,
+                if (loading)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  )
+                else if (error != null)
+                  SliverToBoxAdapter(
+                    child: GlassCard(
+                      child: Column(
+                        children: [
+                          Text(error!),
+                          TextButton(
+                            onPressed: source == null ? boot : refresh,
+                            child: const Text('重试'),
                           ),
-                        ),
+                          TextButton(
+                            onPressed: subscriptions,
+                            child: const Text('管理订阅'),
+                          ),
+                        ],
                       ),
-              ),
-            if (loadingMore)
-              const SliverToBoxAdapter(
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            SliverToBoxAdapter(
-              child: SizedBox(height: ShellDockScope.bottomInset(context) + 24),
+                    ),
+                  )
+                else if (source == null)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        children: [
+                          const Text('添加猫源订阅后，选择包内站点即可浏览。'),
+                          FilledButton.icon(
+                            onPressed: subscriptions,
+                            icon: const SubscriptionStatusIcon(
+                              section: Section.cat,
+                            ),
+                            label: const Text('添加订阅'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (items.isEmpty)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: Text('暂无内容，请选择分类或其他站点')),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: _layout == BrowseLayoutMode.grid3
+                          ? ThreeColumnPosterLayout.sidePadding
+                          : TwoColumnSourceLayout.sidePadding,
+                    ),
+                    sliver: _layout == BrowseLayoutMode.list
+                        ? SliverList.separated(
+                            itemCount: items.length,
+                            itemBuilder: browseItem,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: Color(0xFFE5E5EA),
+                            ),
+                          )
+                        : SliverLayoutBuilder(
+                            builder: (context, constraints) => SliverGrid(
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: _layout.columns,
+                                    childAspectRatio: _layout.tileAspectRatio,
+                                    mainAxisExtent:
+                                        _layout == BrowseLayoutMode.list2
+                                        ? TwoColumnSourceLayout.itemExtent(
+                                            context,
+                                            (constraints.crossAxisExtent -
+                                                    TwoColumnSourceLayout
+                                                        .spacing) /
+                                                2,
+                                          )
+                                        : null,
+                                    crossAxisSpacing:
+                                        _layout == BrowseLayoutMode.grid3
+                                        ? ThreeColumnPosterLayout.spacing
+                                        : _layout == BrowseLayoutMode.list2
+                                        ? TwoColumnSourceLayout.spacing
+                                        : 12,
+                                    mainAxisSpacing:
+                                        _layout == BrowseLayoutMode.grid3
+                                        ? ThreeColumnPosterLayout.rowSpacing
+                                        : _layout == BrowseLayoutMode.list2
+                                        ? TwoColumnSourceLayout.rowSpacing
+                                        : 12,
+                                  ),
+                              delegate: SliverChildBuilderDelegate(
+                                browseItem,
+                                childCount: items.length,
+                              ),
+                            ),
+                          ),
+                  ),
+                if (loadingMore)
+                  const SliverToBoxAdapter(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: ShellDockScope.bottomInset(context) + 24,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          BrowseSearchButton(onPressed: source == null ? null : search),
+        ],
       ),
     ),
   );

@@ -1,3 +1,5 @@
+import 'poster_card.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/column_list.dart';
@@ -236,8 +238,8 @@ class _CollectionPanelState extends State<CollectionPanel> {
                     itemCount: widget.ids.length,
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: mode.columns,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
+                      mainAxisSpacing: ThreeColumnPosterLayout.rowSpacing,
+                      crossAxisSpacing: ThreeColumnPosterLayout.spacing,
                       // 三列卡片：封面 + 两行标题 + 一行进度。按实测内容反推，
                       // 0.52 左右封面最大且文字不被挤掉（不是通用网格的 0.62）。
                       childAspectRatio: .52,

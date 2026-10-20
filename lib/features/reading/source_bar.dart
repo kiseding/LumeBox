@@ -22,6 +22,7 @@ class ReadingSourceBar extends StatelessWidget {
     this.section,
     this.manager,
     this.onSourcesChanged,
+    this.compact = false,
   });
   final List<SourceDescriptor> sources;
   final String? currentId;
@@ -31,6 +32,7 @@ class ReadingSourceBar extends StatelessWidget {
   final Section? section;
   final SourceManager? manager;
   final Future<void> Function()? onSourcesChanged;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +46,7 @@ class ReadingSourceBar extends StatelessWidget {
             key: const ValueKey('open-source-picker'),
             name: current?.name ?? '未选择源',
             iconSlot: 'source_bar.2',
+            compact: compact,
             onPressed: busy
                 ? null
                 : () async {
@@ -83,7 +86,9 @@ class ReadingSourceBar extends StatelessWidget {
           ),
       ],
     );
-    const padding = EdgeInsets.fromLTRB(12, 2, 4, 2);
+    final padding = compact
+        ? EdgeInsets.zero
+        : const EdgeInsets.fromLTRB(12, 2, 4, 2);
     return floating
         ? Padding(padding: padding, child: content)
         : GlassCard(radius: 14, padding: padding, child: content);

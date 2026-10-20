@@ -414,6 +414,7 @@ class GlassScaffold extends StatelessWidget {
           child: _GlassBarHeight(
             height: merge ? trimmedTopInset(statusInset) : height,
             child: HomeHeaderScope(
+              actions: merge ? actions : null,
               builder: merge
                   ? (navigation) => Column(
                       mainAxisSize: MainAxisSize.min,
@@ -548,9 +549,14 @@ class HomeHeaderScope extends InheritedWidget {
     super.key,
     this.header,
     this.builder,
+    this.actions,
     required super.child,
   });
   final Widget? header;
+  final List<Widget>? actions;
+  static List<Widget> actionsOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<HomeHeaderScope>()?.actions ??
+      const [];
   final Widget Function(Widget? navigation)? builder;
   static Widget? headerOf(BuildContext context, {Widget? navigation}) {
     final scope = context.dependOnInheritedWidgetOfExactType<HomeHeaderScope>();
@@ -559,5 +565,7 @@ class HomeHeaderScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(HomeHeaderScope oldWidget) =>
-      header != oldWidget.header || builder != oldWidget.builder;
+      header != oldWidget.header ||
+      builder != oldWidget.builder ||
+      actions != oldWidget.actions;
 }

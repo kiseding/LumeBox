@@ -99,11 +99,15 @@ void main() {
       // 曾经的写法用 `ValueKey(revision)` 重挂探索页：新实例的首次解析会同步拿到
       // 旧的板块注册表，同一帧末尾旧实例 dispose 把它连同数据库一起关掉，新实例
       // 在飞的那条读就报「数据库已关闭」（真机在漫画导入订阅后复现）。
-      await tester.tap(find.byTooltip('源管理'));
+      await tester.tap(find.byKey(const ValueKey('open-source-picker')));
+      await advance(tester);
+      await tester.tap(find.widgetWithText(TextButton, '源管理'));
       await advance(tester);
       expect(find.widgetWithText(AppBar, '漫画 · 源管理'), findsOneWidget);
 
       await tester.pageBack();
+      await advance(tester);
+      await tester.tap(find.byTooltip('关闭'));
       await advance(tester);
 
       final after = tester.state(find.byType(ExploreView));
@@ -137,7 +141,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AvailableCatalog(),
             playerFactory: (kernel) => _SilentPlayer(kernel),
@@ -205,7 +209,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AvailableCatalog(),
             speedMeter: meter,

@@ -1,3 +1,5 @@
+import 'package:lume_box/features/reading/compact_browse_header.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -120,13 +122,18 @@ void main() {
         final source = _SearchSource(section: section);
         await pumpExplore(tester, section: section, source: source);
 
-        final toolbar = find.byType(SectionToolbar);
+        final compact = section == Section.comic || section == Section.video;
+        final toolbar = compact
+            ? find.byType(CompactBrowseHeader)
+            : find.byType(SectionToolbar);
         expect(toolbar, findsOneWidget);
         expect(find.byType(SourceSwitchButton), findsOneWidget);
         expect(find.text('切换'), findsOneWidget);
 
         expect(
-          find.descendant(of: toolbar, matching: find.byTooltip('搜索')),
+          compact
+              ? find.byTooltip('搜索')
+              : find.descendant(of: toolbar, matching: find.byTooltip('搜索')),
           findsOneWidget,
         );
         // 显示模式（布局）**每个板块都要有**：真机反馈「找不到了」——悬浮顶栏
@@ -163,14 +170,14 @@ void main() {
         addTearDown(tester.view.reset);
         await tester.binding.setSurfaceSize(Size(width, 812));
         await tester.pumpAndSettle();
-        final toolbar = tester.getRect(find.byType(SectionToolbar));
+        final toolbar = tester.getRect(find.byType(CompactBrowseHeader));
         final source = tester.getRect(find.byType(ReadingSourceBar));
         final search = tester.getRect(find.byTooltip('搜索'));
         expect(find.byType(HomeBrowseNavigation), findsNothing);
         expect(find.text('热门'), findsNothing);
         expect(find.text('最新'), findsNothing);
-        expect(source.right, lessThanOrEqualTo(search.left));
-        expect(source.center.dy, closeTo(search.center.dy, 1));
+        expect(search.top, greaterThan(source.bottom));
+        expect(search.right, lessThanOrEqualTo(width));
         expect(toolbar.right, lessThanOrEqualTo(width));
         expect(tester.takeException(), isNull);
         await tester.tap(find.byTooltip('搜索'));
@@ -187,14 +194,12 @@ void main() {
       );
       await tester.tap(find.byTooltip('布局'));
       await tester.pumpAndSettle();
-      for (final label in <String>['双列列表', '三列网格']) {
-        expect(find.text(label), findsOneWidget);
-      }
-      expect(find.text('单列列表'), findsNothing);
-      expect(find.text('双列网格'), findsNothing);
-      expect(find.text('四列网格'), findsNothing);
-      expect(find.text('五列网格'), findsNothing);
-      await tester.tap(find.text('三列网格'));
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        BrowseLayoutSettings.instance.modeFor(Section.comic),
+        BrowseLayoutMode.list2,
+      );
+      await tester.tap(find.byTooltip('布局'));
       await tester.pumpAndSettle();
       expect(
         BrowseLayoutSettings.instance.modeFor(Section.comic),
@@ -215,10 +220,7 @@ void main() {
         source: _SearchSource(section: Section.video),
       );
       expect(find.byTooltip('排序'), findsNothing);
-      expect(
-        tester.widget<SectionToolbar>(find.byType(SectionToolbar)).showSort,
-        isFalse,
-      );
+      expect(find.byType(CompactBrowseHeader), findsOneWidget);
     });
   });
 

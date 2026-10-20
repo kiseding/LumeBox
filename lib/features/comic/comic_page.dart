@@ -154,10 +154,12 @@ class _ComicPageState extends State<ComicPage> {
       onSubscriptionsClosed: _onSourcesChanged,
       onFavorites: () => _openHistory(library, sourceManager, favorites: true),
       actions: <Widget>[
-        IconButton(
-          tooltip: '阅读历史',
-          icon: const LumeIcon(Icons.history, slot: 'comic_page.1'),
-          onPressed: () => _openHistory(library, sourceManager),
+        Tooltip(
+          message: '阅读历史',
+          child: TextButton(
+            onPressed: () => _openHistory(library, sourceManager),
+            child: const Text('历史'),
+          ),
         ),
         // 右上角「图源管理」：本板块已导入图源的统一入口。
         IconButton(

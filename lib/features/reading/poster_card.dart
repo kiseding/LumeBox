@@ -3,6 +3,9 @@ import 'package:lume_box/shared/widgets/lume_icon.dart';
 import '../../shared/widgets/missing_cover.dart';
 
 import 'package:flutter/material.dart';
+
+import '../../core/theme/interface_typography.dart';
+
 import 'package:flutter/services.dart';
 
 import '../../core/reading/browse_layout.dart';
@@ -21,7 +24,7 @@ const BorderRadius kPosterCoverRadius = BorderRadius.all(Radius.circular(10));
 abstract final class ThreeColumnPosterLayout {
   static const double sidePadding = 10;
   static const double spacing = 8;
-  static const double rowSpacing = 10;
+  static const double rowSpacing = 12;
   static const double titleGap = 4;
   static const double titleSize = 13;
 }
@@ -37,7 +40,7 @@ abstract final class TwoColumnSourceLayout {
       (cellWidth * .32).clamp(44.0, 80.0);
   static double coverHeight(double cellWidth) => coverWidth(cellWidth) * 4 / 3;
   static double itemExtent(BuildContext context, double cellWidth) {
-    final scaler = MediaQuery.textScalerOf(context);
+    final scaler = interfaceLayoutTextScaler(context);
     final textHeight =
         scaler.scale(LumeTypography.bodySize) * 1.25 * 2 +
         scaler.scale(LumeTypography.captionSize) * 1.25 * 2 +
@@ -189,7 +192,7 @@ class PosterCard extends StatelessWidget {
                           ),
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 22, 8, 7),
+                          padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
                           child: footnote,
                         ),
                       ),
@@ -335,6 +338,70 @@ class ShelfEmptyHint extends StatelessWidget {
 ///
 /// 三个板块的探索网格与**搜索结果页**共用它：标题风格（内置遮罩 / 外置独立）
 /// 是全局偏好，两处必须按同一个口径渲染，否则切了风格会出现两种样子。
+class PosterTitle extends StatelessWidget {
+  const PosterTitle(this.title, {super.key, this.overlay = false});
+  final String title;
+  final bool overlay;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 26,
+    child: Align(
+      alignment: overlay ? Alignment.bottomLeft : Alignment.topLeft,
+      child: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: ThreeColumnPosterLayout.titleSize,
+          height: 1.25,
+          fontWeight: overlay ? FontWeight.w700 : FontWeight.w600,
+          color: overlay ? Colors.white : LumeTheme.textPrimary,
+          shadows: overlay
+              ? const [Shadow(color: Color(0xB3000000), blurRadius: 4)]
+              : null,
+        ),
+      ),
+    ),
+  );
+}
+
+/// Overlay titles share the same baseline even when a card has progress/meta.
+class PosterCaption extends StatelessWidget {
+  const PosterCaption({
+    super.key,
+    required this.title,
+    this.meta,
+    this.overlay = false,
+  });
+  final String title;
+  final String? meta;
+  final bool overlay;
+  @override
+  Widget build(BuildContext context) {
+    Widget details() => Text(
+      meta!,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: LumeTypography.captionSize,
+        height: 1.2,
+        fontWeight: FontWeight.w500,
+        color: overlay ? Colors.white70 : LumeTheme.muted,
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (overlay && meta != null) ...[details(), const SizedBox(height: 2)],
+        PosterTitle(title, overlay: overlay),
+        if (!overlay && meta != null) ...[const SizedBox(height: 2), details()],
+      ],
+    );
+  }
+}
+
 class PosterTile extends StatelessWidget {
   const PosterTile({
     super.key,
@@ -368,77 +435,17 @@ class PosterTile extends StatelessWidget {
     final meta = this.meta;
     // 标题风格是全局偏好（设置页可切），这里按当前值渲染。
     final style = BrowseLayoutSettings.instance.gridTitleStyle;
-    final singleLine = compactGrid && style == GridTitleStyle.below;
-    final titleSize = singleLine
-        ? ThreeColumnPosterLayout.titleSize
-        : LumeTypography.bodySize;
     return PosterCard(
       onTap: onTap,
       // 标题风格：遮罩内置（白字压在封面上）/ 外置独立（黑字在封面下方）。
       // 外置时封面不画任何遮罩，文字落在卡片浅色底上，因此用主题主文字色。
       footnoteBelow: style == GridTitleStyle.below,
-      footnoteGap: singleLine ? ThreeColumnPosterLayout.titleGap : 6,
-      footnotePadding: singleLine
-          ? const EdgeInsets.symmetric(horizontal: 2)
-          : const EdgeInsets.fromLTRB(2, 0, 2, 2),
-      footnote: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          // 三列外置标题仅占一行；其他布局保留原有的两行标题。
-          SizedBox(
-            height: singleLine
-                ? MediaQuery.textScalerOf(context).scale(titleSize) * 1.25
-                : LumeTypography.bodySize * 1.25 * 2,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Text(
-                item.title,
-                maxLines: singleLine ? 1 : 2,
-                overflow: TextOverflow.ellipsis,
-                // 内置：压在封面底部的深色遮罩上 → **一律白字 + 加粗 + 浅描边**
-                //（原来用 LumeTheme.textPrimary，浅色主题下深色字压深色遮罩，
-                //  真机反馈「标题看着很淡」）；外置：封面外的浅色底 → 主题主文字色。
-                style: style == GridTitleStyle.below
-                    ? TextStyle(
-                        fontSize: titleSize,
-                        height: 1.25,
-                        fontWeight: FontWeight.w600,
-                        color: LumeTheme.textPrimary,
-                      )
-                    : const TextStyle(
-                        fontSize: LumeTypography.bodySize,
-                        height: 1.25,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        shadows: <Shadow>[
-                          Shadow(color: Color(0xB3000000), blurRadius: 4),
-                        ],
-                      ),
-              ),
-            ),
-          ),
-          if (meta != null) ...<Widget>[
-            const SizedBox(height: 2),
-            Text(
-              meta,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              // 内置：白字降透明度做层级；外置：主题辅助色。
-              style: style == GridTitleStyle.below
-                  ? TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: LumeTypography.captionSize,
-                      color: LumeTheme.muted,
-                    )
-                  : TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: LumeTypography.captionSize,
-                      color: Colors.white,
-                    ),
-            ),
-          ],
-        ],
+      footnoteGap: ThreeColumnPosterLayout.titleGap,
+      footnotePadding: const EdgeInsets.symmetric(horizontal: 2),
+      footnote: PosterCaption(
+        title: item.title,
+        meta: meta,
+        overlay: style == GridTitleStyle.overlay,
       ),
       child: CoverThumb(
         title: item.title,
@@ -577,7 +584,7 @@ class CompactSourceItemTile extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       item.title,
-                      maxLines: 2,
+                      maxLines: columns > 1 ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: columns > 1

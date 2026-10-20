@@ -36,6 +36,13 @@ class InterfaceTextScaler extends TextScaler {
   int get hashCode => Object.hash(system, factor);
 }
 
+/// App font preferences change glyphs only. Geometry may still accommodate
+/// the system accessibility scaler, independently of the app's font slider.
+TextScaler interfaceLayoutTextScaler(BuildContext context) {
+  final scaler = MediaQuery.textScalerOf(context);
+  return scaler is InterfaceTextScaler ? scaler.system : scaler;
+}
+
 ThemeData interfaceTypography(
   ThemeData theme, {
   String? family,

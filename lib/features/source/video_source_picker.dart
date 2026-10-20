@@ -20,6 +20,8 @@ import '../../shared/widgets/source_icon.dart';
 import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
+import 'source_section_page.dart';
+import 'source_subscription_page.dart';
 
 enum VideoSourceType {
   all('全部'),
@@ -380,7 +382,6 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     SourceDescriptor? descriptor,
   }) {
     final accent = Theme.of(context).colorScheme.primary;
-    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     return Tooltip(
       message: name,
       // Long press belongs to SourceDragTile; Tooltip's recognizer otherwise
@@ -389,7 +390,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       child: Semantics(
         selected: selected,
         child: Container(
-          height: 68 + (scale - 1).clamp(0, 2) * 36,
+          height: 68,
           decoration: BoxDecoration(
             color: selected
                 ? Color.alphaBlend(
@@ -433,7 +434,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                         children: [
                           Text(
                             name,
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 14,
@@ -482,9 +483,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
 
   Widget grid(List<Widget> cards) => LayoutBuilder(
     builder: (context, constraints) {
-      final single =
-          constraints.maxWidth < 300 ||
-          MediaQuery.textScalerOf(context).scale(14) > 21;
+      final single = constraints.maxWidth < 300;
       return Column(
         children: [
           for (var i = 0; i < cards.length; i += single ? 1 : 2)
@@ -659,6 +658,41 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                           ),
                       ],
                     ),
+                  ),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => SourceSectionPage(
+                                section: Section.video,
+                                manager: widget.manager,
+                              ),
+                            ),
+                          );
+                          if (mounted) await load();
+                        },
+                        child: const Text('源管理'),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => SourceSubscriptionPage(
+                                section: Section.video,
+                                manager: widget.manager,
+                              ),
+                            ),
+                          );
+                          if (mounted) await load();
+                        },
+                        child: const Text('源订阅'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Expanded(

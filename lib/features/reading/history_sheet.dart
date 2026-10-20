@@ -1,3 +1,5 @@
+import '../../core/reading/browse_layout.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/column_list.dart';
@@ -711,53 +713,27 @@ class HistoryGridTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final saved = progress;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            // 无 Padding / 无白底：封面四角自己圆角，上、左、右直接贴卡片边缘。
-            Expanded(
-              child: ClipRRect(
-                key: const ValueKey('history-grid-cover'),
-                borderRadius: BorderRadius.circular(10),
-                child: CoverThumb(
-                  pipeline: pipeline,
-                  url: item.cover,
-                  title: item.title,
-                  headers: headers,
-                  width: 240,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              item.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: LumeTypography.descriptionSize,
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-                color: LumeTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              HistoryEntryTile.progressLabel(saved),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: LumeTypography.captionSize,
-                fontWeight: FontWeight.w500,
-                height: 1.2,
-                color: LumeTheme.descriptionColor,
-              ),
-            ),
-          ],
+    final overlay =
+        BrowseLayoutSettings.instance.gridTitleStyle == GridTitleStyle.overlay;
+    return PosterCard(
+      onTap: onTap,
+      footnoteBelow: !overlay,
+      footnoteGap: ThreeColumnPosterLayout.titleGap,
+      footnotePadding: const EdgeInsets.symmetric(horizontal: 2),
+      footnote: PosterCaption(
+        title: item.title,
+        meta: HistoryEntryTile.progressLabel(saved),
+        overlay: overlay,
+      ),
+      child: ClipRRect(
+        key: const ValueKey('history-grid-cover'),
+        borderRadius: kPosterCoverRadius,
+        child: CoverThumb(
+          pipeline: pipeline,
+          url: item.cover,
+          title: item.title,
+          headers: headers,
+          width: 240,
         ),
       ),
     );

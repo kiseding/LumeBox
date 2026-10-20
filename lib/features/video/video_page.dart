@@ -1,8 +1,6 @@
-import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:lume_box/core/theme/lume_typography.dart';
 
 import '../../core/media/playback_focus.dart';
-import '../../shared/widgets/subscription_status_icon.dart';
 import 'video_detail_page.dart';
 
 import 'dart:async';
@@ -23,8 +21,6 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../reading/explore_view.dart';
 import '../reading/history_sheet.dart';
-import '../source/source_subscription_page.dart';
-import '../source/source_section_page.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
 import 'video_player_page.dart';
@@ -93,7 +89,7 @@ class _VideoPageState extends State<VideoPage> {
   SectionImagePipeline? _pipeline;
 
   /// 浏览面换代：从图源管理页返回后 +1，重挂浏览面（列表与当前图源重算）。
-  int _browseRevision = 0;
+  final int _browseRevision = 0;
 
   /// 阅读库打不开：浏览照常，但进度与播放记录不可用。
   bool _libraryFailed = false;
@@ -160,7 +156,6 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   /// 图源变更后重挂浏览面：列表与当前图源重新解析。
-  void _onSourcesChanged() => setState(() => _browseRevision++);
 
   // ------------------------------------------------------ 图源条目 → 独立播放器
 
@@ -359,53 +354,16 @@ class _VideoPageState extends State<VideoPage> {
   /// ⏱️ 历史抽屉，外加**图源管理**与「+」添加图源。
   ///
   /// 播放器设置不在这里——它属于播放器本身，在播放器页的控制栏齿轮上。
-  List<Widget> _buildActions() => <Widget>[
-    IconButton(
-      tooltip: '播放历史',
-      icon: const LumeIcon(Icons.history, slot: 'video_page.1'),
-      onPressed: _openHistory,
-    ),
-    const SizedBox(width: 2),
-    IconButton(
-      tooltip: '收藏',
-      icon: const LumeIcon(Icons.bookmark_outline, slot: 'video_page.2'),
-      onPressed: () => _openHistory(favorites: true),
-    ),
-    const SizedBox(width: 2),
-    IconButton(
-      tooltip: '源管理',
-      icon: const LumeIcon(Icons.dns_outlined, slot: 'video_page.3'),
-      onPressed: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-            builder: (_) => SourceSectionPage(
-              section: Section.video,
-              manager: widget.sourceManager,
-            ),
-          ),
-        );
-        if (mounted) _onSourcesChanged();
-      },
-    ),
-    // 右上角统一的「+」添加图源：导入完成即刷新首页（与漫画同口径）。
-    const SizedBox(width: 2),
+  List<Widget> _buildActions() => [
     Tooltip(
-      message: '订阅',
-      child: IconButton(
-        icon: const SubscriptionStatusIcon(section: Section.video),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => SourceSubscriptionPage(
-                section: Section.video,
-                manager: widget.sourceManager,
-              ),
-            ),
-          );
-          if (mounted) _onSourcesChanged();
-        },
+      message: '播放历史',
+      child: TextButton(onPressed: _openHistory, child: const Text('历史')),
+    ),
+    Tooltip(
+      message: '收藏',
+      child: TextButton(
+        onPressed: () => _openHistory(favorites: true),
+        child: const Text('收藏'),
       ),
     ),
   ];

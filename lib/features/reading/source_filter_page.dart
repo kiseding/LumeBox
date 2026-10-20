@@ -531,26 +531,10 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
       itemCount: _preview.length,
       itemBuilder: (context, index) {
         final item = _preview[index];
-        return PosterCard(
-          onTap: widget.onOpenItem == null
-              ? null
-              : () => widget.onOpenItem!(item),
-          footnote: Text(
-            item.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              fontSize: LumeTypography.descriptionSize,
-            ),
-          ),
-          child: PosterCover(
-            pipeline: widget.pipeline!,
-            url: item.cover ?? '',
-            title: item.title,
-            headers: item.coverHeaders,
-          ),
+        return PosterTile(
+          item: item,
+          pipeline: widget.pipeline,
+          onTap: () => widget.onOpenItem?.call(item),
         );
       },
     );

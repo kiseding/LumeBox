@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
+import '../../core/reading/browse_layout.dart';
 import '../../core/source/source.dart';
-import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock.dart';
 import '../shell/board_tabs.dart';
@@ -139,9 +139,9 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
             ),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
-          childAspectRatio: 0.58,
+          mainAxisSpacing: ThreeColumnPosterLayout.rowSpacing,
+          crossAxisSpacing: ThreeColumnPosterLayout.spacing,
+          childAspectRatio: .62,
         ),
         itemCount: _items.length,
         itemBuilder: (context, index) {
@@ -151,33 +151,17 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
             onTap: () => _open(item),
             onLongPress: () => _confirmRemove(item),
             badge: UnreadBadge(count: item.unreadChapters),
-            footnote: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  item.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: LumeTypography.descriptionSize,
-                    height: 1.25,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  progress?.describe() ?? '共 ${item.chapterCount} 章',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: LumeTypography.captionSize,
-                    color: LumeTheme.muted,
-                  ),
-                ),
-              ],
+            footnoteBelow:
+                BrowseLayoutSettings.instance.gridTitleStyle ==
+                GridTitleStyle.below,
+            footnoteGap: ThreeColumnPosterLayout.titleGap,
+            footnotePadding: const EdgeInsets.symmetric(horizontal: 2),
+            footnote: PosterCaption(
+              title: item.title,
+              meta: progress?.describe() ?? '共 ${item.chapterCount} 章',
+              overlay:
+                  BrowseLayoutSettings.instance.gridTitleStyle ==
+                  GridTitleStyle.overlay,
             ),
             child: PosterCover(
               pipeline: widget.pipeline,

@@ -26,6 +26,9 @@ import '../../core/source/source_preferences.dart';
 import '../../core/theme/lume_theme.dart';
 import 'source_action_dialogs.dart';
 import 'source_preferences_page.dart';
+import 'source_section_page.dart';
+import 'source_subscription_page.dart';
+import 'source_drawer_actions.dart';
 
 enum SourceQuickAction { pin, preferences, browse, test, update }
 
@@ -46,6 +49,7 @@ Future<String?> showSourcePicker({
     sources: sources,
     currentId: currentId,
     manager: manager,
+    extraActions: SourceDrawerActions.of(context),
     onChanged: onChanged,
   ),
 );
@@ -59,11 +63,13 @@ class SourcePickerSheet extends StatefulWidget {
     this.manager,
     this.onChanged,
     this.initialColumns,
+    this.extraActions = const [],
   });
   final Section section;
   final List<SourceDescriptor> sources;
   final String? currentId;
   final SourceManager? manager;
+  final List<Widget> extraActions;
   final VoidCallback? onChanged;
 
   /// 预览/测试用：强制初始单双列；为空时读板块设置。
@@ -116,6 +122,20 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   Future<void> reload() async {
     final next = await manager.list();
     if (mounted) setState(() => sources = next);
+  }
+
+  Future<void> manageSources({bool subscriptions = false}) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => subscriptions
+            ? SourceSubscriptionPage(section: widget.section, manager: manager)
+            : SourceSectionPage(section: widget.section, manager: manager),
+      ),
+    );
+    if (!mounted) return;
+    widget.onChanged?.call();
+    await reload();
   }
 
   void toast(String message) {
@@ -729,6 +749,20 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
               ),
               const SizedBox(height: 8),
               Expanded(child: groupedList),
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: manageSources,
+                    child: const Text('源管理'),
+                  ),
+                  TextButton(
+                    onPressed: () => manageSources(subscriptions: true),
+                    child: const Text('源订阅'),
+                  ),
+                  ...widget.extraActions,
+                ],
+              ),
             ],
           ),
         ),

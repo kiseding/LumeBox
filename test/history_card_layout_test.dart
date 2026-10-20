@@ -13,7 +13,7 @@ import 'package:lume_box/features/reading/poster_card.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
 
 /// 历史 / 收藏卡片的三种手机布局：
-/// - 三列网格：海报无白边、四角圆角、标题两行、进度只显示「已播 / 总长」；
+/// - 三列网格：海报无白边、四角圆角、标题单行、进度只显示「已播 / 总长」；
 /// - 双列列表：60×80 缩略图，标题与浅灰相对时间垂直居中；
 /// - 单列列表：80×100 缩略图，细进度条用主题色。
 void main() {
@@ -91,7 +91,7 @@ void main() {
     }
   });
 
-  testWidgets('三列网格：无白边、封面四角圆角、标题两行、进度不带集数', (tester) async {
+  testWidgets('三列网格：无白边、封面四角圆角、标题单行、进度不带集数', (tester) async {
     await pumpMode(tester, 'grid3');
 
     final grid = find.byType(HistoryGridTile);
@@ -113,7 +113,7 @@ void main() {
     );
 
     final title = find.descendant(of: grid, matching: find.text('长夜将尽'));
-    expect(tester.widget<Text>(title).maxLines, 2);
+    expect(tester.widget<Text>(title).maxLines, 1);
     expect(find.text('33:08 / 2:25:00'), findsOneWidget);
     expect(find.textContaining('第 1 集'), findsNothing, reason: '集数是冗余信息');
   });

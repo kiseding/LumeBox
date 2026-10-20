@@ -30,6 +30,8 @@ import '../source/source_section_page.dart';
 import 'poster_card.dart';
 import 'search_results_page.dart';
 import 'section_toolbar.dart';
+import 'source_bar.dart';
+import 'compact_browse_header.dart';
 import '../shell/board_tabs.dart';
 
 /// 但列表更适合展示章节数与简介）。
@@ -149,6 +151,8 @@ class _ExploreViewState extends State<ExploreView> {
   final GlobalKey _floatingHeaderKey = GlobalKey();
   double _floatingHeaderHeight = 52;
   bool _headerHidden = false;
+  bool get _compactHome =>
+      widget.section == Section.comic || widget.section == Section.video;
   int _facetRequestSeq = 0;
   double get _contentTop =>
       GlassScaffold.barHeight(context, extra: BoardTabHeader.height) +
@@ -966,6 +970,7 @@ class _ExploreViewState extends State<ExploreView> {
       _searchMode = selection.mode;
       _searchSourceIds = selection.sourceIds;
       _searching = true;
+      _headerHidden = false;
       _suggestions = _historyStore?.load() ?? const <String>[];
     });
   }
@@ -1169,7 +1174,8 @@ class _ExploreViewState extends State<ExploreView> {
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    ?HomeHeaderScope.headerOf(context),
+                                    if (!_compactHome)
+                                      ?HomeHeaderScope.headerOf(context),
                                     _searching
                                         ? _buildSearchField()
                                         : _buildHeader(),
@@ -1185,6 +1191,8 @@ class _ExploreViewState extends State<ExploreView> {
                   ),
                 ),
               ),
+              if (_compactHome && !_searching)
+                BrowseSearchButton(onPressed: _openSearch),
             ],
           ),
         ),
@@ -1192,12 +1200,34 @@ class _ExploreViewState extends State<ExploreView> {
     );
   }
 
-  /// 顶部工具栏：**一行完整控件，顺序固定**（用户点名）：
+  /// 顶部工具栏：源选择与记录快捷入口。
   /// 源选择下拉框 → 排序 → 布局 → 搜索 → 筛选。
   ///
   /// 三个板块共用同一个 [SectionToolbar]：换板块也找得到那个按钮。
   Widget _buildHeader() {
     final showSourceManageFlag = widget.showSourceManage;
+    if (_compactHome) {
+      return CompactBrowseHeader(
+        source: ReadingSourceBar(
+          sources: _sources.where((s) => s.enabled).toList(),
+          currentId: _current?.id,
+          onSelect: _selectSource,
+          onManage: _manageSources,
+          showManage: false,
+          compact: true,
+          busy: _switching,
+          floating: true,
+          section: widget.section,
+          manager: _manager,
+          onSourcesChanged: _bootstrap,
+        ),
+        actions: HomeHeaderScope.actionsOf(context),
+        mode: _mode,
+        onLayoutChanged: (mode) => unawaited(
+          BrowseLayoutSettings.instance.setMode(widget.section, mode),
+        ),
+      );
+    }
     return SectionToolbar(
       section: widget.section,
       manager: _manager,

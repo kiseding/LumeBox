@@ -11,9 +11,11 @@ class BrowseLayoutButton extends StatelessWidget {
     super.key,
     required this.mode,
     required this.onChanged,
+    this.quickSwitch = false,
   });
   final BrowseLayoutMode mode;
   final ValueChanged<BrowseLayoutMode> onChanged;
+  final bool quickSwitch;
 
   static IconData iconFor(BrowseLayoutMode mode) =>
       BrowseLayoutSettings.normalize(mode) == BrowseLayoutMode.list2
@@ -95,7 +97,13 @@ class BrowseLayoutButton extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(21),
-            onTap: () => _pick(context),
+            onTap: () => quickSwitch
+                ? onChanged(
+                    current == BrowseLayoutMode.grid3
+                        ? BrowseLayoutMode.list2
+                        : BrowseLayoutMode.grid3,
+                  )
+                : _pick(context),
             child: SizedBox.square(
               dimension: 42,
               child: Center(

@@ -69,20 +69,21 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-
-
   testWidgets('漫画板块：右上角「图源管理」，原有入口照旧', (tester) async {
     await pumpBoard(
       tester,
       ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
     );
 
-    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsNothing);
     expect(find.byTooltip('收藏'), findsOneWidget);
     // 「图片缓存」入口已按用户要求移除（缓存本体的管理在设置 → 缓存管理）。
     expect(find.byTooltip('图片缓存'), findsNothing);
 
-    await tester.tap(find.byTooltip('源管理'));
+    await tester.tap(find.byKey(const ValueKey('open-source-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('源订阅'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '源管理'));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '漫画 · 源管理'), findsOneWidget);
@@ -92,7 +93,7 @@ void main() {
     await pumpBoard(tester, const VideoPage(catalog: _NoKernelCatalog()));
 
     // 关键回归：右上角不再有「播放器设置」。
-    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsNothing);
     expect(
       find.descendant(
         of: find.byType(AppBar),
@@ -106,7 +107,10 @@ void main() {
       expect(find.byTooltip('添加源'), findsOneWidget);
     }
 
-    await tester.tap(find.byTooltip('源管理'));
+    await tester.tap(find.byKey(const ValueKey('open-source-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('源订阅'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '源管理'));
     await tester.pumpAndSettle();
 
     // 视频板块管理页（本平台无图源运行时，页面按骨架展示，标题口径一致）。
@@ -116,11 +120,9 @@ void main() {
   testWidgets('猫源板块：页面本身就是本板块图源管理页', (tester) async {
     await pumpBoard(tester, const CatPage());
 
-    // 猫源没有独立的业务页：板块页即图源管理页，标题与其他板块同一口径。
-    expect(find.text('猫源'), findsOneWidget);
-    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.text('猫源'), findsNothing);
     expect(find.byTooltip('网盘登录 / 配置中心'), findsNothing);
-    await tester.tap(find.byTooltip('订阅'));
+    await tester.tap(find.text('添加订阅'));
     await tester.pumpAndSettle();
     expect(find.text('猫源配置中心'), findsOneWidget);
     expect(find.byTooltip('添加订阅'), findsOneWidget);

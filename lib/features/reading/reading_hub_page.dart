@@ -1,14 +1,9 @@
-import 'package:lume_box/shared/widgets/lume_icon.dart';
-
-import '../../shared/widgets/subscription_status_icon.dart';
-
 import 'package:flutter/material.dart';
 
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../shared/widgets/glass_card.dart';
-import '../source/source_subscription_page.dart';
-import '../source/source_section_page.dart';
+import '../source/source_drawer_actions.dart';
 
 /// 板块阅读外壳：探索 / 书架两个页签（顺序见 [tabLabels]）。
 ///
@@ -55,88 +50,53 @@ class ReadingHubPage extends StatelessWidget {
   Widget build(BuildContext context) {
     // DefaultTabController 提到最外层：页签条在顶部栏里，内容区在 body 里，
     // 两边要共用同一个控制器；书架空态的「去探索」也从这里取它切页签。
-    return DefaultTabController(
-      length: tabLabels.length,
-      child: GlassScaffold(
-        effectModule: GlassModule.fromId(section.id),
-        // **不随键盘收缩**：内容区（ExploreView）自己让出键盘高度；外层跟着收缩
-        // 会把固定工具栏 / 搜索行挤出屏幕（真机反馈过两次「搜索框不见了」）。
-        resizeToAvoidBottomInset: false,
-        title: section.label,
-        actions: [
-          if (actions?.isNotEmpty == true) actions!.first,
-          const SizedBox(width: 2),
-          IconButton(
-            tooltip: '收藏',
-            icon: const LumeIcon(
-              Icons.bookmark_outline,
-              slot: 'reading_hub_page.1',
+    return SourceDrawerActions(
+      actions: [
+        for (final action in actions?.whereType<IconButton>() ?? <IconButton>[])
+          if (action.tooltip == '扩展仓库')
+            TextButton(
+              onPressed: action.onPressed,
+              child: Text(action.tooltip!),
             ),
-            onPressed:
-                onFavorites ??
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => DefaultTabController(
-                      length: 2,
-                      child: GlassScaffold(
-                        effectModule: GlassModule.fromId(section.id),
-                        title: '${section.label}收藏',
-                        child: shelf,
+      ],
+      child: DefaultTabController(
+        length: tabLabels.length,
+        child: GlassScaffold(
+          effectModule: GlassModule.fromId(section.id),
+          // **不随键盘收缩**：内容区（ExploreView）自己让出键盘高度；外层跟着收缩
+          // 会把固定工具栏 / 搜索行挤出屏幕（真机反馈过两次「搜索框不见了」）。
+          resizeToAvoidBottomInset: false,
+          title: section.label,
+          actions: [
+            if (actions?.isNotEmpty == true) actions!.first,
+            Tooltip(
+              message: '收藏',
+              child: TextButton(
+                onPressed:
+                    onFavorites ??
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => DefaultTabController(
+                          length: 2,
+                          child: GlassScaffold(
+                            effectModule: GlassModule.fromId(section.id),
+                            title: '${section.label}收藏',
+                            child: shelf,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-          ),
-          const SizedBox(width: 2),
-          IconButton(
-            tooltip: '源管理',
-            icon: const LumeIcon(
-              Icons.dns_outlined,
-              slot: 'reading_hub_page.2',
+                child: const Text('收藏'),
+              ),
             ),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) =>
-                      SourceSectionPage(section: section, manager: manager),
-                ),
-              );
-              if (context.mounted) onSubscriptionsClosed?.call();
-            },
-          ),
-          const SizedBox(width: 2),
-          Tooltip(
-            message: '订阅',
-            child: IconButton(
-              icon: SubscriptionStatusIcon(section: section),
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => SourceSubscriptionPage(
-                      section: section,
-                      manager: manager,
-                      extraActions:
-                          actions
-                              ?.whereType<IconButton>()
-                              .where((action) => action.tooltip == '扩展仓库')
-                              .toList() ??
-                          const [],
-                    ),
-                  ),
-                );
-                if (context.mounted) onSubscriptionsClosed?.call();
-              },
-            ),
-          ),
-        ],
-        behindBar: true,
-        floatingBar: true,
-        mergeHomeHeader: true,
-        // 顺序与 tabLabels 一一对应：探索在前。
-        child: explore,
+          ],
+          behindBar: true,
+          floatingBar: true,
+          mergeHomeHeader: true,
+          // 顺序与 tabLabels 一一对应：探索在前。
+          child: explore,
+        ),
       ),
     );
   }

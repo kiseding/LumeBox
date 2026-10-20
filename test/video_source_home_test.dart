@@ -123,7 +123,9 @@ void main() {
     expect(find.byTooltip('播放器设置'), findsNothing);
 
     // 图源管理入口只有右上角一个（图源条不再重复一个同名入口）。
-    expect(find.byTooltip('订阅'), findsOneWidget);
+    expect(find.byTooltip('订阅'), findsNothing);
+    expect(find.text('历史'), findsOneWidget);
+    expect(find.text('收藏'), findsOneWidget);
   });
 
   testWidgets('列表条目展示封面 / 标题 / 简介：只有带封面的条目占图位', (tester) async {
@@ -180,7 +182,7 @@ void main() {
     expect(find.text('暂无源'), findsOneWidget, reason: '起步是空板块');
 
     // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
-    await tapWithDetailPlay(tester, find.byTooltip('源管理'));
+    await tapWithDetailPlay(tester, find.text('源管理'));
     await tester.pump();
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(milliseconds: 30));

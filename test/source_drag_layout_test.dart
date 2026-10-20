@@ -112,11 +112,7 @@ void main() {
     expect(layoutIcon.size, 20);
     await tester.tap(find.byTooltip('布局'));
     await tester.pumpAndSettle();
-    expect(find.text('单列列表'), findsNothing);
-    expect(find.text('双列网格'), findsNothing);
-    expect(find.text('三列网格'), findsOneWidget);
-    await tester.tap(find.text('双列列表'));
-    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
     expect(
       BrowseLayoutSettings.instance.modeFor(Section.cat),
       BrowseLayoutMode.list2,
@@ -136,7 +132,7 @@ void main() {
     for (final columns in [1, 2, 3]) {
       ReadingLibrary.find(Section.cat)!.setSetting(SourceOrder.key, '[]');
       service.siteColumns = columns;
-      await tester.tap(find.byTooltip('源管理'));
+      await tester.tap(find.byKey(const ValueKey('open-cat-source-picker')));
       await tester.pumpAndSettle();
       final gesture = await tester.startGesture(
         tester.getCenter(find.text('猫甲')),

@@ -148,22 +148,14 @@ void main() {
     expectPosterCorners(tester);
   });
 
-  testWidgets('布局菜单保留双列列表、三列网格，当场生效', (tester) async {
+  testWidgets('布局按钮直接切换双列列表与三列网格，不弹抽屉', (tester) async {
     await pumpExplore(tester, Section.comic, layout: ExploreLayout.grid);
     expect(gridColumns(tester), 3);
-
-    // 走顶栏的显示模式入口（真机反馈「每个版块的显示模式找不到了」：
-    // 悬浮顶栏那一版把入口藏了，这里改成从 UI 切，入口再丢就会失败）。
     await tester.tap(find.byTooltip('布局'));
     await tester.pumpAndSettle();
-    for (final label in <String>['双列列表', '三列网格']) {
-      expect(find.text(label), findsOneWidget);
-    }
-    expect(find.text('单列列表'), findsNothing);
-    expect(find.text('双列网格'), findsNothing);
-    expect(find.text('四列网格'), findsNothing);
-    expect(find.text('五列网格'), findsNothing);
-    await tester.tap(find.text('三列网格'));
+    expect(gridColumns(tester), 2);
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.byTooltip('布局'));
     await tester.pumpAndSettle();
     expect(gridColumns(tester), 3);
 
@@ -194,8 +186,10 @@ void main() {
       expect(icon.size, 20);
       await tester.tap(find.byTooltip('布局'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('双列列表'));
-      await tester.pumpAndSettle();
+      if (section != Section.comic && section != Section.video) {
+        await tester.tap(find.text('双列列表'));
+        await tester.pumpAndSettle();
+      }
       expect(gridColumns(tester), 2);
       expect(find.byType(CompactSourceItemTile), findsWidgets);
       final coverClips = tester.widgetList<ClipRRect>(

@@ -137,10 +137,13 @@ class _FontSettingsPageState extends State<FontSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '山间来信 · A quiet afternoon.\n预览字体大小',
-                    key: Key('fonts.preview'),
-                    style: TextStyle(fontSize: 16, height: 1.6),
+                  const SizedBox(
+                    height: 88,
+                    child: Text(
+                      '山间来信 · A quiet afternoon.\n预览字体大小',
+                      key: Key('fonts.preview'),
+                      style: TextStyle(fontSize: 16, height: 1.6),
+                    ),
                   ),
                   const Divider(height: 24),
                   Row(

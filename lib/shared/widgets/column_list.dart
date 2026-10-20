@@ -52,7 +52,6 @@ class ColumnList extends StatelessWidget {
     }
 
     if (columns > 1) {
-      final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
       return GridView.builder(
         padding: padding,
         shrinkWrap: shrinkWrap,
@@ -64,7 +63,7 @@ class ColumnList extends StatelessWidget {
           mainAxisSpacing: spacing,
           childAspectRatio: childAspectRatio ?? 1,
           mainAxisExtent: childAspectRatio == null
-              ? (mainAxisExtent ?? 152) * scale.clamp(1.0, 3.0)
+              ? (mainAxisExtent ?? 152)
               : null,
         ),
         itemBuilder: item,

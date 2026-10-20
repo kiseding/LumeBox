@@ -144,9 +144,10 @@ void main() {
     final panel = tester.getRect(homePanel());
     expect(panel.top, closeTo(trimmedTopInset(statusInset), 1));
     expect(panel.height, lessThan(160));
-    final title = tester.getRect(find.text('视频'));
+    final title = tester.getRect(find.text('历史'));
     final source = tester.getRect(find.text('示例源'));
-    expect(source.top, greaterThan(title.bottom));
+    expect(source.center.dy, closeTo(title.center.dy, 4));
+    expect(find.text('视频'), findsNothing);
     expect(source.bottom, lessThan(panel.bottom));
     expect(find.byType(TabBar), findsNothing);
   });
@@ -844,7 +845,7 @@ void main() {
   testWidgets('中间内容区自动撑开：页签内容占满顶栏与 Dock 之间的空间', (tester) async {
     await pumpBoard(tester);
 
-    final appBar = tester.getRect(find.text('视频'));
+    final appBar = tester.getRect(homePanel());
     // 板块页是「内容铺满整屏、顶栏浮在其上」（behindBar）——因此内容区的上下边界
     // 就是屏幕本身：两端移动后中间这块自动变大，不会再被夹出一条死白。
     final content = tester.getRect(find.byType(ExploreView));
@@ -858,7 +859,7 @@ void main() {
     );
     // 顶栏下沿到第一条内容（图源条）之间只隔一档常规间距，不是一整条空白。
     final firstRow = tester.getRect(find.text('示例源'));
-    final gap = firstRow.top - appBar.bottom;
+    final gap = firstRow.top - appBar.top;
     expect(gap, greaterThanOrEqualTo(0.0), reason: '图源条不该被顶栏压住（gap=$gap）');
     // 31pt = 列表 12 的顶部内边距 + 源选择卡片自己的内边距 + 文字基线：
     // 都是一档常规间距，不是「一整条空白」（以前这里会出现半个栏高）。
