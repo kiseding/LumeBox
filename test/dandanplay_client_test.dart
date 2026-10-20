@@ -89,7 +89,7 @@ void main() {
       }),
     );
     addTearDown(client.close);
-    await expectLater(client.search('作品'), throwsStateError);
+    await expectLater(client.search('作品'), throwsA(isA<DandanplayException>()));
   });
 
   test('弹幕时间按秒转毫秒，保留顶部底部颜色，忽略坏数据', () {
@@ -123,5 +123,236 @@ void main() {
     expect(DandanplayClient.exactMatch([exact, other], '半步多·沧澜传')?.id, '1');
     expect(DandanplayClient.exactMatch([other], '半步多·沧澜传'), isNull);
     expect(DandanplayClient.exactMatch([exact, exact], '半步多·沧澜传'), isNull);
+  });
+
+  test('签名前清理粘贴凭证的首尾空格，搜索清理年份与来源后缀', () async {
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        ' sample ',
+        '\nsecret\n',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient((request) async {
+        expect(request.url.queryParameters['anime'], '作品');
+        expect(request.headers['X-AppId'], 'sample');
+        final data =
+            'sample${request.headers['X-Timestamp']}${request.url.path}secret';
+        expect(
+          request.headers['X-Signature'],
+          base64Encode(sha256.convert(utf8.encode(data)).bytes),
+        );
+        return http.Response('{"success":true,"animes":[]}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    await client.search('作品(2026)【电视剧】 FROM qq');
+  });
+
+  test('官方弹幕 302 跳转 CDN 后解析弹幕，不转发鉴权头', () async {
+    var requests = 0;
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        'sample',
+        'secret',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient((request) async {
+        requests++;
+        expect(request.followRedirects, isFalse);
+        if (requests == 1) {
+          expect(request.url.path, '/api/v2/comment/123450001');
+          expect(request.url.queryParameters['withRelated'], 'true');
+          expect(request.headers['X-Signature'], isNotEmpty);
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location':
+                  'https://comments.example/cached.json?token=cdn-token',
+            },
+          );
+        }
+        expect(request.url.host, 'comments.example');
+        expect(request.url.queryParameters['token'], 'cdn-token');
+        expect(
+          request.headers.keys.map((k) => k.toLowerCase()),
+          isNot(
+            anyOf(
+              contains('x-appid'),
+              contains('x-signature'),
+              contains('x-timestamp'),
+              contains('x-appsecret'),
+            ),
+          ),
+        );
+        return http.Response(
+          jsonEncode({
+            'comments': [
+              {'p': '1.25,1,16777215,user', 'm': '弹幕'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(client.close);
+    final track = await client.comments('123450001');
+    expect(track.items.single.text, '弹幕');
+    expect(track.items.single.time, const Duration(milliseconds: 1250));
+    expect(requests, 2);
+  });
+
+  test('同官方主机跳转时用新路径重新签名', () async {
+    var requests = 0;
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        'sample',
+        'secret',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient((request) async {
+        if (++requests == 1) {
+          return http.Response(
+            '',
+            302,
+            headers: {'location': '/cached/comments?format=json'},
+          );
+        }
+        final data =
+            'sample${request.headers['X-Timestamp']}/cached/comments'
+            'secret';
+        expect(
+          request.headers['X-Signature'],
+          base64Encode(sha256.convert(utf8.encode(data)).bytes),
+        );
+        return http.Response('{"comments":[]}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    await client.comments('1');
+    expect(requests, 2);
+  });
+
+  test('无效跳转与循环有限终止', () async {
+    for (final location in [
+      'http://comments.example/plain',
+      'https://user:pass@comments.example/data',
+      '/loop',
+    ]) {
+      var requests = 0;
+      final client = DandanplayClient(
+        credentials: const DandanplayCredentials(
+          'sample',
+          'secret',
+          baseUrl: DandanplayCredentials.officialBase,
+        ),
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('', 302, headers: {'location': location});
+        }),
+      );
+      await expectLater(
+        client.comments('1'),
+        throwsA(isA<DandanplayException>()),
+      );
+      expect(requests, lessThanOrEqualTo(6));
+      client.close();
+    }
+  });
+
+  for (final reason in {
+    'Invalid Timestamp': '设备时间',
+    'Invalid AppId': 'AppId 无效',
+    'Invalid Signature': 'AppSecret 无效',
+    'Missing Authentication Headers': '服务未收到',
+  }.entries) {
+    test('连接测试呈现官方鉴权原因：${reason.key}', () async {
+      final client = DandanplayClient(
+        credentials: const DandanplayCredentials(
+          'sample',
+          'secret',
+          baseUrl: DandanplayCredentials.officialBase,
+        ),
+        client: MockClient(
+          (_) async =>
+              http.Response('', 403, headers: {'x-error-message': reason.key}),
+        ),
+      );
+      addTearDown(client.close);
+      try {
+        await client.checkConnection();
+        fail('拒绝响应必须报错');
+      } catch (error) {
+        expect(DandanplayClient.describeError(error), contains(reason.value));
+        expect(DandanplayClient.describeError(error), contains('HTTP 403'));
+        expect(
+          DandanplayClient.describeError(error),
+          isNot(contains('secret')),
+        );
+      }
+    });
+  }
+
+  test('连接测试区分业务失败、HTTP 失败和空搜索成功', () async {
+    for (final status in [200, 429, 503]) {
+      final client = DandanplayClient(
+        credentials: const DandanplayCredentials(
+          '',
+          '',
+          baseUrl: 'http://localhost:1234/prefix',
+        ),
+        client: MockClient(
+          (_) async => http.Response('{"success":false,"errorCode":1}', status),
+        ),
+      );
+      await expectLater(
+        client.checkConnection(),
+        throwsA(isA<DandanplayException>()),
+      );
+      client.close();
+    }
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials('', ''),
+      client: MockClient(
+        (_) async => http.Response('{"success":true,"animes":[]}', 200),
+      ),
+    );
+    addTearDown(client.close);
+    await client.checkConnection();
+  });
+
+  test('缺失列表的响应不能误报连接成功或本集零弹幕', () async {
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials('', ''),
+      client: MockClient((_) async => http.Response('{"success":true}', 200)),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      client.checkConnection(),
+      throwsA(isA<DandanplayException>()),
+    );
+    await expectLater(
+      client.comments('1'),
+      throwsA(isA<DandanplayException>()),
+    );
+  });
+
+  test('按章节名称而非多线路列表位置推断集数，手动搜索可省略集数', () async {
+    expect(DandanplayClient.episodeNumber('第07集', chapterIndex: 1), 7);
+    expect(DandanplayClient.episodeNumber('S02E03', chapterIndex: 14), 3);
+    expect(DandanplayClient.episodeNumber('EP04', chapterIndex: 15), 4);
+    expect(DandanplayClient.episodeNumber('03', chapterIndex: 20), 3);
+    expect(DandanplayClient.episodeNumber('1080P高清', chapterIndex: 2), 1);
+    expect(DandanplayClient.episodeNumber('未知', chapterIndex: 2), 3);
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials('', ''),
+      client: MockClient((request) async {
+        expect(request.url.queryParameters.containsKey('episode'), isFalse);
+        return http.Response('{"animes":[]}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    await client.search('作品');
   });
 }

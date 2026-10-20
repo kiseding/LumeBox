@@ -293,19 +293,6 @@ extension _ReferenceChrome on _ReferencePlayerPageState {
     }
   }
 
-  Future<DandanplayCredentials> _referenceDanmakuCredentials() async {
-    try {
-      final data = await DanmakuSourcesStore.read();
-      return DandanplayCredentials(
-        data['appId'] ?? '',
-        data['appSecret'] ?? '',
-        baseUrl: data['baseUrl'] ?? DandanplayCredentials.defaultBase,
-      );
-    } catch (_) {
-      return const DandanplayCredentials('', '');
-    }
-  }
-
   Widget _buildImmersiveTopBar() => _experience.flag('referenceChrome', true)
       ? _referenceTopBar()
       : _buildLegacyImmersiveTopBar();

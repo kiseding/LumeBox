@@ -143,7 +143,8 @@ import Security
   }
 }
 
-/// The comparison player has its own Keychain item and method channel.
+/// Shared device-only danmaku profiles. The historical channel/item names are
+/// retained so existing reference-player credentials continue to load.
 private final class ReferenceDanmakuCredentialsController {
   func register(with messenger: FlutterBinaryMessenger) {
     FlutterMethodChannel(name: "lumebox/reference_danmaku_credentials", binaryMessenger: messenger).setMethodCallHandler { call, result in

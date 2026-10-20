@@ -664,6 +664,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DanmakuSourcesStore.revision.addListener(_danmakuServiceChanged);
     if (widget.fullscreenOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_applyOrientation());
@@ -709,6 +710,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   void dispose() {
     _rebuildSeq++;
+    DanmakuSourcesStore.revision.removeListener(_danmakuServiceChanged);
     _introGeneration++;
     _intro?.dispose();
     _nextEpisodeBuffer.discard();
@@ -1828,7 +1830,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             if (id == null) {
               final matches = await client.search(
                 target.title,
-                episode: target.chapterIndex + 1,
+                episode: DandanplayClient.episodeNumber(
+                  target.chapterTitle,
+                  chapterIndex: target.chapterIndex,
+                ),
               );
               id = DandanplayClient.exactMatch(matches, target.title)?.id;
             }
@@ -1849,9 +1854,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 : '公共库已加载 ${track.length} 条';
             _danmaku = _combinedDanmaku();
           });
-        } catch (_) {
+        } catch (error) {
           if (publicCurrent()) {
-            setState(() => _publicDanmakuStatus = '公共弹幕加载失败，可重试或换服务');
+            setState(
+              () =>
+                  _publicDanmakuStatus = DandanplayClient.describeError(error),
+            );
           }
         } finally {
           client?.close();
@@ -1862,15 +1870,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     ]);
   }
 
+  void _danmakuServiceChanged() {
+    if (mounted) unawaited(_loadDanmaku(_target, force: true));
+  }
+
   Future<void> _configureDanmakuService() async {
-    final config = await DandanplayCredentials.load();
-    if (!mounted) return;
-    final updated = await _playbackMenu<DandanplayCredentials>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => DanmakuServiceSheet(initial: config),
-    );
-    if (updated != null && mounted) await _loadDanmaku(_target, force: true);
+    try {
+      final config = await DandanplayCredentials.load();
+      if (!mounted) return;
+      await _playbackMenu<DandanplayCredentials>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => DanmakuServiceSheet(initial: config),
+      );
+    } catch (error) {
+      if (mounted) _showToast(DandanplayClient.describeError(error));
+    }
   }
 
   Future<void> _matchPublicDanmaku() async {
@@ -1886,18 +1901,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       builder: (_) => _DanmakuMatchSheet(initial: target.title),
     );
     if (title == null || title.isEmpty || !mounted) return;
-    final client = DandanplayClient(
-      credentials: await DandanplayCredentials.load(),
-    );
-    _danmakuClients.add(client);
+    DandanplayClient? client;
     try {
-      final items = await client.search(
-        title,
-        episode: target.chapterIndex + 1,
+      client = DandanplayClient(
+        credentials: await DandanplayCredentials.load(),
       );
       if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
+      _danmakuClients.add(client);
+      final items = await client.search(title);
+      if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
       if (items.isEmpty) {
-        _showToast('未找到这部作品的本集弹幕，可以修改片名或更换服务');
+        _showToast('未找到这部作品的弹幕，可以修改片名或更换服务');
         return;
       }
       final selected = await _playbackMenu<DandanplayEpisode>(
@@ -1947,12 +1961,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       });
       _notifyDanmakuSheet();
       _showToast('已加载 ${track.length} 条公共弹幕');
-    } catch (_) {
+    } catch (error) {
       if (mounted && (_target?.isSameEpisode(target) ?? false)) {
-        _showToast('公共弹幕搜索失败，请检查服务地址或更换服务');
+        _showToast(DandanplayClient.describeError(error));
       }
     } finally {
-      client.close();
+      client?.close();
       _danmakuClients.remove(client);
     }
   }

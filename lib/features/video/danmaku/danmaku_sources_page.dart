@@ -1,34 +1,14 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'dandanplay_client.dart';
+import 'danmaku_connection_test.dart';
 
-/// The collection and credentials share the existing native secure channel.
-/// iOS uses Keychain, Android uses Keystore encryption in noBackupFilesDir.
-class DanmakuSourcesStore {
-  static const channel = MethodChannel('lumebox/reference_danmaku_credentials');
-  static Future<Map<String, String>> read() async =>
-      await channel.invokeMapMethod<String, String>('read') ?? {};
-  static Future<void> save(
-    List<Map<String, String>> sources,
-    String active,
-  ) async {
-    final selected = sources.where((s) => s['id'] == active).firstOrNull;
-    await channel.invokeMethod<void>('write', {
-      'profilesJson': jsonEncode(sources),
-      'activeId': active,
-      'baseUrl': selected?['url'] ?? DandanplayCredentials.defaultBase,
-      'appId': selected?['appId'] ?? '',
-      'appSecret': selected?['appSecret'] ?? '',
-    });
-  }
-}
+export 'danmaku_credentials.dart' show DanmakuSourcesStore;
 
 class DanmakuSourcesPage extends StatefulWidget {
   const DanmakuSourcesPage({super.key});
@@ -50,27 +30,21 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
   Future<void> _load() async {
     try {
       final data = await DanmakuSourcesStore.read();
-      final raw = jsonDecode(data['profilesJson'] ?? '[]');
-      _sources = raw is List
-          ? [
-              for (final row in raw)
-                if (row is Map)
-                  {
-                    for (final entry in row.entries)
-                      if (entry.key is String && entry.value is String)
-                        entry.key as String: entry.value as String,
-                  },
-            ]
-          : [];
+      _sources = DanmakuSourcesStore.profiles(data);
       _active = data['activeId'] ?? '';
       // Preserve an already configured legacy endpoint as an editable profile.
-      if (_sources.isEmpty && (data['baseUrl'] ?? '').isNotEmpty) {
+      if (!data.containsKey('profilesJson') &&
+          _sources.isEmpty &&
+          (data['baseUrl'] ?? '').isNotEmpty) {
         _active = 'legacy';
         _sources = [
           {
             'id': _active,
             'name': '现有弹幕服务',
-            'type': 'logvar',
+            'type':
+                DandanplayCredentials.isOfficial(Uri.tryParse(data['baseUrl']!))
+                ? 'official'
+                : 'logvar',
             'url': data['baseUrl']!,
             'appId': data['appId'] ?? '',
             'appSecret': data['appSecret'] ?? '',
@@ -156,12 +130,18 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     final secret = TextEditingController(text: existing?['appSecret'] ?? '');
     String? error;
     bool saving = false;
+    ModalBottomSheetRoute<Map<String, String>>? route;
     try {
-      final result = await showModalBottomSheet<Map<String, String>>(
-        context: context,
+      route = ModalBottomSheetRoute<Map<String, String>>(
         isScrollControlled: true,
         showDragHandle: true,
         useSafeArea: true,
+        barrierLabel: MaterialLocalizations.of(context)
+            .modalBarrierDismissLabel,
+        capturedThemes: InheritedTheme.capture(
+          from: context,
+          to: Navigator.of(context).context,
+        ),
         builder: (context) => StatefulBuilder(
           builder: (context, refresh) => Padding(
             padding: EdgeInsets.fromLTRB(
@@ -231,6 +211,13 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                   ),
                   if (error != null)
                     Text(error!, style: const TextStyle(color: Colors.red)),
+                  DanmakuConnectionTest(
+                    credentials: () => DandanplayCredentials(
+                      id.text.trim(),
+                      secret.text.trim(),
+                      baseUrl: url.text.trim(),
+                    ),
+                  ),
                   FilledButton(
                     onPressed: saving
                         ? null
@@ -280,6 +267,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
           ),
         ),
       );
+      final result = await Navigator.of(context).push(route);
       if (result == null || !mounted) return;
       final previous = List<Map<String, String>>.of(_sources);
       final previousActive = _active;
@@ -302,6 +290,9 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
         }
       }
     } finally {
+      // Navigator's pop result arrives before the sheet's exit animation ends.
+      // Its TextFields still use these controllers until the overlay is removed.
+      await route?.completed;
       name.dispose();
       url.dispose();
       id.dispose();
@@ -424,7 +415,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                 ),
               const Padding(
                 padding: EdgeInsets.all(12),
-                child: Text('勾选的服务供新打开的视频使用。长地址和凭据不展示在列表中。'),
+                child: Text('勾选的服务供两种播放器使用。保存后自动重新加载当前视频的弹幕。'),
               ),
             ],
           ),

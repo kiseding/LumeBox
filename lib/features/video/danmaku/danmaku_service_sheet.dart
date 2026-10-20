@@ -2,6 +2,7 @@ import 'package:lume_box/core/theme/lume_typography.dart';
 import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
+import 'danmaku_connection_test.dart';
 
 /// Accepts a full service prefix, including deployment tokens in its path.
 class DanmakuServiceSheet extends StatefulWidget {
@@ -28,11 +29,12 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
   Future<void> _save() async {
     final uri = Uri.tryParse(_url.text.trim());
     if (uri == null ||
-        uri.scheme != 'https' ||
+        !['http', 'https'].contains(uri.scheme) ||
         uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
         uri.hasFragment) {
-      setState(() => _error = '请填写 HTTPS 服务地址，保留路径前缀，不附查询参数');
+      setState(() => _error = '请填写完整服务地址，保留路径前缀，不附查询参数或用户名密码');
       return;
     }
     final config = DandanplayCredentials(
@@ -51,11 +53,11 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
     try {
       await config.save();
       if (mounted) Navigator.pop(context, config);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = '保存失败，请重试';
+          _error = DandanplayClient.describeError(error);
         });
       }
     }
@@ -140,6 +142,13 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
                   ),
                 ),
               ),
+            DanmakuConnectionTest(
+              credentials: () => DandanplayCredentials(
+                _id.text.trim(),
+                _secret.text.trim(),
+                baseUrl: _url.text.trim(),
+              ),
+            ),
             FilledButton(
               onPressed: _saving ? null : _save,
               child: Text(_saving ? '保存中…' : '保存并重新加载弹幕'),

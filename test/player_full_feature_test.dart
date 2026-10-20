@@ -5,6 +5,7 @@ import 'package:lume_box/features/video/reference_player_page.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:lume_box/core/player/pip.dart';
 
@@ -14,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
@@ -33,6 +35,8 @@ import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 import 'package:lume_box/features/video/playback_source_validator.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
+import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_overlay.dart';
 
 /// 播放器全套功能对齐（真机反馈的第 5 项）：能力矩阵、按内核分别记住、
 /// 统一控制面板、清晰度切换、统一提示。
@@ -321,6 +325,168 @@ void main() {
       await tester.pumpAndSettle();
       return created;
     }
+
+    for (final reference in [false, true]) {
+      testWidgets('${reference ? '参考' : '原版'}播放器使用设置页当前凭证加载弹幕，修改后立即重载', (
+        tester,
+      ) async {
+        var stored = <String, String>{};
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(DanmakuSourcesStore.channel, (
+          call,
+        ) async {
+          if (call.method == 'read') return stored;
+          stored = Map<String, String>.from(call.arguments as Map);
+          return null;
+        });
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(
+            DanmakuSourcesStore.channel,
+            null,
+          ),
+        );
+        await DanmakuSourcesStore.save([
+          {
+            'id': 'official',
+            'type': 'official',
+            'url': DandanplayCredentials.officialBase,
+            'appId': 'sample',
+            'appSecret': 'secret',
+          },
+        ], 'official');
+        final pending = Completer<http.Response>();
+        final requests = <http.Request>[];
+        await http.runWithClient(
+          () async {
+            final players = await pump(
+              tester,
+              reference: reference,
+              sourceManager: FakeSourceManager(),
+              target: const VideoPlayTarget(
+                sourceId: 'test',
+                itemId: 'item',
+                title: '测试作品(2026)【电视剧】from qq',
+                chapterIndex: 12,
+                chapterId: 'ep7',
+                chapterTitle: '第07集',
+              ),
+            );
+            players.single.emit(playing: false);
+            pending.complete(
+              http.Response(
+                jsonEncode({
+                  'comments': [
+                    {'p': '1,1,16777215,user', 'm': '已接通的弹幕'},
+                  ],
+                }),
+                200,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+              ),
+            );
+            await tester.pumpAndSettle();
+            expect(requests.map((r) => r.url.path), [
+              '/api/v2/search/episodes',
+              '/api/v2/comment/123450007',
+            ]);
+            expect(requests.first.url.queryParameters['anime'], '测试作品');
+            expect(requests.first.url.queryParameters['episode'], '7');
+            final overlay = tester.widget<DanmakuOverlay>(
+              find.byType(DanmakuOverlay),
+            );
+            expect(overlay.track.items.single.text, '已接通的弹幕');
+            expect(overlay.settings.enabled, isTrue);
+            await const DandanplayCredentials(
+              'sample',
+              'updated-secret',
+              baseUrl: DandanplayCredentials.officialBase,
+            ).save();
+            await tester.pumpAndSettle();
+            expect(requests, hasLength(4));
+            final signed = requests.last;
+            expect(signed.headers['X-AppId'], 'sample');
+            expect(
+              signed.headers['X-Signature'],
+              isNot(requests[1].headers['X-Signature']),
+            );
+            expect(
+              tester
+                  .widget<DanmakuOverlay>(find.byType(DanmakuOverlay))
+                  .track
+                  .length,
+              1,
+            );
+            await tester.pumpWidget(const SizedBox());
+          },
+          () => MockClient((request) async {
+            requests.add(request);
+            if (request.url.path.contains('/comment/')) return pending.future;
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'animes': [
+                  {
+                    'animeTitle': '测试作品',
+                    'episodes': [
+                      {'episodeId': 123450007, 'episodeTitle': '第7集'},
+                    ],
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        );
+      });
+    }
+
+    testWidgets('官方鉴权失败在播放器弹幕面板显示原因，不影响播放', (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        DanmakuSourcesStore.channel,
+        (_) async => {
+          'baseUrl': DandanplayCredentials.officialBase,
+          'appId': 'sample',
+          'appSecret': 'secret',
+        },
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(
+          DanmakuSourcesStore.channel,
+          null,
+        ),
+      );
+      await http.runWithClient(
+        () async {
+          final players = await pump(
+            tester,
+            sourceManager: FakeSourceManager(),
+            target: const VideoPlayTarget(
+              sourceId: 'test',
+              itemId: 'item',
+              title: '作品',
+              chapterIndex: 0,
+              chapterId: '1',
+              chapterTitle: '第1集',
+            ),
+          );
+          expect(players.single.plays, greaterThan(0));
+          await openPlayerAction(tester, '弹幕设置');
+          expect(find.textContaining('设备时间不准确'), findsOneWidget);
+          expect(find.textContaining('HTTP 403'), findsOneWidget);
+          await tester.pumpWidget(const SizedBox());
+        },
+        () => MockClient(
+          (_) async => http.Response(
+            '',
+            403,
+            headers: {'x-error-message': 'Invalid Timestamp'},
+          ),
+        ),
+      );
+    });
 
     testWidgets('A 只在播放推进后静默校验，悬挂检测不阻塞起播，失效只提示', (tester) async {
       final pending = Completer<LumeHttpResponse>();
