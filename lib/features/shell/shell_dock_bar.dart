@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
+import 'package:flutter/services.dart';
 
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
@@ -231,6 +232,26 @@ class _ShellDockBarState extends State<ShellDockBar>
         _pressController.value = 0;
       }
     });
+    _loadAccessibilityFlags();
+  }
+
+  bool _platformReduceTransparency = false;
+  bool _platformIncreaseContrast = false;
+
+  /// iOS 的“降低透明度 / 增强对比度”不在 Flutter MediaQuery 里，
+  /// 这里通过轻量方法通道读取；拿不到就保持默认值（测试环境会走 catch）。
+  Future<void> _loadAccessibilityFlags() async {
+    try {
+      final flags = await const MethodChannel('lumebox/accessibility')
+          .invokeMapMethod<String, Object?>('flags');
+      if (!mounted || flags == null) return;
+      setState(() {
+        _platformReduceTransparency = flags['reduceTransparency'] == true;
+        _platformIncreaseContrast = flags['increaseContrast'] == true;
+      });
+    } catch (_) {
+      // 非 iOS / 测试环境没有这个通道：忽略即可。
+    }
   }
 
   @override
@@ -717,6 +738,10 @@ class _ShellDockBarState extends State<ShellDockBar>
             : 0.0;
         return LayoutBuilder(
           builder: (context, constraints) {
+            final reduceTransparency =
+                _liquid.reduceTransparency || _platformReduceTransparency;
+            final highContrast =
+                MediaQuery.highContrastOf(context) || _platformIncreaseContrast;
             final geometry = _DockGeometry.compute(
               contentWidth:
                   (constraints.maxWidth - ShellDockBar.innerPadding * 2).clamp(
@@ -737,7 +762,9 @@ class _ShellDockBarState extends State<ShellDockBar>
               grip: _gripController.value.clamp(-1.0, 1.0),
               lift: _liquid.enabled(DockLiquidEffect.lift) ? press : 0.0,
               pointerFocus: _pointerFocus.value,
-              clarityEnabled: _liquid.enabled(DockLiquidEffect.clarity),
+              clarityEnabled:
+                  _liquid.enabled(DockLiquidEffect.clarity) &&
+                  !reduceTransparency,
               clarityStrength: _amount(DockLiquidParameter.blurReduction),
               opacityReduction: _amount(DockLiquidParameter.opacityReduction),
               spread: _amount(DockLiquidParameter.spread),
@@ -752,8 +779,10 @@ class _ShellDockBarState extends State<ShellDockBar>
               freeDeform: _liquid.freeDeform,
               pressScale: _amount(DockLiquidParameter.pressScale),
               pressWhiten: _amount(DockLiquidParameter.pressWhiten),
+              reduceTransparency: reduceTransparency,
             );
-            final clear = _liquid.enabled(DockLiquidEffect.clarity)
+            final clear =
+                _liquid.enabled(DockLiquidEffect.clarity) && !reduceTransparency
                 ? geometry.press
                 : 0.0;
             final light = _liquid.enabled(DockLiquidEffect.lighting)
@@ -766,7 +795,11 @@ class _ShellDockBarState extends State<ShellDockBar>
                       .clamp(-1.0, 1.0);
             final radius = BorderRadius.circular(widget.capsuleHeight / 2);
             final glassColor = dark ? LumeTheme.glass : Colors.white;
-            final borderAlpha = _borderAlpha(dark);
+            final borderAlpha =
+                (_borderAlpha(dark) *
+                        (highContrast ? 1.8 : 1.0) *
+                        (reduceTransparency ? 1.25 : 1.0))
+                    .clamp(0.0, 1.0);
             // Shader 路径下透镜核心已经透明，白色高光渐变同步减弱，
             // 避免又在清澈区域盖一层白纱。回退路径沿用原公式。
             final sheenScale = DockLiquidSurface.shaderSupported
@@ -864,7 +897,11 @@ class _ShellDockBarState extends State<ShellDockBar>
                     cornerRadius: widget.capsuleHeight / 2,
                     style: _liquid.nativeGlassStyle,
                     tintColor: glassColor,
-                    tintOpacity: _amount(DockLiquidParameter.nativeTint),
+                    tintOpacity: reduceTransparency
+                        ? math
+                              .max(_amount(DockLiquidParameter.nativeTint), .45)
+                              .clamp(0.0, .75)
+                        : _amount(DockLiquidParameter.nativeTint),
                   )
                 : DockLiquidSurface(
                     borderRadius: radius,
@@ -957,6 +994,8 @@ class _ShellDockBarState extends State<ShellDockBar>
                         gain: gain,
                         dropOpacity: dropOpacity,
                         useNativeGlass: useNativeGlass,
+                        reduceTransparency: reduceTransparency,
+                        highContrast: highContrast,
                       ),
                     ),
                   ),
@@ -979,6 +1018,8 @@ class _ShellDockBarState extends State<ShellDockBar>
     required double gain,
     required double dropOpacity,
     required bool useNativeGlass,
+    required bool reduceTransparency,
+    required bool highContrast,
   }) {
     final entries = widget.entries;
     if (entries.isEmpty) return const SizedBox.expand();
@@ -1120,7 +1161,9 @@ class _ShellDockBarState extends State<ShellDockBar>
                     ),
                 ],
               ),
-              if (!useNativeGlass && _liquid.enabled(DockLiquidEffect.optics))
+              if (!useNativeGlass &&
+                  !reduceTransparency &&
+                  _liquid.enabled(DockLiquidEffect.optics))
                 Positioned(
                   left: geometry.left,
                   top: geometry.top,
@@ -1134,7 +1177,9 @@ class _ShellDockBarState extends State<ShellDockBar>
                     lean: _dragDirection * geometry.stretch,
                     grip: geometry.grip,
                     refraction: _amount(DockLiquidParameter.refraction),
-                    dispersion: _amount(DockLiquidParameter.dispersion),
+                    dispersion: highContrast
+                        ? 0
+                        : _amount(DockLiquidParameter.dispersion),
                     glow: _amount(DockLiquidParameter.lensGlow),
                     desaturate: _amount(DockLiquidParameter.lensDesaturate),
                   ),
@@ -1475,13 +1520,22 @@ Path _liquidDropPath(
   );
   path.close();
 
+  var result = path;
+  // 自由形变里的“倾斜”：沿拖动方向做很小的剪切，保持轮廓连续。
+  final tilt = direction * t * .035;
+  if (tilt.abs() > .0001) {
+    final shear = Matrix4.identity()
+      ..setEntry(1, 0, tilt)
+      ..setEntry(1, 3, -tilt * w / 2);
+    result = result.transform(shear.storage);
+  }
   if (direction < 0) {
     final mirror = Matrix4.identity()
       ..setEntry(0, 0, -1)
       ..setEntry(0, 3, w);
-    return path.transform(mirror.storage);
+    result = result.transform(mirror.storage);
   }
-  return path;
+  return result;
 }
 
 class _LiquidDropClipper extends CustomClipper<Path> {
@@ -1733,6 +1787,7 @@ class _DockGeometry {
     required bool freeDeform,
     required double pressScale,
     required double pressWhiten,
+    required bool reduceTransparency,
   }) {
     final slot = entryCount <= 0 ? 0.0 : contentWidth / entryCount;
     final baseWidth = (slot - 12).clamp(0.0, ShellDockBar.maxPillWidth);
@@ -1749,8 +1804,12 @@ class _DockGeometry {
     final visibleClear = clarityEnabled ? pressed : 0.0;
     // 参考录屏：按压时整条底栏一起放大并变白（不是只缩放底座）。
     final wholeScale = 1 + pressScale * pressed;
-    final shaderTintOpacity = (opacity + pressWhiten * pressed * (1 - opacity))
-        .clamp(0.0, 1.0);
+    // 降低透明度：底座更白、磨砂更强，透镜清晰区关闭。
+    final shaderTintOpacity =
+        (reduceTransparency
+                ? math.max(opacity, .88)
+                : opacity + pressWhiten * pressed * (1 - opacity))
+            .clamp(0.0, 1.0);
     // 回退路径：原有按压减弱先算，再叠按压提亮；全白端点保持全白，全透
     // 端点按压时会被提亮（与参考录屏一致）。
     final fallbackSigma = (blur * (1 - clarityStrength * visibleClear)).clamp(
@@ -1760,12 +1819,12 @@ class _DockGeometry {
     final dimmedOpacity =
         opacity * (1 - opacityReduction * visibleClear * (1 - opacity));
     final fallbackOpacity =
-        (dimmedOpacity + pressWhiten * pressed * (1 - dimmedOpacity)).clamp(
-          0.0,
-          1.0,
-        );
+        (reduceTransparency
+                ? math.max(dimmedOpacity, .9)
+                : dimmedOpacity + pressWhiten * pressed * (1 - dimmedOpacity))
+            .clamp(0.0, 1.0);
     // Shader 路径把默认的 62% 视作“满强度”，滑杆越小清澈越弱。
-    final clarity = clarityEnabled
+    final clarity = clarityEnabled && !reduceTransparency
         ? (pressed * (clarityStrength / .62).clamp(0.0, 1.0)).clamp(0.0, 1.0)
         : 0.0;
     final pressBulge = dropHeight * spread * lift;

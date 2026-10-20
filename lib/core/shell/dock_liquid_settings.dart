@@ -284,6 +284,7 @@ class DockLiquidSettings {
     this.freeDeform = true,
     this.glassRenderer = DockGlassRenderer.flutter,
     this.nativeGlassStyle = DockNativeGlassStyle.regular,
+    this.reduceTransparency = false,
   });
   final Map<String, double> values;
   final Set<String> disabled;
@@ -297,6 +298,10 @@ class DockLiquidSettings {
 
   /// 原生系统材质的厚度风格（仅 [DockGlassRenderer.nativeIos] 生效）。
   final DockNativeGlassStyle nativeGlassStyle;
+
+  /// 减少透明效果（辅助功能）：系统“降低透明度”开启或用户手动打开时，
+  /// 底座更白、透镜折射收敛，保证图标与文字可读。
+  final bool reduceTransparency;
 
   double value(DockLiquidParameter parameter) =>
       values[parameter.name] ?? parameter.initial;
@@ -315,6 +320,7 @@ class DockLiquidSettings {
         freeDeform: freeDeform,
         glassRenderer: glassRenderer,
         nativeGlassStyle: nativeGlassStyle,
+        reduceTransparency: reduceTransparency,
       );
 
   DockLiquidSettings withEnabled(DockLiquidEffect effect, bool enable) {
@@ -341,6 +347,7 @@ class DockLiquidSettings {
     freeDeform: freeDeform,
     glassRenderer: glassRenderer,
     nativeGlassStyle: nativeGlassStyle,
+    reduceTransparency: reduceTransparency,
   );
 
   DockLiquidSettings withFreeDeform(bool next) => DockLiquidSettings(
@@ -350,6 +357,7 @@ class DockLiquidSettings {
     freeDeform: next,
     glassRenderer: glassRenderer,
     nativeGlassStyle: nativeGlassStyle,
+    reduceTransparency: reduceTransparency,
   );
 
   DockLiquidSettings withGlassRenderer(DockGlassRenderer next) =>
@@ -360,6 +368,7 @@ class DockLiquidSettings {
         freeDeform: freeDeform,
         glassRenderer: next,
         nativeGlassStyle: nativeGlassStyle,
+        reduceTransparency: reduceTransparency,
       );
 
   DockLiquidSettings withNativeGlassStyle(DockNativeGlassStyle next) =>
@@ -370,7 +379,18 @@ class DockLiquidSettings {
         freeDeform: freeDeform,
         glassRenderer: glassRenderer,
         nativeGlassStyle: next,
+        reduceTransparency: reduceTransparency,
       );
+
+  DockLiquidSettings withReduceTransparency(bool next) => DockLiquidSettings(
+    values: values,
+    disabled: disabled,
+    shape: shape,
+    freeDeform: freeDeform,
+    glassRenderer: glassRenderer,
+    nativeGlassStyle: nativeGlassStyle,
+    reduceTransparency: next,
+  );
 
   Map<String, Object?> toJson() => {
     'values': values,
@@ -379,6 +399,7 @@ class DockLiquidSettings {
     'freeDeform': freeDeform,
     'glassRenderer': glassRenderer.name,
     'nativeGlassStyle': nativeGlassStyle.name,
+    'reduceTransparency': reduceTransparency,
   };
   static DockLiquidSettings fromJson(Object? data) {
     if (data is! Map) return const DockLiquidSettings();
@@ -409,6 +430,10 @@ class DockLiquidSettings {
     result = result.withNativeGlassStyle(
       DockNativeGlassStyle.fromName(data['nativeGlassStyle']),
     );
+    final rawReduceTransparency = data['reduceTransparency'];
+    if (rawReduceTransparency is bool) {
+      result = result.withReduceTransparency(rawReduceTransparency);
+    }
     return result;
   }
 
@@ -419,6 +444,7 @@ class DockLiquidSettings {
       freeDeform == other.freeDeform &&
       glassRenderer == other.glassRenderer &&
       nativeGlassStyle == other.nativeGlassStyle &&
+      reduceTransparency == other.reduceTransparency &&
       DockLiquidParameter.values.every((p) => value(p) == other.value(p)) &&
       DockLiquidEffect.values.every((e) => enabled(e) == other.enabled(e));
   @override
@@ -427,6 +453,7 @@ class DockLiquidSettings {
     freeDeform,
     glassRenderer,
     nativeGlassStyle,
+    reduceTransparency,
     Object.hashAll(DockLiquidParameter.values.map(value)),
     Object.hashAll(DockLiquidEffect.values.map(enabled)),
   );

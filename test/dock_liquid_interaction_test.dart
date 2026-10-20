@@ -257,6 +257,25 @@ void main() {
       DockNativeGlassStyle.regular,
     );
     expect(styled.value(DockLiquidParameter.nativeTint), closeTo(.2, .001));
+    final reduced = native.withReduceTransparency(true);
+    expect(DockLiquidSettings.fromJson(reduced.toJson()), reduced);
+    expect(reduced.reduceTransparency, isTrue);
+  });
+
+  testWidgets('减少透明效果时关闭清澈区并提高底座白度', (tester) async {
+    await scene(
+      tester,
+      (_) {},
+      appearance: DockAppearance(
+        liquid: const DockLiquidSettings().withReduceTransparency(true),
+      ),
+    );
+    final surface = tester.widget<DockLiquidSurface>(
+      find.byType(DockLiquidSurface),
+    );
+    expect(surface.clarity, 0);
+    expect(surface.tintOpacity, greaterThanOrEqualTo(.85));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('非 iOS 设备选择原生材质时自动回退 Flutter 自绘', (tester) async {

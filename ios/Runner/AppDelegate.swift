@@ -109,6 +109,19 @@ import Security
         withId: "lumebox/glass_backdrop"
       )
     }
+    // 辅助功能：降低透明度 / 增强对比度（Flutter MediaQuery 不包含这两项）。
+    if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxAccessibility")?.messenger() {
+      FlutterMethodChannel(name: "lumebox/accessibility", binaryMessenger: messenger).setMethodCallHandler { call, result in
+        guard call.method == "flags" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        result([
+          "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
+          "increaseContrast": UIAccessibility.isIncreaseContrastEnabled,
+        ])
+      }
+    }
   }
 }
 

@@ -68,8 +68,9 @@ void main() {
   finished = mix(finished, vec3(1.0), clamp(u_finish.x, 0.0, 1.0) * centerWeight);
   color.rgb = min(vec3(color.a), finished);
 
-  // Restrained top-left rim light, preserving premultiplied alpha.
-  float light = max(dot(normal, normalize(vec2(-0.45, -0.90))), 0.0);
+  // Restrained rim light that follows the drag direction.
+  vec2 lightDir = normalize(vec2(-0.45 - u_motion.x * 0.35, -0.90 + u_motion.y * 0.20));
+  float light = max(dot(normal, lightDir), 0.0);
   float sheen = smoothstep(0.78, 1.0, radius) * light * u_highlight;
   color.rgb = min(vec3(color.a), color.rgb + vec3(sheen * color.a));
   fragColor = color;

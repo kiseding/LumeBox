@@ -859,6 +859,9 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                                       .withNativeGlassStyle(
                                         liquid.nativeGlassStyle,
                                       )
+                                      .withReduceTransparency(
+                                        liquid.reduceTransparency,
+                                      )
                                       .withValue(
                                         DockLiquidParameter.nativeTint,
                                         liquid.value(
@@ -953,6 +956,20 @@ class _LiquidDockSettingsPage extends StatelessWidget {
                         ),
                       ),
                     ],
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('dock-liquid-reduce-transparency'),
+                      title: const Text('减少透明效果'),
+                      subtitle: const Text(
+                        '更白的底座、收敛的折射；iOS 系统“降低透明度”开启时也会自动生效',
+                      ),
+                      value: liquid.reduceTransparency,
+                      onChanged: (value) => controller.setAppearance(
+                        controller.appearance.copyWith(
+                          liquid: controller.appearance.liquid
+                              .withReduceTransparency(value),
+                        ),
+                      ),
+                    ),
                     const Divider(),
                     const Padding(
                       padding: EdgeInsets.fromLTRB(16, 8, 16, 4),

@@ -51,7 +51,21 @@ void main() {
   float bgLuma = dot(base.rgb, vec3(0.299, 0.587, 0.114));
   float lightAdapt = mix(1.25, 1.0, smoothstep(0.05, 0.85, bgLuma));
   float adapt = mix(1.0, lightAdapt, clamp(u_adapt, 0.0, 1.0));
-  float tint = clamp(u_shape.w * (1.0 - clarity) * adapt, 0.0, 1.0);
+  // 背景颜色联动：高饱和内容让白度略降，让玻璃保留背景色相，避免所有
+  // 花色海报都被统一糊成灰白。
+  float hi = max(max(base.r, base.g), base.b);
+  float lo = min(min(base.r, base.g), base.b);
+  float backgroundSaturation = clamp((hi - lo) * 2.5, 0.0, 1.0);
+  float colorKeep = mix(
+    1.0,
+    0.82,
+    backgroundSaturation * clamp(u_adapt, 0.0, 1.0)
+  );
+  float tint = clamp(
+    u_shape.w * (1.0 - clarity) * adapt * colorKeep,
+    0.0,
+    1.0
+  );
   vec3 rgb = mix(base.rgb, u_glass.yzw, tint);
   fragColor = vec4(rgb * frost, frost);
 }
