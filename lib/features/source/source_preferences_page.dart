@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source_preferences.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'rex_widget_parameters.dart';
 
 class SourcePreferencesPage extends StatefulWidget {
   const SourcePreferencesPage({
@@ -19,11 +20,13 @@ class SourcePreferencesPage extends StatefulWidget {
     this.siteUrl = '',
     this.onNetwork,
     this.showChapterOrder,
+    this.showWidgetParameters = false,
   });
   final Section section;
   final String sourceId, name, siteUrl;
   final Future<void> Function()? onNetwork;
   final bool? showChapterOrder;
+  final bool showWidgetParameters;
   @override
   State<SourcePreferencesPage> createState() => _SourcePreferencesPageState();
 }
@@ -39,6 +42,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   );
   late final custom = TextEditingController(text: prefs.customOrigin);
   String? error;
+  final _widgetParameters = GlobalKey<RexWidgetParametersState>();
   @override
   void dispose() {
     icon.dispose();
@@ -66,6 +70,12 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
         setState(() => error = '图标请使用不含账号密码的 HTTPS 图片地址');
         return;
       }
+    }
+    try {
+      await _widgetParameters.currentState?.save();
+    } on FormatException catch (e) {
+      setState(() => error = e.message);
+      return;
     }
     await prefs
         .copyWith(iconUrl: url, originalOrigin: from, customOrigin: domain)
@@ -160,6 +170,12 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             ],
           ),
         ),
+        if (widget.section == Section.video && widget.showWidgetParameters)
+          RexWidgetParametersEditor(
+            key: _widgetParameters,
+            section: widget.section,
+            sourceId: widget.sourceId,
+          ),
         if (widget.onNetwork != null)
           ListTile(
             leading: const LumeIcon(
@@ -227,6 +243,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
               custom.clear();
               original.text = widget.siteUrl;
               error = null;
+              _widgetParameters.currentState?.reset();
             });
           },
         ),

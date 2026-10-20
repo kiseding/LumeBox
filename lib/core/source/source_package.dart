@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import '../js/source_script.dart';
 import 'source_bundle.dart';
 import 'remote_spider.dart';
+import '../js/rex_widget.dart';
 
 enum SourcePackageKind { javascript, python, module }
 
@@ -112,6 +113,7 @@ class SourcePackage {
         ).hasMatch(script)) {
       return SourcePackageKind.python;
     }
+    if (RexWidget.matches(script)) return SourcePackageKind.module;
     if (RegExp(
           r'^\s*//\s*LumeRuntime:\s*module',
           multiLine: true,
@@ -141,6 +143,9 @@ class SourcePackage {
         ? RemoteSpider.convert(clean)
         : clean;
     final kind = kindOf(script);
+    if (kind == SourcePackageKind.module && RexWidget.matches(script)) {
+      return RexWidget.prepare(script, name: name, originUrl: originUrl);
+    }
     if (kind == SourcePackageKind.javascript) return raw;
     final prefix = kind == SourcePackageKind.python ? '#' : '//';
     final marker = '$prefix LumeRuntime: ${kind.name}';

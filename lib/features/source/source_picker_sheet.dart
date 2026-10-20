@@ -157,6 +157,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           sourceId: source.id,
           name: source.name,
           siteUrl: source.siteUrl,
+          showWidgetParameters: source.runtimeKind == 'module',
           onNetwork: () => network(source),
         ),
       ),

@@ -14,6 +14,8 @@ A new Flutter project.
 
 底部导航为漫画／视频／设置，猫源从视频选择器进入，网页主页支持长按排序。视频源支持通用 Python Spider、Python／JS 多文件 ZIP 源包、ESM／CommonJS 依赖加载、JS Spider 及远程 T4／RPC，见 [三 TAB 与多文件源包](docs/2026-10-20_三TAB与多文件源包.md)。Python 代码在 App 进程内执行，请仅导入可信来源；Android Java／DEX 需外部后端，原生扩展需随 iOS 构建签名。
 
+Rex 明文经典 Widget 已接入参数、同步存储／共享缓存、搜索到播放和集合解析；大师兄、采集聚合、荐片已通过原文件离线链路及重开测试。REXENC／FWENC 加密模块尚未接通密钥加载，详见 [Rex Widget 接入范围](docs/2026-10-20_Rex-Widget接入.md)。
+
 ## 图源（脚本不随本仓库分发）
 
 内置图源统一放在 **[teng662858/LumeBox-Sources](https://github.com/teng662858/LumeBox-Sources)**，

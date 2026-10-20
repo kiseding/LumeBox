@@ -152,7 +152,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
 
   bool matches(String text) => text.toLowerCase().contains(query);
 
-  Future<void> edit(Section section, String id, String name, String url) async {
+  Future<void> edit(
+    Section section,
+    String id,
+    String name,
+    String url, {
+    bool widgetParameters = false,
+  }) async {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
@@ -161,6 +167,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           sourceId: id,
           name: name,
           siteUrl: url,
+          showWidgetParameters: widgetParameters,
         ),
       ),
     );
@@ -753,6 +760,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                             s.id,
                                             s.name,
                                             s.siteUrl,
+                                            widgetParameters:
+                                                s.runtimeKind == 'module',
                                           ),
                                         ),
                                       ),

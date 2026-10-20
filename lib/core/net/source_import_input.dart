@@ -1,6 +1,7 @@
 import '../util/md5.dart';
 import 'source_subscription.dart';
 import '../source/source_package.dart';
+import 'rex_collection.dart';
 
 /// 一份导入输入的形态。本地文件内容与剪贴板文本都可能是这五种之一。
 ///
@@ -15,6 +16,7 @@ import '../source/source_package.dart';
 /// 6. 其余 → [unknown]。
 enum SourceImportInputKind {
   script('脚本'),
+  collection('Rex 集合'),
   manifest('地址清单'),
   checksum('校验值'),
   backup('备份'),
@@ -52,7 +54,8 @@ class SourceImportInput {
   bool get isManifest => kind == SourceImportInputKind.manifest;
 
   /// 是否能直接进导入链路（脚本直接导入，清单再解析一层）。
-  bool get isImportable => isScript || isManifest;
+  bool get isImportable =>
+      isScript || isManifest || kind == SourceImportInputKind.collection;
 
   /// 不能导入时给用户的**下一步动作**（点明该怎么做，而不是只说「失败了」）。
   String get describeFailure => switch (kind) {
@@ -85,6 +88,13 @@ class SourceImportInput {
       return SourceImportInput._(
         kind: SourceImportInputKind.backup,
         name: name,
+      );
+    }
+    if (RexCollection.matches(text)) {
+      return SourceImportInput._(
+        kind: SourceImportInputKind.collection,
+        name: name,
+        text: text,
       );
     }
     if (SourceSubscription.looksLikeScript(text)) {

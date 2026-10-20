@@ -24,6 +24,7 @@ import 'sandbox/sandbox_result.dart';
 import '../source/source_package.dart';
 import 'module_script.dart';
 import 'python_source_engine.dart';
+import 'rex_widget.dart';
 
 /// 图源引擎种类。
 enum CatEngineKind {
@@ -115,6 +116,16 @@ class SourceEngineRegistry {
       }
       return Future.value(PythonSourceEngine(sourceId: sourceId, http: http));
     }
+    if (RexWidget.matches(script) &&
+        kind == CatEngineKind.quickjs &&
+        identical(_factories[kind.id], _builtIn[kind.id])) {
+      return _createQuickJs(
+        sourceId: sourceId,
+        http: http,
+        section: section,
+        widgetCompatibility: true,
+      );
+    }
     return create(kind: kind, sourceId: sourceId, http: http, section: section);
   }
 
@@ -196,6 +207,7 @@ class SourceEngineRegistry {
     required String sourceId,
     required LumeHttp http,
     required Section section,
+    bool widgetCompatibility = false,
   }) async {
     if (!LumeJsEngine.isSupported) return null;
     return QuickJsSourceEngine(
@@ -205,6 +217,7 @@ class SourceEngineRegistry {
         section: section,
         // 桥接服务地址随图源交给脚本（`LumeSource.bridge`，用户口径 2.2）。
         bridge: http.bridge,
+        widgetCompatibility: widgetCompatibility,
       ),
     );
   }
@@ -240,7 +253,14 @@ class QuickJsSourceEngine implements SourceEngine, ScriptConfigCapable {
   @override
   Future<bool> loadScript(String script) async {
     _moduleFailure = null;
+    engine.disableWidgetHost();
     try {
+      if (RexWidget.matches(script)) {
+        RexWidget.requirePlaintext(script);
+        return await engine.loadScript(
+          RexWidget.wrap(script, await engine.prepareWidgetState()),
+        );
+      }
       return await engine.loadScript(
         SourcePackage.kindOf(script) == SourcePackageKind.module
             ? ModuleScript.wrap(script)

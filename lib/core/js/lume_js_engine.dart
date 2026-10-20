@@ -15,6 +15,7 @@ import 'sandbox_settings.dart';
 import 'source_bridge.dart';
 import 'venera_bridge.dart';
 import 'source_store.dart';
+import 'rex_widget_host.dart';
 
 /// 图源脚本的 JS 运行时。
 ///
@@ -83,6 +84,7 @@ class LumeJsEngine {
     required LumeHttp http,
     required Section section,
     String bridge = '',
+    bool widgetCompatibility = false,
   }) async {
     if (!isSupported) {
       throw UnsupportedError('Phase1 源引擎仅随 iOS 提供');
@@ -98,7 +100,14 @@ class LumeJsEngine {
     );
     final sandbox = LumeSandbox.create(
       id: sandboxId,
-      policy: policy.copyWith(allowHostAccess: true),
+      // CryptoJS's bounded AES initializer exceeds 512 KiB in QuickJS on
+      // Windows. Rex gets a measured 1 MiB stack; all other quotas stay fixed.
+      policy: policy.copyWith(
+        allowHostAccess: true,
+        stackLimitBytes: widgetCompatibility
+            ? 1024 * 1024
+            : policy.stackLimitBytes,
+      ),
       host: host,
       polyfills: LumeSourcePolyfills.forSection(section, bridge: bridge),
     );
@@ -209,7 +218,8 @@ class LumeJsEngine {
     final result = await _sandbox.eval(
       'JSON.stringify({id: LumeSource.id, name: LumeSource.name, '
       'version: LumeSource.version, category: LumeSource.category, '
-      'mirrors: LumeSource.mirrors})',
+      'mirrors: LumeSource.mirrors, widgetParameters:LumeSource.widgetParameters, '
+      'compatibilityWarnings:LumeSource.compatibilityWarnings})',
       fileName: 'metadata.js',
     );
     if (!result.isOk) return null;
@@ -250,6 +260,13 @@ class LumeJsEngine {
   /// 已被污染释放）后必须重注入——重建是全新 JSContext，脚本全局变量都会丢。
   String? _configJson;
   int _configGeneration = -1;
+
+  Future<Map<String, Object?>> prepareWidgetState() {
+    _host.widgetEnabled = true;
+    return _host.widget.snapshot();
+  }
+
+  void disableWidgetHost() => _host.widgetEnabled = false;
 
   /// JSON 文本 → JS 字符串字面量。
   ///
@@ -330,6 +347,8 @@ class LumeSourceHost implements SandboxHost {
 
   /// 沙盒文件 IO 的后端（`LumeSource.fs`）。
   final SandboxStore _store;
+  bool widgetEnabled = false;
+  late final widget = RexWidgetHost(_http, section, sourceId, timeout);
 
   /// 沙盒存储的访问口（测试与诊断用；与 [invoke] 操作的是同一张表）。
   SandboxStore get store => _store;
@@ -343,6 +362,10 @@ class LumeSourceHost implements SandboxHost {
           '本宿主服务「$expectedSandboxId」（${section.label}板块）。';
       LumeLog.warn('[${section.id}] $message');
       throw SandboxHostException(message);
+    }
+    if (request.method.startsWith('rex.')) {
+      if (!widgetEnabled) throw const SandboxHostException('当前源没有启用 Widget 宿主');
+      return widget.invoke(request.method, request.payload);
     }
     switch (request.method) {
       case SandboxHostMethods.httpFetch:

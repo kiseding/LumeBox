@@ -154,7 +154,18 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   /// 末项 `public.data` 是对未登记脚本扩展名的兜底（宁可多显示，不可选不中）。
   static const XTypeGroup _scriptTypeGroup = XTypeGroup(
     label: '源脚本',
-    extensions: <String>['js', 'mjs', 'cjs', 'py', 'zip', 'json', 'md5', 'txt'],
+    extensions: <String>[
+      'js',
+      'mjs',
+      'cjs',
+      'py',
+      'zip',
+      'json',
+      'rex',
+      'fwd',
+      'md5',
+      'txt',
+    ],
     uniformTypeIdentifiers: <String>[
       'com.netscape.javascript-source',
       'public.plain-text',
@@ -566,6 +577,10 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           _mode = _ImportMode.local;
           _script.text = text;
           _hint = '已从剪贴板填入脚本，点「导入」写入${_section.label}板块';
+        case SourceImportInputKind.collection:
+          _mode = _ImportMode.local;
+          _script.text = text;
+          _hint = '已填入 Rex 集合，点「导入」展开模块';
         case SourceImportInputKind.manifest:
           _mode = _ImportMode.subscription;
           _url.text = text;
@@ -588,6 +603,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     final skipped = <SourceImportSkip>[];
     final notes = <String>[];
     final urls = <String>[];
+    final collections = <({String text, String label})>[];
 
     void take(SourceImportInput input, String label) {
       switch (input.kind) {
@@ -595,6 +611,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           items.add(SourceImportItem(script: input.text, label: label));
         case SourceImportInputKind.manifest:
           urls.addAll(input.urls);
+        case SourceImportInputKind.collection:
+          collections.add((text: input.text, label: label));
         case SourceImportInputKind.checksum:
         case SourceImportInputKind.backup:
         case SourceImportInputKind.unknown:
@@ -645,7 +663,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       }
     }
 
-    if (items.isEmpty && urls.isEmpty) {
+    if (items.isEmpty && urls.isEmpty && collections.isEmpty) {
       // 一条都进不了链路：把原因留在弹窗里（进结果弹窗只会让用户多点两次）。
       setState(() {
         _error = skipped.isEmpty
@@ -662,9 +680,35 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       _progress = null;
     });
     try {
-      if (urls.isNotEmpty) {
+      for (final collection in collections) {
+        if (items.length >= widget.maxScripts) {
+          notes.add('已达到 ${widget.maxScripts} 项上限，其余集合本次未展开。');
+          break;
+        }
+        final refs = await SourceSubscription(
+          maxScripts: (widget.maxScripts - items.length).clamp(
+            0,
+            widget.maxScripts,
+          ),
+          fetch: widget.fetchSubscription ?? _fetchSubscriptionText,
+          onSkip: (url, error) => skipped.add(
+            SourceImportSkip(label: collection.label, message: '$url：$error'),
+          ),
+        ).resolveCollectionText(collection.text);
+        for (final ref in refs) {
+          items.add(
+            SourceImportItem(
+              script: ref.script,
+              label: ref.label.isEmpty ? collection.label : ref.label,
+              originUrl: ref.url,
+            ),
+          );
+        }
+      }
+      if (urls.isNotEmpty && items.length < widget.maxScripts) {
         final refs = await _resolveRefs(
           urls,
+          maxScripts: widget.maxScripts - items.length,
           onSkip: (url, error) {
             // 清单里的一条拉不到（脚本被删 / 地址写错）：跳过它，其余照常导入，
             // 并在「未导入」里列出来——整批失败会让人以为订阅坏了（真机反馈）。
@@ -678,7 +722,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           },
         );
         if (!mounted) return;
-        if (refs.isEmpty) {
+        if (refs.isEmpty && items.isEmpty) {
           // 清单拉完一条脚本也没有（互相引用的清单、空清单）：说清楚，不静默收场。
           setState(() {
             _error = '订阅里没有可导入的源脚本';
@@ -692,7 +736,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           items.add(
             SourceImportItem(
               script: ref.script,
-              label: '订阅',
+              label: ref.label.isEmpty ? '订阅' : ref.label,
               originUrl: ref.url,
             ),
           );
@@ -701,7 +745,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       if (items.isEmpty) {
         // 只剩认不出的条目：原因留在弹窗里，进结果弹窗只会让用户多点两次。
         setState(() {
-          _error = skipped.first.message;
+          _error = skipped.isEmpty ? '集合里没有可导入的模块' : skipped.first.message;
           _progress = null;
         });
         return;
@@ -738,12 +782,13 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   /// 「更新订阅源」才能各自更新（见 [SourceScriptRef]）。
   Future<List<SourceScriptRef>> _resolveRefs(
     List<String> urls, {
+    int? maxScripts,
     void Function(String url, Object error)? onSkip,
   }) {
     var fetches = 0;
     final fetch = widget.fetchSubscription ?? _fetchSubscriptionText;
     return SourceSubscription(
-      maxScripts: widget.maxScripts,
+      maxScripts: maxScripts ?? widget.maxScripts,
       onSkip: onSkip,
       fetch: (url) async {
         fetches++;

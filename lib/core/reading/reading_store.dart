@@ -396,6 +396,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   Map<String, String> exportSettings() => {
     for (final row in _db.select('SELECT key, value FROM reading_setting'))
       if (!(row['key'] as String).startsWith('waf.') &&
+          !(row['key'] as String).startsWith('rex.widget.') &&
           !(row['key'] as String).startsWith('history.lock'))
         row['key'] as String: row['value'] as String,
   };
@@ -412,7 +413,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   void clearStationSettings() {
     if (_closed) return;
     _db.execute(
-      "DELETE FROM reading_setting WHERE key LIKE 'source.preferences.%' OR key LIKE 'waf.cookies.%' OR key LIKE 'waf.ua.%'",
+      "DELETE FROM reading_setting WHERE key LIKE 'source.preferences.%' OR key LIKE 'waf.cookies.%' OR key LIKE 'waf.ua.%' OR key LIKE 'rex.widget.private.%' OR key LIKE 'rex.widget.params.%' OR key = 'rex.widget.shared'",
     );
     setSetting('search.aggregate.sourceIds', 'null');
   }

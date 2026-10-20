@@ -6,6 +6,56 @@ import 'spider_module_adapter.dart';
 /// ESM/CommonJS module graphs. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
+  /// Read only literal identity fields from a top-level metadata assignment.
+  /// Comments, strings and nested objects are skipped by the module tokenizer.
+  static Map<String, String>? objectStringFields(String script, String name) {
+    final tokens = _tokens(script);
+    String? literal(int i) {
+      if (tokens[i].value != '<literal>') return null;
+      final raw = script.substring(tokens[i].start, tokens[i].end);
+      if (raw.startsWith('"')) {
+        try {
+          final value = jsonDecode(raw);
+          return value is String ? value : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      if (raw.startsWith("'") && !raw.contains(r'\')) {
+        return raw.substring(1, raw.length - 1);
+      }
+      return null;
+    }
+
+    var depth = 0;
+    for (var i = 0; i + 2 < tokens.length; i++) {
+      final value = tokens[i].value;
+      if (depth == 0 &&
+          value == name &&
+          tokens[i + 1].value == '=' &&
+          tokens[i + 2].value == '{') {
+        final fields = <String, String>{};
+        var level = 1;
+        for (var j = i + 3; j + 2 < tokens.length && level > 0; j++) {
+          final key = tokens[j].value;
+          if (level == 1 && tokens[j + 1].value == ':') {
+            final property = literal(j) ?? key;
+            final text = literal(j + 2);
+            if (text != null && ['id', 'title', 'version'].contains(property)) {
+              fields[property] = text;
+            }
+          }
+          if (['{', '[', '('].contains(key)) level++;
+          if (['}', ']', ')'].contains(key)) level--;
+        }
+        return fields;
+      }
+      if (['{', '[', '('].contains(value)) depth++;
+      if (['}', ']', ')'].contains(value)) depth--;
+    }
+    return null;
+  }
+
   static Set<String> dependencies(String script) {
     final result = <String>{};
     _body(script, (path) {

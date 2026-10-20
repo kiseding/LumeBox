@@ -127,7 +127,9 @@ class ConfigurationBackup {
     for (final entry in sections.entries) {
       final library = await ReadingLibrary.open(entry.key);
       for (final setting in entry.value.entries) {
-        if (!setting.key.startsWith('waf.') && setting.key != 'history.lock') {
+        if (!setting.key.startsWith('waf.') &&
+            !setting.key.startsWith('rex.widget.') &&
+            setting.key != 'history.lock') {
           library.setSetting(setting.key, setting.value);
         }
       }

@@ -15,6 +15,7 @@ import 'source_engine.dart';
 import 'source_script.dart';
 import '../source/source_package.dart';
 import 'python_source_engine.dart';
+import 'rex_widget_host.dart';
 
 /// 图源导入结果：成功携带落库记录，失败携带可读原因。
 ///
@@ -272,6 +273,11 @@ class SourceRegistry {
       if (originUrl.trim().isNotEmpty) {
         _database.setSourceOrigin(metadata.id, originUrl);
       }
+      await RexWidgetSettings.saveDefinitions(
+        section,
+        metadata.id,
+        rawMetadata?['widgetParameters'],
+      );
       release(metadata.id);
       final record = _database.source(metadata.id);
       if (record == null) {

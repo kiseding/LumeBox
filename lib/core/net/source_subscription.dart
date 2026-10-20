@@ -9,6 +9,8 @@ import 'lume_http.dart';
 import '../source/source_package.dart';
 import '../source/source_bundle.dart';
 import '../js/module_script.dart';
+import '../js/rex_widget.dart';
+import 'rex_collection.dart';
 
 /// 一次订阅拉取的结果。
 ///
@@ -105,7 +107,9 @@ class SourceSubscription {
         complete = false;
         break;
       }
-      refs.addAll(await scriptRefsAt(url, visited));
+      refs.addAll(
+        await scriptRefsAt(url, visited, remaining: maxScripts - refs.length),
+      );
     }
     return refs;
   }
@@ -124,14 +128,27 @@ class SourceSubscription {
   /// 自己的地址（不是清单地址），正文即脚本时就是它自己。
   Future<List<SourceScriptRef>> scriptRefsAt(
     String url,
-    Set<String> visited,
-  ) async {
+    Set<String> visited, {
+    int? remaining,
+  }) async {
+    final budget = remaining ?? maxScripts;
+    if (budget <= 0) {
+      complete = false;
+      return [];
+    }
     if (!visited.add(url)) return const <SourceScriptRef>[];
     if (visited.length > maxScripts * 2) {
       complete = false;
       return const <SourceScriptRef>[];
     }
     final download = await fetch(url);
+    if (RexCollection.matches(download.text)) {
+      return _collection(
+        RexCollection.parse(download.text, origin: url),
+        visited,
+        budget,
+      );
+    }
 
     // 形态一：`.js.md5` 约定。
     final expected = Md5.parseHex(download.text);
@@ -201,12 +218,14 @@ class SourceSubscription {
     final nested = urlsIn(download.text, limit: maxScripts + 1);
     if (nested.length > maxScripts) complete = false;
     for (final item in nested) {
-      if (refs.length >= maxScripts) {
+      if (refs.length >= budget) {
         complete = false;
         break;
       }
       try {
-        refs.addAll(await scriptRefsAt(item, visited));
+        refs.addAll(
+          await scriptRefsAt(item, visited, remaining: budget - refs.length),
+        );
       } catch (error) {
         complete = false;
         // 这一条拉不到（脚本被删 / 地址写错 / 临时 404）：跳过它，其余照常。
@@ -217,7 +236,57 @@ class SourceSubscription {
     return refs;
   }
 
+  Future<List<SourceScriptRef>> resolveCollectionText(String text) {
+    complete = true;
+    return _collection(RexCollection.parse(text), <String>{}, maxScripts);
+  }
+
+  Future<List<SourceScriptRef>> _collection(
+    RexCollection collection,
+    Set<String> visited,
+    int budget,
+  ) async {
+    final refs = <SourceScriptRef>[];
+    for (final entry in collection.entries) {
+      if (refs.length >= budget) {
+        complete = false;
+        break;
+      }
+      try {
+        for (final ref in await scriptRefsAt(
+          entry.url,
+          visited,
+          remaining: budget - refs.length,
+        )) {
+          var script = ref.script;
+          if (RexWidget.isEncrypted(script)) {
+            final metadata = jsonEncode({
+              'id': RexWidget.identity(entry.id.isEmpty ? ref.url : entry.id),
+              'name': entry.title,
+              'version': entry.version,
+              'category': 'video',
+            });
+            script = script.replaceFirst(
+              RegExp(r'^// LumeSource: [^\n]*', multiLine: true),
+              '// LumeSource: $metadata',
+            );
+          }
+          refs.add(
+            SourceScriptRef(script: script, url: ref.url, label: entry.title),
+          );
+        }
+      } catch (error) {
+        complete = false;
+        onSkip?.call(entry.url, FormatException('${entry.title}：$error'));
+      }
+    }
+    return refs;
+  }
+
   Future<String> _moduleDependencies(String script, String origin) async {
+    // Classic Widgets may contain an inactive UMD require('crypto') branch.
+    // It must not be mistaken for an actual ESM dependency.
+    if (RexWidget.matches(script)) return script;
     if (SourcePackage.kindOf(script) != SourcePackageKind.module ||
         SourceBundle.parse(script) != null) {
       return script;
@@ -313,7 +382,11 @@ class SourceSubscription {
 
 /// 一份脚本 + **它自己的来源地址**（订阅里的每一条都按这个地址更新）。
 class SourceScriptRef {
-  const SourceScriptRef({required this.script, required this.url});
+  const SourceScriptRef({
+    required this.script,
+    required this.url,
+    this.label = '',
+  });
 
   /// 脚本文本。
   final String script;
@@ -321,6 +394,7 @@ class SourceScriptRef {
   /// 这一份的来源地址：`.js.md5` 是校验清单地址；清单里的一行是那一行自己的地址
   ///（不是清单地址——否则更新时只会拿到清单的第一条）；正文即脚本时就是它自己。
   final String url;
+  final String label;
 }
 
 /// 去掉脚本文本开头的 UTF-8 BOM。
