@@ -233,25 +233,52 @@ class _ShellDockBarState extends State<ShellDockBar>
       }
     });
     _loadAccessibilityFlags();
+    _accessibilityOwner = _accessibilityToken;
+    _accessibilityChannel.setMethodCallHandler(_handleAccessibilityCall);
   }
+
+  static const MethodChannel _accessibilityChannel = MethodChannel(
+    'lumebox/accessibility',
+  );
+
+  /// 壳层里可能同时存在多个 Dock（例如设置页的真实预览），
+  /// 只让最后一个存活实例拥有方法通道回调，避免旧页面清掉新回调。
+  static int _nextAccessibilityToken = 0;
+  static int _accessibilityOwner = 0;
+  late final int _accessibilityToken = ++_nextAccessibilityToken;
 
   bool _platformReduceTransparency = false;
   bool _platformIncreaseContrast = false;
 
+  Future<void> _handleAccessibilityCall(MethodCall call) async {
+    if (call.method != 'changed') return;
+    _applyAccessibilityFlags(call.arguments);
+  }
+
+  void _applyAccessibilityFlags(Object? raw) {
+    if (!mounted || raw is! Map) return;
+    setState(() {
+      _platformReduceTransparency = raw['reduceTransparency'] == true;
+      _platformIncreaseContrast = raw['increaseContrast'] == true;
+    });
+  }
+
   /// iOS 的“降低透明度 / 增强对比度”不在 Flutter MediaQuery 里，
-  /// 这里通过轻量方法通道读取；拿不到就保持默认值（测试环境会走 catch）。
+  /// 这里通过轻量方法通道读取；系统设置变化时原生会再推送一次。
   Future<void> _loadAccessibilityFlags() async {
     try {
-      final flags = await const MethodChannel('lumebox/accessibility')
+      final flags = await _accessibilityChannel
           .invokeMapMethod<String, Object?>('flags');
-      if (!mounted || flags == null) return;
-      setState(() {
-        _platformReduceTransparency = flags['reduceTransparency'] == true;
-        _platformIncreaseContrast = flags['increaseContrast'] == true;
-      });
+      _applyAccessibilityFlags(flags);
     } catch (_) {
       // 非 iOS / 测试环境没有这个通道：忽略即可。
     }
+  }
+
+  @override
+  void didChangeAccessibilityFeatures() {
+    // Flutter 能感知的辅助功能变化（如粗体/反色）也刷新一次原生 flags。
+    _loadAccessibilityFlags();
   }
 
   @override
@@ -308,6 +335,10 @@ class _ShellDockBarState extends State<ShellDockBar>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_accessibilityOwner == _accessibilityToken) {
+      _accessibilityChannel.setMethodCallHandler(null);
+      _accessibilityOwner = 0;
+    }
     _dragTicker.dispose();
     _indexController.dispose();
     _widthController.dispose();

@@ -111,15 +111,30 @@ import Security
     }
     // 辅助功能：降低透明度 / 增强对比度（Flutter MediaQuery 不包含这两项）。
     if let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "LumeBoxAccessibility")?.messenger() {
-      FlutterMethodChannel(name: "lumebox/accessibility", binaryMessenger: messenger).setMethodCallHandler { call, result in
+      let channel = FlutterMethodChannel(name: "lumebox/accessibility", binaryMessenger: messenger)
+      // 正确 API：iOS 没有 isIncreaseContrastEnabled；UIKit 的对应项是
+      // isDarkerSystemColorsEnabled（系统设置「增强对比度」）。
+      func flags() -> [String: Bool] {
+        [
+          "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
+          "increaseContrast": UIAccessibility.isDarkerSystemColorsEnabled,
+        ]
+      }
+      channel.setMethodCallHandler { call, result in
         guard call.method == "flags" else {
           result(FlutterMethodNotImplemented)
           return
         }
-        result([
-          "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
-          "increaseContrast": UIAccessibility.isDarkerSystemColorsEnabled,
-        ])
+        result(flags())
+      }
+      // 用户在系统设置里切换这两项时主动通知 Flutter，底栏不必重启才生效。
+      for name in [
+        UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
+        UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+      ] {
+        NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak channel] _ in
+          channel?.invokeMethod("changed", arguments: flags())
+        }
       }
     }
   }
