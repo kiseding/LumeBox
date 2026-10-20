@@ -98,7 +98,7 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     effectView.clipsToBounds = true
     #if compiler(>=6.2)
     if #available(iOS 26.0, *) {
-      effectView.cornerConfiguration = .fixed(radius)
+      effectView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
       effectView.clipsToBounds = style == "thick" || reduced
     }
     #endif
