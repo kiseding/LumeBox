@@ -68,6 +68,34 @@ def prepare(output, packages_only=False):
         staging.replace(installed)
         stamp.write_text(fingerprint + "\n")
     print("Python packages ready" if packages_only else "CPython 3.13-b13 and Python packages ready")
+    if not packages_only:
+        prepare_native()
+
+
+def prepare_native():
+    """Only hash-locked iOS wheels; phone-time imports never install binaries."""
+    for item in json.loads((ROOT / 'tool/python_native_packages.lock.json').read_bytes()):
+        name = item['url'].rsplit('/', 1)[1]
+        if not name.endswith('_' + item['arch'] + '_' + item['platform'] + '.whl') or '-cp313-' not in name:
+            raise ValueError('原生 wheel 架构或 Python ABI 不匹配：' + name)
+        download(item['url'], item['sha256'], ROOT / '.cache/python-runtime' / name)
+
+
+def install_native(packages, architecture, simulator):
+    platform = 'iphonesimulator' if simulator else 'iphoneos'
+    for item in json.loads((ROOT / 'tool/python_native_packages.lock.json').read_bytes()):
+        if item['arch'] != architecture or item['platform'] != platform:
+            continue
+        wheel = ROOT / '.cache/python-runtime' / item['url'].rsplit('/', 1)[1]
+        download(item['url'], item['sha256'], wheel)
+        with zipfile.ZipFile(wheel) as archive:
+            for name in archive.namelist():
+                target = (packages / name).resolve()
+                if not target.is_relative_to(packages.resolve()) or '\\' in name or ':' in name:
+                    raise ValueError('原生 wheel 路径越界')
+                if name.endswith(('.dylib', '.pyd')) or '.data/' in name:
+                    raise ValueError('原生 wheel 需先整理为独立扩展模块：' + name)
+            archive.extractall(packages)
 
 
 def embed(output):
@@ -85,6 +113,7 @@ def embed(output):
     shutil.copytree(runtime / "lib", destination / "lib", ignore=shutil.ignore_patterns("__pycache__", "test", "tests"))
     shutil.copytree(slice_path / ("lib-" + architecture), destination / "lib", dirs_exist_ok=True)
     shutil.copytree(output / "packages", destination / "packages", ignore=shutil.ignore_patterns("__pycache__"))
+    install_native(destination / 'packages', architecture, simulator)
     shutil.copytree(ROOT / "assets/python", destination, dirs_exist_ok=True,
         ignore=shutil.ignore_patterns("__pycache__"))
 
@@ -102,14 +131,18 @@ def embed(output):
             shutil.rmtree(candidate)
     import plistlib
     import subprocess
-    for binary in (destination / "lib/python3.13/lib-dynload").glob("*.so"):
-        module = binary.name.split(".", 1)[0]
+    native_roots = [destination / 'lib/python3.13/lib-dynload', destination / 'packages']
+    for binary in [path for base in native_roots for path in base.rglob('*.so')]:
+        base = next(base for base in native_roots if binary.is_relative_to(base))
+        relative = binary.relative_to(base)
+        module = '.'.join((*relative.parts[:-1], binary.name.split('.', 1)[0]))
         if module.startswith(("_test", "xx")):
             binary.unlink()
             continue
         folder = frameworks / (module + ".framework")
         folder.mkdir(exist_ok=True)
         target = folder / module
+        subprocess.run(['/usr/bin/lipo', '-verify_arch', architecture, str(binary)], check=True)
         shutil.move(str(binary), target)
         identifier = os.environ.get("PRODUCT_BUNDLE_IDENTIFIER", "com.lumebox.app") + "." + module.replace("_", "-")
         with (folder / "Info.plist").open("wb") as handle:
@@ -131,9 +164,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packages-only", action="store_true")
     parser.add_argument("--embed", action="store_true")
+    parser.add_argument("--native-packages-only", action="store_true")
     parser.add_argument("--output", type=Path, default=ROOT / "ios/PythonRuntime")
     args = parser.parse_args()
-    if args.embed:
+    if args.native_packages_only:
+        prepare_native()
+    elif args.embed:
         embed(args.output)
     else:
         prepare(args.output, args.packages_only)

@@ -1,17 +1,148 @@
 import 'dart:convert';
 
+import '../source/source_bundle.dart';
+import 'spider_module_adapter.dart';
+
 /// Single-file ESM/CommonJS modules. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
   static String wrap(String script) {
+    final bundle = SourceBundle.parse(script);
+    final bodies = <String, String>{};
+    final entry = bundle?.entry ?? 'main.js';
+    void visit(String path) {
+      if (bodies.containsKey(path)) return;
+      bodies[path] = '';
+      final text = bundle == null ? script : utf8.decode(bundle.files[path]!);
+      if (path.endsWith('.json')) {
+        bodies[path] = 'module.exports = ${jsonEncode(jsonDecode(text))};';
+        return;
+      }
+      final dependencies = <String, String>{};
+      String resolve(String name) {
+        if (bundle == null) throw const FormatException('跨文件模块请连同依赖打包为 ZIP 源包');
+        final target = bundle.resolve(path, name);
+        dependencies[name] = target;
+        return target;
+      }
+
+      bodies[path] = _body(text, resolve);
+      for (final target in dependencies.values) {
+        visit(target);
+      }
+    }
+
+    visit(entry);
+    return '''
+(function () {
+  var factories = {${bodies.entries.map((row) => '${jsonEncode(row.key)}: function(module, exports, require) {\n${row.value}\n}').join(',\n')}};
+  var cache = Object.create(null);
+  function require(path) {
+    if (cache[path]) return cache[path].exports;
+    if (!factories[path]) throw new Error('源包缺少模块：' + path);
+    var module = {exports:{}}; cache[path] = module;
+    factories[path](module, module.exports, require);
+    return module.exports;
+  }
+  var exported = require(${jsonEncode(entry)});
+  var source = exported.default || exported;
+  if (!source || typeof source !== 'object') throw new Error('模块须导出源对象');
+  if (!Object.keys(source).length) throw new Error('模块没有导出源接口');
+  if (${bundle?.protocol == 'spider'} || (!source.categories && (source.home || source.homeContent))) {
+    source = ($spiderModuleAdapter)(source);
+  }
+  LumeSource = source;
+})();
+''';
+  }
+
+  static String _body(String script, String Function(String) resolve) {
     final tokens = _tokens(script);
     final edits = <({int start, int end, String text})>[];
     final names = <String>[];
+    final prelude = <String>[];
+    final epilogue = <String>[];
+    String literal(int index) {
+      final token = tokens.elementAtOrNull(index);
+      if (token?.value != '<literal>') {
+        throw const FormatException('模块依赖须为字符串字面量');
+      }
+      final value = script.substring(token!.start, token.end);
+      if (!(value.startsWith('"') || value.startsWith("'")) ||
+          value.contains(r'\')) {
+        throw const FormatException('模块路径不支持转义或模板表达式');
+      }
+      return value.substring(1, value.length - 1);
+    }
+
     var depth = 0;
     for (var i = 0; i < tokens.length; i++) {
       final token = tokens[i];
+      if (token.value == 'require' &&
+          tokens.elementAtOrNull(i + 1)?.value == '(' &&
+          tokens.elementAtOrNull(i + 2)?.value == '<literal>') {
+        final path = resolve(literal(i + 2));
+        edits.add((
+          start: tokens[i + 2].start,
+          end: tokens[i + 2].end,
+          text: jsonEncode(path),
+        ));
+      }
+      if (token.value == 'import' &&
+          tokens.elementAtOrNull(i + 1)?.value == '(') {
+        final path = resolve(literal(i + 2));
+        edits.add((
+          start: token.start,
+          end: tokens[i + 3].end,
+          text: 'Promise.resolve(require(${jsonEncode(path)}))',
+        ));
+        i += 3;
+        continue;
+      }
       if (depth == 0 && token.value == 'import') {
-        throw const FormatException('模块须是单文件；请先将 import 依赖打包进 .mjs / .js 文件');
+        var end = i + 1;
+        final sideEffect = tokens[end].value == '<literal>';
+        if (!sideEffect) {
+          while (end < tokens.length && tokens[end].value != 'from') {
+            end++;
+          }
+          end++;
+        }
+        final path = resolve(literal(end));
+        final temp = '__lume_import_${prelude.length}';
+        prelude.add('var $temp = require(${jsonEncode(path)});');
+        var j = i + 1;
+        if (!sideEffect && _identifier(tokens[j].value)) {
+          prelude.add(
+            'var ${tokens[j++].value} = Object.prototype.hasOwnProperty.call($temp, "default") ? $temp.default : $temp;',
+          );
+          if (tokens[j].value == ',') j++;
+        }
+        if (!sideEffect && tokens[j].value == '*') {
+          if (tokens[j + 1].value != 'as' ||
+              !_identifier(tokens[j + 2].value)) {
+            throw const FormatException('模块命名空间导入无效');
+          }
+          prelude.add('var ${tokens[j + 2].value} = $temp;');
+        } else if (!sideEffect && tokens[j].value == '{') {
+          j++;
+          while (tokens[j].value != '}') {
+            final imported = tokens[j++].value;
+            if (imported == ',') continue;
+            var local = imported;
+            if (tokens[j].value == 'as') {
+              j++;
+              local = tokens[j++].value;
+            }
+            if (!_identifier(imported) || !_identifier(local)) {
+              throw const FormatException('模块具名导入无效');
+            }
+            prelude.add('var $local = $temp[${jsonEncode(imported)}];');
+          }
+        }
+        edits.add((start: token.start, end: tokens[end].end, text: ''));
+        i = end;
+        continue;
       }
       if (depth == 0 && token.value == 'export') {
         final next = tokens.elementAtOrNull(i + 1);
@@ -21,6 +152,15 @@ class ModuleScript {
             end: next!.end,
             text: 'module.exports.default =',
           ));
+        } else if (next?.value == '*') {
+          final path = resolve(literal(i + 3));
+          edits.add((
+            start: token.start,
+            end: tokens[i + 3].end,
+            text: 'Object.assign(exports, require(${jsonEncode(path)}));',
+          ));
+          i += 3;
+          continue;
         } else if (next?.value == '{') {
           var j = i + 2;
           final bindings = <String>[];
@@ -37,15 +177,26 @@ class ModuleScript {
             }
             bindings.add('exports[${jsonEncode(exported)}] = $local;');
           }
-          if (j == tokens.length ||
-              tokens.elementAtOrNull(j + 1)?.value == 'from') {
-            throw const FormatException('模块不能从其他文件重新导出；请先打包依赖');
+          if (j == tokens.length) {
+            throw const FormatException('模块 export 列表未闭合');
           }
-          edits.add((
-            start: token.start,
-            end: tokens[j].end,
-            text: bindings.join('\n'),
-          ));
+          if (tokens.elementAtOrNull(j + 1)?.value == 'from') {
+            final target = resolve(literal(j + 2));
+            final temp = '__lume_reexport_${prelude.length}';
+            prelude.add('var $temp = require(${jsonEncode(target)});');
+            for (var k = 0; k < bindings.length; k++) {
+              final binding = bindings[k];
+              final equals = binding.indexOf(' = ');
+              final local = binding.substring(equals + 3, binding.length - 1);
+              final value = local == 'default'
+                  ? '(Object.prototype.hasOwnProperty.call($temp, "default") ? $temp.default : $temp)'
+                  : '$temp[${jsonEncode(local)}]';
+              bindings[k] = '${binding.substring(0, equals)} = $value;';
+            }
+            j += 2;
+          }
+          epilogue.addAll(bindings);
+          edits.add((start: token.start, end: tokens[j].end, text: ''));
           i = j;
           continue;
         } else {
@@ -87,18 +238,10 @@ class ModuleScript {
       body = body.replaceRange(edit.start, edit.end, edit.text);
     }
     return '''
-(function () {
-  var module = {exports: {}};
-  var exports = module.exports;
-  (function (module, exports) {
+${prelude.join('\n')}
 $body
 ${names.map((name) => 'exports[${jsonEncode(name)}] = $name;').join('\n')}
-  })(module, exports);
-  var source = module.exports.default || module.exports;
-  if (!source || typeof source !== 'object') throw new Error('模块须导出源对象');
-  if (!Object.keys(source).length) throw new Error('模块没有导出源接口');
-  LumeSource = source;
-})();
+${epilogue.join('\n')}
 ''';
   }
 

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../js/source_script.dart';
+import 'source_bundle.dart';
+import 'remote_spider.dart';
 
 enum SourcePackageKind { javascript, python, module }
 
@@ -15,13 +17,36 @@ class SourcePackage {
     String name = '',
     String originUrl = '',
   }) {
+    if (SourceBundle.isZip(bytes)) {
+      final bundle = SourceBundle.fromZip(bytes);
+      final prefix = bundle.runtime == 'python' ? '#' : '//';
+      final header = '$prefix LumeRuntime: ${bundle.runtime}\n';
+      final metadata = bundle.metadata.isEmpty
+          ? ''
+          : '$prefix LumeSource: ${jsonEncode(bundle.metadata)}\n';
+      return prepare(
+        '$header$metadata$prefix LumeBundle: ${bundle.encode()}',
+        name: name,
+        originUrl: originUrl,
+      );
+    }
     final preview = utf8.decode(bytes, allowMalformed: true);
     final python =
         name.toLowerCase().endsWith('.py') ||
         (Uri.tryParse(originUrl)?.path.toLowerCase().endsWith('.py') ??
             false) ||
         kindOf(preview) == SourcePackageKind.python;
-    if (!python) return preview;
+    if (!python) {
+      final module = RegExp(
+        r'\.(mjs|cjs)$',
+        caseSensitive: false,
+      ).hasMatch(name);
+      return prepare(
+        module ? '// LumeRuntime: module\n$preview' : preview,
+        name: name,
+        originUrl: originUrl,
+      );
+    }
     try {
       final script = stripScriptBom(utf8.decode(bytes));
       return prepare(
@@ -39,6 +64,7 @@ class SourcePackage {
   }
 
   static SourcePackageKind kindOf(String script) {
+    if (RemoteSpider.matches(script)) return SourcePackageKind.module;
     if (RegExp(
           r'^\s*#\s*LumeRuntime:\s*python',
           multiLine: true,
@@ -73,7 +99,10 @@ class SourcePackage {
   /// Give scripts without Lume metadata a stable identity before overwrite
   /// confirmation. URL/file identity survives edits; pasted scripts use content.
   static String prepare(String raw, {String name = '', String originUrl = ''}) {
-    final script = stripScriptBom(raw);
+    final clean = stripScriptBom(raw);
+    final script = RemoteSpider.matches(clean)
+        ? RemoteSpider.convert(clean)
+        : clean;
     final kind = kindOf(script);
     if (kind == SourcePackageKind.javascript) return raw;
     final prefix = kind == SourcePackageKind.python ? '#' : '//';
@@ -86,7 +115,7 @@ class SourcePackage {
     if (label.isEmpty && originUrl.isNotEmpty) {
       label = Uri.tryParse(originUrl)?.pathSegments.lastOrNull ?? '';
     }
-    label = label.replaceFirst(RegExp(r'\.(py|mjs|cjs|js)$'), '');
+    label = label.replaceFirst(RegExp(r'\.(py|mjs|cjs|js|zip|json)$'), '');
     if (label.isEmpty) {
       label = kind == SourcePackageKind.python ? 'Python 源' : '模块源';
     }

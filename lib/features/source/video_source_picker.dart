@@ -103,7 +103,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }
 
   void changed() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        webHomes = _webStore?.items ?? webHomes;
+      });
+    }
   }
 
   @override
@@ -184,13 +188,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 VideoSourceType.python,
                 Icons.terminal,
                 'Python 源',
-                '导入 Spider .py 文件或订阅链接',
+                '导入 Spider 脚本、ZIP 源包或订阅链接',
               ),
               (
                 VideoSourceType.module,
                 Icons.extension_outlined,
                 '模块源',
-                '导入单文件 ESM / CommonJS 源模块',
+                '导入 ESM / CommonJS、ZIP 源包或远程 Spider',
               ),
               (VideoSourceType.web, Icons.language, '网页主页', '添加、编辑网页主页'),
             ])
@@ -859,20 +863,43 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                   else
                                     grid([
                                       for (final home in filteredWeb)
-                                        card(
+                                        SourceDragTile(
+                                          key: ValueKey(
+                                            'web-picker-drag-${home.id}',
+                                          ),
                                           id: home.id,
                                           name: home.name,
-                                          subtitle:
-                                              widget.currentWebId == home.id
-                                              ? '当前使用'
-                                              : home.url,
-                                          selected:
-                                              widget.currentWebId == home.id,
-                                          onTap: () => Navigator.pop(
-                                            context,
-                                            VideoSourceChoice.web(home),
+                                          accepts: (id) => filteredWeb.any(
+                                            (row) => row.id == id,
                                           ),
-                                          onMore: () => _editWebHome(home),
+                                          onMove: (from, to) async {
+                                            final store = _webStore;
+                                            if (store == null) return;
+                                            final order = store.items;
+                                            store.move(
+                                              order.indexWhere(
+                                                (row) => row.id == from,
+                                              ),
+                                              order.indexWhere(
+                                                (row) => row.id == to,
+                                              ),
+                                            );
+                                          },
+                                          child: card(
+                                            id: home.id,
+                                            name: home.name,
+                                            subtitle:
+                                                widget.currentWebId == home.id
+                                                ? '当前使用'
+                                                : home.url,
+                                            selected:
+                                                widget.currentWebId == home.id,
+                                            onTap: () => Navigator.pop(
+                                              context,
+                                              VideoSourceChoice.web(home),
+                                            ),
+                                            onMore: () => _editWebHome(home),
+                                          ),
                                         ),
                                     ]),
                                 ],

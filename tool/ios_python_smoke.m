@@ -42,6 +42,11 @@ static PyObject *InitHost(void) { return PyModule_Create(&Module); }
     const char *test =
       "import json, ssl, ctypes, hashlib, bs4, requests, lume_python\n"
       "assert ssl.OPENSSL_VERSION and hashlib.sha256(b'smoke').hexdigest()\n"
+      "from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n"
+      "import cffi\n"
+      "assert cffi.FFI().sizeof('int') == 4\n"
+      "aes = AESGCM(bytes(16)); nonce = bytes(12)\n"
+      "assert aes.encrypt(nonce, b'', None).hex() == '58e2fccefa7e3061367f1d57a4e7455a'\n"
       "script = '''from base.spider import Spider\n"
       "class Spider(Spider):\n"
       " def init(self, extend): pass\n"

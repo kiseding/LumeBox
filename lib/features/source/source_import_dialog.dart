@@ -154,7 +154,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   /// 末项 `public.data` 是对未登记脚本扩展名的兜底（宁可多显示，不可选不中）。
   static const XTypeGroup _scriptTypeGroup = XTypeGroup(
     label: '源脚本',
-    extensions: <String>['js', 'mjs', 'cjs', 'py', 'md5', 'txt'],
+    extensions: <String>['js', 'mjs', 'cjs', 'py', 'zip', 'json', 'md5', 'txt'],
     uniformTypeIdentifiers: <String>[
       'com.netscape.javascript-source',
       'public.plain-text',

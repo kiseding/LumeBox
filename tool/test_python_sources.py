@@ -26,6 +26,8 @@ def invoke(raw):
     if request["method"] == "crypto":
         # Forwarding is tested here; real algorithms use independent Dart KATs.
         return json.dumps({"ok": False, "error": "crypto fixture intentionally unavailable"})
+    if request["method"] == "proxy":
+        return json.dumps({"ok": True, "value": "http://127.0.0.1:12345/token/proxy?do=py"})
     url = payload["url"]
     headers, status = {"Content-Type": "application/json; charset=utf-8"}, 200
     video = {"vod_id": "v1", "vod_name": "测试影片", "vod_pic": "https://fixture.invalid/cover.jpg", "vod_remarks": "更新中"}
@@ -88,8 +90,52 @@ def call(source, action="call", **kwargs):
 class HostTests(unittest.TestCase):
     def setUp(self):
         CALLS.clear()
+        for state in host._contexts.values():
+            host._close_source(state)
         host._contexts.clear()
         self.assertTrue(call("fixture", "load", script=FIXTURE)["ok"])
+
+    def test_bundle_relative_and_delayed_import_isolation_and_cleanup(self):
+        def bundle(title):
+            files = {'pkg/main.py': FIXTURE + '\nfrom . import helper\nSpider.homeContent = lambda self, filter: {"class":[{"type_id":"1","type_name":helper.title()}]}',
+                     'pkg/__init__.py': '', 'pkg/helper.py': 'def title():\n from .value import TITLE\n return TITLE',
+                     'pkg/value.py': 'TITLE = ' + repr(title)}
+            data = {'entry': 'pkg/main.py', 'runtime': 'python', 'files': {name: base64.b64encode(value.encode()).decode() for name, value in files.items()}}
+            return '# LumeRuntime: python\n# LumeBundle: ' + base64.b64encode(json.dumps(data).encode()).decode()
+        for source in ('one','two'):
+            result = call(source, 'load', script=bundle(source))
+            self.assertTrue(result['ok'], result)
+        for source in ('one','two','one'):
+            result = call(source, method='categories')
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(result['value'][0]['title'], source)
+        self.assertNotIn('pkg.helper', sys.modules)
+        root = Path(host._contexts['one']['root'])
+        self.assertTrue(root.exists())
+        call('one','dispose')
+        self.assertFalse(root.exists())
+
+    def test_local_proxy_text_binary_base64_and_range_headers(self):
+        script = FIXTURE + '''
+def local(self, params):
+    kind = params.get('kind')
+    if kind == 'binary': return [206, 'video/mp2t', bytes([0,255,1]), {'Content-Range':'bytes 0-2/3'}]
+    if kind == 'encoded': return [200, 'video/mp2t', 'AP8B', {}, 1]
+    return [200, 'application/vnd.apple.mpegurl', '#EXTM3U\\n' + params['headers']['range']]
+Spider.localProxy = local
+Spider.playerContent = lambda *args: {'url': args[0].getProxyUrl() + '&kind=binary'}
+'''
+        result=call('proxy','load',script=script)
+        self.assertTrue(result['ok'],result)
+        content=call('proxy',method='content',argument={'chapterId':json.dumps({'id':'a'})})
+        self.assertTrue(content['ok'],content)
+        self.assertIn('?do=py&kind=binary',content['value']['url'])
+        for kind in ['binary','encoded']:
+            reply=call('proxy','proxy',params={'kind':kind})
+            self.assertTrue(reply['ok'],reply)
+            self.assertEqual(base64.b64decode(reply['value']['body']),bytes([0,255,1]))
+        reply=call('proxy','proxy',params={},headers={'range':'bytes=0-'})
+        self.assertEqual(base64.b64decode(reply['value']['body']),b'#EXTM3U\nbytes=0-')
 
     def value(self, method, arg=None):
         result = call("fixture", method=method, argument=arg)

@@ -28,7 +28,6 @@ class ShellTab {
   static const List<ShellTab> all = <ShellTab>[
     ShellTab('comic', '漫画'),
     ShellTab('video', '视频'),
-    ShellTab('cat', '猫源'),
     ShellTab('settings', '设置'),
   ];
 
@@ -251,7 +250,6 @@ class ShellSettings {
   static const List<ShellTabConfig> _defaultTabs = <ShellTabConfig>[
     ShellTabConfig(id: 'comic'),
     ShellTabConfig(id: 'video'),
-    ShellTabConfig(id: 'cat'),
     ShellTabConfig(id: 'settings'),
   ];
 
@@ -388,11 +386,18 @@ class ShellSettings {
 
     final parsed = <ShellTabConfig>[];
     for (final item in raw) {
-      final config = ShellTabConfig.fromJson(item);
+      var config = ShellTabConfig.fromJson(item);
+      // The former cat tab now lives in VideoSourceHub. Preserve its position
+      // and visibility when an older configuration has no video entry.
+      if (config?.id == 'cat' &&
+          !raw.any((row) => row is Map && row['id'] == 'video')) {
+        config = ShellTabConfig(id: 'video', visible: config!.visible);
+      }
       // 过滤未知 id：配置里可能出现旧版本遗留或手改的陌生页签。
       if (config == null || ShellTab.byId(config.id) == null) continue;
       // 去重：同一 id 只认第一次出现。
-      if (parsed.any((existing) => existing.id == config.id)) continue;
+      final id = config.id;
+      if (parsed.any((existing) => existing.id == id)) continue;
       parsed.add(config);
     }
     if (parsed.isEmpty) return defaults;

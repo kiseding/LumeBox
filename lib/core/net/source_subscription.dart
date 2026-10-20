@@ -7,6 +7,7 @@ import '../util/lume_log.dart';
 import '../util/md5.dart';
 import 'lume_http.dart';
 import '../source/source_package.dart';
+import '../source/source_bundle.dart';
 
 /// 一次订阅拉取的结果。
 ///
@@ -157,7 +158,8 @@ class SourceSubscription {
 
     // 形态二：正文就是脚本。
     if (looksLikeScript(download.text) ||
-        Uri.parse(url).path.toLowerCase().endsWith('.py')) {
+        Uri.parse(url).path.toLowerCase().endsWith('.py') ||
+        SourceBundle.isZip(download.bytes)) {
       return <SourceScriptRef>[
         SourceScriptRef(
           script: SourcePackage.prepare(

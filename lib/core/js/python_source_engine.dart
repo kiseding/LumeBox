@@ -9,18 +9,26 @@ import '../net/lume_http.dart';
 import 'sandbox/sandbox_result.dart';
 import 'source_engine.dart';
 import 'source_script.dart';
+import 'python_local_proxy.dart';
 
 /// Lazy channel: CPython is initialized on its native worker only on first import.
 class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   PythonSourceEngine({required this.sourceId, required this.http}) {
     _install();
     _clients[sourceId] = http;
+    _engines[sourceId] = this;
   }
 
   final String sourceId;
   final LumeHttp http;
   static const channel = MethodChannel('lumebox/python_sources');
   static final _clients = <String, LumeHttp>{};
+  static final _engines = <String, PythonSourceEngine>{};
+  late final _proxy = PythonLocalProxy((request) async {
+    final result = await _request(request);
+    if (!result.isOk || result.value is! Map) throw StateError('本地代理执行失败');
+    return Map<String, dynamic>.from(result.value as Map);
+  });
   static bool _installed = false;
   bool _disposed = false;
   bool isPoisoned = false;
@@ -72,6 +80,8 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
             'headers': response.headers,
             'body': base64Encode(response.body),
           };
+        } else if (request['method'] == 'proxy') {
+          value = await _engines[args['sourceId']]!._proxy.start();
         } else if (request['method'] == 'crypto') {
           value = PythonCrypto.run(payload);
         } else {
@@ -173,7 +183,9 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _proxy.dispose();
     _clients.remove(sourceId);
+    _engines.remove(sourceId);
     unawaited(
       channel
           .invokeMethod<String>('execute', {

@@ -17,6 +17,8 @@ import threading
 import types
 import inspect
 import ast
+import tempfile
+from pathlib import Path, PurePosixPath
 import importlib.util
 import warnings as python_warnings
 import urllib.error
@@ -278,7 +280,7 @@ class _Spider:
         _active.get()["cache"].pop(str(key), None)
 
     def getProxyUrl(self, *args):
-        raise RuntimeError("此源需要本地代理服务；iOS 不提供 Android Java / DEX 服务，请配置脚本支持的外部后端")
+        return _host("proxy", {})
 
 
 _base = types.ModuleType("base")
@@ -439,11 +441,107 @@ def _budget(state, seconds):
                 return len(value)
             def flush(self):
                 pass
-        with redirect_stdout(Quiet()), redirect_stderr(Quiet()):
+        with _source_modules(state), redirect_stdout(Quiet()), redirect_stderr(Quiet()):
             yield
     finally:
         sys.settrace(previous)
         _active.reset(token)
+
+
+@contextmanager
+def _source_modules(state):
+    """Serial native calls temporarily install only this source's imports."""
+    root = state.get("root")
+    if not root:
+        yield
+        return
+    root = Path(root)
+    roots = {path.stem if path.suffix == '.py' else path.name for path in root.iterdir()}
+    saved = {name: module for name, module in sys.modules.copy().items() if name.split('.')[0] in roots}
+    for name in saved:
+        sys.modules.pop(name, None)
+    sys.modules.update(state.get("modules", {}))
+    old_path = sys.path[:]
+    sys.path[:0] = [str(root), str(root / PurePosixPath(state["entry"]).parent)]
+    importlib.invalidate_caches()
+    try:
+        yield
+    finally:
+        owned = {}
+        for name, module in sys.modules.copy().items():
+            file = getattr(module, "__file__", None)
+            if file and Path(file).is_relative_to(root):
+                owned[name] = module
+                sys.modules.pop(name, None)
+        state["modules"] = owned
+        sys.modules.update(saved)
+        sys.path[:] = old_path
+        importlib.invalidate_caches()
+
+
+def _close_source(state):
+    if state:
+        directory = state.get("directory")
+        state.clear()
+        if directory:
+            directory.cleanup()
+
+
+def _unpack_source(state, script):
+    marker = re.search(r"^# LumeBundle: ([A-Za-z0-9+/=]+)$", script, re.M)
+    if not marker:
+        return script, "imported_source.py"
+    bundle = json.loads(base64.b64decode(marker[1], validate=True))
+    files = bundle.get("files", {})
+    if len(files) > 256:
+        raise ValueError("源包文件过多")
+    directory = tempfile.TemporaryDirectory(prefix="lume_source_")
+    root = Path(directory.name)
+    state.update(directory=directory, root=str(root), entry=bundle["entry"])
+    total = 0
+    for name, encoded in files.items():
+        path = PurePosixPath(name)
+        if not name or path.is_absolute() or any(part in ("..", ".", "") for part in name.split('/')) or '\\' in name or ':' in name:
+            raise ValueError("源包路径越界")
+        if path.suffix.lower() in ('.so', '.pyd', '.dylib', '.fwork', '.dex', '.jar', '.apk'):
+            raise ValueError("源包原生代码须在 iOS 构建时签名；Java/DEX 需要 Android 后端")
+        data = base64.b64decode(encoded, validate=True)
+        total += len(data)
+        if total > 8 * 1024 * 1024:
+            raise ValueError("源包解压后超过 8MB")
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    entry = bundle["entry"]
+    if entry not in files:
+        raise ValueError("源包缺少入口")
+    target = root / entry
+    return target.read_bytes(), str(target)
+
+
+def _proxy_response(state, request):
+    spider = state["spider"]
+    if not state["initialized"]:
+        if _method(spider, "init"):
+            _invoke(spider, "init", (state.get("config", {}).get("extend", ""),))
+        state["initialized"] = True
+    params = dict(request.get("params") or {})
+    params.setdefault("headers", request.get("headers") or {})
+    result = _invoke(spider, "localProxy", (params,))
+    if not isinstance(result, (list, tuple)) or len(result) < 3:
+        raise ValueError("localProxy 须返回 [状态码, MIME, 响应体, 可选响应头, 可选Base64标记]")
+    status, mime, body = result[:3]
+    headers = result[3] if len(result) > 3 and isinstance(result[3], dict) else {}
+    if len(result) > 4 and str(result[4]) == '1':
+        body = base64.b64decode(body, validate=True)
+    elif isinstance(body, str):
+        body = body.encode('utf-8')
+    elif hasattr(body, 'read'):
+        body = body.read(6 * 1024 * 1024 + 1)
+    body = bytes(body)
+    if len(body) > 6 * 1024 * 1024:
+        raise ValueError("本地代理单次响应超过 6MB，请使用分段或 Range 请求")
+    return {"status": int(status), "mime": str(mime), "headers": headers, "body": base64.b64encode(body).decode()}
 
 
 def _decoded(value):
@@ -553,21 +651,20 @@ def execute(request):
     request = json.loads(request)
     source_id, action = request["sourceId"], request["action"]
     if action == "dispose":
-        state = _contexts.pop(source_id, None)
-        if state:
-            # Drop sessions and namespace without running arbitrary destroy code.
-            state.clear()
+        _close_source(_contexts.pop(source_id, None))
         return {"ok": True, "value": None}
     if action == "load":
         state = {"source_id": source_id, "cache": {}, "config": {}, "initialized": False}
-        _contexts.pop(source_id, None)
+        _close_source(_contexts.pop(source_id, None))
+        _contexts[source_id] = state
+        source, filename = _unpack_source(state, request["script"])
         with _budget(state, request.get("timeout", 15)):
-            source = request["script"]
-            encoded = re.search(r"^# LumePythonBytes: ([A-Za-z0-9+/=]+)$", source, re.M)
+            encoded = re.search(r"^# LumePythonBytes: ([A-Za-z0-9+/=]+)$", source, re.M) if isinstance(source, str) else None
             if encoded:
                 source = base64.b64decode(encoded[1], validate=True)
-            namespace = {"__name__": "lume_import_" + source_id, "__file__": "imported_source.py"}
-            exec(compile(source, "imported_source.py", "exec"), namespace)
+            package = '.'.join(PurePosixPath(state.get('entry', '')).parts[:-1])
+            namespace = {"__name__": (package + '.main') if package else "lume_import_" + source_id, "__package__": package, "__file__": filename}
+            exec(compile(source, filename, "exec"), namespace)
             cls = namespace.get("Spider")
             spider = cls() if isinstance(cls, type) else namespace.get("spider") or types.SimpleNamespace(**namespace)
             for name in ("detailContent", "playerContent"):
@@ -587,8 +684,6 @@ def execute(request):
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imports.add(node.module.split('.')[0])
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr == "getProxyUrl":
-                    warnings.append("含本地代理接口 getProxyUrl；对应路径需要外部代理后端")
                 if isinstance(node.func.value, ast.Name) and node.func.value.id in ("os", "subprocess") and node.func.attr in ("system", "popen", "Popen", "run", "fork", "execv"):
                     warnings.append("含系统进程接口；iOS 无法执行该路径")
         for name in sorted(imports):
@@ -610,7 +705,7 @@ def execute(request):
         state["spider"].config = state["config"]
         return {"ok": True, "value": None}
     with _budget(state, request.get("timeout", 30)):
-        return {"ok": True, "value": _dispatch(state, request["method"], request.get("argument"))}
+        return {"ok": True, "value": _proxy_response(state, request) if action == "proxy" else _dispatch(state, request["method"], request.get("argument"))}
 
 
 def run(request):
@@ -621,9 +716,15 @@ def run(request):
             raise ValueError("Python 源结果超过 8MB")
         return encoded
     except Exception as error:
+        try:
+            failed = json.loads(request)
+            if failed.get("action") == "load":
+                _close_source(_contexts.pop(failed.get("sourceId"), None))
+        except (ValueError, AttributeError):
+            pass
         if isinstance(error, (TimeoutError, MemoryError)):
             try:
-                _contexts.pop(json.loads(request).get("sourceId"), None)
+                _close_source(_contexts.pop(json.loads(request).get("sourceId"), None))
             except (ValueError, AttributeError):
                 pass
         # No traceback or arguments: these often include tokens and passwords.

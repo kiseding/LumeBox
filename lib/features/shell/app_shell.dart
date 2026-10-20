@@ -22,7 +22,6 @@ import '../../core/source/source.dart';
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
-import '../cat/cat_page.dart';
 import '../cat/cat_preloader.dart';
 import '../../core/cat/cat_service.dart';
 import '../comic/comic_page.dart';
@@ -158,14 +157,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       builder: () => const VideoSourceHub(),
     ),
     _ShellTab(
-      id: ShellTab.all[2].id,
-      label: Section.cat.label,
-      icon: Icons.pets_outlined,
-      selectedIcon: Icons.pets_rounded,
-      builder: () => const CatPage(),
-    ),
-    _ShellTab(
-      id: ShellTab.all[3].id,
+      id: ShellTab.settingsId,
       label: '设置',
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings_rounded,
