@@ -14,6 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".cache/python-source-runtime/packages"))
+sys.path.insert(0, str(ROOT / "assets/python"))
 USER_SCRIPTS = []
 CALLS = []
 
@@ -58,9 +59,13 @@ def invoke(raw):
 native = types.ModuleType("_lume_host")
 native.invoke = invoke
 sys.modules["_lume_host"] = native
-spec = importlib.util.spec_from_file_location("lume_python", ROOT / "assets/python/lume_python.py")
-host = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(host)
+if "lume_python" in sys.modules:
+    host = sys.modules["lume_python"]
+    host._lume_host = native
+else:
+    spec = importlib.util.spec_from_file_location("lume_python", ROOT / "assets/python/lume_python.py")
+    host = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(host)
 
 FIXTURE = '''
 from base.spider import Spider
@@ -135,6 +140,76 @@ class HostTests(unittest.TestCase):
         self.assertFalse(call("fixture", method="categories")["ok"])
         bad = call("bad", "load", script="import a_missing_spider_dependency\n" + FIXTURE)
         self.assertIn("a_missing_spider_dependency", bad["error"]["message"])
+
+    def test_threadpool_retains_source_identity(self):
+        source = FIXTURE + '''
+    def homeVideoContent(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            replies = list(executor.map(lambda _: self.fetch('https://fixture.invalid/cookie').json(), range(2)))
+        assert all(reply['ok'] for reply in replies)
+        return {'list':[{'vod_id':'thread','vod_name':'线程通过'}]}
+'''
+        self.assertTrue(call("fixture", "load", script=source)["ok"])
+        self.assertEqual(self.value("home")[0]["title"], "线程通过")
+        self.assertTrue(all(request["sourceId"] == "fixture" for request in CALLS))
+
+    def test_aliases_alternate_signatures_and_function_modules(self):
+        source = '''
+def initialize(): pass
+def getHomeContent(): return {'class':[{'type_id':'1','type_name':'电影'}]}
+def getCategoryContent(tid, pg=1, extend=None):
+    assert isinstance(pg, int)
+    return {'list':[{'vod_id':'id','vod_name':extend['year']}], 'page':pg, 'pagecount':3}
+def search(key, page=1):
+    assert isinstance(page, int)
+    return {'list':[{'vod_id':'id','vod_name':str(page)}]}
+def getDetailContent(ids): return {'list':[{'vod_id':ids[0],'vod_name':'别名'}]}
+def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4'}
+'''
+        self.assertTrue(call('fixture', 'load', script=source)['ok'])
+        self.assertEqual(self.value('categories')[0]['title'], '电影')
+        self.assertEqual(self.value('list', {'keyword':'q','page':2})['items'][0]['title'], '2')
+        self.assertEqual(self.value('list', {'categoryId':'1','page':2,'filters':{'year':'2026'}})['items'][0]['title'], '2026')
+        self.assertEqual(self.value('detail', {'id':'id'})['title'], '别名')
+
+    def test_xpath_pyquery_httpx_and_async_client(self):
+        source = FIXTURE + '''
+    def homeVideoContent(self):
+        import asyncio, httpx
+        from lxml import etree, html
+        from pyquery import PyQuery as pq
+        document = etree.HTML('<div class="cards"><a href="/one">第一集</a><a href="/two">第二集</a></div>')
+        assert document.xpath('//div[contains(@class,"cards")]/a/@href') == ['/one', '/two']
+        assert document.xpath('count(//a)') == 2
+        assert document.xpath('//a')[0].getparent().tag == 'div'
+        assert pq('<a href="/one">第一集</a>')('a').attr('href') == '/one'
+        assert self.cleanText('<b>文字</b>') == '文字'
+        assert httpx.get('https://fixture.invalid/cookie').json()['ok']
+        async def run():
+            async with httpx.AsyncClient() as client:
+                return (await client.get('https://fixture.invalid/cookie')).json()['ok']
+        assert asyncio.run(run())
+        return {'list':[{'vod_id':'https://fixture.invalid/album/1','vod_name':'通用兼容'}]}
+'''
+        result = call('fixture', 'load', script=source)
+        self.assertTrue(result['ok'], result)
+        item = self.value('home')[0]
+        self.assertEqual(item['title'], '通用兼容')
+        self.assertEqual(item['id'], 'py:https://fixture.invalid/album/1')
+
+    def test_legacy_encoding_and_dependency_diagnostics(self):
+        encoded = base64.b64encode(('# coding: gbk\n' + FIXTURE).encode('gbk')).decode()
+        result = call('fixture', 'load', script='# LumePythonBytes: ' + encoded)
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(self.value('categories')[0]['title'], '电影')
+        optional = FIXTURE + '\n    def android_only(self):\n        from java.lang import Runtime\n'
+        result = call('fixture', 'load', script=optional)
+        self.assertTrue(result['ok'], result)
+        self.assertTrue(any('Android' in item for item in result['value']['warnings']))
+        from Crypto.Hash import SHA256, HMAC
+        self.assertEqual(SHA256.new(b'abc').hexdigest(), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+        self.assertEqual(len(HMAC.new(b'key', b'message', SHA256).digest()), 32)
 
     def test_cpu_timeout_and_web_parse(self):
         source = FIXTURE.replace("def homeContent(self, filter): return", "def homeContent(self, filter):\n        while True:\n            pass\n        return")

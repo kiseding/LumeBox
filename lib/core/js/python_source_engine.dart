@@ -23,7 +23,9 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   static final _clients = <String, LumeHttp>{};
   static bool _installed = false;
   bool _disposed = false;
+  bool isPoisoned = false;
   Set<String> _methods = {};
+  List<String> _warnings = [];
   SourceMetadata? _metadata;
 
   @override
@@ -96,13 +98,16 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
       final reply = await channel
           .invokeMethod<String>('execute', {...args, 'sourceId': sourceId})
           .timeout(const Duration(seconds: 65));
-      return SandboxResult.fromJson(reply ?? '');
+      final result = SandboxResult.fromJson(reply ?? '');
+      if (result.error?.kind.poisonsContext ?? false) isPoisoned = true;
+      return result;
     } on MissingPluginException {
       return const SandboxFailure(
         SandboxErrorKind.unsupported,
         '此安装包未包含 Python 运行环境',
       );
     } on TimeoutException {
+      isPoisoned = true;
       return const SandboxFailure(
         SandboxErrorKind.timeout,
         'Python 源执行超时，请重新选择',
@@ -131,6 +136,9 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     _methods = value is Map && value['methods'] is List
         ? (value['methods'] as List).cast<String>().toSet()
         : {};
+    _warnings = value is Map && value['warnings'] is List
+        ? (value['warnings'] as List).map((e) => '$e').toList()
+        : [];
     loadFailure = null;
     return true;
   }
@@ -145,6 +153,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
           'name': _metadata!.name,
           'version': _metadata!.version,
           'category': 'video',
+          'compatibilityWarnings': _warnings,
         };
   @override
   Future<void> applyScriptConfig(Map<String, Object?> config) async {
@@ -186,6 +195,33 @@ class PythonCrypto {
     final algorithm = payload['algorithm'];
     final mode = payload['mode'];
     if (data.length > 8 * 1024 * 1024) throw const FormatException('加密数据过大');
+    if (algorithm == 'aes' && [3, 5, 6].contains(mode)) {
+      final iv = bytes('iv');
+      if (![16, 24, 32].contains(key.length) || iv.length != 16) {
+        throw const FormatException('AES 密钥或 IV 长度不正确');
+      }
+      if (mode == 6) {
+        final cipher = SICStreamCipher(AESEngine())
+          ..init(encrypt, ParametersWithIV(KeyParameter(key), iv));
+        return base64Encode(cipher.process(data));
+      }
+      final bits = mode == 3 ? (payload['segmentSize'] as int? ?? 8) : 128;
+      if (bits < 8 || bits > 128 || bits % 8 != 0) {
+        throw const FormatException('AES CFB segment_size 应为 8 的倍数且不超过 128');
+      }
+      final size = bits ~/ 8;
+      final cipher = mode == 3
+          ? CFBBlockCipher(AESEngine(), size)
+          : OFBBlockCipher(AESEngine(), size);
+      cipher.init(encrypt, ParametersWithIV(KeyParameter(key), iv));
+      final padded = Uint8List(((data.length + size - 1) ~/ size) * size)
+        ..setRange(0, data.length, data);
+      final result = Uint8List(padded.length);
+      for (var offset = 0; offset < padded.length; offset += size) {
+        cipher.processBlock(padded, offset, result, offset);
+      }
+      return base64Encode(Uint8List.sublistView(result, 0, data.length));
+    }
     if (algorithm == 'aes' && (mode == 1 || mode == 2)) {
       if (![16, 24, 32].contains(key.length) || data.length % 16 != 0) {
         throw const FormatException('AES 密钥或数据长度不正确');
@@ -232,7 +268,7 @@ class PythonCrypto {
       return base64Encode(Uint8List.sublistView(output, 0, written + tail));
     } else {
       throw const FormatException(
-        'Python 加密接口仅支持 AES ECB/CBC/GCM 与 ChaCha20-Poly1305',
+        'Python 加密接口支持 AES ECB/CBC/CFB/OFB/CTR/GCM 与 ChaCha20-Poly1305',
       );
     }
   }

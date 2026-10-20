@@ -85,7 +85,8 @@ def embed(output):
     shutil.copytree(runtime / "lib", destination / "lib", ignore=shutil.ignore_patterns("__pycache__", "test", "tests"))
     shutil.copytree(slice_path / ("lib-" + architecture), destination / "lib", dirs_exist_ok=True)
     shutil.copytree(output / "packages", destination / "packages", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy2(ROOT / "assets/python/lume_python.py", destination)
+    shutil.copytree(ROOT / "assets/python", destination, dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__"))
 
     frameworks = app / "Frameworks"
     frameworks.mkdir(exist_ok=True)

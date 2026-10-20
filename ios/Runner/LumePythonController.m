@@ -18,7 +18,8 @@ static PyObject *LumeHostInvoke(PyObject *self, PyObject *args) {
   LumePythonController *host = LumePythonHost;
   NSString *json = [NSString stringWithUTF8String:request];
   NSString *source = host.activeSource;
-  if (!json || !source) {
+  NSDictionary *decoded = json ? [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+  if (!json || !source || ![decoded isKindOfClass:NSDictionary.class] || ![source isEqual:decoded[@"sourceId"]]) {
     PyErr_SetString(PyExc_RuntimeError, "Python host is unavailable");
     return NULL;
   }

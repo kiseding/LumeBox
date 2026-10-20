@@ -236,7 +236,8 @@ enum SourceTestStatus {
 
 /// 图源导入结果：成功携带描述符，失败携带可读原因。
 class SourceImportResult {
-  const SourceImportResult.success(this.descriptor) : message = null;
+  const SourceImportResult.success(this.descriptor, {String? note})
+    : message = note;
 
   const SourceImportResult.failure(this.message) : descriptor = null;
 

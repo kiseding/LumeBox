@@ -47,6 +47,23 @@ void main() {
     }
   });
 
+  test('非 UTF-8 Python 文件保留字节，交由 CPython 按编码声明解码', () {
+    final script = SourcePackage.fromBytes([
+      ...ascii.encode('# coding: latin-1\nclass Spider:\n    title="'),
+      0xe9,
+      ...ascii.encode('"\n'),
+    ], name: 'legacy.py');
+    expect(script, contains('# LumePythonBytes: '));
+    expect(SourcePackage.kindOf(script), SourcePackageKind.python);
+    final utf8Script = SourcePackage.fromBytes([
+      0xef,
+      0xbb,
+      0xbf,
+      ...utf8.encode(python),
+    ], name: 'bom.py');
+    expect(utf8Script, isNot(contains('\ufeff')));
+  });
+
   test('模块只改语法 token，不篡改字符串和注释', () {
     final wrapped = ModuleScript.wrap(r'''
 // export default and module.exports in a comment
@@ -114,6 +131,35 @@ export default {list};
       ),
       throwsA(anything),
     );
+  });
+
+  test('AES CTR 对照 NIST 向量，CFB / OFB 支持不足一块的文本', () {
+    List<int> unhex(String value) => [
+      for (var i = 0; i < value.length; i += 2)
+        int.parse(value.substring(i, i + 2), radix: 16),
+    ];
+    final request = payload(
+      'cbc',
+      data: base64Encode(unhex('6bc1bee22e409f96e93d7e117393172a')),
+    );
+    request['mode'] = 6;
+    request['key'] = base64Encode(unhex('2b7e151628aed2a6abf7158809cf4f3c'));
+    request['iv'] = base64Encode(unhex('f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff'));
+    expect(hex(PythonCrypto.run(request)), '874d6191b620e3261bef6864990db6ce');
+    for (final mode in [3, 5]) {
+      final input = base64Encode(utf8.encode('不足一块'));
+      final settings = {
+        ...request,
+        'mode': mode,
+        'segmentSize': 128,
+        'data': input,
+      };
+      final encrypted = PythonCrypto.run(settings);
+      expect(
+        PythonCrypto.run({...settings, 'encrypt': false, 'data': encrypted}),
+        input,
+      );
+    }
   });
 
   test('XChaCha20 Poly1305 使用独立 libsodium 向量并校验认证标签', () {

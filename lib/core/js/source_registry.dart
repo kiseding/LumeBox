@@ -14,12 +14,14 @@ import 'lume_js_engine.dart';
 import 'source_engine.dart';
 import 'source_script.dart';
 import '../source/source_package.dart';
+import 'python_source_engine.dart';
 
 /// 图源导入结果：成功携带落库记录，失败携带可读原因。
 ///
 /// 只表达「校验与落库」这一步的结论，不含任何展示口径；上层据此组织提示。
 class SourceImportOutcome {
-  const SourceImportOutcome.success(this.record) : message = null;
+  const SourceImportOutcome.success(this.record, {String? note})
+    : message = note;
 
   const SourceImportOutcome.failure(this.message) : record = null;
 
@@ -193,7 +195,9 @@ class SourceRegistry {
       LumeLog.warn('[${section.id}] 当前平台不提供源引擎');
       return const SourceImportOutcome.failure('当前平台不提供源引擎');
     }
-    final text = SourcePackage.prepare(script, originUrl: originUrl);
+    final text = stripScriptBom(
+      SourcePackage.prepare(script, originUrl: originUrl),
+    );
     final probe = await SourceEngineRegistry.createForScript(
       script: text,
       kind: CatEngineSettings.engineKindFor(section, _database),
@@ -273,7 +277,13 @@ class SourceRegistry {
       if (record == null) {
         return const SourceImportOutcome.failure('源写入本板块库失败');
       }
-      return SourceImportOutcome.success(record);
+      final warnings = rawMetadata?['compatibilityWarnings'];
+      return SourceImportOutcome.success(
+        record,
+        note: warnings is List && warnings.isNotEmpty
+            ? warnings.join('\n')
+            : null,
+      );
     } finally {
       probe.dispose();
     }
@@ -507,7 +517,8 @@ class SourceRegistry {
   /// 调用方（数据源适配层）只依赖 [SourceEngine] 的四套能力。
   Future<SourceEngine?> engineFor(String sourceId) async {
     final existing = _engines[sourceId];
-    if (existing is QuickJsSourceEngine && existing.engine.isPoisoned) {
+    if (existing is QuickJsSourceEngine && existing.engine.isPoisoned ||
+        existing is PythonSourceEngine && existing.isPoisoned) {
       release(sourceId);
     } else if (existing != null) {
       return existing;

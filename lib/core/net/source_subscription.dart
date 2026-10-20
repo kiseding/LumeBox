@@ -145,17 +145,25 @@ class SourceSubscription {
       // 记**校验清单**的地址：更新时重新核对 MD5 才是它存在的意义。
       return <SourceScriptRef>[
         SourceScriptRef(
-          script: SourcePackage.prepare(entity.text, originUrl: url),
+          script: SourcePackage.fromBytes(
+            entity.bytes,
+            name: Uri.parse(target).pathSegments.lastOrNull ?? '',
+            originUrl: url,
+          ),
           url: url,
         ),
       ];
     }
 
     // 形态二：正文就是脚本。
-    if (looksLikeScript(download.text)) {
+    if (looksLikeScript(download.text) ||
+        Uri.parse(url).path.toLowerCase().endsWith('.py')) {
       return <SourceScriptRef>[
         SourceScriptRef(
-          script: SourcePackage.prepare(download.text, originUrl: url),
+          script: SourcePackage.prepare(
+            SourcePackage.fromBytes(download.bytes, originUrl: url),
+            originUrl: url,
+          ),
           url: url,
         ),
       ];

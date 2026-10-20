@@ -93,7 +93,7 @@ class SourceImportOutcome {
       // 弹窗与「复制明细」里能看到完整内容。
       return originUrl.trim().isEmpty ? head : '$head\n地址：$originUrl';
     }
-    return '${status.label}：$name${subscription ? '（订阅）' : ''}';
+    return '${status.label}：$name${subscription ? '（订阅）' : ''}${message.isEmpty ? '' : '\n$message'}';
   }
 }
 
@@ -282,6 +282,7 @@ Future<bool> importSources(
             ? SourceImportStatus.overwritten
             : SourceImportStatus.added,
         name: descriptor.name,
+        message: result.message ?? '',
         subscription: item.isSubscription,
       ),
     );
@@ -308,7 +309,9 @@ Future<void> _report(
   String? sectionLabel,
 }) async {
   final failures = outcomes.where((outcome) => outcome.isFailure).length;
-  if (outcomes.length < 2 && failures == 0) {
+  if (outcomes.length < 2 &&
+      failures == 0 &&
+      outcomes.every((outcome) => outcome.message.isEmpty)) {
     final line = outcomes.isEmpty ? '没有可导入的内容' : outcomes.first.describe();
     // 板块名放在前面（「猫源 · 已导入：X（订阅）」）：单条结论里已经有「（订阅）」
     // 这类括号，再往后接一个「（猫源）」会读成两层括号。

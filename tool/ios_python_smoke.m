@@ -52,7 +52,11 @@ static PyObject *InitHost(void) { return PyModule_Create(&Module); }
       "loaded = json.loads(lume_python.run(json.dumps({'sourceId':'smoke','action':'load','script':script})))\n"
       "assert loaded['ok'], loaded\n"
       "called = json.loads(lume_python.run(json.dumps({'sourceId':'smoke','action':'call','method':'categories'})))\n"
-      "assert called['ok'] and called['value'][0]['title'] == 'Movie', called\n";
+      "assert called['ok'] and called['value'][0]['title'] == 'Movie', called\n"
+      "import unittest, test_python_sources\n"
+      "suite = unittest.defaultTestLoader.loadTestsFromTestCase(test_python_sources.HostTests)\n"
+      "result = unittest.TextTestRunner(verbosity=2).run(suite)\n"
+      "assert result.wasSuccessful(), 'Embedded Spider compatibility tests failed'\n";
     int code = PyRun_SimpleString(test);
     fprintf(stderr, code == 0 ? "LUME_PYTHON_SMOKE_OK\n" : "LUME_PYTHON_SMOKE_FAILED script\n");
     fflush(stderr);

@@ -92,7 +92,7 @@ class LumeSources {
     if (record == null) {
       return SourceImportResult.failure(outcome.message ?? '源导入失败');
     }
-    return SourceImportResult.success(_describe(record));
+    return SourceImportResult.success(_describe(record), note: outcome.message);
   }
 
   /// 板块内当前图源：没有显式选择时回退到第一个启用的图源；

@@ -9,12 +9,48 @@ enum SourcePackageKind { javascript, python, module }
 /// Runtime markers live with the script, so backup, refresh and restore retain
 /// the selected interpreter without a database migration.
 class SourcePackage {
+  /// Preserve legacy PEP 263 encodings for CPython to decode (GBK etc.).
+  static String fromBytes(
+    List<int> bytes, {
+    String name = '',
+    String originUrl = '',
+  }) {
+    final preview = utf8.decode(bytes, allowMalformed: true);
+    final python =
+        name.toLowerCase().endsWith('.py') ||
+        (Uri.tryParse(originUrl)?.path.toLowerCase().endsWith('.py') ??
+            false) ||
+        kindOf(preview) == SourcePackageKind.python;
+    if (!python) return preview;
+    try {
+      final script = stripScriptBom(utf8.decode(bytes));
+      return prepare(
+        '# LumeRuntime: python\n$script',
+        name: name,
+        originUrl: originUrl,
+      );
+    } on FormatException {
+      return prepare(
+        '# LumeRuntime: python\n# LumePythonBytes: ${base64Encode(bytes)}',
+        name: name,
+        originUrl: originUrl,
+      );
+    }
+  }
+
   static SourcePackageKind kindOf(String script) {
     if (RegExp(
           r'^\s*#\s*LumeRuntime:\s*python',
           multiLine: true,
         ).hasMatch(script) ||
-        RegExp(r'^class\s+Spider\s*\(', multiLine: true).hasMatch(script)) {
+        RegExp(
+          r'^class\s+Spider\s*(?:\(|:)',
+          multiLine: true,
+        ).hasMatch(script) ||
+        RegExp(
+          r'^def\s+(?:homeContent|getHomeContent)\s*\(',
+          multiLine: true,
+        ).hasMatch(script)) {
       return SourcePackageKind.python;
     }
     if (RegExp(
@@ -39,7 +75,7 @@ class SourcePackage {
   static String prepare(String raw, {String name = '', String originUrl = ''}) {
     final script = stripScriptBom(raw);
     final kind = kindOf(script);
-    if (kind == SourcePackageKind.javascript) return script;
+    if (kind == SourcePackageKind.javascript) return raw;
     final prefix = kind == SourcePackageKind.python ? '#' : '//';
     final marker = '$prefix LumeRuntime: ${kind.name}';
     final metadata = SourceMetadata.parseHeader(script);

@@ -8,9 +8,17 @@ import contextvars
 import io
 import json
 import re
+import os
+import hashlib
+import hmac
 import sys
 import time
+import threading
 import types
+import inspect
+import ast
+import importlib.util
+import warnings as python_warnings
 import urllib.error
 import urllib.request
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
@@ -22,6 +30,54 @@ from requests.structures import CaseInsensitiveDict
 
 _contexts = {}
 _active = contextvars.ContextVar("lume_source")
+_aliases = {
+    "init": ("init", "initialize"),
+    "homeContent": ("homeContent", "getHomeContent", "home"),
+    "homeVideoContent": ("homeVideoContent", "getHomeVideoContent", "homeVod"),
+    "categoryContent": ("categoryContent", "getCategoryContent", "category"),
+    "searchContent": ("searchContent", "getSearchContent", "search"),
+    "detailContent": ("detailContent", "getDetailContent", "detail"),
+    "playerContent": ("playerContent", "getPlayerContent", "play"),
+}
+
+
+def _method(spider, name):
+    for alias in _aliases.get(name, (name,)):
+        candidate = getattr(spider, alias, None)
+        if callable(candidate):
+            return candidate
+    return None
+
+
+def _invoke(spider, name, args=(), named=None):
+    function = _method(spider, name)
+    if function is None:
+        raise ValueError("Python 源缺少接口：" + name)
+    parameters = list(inspect.signature(function).parameters.values())
+    if any(p.kind == p.VAR_POSITIONAL for p in parameters):
+        return function(*args)
+    named = named or {}
+    positional, keywords = [], {}
+    index = 0
+    for param in parameters:
+        if param.kind == param.VAR_KEYWORD:
+            continue
+        if param.name.lower() in named:
+            value = named[param.name.lower()]
+        elif index < len(args):
+            value = args[index]
+        elif param.default != param.empty:
+            continue
+        else:
+            raise ValueError("Python 接口参数不兼容：" + name + "." + param.name)
+        if param.name.lower() in ("pg", "page", "pagenum", "pagenumber"):
+            value = int(value) if param.annotation is int or isinstance(param.default, int) else str(value)
+        if param.kind == param.KEYWORD_ONLY:
+            keywords[param.name] = value
+        else:
+            positional.append(value)
+            index += 1
+    return function(*positional, **keywords)
 
 
 def _host(method, payload):
@@ -31,6 +87,7 @@ def _host(method, payload):
         raise TimeoutError("Python 源执行超时")
     reply = json.loads(_lume_host.invoke(json.dumps({
         "method": method, "payload": payload,
+        "sourceId": state["source_id"],
         "timeout": min(remaining, 30),
     })))
     if not reply.get("ok"):
@@ -75,6 +132,7 @@ _original_session_init = requests.Session.__init__
 def _session_init(self):
     _original_session_init(self)
     self.trust_env = False
+    self.headers.pop("User-Agent", None)
     self.mount("http://", _HttpAdapter())
     self.mount("https://", _HttpAdapter())
 
@@ -182,11 +240,39 @@ class _Spider:
         # Script output can contain credentials; it is deliberately not exported.
         pass
 
-    def getCache(self, key):
-        return _active.get()["cache"].get(str(key))
+    def html(self, text):
+        from lxml import etree
+        return etree.HTML(text)
 
-    def setCache(self, key, value):
-        _active.get()["cache"][str(key)] = value
+    htmlParser = html
+
+    def getText(self, document, xpath):
+        values = document.xpath(xpath)
+        return values[0] if isinstance(values, list) and values else values if not isinstance(values, list) else ""
+
+    def getArray(self, document, xpath):
+        values = document.xpath(xpath)
+        return values if isinstance(values, list) else [values]
+
+    def regStr(self, pattern, text, index=1):
+        match = re.search(pattern, text)
+        return match.group(index) if match else ""
+
+    def cleanText(self, text):
+        from bs4 import BeautifulSoup
+        return BeautifulSoup(text or "", "html.parser").get_text(" ", strip=True)
+
+    def getCache(self, key):
+        value = _active.get()["cache"].get(str(key))
+        if isinstance(value, tuple) and len(value) == 2:
+            if value[0] and time.monotonic() > value[0]:
+                self.delCache(key)
+                return None
+            return value[1]
+        return value
+
+    def setCache(self, key, value, expire=0):
+        _active.get()["cache"][str(key)] = (time.monotonic() + expire if expire else 0, value)
 
     def delCache(self, key):
         _active.get()["cache"].pop(str(key), None)
@@ -198,9 +284,11 @@ class _Spider:
 _base = types.ModuleType("base")
 _spider = types.ModuleType("base.spider")
 _spider.Spider = _Spider
+_spider.SpiderBase = _Spider
 _base.spider = _spider
 sys.modules["base"] = _base
 sys.modules["base.spider"] = _spider
+sys.modules["spider"] = _spider
 
 
 def _crypto_module():
@@ -230,9 +318,10 @@ def _crypto_module():
     padding.pad, padding.unpad = pad, unpad
 
     class Cipher:
-        def __init__(self, algorithm, key, mode, iv=b"", nonce=b""):
+        def __init__(self, algorithm, key, mode, iv=b"", nonce=b"", segment_size=8):
             self.algorithm, self.key, self.mode = algorithm, bytes(key), mode
             self.iv, self.nonce, self.aad = bytes(iv), bytes(nonce), b""
+            self.segment_size = segment_size
 
         def update(self, data):
             self.aad += bytes(data)
@@ -244,6 +333,7 @@ def _crypto_module():
                 "key": encode(self.key), "iv": encode(self.iv),
                 "nonce": encode(self.nonce), "aad": encode(self.aad),
                 "data": encode(bytes(data) + bytes(tag)), "encrypt": encrypt,
+                "segmentSize": self.segment_size,
             })
             return base64.b64decode(value)
 
@@ -262,16 +352,69 @@ def _crypto_module():
 
     aes = types.ModuleType("Crypto.Cipher.AES")
     aes.MODE_ECB, aes.MODE_CBC, aes.MODE_GCM, aes.block_size = 1, 2, 11, 16
-    aes.new = lambda key, mode, iv=b"", **kw: Cipher("aes", key, mode, iv=kw.get("iv", iv), nonce=kw.get("nonce", b""))
+    aes.MODE_CFB, aes.MODE_OFB, aes.MODE_CTR = 3, 5, 6
+    def aes_new(key, mode, iv=b"", **kw):
+        if len(key) not in (16, 24, 32) or mode not in (1, 2, 3, 5, 6, 11):
+            raise ValueError("不支持的 AES 密钥长度或模式")
+        nonce = kw.get("nonce", os.urandom(12) if mode == 11 else b"")
+        if mode == 6:
+            if len(nonce) >= 16:
+                raise ValueError("AES CTR nonce 过长")
+            iv = nonce + int(kw.get("initial_value", 0)).to_bytes(16 - len(nonce), "big")
+        elif mode in (2, 3, 5):
+            iv = kw.get("iv", kw.get("IV", iv)) or os.urandom(16)
+        return Cipher("aes", key, mode, iv=iv, nonce=nonce, segment_size=kw.get("segment_size", 8))
+    aes.new = aes_new
     chacha = types.ModuleType("Crypto.Cipher.ChaCha20_Poly1305")
     chacha.new = lambda *, key, nonce: Cipher("chacha", key, 0, nonce=nonce)
     cipher.AES, cipher.ChaCha20_Poly1305 = aes, chacha
     crypto.Cipher, crypto.Util, util.Padding = cipher, util, padding
     for module in (crypto, cipher, aes, chacha, util, padding):
         sys.modules[module.__name__] = module
+    hashes = types.ModuleType("Crypto.Hash")
+    hashes.__path__ = []
+    for name in ("MD5", "SHA1", "SHA256", "SHA384", "SHA512"):
+        digest = types.ModuleType("Crypto.Hash." + name)
+        digest._name = name.lower()
+        digest.new = lambda data=b"", _name=name.lower(), **kw: hashlib.new(_name, data)
+        digest.digest_size = hashlib.new(name.lower()).digest_size
+        setattr(hashes, name, digest)
+        sys.modules[digest.__name__] = digest
+    hmac_module = types.ModuleType("Crypto.Hash.HMAC")
+    hmac_module.new = lambda key, msg=b"", digestmod=hashes.MD5: hmac.new(key, msg, digestmod if isinstance(digestmod, str) else digestmod._name)
+    hashes.HMAC = hmac_module
+    crypto.Hash = hashes
+    random = types.ModuleType("Crypto.Random")
+    random.get_random_bytes = os.urandom
+    crypto.Random = random
+    for module in (hashes, hmac_module, random):
+        sys.modules[module.__name__] = module
 
 
 _crypto_module()
+
+import lume_html
+import lume_httpx
+lume_html.install()
+lume_httpx.install(_host)
+
+# Spider search helpers sometimes use ThreadPoolExecutor. Bind each newly
+# created worker to its source context; contextvars do not inherit on 3.13.
+_thread_init = threading.Thread.__init__
+_thread_run = threading.Thread.run
+
+
+def _source_thread_init(self, *args, **kwargs):
+    _thread_init(self, *args, **kwargs)
+    self._lume_context = contextvars.copy_context()
+
+
+def _source_thread_run(self):
+    return self._lume_context.run(_thread_run, self)
+
+
+threading.Thread.__init__ = _source_thread_init
+threading.Thread.run = _source_thread_run
 
 
 @contextmanager
@@ -317,8 +460,8 @@ def _items(value):
 
 def _detail(state, item_id):
     if state.get("detail_id") != item_id:
-        value = _decoded(state["spider"].detailContent([item_id]))
-        entries = value.get("list", []) if isinstance(value, dict) else value
+        value = _decoded(_invoke(state["spider"], "detailContent", ([item_id],), {"ids": [item_id], "array": [item_id], "id": item_id, "vod_id": item_id}))
+        entries = value.get("list", [value] if value.get("vod_id") is not None else []) if isinstance(value, dict) else value
         state["detail"] = entries[0] if entries else {}
         state["detail_id"] = item_id
     return state["detail"]
@@ -327,13 +470,14 @@ def _detail(state, item_id):
 def _dispatch(state, method, arg):
     spider = state["spider"]
     if not state["initialized"]:
-        init = getattr(spider, "init", None)
-        if init:
-            init(state.get("config", {}).get("extend", ""))
+        if _method(spider, "init"):
+            _invoke(spider, "init", (state.get("config", {}).get("extend", ""),))
         state["initialized"] = True
     arg = arg or {}
     if method in ("categories", "filters"):
-        value = _decoded(spider.homeContent(True))
+        if not _method(spider, "homeContent"):
+            return []
+        value = _decoded(_invoke(spider, "homeContent", (True,)))
         if method == "categories":
             return [{"id": str(x["type_id"]), "title": str(x["type_name"])} for x in value.get("class", [])]
         groups = value.get("filters", {})
@@ -342,18 +486,22 @@ def _dispatch(state, method, arg):
                 for x in groups.get(str(arg.get("categoryId", "")), [])]
     if method in ("list", "home"):
         if arg.get("keyword"):
-            import inspect
-            search = spider.searchContent
-            if len(inspect.signature(search).parameters) >= 3:
-                raw = search(arg["keyword"], False, str(arg.get("page", 1)))
+            search = _method(spider, "searchContent")
+            if search is None:
+                return {"items": [], "hasMore": False}
+            parameters = list(inspect.signature(search).parameters.values())
+            if len(parameters) >= 3 or any(p.kind == p.VAR_POSITIONAL or p.name.lower() in ("page", "pg", "pagenum") for p in parameters):
+                raw = _invoke(spider, "searchContent", (arg["keyword"], False, arg.get("page", 1)), {"key": arg["keyword"], "keyword": arg["keyword"], "wd": arg["keyword"], "quick": False, "page": arg.get("page", 1), "pg": arg.get("page", 1)})
             elif arg.get("page", 1) == 1:
-                raw = search(arg["keyword"], False)
+                raw = _invoke(spider, "searchContent", (arg["keyword"], False))
             else:
                 return {"items": [], "hasMore": False}
         elif arg.get("categoryId"):
-            raw = spider.categoryContent(str(arg["categoryId"]), str(arg.get("page", 1)), True, arg.get("filters", {}))
+            if not _method(spider, "categoryContent"):
+                return {"items": [], "hasMore": False}
+            raw = _invoke(spider, "categoryContent", (str(arg["categoryId"]), arg.get("page", 1), True, arg.get("filters", {})), {"tid": str(arg["categoryId"]), "cid": str(arg["categoryId"]), "id": str(arg["categoryId"]), "pg": arg.get("page", 1), "page": arg.get("page", 1), "filter": True, "extend": arg.get("filters", {}), "ext": arg.get("filters", {}), "filters": arg.get("filters", {})})
         else:
-            raw = getattr(spider, "homeVideoContent", lambda: spider.homeContent(False))()
+            raw = _invoke(spider, "homeVideoContent") if _method(spider, "homeVideoContent") else _invoke(spider, "homeContent", (False,)) if _method(spider, "homeContent") else {"list": []}
         value = _decoded(raw)
         items = _items(value)
         if method == "home":
@@ -387,7 +535,7 @@ def _dispatch(state, method, arg):
         return chapters
     if method == "content":
         episode = json.loads(arg["chapterId"])
-        raw = _decoded(spider.playerContent(episode.get("flag", ""), episode["id"], []))
+        raw = _decoded(_invoke(spider, "playerContent", (episode.get("flag", ""), episode["id"], []), {"flag": episode.get("flag", ""), "id": episode["id"], "video_id": episode["id"], "vipflags": []}))
         url = str(raw.get("url", ""))
         if not url:
             raise ValueError("源未返回播放地址；请检查站点、外部解析后端或 Android 专属依赖")
@@ -407,21 +555,49 @@ def execute(request):
             state.clear()
         return {"ok": True, "value": None}
     if action == "load":
-        state = {"cache": {}, "config": {}, "initialized": False}
+        state = {"source_id": source_id, "cache": {}, "config": {}, "initialized": False}
         _contexts.pop(source_id, None)
         with _budget(state, request.get("timeout", 15)):
+            source = request["script"]
+            encoded = re.search(r"^# LumePythonBytes: ([A-Za-z0-9+/=]+)$", source, re.M)
+            if encoded:
+                source = base64.b64decode(encoded[1], validate=True)
             namespace = {"__name__": "lume_import_" + source_id, "__file__": "imported_source.py"}
-            exec(compile(request["script"], "imported_source.py", "exec"), namespace)
+            exec(compile(source, "imported_source.py", "exec"), namespace)
             cls = namespace.get("Spider")
-            if not isinstance(cls, type):
-                raise ValueError("Python 源必须声明 Spider 类")
-            spider = cls()
-            for name in ("homeContent", "categoryContent", "detailContent", "playerContent"):
-                if not callable(getattr(spider, name, None)):
+            spider = cls() if isinstance(cls, type) else namespace.get("spider") or types.SimpleNamespace(**namespace)
+            for name in ("detailContent", "playerContent"):
+                if not _method(spider, name):
                     raise ValueError("Python 源缺少接口：" + name)
+            if not any(_method(spider, name) for name in ("homeContent", "homeVideoContent", "categoryContent", "searchContent")):
+                raise ValueError("Python 源必须提供首页、分类或搜索接口")
             state.update(namespace=namespace, spider=spider)
             _contexts[source_id] = state
-        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content", "filters"] + (["home"] if hasattr(spider, "homeVideoContent") else [])}}
+        warnings = []
+        imports = set()
+        with python_warnings.catch_warnings(action="ignore", category=SyntaxWarning):
+            parsed = ast.parse(source)
+        for node in ast.walk(parsed):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name.split('.')[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module.split('.')[0])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "getProxyUrl":
+                    warnings.append("含本地代理接口 getProxyUrl；对应路径需要外部代理后端")
+                if isinstance(node.func.value, ast.Name) and node.func.value.id in ("os", "subprocess") and node.func.attr in ("system", "popen", "Popen", "run", "fork", "execv"):
+                    warnings.append("含系统进程接口；iOS 无法执行该路径")
+        for name in sorted(imports):
+            if name in ("java", "jnius", "android", "dalvik", "chaquopy"):
+                warnings.append("含 Android 专属依赖 " + name + "；对应功能需要其他实现或外部后端")
+            elif name not in sys.modules:
+                try:
+                    found = importlib.util.find_spec(name)
+                except (ValueError, ImportError, AttributeError):
+                    found = None
+                if found is None:
+                    warnings.append("含尚未内置的可选/延迟依赖：" + name)
+        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content"] + (["filters"] if _method(spider, "homeContent") else []) + (["home"] if _method(spider, "homeVideoContent") else []), "warnings": list(dict.fromkeys(warnings))}}
     state = _contexts.get(source_id)
     if state is None:
         raise ValueError("Python 源已释放，请重新选择")
@@ -441,6 +617,11 @@ def run(request):
             raise ValueError("Python 源结果超过 8MB")
         return encoded
     except Exception as error:
+        if isinstance(error, (TimeoutError, MemoryError)):
+            try:
+                _contexts.pop(json.loads(request).get("sourceId"), None)
+            except (ValueError, AttributeError):
+                pass
         # No traceback or arguments: these often include tokens and passwords.
         message = str(error)
         if isinstance(error, ModuleNotFoundError):

@@ -28,6 +28,7 @@ PY
 TARGET_BUILD_DIR="$RUNNER_TEMP" WRAPPER_NAME=LumePythonSmoke.app \
   PLATFORM_NAME=iphonesimulator CURRENT_ARCH="$ARCH" CODE_SIGNING_ALLOWED=YES \
   EXPANDED_CODE_SIGN_IDENTITY=- python3 tool/prepare_python_runtime.py --embed
+cp tool/test_python_sources.py "$APP/python/test_python_sources.py"
 codesign --force --sign - "$APP"
 DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPhone" in x["name"]))')
 xcrun simctl boot "$DEVICE" || true

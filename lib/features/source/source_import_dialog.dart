@@ -1,7 +1,5 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import 'dart:convert';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard;
@@ -17,6 +15,7 @@ import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 import 'source_import_flow.dart';
 import '../../core/source/source_subscription_sync.dart';
+import '../../core/source/source_package.dart';
 
 /// 一次导入请求：目标板块 + 待导入条目 + 没能进链路的条目 + 过程说明。
 class SourceImportRequest {
@@ -373,6 +372,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     Text(
       '脚本头部写一行「// LumeSource: {"id":"…","name":"…"}」即可被识别；'
       '只写顶层函数（getList(page) 等）的脚本同样支持。'
+      '视频板块还支持 Python Spider、ESM / CommonJS 单文件模块。'
+      'Python 源会执行代码，请仅导入可信来源。'
       '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
       '会按订阅逐个拉取并记下来源地址。',
       style: TextStyle(
@@ -533,7 +534,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       // 文件常带 UTF-8 BOM（EF BB BF）：解码后先剥掉再交出文本。
       result.add((
         name: file.name,
-        text: stripScriptBom(utf8.decode(bytes, allowMalformed: true)),
+        text: stripScriptBom(SourcePackage.fromBytes(bytes, name: file.name)),
       ));
     }
     return result;
