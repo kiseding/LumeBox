@@ -142,7 +142,7 @@ def embed(output):
         folder = frameworks / (module + ".framework")
         folder.mkdir(exist_ok=True)
         target = folder / module
-        subprocess.run(['/usr/bin/lipo', '-verify_arch', architecture, str(binary)], check=True)
+        subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', architecture], check=True)
         shutil.move(str(binary), target)
         identifier = os.environ.get("PRODUCT_BUNDLE_IDENTIFIER", "com.lumebox.app") + "." + module.replace("_", "-")
         with (folder / "Info.plist").open("wb") as handle:
