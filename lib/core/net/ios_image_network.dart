@@ -11,6 +11,10 @@ class IosImageNetwork {
       'url': request.url,
       'headers': request.headers,
       'method': request.method,
+      'followRedirects': request.followRedirects,
+      if (request.maxBytes != null) 'maxBytes': request.maxBytes,
+      if (request.bodyBytes != null)
+        'bodyBytes': Uint8List.fromList(request.bodyBytes!),
       if (request.body != null) 'body': request.body,
       if (request.reuseVerifiedSession) 'reuseVerification': true,
       'timeoutSeconds':

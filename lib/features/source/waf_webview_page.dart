@@ -6,9 +6,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/net/waf.dart';
 import '../../core/net/waf_auto_verify.dart';
+import '../../core/net/site_session_pool.dart';
+import '../../core/js/source_web_runtime.dart';
 
 // 兼容既有引用：这两个纯字符串工具的**定义**已搬到 core/net/waf.dart
 //（引擎层判 WAF 时也要用，core 不能反向依赖界面层），这里原样导出。
@@ -269,9 +272,31 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// 起播顺序：**先定 UA，再带头加载**（顺序反了第一次加载用的还是 WKWebView
   /// 默认 UA，那就是 CF 给白屏的那一份）。
   Future<void> _boot() async {
+    final retained = await SourceWebRuntime.verifyRetained(widget.url);
+    if (!mounted) return;
+    if (retained != null) {
+      if (retained['verified'] == true) {
+        final headers = await SiteSessionPool.shared.synchronize(
+          widget.url,
+          {},
+        );
+        widget.onCollected(parseJsCookie(headers['Cookie'] ?? ''));
+        widget.onUserAgent?.call('${retained['userAgent'] ?? ''}');
+      }
+      if (mounted)
+        Navigator.of(context).pop(retained['verified'] == true ? 1 : 0);
+      return;
+    }
     final controller = _controller;
     if (controller == null) return;
-    final ua = await _resolveUserAgent(controller);
+    if (controller.platform is WebKitWebViewController) {
+      await (controller.platform as WebKitWebViewController).setInspectable(
+        SiteSessionPool.shared.inspectable,
+      );
+    }
+    final ua =
+        SiteSessionPool.shared.userAgentFor(widget.url) ??
+        await _resolveUserAgent(controller);
     // **一定**要设 UA（[_resolveUserAgent] 保证非空）：不设就等于用 WKWebView
     // 默认那份（没有 `Safari/…` 段），CF 会给一张渲染不出勾选框的空页。
     try {
@@ -551,6 +576,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       cookies.addAll(
         webViewCookiesForUrl(list ?? const <Object?>[], widget.url),
       );
+      SiteSessionPool.shared.importCookies(list ?? []);
     } on MissingPluginException {
       LumeLog.info('[waf] 当前平台没有原生 Cookie 通道，只取 JS 可见的 Cookie');
     } catch (error) {
@@ -592,6 +618,10 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         'navigator.userAgent',
       );
       widget.onUserAgent?.call('$rawUa'.replaceAll('"', '').trim());
+      SiteSessionPool.shared.rememberPage(
+        widget.url,
+        userAgent: '$rawUa'.replaceAll('"', '').trim(),
+      );
     } catch (error) {
       LumeLog.info('[waf] 读取验证 UA 失败：$error');
     }

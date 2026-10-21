@@ -2,22 +2,94 @@ import Flutter
 import Foundation
 import WebKit
 import SwiftSoup
+import UIKit
+import CoreFoundation
+
+/// Shared by all managed off-screen WebKit readers, including legacy fallbacks.
+enum SourceWebBudget {
+  private(set) static var active = 0
+  static func take() -> Bool { if active >= 3 { return false }; active += 1; return true }
+  static func release() { active = max(0,active - 1) }
+}
 
 /// On-device source primitives. Uses the same persistent WebKit store as the
 /// visible login page. No browser process, downloaded runtime or remote service.
 final class SourceWebController {
   private var tasks: [String: SourceWebTask] = [:]
   private var parsingCount = 0
+  private var retained: SourceWebTask?
+  private var retainedID: String?
+  private var retainedExpiry: DispatchWorkItem?
+  private var memoryObserver: NSObjectProtocol?
+  private var inspectable = false
+  private static var seededCookies: Set<String> = []
+
+  init() {
+    memoryObserver = NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification,
+      object: nil, queue: .main) { [weak self] _ in
+        guard let self = self else { return }
+        for task in Array(self.tasks.values) { task.cancel() }
+        if self.retained?.isPresented != true { self.retained?.destroy(); self.retained = nil }
+        Self.clearTransientData(force:true)
+      }
+  }
+  deinit { if let observer = memoryObserver { NotificationCenter.default.removeObserver(observer) } }
+  private static var lastCleanup = Date.distantPast
+  private static func clearTransientData(force: Bool = false) {
+    if !force && (SourceWebBudget.active > 0 || Date().timeIntervalSince(lastCleanup) < 300) { return }
+    lastCleanup = Date()
+    URLCache.shared.removeAllCachedResponses()
+    // Login cookies and local storage are intentionally retained.
+    WKWebsiteDataStore.default().removeData(ofTypes: [WKWebsiteDataTypeMemoryCache, WKWebsiteDataTypeDiskCache],
+      modifiedSince: .distantPast) {}
+  }
+
   private let parsing = DispatchQueue(label: "lumebox.source.html", qos: .userInitiated)
 
   func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: "lumebox/source_web", binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self, let args = call.arguments as? [String: Any],
-            let id = args["requestId"] as? String else {
+      guard let self = self, let args = call.arguments as? [String: Any] else {
         result(FlutterError(code: "arguments", message: "网页请求参数无效", details: nil)); return
       }
+      let id = args["requestId"] as? String ?? ""
       switch call.method {
+      case "configure":
+        self.inspectable = args["inspectable"] as? Bool == true
+        for task in self.tasks.values { task.setInspectable(self.inspectable) }
+        self.retained?.setInspectable(self.inspectable)
+        let hosts = args["clearVerificationHosts"] as? [String] ?? []
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+          let group = DispatchGroup()
+          for cookie in cookies where ["cf_clearance","__cf_bm"].contains(cookie.name) {
+            let domain = cookie.domain.trimmingCharacters(in:CharacterSet(charactersIn:"."))
+            if hosts.contains(where: { $0==domain || (cookie.domain.hasPrefix(".") && $0.hasSuffix("."+domain)) }) {
+              group.enter(); WKWebsiteDataStore.default().httpCookieStore.delete(cookie) { group.leave() }
+            }
+          }
+          group.notify(queue:.main) { result(nil) }
+        }
+      case "session":
+        self.inspectable = args["inspectable"] as? Bool ?? self.inspectable
+        Self.session(args, result: result)
+      case "decodeText":
+        guard let encoded = args["body"] as? String, encoded.count <= 12 * 1024 * 1024,
+          let data = Data(base64Encoded: encoded) else {
+          result(FlutterError(code: "encoding", message: "文本编码输入无效", details: nil)); return
+        }
+        let label = args["charset"] as? String ?? "gb18030"
+        guard let text = Self.decodeText(data, charset:label) else {
+          result(FlutterError(code: "encoding", message: "无法识别或转换网页编码", details: nil)); return
+        }
+        result(text)
+      case "verify":
+        guard let task = self.retained, self.retainedID == id else { result(nil); return }
+        self.retainedExpiry?.cancel()
+        task.presentVerification { value in
+          self.retained = nil; self.retainedID = nil
+          result(value)
+          Self.clearTransientData()
+        }
       case "cancel":
         self.tasks[id]?.cancel()
         result(nil)
@@ -38,7 +110,7 @@ final class SourceWebController {
           }
         }
       case "render":
-        guard self.tasks.count < 4, self.tasks[id] == nil,
+        guard !id.isEmpty, self.tasks.count < 2, self.tasks[id] == nil,
               let text = args["url"] as? String, let url = URL(string: text),
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               url.host != nil, url.user == nil, url.password == nil,
@@ -48,14 +120,77 @@ final class SourceWebController {
         guard self.tasks.values.filter({ $0.host == url.host }).count < 2 else {
           result(FlutterError(code: "browser_busy", message: "该站点网页请求过于频繁，请稍后重试", details: nil)); return
         }
-        let task = SourceWebTask(url: url, options: args) { [weak self] value in
-          self?.tasks.removeValue(forKey: id)
+        var settings = args
+        settings["inspectable"] = self.inspectable
+        let task = SourceWebTask(url: url, options: settings) { [weak self] value in
+          guard let self = self else { return }
+          let finished = self.tasks.removeValue(forKey: id)
+          if let error = value as? FlutterError, error.code == "verification", let task = finished {
+            self.retained?.destroy()
+            self.retained = task; self.retainedID = id
+            self.retainedExpiry?.cancel()
+            let expiry = DispatchWorkItem { [weak self] in
+              guard self?.retainedID == id else { return }
+              self?.retained?.destroy(); self?.retained = nil; self?.retainedID = nil
+            }
+            self.retainedExpiry = expiry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: expiry)
+          } else if self.tasks.isEmpty && self.retained == nil { Self.clearTransientData() }
           result(value)
         }
         self.tasks[id] = task
         task.start()
       default: result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  static func decodeText(_ data: Data, charset: String) -> String? {
+    if data.starts(with:[0xff,0xfe]) { return String(data:data,encoding:.utf16LittleEndian) }
+    if data.starts(with:[0xfe,0xff]) { return String(data:data,encoding:.utf16BigEndian) }
+    let cf = CFStringConvertIANACharSetNameToEncoding(charset as CFString)
+    guard cf != kCFStringEncodingInvalidId else { return nil }
+    return String(data:data,encoding:String.Encoding(rawValue:CFStringConvertEncodingToNSStringEncoding(cf)))
+  }
+
+  private static func session(_ args: [String: Any], result: @escaping FlutterResult) {
+    guard let address = args["url"] as? String, let url = URL(string: address),
+      ["http","https"].contains(url.scheme ?? ""), let host = url.host else {
+      result(FlutterError(code: "arguments", message: "站点地址无效", details: nil)); return
+    }
+    let store = WKWebsiteDataStore.default().httpCookieStore
+    let headers = args["headers"] as? [String:String] ?? [:]
+    store.getAllCookies { current in
+    let group = DispatchGroup()
+    // Explicit script/config cookies are host-only; never broaden their domain.
+    for pair in (headers.first { $0.key.lowercased() == "cookie" }?.value ?? "").split(separator: ";").prefix(128) {
+      let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+      if parts.count != 2 { continue }
+      let name = parts[0].trimmingCharacters(in: .whitespaces)
+      let identity = host + "|" + name
+      if seededCookies.contains(identity) { continue }
+      if seededCookies.count >= 1024 { seededCookies.removeAll() }
+      seededCookies.insert(identity)
+      if current.contains(where: { $0.name == name && ($0.domain.trimmingCharacters(in: CharacterSet(charactersIn:".")) == host || host.hasSuffix($0.domain)) }) { continue }
+      var properties: [HTTPCookiePropertyKey: Any] = [.name: parts[0].trimmingCharacters(in: .whitespaces),
+        .value: String(parts[1]), .domain: host, .path: "/"]
+      if url.scheme == "https" { properties[.secure] = "TRUE" }
+      if let cookie = HTTPCookie(properties: properties) {
+        group.enter(); store.setCookie(cookie) { group.leave() }
+      }
+    }
+    group.notify(queue: .main) {
+      store.getAllCookies { cookies in
+        let selected = cookies.filter { cookie in
+          let bare = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+          return host.lowercased() == bare || (cookie.domain.hasPrefix(".") && host.lowercased().hasSuffix("." + bare))
+        }.prefix(256)
+        result(["cookies": selected.map { cookie -> [String:Any] in
+          ["name":cookie.name, "value":cookie.value, "domain":cookie.domain, "path":cookie.path,
+           "secure":cookie.isSecure, "expires":cookie.expiresDate.map { $0.timeIntervalSince1970 as Any } ?? NSNull()]
+        }])
+      }
+    }
     }
   }
 
@@ -107,10 +242,20 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
   private var callback: ((Any) -> Void)?
   private var timeout: DispatchWorkItem?
   private var status = 200
+  private var holdsPermit = false
+  deinit { if holdsPermit { SourceWebBudget.release() } }
   private var navigating = false
   private var evaluating = false
   private var generation = 0
   private var index = 0
+  private var verificationController: UINavigationController?
+  private var verificationPoll: DispatchWorkItem?
+  private var verificationResult: ((Any) -> Void)?
+  var isPresented: Bool { verificationController != nil }
+  private var loadTimeout: DispatchWorkItem?
+  private var loadBudget: Double { min(30000,max(100,(options["pageTimeoutMs"] as? NSNumber)?.doubleValue ?? 6000)) }
+  private var elementBudget: Double { min(30000,max(100,(options["elementTimeoutMs"] as? NSNumber)?.doubleValue ?? 4000)) }
+
   private var steps: [[String: Any]] {
     var values = options["steps"] as? [[String: Any]] ?? []
     if let selector = options["waitForSelector"] as? String, !selector.isEmpty {
@@ -127,16 +272,21 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     config.websiteDataStore = .default()
     config.defaultWebpagePreferences.allowsContentJavaScript = true
     config.mediaTypesRequiringUserActionForPlayback = .all
+    config.userContentController.addUserScript(WKUserScript(source: Self.helpers,
+      injectionTime: .atDocumentStart, forMainFrameOnly: false))
     webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
     super.init()
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.customUserAgent = options["userAgent"] as? String
+    if #available(iOS 16.4, *) { webView.isInspectable = options["inspectable"] as? Bool == true }
   }
 
   func start(html: String? = nil) {
+    guard SourceWebBudget.take() else { fail("browser_busy","网页会话数量已达上限"); return }
+    holdsPermit = true
     let budget = min(8000, max(100, (options["timeoutMs"] as? NSNumber)?.doubleValue ?? 6000))
-    let work = DispatchWorkItem { [weak self] in self?.fail("timeout", "等待网页内容或交互超时") }
+    let work = DispatchWorkItem { [weak self] in self?.fail("total_timeout", "网页操作总预算已用完") }
     timeout = work
     DispatchQueue.main.asyncAfter(deadline: .now() + budget / 1000, execute: work)
     var request = URLRequest(url: url)
@@ -144,8 +294,25 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     request.allHTTPHeaderFields = options["headers"] as? [String: String]
     request.httpMethod = options["method"] as? String ?? "GET"
     request.httpBody = (options["body"] as? String)?.data(using: .utf8)
-    if let html = html { webView.loadHTMLString(html, baseURL: url) }
-    else { webView.load(request) }
+    let load = {
+      if let html = html { self.webView.loadHTMLString(html, baseURL: self.url) }
+      else { self.webView.load(request) }
+    }
+    var rules: [[String:Any]] = []
+    if options["blockAds"] as? Bool != false {
+      rules.append(["trigger":["url-filter":"^https?://([^/]+\\.)?(doubleclick\\.net|google-analytics\\.com|googlesyndication\\.com)/", "load-type":["third-party"]],"action":["type":"block"]])
+    }
+    if options["blockImages"] as? Bool == true {
+      rules.append(["trigger":["url-filter":".*", "resource-type":["image"]],"action":["type":"block"]])
+    }
+    if rules.isEmpty { load(); return }
+    let key = "lume-source-\(options["blockAds"] as? Bool != false)-\(options["blockImages"] as? Bool == true)"
+    let encoded = String(data: try! JSONSerialization.data(withJSONObject: rules), encoding: .utf8)!
+    WKContentRuleListStore.default().compileContentRuleList(forIdentifier: key, encodedContentRuleList: encoded) { [weak self] list, _ in
+      guard let self = self, self.callback != nil else { return }
+      if let list = list { self.webView.configuration.userContentController.add(list) }
+      load()
+    }
   }
 
   func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -173,12 +340,18 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
 
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     navigating = true
+    loadTimeout?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.fail("page_timeout", "页面加载超时") }
+    loadTimeout = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + loadBudget / 1000, execute: work)
     generation += 1
     evaluating = false
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     navigating = false
+    loadTimeout?.cancel()
+    if verificationResult != nil { pollVerification(); return }
     advance()
   }
 
@@ -188,7 +361,8 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     let step = index < items.count ? items[index] : nil
     let type = step?["type"] as? String
     var program = Self.prelude
-    var arguments: [String: Any] = [:]
+    var arguments: [String: Any] = ["elementTimeout":elementBudget,
+      "apiTimeout": min(30000,max(100,(options["apiTimeoutMs"] as? NSNumber)?.doubleValue ?? 6000))]
     if let step = step {
       arguments["step"] = step
       switch type {
@@ -223,6 +397,8 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
       case .failure(let error):
         let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? ""
         if message.contains("NEED_WEBVIEW_VERIFY") { self.fail("verification", "网页需要人工验证") }
+        else if message.contains("ELEMENT_NOT_FOUND") { self.fail("element_not_found", "目标元素未找到或等待超时") }
+        else if message.contains("API_TIMEOUT") { self.fail("api_timeout", "异步接口请求超时") }
         else { self.fail("javascript", "网页交互或 JavaScript 执行失败") }
       case .success(let value):
         if let info = value as? [String: Any], info["requiresVerification"] as? Bool == true {
@@ -258,24 +434,138 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
   private func finish(_ value: Any) {
     guard let done = callback else { return }
     callback = nil
-    timeout?.cancel()
+    timeout?.cancel(); loadTimeout?.cancel()
+    if let error = value as? FlutterError, error.code == "verification" {
+      // Retain the exact challenge document for a bounded manual handoff.
+      done(value); return
+    }
+    destroy()
+    done(value)
+  }
+  func destroy() {
+    if holdsPermit { SourceWebBudget.release(); holdsPermit=false }
+    timeout?.cancel(); loadTimeout?.cancel(); verificationPoll?.cancel()
     webView.stopLoading()
     webView.navigationDelegate = nil
     webView.uiDelegate = nil
     webView.removeFromSuperview()
     // Stop pending JS polling/media and release the document on cancellation.
     webView.loadHTMLString("", baseURL: nil)
-    done(value)
+    webView.configuration.userContentController.removeAllUserScripts()
+    webView.configuration.userContentController.removeAllContentRuleLists()
+    verificationController?.dismiss(animated: true)
+    verificationController = nil
   }
 
+  func setInspectable(_ value: Bool) {
+    if #available(iOS 16.4, *) { webView.isInspectable=value }
+  }
+  func presentVerification(completion: @escaping (Any) -> Void) {
+    webView.configuration.userContentController.removeAllContentRuleLists()
+    webView.evaluateJavaScript("document.querySelectorAll('img').forEach(i=>{if(!i.complete||!i.naturalWidth)i.src=i.src})",completionHandler:nil)
+    guard verificationController == nil else { completion(FlutterError(code:"browser_busy",message:"验证窗口已打开",details:nil)); return }
+    guard var presenter = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+      .flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
+      completion(FlutterError(code:"verification",message:"无法打开验证窗口",details:nil)); destroy(); return
+    }
+    while let next = presenter.presentedViewController { presenter = next }
+    verificationResult = completion
+    let content = UIViewController()
+    content.title = "请完成网页验证"
+    content.view.backgroundColor = .systemBackground
+    content.view.addSubview(webView)
+    webView.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([webView.topAnchor.constraint(equalTo:content.view.safeAreaLayoutGuide.topAnchor),
+      webView.bottomAnchor.constraint(equalTo:content.view.bottomAnchor), webView.leadingAnchor.constraint(equalTo:content.view.leadingAnchor),
+      webView.trailingAnchor.constraint(equalTo:content.view.trailingAnchor)])
+    content.navigationItem.leftBarButtonItem = UIBarButtonItem(title:"取消",style:.plain,target:self,action:#selector(cancelVerification))
+    let nav = UINavigationController(rootViewController:content)
+    nav.isModalInPresentation = true
+    verificationController = nav
+    presenter.present(nav, animated:true) { self.pollVerification() }
+    let work = DispatchWorkItem { [weak self] in self?.completeVerification(false) }
+    timeout = work
+    DispatchQueue.main.asyncAfter(deadline:.now()+180,execute:work)
+  }
+  @objc private func cancelVerification() { completeVerification(false) }
+  private func completeVerification(_ passed: Bool) {
+    guard let done = verificationResult else { return }
+    verificationResult = nil
+    let value: [String:Any] = ["verified":passed,"url":webView.url?.absoluteString ?? url.absoluteString,
+      "userAgent":webView.customUserAgent ?? ""]
+    destroy(); done(value)
+  }
+  private func pollVerification() {
+    guard verificationResult != nil else { return }
+    webView.callAsyncJavaScript(Self.prelude + "return !needsVerification() && document.readyState === 'complete' && document.body.innerText.trim().length > 40;",
+      arguments:["elementTimeout":1000,"apiTimeout":1000],in:nil,in:.page) { [weak self] result in
+      guard let self = self, self.verificationResult != nil else { return }
+      if case .success(let value) = result, value as? Bool == true, self.webView.url?.host == self.url.host { self.completeVerification(true); return }
+      let work = DispatchWorkItem { [weak self] in self?.pollVerification() }
+      self.verificationPoll = work
+      DispatchQueue.main.asyncAfter(deadline:.now()+1,execute:work)
+    }
+  }
+
+  static let helpers = #"""
+  (()=>{
+    const api = {
+      css: (s,root=document)=>Array.from(root.querySelectorAll(s)),
+      xpath: (s,root=document)=>{const r=document.evaluate(s,root,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null);
+        return Array.from({length:r.snapshotLength},(_,i)=>r.snapshotItem(i));},
+      request: async (url,options={})=>{const c=new AbortController();
+        const timer=setTimeout(()=>c.abort(),Math.min(30000,options.timeoutMs||globalThis.__lumeApiTimeout||6000));
+        try{return await fetch(url,{...options,signal:c.signal});}
+        catch(e){if(e.name==='AbortError')throw new Error('API_TIMEOUT');throw e;}finally{clearTimeout(timer);}}
+    };
+    Object.defineProperty(globalThis,'LumeWeb',{value:api,configurable:false});
+    const records = globalThis.__lumeRequests=[];
+    const record=(url,status,type,body='')=>{
+      if(!/^https?:/i.test(url))return;
+      if(records.length>=16)records.shift();
+      records.push({url,status,type,body:String(body).slice(0,16384)});
+    };
+    const original=fetch;
+    globalThis.fetch=async function(...args){
+      const response=await original.apply(this,args);
+      const url=response.url;
+      // Same-origin readable data only. No CORS bypass or opaque response access.
+      if(response.type!=='opaque') {
+        record(url,response.status,'fetch');
+        const length=Number(response.headers.get('content-length'));
+        if(length>0&&length<=16384&&/json|text/.test(response.headers.get('content-type')||'')){
+          response.clone().text().then(body=>{const r=records.slice().reverse().find(x=>x.url===url);if(r)r.body=body.slice(0,16384);}).catch(()=>{});
+        }
+      }
+      return response;
+    };
+    const open=XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open=function(method,url,...args){
+      this.__lumeURL=new URL(url,location.href).href;
+      return open.call(this,method,url,...args);
+    };
+    const send=XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send=function(...args){
+      this.addEventListener('loadend',()=>{
+        let text='';try{if(this.responseType===''||this.responseType==='text')text=this.responseText.slice(0,16384);}catch(_){}
+        record(this.responseURL||this.__lumeURL,this.status,'xhr',text);
+      },{once:true});
+      return send.apply(this,args);
+    };
+  })();
+  """#
+
   static let prelude = #"""
+  globalThis.__lumeApiTimeout = apiTimeout;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const needsVerification = () => !!document.querySelector('#challenge-running,#cf-challenge-running,#challenge-stage')
+  const needsVerification = () => !!document.querySelector('#challenge-running,#cf-challenge-running,#challenge-stage,form[action*="captcha"],#captcha-container')
     || (/^(just a moment|attention required|checking your browser)/i.test(document.title.trim())
       && !!document.querySelector('script[src*="challenge-platform"],.cf-error-details,.cf-browser-verification,#challenge-form'));
   if (needsVerification()) return {requiresVerification: true};
   const find = async selector => {
+    const deadline = Date.now() + elementTimeout;
     while (true) {
+      if (Date.now() > deadline) throw new Error('ELEMENT_NOT_FOUND');
       if (needsVerification()) throw new Error('NEED_WEBVIEW_VERIFY');
       const element = document.querySelector(selector);
       if (element) return element;
@@ -291,10 +581,11 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     if (url && /^https?:/i.test(url)) media.add(url);
   }
   for (const entry of performance.getEntriesByType('resource')) {
-    if (/\.(m3u8|mpd|mp4|m4a|mp3)([?#]|$)/i.test(entry.name)) media.add(entry.name);
+    if (/\.(m3u8|mpd|mp4|m4a|mp3|flv)([?#]|$)/i.test(entry.name)) media.add(entry.name);
   }
   return {url: location.href, title: document.title, html: document.documentElement.outerHTML,
     result: result == null ? null : JSON.parse(JSON.stringify(result)),
+    requests: (globalThis.__lumeRequests || []).slice(-16),
     media: Array.from(media).slice(0, 100).map(url => ({url,
       headers: {'User-Agent': navigator.userAgent, 'Referer': location.href}}))};
   """#

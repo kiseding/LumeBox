@@ -1,3 +1,8 @@
+import 'source_tools.dart';
+import 'source_compression_polyfill.dart';
+import '../player/source_media_runtime.dart';
+import '../net/site_session_pool.dart';
+import '../net/source_request_log.dart';
 import 'source_web_runtime.dart';
 import 'source_script_storage.dart';
 
@@ -351,6 +356,7 @@ class LumeSourceHost implements SandboxHost {
   /// 沙盒文件 IO 的后端（`LumeSource.fs`）。
   final SandboxStore _store;
   late final _webRuntime = SourceWebRuntime(expectedSandboxId);
+  late final _mediaRuntime = SourceMediaRuntime(_http);
   late final _persistent = SourceScriptStorage(section, sourceId);
   bool widgetEnabled = false;
   late final widget = RexWidgetHost(_http, section, sourceId, timeout);
@@ -372,14 +378,31 @@ class LumeSourceHost implements SandboxHost {
       if (!widgetEnabled) throw const SandboxHostException('当前源没有启用 Widget 宿主');
       return widget.invoke(request.method, request.payload);
     }
+    if (request.method == 'tools' ||
+        request.method == 'media' ||
+        request.method == 'session.configure') {
+      if (request.payload is! Map)
+        throw const SandboxHostException('工具入参必须是对象');
+      final p = Map<String, dynamic>.from(request.payload as Map);
+      if (request.method == 'tools') return SourceTools.run(p);
+      if (request.method == 'media') return _mediaRuntime.invoke(p);
+      SiteSessionPool.shared.setUserAgent(
+        '${p['url']}',
+        '${p['userAgent'] ?? ''}',
+      );
+      await SiteSessionPool.shared.save();
+      return true;
+    }
     if (request.method == 'web.render' || request.method == 'html.extract') {
       if (request.payload is! Map) {
         throw const SandboxHostException('网页接口入参必须是对象');
       }
       final args = Map<String, dynamic>.from(request.payload as Map);
       if (request.method == 'web.render') {
+        SourceRequestLog.record(sourceId, '${args['url']}');
         final headers = _http.browserRequestHeaders(
           _stringMap(args['headers']),
+          url: '${args['url']}',
         );
         args['headers'] = headers;
         args.putIfAbsent('userAgent', () => headers['User-Agent']);
@@ -389,10 +412,17 @@ class LumeSourceHost implements SandboxHost {
           (timeout.inMilliseconds - 500).clamp(100, 8000),
         );
       }
-      return _webRuntime.invoke(
+      final result = await _webRuntime.invoke(
         request.method == 'web.render' ? 'render' : 'extract',
         args,
       );
+      if (request.method == 'web.render' && result is Map) {
+        SiteSessionPool.shared.rememberSourcePage(
+          sourceId,
+          '${result['url'] ?? args['url']}',
+        );
+      }
+      return result;
     }
     if (request.method == 'storage') {
       if (request.payload is! Map) {
@@ -429,6 +459,7 @@ class LumeSourceHost implements SandboxHost {
   /// 释放宿主侧资源：清空沙盒存储（引擎释放时调用）。
   void dispose() {
     _webRuntime.dispose();
+    _mediaRuntime.dispose();
     _persistent.dispose();
     _store.clear();
   }
@@ -546,6 +577,7 @@ class LumeSourcePolyfills {
   /// 用户看不出这是板块问题。猫源有自己的登记表，拿不到这一层。
   static final PolyfillRegistry registry = PolyfillRegistry(<SandboxPolyfill>[
     const _FetchPolyfill(),
+    const SourceCompressionPolyfill(),
     const LumeSourceBridgePolyfill(),
     const VeneraComicSourcePolyfill(),
   ]);
@@ -556,6 +588,7 @@ class LumeSourcePolyfills {
   static final PolyfillRegistry catRegistry = PolyfillRegistry(
     <SandboxPolyfill>[
       const _FetchPolyfill(),
+      const SourceCompressionPolyfill(),
       ...CatPolyfills.all,
       const LumeSourceBridgePolyfill(),
     ],
@@ -568,6 +601,7 @@ class LumeSourcePolyfills {
     if (bridge.trim().isNotEmpty) {
       return PolyfillRegistry(<SandboxPolyfill>[
         const _FetchPolyfill(),
+        const SourceCompressionPolyfill(),
         if (section == Section.cat) ...CatPolyfills.all,
         LumeSourceBridgePolyfill(null, bridge.trim()),
         if (section != Section.cat) const VeneraComicSourcePolyfill(),

@@ -196,6 +196,13 @@ class MediaKitMpvEngine
     try {
       // 缓冲属性要在起播**之前**写进去（cache / 预读时长在打开媒体时读一次）。
       await _applyBufferingProperties();
+      // Standard libavformat HLS/AES key handling remains in the native engine.
+      // Fixed-length quoting preserves the comma inside the HTTP status list.
+      await _setProperties({
+        'demuxer-lavf-o':
+            'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+            'reconnect_on_http_error=%7%429,5xx,reconnect_delay_max=7,seg_max_retry=3',
+      });
       await _player.open(
         Media(uri.toString(), httpHeaders: request.headers),
         play: request.autoplay,

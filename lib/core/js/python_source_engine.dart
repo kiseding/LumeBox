@@ -1,3 +1,7 @@
+import 'source_tools.dart';
+import '../player/source_media_runtime.dart';
+import '../net/site_session_pool.dart';
+import '../net/source_request_log.dart';
 import '../session/section.dart';
 import 'source_web_runtime.dart';
 import 'source_script_storage.dart';
@@ -32,6 +36,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   final Section section;
   late final _web = SourceWebRuntime("python:${section.id}:$sourceId");
   late final _storage = SourceScriptStorage(section, sourceId);
+  late final _mediaRuntime = SourceMediaRuntime(http);
   static const channel = MethodChannel('lumebox/python_sources');
   static final _clients = <String, LumeHttp>{};
   static final _engines = <String, PythonSourceEngine>{};
@@ -91,12 +96,27 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
             'headers': response.headers,
             'body': base64Encode(response.body),
           };
+        } else if (request['method'] == 'tools') {
+          value = SourceTools.run(payload);
+        } else if (request['method'] == 'media') {
+          value = await _engines[args['sourceId']]!._mediaRuntime.invoke(
+            payload,
+          );
+        } else if (request['method'] == 'session.configure') {
+          SiteSessionPool.shared.setUserAgent(
+            '${payload['url']}',
+            '${payload['userAgent'] ?? ''}',
+          );
+          await SiteSessionPool.shared.save();
+          value = true;
         } else if (request['method'] == 'web.render' ||
             request['method'] == 'html.extract') {
           final engine = _engines[args['sourceId']]!;
           if (request['method'] == 'web.render') {
+            SourceRequestLog.record(engine.sourceId, '${payload['url']}');
             final headers = engine.http.browserRequestHeaders(
               (payload['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
+              url: '${payload['url']}',
             );
             payload['headers'] = headers;
             payload.putIfAbsent('userAgent', () => headers['User-Agent']);
@@ -113,6 +133,12 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
             request['method'] == 'web.render' ? 'render' : 'extract',
             payload,
           );
+          if (request['method'] == 'web.render' && value is Map) {
+            SiteSessionPool.shared.rememberSourcePage(
+              engine.sourceId,
+              '${value['url'] ?? payload['url']}',
+            );
+          }
         } else if (request['method'] == 'storage') {
           value = await _engines[args['sourceId']]!._storage.invoke(payload);
         } else if (request['method'] == 'proxy') {
@@ -227,6 +253,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     if (_disposed) return;
     _disposed = true;
     _web.dispose();
+    _mediaRuntime.dispose();
     _storage.dispose();
     _proxy.dispose();
     _clients.remove(sourceId);

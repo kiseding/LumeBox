@@ -54,6 +54,21 @@ class AvPlayer extends AbstractPlayer {
 
   VideoPlayerController? _controller;
   int _loadGeneration = 0;
+  PlayerMedia? _retryMedia;
+  Timer? _retryTimer;
+  int _networkRetries = 0;
+  bool _recoveringNetwork = false;
+  bool _retryAllowed = true;
+  static bool retryableNetworkError(String message) =>
+      !RegExp(
+        r'403|401|404|410|DRM|decrypt|certificate|证书|验证码',
+        caseSensitive: false,
+      ).hasMatch(message) &&
+      RegExp(
+        r'429|50[0234]|-1001|-1005|-1009|timed? ?out|network connection|connection (lost|reset)|网络连接|连接中断',
+        caseSensitive: false,
+      ).hasMatch(message);
+
   Completer<void>? _loadCancelled;
 
   // video_player is pinned; this ID resolves its existing native AVPlayer.
@@ -140,6 +155,15 @@ class AvPlayer extends AbstractPlayer {
 
   @override
   Future<void> load(PlayerMedia media) async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _networkRetries = 0;
+    _retryMedia = media;
+    _retryAllowed = true;
+    await _loadMedia(media);
+  }
+
+  Future<void> _loadMedia(PlayerMedia media) async {
     if (_disposed) return;
     if (_loadCancelled?.isCompleted == false) {
       _loadCancelled!.complete();
@@ -245,16 +269,27 @@ class AvPlayer extends AbstractPlayer {
   }
 
   @override
-  Future<void> play() async => _controller?.play();
+  Future<void> play() async {
+    _retryAllowed = true;
+    await _controller?.play();
+  }
 
   @override
-  Future<void> pause() async => _controller?.pause();
+  Future<void> pause() async {
+    _retryAllowed = false;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    await _controller?.pause();
+  }
 
   @override
   Future<void> seek(Duration position) async => _controller?.seekTo(position);
 
   @override
   Future<void> stop() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryMedia = null;
     final controller = _controller;
     if (controller == null) return;
     await controller.pause();
@@ -312,6 +347,9 @@ class AvPlayer extends AbstractPlayer {
 
   @override
   Future<void> dispose() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryMedia = null;
     if (_loadCancelled?.isCompleted == false) {
       _loadCancelled!.complete();
     }
@@ -373,6 +411,34 @@ class AvPlayer extends AbstractPlayer {
     final controller = _controller;
     if (controller == null || _disposed) return;
     final value = controller.value;
+    if (value.hasError &&
+        _retryAllowed &&
+        _retryMedia?.isNetwork == true &&
+        !_recoveringNetwork &&
+        _retryTimer == null &&
+        _networkRetries < 3 &&
+        retryableNetworkError(value.errorDescription ?? '')) {
+      final media = _retryMedia!;
+      final position = _snapshot.value.position;
+      final resume = _snapshot.value.playing;
+      final generation = _loadGeneration;
+      _retryTimer = Timer(Duration(seconds: 1 << _networkRetries++), () async {
+        _retryTimer = null;
+        if (_disposed ||
+            generation != _loadGeneration ||
+            !identical(media, _retryMedia))
+          return;
+        _recoveringNetwork = true;
+        try {
+          await _loadMedia(media);
+          if (_disposed || !identical(media, _retryMedia)) return;
+          await seek(position);
+          if (resume && _retryAllowed) await play();
+        } finally {
+          _recoveringNetwork = false;
+        }
+      });
+    }
     if (value.hasError && _snapshot.value.error == null) {
       // Preserve the native reason; the UI below receives a short translation.
       LumeLog.warn('[avplayer] 播放失败: ${value.errorDescription}');

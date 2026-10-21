@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 
 import '../util/debug_request_log.dart';
 import '../util/lume_log.dart';
@@ -158,6 +161,12 @@ class NetworkQueue {
   int _activeGlobal = 0;
   int _activeImages = 0;
   final Map<String, int> _activePerHost = <String, int>{};
+  final Map<String, DateTime> _cooldowns = {};
+  final Map<String, int> _failures = {};
+  final Map<String, ({DateTime until, NetworkResponse response})> _deadLinks =
+      {};
+  int failuresForHost(String host) => _failures[host] ?? 0;
+  void clearInvalidLinks() => _deadLinks.clear();
 
   /// 等额度的请求（条件变量语义：释放时全部唤醒，各自重新检查）。
   final List<Completer<void>> _waiters = <Completer<void>>[];
@@ -177,6 +186,23 @@ class NetworkQueue {
   /// 返回，本层没有额外开销。
   Future<NetworkResponse> send(NetworkRequest request) async {
     final host = hostOf(request.url);
+    final cacheKey = sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              request.method,
+              request.url,
+              (request.headers.entries.toList()
+                    ..sort((a, b) => a.key.compareTo(b.key)))
+                  .map((e) => [e.key, e.value])
+                  .toList(),
+            ]),
+          ),
+        )
+        .toString();
+    _deadLinks.removeWhere((_, v) => v.until.isBefore(DateTime.now()));
+    final cached = _deadLinks[cacheKey];
+    if (request.method == 'GET' && cached != null) return cached.response;
     final image = request.source.startsWith('封面:') || request.source == '图片缓存';
     var attempt = 0;
     final watch = Stopwatch()..start();
@@ -195,6 +221,9 @@ class NetworkQueue {
           rethrow;
         }
         final delay = _backoff(attempt);
+        _failures[host] = ((_failures[host] ?? 0) + 1).clamp(0, 16);
+        _cooldowns[host] = DateTime.now().add(delay);
+        _trimHostHistory();
         _logRetry(request, host, '网络异常（$error）', delay, attempt + 1);
         await Future<void>.delayed(delay);
         attempt++;
@@ -202,6 +231,31 @@ class NetworkQueue {
       }
       _release(host, image);
 
+      if ([404, 410].contains(response.statusCode) && request.method == 'GET') {
+        if (_deadLinks.length >= 256) _deadLinks.remove(_deadLinks.keys.first);
+        _deadLinks[cacheKey] = (
+          until: DateTime.now().add(
+            Duration(seconds: response.statusCode == 410 ? 300 : 60),
+          ),
+          response: NetworkResponse(
+            statusCode: response.statusCode,
+            body: const [],
+            headers: response.headers,
+          ),
+        );
+      }
+      if (isRetryable(response.statusCode)) {
+        _failures[host] = ((_failures[host] ?? 0) + 1).clamp(0, 16);
+        _cooldowns[host] = DateTime.now().add(
+          retryAfterOf(response) ??
+              _backoff((_failures[host]! - 1).clamp(0, 5)),
+        );
+      } else if (response.statusCode < 400) {
+        _failures.remove(host);
+        _cooldowns.remove(host);
+      }
+
+      _trimHostHistory();
       if (!request.retryOn ||
           !isRetryable(response.statusCode) ||
           attempt >= settings.maxRetries) {
@@ -229,6 +283,22 @@ class NetworkQueue {
     }
   }
 
+  void _trimHostHistory() {
+    if (_failures.length <= 128) return;
+    final expired = _failures.keys
+        .where((key) => (_cooldowns[key]?.isBefore(DateTime.now()) ?? true))
+        .toList();
+    for (final key in expired) {
+      _failures.remove(key);
+      _cooldowns.remove(key);
+    }
+    while (_failures.length > 128) {
+      final key = _failures.keys.first;
+      _failures.remove(key);
+      _cooldowns.remove(key);
+    }
+  }
+
   /// 取 URL 的 host；解析不出来时用整个 URL 当键（仍受全局并发约束）。
   static String hostOf(String url) {
     final uri = Uri.tryParse(url);
@@ -240,7 +310,7 @@ class NetworkQueue {
   ///
   /// 刻意不重试其余 4xx：地址错了、要鉴权，重试只是徒劳地多打几次目标站。
   static bool isRetryable(int statusCode) =>
-      statusCode == 429 || statusCode == 503;
+      statusCode == 429 || [500, 502, 503, 504].contains(statusCode);
 
   /// 服务器给的 `Retry-After`（秒或 HTTP 日期），上限 [maxRetryAfter]。
   static Duration? retryAfterOf(NetworkResponse response) {
@@ -251,6 +321,7 @@ class NetworkQueue {
 
     final seconds = int.tryParse(value);
     if (seconds != null) {
+      if (seconds < 0) return Duration.zero;
       final delay = Duration(seconds: seconds);
       return delay > maxRetryAfter ? maxRetryAfter : delay;
     }
@@ -336,6 +407,12 @@ class NetworkQueue {
   /// 拿到「全局 + 该域名」两个额度；拿不到就等，被唤醒后重新检查。
   Future<void> _acquire(String host, bool image) async {
     while (true) {
+      final remaining =
+          _cooldowns[host]?.difference(DateTime.now()) ?? Duration.zero;
+      if (remaining > Duration.zero) {
+        await Future<void>.delayed(remaining);
+        continue;
+      }
       final globalOk = _activeGlobal < settings.globalConcurrency;
       final hostOk = (_activePerHost[host] ?? 0) < settings.perHostConcurrency;
       // Keep two slots for page requests and playback while covers are loading.

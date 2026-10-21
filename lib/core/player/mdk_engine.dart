@@ -342,6 +342,10 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   static const Map<String, String> _networkProperties = <String, String>{
     'avio.reconnect': '1',
     'avio.reconnect_delay_max': '7',
+    'avio.reconnect_streamed': '1',
+    'avio.reconnect_on_network_error': '1',
+    'avio.reconnect_on_http_error': '429,500,502,503,504',
+    'avio.seg_max_retry': '3',
   };
 
   void _startTicker() {

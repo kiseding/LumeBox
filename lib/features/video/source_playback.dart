@@ -1,3 +1,4 @@
+import '../../core/net/site_session_pool.dart';
 import '../../core/net/source_request_log.dart';
 import '../../core/net/waf.dart';
 import '../../core/source/source.dart';
@@ -128,17 +129,19 @@ class SourcePlayback {
     Uri? uri,
     DataSource? source,
   ) {
-    if (source == null) return original;
+    if (source == null ||
+        uri == null ||
+        !['http', 'https'].contains(uri.scheme))
+      return original;
     // UA 一直跟着走（验证时的 UA 与 cf_clearance 绑定，换回脚本里那个 UA 等于没验）；
     // Cookie 只发给源站自己的域名。
     final ua =
         WafSessions.userAgentFor(source.section, source.id)?.trim() ?? '';
-    final owned =
-        uri != null && SourceRequestLog.ownsHost(source.id, uri.toString());
+    final owned = SourceRequestLog.ownsHost(source.id, uri.toString());
     final cookies = owned
         ? (WafSessions.cookiesFor(source.section, source.id)?.trim() ?? '')
         : '';
-    if (ua.isEmpty && cookies.isEmpty) return original;
+
     final result = Map<String, String>.of(original);
     if (ua.isNotEmpty) {
       result.removeWhere((key, _) => key.toLowerCase() == 'user-agent');
@@ -148,7 +151,13 @@ class SourcePlayback {
         !result.keys.any((key) => key.toLowerCase() == 'cookie')) {
       result['Cookie'] = cookies;
     }
-    return result;
+    return SiteSessionPool.shared.headersFor(
+      uri.toString(),
+      result,
+      referer:
+          SiteSessionPool.shared.pageForSource(source.id) ??
+          SourceRequestLog.lastFor(source.id, quiet: true),
+    );
   }
 
   /// 候选清晰度线路（图源给了多条时才非空）。

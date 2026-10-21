@@ -231,6 +231,22 @@ http.client.HTTPConnection.request = _connection_request
 http.client.HTTPConnection.getresponse = _connection_response
 
 
+# Explicit on-device tools; no downloads, subprocesses or proxy tunnels.
+lume_tools = types.ModuleType("lume_tools")
+lume_tools.run = lambda **options: _host("tools", options)
+lume_tools.digest = lambda algorithm, data: hashlib.new(algorithm, data.encode() if isinstance(data, str) else data).hexdigest()
+lume_tools.aes = lambda **options: _host("tools", dict(options, operation="aes"))
+lume_tools.rsa = lambda **options: _host("tools", dict(options, operation="rsa"))
+lume_tools.base64_encode = lambda text: base64.b64encode(text.encode()).decode()
+lume_tools.base64_decode = lambda text: base64.b64decode(text).decode()
+lume_tools.url_encode = lambda text: __import__("urllib.parse", fromlist=["quote"]).quote(text, safe="")
+lume_tools.url_decode = lambda text: __import__("urllib.parse", fromlist=["unquote"]).unquote(text)
+lume_tools.inflate = lambda data, raw=False: base64.b64decode(_host("tools", {"operation":"inflate", "data":base64.b64encode(data).decode(), "raw":raw}))
+lume_tools.media = lambda operation, **options: _host("media", dict(options, operation=operation))
+lume_tools.set_user_agent = lambda url, ua: _host("session.configure", {"url":url, "userAgent":ua})
+sys.modules["lume_tools"] = lume_tools
+
+
 class _Spider:
     def fetch(self, url, **kwargs):
         return requests.get(url, **kwargs)

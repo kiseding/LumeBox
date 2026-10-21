@@ -128,100 +128,121 @@ final class WafCookieController: NSObject {
 }
 
 /// Use Apple's TLS/HTTP stack. Only matching Cloudflare verification cookies may be reused.
-private final class ImageNetworkController: NSObject, URLSessionTaskDelegate {
-  private lazy var session: URLSession = {
-    let config = URLSessionConfiguration.ephemeral
-    config.httpCookieStorage = nil
-    config.httpShouldSetCookies = false
-    config.urlCache = nil
-    config.timeoutIntervalForRequest = 15
-    config.timeoutIntervalForResource = 20
-    config.httpMaximumConnectionsPerHost = 3
-    return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-  }()
-
+private final class ImageNetworkController {
+  private var reads: [UUID: SourceHTTPRead] = [:]
   func register(with messenger: FlutterBinaryMessenger) {
-    let channel = FlutterMethodChannel(name: "lumebox/image_network", binaryMessenger: messenger)
+    let channel = FlutterMethodChannel(name:"lumebox/image_network",binaryMessenger:messenger)
     channel.setMethodCallHandler { [weak self] call, result in
       guard call.method == "get" else { result(FlutterMethodNotImplemented); return }
-      guard let args = call.arguments as? [String: Any],
-            let address = args["url"] as? String, let url = URL(string: address),
-            ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-        result(FlutterError(code: "bad_url", message: "Invalid image URL", details: nil)); return
+      guard let self = self, let args = call.arguments as? [String:Any],
+        let address = args["url"] as? String, let url = URL(string:address),
+        ["http","https"].contains(url.scheme ?? ""), url.host != nil, url.user == nil, url.password == nil else {
+        result(FlutterError(code:"bad_url",message:"HTTP 请求地址无效",details:nil)); return
       }
-      guard let self = self else { return }
-      var request = URLRequest(url: url)
-      request.timeoutInterval = min(15, max(3, args["timeoutSeconds"] as? Double ?? 15))
-      request.allHTTPHeaderFields = args["headers"] as? [String: String]
-      request.httpMethod = args["method"] as? String ?? "GET"
-      if let body = args["body"] as? String { request.httpBody = body.data(using: .utf8) }
-      let start: (URLRequest) -> Void = { outgoing in
-      self.session.dataTask(with: outgoing) { data, response, error in
-        DispatchQueue.main.async {
-          if let error = error {
-            let native = error as NSError
-            let certificate = native.domain == NSURLErrorDomain && [-1201, -1202, -1203, -1204].contains(native.code)
-            let tls = native.domain == NSURLErrorDomain && native.code == -1200
-            let message = (certificate ? "CERTIFICATE_VERIFY_FAILED: " : tls ? "TLS_HANDSHAKE_FAILED: " : "") + error.localizedDescription
-            result(FlutterError(code: "image_network", message: message, details: nil)); return
-          }
-          guard let response = response as? HTTPURLResponse else {
-            result(FlutterError(code: "image_response", message: "Missing HTTP response", details: nil)); return
-          }
-          var headers: [String: String] = [:]
-          for (key, value) in response.allHeaderFields { headers[String(describing: key)] = String(describing: value) }
-          result(["status": response.statusCode, "headers": headers,
-                  "body": FlutterStandardTypedData(bytes: data ?? Data())])
-        }
-      }.resume()
+      guard self.reads.count < 16 else { result(FlutterError(code:"network_busy",message:"系统网络请求队列忙",details:nil)); return }
+      let id = UUID()
+      let read = SourceHTTPRead(url:url,options:args) { [weak self] value in
+        self?.reads.removeValue(forKey:id); result(value)
       }
-      if args["reuseVerification"] as? Bool == true {
-        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-          let host = url.host?.lowercased() ?? ""
-          let selected = cookies.filter { cookie in
-            guard ["cf_clearance", "__cf_bm"].contains(cookie.name),
-                  cookie.expiresDate.map({ $0 > Date() }) ?? true,
-                  !cookie.isSecure || url.scheme == "https" else { return false }
-            let domain = cookie.domain.lowercased()
-            let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
-            let matches = host == bare || (domain.hasPrefix(".") && host.hasSuffix("." + bare))
-            let cookiePath = cookie.path.isEmpty ? "/" : cookie.path
-            let path = url.path.isEmpty ? "/" : url.path
-            return matches && (path == cookiePath || path.hasPrefix(cookiePath.hasSuffix("/") ? cookiePath : cookiePath + "/"))
-          }.sorted { $0.path.count > $1.path.count }
-          var scoped = request
-          var chosen: [String: String] = [:]
-          for cookie in selected where chosen[cookie.name] == nil { chosen[cookie.name] = cookie.value }
-          if !chosen.isEmpty {
-            var existing = (scoped.value(forHTTPHeaderField: "Cookie") ?? "").split(separator: ";")
-              .map { $0.trimmingCharacters(in: .whitespaces) }
-              .filter { !chosen.keys.contains(String($0.split(separator: "=", maxSplits: 1).first ?? "")) && !$0.isEmpty }
-            existing.append(contentsOf: chosen.map { "\($0.key)=\($0.value)" })
-            scoped.setValue(existing.joined(separator: "; "), forHTTPHeaderField: "Cookie")
-          }
-          start(scoped)
-        }
-      } else { start(request) }
+      self.reads[id] = read; read.start()
     }
-  }
-
-  func urlSession(_ session: URLSession, task: URLSessionTask,
-                  willPerformHTTPRedirection response: HTTPURLResponse,
-                  newRequest request: URLRequest,
-                  completionHandler: @escaping (URLRequest?) -> Void) {
-    guard let url = request.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-      completionHandler(nil); return
-    }
-    var redirected = request
-    let old = response.url
-    if old?.host != url.host || old?.scheme != url.scheme || old?.port != url.port {
-      redirected.setValue(nil, forHTTPHeaderField: "Cookie")
-      redirected.setValue(nil, forHTTPHeaderField: "Authorization")
-    }
-    completionHandler(redirected)
   }
 }
 
+/// Bounded streaming reader. URLSession uses system proxy/VPN settings directly.
+private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
+  private let url: URL
+  private let options: [String:Any]
+  private var callback: ((Any)->Void)?
+  private var session: URLSession?
+  private var task: URLSessionDataTask?
+  private var response: HTTPURLResponse?
+  private var bytes = Data()
+  private var finished = false
+  private let limit: Int
+  init(url:URL,options:[String:Any],completion:@escaping (Any)->Void) {
+    self.url=url; self.options=options; callback=completion
+    limit=min(16*1024*1024+1,max(1,options["maxBytes"] as? Int ?? 8*1024*1024))
+    super.init()
+  }
+  func start() {
+    let config=URLSessionConfiguration.ephemeral
+    config.httpCookieStorage=nil; config.httpShouldSetCookies=false; config.urlCache=nil
+    let timeout=min(120,max(0.1,options["timeoutSeconds"] as? Double ?? 20))
+    config.timeoutIntervalForRequest=timeout; config.timeoutIntervalForResource=timeout
+    // Do not install connectionProxyDictionary, custom sockets or protocol tunnels.
+    session=URLSession(configuration:config,delegate:self,delegateQueue:OperationQueue.main)
+    var request=URLRequest(url:url)
+    request.timeoutInterval=timeout
+    request.httpMethod=options["method"] as? String ?? "GET"
+    request.allHTTPHeaderFields=options["headers"] as? [String:String]
+    if let binary=options["bodyBytes"] as? FlutterStandardTypedData { request.httpBody=binary.data }
+    else { request.httpBody=(options["body"] as? String)?.data(using:.utf8) }
+    task=session!.dataTask(with:request); task?.resume()
+  }
+  func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive response:URLResponse,
+    completionHandler:@escaping (URLSession.ResponseDisposition)->Void) {
+    self.response=response as? HTTPURLResponse
+    completionHandler(.allow)
+  }
+  func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive data:Data) {
+    guard !finished else { return }
+    let room=limit-bytes.count
+    bytes.append(data.prefix(room))
+    if data.count>room || (options["maxBytes"] != nil && bytes.count==limit) {
+      if options["maxBytes"] == nil { finish(FlutterError(code:"response_size",message:"接口响应超过 8MB",details:nil)) }
+      else { succeed() }
+    }
+  }
+  func urlSession(_ session:URLSession,task:URLSessionTask,didCompleteWithError error:Error?) {
+    guard !finished else { return }
+    if let error=error as NSError? {
+      let certificate=error.domain==NSURLErrorDomain && [-1201,-1202,-1203,-1204].contains(error.code)
+      let timeout=error.domain==NSURLErrorDomain && error.code==NSURLErrorTimedOut
+      finish(FlutterError(code:timeout ? "api_timeout" : "network",
+        message:certificate ? "CERTIFICATE_VERIFY_FAILED" : timeout ? "接口请求超时" : "系统网络请求失败",details:nil)); return
+    }
+    succeed()
+  }
+  private func succeed() {
+    guard !finished else { return }
+    guard let response=response, let address=response.url else { finish(FlutterError(code:"http_response",message:"系统未返回 HTTP 响应",details:nil)); return }
+    var headers:[String:String]=[:]
+    for (key,value) in response.allHeaderFields { headers[String(describing:key)]=String(describing:value) }
+    let cookies=HTTPCookie.cookies(withResponseHeaderFields:headers,for:address)
+    let group=DispatchGroup()
+    for cookie in cookies {
+      group.enter(); WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie) { group.leave() }
+    }
+    // Cancel the stream at the requested prefix limit; deliver a result only once.
+    let data=bytes
+    finished=true; task?.cancel(); session?.invalidateAndCancel(); session=nil
+    group.notify(queue:.main) {
+      self.deliver(["status":response.statusCode,"headers":headers,"body":FlutterStandardTypedData(bytes:data)])
+    }
+  }
+  private func finish(_ value:Any) {
+    guard !finished else { return }
+    finished=true; task?.cancel(); session?.invalidateAndCancel(); session=nil
+    deliver(value)
+  }
+  private func deliver(_ value:Any) {
+    guard let done=callback else { return }; callback=nil; bytes.removeAll(); done(value)
+  }
+  func urlSession(_ session:URLSession,task:URLSessionTask,willPerformHTTPRedirection response:HTTPURLResponse,
+    newRequest request:URLRequest,completionHandler:@escaping (URLRequest?)->Void) {
+    if options["followRedirects"] as? Bool == false { completionHandler(nil); return }
+    guard let next=request.url, ["http","https"].contains(next.scheme ?? ""), next.user==nil, next.password==nil else {
+      completionHandler(nil); return
+    }
+    var outgoing=request
+    if response.url?.host != next.host || response.url?.port != next.port || response.url?.scheme != next.scheme {
+      outgoing.setValue(nil,forHTTPHeaderField:"Cookie"); outgoing.setValue(nil,forHTTPHeaderField:"Authorization")
+    }
+    if response.url?.scheme=="https" && next.scheme=="http" { outgoing.setValue(nil,forHTTPHeaderField:"Referer") }
+    completionHandler(outgoing)
+  }
+}
 
 /// Navigation uses the same default WebKit data store as the visible verification page.
 /// It does not solve challenges: a remaining challenge is returned as an ordinary 403.
@@ -243,7 +264,11 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
     webView.customUserAgent = userAgent
     webView.navigationDelegate = self
   }
+  private var holdsPermit=false
+  deinit { if holdsPermit { SourceWebBudget.release() } }
   func start() {
+    guard SourceWebBudget.take() else { finish(FlutterError(code:"browser_busy",message:"网页会话数量已达上限",details:nil)); return }
+    holdsPermit=true
     let work = DispatchWorkItem { [weak self] in
       self?.finish(FlutterError(code: "timeout", message: "Verified page timed out", details: nil))
     }
@@ -301,11 +326,13 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
   }
   private func finish(_ value: Any) {
     guard let callback = completion else { return }
+    if holdsPermit { SourceWebBudget.release(); holdsPermit=false }
     completion = nil
     timeout?.cancel()
     poll?.cancel()
     webView.stopLoading()
     webView.navigationDelegate = nil
+    webView.removeFromSuperview(); webView.loadHTMLString("",baseURL:nil)
     callback(value)
   }
 }
@@ -332,7 +359,11 @@ private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
     webView.customUserAgent = userAgent
     webView.navigationDelegate = self
   }
+  private var holdsPermit=false
+  deinit { if holdsPermit { SourceWebBudget.release() } }
   func start() {
+    guard SourceWebBudget.take() else { finish(FlutterError(code:"browser_busy",message:"网页会话数量已达上限",details:nil)); return }
+    holdsPermit=true
     let work = DispatchWorkItem { [weak self] in
       self?.finish(FlutterError(code: "timeout", message: "Image verification session timed out", details: nil))
     }
@@ -383,8 +414,10 @@ private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
   }
   private func finish(_ value: Any) {
     guard let callback = completion else { return }
+    if holdsPermit { SourceWebBudget.release(); holdsPermit=false }
     completion = nil; timeout?.cancel()
     webView.stopLoading(); webView.navigationDelegate = nil
+    webView.removeFromSuperview(); webView.loadHTMLString("",baseURL:nil)
     callback(value)
   }
 }

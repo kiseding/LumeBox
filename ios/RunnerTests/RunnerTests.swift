@@ -5,6 +5,24 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testSourceLegacyEncoding() {
+    let data=Data([0xd6,0xd0,0xce,0xc4])
+    XCTAssertEqual(SourceWebController.decodeText(data,charset:"gbk"),"中文")
+    XCTAssertEqual(SourceWebController.decodeText(data,charset:"gb2312"),"中文")
+    XCTAssertNil(SourceWebController.decodeText(data,charset:"invalid-charset"))
+  }
+
+  @MainActor func testSourceWaitHasSeparateTimeout() {
+    let done=expectation(description:"element timeout")
+    let task=SourceWebTask(url:URL(string:"https://fixture.invalid/")!,options:[
+      "timeoutMs":3000,"elementTimeoutMs":100,"waitForSelector":"#absent"
+    ]) { response in
+      XCTAssertEqual((response as? FlutterError)?.code,"element_not_found"); done.fulfill()
+    }
+    task.start(html:"<html><body><p>Fixture content</p></body></html>")
+    withExtendedLifetime(task) { wait(for:[done],timeout:5) }
+  }
+
   func testSourceHtmlExtraction() throws {
     let rows = try SourceWebController.extract([
       "html": "<article class='card'><a href='../watch/1'>电影 &amp; 剧集</a><b>更新</b><b>高清</b></article>",
@@ -28,7 +46,7 @@ class RunnerTests: XCTestCase {
       "timeoutMs": 6000, "waitForSelector": "#ready",
       "steps": [["type": "fill", "selector": "#q", "value": "手机搜索"],
                 ["type": "click", "selector": "#go"], ["type": "wait", "selector": "#result"]],
-      "script": "return await Promise.resolve(document.querySelector('#result').textContent);"
+      "script": "return await Promise.resolve(LumeWeb.xpath('//*[@id=\"result\"]')[0].textContent);"
     ]) { response in
       let value = response as? [String: Any]
       XCTAssertEqual(value?["result"] as? String, "手机搜索")
@@ -53,6 +71,7 @@ class RunnerTests: XCTestCase {
     }
     task.start(html: "<html><head><title>Just a moment...</title></head><body><div id='challenge-running'></div></body></html>")
     withExtendedLifetime(task) { wait(for: [done], timeout: 10) }
+    task.destroy()
     var completions = 0
     let cancel = SourceWebTask(url: URL(string: "https://fixture.invalid/")!, options: [:]) { response in
       XCTAssertEqual((response as? FlutterError)?.code, "cancelled")

@@ -53,6 +53,7 @@ dependencies:
   # 内置 WebView（用户要求的「网页视图」）：图源被 Cloudflare/WAF 拦下时，
   # 在 App 内打开源站让用户手动过真人校验，再把会话 Cookie 取回来复用。
   # iOS 走 WKWebView（webview_flutter_wkwebview，随插件自动带上）。
+  webview_flutter_wkwebview: ^3.27.0
   webview_flutter: ^4.13.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1

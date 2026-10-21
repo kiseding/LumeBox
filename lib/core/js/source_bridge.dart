@@ -189,6 +189,24 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   // `LumeSource.bridge` 即可；其余图源不受影响（读到空串）。
   var bridge = {
     http: http,
+    session: {setUserAgent:function(url,ua){return invoke('session.configure',{url:String(url),userAgent:String(ua||'')});}},
+    tools: {
+      run:function(options){return invoke('tools',options||{});},
+      digest:function(algorithm,data){return invoke('tools',{operation:'digest',algorithm:algorithm,data:String(data)});},
+      aes:function(options){return invoke('tools',Object.assign({},options,{operation:'aes'}));},
+      rsa:function(options){return invoke('tools',Object.assign({},options,{operation:'rsa'}));},
+      inflate:function(data,raw){return invoke('tools',{operation:'inflate',data:data,raw:!!raw});},
+      base64Encode:function(data){return invoke('tools',{operation:'base64Encode',data:String(data)});},
+      base64Decode:function(data){return invoke('tools',{operation:'base64Decode',data:String(data)});},
+      urlEncode:function(data){return invoke('tools',{operation:'urlEncode',data:String(data)});},
+      urlDecode:function(data){return invoke('tools',{operation:'urlDecode',data:String(data)});}
+    },
+    media: {
+      parseM3u8:function(text,url){return invoke('media',{operation:'parseM3u8',text:String(text),url:String(url)});},
+      inspectFlv:function(data){return invoke('media',{operation:'inspectFlv',data:data,url:'https://localhost/'});},
+      playlist:function(url,options){return invoke('media',Object.assign({},options,{operation:'playlist',url:String(url)}));},
+      segment:function(url,index,options){return invoke('media',Object.assign({},options,{operation:'segment',url:String(url),index:index}));}
+    },
     fs: fs,
     web: {render: function (options) { return invoke('web.render', options || {}); }},
     html: {extract: function (html, options) {
@@ -222,7 +240,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   };
 
   // 宿主能力不被脚本对象覆盖（脚本自己的实现可以占用其余任何名字）。
-  var reserved = { http: true, fs: true, web: true, html: true, storage: true, config: true };
+  var reserved = {tools:true, media:true, session:true,  http: true, fs: true, web: true, html: true, storage: true, config: true };
 
   function namesOf(name) { return aliases[name] || [name]; }
 

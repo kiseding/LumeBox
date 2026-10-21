@@ -1,4 +1,6 @@
 import 'ios_verified_webview.dart';
+import 'site_session_pool.dart';
+import 'source_text_decoder.dart';
 
 import 'dart:async';
 
@@ -39,13 +41,17 @@ class LumeHttpResponse {
     required this.statusCode,
     required this.body,
     required this.headers,
+    this.decodedText,
+    this.url,
   });
 
   final int statusCode;
   final Uint8List body;
   final Map<String, String> headers;
 
-  String get text => utf8.decode(body, allowMalformed: true);
+  final String? decodedText;
+  final String? url;
+  String get text => decodedText ?? utf8.decode(body, allowMalformed: true);
 }
 
 /// JS 图源的网络请求全部经由此 Dart 层发出，JS 侧不直接持有 socket。
@@ -204,8 +210,113 @@ class LumeHttp {
     int? maxBytes,
     bool followRedirects = true,
   }) async {
+    var target = Uri.parse(url);
+    var verb = method.toUpperCase();
+    var outgoing = _headersFor(headers);
+    var payload = body;
+    var binary = bodyBytes;
+    final seen = <String>{};
+    for (var hop = 0; hop <= 10; hop++) {
+      if (!['http', 'https'].contains(target.scheme) ||
+          target.userInfo.isNotEmpty) {
+        throw const FormatException('请求仅支持无内嵌凭据的 HTTP(S) 地址');
+      }
+      if (!seen.add('$verb $target'))
+        throw const LumeHttpException('redirect_loop：重定向循环');
+      outgoing = await SiteSessionPool.shared.synchronize(
+        target.toString(),
+        outgoing,
+      );
+      final response = await _sendOne(
+        url: target.toString(),
+        method: verb,
+        headers: outgoing,
+        body: payload,
+        bodyBytes: binary,
+        timeout: timeout,
+        maxBytes: maxBytes,
+        followRedirects: false,
+        preparedHeaders: true,
+      );
+      SiteSessionPool.shared.absorb(target.toString(), response.headers);
+      final location = response.headers.entries
+          .where((e) => e.key.toLowerCase() == 'location')
+          .firstOrNull
+          ?.value;
+      if (!followRedirects ||
+          ![301, 302, 303, 307, 308].contains(response.statusCode) ||
+          location == null) {
+        if (response.statusCode < 400 &&
+            response.headers.entries.any(
+              (e) =>
+                  e.key.toLowerCase() == 'content-type' &&
+                  e.value.toLowerCase().contains('text/html'),
+            )) {
+          SiteSessionPool.shared.rememberSourcePage(_source, target.toString());
+        }
+        return LumeHttpResponse(
+          statusCode: response.statusCode,
+          body: response.body,
+          headers: response.headers,
+          decodedText: response.decodedText,
+          url: target.toString(),
+        );
+      }
+      if (hop == 10) throw const LumeHttpException('redirect_limit：重定向超过 10 次');
+      final next = target.resolve(location);
+      if (!['http', 'https'].contains(next.scheme) ||
+          next.userInfo.isNotEmpty) {
+        throw const LumeHttpException('redirect_scheme：不支持的跳转地址');
+      }
+      if (next.origin != target.origin) {
+        outgoing.removeWhere(
+          (k, _) => [
+            'cookie',
+            'authorization',
+            'proxy-authorization',
+            'host',
+          ].contains(k.toLowerCase()),
+        );
+      }
+      if (target.scheme == 'https' && next.scheme == 'http') {
+        outgoing.removeWhere(
+          (k, _) =>
+              ['referer', 'cookie', 'authorization'].contains(k.toLowerCase()),
+        );
+      }
+      if ((response.statusCode == 303 && verb != 'HEAD') ||
+          ([301, 302].contains(response.statusCode) && verb == 'POST')) {
+        verb = 'GET';
+        payload = null;
+        binary = null;
+        outgoing.removeWhere(
+          (k, _) => [
+            'content-type',
+            'content-length',
+            'transfer-encoding',
+          ].contains(k.toLowerCase()),
+        );
+      }
+      target = next;
+    }
+    throw const LumeHttpException('redirect_limit');
+  }
+
+  Future<LumeHttpResponse> _sendOne({
+    required String url,
+    String method = 'GET',
+    Map<String, String>? headers,
+    String? body,
+    List<int>? bodyBytes,
+    Duration? timeout,
+    int? maxBytes,
+    bool followRedirects = true,
+    bool preparedHeaders = false,
+  }) async {
     final target = _rewriteUrl?.call(url) ?? url;
-    final outgoingHeaders = _headersFor(headers);
+    final outgoingHeaders = preparedHeaders
+        ? Map<String, String>.of(headers ?? {})
+        : _headersFor(headers);
     if (target != url) {
       outgoingHeaders.removeWhere(
         (key, _) =>
@@ -233,7 +344,7 @@ class LumeHttp {
       source: _source,
       // 只有幂等方法参与重试：POST 重试可能造成重复提交。
       retryOn: _isIdempotent(method),
-      proxy: _profile.mergedWith(_settings).proxy,
+      proxy: Platform.isIOS ? '' : _profile.mergedWith(_settings).proxy,
       // 证书过期站点的唯一出路（按源显式开启，默认关）。
       allowBadCertificate: _profile.mergedWith(_settings).allowBadCertificate,
       // 读取上限：只有探测型请求会传（见 [readResponseBody]）。
@@ -283,6 +394,10 @@ class LumeHttp {
       statusCode: response.statusCode,
       body: Uint8List.fromList(response.body),
       headers: response.headers,
+      decodedText: await SourceTextDecoder.decode(
+        response.body,
+        response.headers,
+      ),
     );
   }
 
@@ -316,8 +431,12 @@ class LumeHttp {
 
   /// 请求头：调用方给的优先，UA 与 Cookie 按「图源覆盖 → 全局」补齐。
   /// Browser sources use the exact same per-source session and UA as HTTP.
-  Map<String, String> browserRequestHeaders(Map<String, String>? headers) =>
-      _headersFor(headers);
+  Map<String, String> browserRequestHeaders(
+    Map<String, String>? headers, {
+    String? url,
+  }) => url == null
+      ? _headersFor(headers)
+      : SiteSessionPool.shared.headersFor(url, _headersFor(headers));
 
   Map<String, String> _headersFor(Map<String, String>? headers) {
     // HTTP 头名不区分大小写；统一需合并的头名，避免覆盖脚本的小写头。

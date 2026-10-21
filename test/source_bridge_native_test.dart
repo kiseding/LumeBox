@@ -76,6 +76,23 @@ void main() {
       );
     }
 
+    test('所有源可直接调用通用工具与同步 pako，赋值不会覆盖宿主', () async {
+      final source = await boot(r'''
+        var LumeSource = {tools:{},media:{},session:{}};
+        async function getList() {
+          const digest = await LumeSource.tools.digest('sha256','abc');
+          const text = pako.inflate(new Uint8Array([120, 156, 123, 218, 181, 226, 89, 67, 227, 139, 229, 139, 159, 246, 117, 63, 235, 152, 240, 180, 107, 62, 0, 118, 64, 12, 59]),{to:'string'});
+          return {items:[{id:digest,title:text}]};
+        }
+      ''');
+      final page = await source.list(page: 1);
+      expect(page.items.single.title, '动态解压成功');
+      expect(
+        page.items.single.id,
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    });
+
     test('真实JS桥按顺序渲染、CSS提取并返回源列表，宿主能力不会被覆盖', () async {
       final calls = <MethodCall>[];
       final messenger =

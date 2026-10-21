@@ -1,3 +1,5 @@
+import 'site_session_pool.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -35,6 +37,7 @@ class LumeNet {
     try {
       final store = await NetworkSettingsStore.open();
       apply(store.load());
+      await SiteSessionPool.shared.boot();
     } catch (error, stackTrace) {
       LumeLog.warn('全局网络设置加载失败，使用默认值: $error');
       LumeLog.error(error, stackTrace);
@@ -81,16 +84,9 @@ class LumeNet {
   /// 与 `LumeHttp._rawSend` 的区别只在于「客户端从哪来」——这里没有注入的
   /// 客户端，因此每请求按代理配置决定：直连用默认客户端，配了代理就套一层。
   static Future<NetworkResponse> sendDirect(NetworkRequest request) async {
-    final proxy = request.proxy.trim();
-    if (Platform.isIOS &&
-        proxy.isEmpty &&
-        !request.allowBadCertificate &&
-        (request.method == 'GET' || request.method == 'POST') &&
-        request.followRedirects &&
-        ((request.reuseVerifiedSession &&
-                Uri.tryParse(request.url)?.scheme == 'https') ||
-            request.source.startsWith('封面:') ||
-            request.source == '图片缓存')) {
+    final proxy = Platform.isIOS ? '' : request.proxy.trim();
+    // URLSession follows the same system proxy/VPN route as WebKit.
+    if (Platform.isIOS && !request.allowBadCertificate) {
       return IosImageNetwork.send(request);
     }
     // 客户端**复用**（见 [_proxyClient]）：这里不再「用完就关」——每次新建再关闭
