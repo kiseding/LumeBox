@@ -133,11 +133,13 @@ class SiteSessionPool {
         final defaultPath = uri.path.contains('/')
             ? uri.path.substring(0, uri.path.lastIndexOf('/') + 1)
             : '/';
+        // WebKit is authoritative on iOS. Off-device fallback keeps server
+        // cookies host-only instead of implementing an incomplete public-suffix list.
         importCookies([
           {
             'name': c.name,
             'value': c.value,
-            'domain': domain,
+            'domain': uri.host,
             'path': c.path ?? defaultPath,
             'secure': c.secure,
             'expires': c.maxAge != null

@@ -1,3 +1,4 @@
+import '../../core/net/lume_net.dart';
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -272,7 +273,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// 起播顺序：**先定 UA，再带头加载**（顺序反了第一次加载用的还是 WKWebView
   /// 默认 UA，那就是 CF 给白屏的那一份）。
   Future<void> _boot() async {
-    final retained = await SourceWebRuntime.verifyRetained(widget.url);
+    Map<String,dynamic>? retained;
+    try { retained = await SourceWebRuntime.verifyRetained(widget.url); }
+    catch (_) { /* An expired handoff falls back to the ordinary visible page. */ }
     if (!mounted) return;
     if (retained != null) {
       if (retained['verified'] == true) {
@@ -577,6 +580,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         webViewCookiesForUrl(list ?? const <Object?>[], widget.url),
       );
       SiteSessionPool.shared.importCookies(list ?? []);
+      LumeNet.queue.clearInvalidLinks();
     } on MissingPluginException {
       LumeLog.info('[waf] 当前平台没有原生 Cookie 通道，只取 JS 可见的 Cookie');
     } catch (error) {

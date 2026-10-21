@@ -92,6 +92,7 @@ final class SourceWebController {
         }
       case "cancel":
         self.tasks[id]?.cancel()
+        if self.retainedID == id { self.retained?.cancel(); self.retained=nil; self.retainedID=nil }
         result(nil)
       case "extract":
         guard self.parsingCount < 4 else {
@@ -324,7 +325,11 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     return nil
   }
 
-  func cancel() { fail("cancelled", "网页请求已取消") }
+  func cancel() {
+    if verificationResult != nil { completeVerification(false) }
+    else if callback == nil { destroy() }
+    else { fail("cancelled", "网页请求已取消") }
+  }
 
   func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

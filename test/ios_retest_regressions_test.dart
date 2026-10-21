@@ -101,7 +101,7 @@ void main() {
       // 在飞的那条读就报「数据库已关闭」（真机在漫画导入订阅后复现）。
       await tester.tap(find.byKey(const ValueKey('open-source-picker')));
       await advance(tester);
-      await tester.tap(find.widgetWithText(TextButton, '源管理'));
+      await tester.tap(find.byTooltip('源管理'));
       await advance(tester);
       expect(find.widgetWithText(AppBar, '漫画 · 源管理'), findsOneWidget);
 

@@ -1,3 +1,4 @@
+import '../net/lume_net.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -37,6 +38,7 @@ class SourceWebRuntime {
         userAgent: reply?['userAgent'] as String?,
       );
       await SiteSessionPool.shared.synchronize(url, {});
+      LumeNet.queue.clearInvalidLinks();
     }
     return reply;
   }

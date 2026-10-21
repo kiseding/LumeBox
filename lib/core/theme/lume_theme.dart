@@ -553,7 +553,7 @@ class LumeTheme {
               ? (isDark ? const Color(0xFF494952) : const Color(0xFFC7C7CF))
               : states.contains(WidgetState.selected)
               ? accentColor
-              : (isDark ? const Color(0xFF63636D) : const Color(0xFF90909A)),
+              : (isDark ? const Color(0xFF70707A) : const Color(0xFF85858F)),
         ),
         trackOutlineColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)

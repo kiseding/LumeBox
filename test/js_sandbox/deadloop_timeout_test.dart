@@ -187,7 +187,7 @@ void main() {
         expect(
           runaway.error!.kind,
           SandboxErrorKind.memory,
-          reason: '脚本方法体内堆爆属于引擎级错误，不能被当成可捕获的普通脚本错误',
+          reason: '脚本方法体内堆爆属于引擎级错误：${runaway.error}',
         );
         expect(
           SandboxContext.liveCount,

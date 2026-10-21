@@ -142,7 +142,7 @@ String _syntheticListPage({required int anchors}) {
 }
 
 /// 固定返回同一份 HTML 的替身（不区分地址：第一跳就命中）。
-class _StaticHttp implements LumeHttp {
+class _StaticHttp extends LumeHttp {
   _StaticHttp(this.body);
 
   final String body;
@@ -418,7 +418,7 @@ bool _isNetworkFailure(String message) =>
     message.contains(LumeSourceNetworkMarker.failure);
 
 /// 截图站的 403 挑战页：CF 拦下时真实响应就长这样（标题 + `cf-mitigated`）。
-class _ChallengeHttp implements LumeHttp {
+class _ChallengeHttp extends LumeHttp {
   /// 发过多少次请求。用来分辨「脚本先校验入参、根本没发请求」与「发了请求但
   /// 抛出无法归类的结果」——前者用合成 id 探测时是正常的（见审计主体的说明）。
   int requests = 0;

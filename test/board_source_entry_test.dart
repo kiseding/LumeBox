@@ -82,8 +82,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open-source-picker')));
     await tester.pumpAndSettle();
-    expect(find.text('源订阅'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, '源管理'));
+    expect(find.text('源订阅'), findsNothing);
+    await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '漫画 · 源管理'), findsOneWidget);
@@ -109,8 +109,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open-source-picker')));
     await tester.pumpAndSettle();
-    expect(find.text('源订阅'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, '源管理'));
+    expect(find.text('源订阅'), findsNothing);
+    await tester.tap(find.byTooltip('源管理'));
     await tester.pumpAndSettle();
 
     // 视频板块管理页（本平台无图源运行时，页面按骨架展示，标题口径一致）。
