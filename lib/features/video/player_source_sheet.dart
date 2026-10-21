@@ -162,6 +162,13 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                           ),
                         ),
                         selected: current,
+                        labelStyle: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(
+                              color: current
+                                  ? LumeTheme.onAccent
+                                  : LumeTheme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
                         showCheckmark: false,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -245,6 +252,13 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                         itemBuilder: (context, index) => ChoiceChip(
                           label: Text(widget.qualities[index].label),
                           selected: index == widget.currentIndex,
+                          labelStyle: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: index == widget.currentIndex
+                                    ? LumeTheme.onAccent
+                                    : LumeTheme.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
                           onSelected: widget.onSelectQuality == null
                               ? null
                               : (_) {

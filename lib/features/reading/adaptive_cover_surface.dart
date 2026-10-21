@@ -85,7 +85,7 @@ class _AdaptiveCoverSurfaceState extends State<AdaptiveCoverSurface> {
           _cache[key] = color;
         } else {
           pipe.configureImageHeaders({url: item.coverHeaders});
-          final image = await pipe.image(url, targetWidth: 64);
+          final image = await pipe.colorSample(url);
           if (image != null) {
             try {
               if (!mounted || generation != _generation) return;
@@ -101,7 +101,7 @@ class _AdaptiveCoverSurfaceState extends State<AdaptiveCoverSurface> {
                 );
               }
             } finally {
-              pipe.release(url, targetWidth: 64);
+              image.dispose();
             }
           }
           if (color != null) {

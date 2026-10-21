@@ -126,7 +126,10 @@ void main() {
     expect(painter.entries.length, 1);
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(view(const DanmakuSettings(delayMs: 1000), track));
-    expect(paintFinder, findsNothing);
+    expect(
+      (tester.widget<CustomPaint>(paintFinder).painter as dynamic).entries,
+      isEmpty,
+    );
     await tester.pumpWidget(
       view(
         const DanmakuSettings(delayMs: 1000),

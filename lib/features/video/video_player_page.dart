@@ -3578,8 +3578,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
     builder: (context, constraints) {
       final target = _target;
-      final side = ((_box * 8 + 28) > constraints.maxWidth)
-          ? ((constraints.maxWidth - 28) / 8).clamp(24.0, _box).toDouble()
+      final side = ((_box * 9 + 28) > constraints.maxWidth)
+          ? ((constraints.maxWidth - 28) / 9).clamp(24.0, _box).toDouble()
           : _box;
       Widget action(
         String label,

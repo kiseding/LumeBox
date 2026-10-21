@@ -54,7 +54,6 @@ class PlayerSettingsPage extends StatelessWidget {
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
-          const PlaybackSettingsGroup(),
           ListTile(
             leading: const Icon(Icons.comment_outlined),
             title: const Text('弹幕服务'),
@@ -79,6 +78,8 @@ class PlayerSettingsPage extends StatelessWidget {
             onDanmakuChanged: onDanmakuChanged,
             embedded: true,
           ),
+          const SizedBox(height: 16),
+          const PlaybackSettingsGroup(),
         ],
       ),
     );

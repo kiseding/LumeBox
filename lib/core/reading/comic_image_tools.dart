@@ -20,7 +20,6 @@ enum UpscaleSurface {
 
   /// 视频海报。
   videoPoster,
-
 }
 
 class ComicImageToolsSettings extends ChangeNotifier {
@@ -201,8 +200,12 @@ class ComicImageTools {
   bool _disposed = false;
 
   /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
-  int _automaticActive = 0;
-  final List<Completer<void>> _automaticWaiters = <Completer<void>>[];
+  // Readers and cover pipelines share one device budget, rather than each
+  // starting up to four independent Core ML jobs at once.
+  static int _automaticActive = 0;
+  static final List<Completer<void>> _automaticWaiters = <Completer<void>>[];
+  @visibleForTesting
+  static bool? debugAutomaticSupported;
 
   Future<T?> _invoke<T>(String method, Map<String, Object?> args) async {
     if (_disposed) throw StateError('图片处理已取消');
@@ -254,7 +257,10 @@ class ComicImageTools {
     Uint8List bytes, {
     UpscaleSurface surface = UpscaleSurface.reader,
   }) {
-    if (_disposed || !Platform.isIOS || !surfaceEnabled(surface)) {
+    if (_disposed ||
+        !(debugAutomaticSupported ?? Platform.isIOS) ||
+        !surfaceEnabled(surface) ||
+        _automaticWaiters.length >= 32) {
       return Future.value(bytes);
     }
     final completer = Completer<Uint8List>();

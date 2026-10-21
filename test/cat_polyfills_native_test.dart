@@ -70,7 +70,8 @@ void main() {
       addTearDown(generic.dispose);
 
       expect(await evalValue(generic, 'typeof globalThis.process'), 'undefined');
-      expect(await evalValue(generic, 'typeof globalThis.Buffer'), 'undefined');
+      expect(await evalValue(generic, 'typeof globalThis.Buffer'), 'function');
+      expect(await evalValue(generic, 'typeof globalThis.__lumeModules.crypto.createHash'), 'function');
       expect(await evalValue(generic, 'typeof globalThis.require'), 'undefined');
       expect(await evalValue(generic, 'typeof globalThis.setInterval'), 'undefined');
       // 通用表仍有网络垫片。

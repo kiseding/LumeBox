@@ -724,7 +724,7 @@ void main() {
       expect(find.byType(TextField), findsNothing);
 
       // 线路列表（与「清晰度」按钮同一份数据）：点一条即换源并从当前位置继续。
-      expect(find.text('线路（切换后从当前位置继续）'), findsOneWidget);
+      expect(find.text('切换线路后从当前位置继续'), findsOneWidget);
       await tester.tap(find.text('720P'));
       await tester.pumpAndSettle();
       expect(

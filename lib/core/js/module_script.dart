@@ -6,6 +6,34 @@ import 'spider_module_adapter.dart';
 /// ESM/CommonJS module graphs. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
+  /// Ignore CommonJS probes inside embedded UMD libraries and quoted text.
+  static bool hasCommonJsExport(String script) {
+    if (!RegExp(r'\bmodule\s*\.\s*exports\b').hasMatch(script)) return false;
+    final List<({String value, int start, int end})> tokens;
+    try {
+      tokens = _tokens(script);
+    } on FormatException {
+      return false;
+    }
+    var depth = 0;
+    var exported = false, globalSource = false;
+    for (var i = 0; i + 3 < tokens.length; i++) {
+      final value = tokens[i].value;
+      if (depth == 0 && value == 'LumeSource' && tokens[i + 1].value == '=') {
+        globalSource = true;
+      }
+      if (value == 'module' &&
+          tokens[i + 1].value == '.' &&
+          tokens[i + 2].value == 'exports' &&
+          ['=', '.'].contains(tokens[i + 3].value)) {
+        exported = true;
+      }
+      if (['{', '[', '('].contains(value)) depth++;
+      if (['}', ']', ')'].contains(value)) depth--;
+    }
+    return exported && !globalSource;
+  }
+
   static const builtins = {
     'crypto',
     'node:crypto',

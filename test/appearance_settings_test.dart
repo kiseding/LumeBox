@@ -284,6 +284,7 @@ void main() {
       expect(find.text('个性与界面'), findsOneWidget);
       expect(find.text('外观'), findsOneWidget);
       expect(find.text('主题色'), findsOneWidget);
+      expect(find.text('字体与字号'), findsNothing);
 
       // 两行在同一个分组卡片里。
       expect(

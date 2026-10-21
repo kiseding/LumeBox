@@ -603,8 +603,8 @@ class LumeSourcePolyfills {
     ],
   );
 
-  /// 按板块选登记表：**猫源的 Node 环境不外借**（宪法第 3 条），
-  /// 其余三个板块共用通用表（含 Venera 兼容层）。
+  /// 按板块选择环境；通用源共享 Buffer、哈希与解压工具，
+  /// 猫源额外的进程／文件／网络模块模拟仍只在猫源表中注入。
   static PolyfillRegistry forSection(Section section, {String bridge = ''}) {
     // 有桥接地址时按图源单独组装一份（桥接是图源级配置，不能污染共享登记表）。
     if (bridge.trim().isNotEmpty) {

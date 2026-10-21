@@ -255,6 +255,29 @@ class SectionImagePipeline {
   Future<ui.Image?> image(String url, {int? targetWidth}) =>
       _resolveImage(url, targetWidth: targetWidth, holdReference: true);
 
+  /// Small, caller-owned palette sample. Does not run AI or occupy the display
+  /// bitmap cache; it still shares the original download/session/cache path.
+  Future<ui.Image?> colorSample(String url) async {
+    final original = await bytes(url);
+    if (original == null || _disposed) return null;
+    final codec = await ui.instantiateImageCodec(
+      original,
+      targetWidth: 64,
+      targetHeight: 64,
+      allowUpscaling: false,
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      if (_disposed) {
+        frame.image.dispose();
+        return null;
+      }
+      return frame.image;
+    } finally {
+      codec.dispose();
+    }
+  }
+
   /// 取图的统一入口。[holdReference] 决定是否把一次引用记在调用方账上：
   /// 展示用（widget）必须持有，预加载用（只进缓存）不持有。
   Future<ui.Image?> _resolveImage(

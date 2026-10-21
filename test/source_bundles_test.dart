@@ -21,6 +21,23 @@ List<int> sourceZip(Map<String, Object> files) {
 }
 
 void main() {
+  test('普通源内嵌 CryptoJS 的 UMD 导出不改变源类型', () {
+    const script =
+        "var CryptoJS=(function(){var module,exports; if(typeof exports==='object')module.exports={}; if(typeof require==='function')require('crypto'); return {};})(); var LumeSource={id:'normal',name:'normal'};";
+    expect(SourcePackage.kindOf(script), SourcePackageKind.javascript);
+    expect(SourcePackage.prepare(script), script);
+    expect(
+      SourcePackage.kindOf("module.exports = {categories(){return [];}}"),
+      SourcePackageKind.module,
+    );
+    expect(
+      SourcePackage.kindOf(
+        "(function(){module.exports={categories(){return [];}};})();",
+      ),
+      SourcePackageKind.module,
+      reason: '保留没有全局源对象的 CommonJS 打包脚本',
+    );
+  });
   test('订阅模块跳过内建依赖，仅下载真实相对模块', () async {
     final requests = <String>[];
     final subscription = SourceSubscription(

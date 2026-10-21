@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../js/source_script.dart';
+import '../js/module_script.dart';
 import 'source_bundle.dart';
 import 'remote_spider.dart';
 import '../js/rex_widget.dart';
@@ -126,7 +127,7 @@ class SourcePackage {
           r'''^\s*import\s*(?:\(|["'{*]|[\w$]+\s*(?:,|from))''',
           multiLine: true,
         ).hasMatch(script) ||
-        script.contains('module.exports')) {
+        ModuleScript.hasCommonJsExport(script)) {
       return SourcePackageKind.module;
     }
     return SourcePackageKind.javascript;

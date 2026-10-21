@@ -20,13 +20,21 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final capture = Platform.environment['LUME_CAPTURE_PREVIEW'] == '1';
       if (capture && Platform.isWindows) {
-        final font = FontLoader('PreviewChinese')
-          ..addFont(
-            File('C:/Windows/Fonts/msyh.ttc')
-                .readAsBytes()
-                .then((bytes) => ByteData.sublistView(bytes)),
-          );
-        await tester.runAsync(font.load);
+        await tester.runAsync(() async {
+          final bytes = await File('C:/Windows/Fonts/msyh.ttc').readAsBytes();
+          await (FontLoader(
+            'PreviewChinese',
+          )..addFont(Future.value(ByteData.sublistView(bytes)))).load();
+          await (FontLoader(
+            'Ahem',
+          )..addFont(Future.value(ByteData.sublistView(bytes)))).load();
+          final icons = await File(
+            'C:/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+          ).readAsBytes();
+          await (FontLoader(
+            'MaterialIcons',
+          )..addFont(Future.value(ByteData.sublistView(icons)))).load();
+        });
       }
       var selected = -1;
       final boundary = GlobalKey();
@@ -43,6 +51,7 @@ void main() {
               backgroundColor: const Color(0xFF25303D),
               body: PlayerSourceSheet(
                 address: 'https://fixture.invalid/video.mp4',
+                onSelectQuality: (_) {},
                 currentChapterId: '160',
                 qualities: [
                   VideoQuality(
@@ -79,13 +88,13 @@ void main() {
         isTrue,
       );
       if (capture) {
-        final image =
-            await (boundary.currentContext!.findRenderObject()
-                    as RenderRepaintBoundary)
-                .toImage(pixelRatio: 2);
-        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-        image.dispose();
         await tester.runAsync(() async {
+          final image =
+              await (boundary.currentContext!.findRenderObject()
+                      as RenderRepaintBoundary)
+                  .toImage(pixelRatio: 2);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          image.dispose();
           await Directory('.cache/feedback-preview').create(recursive: true);
           await File(
             '.cache/feedback-preview/episodes-${landscape ? 'landscape' : 'portrait'}.png',

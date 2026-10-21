@@ -381,7 +381,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         children: [
           Flexible(
             child: Text(
-              source.version,
+              results[source.id]?.status.label ?? source.version,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),

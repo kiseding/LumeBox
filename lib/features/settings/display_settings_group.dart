@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import '../../core/theme/appearance.dart';
 import 'floating_settings_page.dart';
 import 'custom_accent_picker.dart';
-import 'font_settings_page.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 
@@ -67,16 +66,6 @@ class DisplaySettingsGroup extends StatelessWidget {
               ),
               const _AccentRow(),
               const _BackgroundRow(),
-              _DisplayRow(
-                icon: Icons.text_fields,
-                title: '字体与字号',
-                value: '',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FontSettingsPage(),
-                  ),
-                ),
-              ),
               ListenableBuilder(
                 listenable: AppearanceController.instance,
                 builder: (context, _) => SwitchListTile(

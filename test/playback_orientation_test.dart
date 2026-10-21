@@ -108,6 +108,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('横屏播放'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
     }
 
     testWidgets('开关：打开 = 强制横屏，关闭 = 回到自动判断', (tester) async {

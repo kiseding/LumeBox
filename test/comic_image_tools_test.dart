@@ -544,6 +544,68 @@ void main() {
     sub.dispose();
   });
 
+  test('自适应取色仅解码小图，不进入超分队列或污染展示缓存', () async {
+    var enhanced = 0;
+    final pipeline = SectionImagePipeline(
+      cacheDir: '',
+      diskCache: false,
+      decodeTransform: (original) async {
+        enhanced++;
+        return original;
+      },
+      requestSender: (_) async => NetworkResponse(
+        statusCode: 200,
+        body: bytes,
+        headers: const {'content-type': 'image/png'},
+      ),
+    );
+    addTearDown(pipeline.dispose);
+    final sample = await pipeline.colorSample(
+      'https://images.example/palette.png',
+    );
+    expect(sample, isNotNull);
+    expect(sample!.width, lessThanOrEqualTo(64));
+    expect(sample.height, lessThanOrEqualTo(64));
+    expect(enhanced, 0);
+    expect(pipeline.memoryCount, 0);
+    sample.dispose();
+    final display = await pipeline.image('https://images.example/palette.png');
+    expect(display, isNotNull);
+    expect(enhanced, 1);
+    pipeline.release('https://images.example/palette.png');
+  });
+
+  test('封面与阅读器自动超分共用设备并发预算', () async {
+    ComicImageTools.debugAutomaticSupported = true;
+    addTearDown(() => ComicImageTools.debugAutomaticSupported = null);
+    final firstStarted = Completer<void>(), finishFirst = Completer<void>();
+    var calls = 0;
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (_) async {
+      calls++;
+      if (calls == 1) {
+        firstStarted.complete();
+        await finishFirst.future;
+      }
+      return bytes;
+    });
+    final settings = ComicImageToolsSettings()
+      ..automatic = true
+      ..upscaleCovers = true
+      ..concurrency = 1;
+    final reader = ComicImageTools(settings: settings),
+        covers = ComicImageTools(settings: settings);
+    addTearDown(reader.dispose);
+    addTearDown(covers.dispose);
+    final a = reader.automatic(bytes);
+    await firstStarted.future;
+    final b = covers.automatic(bytes, surface: UpscaleSurface.cover);
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1, reason: '封面不能另开一个并发池抢占阅读器预算');
+    finishFirst.complete();
+    await Future.wait([a, b]);
+    expect(calls, 2);
+  });
+
   testWidgets('apply-to-page returns enhanced bytes when allowApply', (
     tester,
   ) async {
