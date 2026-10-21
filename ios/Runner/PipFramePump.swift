@@ -239,15 +239,15 @@ final class PipDanmakuRenderer {
     guard enabled else { return }
     let now = CACurrentMediaTime()
     if timestampMs != lastPosition { lastPosition = timestampMs; anchor = now }
-    let rate = max(0.1, value("playbackRate", 1))
-    let target = Double(timestampMs) + (playing ? min(1000, (now - anchor) * 1000) * rate : 0)
+    let playbackSpeed = max(0.1, value("playbackRate", 1))
+    let target = Double(timestampMs) + (playing ? min(1000, (now - anchor) * 1000) * playbackSpeed : 0)
     let delta = min(100, max(0, (now - clockFrame) * 1000))
     if clockFrame == 0 || !playing || abs(target - clockPosition) > 2000 {
       clockPosition = target
     } else {
-      let predicted = clockPosition + delta * rate
-      let correction = min(delta * rate * 0.1, max(-delta * rate * 0.1, (target - predicted) * 0.12))
-      clockPosition = min(Double(timestampMs) + 1000 * rate, predicted + correction)
+      let predicted = clockPosition + delta * playbackSpeed
+      let correction = min(delta * playbackSpeed * 0.1, max(-delta * playbackSpeed * 0.1, (target - predicted) * 0.12))
+      clockPosition = min(Double(timestampMs) + 1000 * playbackSpeed, predicted + correction)
     }
     clockFrame = now
     let position = clockPosition - value("delayMs", 0)
