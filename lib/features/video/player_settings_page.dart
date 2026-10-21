@@ -6,6 +6,7 @@ import '../../core/player/player_factory.dart';
 import '../../core/player/player_settings.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'danmaku/danmaku_settings.dart';
+import 'danmaku/danmaku_sources_page.dart';
 import 'player_settings_sheet.dart';
 
 /// 播放器设置页（全局设置 Tab → 播放器设置）。
@@ -51,6 +52,16 @@ class PlayerSettingsPage extends StatelessWidget {
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
+          ListTile(
+            leading: const Icon(Icons.comment_outlined),
+            title: const Text('弹幕服务'),
+            subtitle: const Text('弹弹play · Cynn · Wenjian · 自定义 danmu'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(builder: (_) => const DanmakuSourcesPage()),
+            ),
+          ),
           PlayerSettingsSheet(
             settings: settings,
             // 全局页没有播放器实例：按「设置里选的内核」查同一张能力表。

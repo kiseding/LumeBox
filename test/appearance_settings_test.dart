@@ -54,7 +54,7 @@ void main() {
     () async {
       expect(
         AppearanceSettings.fromJson({'accent': 'mint'}).background,
-        ThemeBackground.white,
+        ThemeBackground.grouped,
       );
       final store = await AppearanceSettingsStore.open();
       for (final background in ThemeBackground.values) {
@@ -79,9 +79,7 @@ void main() {
     },
   );
 
-  testWidgets('global settings offers all three page backgrounds', (
-    tester,
-  ) async {
+  testWidgets('页面底色只保留两项，纯白旧值迁移到浅灰', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
@@ -90,8 +88,12 @@ void main() {
     );
     await tester.tap(find.text('页面底色'));
     await tester.pumpAndSettle();
-    expect(find.text('#FFFFFF'), findsWidgets);
-    await tester.tap(find.text('#F2F2F7'));
+    expect(find.text('#FFFFFF'), findsNothing);
+    expect(
+      AppearanceSettings.fromJson({'background': 'white'}).background,
+      ThemeBackground.grouped,
+    );
+    await tester.tap(find.text('#F2F2F7').last);
     await tester.pumpAndSettle();
     expect(
       AppearanceController.instance.settings.background,

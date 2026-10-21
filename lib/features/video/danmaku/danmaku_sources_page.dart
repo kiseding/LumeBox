@@ -86,7 +86,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
               ),
             ),
             for (final choice in const {
-              'logvar': 'LogVar 弹幕服务器',
+              'logvar': '自定义 danmu 服务（兼容弹弹play）',
               'official': '弹弹play 开放平台',
               'plugin': '本机弹幕插件（JS）',
             }.entries)
@@ -108,7 +108,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
           padding: const EdgeInsets.all(24),
           child: Text(
             Platform.isIOS
-                ? '参考播放器的本机弹幕插件目前仅支持安卓。iPhone 可以使用兼容弹幕服务器与开放平台。'
+                ? '本机弹幕插件目前仅支持安卓。iPhone 可以使用兼容弹幕服务器与开放平台。'
                 : '本机弹幕文件可以在播放页导入。第三方 JS 插件需要匹配其接口格式，不能把任意脚本当成弹幕源运行。',
           ),
         ),

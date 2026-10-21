@@ -18,6 +18,14 @@ class DanmakuSettingsSheet extends StatefulWidget {
     this.onMatch,
     this.onConfigureService,
     this.onReload,
+    this.videoTitle,
+    this.episodeTitle,
+    this.serviceLabel,
+    this.matchLabel,
+    this.sourceCount = 0,
+    this.publicCount = 0,
+    this.loading = false,
+    this.onClearMatch,
   });
 
   final DanmakuSettings settings;
@@ -29,7 +37,10 @@ class DanmakuSettingsSheet extends StatefulWidget {
   final String? status;
   final VoidCallback? onMatch;
   final VoidCallback? onConfigureService;
-  final VoidCallback? onReload;
+  final VoidCallback? onReload, onClearMatch;
+  final String? videoTitle, episodeTitle, serviceLabel, matchLabel;
+  final int sourceCount, publicCount;
+  final bool loading;
 
   @override
   State<DanmakuSettingsSheet> createState() => _DanmakuSettingsSheetState();
@@ -37,92 +48,167 @@ class DanmakuSettingsSheet extends StatefulWidget {
 
 class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
   @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: Material(
-        color: LumeTheme.base,
-        child: SafeArea(
-          top: false,
-          // 面板内容与「播放器设置 → 弹幕」共用同一份（[DanmakuSettingsPanel]），
-          // 两处不各写一套控件，免得改了这边忘了那边。
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .85,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: IconButton(
-                    tooltip: '返回播放',
-                    icon: const LumeIcon(
-                      Icons.arrow_back,
-                      slot: 'danmaku_settings_sheet.1',
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  title: const Text('弹幕设置'),
-                  trailing: IconButton(
-                    tooltip: '关闭弹幕设置',
-                    icon: const LumeIcon(
-                      Icons.close,
-                      slot: 'danmaku_settings_sheet.2',
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 2,
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '弹幕',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
                 ),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (widget.status != null)
-                          ListTile(title: Text(widget.status!)),
-                        if (widget.onMatch != null)
-                          ListTile(
-                            leading: const LumeIcon(
-                              Icons.search,
-                              slot: 'danmaku_settings_sheet.3',
-                            ),
-                            title: const Text('匹配公共弹幕'),
-                            onTap: widget.onMatch,
-                          ),
-                        if (widget.onConfigureService != null)
-                          ListTile(
-                            leading: const LumeIcon(
-                              Icons.cloud_outlined,
-                              slot: 'danmaku_settings_sheet.4',
-                            ),
-                            title: const Text('弹幕服务地址'),
-                            onTap: widget.onConfigureService,
-                          ),
-                        if (widget.onReload != null)
-                          ListTile(
-                            leading: const LumeIcon(
-                              Icons.refresh,
-                              slot: 'danmaku_settings_sheet.5',
-                            ),
-                            title: const Text('重新加载弹幕'),
-                            onTap: widget.onReload,
-                          ),
-                        DanmakuSettingsPanel(
-                          settings: widget.settings,
-                          onChanged: widget.onChanged,
-                          danmakuCount: widget.danmakuCount,
-                          showTitle: false,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+              Switch.adaptive(
+                value: widget.settings.enabled,
+                onChanged: (value) =>
+                    widget.onChanged(widget.settings.copyWith(enabled: value)),
+              ),
+              IconButton(
+                tooltip: '返回播放',
+                onPressed: () => Navigator.pop(context),
+                icon: const LumeIcon(Icons.close, slot: 'danmaku.close'),
+              ),
+            ],
           ),
         ),
-      ),
-    );
-  }
+        if (widget.videoTitle?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                [
+                  widget.videoTitle!,
+                  if (widget.episodeTitle?.isNotEmpty == true)
+                    widget.episodeTitle!,
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: LumeTheme.textSecondary),
+              ),
+            ),
+          ),
+        const TabBar(
+          tabs: [
+            Tab(text: '来源与匹配'),
+            Tab(text: '显示样式'),
+          ],
+        ),
+        Expanded(
+          child: TabBarView(
+            children: [
+              ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: LumeTheme.surface,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '本集 ${widget.danmakuCount ?? 0} 条',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '源弹幕 ${widget.sourceCount} · 公共弹幕 ${widget.publicCount}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: LumeTheme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (widget.loading) const LinearProgressIndicator(),
+                          if (widget.status != null)
+                            Text(
+                              widget.status!,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          if (widget.matchLabel?.isNotEmpty == true) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '已关联：${widget.matchLabel}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (widget.onMatch != null)
+                    FilledButton.icon(
+                      onPressed: widget.onMatch,
+                      icon: const LumeIcon(Icons.search, slot: 'danmaku.match'),
+                      label: const Text('匹配公共弹幕'),
+                    ),
+                  const SizedBox(height: 6),
+                  if (widget.onReload != null)
+                    OutlinedButton.icon(
+                      onPressed: widget.loading ? null : widget.onReload,
+                      icon: const LumeIcon(
+                        Icons.refresh,
+                        slot: 'danmaku.reload',
+                      ),
+                      label: const Text('重新加载本集'),
+                    ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const LumeIcon(
+                      Icons.dns_outlined,
+                      slot: 'danmaku.service',
+                    ),
+                    title: const Text('弹幕服务'),
+                    subtitle: Text(widget.serviceLabel ?? '选择官方或自定义 danmu 服务'),
+                    trailing: const LumeIcon(
+                      Icons.chevron_right,
+                      slot: 'danmaku.service.next',
+                    ),
+                    onTap: widget.onConfigureService,
+                  ),
+                  if (widget.onClearMatch != null &&
+                      widget.matchLabel?.isNotEmpty == true)
+                    TextButton(
+                      onPressed: widget.onClearMatch,
+                      child: const Text('清除本集关联，重新匹配'),
+                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '连接成功只表示服务可访问；作品、集数和弹幕数量以本集加载结果为准。',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: LumeTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              SingleChildScrollView(
+                child: DanmakuSettingsPanel(
+                  settings: widget.settings,
+                  onChanged: widget.onChanged,
+                  showTitle: false,
+                  showEnabled: false,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// 弹幕设置面板（可内嵌）：标题 + 开关 + 各项滑杆 + 屏蔽词。
@@ -136,6 +222,7 @@ class DanmakuSettingsPanel extends StatefulWidget {
     this.danmakuCount,
     this.showTitle = true,
     this.showAvoidSubtitles = true,
+    this.showEnabled = true,
   });
 
   final DanmakuSettings settings;
@@ -147,6 +234,7 @@ class DanmakuSettingsPanel extends StatefulWidget {
   /// 是否显示面板自己的标题（内嵌到播放器设置里时可以关掉，避免两级标题）。
   final bool showTitle;
   final bool showAvoidSubtitles;
+  final bool showEnabled;
 
   @override
   State<DanmakuSettingsPanel> createState() => _DanmakuSettingsPanelState();
@@ -257,19 +345,20 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             ),
             const SizedBox(height: 4),
           ],
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              '显示弹幕',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: LumeTypography.titleSize,
-                color: LumeTheme.textPrimary,
+          if (widget.showEnabled)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                '显示弹幕',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: LumeTypography.titleSize,
+                  color: LumeTheme.textPrimary,
+                ),
               ),
+              value: _settings.enabled,
+              onChanged: (value) => _update(_settings.copyWith(enabled: value)),
             ),
-            value: _settings.enabled,
-            onChanged: (value) => _update(_settings.copyWith(enabled: value)),
-          ),
           _slider(
             label: '不透明度',
             value: _settings.opacity,
@@ -339,6 +428,21 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             onChanged: (value) =>
                 _update(_settings.copyWith(speedScale: value)),
           ),
+          _slider(
+            label: '每秒上限',
+            value: _settings.maxPerSecond.toDouble(),
+            min: 1,
+            max: 30,
+            divisions: 29,
+            display: '${_settings.maxPerSecond} 条/秒',
+            onChanged: (value) =>
+                _update(_settings.copyWith(maxPerSecond: value.round())),
+          ),
+          Text(
+            '排数控制轨道数量；每秒上限控制密度。滚动弹幕会在同一轨道保持间隔连续进入。',
+            style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+          ),
+          const SizedBox(height: 8),
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: const Text(
@@ -393,16 +497,6 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                 display: _settings.lineSpacing.toStringAsFixed(2),
                 onChanged: (value) =>
                     _update(_settings.copyWith(lineSpacing: value)),
-              ),
-              _slider(
-                label: '每秒上限',
-                value: _settings.maxPerSecond.toDouble(),
-                min: 1,
-                max: 30,
-                divisions: 29,
-                display: '${_settings.maxPerSecond} 条/秒',
-                onChanged: (value) =>
-                    _update(_settings.copyWith(maxPerSecond: value.round())),
               ),
               _slider(
                 label: '时间校准',

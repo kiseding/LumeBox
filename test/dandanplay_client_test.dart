@@ -8,6 +8,36 @@ import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  test('精确作品必须同时核对集数，支持中文集数和平台后缀编号', () {
+    const first = DandanplayEpisode(
+      id: 'ep1',
+      title: '熔城(2026)【电视剧】from tencent',
+      episode: '【qq】 熔城_01',
+    );
+    const second = DandanplayEpisode(id: 'ep2', title: '熔城', episode: '第2集');
+    const unknown = DandanplayEpisode(
+      id: 'unknown',
+      title: '熔城',
+      episode: '预告',
+    );
+    expect(
+      DandanplayClient.exactMatch(
+        [first, second, unknown],
+        '熔城',
+        episode: 1,
+      )?.id,
+      'ep1',
+    );
+    expect(
+      DandanplayClient.exactMatch([second, unknown], '熔城', episode: 1),
+      isNull,
+    );
+    expect(DandanplayClient.parsedEpisodeNumber('第二十三集'), 23);
+    expect(DandanplayClient.parsedEpisodeNumber('第一集'), 1);
+    expect(DandanplayClient.parsedEpisodeNumber('【qq】 熔城_01'), 1);
+    expect(DandanplayClient.searchTitle('FROM'), 'FROM');
+    expect(DandanplayClient.searchTitle('熔城【第二季】'), contains('第二季'));
+  });
   test('兼容部署保留路径前缀，官方凭证不发给第三方', () async {
     final client = DandanplayClient(
       credentials: const DandanplayCredentials(

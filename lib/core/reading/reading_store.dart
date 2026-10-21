@@ -413,7 +413,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   void clearStationSettings() {
     if (_closed) return;
     _db.execute(
-      "DELETE FROM reading_setting WHERE key LIKE 'source.preferences.%' OR key LIKE 'waf.cookies.%' OR key LIKE 'waf.ua.%' OR key LIKE 'rex.widget.private.%' OR key LIKE 'rex.widget.params.%' OR key = 'rex.widget.shared'",
+      "DELETE FROM reading_setting WHERE key LIKE 'source.preferences.%' OR key LIKE 'source.runtime.storage.%' OR key LIKE 'waf.cookies.%' OR key LIKE 'waf.ua.%' OR key LIKE 'rex.widget.private.%' OR key LIKE 'rex.widget.params.%' OR key = 'rex.widget.shared'",
     );
     setSetting('search.aggregate.sourceIds', 'null');
   }

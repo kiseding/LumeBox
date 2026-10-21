@@ -315,6 +315,10 @@ class LumeHttp {
   }
 
   /// 请求头：调用方给的优先，UA 与 Cookie 按「图源覆盖 → 全局」补齐。
+  /// Browser sources use the exact same per-source session and UA as HTTP.
+  Map<String, String> browserRequestHeaders(Map<String, String>? headers) =>
+      _headersFor(headers);
+
   Map<String, String> _headersFor(Map<String, String>? headers) {
     // HTTP 头名不区分大小写；统一需合并的头名，避免覆盖脚本的小写头。
     final merged = <String, String>{};

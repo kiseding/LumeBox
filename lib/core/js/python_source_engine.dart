@@ -1,3 +1,7 @@
+import '../session/section.dart';
+import 'source_web_runtime.dart';
+import 'source_script_storage.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -13,7 +17,11 @@ import 'python_local_proxy.dart';
 
 /// Lazy channel: CPython is initialized on its native worker only on first import.
 class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
-  PythonSourceEngine({required this.sourceId, required this.http}) {
+  PythonSourceEngine({
+    required this.sourceId,
+    required this.http,
+    this.section = Section.video,
+  }) {
     _install();
     _clients[sourceId] = http;
     _engines[sourceId] = this;
@@ -21,6 +29,9 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
 
   final String sourceId;
   final LumeHttp http;
+  final Section section;
+  late final _web = SourceWebRuntime("python:${section.id}:$sourceId");
+  late final _storage = SourceScriptStorage(section, sourceId);
   static const channel = MethodChannel('lumebox/python_sources');
   static final _clients = <String, LumeHttp>{};
   static final _engines = <String, PythonSourceEngine>{};
@@ -80,6 +91,30 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
             'headers': response.headers,
             'body': base64Encode(response.body),
           };
+        } else if (request['method'] == 'web.render' ||
+            request['method'] == 'html.extract') {
+          final engine = _engines[args['sourceId']]!;
+          if (request['method'] == 'web.render') {
+            final headers = engine.http.browserRequestHeaders(
+              (payload['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
+            );
+            payload['headers'] = headers;
+            payload.putIfAbsent('userAgent', () => headers['User-Agent']);
+            final budget = ((request['timeout'] as num? ?? 8) * 1000 - 250)
+                .round()
+                .clamp(100, 8000);
+            payload['timeoutMs'] =
+                ((payload['timeoutMs'] as num?)?.round() ?? 6000).clamp(
+                  100,
+                  budget,
+                );
+          }
+          value = await engine._web.invoke(
+            request['method'] == 'web.render' ? 'render' : 'extract',
+            payload,
+          );
+        } else if (request['method'] == 'storage') {
+          value = await _engines[args['sourceId']]!._storage.invoke(payload);
         } else if (request['method'] == 'proxy') {
           value = await _engines[args['sourceId']]!._proxy.start();
         } else if (request['method'] == 'crypto') {
@@ -92,8 +127,16 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
         // Never return request URLs, headers or native exception payloads.
         return jsonEncode({
           'ok': false,
-          'error': error is FormatException
+          'error': error is SourceWebVerificationException
+              ? error.toString()
+              : error is FormatException
               ? error.message
+              : error is UnsupportedError
+              ? error.message
+              : error is TimeoutException
+              ? '网页操作超时'
+              : error is PlatformException
+              ? '网页操作失败：${error.code}'
               : 'Python 宿主请求失败，请检查网络或参数',
         });
       }
@@ -183,6 +226,8 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _web.dispose();
+    _storage.dispose();
     _proxy.dispose();
     _clients.remove(sourceId);
     _engines.remove(sourceId);

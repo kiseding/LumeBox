@@ -60,7 +60,6 @@ enum ThemeAccent {
 
 /// 亮色模式的全局页面底色；卡片和阅读器主题保持独立。
 enum ThemeBackground {
-  white('white', '#FFFFFF', Color(0xFFFFFFFF)),
   grouped('f2f2f7', '#F2F2F7', Color(0xFFF2F2F7)),
   neutral('f5f5f5', '#F5F5F5', Color(0xFFF5F5F5));
 
@@ -68,7 +67,7 @@ enum ThemeBackground {
   final String id, label;
   final Color color;
   static ThemeBackground fromId(String? id) =>
-      values.firstWhere((value) => value.id == id, orElse: () => white);
+      values.firstWhere((value) => value.id == id, orElse: () => grouped);
 }
 
 /// 外观设置：亮暗模式 + 主题色。
@@ -77,7 +76,7 @@ class AppearanceSettings {
   const AppearanceSettings({
     this.mode = ThemeMode.system,
     this.accent = ThemeAccent.fallback,
-    this.background = ThemeBackground.white,
+    this.background = ThemeBackground.grouped,
     this.customAccentArgb = 0xFFFF2D55,
     this.useCustomAccent = false,
     this.adaptiveColor = false,

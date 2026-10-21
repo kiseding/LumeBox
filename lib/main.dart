@@ -15,7 +15,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
-import 'features/video/player_choice.dart';
 import 'core/js/sandbox_settings.dart';
 import 'core/player/playback_orientation.dart';
 import 'core/reading/browse_layout.dart';
@@ -31,7 +30,6 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
     await clearRetiredModuleCache();
     await AppPreferences.instance.boot();
-    await PlayerChoice.instance.boot();
     await PrivacySettings.instance.boot();
     await MediaLibrary.instance.boot();
     if (AppPreferences.instance.autoBackup) {

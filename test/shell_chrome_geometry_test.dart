@@ -164,6 +164,47 @@ void main() {
     }
   });
 
+  testWidgets('搜索与导航同排等高，尺寸和位移实时同步，搜索可点击', (tester) async {
+    await pumpShell(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: AppShell(
+          controller: controller,
+          desktopRail: false,
+          pageBuilder: (_) =>
+              VideoPage(sourceManager: FakeSourceManager(sources: const [])),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final search = find.byTooltip('搜索');
+    var nav = tester.getRect(dockCapsule());
+    var button = tester.getRect(search);
+    expect(button.height, closeTo(nav.height, .01));
+    expect(button.width, closeTo(nav.height, .01));
+    expect(button.center.dy, closeTo(nav.center.dy, .01));
+    expect(button.left - nav.right, closeTo(10, .01));
+    await ShellSettingsController.instance.setAppearance(
+      const DockAppearance(height: 78, safeGap: 14, horizontalMargin: 18),
+    );
+    FloatingModules.instance.set(
+      FloatingModule.dock,
+      FloatingModules.instance.style(FloatingModule.dock).copyWith(x: 3, y: -5),
+    );
+    addTearDown(() => FloatingModules.instance.reset(FloatingModule.dock));
+    await tester.pumpAndSettle();
+    nav = tester.getRect(dockCapsule());
+    button = tester.getRect(search);
+    expect(button.height, closeTo(78, .01));
+    expect(button.center.dy, closeTo(nav.center.dy, .01));
+    expect(button.left - nav.right, closeTo(10, .01));
+    await tester.tap(find.byTooltip('搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索范围'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('底部 Dock 悬浮在屏幕底边之上 + 左右宽度（用户口径第十二次）', (tester) async {
     await pumpShell(tester);
 
@@ -177,11 +218,15 @@ void main() {
       reason: '胶囊要悬浮在安全区之上 4pt（实测 $gap）',
     );
     // 用户口径第十三次：左右再收窄——外边距 16 → 24，两侧留出明显的空白。
-    expect(capsule.width, closeTo(width - 48, 0.01), reason: '胶囊按屏宽减左右各 24 摆放');
+    expect(
+      capsule.width,
+      closeTo(width - 48 - 64, 0.01),
+      reason: '右侧为独立搜索保留 54pt 与 10pt 间距',
+    );
     expect(capsule.left, closeTo(24, 0.01), reason: '胶囊居中：左侧留白 24');
     // 加宽是**稍微**：两侧仍要留白（不铺满屏宽）。
     expect(capsule.left, greaterThan(0));
-    expect(width - capsule.right, closeTo(capsule.left, 0.01));
+    expect(width - capsule.right, closeTo(capsule.left + 64, 0.01));
 
     // 收窄容器**不许收窄点击区域**：五项平分之后每项仍要够手指点（≥44）。
     final items = find
@@ -282,7 +327,7 @@ void main() {
     await tester.pumpAndSettle();
     final capsule = tester.getRect(dockCapsule());
     expect(capsule.left, closeTo(59 + 24, 0.01));
-    expect(956 - capsule.right, closeTo(59 + 24, 0.01));
+    expect(956 - capsule.right, closeTo(59 + 24 + 64, 0.01));
     expect(440 - capsule.bottom, closeTo(21 + 4, 0.01));
     expect(capsule.height, closeTo(54, 0.01));
   });
@@ -495,7 +540,7 @@ void main() {
     final capsule = tester.getRect(dockCapsule());
     expect(pressed.top, lessThan(capsule.top), reason: '水滴必须能鼓出长胶囊上沿');
     expect(pressed.bottom, greaterThan(capsule.bottom), reason: '下沿也不能被胶囊裁平');
-    expect(capsule.width, greaterThan(width - 48), reason: '长胶囊随按压轻微伸展');
+    expect(capsule.width, greaterThan(width - 48 - 64), reason: '长胶囊随按压轻微伸展');
 
     await gesture.up();
     await tester.pumpAndSettle();
@@ -505,7 +550,7 @@ void main() {
       reason: '松手后水球应弹回基准宽度',
     );
     expect(tester.getRect(pillFinder).height, closeTo(before.height, .1));
-    expect(tester.getRect(dockCapsule()).width, closeTo(width - 48, .1));
+    expect(tester.getRect(dockCapsule()).width, closeTo(width - 48 - 64, .1));
   });
 
   testWidgets('按压清晰度基于当前磨砂强度动态降低，松手回到设置值', (tester) async {
@@ -659,7 +704,7 @@ void main() {
     var capsule = tester.getRect(dockCapsule());
     expect(capsule.height, closeTo(150, .01));
     expect(capsule.left, closeTo(100, .01));
-    expect(capsule.right, closeTo(width - 100, .01));
+    expect(capsule.right, closeTo(width - 100 - 160, .01));
     expect(
       capsule.bottom,
       closeTo(height + 16, .01),

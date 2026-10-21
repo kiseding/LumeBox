@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/source_icon.dart';
+
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -121,6 +123,16 @@ void main() {
 
   testWidgets('顶部分类筛选和搜索包名，不改变已有源选择', (tester) async {
     await pump(tester);
+    expect(find.byTooltip('源管理'), findsOneWidget);
+    expect(find.text('源订阅'), findsNothing);
+    expect(
+      tester.getCenter(find.byTooltip('源管理')).dy,
+      tester.getCenter(find.byTooltip('添加视频源')).dy,
+    );
+    expect(
+      tester.getCenter(find.byTooltip('源管理')).dx,
+      lessThan(tester.getCenter(find.byTooltip('添加视频源')).dx),
+    );
     expect(find.text('普通视频长名称测试'), findsOneWidget);
     expect(find.text('牛二'), findsOneWidget);
     expect(find.text('停用源'), findsNothing);
@@ -260,6 +272,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(opened, 1);
     expect(find.text('选择视频源'), findsNothing);
+  });
+
+  testWidgets('视频源卡片与漫画共用50高、32图标、14留白、8列距和5行距', (tester) async {
+    manager.sources.addAll([
+      for (final id in ['b', 'c', 'd'])
+        SourceDescriptor(id: id, name: '视频源$id', version: '1.0', enabled: true),
+    ]);
+    await pump(tester, width: 390);
+    final a = find.byKey(const ValueKey('video-picker-source-ordinary'));
+    final b = find.byKey(const ValueKey('video-picker-source-b'));
+    final c = find.byKey(const ValueKey('video-picker-source-c'));
+    final first = tester.getRect(a),
+        second = tester.getRect(b),
+        third = tester.getRect(c);
+    expect(first.height, 50);
+    expect(first.width, 177);
+    expect(first.left, 14);
+    expect(second.right, 376);
+    expect(second.left - first.right, 8);
+    expect(third.top - first.bottom, 5);
+    expect(
+      tester.getSize(find.descendant(of: a, matching: find.byType(SourceIcon))),
+      const Size(32, 32),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   for (final width in [320.0, 390.0, 768.0]) {

@@ -444,6 +444,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       child: ShellDockScope(
         controller: _controller,
         dockInset: dockInset,
+        dockBottom: dockBottomOffset(context),
+        safePadding: MediaQuery.viewPaddingOf(context),
+        searchBesideDock:
+            !rail && (_activeId == 'comic' || _activeId == 'video'),
         child: rail ? _buildRail() : _buildDock(),
       ),
     );
@@ -612,6 +616,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       child: DockHandleButton(
                         key: AppShell.dockKey,
                         style: _shellSettings.handleStyle,
+                        sectionId: _activeId,
+                        sectionIcon: _pageCatalog
+                            .firstWhere((tab) => tab.id == _activeId)
+                            .selectedIcon,
+                        size: _dockHeight,
                         opacity: .86,
                         onPressed: () =>
                             setState(() => _scrollCollapsed = false),
@@ -636,6 +645,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
                   appearance: _dockAppearance,
+                  trailingWidth: (_activeId == 'comic' || _activeId == 'video')
+                      ? _dockHeight + 10
+                      : 0,
                   contentInset: contentInset,
                   bottomMargin: dockBottomOffset(context),
                 ),

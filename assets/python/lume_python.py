@@ -279,6 +279,23 @@ class _Spider:
     def delCache(self, key):
         _active.get()["cache"].pop(str(key), None)
 
+    def renderPage(self, url, **options):
+        """Render with the phone's WebKit session; returns html/result/media."""
+        return _host("web.render", {**options, "url": str(url)})
+
+    def extractHtml(self, html, fields, rowSelector="", baseUrl=""):
+        return _host("html.extract", {"html": str(html), "fields": fields,
+            "rowSelector": rowSelector, "baseUrl": baseUrl})
+
+    def getItem(self, key, default=None):
+        return _host("storage", {"operation": "get", "key": str(key), "defaultValue": default})
+
+    def setItem(self, key, value):
+        return _host("storage", {"operation": "set", "key": str(key), "value": value})
+
+    def removeItem(self, key):
+        return _host("storage", {"operation": "remove", "key": str(key)})
+
     def getProxyUrl(self, *args):
         return _host("proxy", {})
 
@@ -379,7 +396,7 @@ def _crypto_module():
         sys.modules[module.__name__] = module
     hashes = types.ModuleType("Crypto.Hash")
     hashes.__path__ = []
-    for name in ("MD5", "SHA1", "SHA256", "SHA384", "SHA512"):
+    for name in ("MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512"):
         digest = types.ModuleType("Crypto.Hash." + name)
         digest._name = name.lower()
         digest.new = lambda data=b"", _name=name.lower(), **kw: hashlib.new(_name, data)
@@ -395,6 +412,8 @@ def _crypto_module():
     crypto.Random = random
     for module in (hashes, hmac_module, random):
         sys.modules[module.__name__] = module
+    import lume_rsa
+    lume_rsa.install(crypto, cipher)
 
 
 _crypto_module()

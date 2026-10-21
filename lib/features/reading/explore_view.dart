@@ -1,3 +1,5 @@
+import 'browse_header_motion.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/media/media_library.dart';
@@ -1116,22 +1118,12 @@ class _ExploreViewState extends State<ExploreView> {
                   onTap: _closeSuggestions,
                   child: NotificationListener<ScrollNotification>(
                     onNotification: (notification) {
-                      if (notification.depth != 0 ||
-                          notification.metrics.axis != Axis.vertical) {
-                        return false;
-                      }
-                      if (notification is ScrollUpdateNotification &&
-                          notification.dragDetails != null) {
-                        final delta = notification.scrollDelta ?? 0;
-                        final hidden =
-                            notification.metrics.pixels > 12 && delta > 0
-                            ? true
-                            : delta < 0 || notification.metrics.pixels <= 12
-                            ? false
-                            : _headerHidden;
-                        if (hidden != _headerHidden) {
-                          setState(() => _headerHidden = hidden);
-                        }
+                      final hidden = BrowseHeaderScroll.hiddenAfter(
+                        notification,
+                        _headerHidden,
+                      );
+                      if (hidden != _headerHidden) {
+                        setState(() => _headerHidden = hidden);
                       }
                       return false;
                     },
@@ -1152,53 +1144,44 @@ class _ExploreViewState extends State<ExploreView> {
                 right:
                     HomePanelLayout.sidePadding -
                     FloatingModules.instance.style(FloatingModule.home).x,
-                child: IgnorePointer(
-                  ignoring: _headerHidden,
-                  child: AnimatedOpacity(
-                    opacity: _headerHidden ? 0 : 1,
-                    duration: const Duration(milliseconds: 160),
-                    child: AnimatedSlide(
-                      offset: _headerHidden ? const Offset(0, -1) : Offset.zero,
-                      duration: const Duration(milliseconds: 180),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          _measureFloatingHeader();
-                          return ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight:
-                                  MediaQuery.sizeOf(context).height * .75,
+                child: BrowseHeaderMotion(
+                  hidden: _headerHidden,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      _measureFloatingHeader();
+                      return ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * .75,
+                        ),
+                        child: GlassPanel(
+                          module: null,
+                          key: _floatingHeaderKey,
+                          radius: HomePanelLayout.radius,
+                          color: LumeTheme.glass.withValues(
+                            alpha: FloatingModules.instance
+                                .style(FloatingModule.home)
+                                .opacity,
+                          ),
+                          blur: FloatingModules.instance
+                              .style(FloatingModule.home)
+                              .blur,
+                          padding: HomePanelLayout.padding,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!_compactHome)
+                                  ?HomeHeaderScope.headerOf(context),
+                                _searching
+                                    ? _buildSearchField()
+                                    : _buildHeader(),
+                                if (!_searching) _buildInlineFacets(),
+                              ],
                             ),
-                            child: GlassPanel(
-                              module: null,
-                              key: _floatingHeaderKey,
-                              radius: HomePanelLayout.radius,
-                              color: LumeTheme.glass.withValues(
-                                alpha: FloatingModules.instance
-                                    .style(FloatingModule.home)
-                                    .opacity,
-                              ),
-                              blur: FloatingModules.instance
-                                  .style(FloatingModule.home)
-                                  .blur,
-                              padding: HomePanelLayout.padding,
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (!_compactHome)
-                                      ?HomeHeaderScope.headerOf(context),
-                                    _searching
-                                        ? _buildSearchField()
-                                        : _buildHeader(),
-                                    if (!_searching) _buildInlineFacets(),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

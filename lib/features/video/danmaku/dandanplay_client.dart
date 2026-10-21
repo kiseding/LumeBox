@@ -22,10 +22,26 @@ class DandanplayEpisode {
     required this.id,
     required this.title,
     required this.episode,
+    this.animeId = '',
+    this.number,
+    this.source = '',
+    this.type = '',
+    this.year,
   });
   final String id;
   final String title;
   final String episode;
+  final String animeId, source, type;
+  final int? number, year;
+
+  String get workTitle => DandanplayClient.searchTitle(title);
+  String get workKey =>
+      '${animeId.isEmpty ? workTitle : animeId}|$year|$source';
+  String get details => [
+    if (year != null) '$year',
+    if (type.isNotEmpty) type,
+    if (source.isNotEmpty) source,
+  ].join(' · ');
 }
 
 /// Official API v2. Source comments and this library are merged by the page.
@@ -142,6 +158,9 @@ class DandanplayClient {
   };
 
   Future<List<DandanplayEpisode>> search(String title, {int? episode}) async {
+    if (searchTitle(title).isEmpty) {
+      throw const DandanplayException('请先填写要匹配的片名');
+    }
     final json = await _get('/api/v2/search/episodes', {
       'anime': searchTitle(title),
       'v2': 'true',
@@ -154,15 +173,41 @@ class DandanplayClient {
     final result = <DandanplayEpisode>[];
     for (final anime in animes) {
       if (anime is! Map) continue;
-      for (final item in (anime['episodes'] as List? ?? const [])) {
+      final episodes = anime['episodes'];
+      if (episodes is! List) continue;
+      final animeTitle = '${anime['animeTitle'] ?? ''}'.trim();
+      final source = '${anime['source'] ?? ''}'.trim();
+      final inferredSource =
+          RegExp(
+            r'from\s+([\w-]+)\s*$',
+            caseSensitive: false,
+          ).firstMatch(animeTitle)?.group(1) ??
+          '';
+      final year =
+          int.tryParse('${anime['startDate'] ?? ''}'.split('-').first) ??
+          int.tryParse(
+            RegExp(r'[（(\[]((?:19|20)\d{2})[）)\]]')
+                    .firstMatch(animeTitle)
+                    ?.group(1) ??
+                '',
+          );
+      for (final item in episodes) {
         if (item is! Map) continue;
         final id = '${item['episodeId'] ?? ''}';
-        if (id.isEmpty) continue;
+        if (id.isEmpty || id == 'null' || animeTitle.isEmpty) continue;
+        final episodeTitle = '${item['episodeTitle'] ?? ''}';
         result.add(
           DandanplayEpisode(
             id: id,
-            title: '${anime['animeTitle'] ?? ''}',
-            episode: '${item['episodeTitle'] ?? ''}',
+            title: animeTitle,
+            episode: episodeTitle,
+            animeId: '${anime['animeId'] ?? anime['bangumiId'] ?? ''}',
+            source: source.isEmpty ? inferredSource : source,
+            type: '${anime['typeDescription'] ?? anime['type'] ?? ''}',
+            year: year,
+            number:
+                int.tryParse('${item['episodeNumber'] ?? ''}') ??
+                parsedEpisodeNumber(episodeTitle),
           ),
         );
       }
@@ -208,8 +253,21 @@ class DandanplayClient {
   }
 
   static String searchTitle(String title) => title
-      .replaceFirst(RegExp(r'\s*from\s+.*$', caseSensitive: false), '')
-      .replaceAll(RegExp(r'[（(]\d{4}[）)]|【[^】]*】'), '')
+      .replaceFirst(
+        RegExp(
+          r'(?:\s+from\s+|(?<=[）)】\]])\s*from\s*)[\w-]+\s*$',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .replaceAll(RegExp(r'[（(\[]((?:19|20)\d{2})[）)\]]'), '')
+      .replaceAllMapped(
+        RegExp(r'【[^】]*】'),
+        (match) =>
+            RegExp(r'第.+季|season', caseSensitive: false).hasMatch(match[0]!)
+            ? match[0]!
+            : '',
+      )
       .trim();
 
   static String normalizedTitle(String title) =>
@@ -218,6 +276,11 @@ class DandanplayClient {
           .replaceAll(RegExp(r'[\s·・:：\-—_，,。.!！?？《》「」【】\[\]（）()]'), '');
 
   static int episodeNumber(String chapterTitle, {required int chapterIndex}) {
+    return parsedEpisodeNumber(chapterTitle) ?? chapterIndex + 1;
+  }
+
+  /// Unknown episode titles stay unknown when validating server search results.
+  static int? parsedEpisodeNumber(String chapterTitle) {
     final title = chapterTitle.trim();
     final match = RegExp(
       r'第\s*(\d+)\s*[集话話期]|\b(?:S\d+\s*)?E(?:P)?\s*(\d+)\b',
@@ -231,15 +294,53 @@ class DandanplayClient {
     ).hasMatch(title)) {
       return 1;
     }
-    return chapterIndex + 1;
+    final suffix = RegExp(r'(?:^|[_\s-])(\d{1,3})(?:\s|$)').firstMatch(title);
+    if (suffix != null) return int.tryParse(suffix.group(1)!);
+    final chinese = RegExp(r'第\s*([零〇一二两三四五六七八九十百]+)\s*[集话話期]')
+        .firstMatch(title)
+        ?.group(1);
+    if (chinese != null) {
+      const digits = {
+        '零': 0,
+        '〇': 0,
+        '一': 1,
+        '二': 2,
+        '两': 2,
+        '三': 3,
+        '四': 4,
+        '五': 5,
+        '六': 6,
+        '七': 7,
+        '八': 8,
+        '九': 9,
+      };
+      var total = 0, digit = 0;
+      for (final char in chinese.split('')) {
+        if (char == '十' || char == '百') {
+          total += (digit == 0 ? 1 : digit) * (char == '十' ? 10 : 100);
+          digit = 0;
+        } else {
+          digit = digits[char]!;
+        }
+      }
+      return total + digit > 0 ? total + digit : null;
+    }
+    return null;
   }
 
   static DandanplayEpisode? exactMatch(
     List<DandanplayEpisode> items,
-    String title,
-  ) {
+    String title, {
+    int? episode,
+  }) {
     final exact = items
-        .where((item) => normalizedTitle(item.title) == normalizedTitle(title))
+        .where(
+          (item) =>
+              normalizedTitle(item.title) == normalizedTitle(title) &&
+              (episode == null ||
+                  (item.number ?? parsedEpisodeNumber(item.episode)) ==
+                      episode),
+        )
         .toList();
     return exact.length == 1 ? exact.single : null;
   }

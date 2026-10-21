@@ -21,6 +21,8 @@ class DockHandleButton extends StatelessWidget {
     this.opacity = 1,
     this.onPressed,
     this.tooltip = '展开导航',
+    this.sectionIcon = Icons.auto_stories_rounded,
+    this.sectionId = 'comic',
   });
 
   final DockHandleStyle style;
@@ -30,6 +32,8 @@ class DockHandleButton extends StatelessWidget {
   final double opacity;
   final VoidCallback? onPressed;
   final String tooltip;
+  final IconData sectionIcon;
+  final String sectionId;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +48,12 @@ class DockHandleButton extends StatelessWidget {
           : Colors.white.withValues(alpha: .82),
     );
     final content = switch (style) {
+      DockHandleStyle.currentSection => LumeIcon(
+        sectionIcon,
+        slot: 'dock.$sectionId.selected',
+        size: size * .52,
+        color: accent,
+      ),
       DockHandleStyle.arrow => LumeIcon(
         Icons.chevron_right_rounded,
         slot: 'dock_handle_button.1',
@@ -81,7 +91,7 @@ class DockHandleButton extends StatelessWidget {
           ],
         ),
       ),
-      DockHandleStyle.grid => BoxDecoration(
+      DockHandleStyle.grid || DockHandleStyle.currentSection => BoxDecoration(
         color: glass,
         shape: BoxShape.circle,
       ),

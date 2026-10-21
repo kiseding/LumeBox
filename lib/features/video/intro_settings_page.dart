@@ -14,7 +14,28 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/intro/intro_backend.dart';
 import '../../core/intro/intro_models.dart';
 import '../../core/intro/intro_store.dart';
-import 'reference_player_help_page.dart';
+
+const introMethodHelp = <String, String>{
+  'theIntroDB': '先在视频的“片头片尾”中填写 TMDB 作品 ID、季号；集号随当前选集。查询不到或版本时长不符会继续其他方案。',
+  'introDB': '需要填写 IMDb 作品 ID（tt 开头）。与 TheIntroDB 独立查询，可只开启其中一个。',
+  'chapters': '读取视频自带的 OP、ED、前情回顾等章节时间；文件没有章节时会继续其他方案。',
+  'mkvTags': '读取 MKV 章节关联标签及显式片头片尾时间。网络文件需要支持分段读取；没有明确时间的标签不会自动跳转。',
+  'subtitles': '从内嵌字幕的关键词与时间寻找片头片尾。当前使用 iOS 原生解析，容器或字幕格式不支持时会继续降级。',
+  'filename': '读取文件名中的 OP、ED 等词和明确时间范围，例如 OP[00:05-01:35]。只有名称、没有时间时不会推测整段长度。',
+  'black': '在头尾区域采样黑屏、亮度和淡入淡出边界；与其他证据组合，单独一帧黑屏不会触发跳过。',
+  'silence': '寻找头尾区域的音频静默边界。建议与黑屏或场景切换同时开启，静默本身不等于片头片尾。',
+  'sceneCuts': '通过相邻画面的变化频率辅助定位片头；采用稀疏采样，需要与边界信号配合。',
+  'ocr': '识别片尾演职员文字及连续画面中文字上移的趋势；静止字幕不会单独作为滚动片尾证据。',
+  'phash': '用图像整体结构匹配同剧同季已经学到的片段，能容忍部分亮度变化；首次没有模板时不会命中。',
+  'dhash': '用画面明暗梯度匹配同季片段；需要多个时间点连续吻合，平坦黑帧不会作为模板锚点。',
+  'mfcc': '用声音频谱特征匹配同季已学习片段；需要有声样本，静音不会当作可复用的音频指纹。',
+  'joint': '要求音频和图像在同一时间偏移下共同吻合。证据更充分，但音轨或片头画面被替换时可能无法匹配。',
+  'videoAI':
+      '在 iPhone 上使用 MobileCLIP 判断前情回顾、片头、正片和片尾，再检查连续片段。属于实验性零样本分类，准确率尚待样片验证。',
+  'audioAI': '使用 YAMNet 区分人声与音乐，辅助视频 AI 判断。单独开启只分析音频，不能仅凭音乐生成可靠跳过范围。',
+  'manual':
+      '在视频的“片头片尾”中点“记住当前位置：片头结束”或“片尾开始”，同剧后续各集自动沿用。无需作品 ID；也可展开高级选项精确调整四个起止时间。',
+};
 
 class IntroSettingsPage extends StatefulWidget {
   const IntroSettingsPage({super.key});
@@ -201,10 +222,19 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
                   Icons.help_outline,
                   slot: 'intro_settings_page.1',
                 ),
-                onPressed: () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ReferencePlayerHelpPage(),
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('片头片尾识别'),
+                    content: const Text(
+                      '先在播放页记住片头结束或片尾开始的位置，同一作品后续集数会沿用。识别结果可手动确认；自动跳过前可以取消。',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('知道了'),
+                      ),
+                    ],
                   ),
                 ),
               ),

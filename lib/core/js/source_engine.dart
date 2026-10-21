@@ -114,7 +114,9 @@ class SourceEngineRegistry {
       if (section != Section.video) {
         return Future.value(null);
       }
-      return Future.value(PythonSourceEngine(sourceId: sourceId, http: http));
+      return Future.value(
+        PythonSourceEngine(sourceId: sourceId, http: http, section: section),
+      );
     }
     if (RexWidget.matches(script) &&
         kind == CatEngineKind.quickjs &&

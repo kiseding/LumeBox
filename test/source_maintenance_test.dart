@@ -1,3 +1,5 @@
+import 'package:lume_box/core/js/source_script_storage.dart';
+
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -58,6 +60,8 @@ void main() {
       customOrigin: 'https://mirror.example',
     ).save(Section.video, 'a');
     await const SourcePreferences(pinned: true).save(Section.comic, 'a');
+    novel.setSetting('source.runtime.storage.old-orphan', '{}');
+    comic.setSetting('source.runtime.storage.other', 'keep');
     novel.setSetting('source.preferences.old-orphan', '{}');
     novel.setSetting('player.unrelated', 'keep');
     WafSessions.save(Section.video, 'a', {'cf_clearance': 'test'});
@@ -101,8 +105,13 @@ void main() {
     expect(manager.sources, isEmpty);
     expect(subscriptions.subscriptions, isEmpty);
     expect(novel.onShelf('book'), true);
-    expect((novel.progress('book') as VideoProgress).position.inMilliseconds, 40);
+    expect(
+      (novel.progress('book') as VideoProgress).position.inMilliseconds,
+      40,
+    );
     expect(novel.setting('player.unrelated'), 'keep');
+    expect(novel.setting('source.runtime.storage.old-orphan'), isNull);
+    expect(comic.setting('source.runtime.storage.other'), 'keep');
     expect(novel.setting('source.preferences.old-orphan'), isNull);
     expect(SourcePreferences.read(Section.video, 'a').pinned, false);
     expect(WafSessions.cookiesFor(Section.video, 'a'), isNull);
@@ -116,6 +125,26 @@ void main() {
     expect(SectionMemoryCache.instance.usageOf(Section.comic).isEmpty, false);
     expect(domains, containsAll(['novel.example', 'mirror.example']));
   });
+  test('部分源清理失败时只删除成功来源的持久脚本数据', () async {
+    final a = SourceScriptStorage(Section.video, 'a');
+    final b = SourceScriptStorage(Section.video, 'b');
+    await a.invoke({'operation': 'set', 'key': 'state', 'value': 'A'});
+    await b.invoke({'operation': 'set', 'key': 'state', 'value': 'B'});
+    final manager = _FailingManager(
+      sources: const [
+        SourceDescriptor(id: 'a', name: 'A', version: '1', enabled: true),
+        SourceDescriptor(id: 'b', name: 'B', version: '1', enabled: true),
+      ],
+    );
+    final result = await SourceMaintenance(
+      section: Section.video,
+      manager: manager,
+    ).remove(List.of(manager.sources), clearData: true);
+    expect(result.errors, isNotEmpty);
+    expect(await a.invoke({'operation': 'get', 'key': 'state'}), isNull);
+    expect(await b.invoke({'operation': 'get', 'key': 'state'}), 'B');
+  });
+
   test('普通卸载保留源设置，部分失败逐项报告', () async {
     await ReadingLibrary.open(Section.video);
     await const SourcePreferences(pinned: true).save(Section.video, 'a');

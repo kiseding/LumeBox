@@ -1,3 +1,7 @@
+import '../../shared/widgets/source_picker_card.dart';
+import '../../shared/widgets/source_picker_header.dart';
+import '../../shared/widgets/source_update_badge.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -21,7 +25,6 @@ import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
 import 'source_section_page.dart';
-import 'source_subscription_page.dart';
 
 enum VideoSourceType {
   all('全部'),
@@ -380,137 +383,73 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     required VoidCallback onTap,
     required VoidCallback onMore,
     SourceDescriptor? descriptor,
+    Section section = Section.video,
+    String siteUrl = '',
   }) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return Tooltip(
-      message: name,
-      // Long press belongs to SourceDragTile; Tooltip's recognizer otherwise
-      // wins the gesture arena before the parent can begin dragging.
-      triggerMode: TooltipTriggerMode.manual,
-      child: Semantics(
-        selected: selected,
-        child: Container(
-          height: 68,
-          decoration: BoxDecoration(
-            color: selected
-                ? Color.alphaBlend(
-                    accent.withValues(alpha: .08),
-                    LumeTheme.surface,
-                  )
-                : LumeTheme.surface,
-            borderRadius: SourceCardMetrics.borderRadius,
-            border: Border.all(
-              color: selected ? accent : SourceCardMetrics.unselectedBorder,
-            ),
-            boxShadow: SourceCardMetrics.shadow,
+    final prefs = SourcePreferences.read(section, id);
+    return SourcePickerCard(
+      tapKey: ValueKey('video-picker-source-$id'),
+      title: name,
+      subtitle: Row(
+        children: [
+          Flexible(
+            child: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: SourceCardMetrics.borderRadius,
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: ValueKey('video-picker-source-$id'),
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 10, right: 2),
-                child: Row(
-                  children: [
-                    if (descriptor != null) ...[
-                      SourceIcon(
-                        name: name,
-                        siteUrl: descriptor.siteUrl,
-                        iconUrl: descriptor.iconUrl,
-                        size: 28,
-                        radius: 7,
-                        section: Section.video,
-                        sourceId: descriptor.id,
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14,
-                              height: 1.2,
-                              fontWeight: FontWeight.w600,
-                              color: LumeTheme.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              height: 1.15,
-                              color: selected ? accent : LumeTheme.muted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '$name的设置',
-                      onPressed: onMore,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 44,
-                      ),
-                      padding: EdgeInsets.zero,
-                      icon: const LumeIcon(
-                        Icons.more_vert,
-                        size: 18,
-                        slot: 'video_source_picker.more',
-                      ),
-                    ),
-                  ],
-                ),
+          if (prefs.pinned)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: LumeIcon(
+                Icons.push_pin,
+                slot: 'source_picker_sheet.2',
+                size: 11,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
-          ),
-        ),
+        ],
+      ),
+      selected: selected,
+      onTap: onTap,
+      onMore: onMore,
+      moreTooltip: '$name的设置',
+      titleTrailing: descriptor == null
+          ? null
+          : SourceUpdateBadge(section: section, sourceId: id),
+      icon: SourceIcon(
+        name: name,
+        siteUrl: descriptor?.siteUrl ?? siteUrl,
+        iconUrl: prefs.iconUrl.trim().isEmpty
+            ? descriptor?.iconUrl ?? ''
+            : prefs.iconUrl,
+        size: SourceCardMetrics.iconSize,
+        radius: 8,
+        section: section,
+        sourceId: id,
       ),
     );
   }
 
-  Widget grid(List<Widget> cards) => LayoutBuilder(
-    builder: (context, constraints) {
-      final single = constraints.maxWidth < 300;
-      return Column(
-        children: [
-          for (var i = 0; i < cards.length; i += single ? 1 : 2)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: cards[i]),
-                  if (!single) ...[
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: i + 1 < cards.length
-                          ? cards[i + 1]
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
-                ],
+  Widget grid(List<Widget> cards) => Column(
+    children: [
+      for (var i = 0; i < cards.length; i += 2)
+        Padding(
+          padding: const EdgeInsets.only(bottom: SourceCardMetrics.rowGap),
+          child: Row(
+            children: [
+              Expanded(child: cards[i]),
+              const SizedBox(width: SourceCardMetrics.columnGap),
+              Expanded(
+                child: i + 1 < cards.length
+                    ? cards[i + 1]
+                    : const SizedBox.shrink(),
               ),
-            ),
-        ],
-      );
-    },
+            ],
+          ),
+        ),
+    ],
   );
 
   Widget heading(String title, int count, {Widget? trailing}) => Padding(
-    padding: const EdgeInsets.only(top: 14, bottom: 10),
+    padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
     child: Row(
       children: [
         Expanded(
@@ -594,51 +533,30 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
               height: DrawerGeometry.height(context),
               child: Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            '选择视频源',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                            ),
+                  SourcePickerHeader(
+                    title: '选择视频源',
+                    onManage: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => SourceSectionPage(
+                            section: Section.video,
+                            manager: widget.manager,
                           ),
                         ),
-                        IconButton(
-                          tooltip: '添加视频源',
-                          onPressed: add,
-                          icon: const LumeIcon(
-                            Icons.add,
-                            slot: 'video_source_picker.add_button',
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '关闭',
-                          onPressed: () => Navigator.pop(context),
-                          icon: const LumeIcon(
-                            Icons.close,
-                            slot: 'video_source_picker.close',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                    child: TextField(
-                      onChanged: (value) =>
-                          setState(() => query = value.trim().toLowerCase()),
-                      decoration: const InputDecoration(
-                        hintText: '搜索源名称或订阅包',
-                        prefixIcon: LumeIcon(
-                          Icons.search,
-                          slot: 'video_source_picker.search',
-                        ),
+                      );
+                      if (mounted) await load();
+                    },
+                    addAction: IconButton(
+                      tooltip: '添加视频源',
+                      onPressed: add,
+                      icon: const LumeIcon(
+                        Icons.add,
+                        slot: 'video_source_picker.add_button',
                       ),
                     ),
+                    onQueryChanged: (value) =>
+                        setState(() => query = value.trim().toLowerCase()),
                   ),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -658,41 +576,6 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                           ),
                       ],
                     ),
-                  ),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    children: [
-                      TextButton(
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => SourceSectionPage(
-                                section: Section.video,
-                                manager: widget.manager,
-                              ),
-                            ),
-                          );
-                          if (mounted) await load();
-                        },
-                        child: const Text('源管理'),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => SourceSubscriptionPage(
-                                section: Section.video,
-                                manager: widget.manager,
-                              ),
-                            ),
-                          );
-                          if (mounted) await load();
-                        },
-                        child: const Text('源订阅'),
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 6),
                   Expanded(
@@ -715,7 +598,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                               ),
                             )
                           : ListView(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                              padding: const EdgeInsets.fromLTRB(
+                                SourceCardMetrics.horizontalPadding,
+                                0,
+                                SourceCardMetrics.horizontalPadding,
+                                24,
+                              ),
                               children: [
                                 if (empty)
                                   Padding(
@@ -862,6 +750,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                           child: card(
                                             id: s.id,
                                             name: s.name,
+                                            section: Section.cat,
+                                            siteUrl: s.siteUrl,
                                             subtitle:
                                                 widget.currentCatId == s.id
                                                 ? '当前使用'
@@ -932,6 +822,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                           child: card(
                                             id: home.id,
                                             name: home.name,
+                                            siteUrl: home.url,
                                             subtitle:
                                                 widget.currentWebId == home.id
                                                 ? '当前使用'

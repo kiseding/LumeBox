@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/reading/browse_layout.dart';
+import '../../core/shell/shell_settings.dart';
+import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/lume_icon.dart';
@@ -57,20 +59,37 @@ class BrowseSearchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dock = ShellDockScope.bottomInset(context);
+    final scope = ShellDockScope.maybeScopeOf(context);
+    final beside = scope?.searchBesideDock == true;
+    if (beside &&
+        (scope?.notifier?.visible != true ||
+            MediaQuery.viewInsetsOf(context).bottom > 0)) {
+      return const SizedBox.shrink();
+    }
+    final appearance = ShellSettingsController.instance.appearance;
+    final size = beside ? appearance.height : 52.0;
+    final safe = scope?.safePadding ?? MediaQuery.viewPaddingOf(context);
+    final margin = appearance.marginFor(
+      MediaQuery.sizeOf(context).width - safe.horizontal,
+      trailingWidth: size + 10,
+    );
     return Positioned(
-      right: 16,
-      bottom: (dock > 0 ? dock : MediaQuery.viewPaddingOf(context).bottom) + 12,
+      right: beside ? margin + safe.right : 16,
+      bottom: beside
+          ? scope?.dockBottom ?? safe.bottom + appearance.safeGap
+          : safe.bottom + 12,
       child: GlassPanel(
-        radius: 28,
+        key: const ValueKey('browse-search-surface'),
+        module: beside ? FloatingModule.dock : null,
+        radius: size / 2,
         child: IconButton(
           tooltip: '搜索',
           onPressed: onPressed,
-          constraints: const BoxConstraints.tightFor(width: 52, height: 52),
-          icon: const LumeIcon(
+          constraints: BoxConstraints.tightFor(width: size, height: size),
+          icon: LumeIcon(
             Icons.search,
             slot: 'browse.floating.search',
-            size: 24,
+            size: (size * .45).clamp(20, 40),
           ),
         ),
       ),

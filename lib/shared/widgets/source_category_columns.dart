@@ -1,3 +1,5 @@
+import 'source_card_metrics.dart';
+
 import 'package:flutter/material.dart';
 
 class SourceColumnSection {
@@ -31,10 +33,10 @@ class SourceCategoryColumns extends StatelessWidget {
         header: true,
         child: Padding(
           key: ValueKey('$keyPrefix-group-${group.id}'),
-          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
           child: Text(
             group.title,
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
         ),
       );
@@ -61,7 +63,9 @@ class SourceCategoryColumns extends StatelessWidget {
                     ),
                   for (final child in group.children)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.only(
+                        bottom: SourceCardMetrics.rowGap,
+                      ),
                       child: child,
                     ),
                 ],
@@ -75,13 +79,15 @@ class SourceCategoryColumns extends StatelessWidget {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(
+          horizontal: SourceCardMetrics.horizontalPadding,
+        ),
         child: Row(
           key: ValueKey('$keyPrefix-category-columns'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: lane(0)),
-            const SizedBox(width: 8),
+            const SizedBox(width: SourceCardMetrics.columnGap),
             Expanded(child: lane(1)),
           ],
         ),

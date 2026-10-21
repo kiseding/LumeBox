@@ -16,10 +16,12 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
   late final _url = TextEditingController(text: widget.initial.baseUrl);
   late final _id = TextEditingController(text: widget.initial.appId);
   late final _secret = TextEditingController(text: widget.initial.appSecret);
+  final _urlFocus = FocusNode();
   String? _error;
   bool _saving = false;
   @override
   void dispose() {
+    _urlFocus.dispose();
     _url.dispose();
     _id.dispose();
     _secret.dispose();
@@ -89,13 +91,28 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _url,
+              focusNode: _urlFocus,
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(labelText: '服务地址'),
+              decoration: const InputDecoration(
+                labelText: '服务地址',
+                hintText: 'https://你的域名/路径前缀',
+              ),
               autocorrect: false,
             ),
             Wrap(
               spacing: 8,
               children: [
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _url.clear();
+                      _error = null;
+                    });
+                    _urlFocus.requestFocus();
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('自定义 danmu'),
+                ),
                 TextButton(
                   onPressed: () => setState(
                     () => _url.text = DandanplayCredentials.defaultBase,

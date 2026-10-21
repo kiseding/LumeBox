@@ -6,7 +6,6 @@ import '../../core/media/media_library.dart';
 import '../../core/media/media_resource_service.dart';
 import '../../core/player/abstract_player.dart';
 import '../video/video_player_page.dart';
-import '../video/player_choice.dart';
 import 'audio_player_page.dart';
 
 Future<void> openMediaResource(
@@ -37,15 +36,13 @@ Future<void> openMediaResource(
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => PlayerChoiceRoute(
-          original: VideoPlayerPage(
-            media: PlayerMedia(
-              uri: media.url,
-              headers: media.headers,
-              title: entry.title,
-            ),
+        builder: (_) => VideoPlayerPage(
+          media: PlayerMedia(
+            uri: media.url,
+            headers: media.headers,
             title: entry.title,
           ),
+          title: entry.title,
         ),
       ),
     );

@@ -31,6 +31,9 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     super.key,
     required ShellDockController controller,
     this.dockInset = 0,
+    this.searchBesideDock = false,
+    this.dockBottom,
+    this.safePadding,
     required super.child,
   }) : super(notifier: controller);
 
@@ -40,6 +43,20 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   /// 永远空一大块」的来源（用户口径：没滚到底时不该预留，内容要尽量往下铺）。
   /// 滚动视图把它加进 padding.bottom，只有**滚到最末**时才会真正让出这一段。
   final double dockInset;
+  final bool searchBesideDock;
+  final double? dockBottom;
+  final EdgeInsets? safePadding;
+
+  @override
+  bool updateShouldNotify(covariant ShellDockScope oldWidget) =>
+      super.updateShouldNotify(oldWidget) ||
+      dockInset != oldWidget.dockInset ||
+      searchBesideDock != oldWidget.searchBesideDock ||
+      dockBottom != oldWidget.dockBottom ||
+      safePadding != oldWidget.safePadding;
+
+  static ShellDockScope? maybeScopeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ShellDockScope>();
 
   static ShellDockController? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellDockScope>()?.notifier;

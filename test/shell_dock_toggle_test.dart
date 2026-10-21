@@ -491,7 +491,7 @@ void main() {
 
       final capsule = tester.getRect(dockCapsule());
       expect(capsule.left, closeTo(32, .01));
-      expect(capsule.width, closeTo(390 - 64, .01));
+      expect(capsule.width, closeTo(390 - 64 - 70, .01));
       expect(capsule.height, closeTo(60, .01));
       expect(844 - capsule.bottom, closeTo(10, .01));
 
@@ -974,7 +974,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('三种收起悬浮球可选：点击立即生效', (tester) async {
+    testWidgets('四种收起悬浮球可选：点击立即生效', (tester) async {
       await pumpPage(tester);
 
       // 外观卡把「收起悬浮球」推到了首屏之外：先滚到它，让 ListView 把它建出来。

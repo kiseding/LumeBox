@@ -1,3 +1,4 @@
+import '../../core/js/source_script_storage.dart';
 import '../../core/source/source_preferences.dart';
 
 import 'dart:io';
@@ -80,6 +81,7 @@ class SourceMaintenance {
         library.clearStationSettings();
       } else {
         for (final source in result.removed) {
+          library.setSetting(SourceScriptStorage(section, source.id).key, '');
           library.setSetting('source.preferences.${source.id}', '');
           library.setSetting(WafSessionStore.keyFor(source.id), '');
           library.setSetting('${WafSessionStore.uaKeyPrefix}${source.id}', '');

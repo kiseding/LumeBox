@@ -94,7 +94,7 @@ class LumePalette {
   static const LumePalette light = LumePalette(
     brightness: Brightness.light,
     accent: Color(0xFF7C5CFF),
-    base: Color(0xFFFFFFFF),
+    base: Color(0xFFF2F2F7),
     surface: Color(0xFFFFFFFF),
     surfaceAlt: Color(0xFFF5F5F7),
     glass: Color(0xB8FFFFFF),
@@ -172,7 +172,7 @@ class LumePalette {
   /// 只换主色，是「换主题色不牺牲可读性」的稳妥做法。
   LumePalette withAccent(
     ThemeAccent accent, {
-    ThemeBackground background = ThemeBackground.white,
+    ThemeBackground background = ThemeBackground.grouped,
     Color? customAccent,
   }) => LumePalette(
     brightness: brightness,
@@ -256,7 +256,7 @@ class LumeTheme {
   /// 当前生效主题色（设置页「显示 → 主题色」写入，见 `appearance.dart`）。
   static ThemeAccent _accent = ThemeAccent.fallback;
   static Color? _customAccent;
-  static ThemeBackground _background = ThemeBackground.white;
+  static ThemeBackground _background = ThemeBackground.grouped;
   static void applyBackground(ThemeBackground value) => _background = value;
 
   /// 当前生效色板：亮度定结构、主题色定主色。
@@ -417,7 +417,7 @@ class LumeTheme {
   static ThemeData build({
     Brightness brightness = Brightness.light,
     ThemeAccent accent = ThemeAccent.fallback,
-    ThemeBackground background = ThemeBackground.white,
+    ThemeBackground background = ThemeBackground.grouped,
     Color? customAccent,
     String? fontFamily,
     bool fontBold = true,

@@ -106,6 +106,16 @@ void main() {
     matching: find.widgetWithText(TextButton, '清理'),
   );
 
+  testWidgets('删除参考播放器后只提供原播放器设置入口', (tester) async {
+    await pumpSettings(tester);
+    await scrollTo(tester, '播放器设置');
+    expect(find.text('播放器设置'), findsOneWidget);
+    expect(find.text('播放器方案'), findsNothing);
+    expect(find.text('参考播放器设置'), findsNothing);
+    expect(find.textContaining('参考播放器（新）'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('切到深色：设置页整页换色（含「显示」「播放」两张分组卡）', (tester) async {
     // 走**真实壳层**：设置页挂在 AppShell 的页签里，主题接线与 app.dart 一致
     // （theme + darkTheme + builder 里回写静态色名）。这正是真机那条路径：

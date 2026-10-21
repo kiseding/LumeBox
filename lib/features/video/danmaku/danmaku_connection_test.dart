@@ -36,8 +36,8 @@ class _DanmakuConnectionTestState extends State<DanmakuConnectionTest> {
       setState(() {
         _failed = false;
         _result = credentials.official
-            ? '连接成功，应用凭证已通过验证。播放时还需匹配作品和集数。'
-            : '连接成功，可以搜索弹幕。播放时还需匹配作品和集数。';
+            ? '连接成功，应用凭证已通过验证。尚未验证当前视频的弹幕，需继续匹配作品和集数。'
+            : '连接成功，搜索接口可用。尚未验证当前视频的弹幕，需继续匹配作品和集数。';
       });
     } catch (error) {
       if (!mounted) return;

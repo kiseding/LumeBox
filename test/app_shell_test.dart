@@ -129,6 +129,49 @@ void main() {
     expect(inDock('漫画'), findsOneWidget);
   });
 
+  testWidgets('收起入口按当前漫画、视频、设置切换图标，配置可还原', (tester) async {
+    const settings = ShellSettings(handleStyle: DockHandleStyle.currentSection);
+    ShellSettingsController.instance.apply(
+      ShellSettings.fromJson(settings.toJson()),
+    );
+    addTearDown(ShellSettingsController.instance.resetForTesting);
+    await pumpShell(tester, desktopRail: false);
+    for (final entry in [
+      ('comic', Icons.auto_stories_rounded),
+      ('video', Icons.play_circle_fill_rounded),
+      ('settings', Icons.settings_rounded),
+    ]) {
+      if (entry.$1 != 'comic') {
+        await tester.tap(inDock(ShellTab.byId(entry.$1)!.label));
+        await tester.pumpAndSettle();
+      }
+      final pageContext = tester.element(
+        find.byKey(ValueKey<String>('${entry.$1}·${LumeTheme.themeId}')),
+      );
+      UserScrollNotification(
+        metrics: FixedScrollMetrics(
+          minScrollExtent: 0,
+          maxScrollExtent: 1000,
+          pixels: 200,
+          viewportDimension: 600,
+          axisDirection: AxisDirection.down,
+          devicePixelRatio: 1,
+        ),
+        context: pageContext,
+        direction: ScrollDirection.reverse,
+      ).dispatch(pageContext);
+      await tester.pumpAndSettle();
+      final handle = tester.widget<DockHandleButton>(
+        find.byType(DockHandleButton),
+      );
+      expect(handle.style, DockHandleStyle.currentSection);
+      expect(handle.sectionId, entry.$1);
+      expect(handle.sectionIcon, entry.$2);
+      await tester.tap(find.byTooltip('展开导航'));
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets('桌面端：自动切换为左侧 NavigationRail，页签一致', (tester) async {
     await pumpShell(tester, desktopRail: true);
 

@@ -71,6 +71,7 @@ class ShellDockBar extends StatefulWidget {
     this.bottomMargin = 0,
     this.visible = true,
     this.applyViewPadding = true,
+    this.trailingWidth = 0,
   });
 
   /// 水滴（选中底座）的定位键（测试与截图预览按它量位置 / 宽度）。
@@ -107,6 +108,7 @@ class ShellDockBar extends StatefulWidget {
   /// 是否叠加系统安全区左右留白。壳层里为 true；设置页里的内嵌预览为 false
   /// （否则横屏刘海会把预览条挤偏）。
   final bool applyViewPadding;
+  final double trailingWidth;
 
   /// 胶囊总高（外框）= 内容条 + 手势条避让。
   double get capsuleHeight => appearance.height + contentInset;
@@ -718,6 +720,10 @@ class _ShellDockBarState extends State<ShellDockBar>
                 final safe = widget.applyViewPadding
                     ? MediaQuery.viewPaddingOf(context)
                     : EdgeInsets.zero;
+                final margin = widget.appearance.marginFor(
+                  constraints.maxWidth - safe.horizontal,
+                  trailingWidth: widget.trailingWidth,
+                );
                 return AnimatedSlide(
                   offset: widget.visible ? Offset.zero : const Offset(0, 1.2),
                   duration: _motionEnabled
@@ -726,9 +732,9 @@ class _ShellDockBarState extends State<ShellDockBar>
                   curve: Curves.easeOut,
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
-                      widget.appearance.horizontalMargin + safe.left,
+                      margin + safe.left,
                       0,
-                      widget.appearance.horizontalMargin + safe.right,
+                      margin + safe.right + widget.trailingWidth,
                       layoutBottom,
                     ),
                     child: Transform.translate(

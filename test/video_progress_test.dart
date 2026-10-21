@@ -1,7 +1,7 @@
+import 'package:lume_box/core/player/player_experience_store.dart';
 import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
-import 'package:lume_box/features/video/player_choice.dart';
 import 'package:lume_box/features/video/player_settings_sheet.dart';
 
 import 'dart:io';
@@ -51,7 +51,6 @@ void main() {
         );
     await MediaLibrary.instance.boot();
     // Load file-backed routing outside the widget fake clock.
-    await PlayerChoice.instance.boot();
     await IntroStore.open();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -509,46 +508,52 @@ void main() {
     expect(player.snapshot.value.playing, isTrue);
   });
 
-  testWidgets('再次点开同一集：从上次位置继续', (tester) async {
-    source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];
-    source.chapterList = const <SourceChapter>[
-      SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
-    ];
-    source.contentUrl = 'https://example.com/e1.mp4';
+  for (final ua in ['', 'LumeBox-Test-UA']) {
+    testWidgets('再次点开同一集：从上次位置继续，UA=$ua', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      PlayerExperienceStore.forLibrary(library).update({'browserUA': ua});
+      source.items = const <SourceItem>[
+        SourceItem(id: 'movie-1', title: '示例影片'),
+      ];
+      source.chapterList = const <SourceChapter>[
+        SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
+      ];
+      source.contentUrl = 'https://example.com/e1.mp4';
 
-    // 先播一段并退出。
-    final first = await pumpBoard(tester);
-    await tapWithDetailPlay(tester, find.text('示例影片'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-    first.single.emit(position: const Duration(minutes: 20), playing: true);
-    await tester.pump();
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
+      // 先播一段并退出。
+      final first = await pumpBoard(tester);
+      await tapWithDetailPlay(tester, find.text('示例影片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pumpAndSettle();
+      first.single.emit(position: const Duration(minutes: 20), playing: true);
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pumpAndSettle();
 
-    // 重新进入板块，再点同一作品（列表里只剩浏览区那一条）。
-    final second = await pumpBoard(tester);
-    await tapWithDetailPlay(tester, find.text('示例影片'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
+      // 重新进入板块，再点同一作品（列表里只剩浏览区那一条）。
+      final second = await pumpBoard(tester);
+      await tapWithDetailPlay(tester, find.text('示例影片'));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pumpAndSettle();
 
-    expect(
-      second.single.seeks,
-      contains(const Duration(minutes: 20)),
-      reason: '续看必须 seek 回上次的时间点',
-    );
-    expect(find.textContaining('已从上次位置继续'), findsOneWidget);
-  });
+      expect(
+        second.single.seeks,
+        contains(const Duration(minutes: 20)),
+        reason: '续看必须 seek 回上次的时间点',
+      );
+      expect(find.textContaining('已从上次位置继续'), findsOneWidget);
+    });
+  }
 
   testWidgets('换了另一集：从头播，不 seek 到上一集的位置', (tester) async {
     source.items = const <SourceItem>[SourceItem(id: 'movie-1', title: '示例影片')];

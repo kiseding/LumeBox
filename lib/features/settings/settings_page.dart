@@ -1,8 +1,9 @@
+import '../video/player_settings_host.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
 import 'diagnostic_export_tile.dart';
-import '../video/player_choice.dart';
 import 'configuration_settings_page.dart';
 import 'privacy_settings_page.dart';
 import '../comic/comic_image_tools_page.dart';
@@ -133,10 +134,10 @@ class SettingsPage extends StatelessWidget {
 
           const SettingsGroupTitle('阅读与播放'),
           SettingsEntryCard(
-            icon: Icons.switch_video_outlined,
-            title: '播放器方案',
-            subtitle: '现有播放器 / 参考播放器（新）· 切换对比，设置独立',
-            onTap: () => _push(context, const PlayerChoiceSettingsPage()),
+            icon: Icons.play_circle_outline,
+            title: '播放器设置',
+            subtitle: '内核、倍速、字幕与弹幕',
+            onTap: () => _push(context, const PlayerSettingsHost()),
           ),
           SettingsEntryCard(
             icon: Icons.tune,

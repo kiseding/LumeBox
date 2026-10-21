@@ -136,6 +136,42 @@ void main() {
     );
     expect(paintFinder, findsOneWidget);
   });
+  testWidgets('三排连续跟随，不必等八秒全部离屏', (tester) async {
+    final track = DanmakuTrack.parse([
+      for (var i = 0; i < 3; i++) {'time': 0, 'text': '短$i'},
+      for (var i = 0; i < 3; i++) {'time': 2000, 'text': '续$i'},
+    ]);
+    const settings = DanmakuSettings(rows: 3);
+    await tester.pumpWidget(view(settings, track));
+    await tester.pumpWidget(
+      view(settings, track, position: const Duration(seconds: 2)),
+    );
+    final dynamic painter = tester.widget<CustomPaint>(paintFinder).painter;
+    expect(painter.entries.length, 6);
+    expect(
+      painter.entries.map((dynamic e) => e.lane).toSet().length,
+      lessThanOrEqualTo(3),
+    );
+  });
+  testWidgets('同排长弹幕不能追尾短弹幕，固定弹幕仍独占轨道', (tester) async {
+    for (final mode in ['scroll', 'top']) {
+      final track = DanmakuTrack.parse([
+        {'time': 0, 'text': '短', 'mode': mode},
+        {'time': 2000, 'text': '很长的后续弹幕不能追上前一条弹幕遮挡文字' * 4},
+      ]);
+      await tester.pumpWidget(view(const DanmakuSettings(rows: 1), track));
+      await tester.pumpWidget(
+        view(
+          const DanmakuSettings(rows: 1),
+          track,
+          position: const Duration(seconds: 2),
+        ),
+      );
+      final dynamic painter = tester.widget<CustomPaint>(paintFinder).painter;
+      expect(painter.entries.length, 1);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
   testWidgets('显示范围选择和高级设置回调包含实际配置', (tester) async {
     DanmakuSettings? changed;
     await tester.pumpWidget(

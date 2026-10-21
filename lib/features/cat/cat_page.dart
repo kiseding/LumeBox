@@ -1,3 +1,5 @@
+import '../reading/browse_header_motion.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/column_list.dart';
@@ -55,6 +57,35 @@ class CatPage extends StatefulWidget {
 class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   final service = CatService.instance;
   final scroll = ScrollController();
+  bool _headerHidden = false;
+  final _headerKey = GlobalKey();
+  double _headerHeight = 52;
+
+  Widget floatingHeader() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _headerKey.currentContext?.findRenderObject();
+      if (box is RenderBox && (box.size.height - _headerHeight).abs() > .5) {
+        setState(() => _headerHeight = box.size.height);
+      }
+    });
+    final style = FloatingModules.instance.style(FloatingModule.home);
+    return Positioned(
+      top: trimmedTopInset(MediaQuery.paddingOf(context).top) + style.y,
+      left: HomePanelLayout.sidePadding + style.x,
+      right: HomePanelLayout.sidePadding - style.x,
+      child: BrowseHeaderMotion(
+        hidden: _headerHidden,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .75,
+          ),
+          child: SingleChildScrollView(key: _headerKey, child: header()),
+        ),
+      ),
+    );
+  }
+
   ReadingLibrary? library;
   SectionImagePipeline? pipeline;
   CatDataSource? source;
@@ -74,6 +105,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     service.addListener(changed);
     BrowseLayoutSettings.instance.addListener(changed);
+    FloatingModules.instance.addListener(changed);
     scroll.addListener(loadMore);
     messages = service.messages.stream.listen(hostMessage);
     unawaited(boot());
@@ -99,6 +131,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     service.removeListener(changed);
     BrowseLayoutSettings.instance.removeListener(changed);
+    FloatingModules.instance.removeListener(changed);
     messages?.cancel();
     scroll.dispose();
     pipeline?.dispose();
@@ -1230,7 +1263,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Widget header() => GlassPanel(
-    module: FloatingModule.home,
+    module: null,
+    color: LumeTheme.glass.withValues(
+      alpha: FloatingModules.instance.style(FloatingModule.home).opacity,
+    ),
+    blur: FloatingModules.instance.style(FloatingModule.home).blur,
     radius: HomePanelLayout.radius,
     padding: HomePanelLayout.padding,
     child: Column(
@@ -1366,151 +1403,161 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       bottom: false,
       child: Stack(
         children: [
-          RefreshIndicator(
-            onRefresh: refresh,
-            child: CustomScrollView(
-              controller: scroll,
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverFloatingHeader(
-                  animationStyle: const AnimationStyle(
-                    duration: Duration(milliseconds: 180),
-                    reverseDuration: Duration(milliseconds: 160),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      HomePanelLayout.sidePadding,
-                      trimmedTopInset(MediaQuery.paddingOf(context).top),
-                      HomePanelLayout.sidePadding,
-                      HomePanelLayout.contentGap,
-                    ),
-                    child: header(),
-                  ),
-                ),
-                if (service.busy)
+          NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              final hidden = BrowseHeaderScroll.hiddenAfter(
+                notification,
+                _headerHidden,
+              );
+              if (_headerHidden != hidden) {
+                setState(() => _headerHidden = hidden);
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              onRefresh: refresh,
+              child: CustomScrollView(
+                controller: scroll,
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
                   SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        const LinearProgressIndicator(),
-                        Text(service.status),
-                      ],
+                    child: SizedBox(
+                      height:
+                          trimmedTopInset(MediaQuery.paddingOf(context).top) +
+                          _headerHeight +
+                          FloatingModules.instance
+                              .style(FloatingModule.home)
+                              .y
+                              .clamp(0, 80) +
+                          HomePanelLayout.contentGap,
                     ),
                   ),
-                if (loading)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(40),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  )
-                else if (error != null)
-                  SliverToBoxAdapter(
-                    child: GlassCard(
+                  if (service.busy)
+                    SliverToBoxAdapter(
                       child: Column(
                         children: [
-                          Text(error!),
-                          TextButton(
-                            onPressed: source == null ? boot : refresh,
-                            child: const Text('重试'),
-                          ),
-                          TextButton(
-                            onPressed: subscriptions,
-                            child: const Text('管理订阅'),
-                          ),
+                          const LinearProgressIndicator(),
+                          Text(service.status),
                         ],
                       ),
                     ),
-                  )
-                else if (source == null)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          const Text('添加猫源订阅后，选择包内站点即可浏览。'),
-                          FilledButton.icon(
-                            onPressed: subscriptions,
-                            icon: const SubscriptionStatusIcon(
-                              section: Section.cat,
-                            ),
-                            label: const Text('添加订阅'),
-                          ),
-                        ],
+                  if (loading)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Center(child: CircularProgressIndicator()),
                       ),
-                    ),
-                  )
-                else if (items.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(40),
-                      child: Center(child: Text('暂无内容，请选择分类或其他站点')),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: _layout == BrowseLayoutMode.grid3
-                          ? ThreeColumnPosterLayout.sidePadding
-                          : TwoColumnSourceLayout.sidePadding,
-                    ),
-                    sliver: _layout == BrowseLayoutMode.list
-                        ? SliverList.separated(
-                            itemCount: items.length,
-                            itemBuilder: browseItem,
-                            separatorBuilder: (_, _) => const Divider(
-                              height: 1,
-                              thickness: 1,
-                              color: Color(0xFFE5E5EA),
+                    )
+                  else if (error != null)
+                    SliverToBoxAdapter(
+                      child: GlassCard(
+                        child: Column(
+                          children: [
+                            Text(error!),
+                            TextButton(
+                              onPressed: source == null ? boot : refresh,
+                              child: const Text('重试'),
                             ),
-                          )
-                        : SliverLayoutBuilder(
-                            builder: (context, constraints) => SliverGrid(
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: _layout.columns,
-                                    childAspectRatio: _layout.tileAspectRatio,
-                                    mainAxisExtent:
-                                        _layout == BrowseLayoutMode.list2
-                                        ? TwoColumnSourceLayout.itemExtent(
-                                            context,
-                                            (constraints.crossAxisExtent -
-                                                    TwoColumnSourceLayout
-                                                        .spacing) /
-                                                2,
-                                          )
-                                        : null,
-                                    crossAxisSpacing:
-                                        _layout == BrowseLayoutMode.grid3
-                                        ? ThreeColumnPosterLayout.spacing
-                                        : _layout == BrowseLayoutMode.list2
-                                        ? TwoColumnSourceLayout.spacing
-                                        : 12,
-                                    mainAxisSpacing:
-                                        _layout == BrowseLayoutMode.grid3
-                                        ? ThreeColumnPosterLayout.rowSpacing
-                                        : _layout == BrowseLayoutMode.list2
-                                        ? TwoColumnSourceLayout.rowSpacing
-                                        : 12,
-                                  ),
-                              delegate: SliverChildBuilderDelegate(
-                                browseItem,
-                                childCount: items.length,
+                            TextButton(
+                              onPressed: subscriptions,
+                              child: const Text('管理订阅'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (source == null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          children: [
+                            const Text('添加猫源订阅后，选择包内站点即可浏览。'),
+                            FilledButton.icon(
+                              onPressed: subscriptions,
+                              icon: const SubscriptionStatusIcon(
+                                section: Section.cat,
+                              ),
+                              label: const Text('添加订阅'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (items.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Center(child: Text('暂无内容，请选择分类或其他站点')),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: _layout == BrowseLayoutMode.grid3
+                            ? ThreeColumnPosterLayout.sidePadding
+                            : TwoColumnSourceLayout.sidePadding,
+                      ),
+                      sliver: _layout == BrowseLayoutMode.list
+                          ? SliverList.separated(
+                              itemCount: items.length,
+                              itemBuilder: browseItem,
+                              separatorBuilder: (_, _) => const Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: Color(0xFFE5E5EA),
+                              ),
+                            )
+                          : SliverLayoutBuilder(
+                              builder: (context, constraints) => SliverGrid(
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: _layout.columns,
+                                      childAspectRatio: _layout.tileAspectRatio,
+                                      mainAxisExtent:
+                                          _layout == BrowseLayoutMode.list2
+                                          ? TwoColumnSourceLayout.itemExtent(
+                                              context,
+                                              (constraints.crossAxisExtent -
+                                                      TwoColumnSourceLayout
+                                                          .spacing) /
+                                                  2,
+                                            )
+                                          : null,
+                                      crossAxisSpacing:
+                                          _layout == BrowseLayoutMode.grid3
+                                          ? ThreeColumnPosterLayout.spacing
+                                          : _layout == BrowseLayoutMode.list2
+                                          ? TwoColumnSourceLayout.spacing
+                                          : 12,
+                                      mainAxisSpacing:
+                                          _layout == BrowseLayoutMode.grid3
+                                          ? ThreeColumnPosterLayout.rowSpacing
+                                          : _layout == BrowseLayoutMode.list2
+                                          ? TwoColumnSourceLayout.rowSpacing
+                                          : 12,
+                                    ),
+                                delegate: SliverChildBuilderDelegate(
+                                  browseItem,
+                                  childCount: items.length,
+                                ),
                               ),
                             ),
-                          ),
+                    ),
+                  if (loadingMore)
+                    const SliverToBoxAdapter(
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: ShellDockScope.bottomInset(context) + 24,
+                    ),
                   ),
-                if (loadingMore)
-                  const SliverToBoxAdapter(
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: ShellDockScope.bottomInset(context) + 24,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+          floatingHeader(),
           BrowseSearchButton(onPressed: source == null ? null : search),
         ],
       ),

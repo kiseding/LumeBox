@@ -1,12 +1,66 @@
 import Flutter
 import UIKit
 import XCTest
+@testable import Runner
 
 class RunnerTests: XCTestCase {
 
-  func testExample() {
-    // If you add code to the Runner application, consider adding tests here.
-    // See https://developer.apple.com/documentation/xctest for more information about using XCTest.
+  func testSourceHtmlExtraction() throws {
+    let rows = try SourceWebController.extract([
+      "html": "<article class='card'><a href='../watch/1'>电影 &amp; 剧集</a><b>更新</b><b>高清</b></article>",
+      "baseUrl": "https://fixture.invalid/list/", "rowSelector": ".card",
+      "fields": [
+        "title": ["selector": "a"], "url": ["selector": "a", "attribute": "abs:href"],
+        "tags": ["selector": "b", "all": true], "missing": ["selector": "i", "defaultValue": "无"]
+      ]
+    ])
+    XCTAssertEqual(rows.count, 1)
+    XCTAssertEqual(rows[0]["title"] as? String, "电影 & 剧集")
+    XCTAssertEqual(rows[0]["url"] as? String, "https://fixture.invalid/watch/1")
+    XCTAssertEqual(rows[0]["tags"] as? [String], ["更新", "高清"])
+    XCTAssertEqual(rows[0]["missing"] as? String, "无")
+    XCTAssertThrowsError(try SourceWebController.extract(["html": "<p>x</p>", "fields": ["bad": ["selector": "["]]]))
   }
 
+  @MainActor func testSourceDynamicPageAndMedia() {
+    let done = expectation(description: "dynamic page")
+    let task = SourceWebTask(url: URL(string: "https://fixture.invalid/")!, options: [
+      "timeoutMs": 6000, "waitForSelector": "#ready",
+      "steps": [["type": "fill", "selector": "#q", "value": "手机搜索"],
+                ["type": "click", "selector": "#go"], ["type": "wait", "selector": "#result"]],
+      "script": "return await Promise.resolve(document.querySelector('#result').textContent);"
+    ]) { response in
+      let value = response as? [String: Any]
+      XCTAssertEqual(value?["result"] as? String, "手机搜索")
+      XCTAssertTrue((value?["html"] as? String ?? "").contains("id=\"result\""))
+      let media = value?["media"] as? [[String: Any]]
+      XCTAssertEqual(media?.first?["url"] as? String, "https://cdn.invalid/movie.mp4")
+      done.fulfill()
+    }
+    task.start(html: """
+      <html><body><input id='q'><button id='go' onclick="const n=document.createElement('p');n.id='result';n.textContent=document.querySelector('#q').value;document.body.append(n)">搜索</button>
+      <video src='https://cdn.invalid/movie.mp4' preload='none'></video>
+      <script>setTimeout(()=>{const n=document.createElement('div');n.id='ready';document.body.append(n)},50)</script></body></html>
+      """)
+    withExtendedLifetime(task) { wait(for: [done], timeout: 10) }
+  }
+
+  @MainActor func testSourceVerificationAndCancellation() {
+    let done = expectation(description: "verification")
+    let task = SourceWebTask(url: URL(string: "https://fixture.invalid/")!, options: ["waitForSelector": "#never"]) { response in
+      XCTAssertEqual((response as? FlutterError)?.code, "verification")
+      done.fulfill()
+    }
+    task.start(html: "<html><head><title>Just a moment...</title></head><body><div id='challenge-running'></div></body></html>")
+    withExtendedLifetime(task) { wait(for: [done], timeout: 10) }
+    var completions = 0
+    let cancel = SourceWebTask(url: URL(string: "https://fixture.invalid/")!, options: [:]) { response in
+      XCTAssertEqual((response as? FlutterError)?.code, "cancelled")
+      completions += 1
+    }
+    cancel.start(html: "<html><body></body></html>")
+    cancel.cancel()
+    cancel.cancel()
+    XCTAssertEqual(completions, 1)
+  }
 }

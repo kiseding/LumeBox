@@ -26,8 +26,8 @@ class CatSiteTile extends StatelessWidget {
     this.height = defaultHeight,
   });
 
-  /// 站点卡片的统一高度：与四个板块共用 [SourceCardMetrics.height]。
-  static const double compactHeight = SourceCardMetrics.height;
+  /// 旧猫源极简面板保持原有高度；漫画和视频统一卡片另用 50。
+  static const double compactHeight = 51;
   static const double defaultHeight = compactHeight;
 
   final double height;

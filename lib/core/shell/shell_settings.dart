@@ -75,7 +75,9 @@ enum DockHandleStyle {
   grid('grid'),
 
   /// 极简线条：三条加粗圆润横线 + 半透明玻璃。
-  lines('lines');
+  lines('lines'),
+
+  currentSection('currentSection');
 
   const DockHandleStyle(this.id);
 
@@ -92,12 +94,14 @@ enum DockHandleStyle {
     DockHandleStyle.arrow => '灵动箭头',
     DockHandleStyle.grid => '精致网格',
     DockHandleStyle.lines => '极简线条',
+    DockHandleStyle.currentSection => '当前板块图标',
   };
 
   String get description => switch (this) {
     DockHandleStyle.arrow => '圆角箭头 + 主题渐变毛玻璃',
     DockHandleStyle.grid => '九点网格 + 白色玻璃与轻阴影',
     DockHandleStyle.lines => '三横线 + 半透明玻璃（主题紫线条）',
+    DockHandleStyle.currentSection => '收起后显示当前所在板块的图标，切换板块时同步更新',
   };
 }
 
@@ -157,6 +161,13 @@ class DockAppearance {
   /// 弹簧越软，吸附与回弹越慢。
   final int animationMs;
   final DockLiquidSettings liquid;
+
+  /// Keep space for the separate search button even at large margins/heights.
+  double marginFor(double availableWidth, {double trailingWidth = 0}) =>
+      horizontalMargin.clamp(
+        0.0,
+        ((availableWidth - trailingWidth - 60) / 2).clamp(0.0, double.infinity),
+      );
 
   DockAppearance copyWith({
     double? horizontalMargin,

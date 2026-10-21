@@ -63,11 +63,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   /// 上一次的位置：用于检测「跳转」（seek / 切集）并重置状态。
   Duration _lastPosition = Duration.zero;
 
-  /// 轨道占用情况：轨道序号 → 该轨道上最后一条弹幕的「离开时间」。
-  final Map<int, Duration> _scrollLanes = <int, Duration>{};
-  final Map<int, Duration> _topLanes = <int, Duration>{};
-  final Map<int, Duration> _bottomLanes = <int, Duration>{};
-
   late final Ticker _ticker;
   Duration _elapsed = Duration.zero;
   Duration _anchor = Duration.zero;
@@ -118,12 +113,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (oldWidget.settings != widget.settings) {
       final previous = List<_ActiveDanmaku>.of(_active);
       _active.clear();
-      _scrollLanes.clear();
-      _topLanes.clear();
-      _bottomLanes.clear();
       for (final entry in previous) {
         if (widget.settings.accepts(entry.item)) {
-          final lane = _allocateLane(entry.item, entry.bornAt);
+          final lane = _allocateLane(
+            entry.item,
+            _renderPosition,
+            bornAt: entry.bornAt,
+          );
           if (lane != null) {
             _active.add(
               _ActiveDanmaku(
@@ -153,22 +149,30 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (!mounted) return;
     // Interpolate between engine reports, but never run far ahead during a stall.
     final advance = _animate
-        ? (_elapsed - _anchor).inMicroseconds.clamp(0, 500000)
+        ? (_elapsed - _anchor).inMicroseconds.clamp(0, 1000000)
         : 0;
     final target =
         widget.position +
         Duration(microseconds: (advance * widget.playbackRate).round());
     final frameDelta = (_elapsed - _clockFrame).inMicroseconds.clamp(0, 500000);
     _clockFrame = _elapsed;
-    if (!_animate || (target - _clockPosition).inMilliseconds.abs() > 750) {
+    if (!_animate || (target - _clockPosition).inMilliseconds.abs() > 2000) {
       _clockPosition = target;
     } else {
       final predicted =
           _clockPosition +
           Duration(microseconds: (frameDelta * widget.playbackRate).round());
-      final correction = (target - predicted).inMicroseconds.clamp(-2000, 2000);
-      _clockPosition = predicted + Duration(microseconds: correction);
-      if (advance >= 500000) _clockPosition = target;
+      // Correct sampling jitter gently, in proportion to this frame's length.
+      // Never snap backwards at the interpolation limit (visible every 500ms).
+      final limit = (frameDelta * widget.playbackRate * .1).round();
+      final correction = ((target - predicted).inMicroseconds * .12)
+          .round()
+          .clamp(-limit, limit);
+      final next = predicted + Duration(microseconds: correction);
+      final ceiling =
+          widget.position +
+          Duration(microseconds: (1000000 * widget.playbackRate).round());
+      _clockPosition = next > ceiling ? ceiling : next;
     }
     final position = _clockPosition;
     _renderPosition =
@@ -190,8 +194,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     }
 
     final previousCount = _active.length;
-    _spawn(_renderPosition);
     _expire(_renderPosition);
+    _spawn(_renderPosition);
     if (mounted &&
         (_active.isNotEmpty || previousCount != _active.length || !_animate)) {
       setState(() {});
@@ -204,9 +208,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       entry.dispose();
     }
     _active.clear();
-    _scrollLanes.clear();
-    _topLanes.clear();
-    _bottomLanes.clear();
     _cursor = 0;
     _rateSecond = -1;
     _rateCount = 0;
@@ -252,7 +253,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         continue;
       }
       if (_active.length >= settings.maxOnScreen) continue;
-      final lane = _allocateLane(item, position);
+      final lane = _allocateLane(item, position, bornAt: item.time);
       if (lane == null) continue;
       _active.add(_ActiveDanmaku(item: item, lane: lane, bornAt: item.time));
       _rateCount++;
@@ -272,25 +273,51 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     });
   }
 
-  /// 分配轨道：同一条弹幕按位置类型进不同轨道池。
-  int? _allocateLane(DanmakuItem item, Duration position) {
-    final lanes = _scrollLanes;
-    final needed = item.mode == DanmakuMode.scroll
-        ? DanmakuLayout.scrollDuration.inMilliseconds ~/
-              widget.settings.speedScale
-        : DanmakuLayout.fixedDuration.inMilliseconds;
-
-    // 找第一条「上一批已经离开」的轨道。
+  /// 同排可以连续跟随；同时检查入场间距和离屏前的追尾风险。
+  int? _allocateLane(
+    DanmakuItem item,
+    Duration position, {
+    required Duration bornAt,
+  }) {
+    final settings = widget.settings;
+    final text = _DanmakuPainter.textPainter(
+      item.text,
+      DanmakuStyle.of(item, settings),
+    );
+    final width = text.width;
+    text.dispose();
+    final span =
+        DanmakuLayout.scrollDuration.inMilliseconds / settings.speedScale;
+    final speed = (_viewport.width + width) / span;
+    final left = _viewport.width - speed * (position - bornAt).inMilliseconds;
+    final gap = 12 * settings.fontScale;
     final laneCount = DanmakuLayout.laneCount(_viewport, widget.settings);
     for (var index = 0; index < laneCount; index++) {
       final lane = item.mode == DanmakuMode.bottom
           ? laneCount - 1 - index
           : index;
-      final busyUntil = lanes[lane];
-      if (busyUntil == null || busyUntil <= position) {
-        lanes[lane] = position + Duration(milliseconds: needed.round());
-        return lane;
+      var available = true;
+      for (final entry in _active) {
+        if (entry.lane != lane || entry.isGone(position, settings)) continue;
+        if (item.mode != DanmakuMode.scroll ||
+            entry.item.mode != DanmakuMode.scroll) {
+          available = false;
+          break;
+        }
+        entry.layout(DanmakuStyle.of(entry.item, settings));
+        final oldWidth = entry.fill!.width;
+        final oldSpeed = (_viewport.width + oldWidth) / span;
+        final right =
+            _viewport.width -
+            oldSpeed * (position - entry.bornAt).inMilliseconds +
+            oldWidth;
+        if (left < right + gap ||
+            (speed > oldSpeed && left - speed * (right / oldSpeed) < gap)) {
+          available = false;
+          break;
+        }
       }
+      if (available) return lane;
     }
     return null; // 轨道满了：这条不显示（不硬挤，挤了就重叠）。
   }

@@ -8,7 +8,7 @@ import 'package:lume_box/core/intro/intro_backend.dart';
 import 'package:lume_box/core/intro/intro_models.dart';
 import 'package:lume_box/core/intro/intro_signals.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
-import 'package:lume_box/core/player/reference_player_factory.dart';
+import 'package:lume_box/core/player/player_factory.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/app_preferences.dart';
@@ -16,8 +16,8 @@ import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/core/theme/frosted_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/intro_settings_page.dart';
-import 'package:lume_box/features/video/player_choice.dart';
-import 'package:lume_box/features/video/reference_player_page.dart';
+import 'package:lume_box/features/video/player_settings_host.dart';
+import 'package:lume_box/features/video/video_player_page.dart';
 
 const fixtureURL = String.fromEnvironment(
   'PREVIEW_MEDIA',
@@ -95,21 +95,18 @@ class _HomeState extends State<_Home> {
           onPressed: () => Navigator.push<void>(
             context,
             MaterialPageRoute(
-              builder: (_) => ReferencePlayerPage(
-                playerFactory: (kernel) => ReferencePlayerFactory.create(
-                  kernel,
-                  emulatorSurfacePreview: true,
-                ),
+              builder: (_) => VideoPlayerPage(
+                playerFactory: (kernel) => PlayerFactory.create(kernel: kernel),
                 media: PlayerMedia(
                   uri: Uri.parse(fixtureURL),
                   title: 'LumeBox 测试影片',
                 ),
-                title: '参考播放器',
+                title: '播放器',
                 fullscreenOnly: false,
               ),
             ),
           ),
-          child: const Text('打开参考播放器（模拟器直连 Surface）'),
+          child: const Text('打开播放器'),
         ),
         OutlinedButton(
           onPressed: () => Navigator.push<void>(
@@ -121,9 +118,9 @@ class _HomeState extends State<_Home> {
         OutlinedButton(
           onPressed: () => Navigator.push<void>(
             context,
-            MaterialPageRoute(builder: (_) => const PlayerChoiceSettingsPage()),
+            MaterialPageRoute(builder: (_) => const PlayerSettingsHost()),
           ),
-          child: const Text('两套播放器切换与设置'),
+          child: const Text('播放器设置'),
         ),
         const SizedBox(height: 20),
         FilledButton.tonal(

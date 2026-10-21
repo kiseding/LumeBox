@@ -1,3 +1,6 @@
+import 'source_web_runtime.dart';
+import 'source_script_storage.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -347,6 +350,8 @@ class LumeSourceHost implements SandboxHost {
 
   /// 沙盒文件 IO 的后端（`LumeSource.fs`）。
   final SandboxStore _store;
+  late final _webRuntime = SourceWebRuntime(expectedSandboxId);
+  late final _persistent = SourceScriptStorage(section, sourceId);
   bool widgetEnabled = false;
   late final widget = RexWidgetHost(_http, section, sourceId, timeout);
 
@@ -366,6 +371,36 @@ class LumeSourceHost implements SandboxHost {
     if (request.method.startsWith('rex.')) {
       if (!widgetEnabled) throw const SandboxHostException('当前源没有启用 Widget 宿主');
       return widget.invoke(request.method, request.payload);
+    }
+    if (request.method == 'web.render' || request.method == 'html.extract') {
+      if (request.payload is! Map) {
+        throw const SandboxHostException('网页接口入参必须是对象');
+      }
+      final args = Map<String, dynamic>.from(request.payload as Map);
+      if (request.method == 'web.render') {
+        final headers = _http.browserRequestHeaders(
+          _stringMap(args['headers']),
+        );
+        args['headers'] = headers;
+        args.putIfAbsent('userAgent', () => headers['User-Agent']);
+        final requested = (args['timeoutMs'] as num?)?.toInt() ?? 6000;
+        args['timeoutMs'] = requested.clamp(
+          100,
+          (timeout.inMilliseconds - 500).clamp(100, 8000),
+        );
+      }
+      return _webRuntime.invoke(
+        request.method == 'web.render' ? 'render' : 'extract',
+        args,
+      );
+    }
+    if (request.method == 'storage') {
+      if (request.payload is! Map) {
+        throw const SandboxHostException('存储接口入参必须是对象');
+      }
+      return _persistent.invoke(
+        Map<String, dynamic>.from(request.payload as Map),
+      );
     }
     switch (request.method) {
       case SandboxHostMethods.httpFetch:
@@ -392,7 +427,11 @@ class LumeSourceHost implements SandboxHost {
   }
 
   /// 释放宿主侧资源：清空沙盒存储（引擎释放时调用）。
-  void dispose() => _store.clear();
+  void dispose() {
+    _webRuntime.dispose();
+    _persistent.dispose();
+    _store.clear();
+  }
 
   Object? _storeRead(Object? payload) {
     return <String, Object?>{'value': _store.read(_key(payload))};

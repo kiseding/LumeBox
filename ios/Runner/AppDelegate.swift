@@ -21,6 +21,7 @@ import Security
   /// 播放会话控制器：后台音频 + 锁屏 / 控制中心的媒体控制器。
   private let playback = PlaybackSessionController()
   private let wafCookies = WafCookieController()
+  private let sourceWeb = SourceWebController()
   private let battery = BatteryController()
   private let configurationExport = ConfigurationExportController()
   private let comicImages = ComicImageToolsController()
@@ -93,6 +94,7 @@ import Security
     if let messenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "LumeBoxWafCookies")?.messenger() {
       wafCookies.register(with: messenger)
+      sourceWeb.register(with: messenger)
     }
 
     if let messenger = engineBridge.pluginRegistry

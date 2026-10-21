@@ -516,8 +516,17 @@ class MediaKitMpvEngine
   @override
   Future<void> seek(Duration position) async {
     if (_disposed) return;
+    // open() only queues loadfile. Network metadata may still be pending, and
+    // libmpv silently ignores a seek issued before the file is ready.
+    if (_duration <= Duration.zero) {
+      _pendingSeek = position;
+      return;
+    }
+    _pendingSeek = null;
     await _player.seek(position);
   }
+
+  Duration? _pendingSeek;
 
   /// 与 AVPlayer 内核同口径：回到起点并暂停，不卸载媒体。
   ///
@@ -754,6 +763,15 @@ class MediaKitMpvEngine
       }),
       streams.duration.listen((value) {
         _duration = value;
+        final pending = _pendingSeek;
+        if (value > Duration.zero && pending != null) {
+          _pendingSeek = null;
+          unawaited(
+            _player.seek(pending).catchError((Object error, StackTrace stack) {
+              LumeLog.error(error, stack);
+            }),
+          );
+        }
         _emit();
       }),
       streams.playing.listen((value) {
@@ -813,6 +831,7 @@ class MediaKitMpvEngine
   }
 
   void _resetMediaState() {
+    _pendingSeek = null;
     _downloadBytesPerSecond = null;
     _position = Duration.zero;
     _duration = Duration.zero;

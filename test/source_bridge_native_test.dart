@@ -1,7 +1,9 @@
+import 'package:flutter/services.dart';
+import 'package:lume_box/core/js/source_web_runtime.dart';
+
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,6 +27,7 @@ import 'package:lume_box/core/source/source.dart';
 ///
 /// 原生桥缺失时整组跳过（Windows 需先 `flutter build windows`）。
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   final bridge = _resolveBridge();
   if (bridge != null) {
     Qjs.overrideLibrary(bridge);
@@ -72,6 +75,41 @@ void main() {
         runtime: _SandboxRuntime(sandbox),
       );
     }
+
+    test('真实JS桥按顺序渲染、CSS提取并返回源列表，宿主能力不会被覆盖', () async {
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SourceWebRuntime.channel, (
+        call,
+      ) async {
+        calls.add(call);
+        if (call.method == 'render') {
+          expect(call.arguments['waitForSelector'], '.card');
+          expect(call.arguments['headers']['User-Agent'], isNotEmpty);
+          return {
+            'html': '<article class="card">示例</article>',
+            'url': 'https://fixture.invalid/',
+          };
+        }
+        expect(call.arguments['fields']['title']['selector'], 'a');
+        return [
+          {'title': '动态结果', 'id': 'https://fixture.invalid/watch/1'},
+        ];
+      });
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(SourceWebRuntime.channel, null),
+      );
+      final source = await boot(r'''
+        var LumeSource = {web: 'bad', html: 'bad', list: async function() {
+          const page = await LumeSource.web.render({url:'https://fixture.invalid/', waitForSelector:'.card'});
+          return {items:await LumeSource.html.extract(page.html, {rowSelector:'.card', fields:{title:{selector:'a'}}}), hasMore:false};
+        }};
+      ''');
+      expect((await source.list()).items.single.title, '动态结果');
+      expect(calls.map((call) => call.method), ['render', 'extract']);
+    });
 
     test('用户验证脚本：顶层 getList(page) 直接跑通', () async {
       final source = await boot(_userVerificationScript);
@@ -132,7 +170,10 @@ void main() {
       expect(host.store.read('cache/list.json'), '列表缓存');
 
       // 脚本删掉之后，宿主侧的存储同步消失（fs 就是这张表的门面）。
-      final removed = await sandbox.call('LumeSource.fs.remove', '/cache/list.json');
+      final removed = await sandbox.call(
+        'LumeSource.fs.remove',
+        '/cache/list.json',
+      );
       expect(removed.value, isTrue);
       expect(host.store.read('cache/list.json'), isNull);
     });
@@ -146,7 +187,10 @@ void main() {
         'function',
         reason: '脚本对象不能把宿主 HTTP 能力盖掉',
       );
-      expect((await sandbox.eval('typeof LumeSource.fs.readText')).value, 'function');
+      expect(
+        (await sandbox.eval('typeof LumeSource.fs.readText')).value,
+        'function',
+      );
 
       final list = await source.list();
       expect(list.items.single.id, 'o1');
@@ -161,7 +205,11 @@ void main() {
       final source = await boot(_lexicalScript);
       final list = await source.list();
       expect(list.items.single.id, 'l1');
-      expect((await sandbox.eval('LumeSource.id')).value, 'lex', reason: '脚本自己的对象');
+      expect(
+        (await sandbox.eval('LumeSource.id')).value,
+        'lex',
+        reason: '脚本自己的对象',
+      );
     });
 
     test('反复赋值：非对象忽略、对象合并，桥接能力始终在', () async {
@@ -170,7 +218,10 @@ void main() {
       expect(list.items.single.id, 'r1');
       expect((await sandbox.eval('LumeSource.id')).value, 'again');
       expect((await sandbox.eval('LumeSource.name')).value, '二次赋值源');
-      expect((await sandbox.eval('typeof LumeSource.http.get')).value, 'function');
+      expect(
+        (await sandbox.eval('typeof LumeSource.http.get')).value,
+        'function',
+      );
       expect(
         (await sandbox.eval('typeof LumeSource.fs.writeText')).value,
         'function',
@@ -205,7 +256,11 @@ void main() {
         throwsA(
           isA<SourceException>()
               .having((error) => error.kind, 'kind', SourceErrorKind.callFailed)
-              .having((error) => error.message, 'message', contains('没有实现 list 方法'))
+              .having(
+                (error) => error.message,
+                'message',
+                contains('没有实现 list 方法'),
+              )
               .having((error) => error.message, 'message', contains('getList'))
               .having(
                 (error) => error.message,
@@ -238,7 +293,9 @@ void main() {
 
     /// 调一次脚本的 list，取回脚本读到的 `domain` 与一段自述摘要。
     Future<(String, String)> readOnScript(LumeJsEngine engine) async {
-      final result = await engine.callResult('list', <String, Object?>{'page': 1});
+      final result = await engine.callResult('list', <String, Object?>{
+        'page': 1,
+      });
       expect(result.isOk, isTrue, reason: 'list 必须成功: ${result.error}');
       final value = result.value;
       expect(value, isA<Map>(), reason: '收到的原始值: $value');
@@ -305,7 +362,9 @@ void main() {
 
     test('脚本没声明镜像、用户也没填：domain 是空串（脚本回落自己的默认地址）', () async {
       final engine = await bootEngine(_configScript);
-      await engine.applySourceConfig(SourceSiteConfig.none.toScriptJson(cookie: ''));
+      await engine.applySourceConfig(
+        SourceSiteConfig.none.toScriptJson(cookie: ''),
+      );
 
       final (domain, summary) = await readOnScript(engine);
       expect(domain, '');
@@ -496,10 +555,14 @@ class _RecordingHttp extends LumeHttp {
 
 /// 测试专用：把底层沙箱适配成数据源运行时端口（与 `js_source_native_test` 同口径）。
 class _SandboxRuntime implements JsSourceRuntime {
-
   @override
-  Future<Set<String>> contractMethods() async =>
-      const <String>{'categories', 'list', 'detail', 'chapters', 'content'};
+  Future<Set<String>> contractMethods() async => const <String>{
+    'categories',
+    'list',
+    'detail',
+    'chapters',
+    'content',
+  };
   _SandboxRuntime(this._sandbox);
 
   final LumeSandbox _sandbox;

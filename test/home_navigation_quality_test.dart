@@ -1,3 +1,4 @@
+import 'package:lume_box/features/reading/browse_header_motion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,40 @@ import 'package:lume_box/shared/widgets/home_browse_navigation.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('首页伸缩只响应主列表的竖向手势，横滑和程序滚动保持状态', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    final context = tester.element(find.byType(SizedBox).first);
+    ScrollUpdateNotification update({
+      double pixels = 100,
+      double delta = 10,
+      AxisDirection axis = AxisDirection.down,
+      bool drag = true,
+    }) => ScrollUpdateNotification(
+      metrics: FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 1000,
+        pixels: pixels,
+        viewportDimension: 600,
+        axisDirection: axis,
+        devicePixelRatio: 1,
+      ),
+      context: context,
+      scrollDelta: delta,
+      dragDetails: drag ? DragUpdateDetails(globalPosition: Offset.zero) : null,
+    );
+    expect(BrowseHeaderScroll.hiddenAfter(update(), false), isTrue);
+    expect(BrowseHeaderScroll.hiddenAfter(update(delta: -10), true), isFalse);
+    expect(BrowseHeaderScroll.hiddenAfter(update(pixels: 0), true), isFalse);
+    expect(
+      BrowseHeaderScroll.hiddenAfter(update(axis: AxisDirection.right), false),
+      isFalse,
+    );
+    expect(BrowseHeaderScroll.hiddenAfter(update(drag: false), false), isFalse);
+    expect(
+      BrowseHeaderScroll.hiddenAfter(update(drag: false, delta: -10), true),
+      isTrue,
+    );
+  });
   test('最高分辨率和专属请求头一起选择，未知清晰度保持主地址', () {
     final content = VideoContent(
       url: Uri.parse('https://demo/default'),

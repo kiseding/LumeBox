@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        AA2026102100000000000002 /* SourceWebController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2026102100000000000001 /* SourceWebController.swift */; };
+        AA2026102100000000000005 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = AA2026102100000000000004 /* SwiftSoup */; };
 		E818B0010000000000000002 /* IntroRecognitionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E818B0010000000000000001 /* IntroRecognitionController.swift */; };
 		E817B0030000000000000002 /* ICloudSyncController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0030000000000000001 /* ICloudSyncController.swift */; };
 		E817B0020000000000000002 /* MediaTrackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0020000000000000001 /* MediaTrackProbe.swift */; };
@@ -58,6 +60,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        AA2026102100000000000001 /* SourceWebController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceWebController.swift; sourceTree = "<group>"; };
 		E818B0010000000000000001 /* IntroRecognitionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntroRecognitionController.swift; sourceTree = "<group>"; };
 		E817B0030000000000000001 /* ICloudSyncController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSyncController.swift; sourceTree = "<group>"; };
 		E817B0020000000000000001 /* MediaTrackProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTrackProbe.swift; sourceTree = "<group>"; };
@@ -100,6 +103,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
+                AA2026102100000000000005 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -166,6 +170,7 @@
 				A1B2C3D40000000000000009 /* BufferingController.swift */,
 				A1B2C3D4000000000000000B /* PlaybackSessionController.swift */,
 				A1B2C3D4000000000000000D /* WafCookieController.swift */,
+                AA2026102100000000000001 /* SourceWebController.swift */,
 				A1B2C3D4000000000000000F /* BatteryController.swift */,
 				AA2010200000000000000002 /* LumePythonController.m */,
 				AA2010200000000000000003 /* LumePythonController.h */,
@@ -217,6 +222,7 @@
 			);
 			name = Runner;
 			packageProductDependencies = (
+                AA2026102100000000000004 /* SwiftSoup */,
 				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
 			);
 			productName = Runner;
@@ -253,6 +259,7 @@
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
+                AA2026102100000000000003 /* XCRemoteSwiftPackageReference SwiftSoup */,
 				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
@@ -369,6 +376,7 @@
 				A1B2C3D4000000000000000A /* BufferingController.swift in Sources */,
 				A1B2C3D4000000000000000C /* PlaybackSessionController.swift in Sources */,
 				A1B2C3D4000000000000000E /* WafCookieController.swift in Sources */,
+                AA2026102100000000000002 /* SourceWebController.swift in Sources */,
 				A1B2C3D40000000000000010 /* BatteryController.swift in Sources */,
 				AA2010200000000000000001 /* LumePythonController.m in Sources */,
 				AC0160160000000000000005 /* LumeGlassBackdrop.swift in Sources */,
@@ -737,7 +745,20 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+        AA2026102100000000000003 /* XCRemoteSwiftPackageReference SwiftSoup */ = {
+            isa = XCRemoteSwiftPackageReference;
+            repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+            requirement = {kind = exactVersion; version = 2.9.6; };
+        };
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+        AA2026102100000000000004 /* SwiftSoup */ = {
+            isa = XCSwiftPackageProductDependency;
+            package = AA2026102100000000000003 /* XCRemoteSwiftPackageReference SwiftSoup */;
+            productName = SwiftSoup;
+        };
 		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FlutterGeneratedPluginSwiftPackage;

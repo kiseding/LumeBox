@@ -44,9 +44,7 @@ void main() {
       ]) {
         expect(
           palette.base,
-          palette.brightness == Brightness.light
-              ? equals(Colors.white)
-              : isNot(palette.surface),
+          isNot(palette.surface),
           reason: '底与卡同色就没有层次了（这是全项目的分层基础）',
         );
         expect(
@@ -57,11 +55,11 @@ void main() {
       }
     });
 
-    test('深色主题的卡比底更亮，浅色主题相反（层次方向对偶）', () {
-      // 浅色：底 F7F7F9，卡 FFFFFF → 卡更亮。
+    test('浅色和深色主题的卡片均比页面底色更亮', () {
+      // 浅色：底 F2F2F7，卡 FFFFFF → 卡更亮。
       expect(
         LumePalette.light.surface.computeLuminance(),
-        equals(LumePalette.light.base.computeLuminance()),
+        greaterThan(LumePalette.light.base.computeLuminance()),
       );
       // 深色：底 121214，卡 1C1C1F → 卡同样更亮（靠色差分层次，不是纯黑一色）。
       expect(
@@ -175,7 +173,5 @@ void main() {
     });
   });
 
-  group('阅读器不受全局主题影响（文档硬性要求）', () {
-
-  });
+  group('阅读器不受全局主题影响（文档硬性要求）', () {});
 }

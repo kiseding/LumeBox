@@ -1,6 +1,8 @@
+import 'danmaku/danmaku_panel.dart';
+import 'danmaku/danmaku_match_sheet.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import '../../shared/widgets/drawer_geometry.dart';
 import 'playback_glass.dart';
 import '../../core/session/app_preferences.dart';
 
@@ -629,6 +631,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }.toList(),
   );
   String _publicDanmakuStatus = '等待加载';
+  String? _publicDanmakuMatchLabel, _danmakuServiceLabel;
+  bool _publicDanmakuLoading = false;
   int _sourceDanmakuCount = 0;
   int _publicDanmakuCount = 0;
   String _danmakuKey(VideoPlayTarget target) =>
@@ -992,6 +996,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// [_onSnapshotChanged] 会把**位置 0** 当成最新进度写进库——真机反馈的
   /// 「切内核后从头播」正是这么来的（记录被自己清掉了）。
   bool _suppressProgressSave = false;
+  _ResumePoint? _kernelResume;
 
   /// 是否已播到结尾（留 1 秒余量：播放器到结尾前会先停下）。
   ///
@@ -1142,7 +1147,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     //（见 [_suppressProgressSave]）。
     _saveProgress(force: true);
     final previous = _player;
-    final resume = previous == null ? null : _ResumePoint.of(previous);
+    final resume =
+        previous != null && previous.snapshot.value.position > Duration.zero
+        ? _ResumePoint.of(previous)
+        : _kernelResume;
+    _kernelResume = resume;
     _suppressProgressSave = true;
     _player = null;
     if (previous != null) {
@@ -1184,7 +1193,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
     // 过期重建：用户又切了内核，本次结果作废（实例必须释放）。
     if (seq != _rebuildSeq) {
-      _suppressProgressSave = false;
       final stale = launch?.player;
       if (stale != null) await _disposeQuietly(stale, '过期重建结果');
       return;
@@ -1257,7 +1265,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         setState(() => _rebuildFailure = '播放器已就绪，但接续上次播放失败：$error');
       }
     } finally {
-      _suppressProgressSave = false;
+      if (seq == _rebuildSeq) {
+        _suppressProgressSave = false;
+        _kernelResume = null;
+      }
     }
   }
 
@@ -1304,7 +1315,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }) async {
     _nextEpisodeBuffer.discard();
     // 浏览器 UA：片源/会话自带的 User-Agent 优先，否则补上全局偏好。
-    media = PlaybackPreferenceWiring.applyUserAgent(
+    final requestMedia = PlaybackPreferenceWiring.applyUserAgent(
       media,
       PlayerExperienceStore.current,
     );
@@ -1322,14 +1333,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _networkSpeed.reset();
     _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
-    _playbackRequestHeaders = media.headers ?? const {};
+    _playbackRequestHeaders = requestMedia.headers ?? const {};
     if (!alreadyLoaded) {
       final headers = Platform.isIOS && _target != null
           ? await IosVerifiedWebView.resourceHeaders(
               media.uri.toString(),
-              media.headers ?? const {},
+              requestMedia.headers ?? const {},
             )
-          : media.headers;
+          : requestMedia.headers;
       if (!mounted ||
           !identical(player, _player) ||
           !identical(media, _media)) {
@@ -1561,9 +1572,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _healthyPosition = Duration.zero;
     _target = target;
     _syncQualityIndex(media);
-    await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
-    if (!mounted || !identical(media, _media)) return;
-    await _restoreProgress();
+    _suppressProgressSave = true;
+    try {
+      await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
+      if (!mounted || !identical(media, _media)) return;
+      await _restoreProgress();
+    } finally {
+      _suppressProgressSave = false;
+    }
     _startProgressTicker();
     unawaited(_loadDanmaku(target));
     // 打开视频即自动播放（用户要求）：装载与续播定位都做完之后再发 play，
@@ -1771,7 +1787,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _danmaku = _combinedDanmaku();
         _sourceDanmakuCount = 0;
         _publicDanmakuCount = 0;
-        _publicDanmakuStatus = '正在匹配公共弹幕…';
+        _publicDanmakuStatus = target == null
+            ? '从源条目播放后可匹配本集弹幕'
+            : '正在匹配当前作品和集数…';
+        _publicDanmakuLoading = target != null;
+        _publicDanmakuMatchLabel = null;
       });
     }
     _notifyDanmakuSheet();
@@ -1815,6 +1835,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         try {
           final config = await DandanplayCredentials.load();
           if (!publicCurrent()) return;
+          _danmakuServiceLabel = config.official
+              ? '弹弹play 官方'
+              : Uri.parse(config.baseUrl).host;
           if (config.official && !config.configured) {
             setState(() => _publicDanmakuStatus = '官方服务尚未配置凭证');
             return;
@@ -1826,31 +1849,64 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           if (track == null) {
             client = DandanplayClient(credentials: config);
             _danmakuClients.add(client);
-            var id = _library?.setting(_matchingKey(target, config.baseUrl));
+            final key = _matchingKey(target, config.baseUrl);
+            var id = _library?.setting(key);
+            final savedLabel = _library?.setting('$key.label');
+            if (id?.isEmpty == true ||
+                savedLabel == null ||
+                savedLabel.isEmpty) {
+              id = null;
+            }
+            DandanplayEpisode? match;
             if (id == null) {
+              final number = DandanplayClient.episodeNumber(
+                target.chapterTitle,
+                chapterIndex: target.chapterIndex,
+              );
               final matches = await client.search(
                 target.title,
-                episode: DandanplayClient.episodeNumber(
-                  target.chapterTitle,
-                  chapterIndex: target.chapterIndex,
-                ),
+                episode: number,
               );
-              id = DandanplayClient.exactMatch(matches, target.title)?.id;
-            }
-            if (!publicCurrent()) return;
-            if (id == null) {
-              setState(() => _publicDanmakuStatus = '未能唯一匹配，请手动选择弹幕');
-              return;
+              match = DandanplayClient.exactMatch(
+                matches,
+                target.title,
+                episode: number,
+              );
+              id = match?.id;
+              if (!publicCurrent()) return;
+              if (id == null) {
+                setState(
+                  () => _publicDanmakuStatus = matches.isEmpty
+                      ? '${config.official ? '官方弹幕库' : '此服务'}未找到“${target.title}”第$number集，可手动匹配或更换服务'
+                      : '未找到唯一的同名、同集结果，请核对年份与集数后手动匹配',
+                );
+                return;
+              }
             }
             track = await client.comments(id);
+            if (!publicCurrent()) return;
+            if (!track.isEmpty) {
+              final label = match == null
+                  ? savedLabel!
+                  : '${match.title} · ${match.episode}';
+              _library?.setSetting(key, id);
+              _library?.setSetting('$key.label', label);
+              _publicDanmakuMatchLabel = label;
+            }
+          } else {
+            _publicDanmakuMatchLabel = _library?.setting(
+              '${_matchingKey(target, config.baseUrl)}.label',
+            );
           }
           if (!publicCurrent()) return;
-          _publicDanmakuCache.put(cacheKey, target.chapterId, track);
+          if (!track.isEmpty) {
+            _publicDanmakuCache.put(cacheKey, target.chapterId, track);
+          }
           setState(() {
             _publicDanmakuTrack = track!;
             _publicDanmakuCount = track.length;
             _publicDanmakuStatus = track.isEmpty
-                ? '公共库本集暂无弹幕'
+                ? '本服务该集返回 0 条弹幕，可重新匹配或更换服务'
                 : '公共库已加载 ${track.length} 条';
             _danmaku = _combinedDanmaku();
           });
@@ -1864,7 +1920,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         } finally {
           client?.close();
           _danmakuClients.remove(client);
-          if (publicCurrent()) _notifyDanmakuSheet();
+          if (publicCurrent()) {
+            setState(() => _publicDanmakuLoading = false);
+            _notifyDanmakuSheet();
+          }
         }
       }(),
     ]);
@@ -1878,9 +1937,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     try {
       final config = await DandanplayCredentials.load();
       if (!mounted) return;
-      await _playbackMenu<DandanplayCredentials>(
+      await showDanmakuPanel<DandanplayCredentials>(
         context: context,
-        isScrollControlled: true,
         builder: (_) => DanmakuServiceSheet(initial: config),
       );
     } catch (error) {
@@ -1894,98 +1952,131 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _showToast('请先从源条目播放视频');
       return;
     }
-    final title = await _playbackMenu<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _DanmakuMatchSheet(initial: target.title),
-    );
-    if (title == null || title.isEmpty || !mounted) return;
+    final publicSeq = ++_publicDanmakuSeq;
+    final previousStatus = _publicDanmakuStatus;
+    var applied = false;
+    setState(() {
+      _publicDanmakuLoading = false;
+      _publicDanmakuStatus = '正在手动匹配本集…';
+    });
+    _notifyDanmakuSheet();
     DandanplayClient? client;
     try {
-      client = DandanplayClient(
-        credentials: await DandanplayCredentials.load(),
-      );
-      if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
-      _danmakuClients.add(client);
-      final items = await client.search(title);
-      if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
-      if (items.isEmpty) {
-        _showToast('未找到这部作品的弹幕，可以修改片名或更换服务');
-        return;
-      }
-      final selected = await _playbackMenu<DandanplayEpisode>(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) => SafeArea(
-          child: SizedBox(
-            height: DrawerGeometry.height(context),
-            child: ListView(
-              children: [
-                const ListTile(title: Text('选择对应作品和集数')),
-                for (final item in items)
-                  ListTile(
-                    title: Text(item.title),
-                    subtitle: Text(item.episode),
-                    onTap: () => Navigator.pop(context, item),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      );
-      if (selected == null ||
-          !mounted ||
+      final config = await DandanplayCredentials.load();
+      if (!mounted ||
+          publicSeq != _publicDanmakuSeq ||
           !(_target?.isSameEpisode(target) ?? false)) {
         return;
       }
-      final publicSeq = ++_publicDanmakuSeq;
-      final track = await client.comments(selected.id);
-      if (publicSeq != _publicDanmakuSeq) return;
-      if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
-      _library?.setSetting(
-        _matchingKey(target, client.credentials.baseUrl),
-        selected.id,
+      client = DandanplayClient(credentials: config);
+      _danmakuClients.add(client);
+      final selected = await showDanmakuPanel<DanmakuMatchSelection>(
+        context: context,
+        builder: (sheetContext) => DanmakuMatchSheet(
+          client: client!,
+          title: target.title,
+          episode: DandanplayClient.episodeNumber(
+            target.chapterTitle,
+            chapterIndex: target.chapterIndex,
+          ),
+          serviceLabel: config.official
+              ? '弹弹play 官方'
+              : Uri.parse(config.baseUrl).host,
+          onChangeService: () {
+            Navigator.pop(sheetContext);
+            unawaited(_configureDanmakuService());
+          },
+        ),
       );
-      _publicDanmakuTrack = track;
+      if (selected == null ||
+          selected.track.isEmpty ||
+          !mounted ||
+          publicSeq != _publicDanmakuSeq ||
+          !(_target?.isSameEpisode(target) ?? false)) {
+        return;
+      }
+      final item = selected.episode;
+      final track = selected.track;
+      final label = '${item.title} · ${item.episode}';
+      _library?.setSetting(_matchingKey(target, config.baseUrl), item.id);
+      _library?.setSetting(
+        '${_matchingKey(target, config.baseUrl)}.label',
+        label,
+      );
       _publicDanmakuCache.put(
-        '${client.credentials.baseUrl}:${_danmakuKey(target)}',
+        '${config.baseUrl}:${_danmakuKey(target)}',
         target.chapterId,
         track,
       );
+      _publicDanmakuTrack = track;
       _applyDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
+      applied = true;
       setState(() {
+        _publicDanmakuMatchLabel = label;
         _danmaku = _combinedDanmaku();
         _publicDanmakuCount = track.length;
-        _publicDanmakuStatus = '公共库已加载 ${track.length} 条';
+        _publicDanmakuStatus = '已加载 ${track.length} 条公共弹幕';
       });
       _notifyDanmakuSheet();
       _showToast('已加载 ${track.length} 条公共弹幕');
     } catch (error) {
-      if (mounted && (_target?.isSameEpisode(target) ?? false)) {
+      if (mounted &&
+          publicSeq == _publicDanmakuSeq &&
+          (_target?.isSameEpisode(target) ?? false)) {
         _showToast(DandanplayClient.describeError(error));
       }
     } finally {
       client?.close();
       _danmakuClients.remove(client);
+      if (!applied &&
+          mounted &&
+          publicSeq == _publicDanmakuSeq &&
+          (_target?.isSameEpisode(target) ?? false)) {
+        setState(() => _publicDanmakuStatus = previousStatus);
+        _notifyDanmakuSheet();
+      }
     }
+  }
+
+  Future<void> _clearDanmakuMatch() async {
+    final target = _target;
+    if (target == null) return;
+    final config = await DandanplayCredentials.load();
+    if (!mounted || !(_target?.isSameEpisode(target) ?? false)) return;
+    _publicDanmakuSeq++;
+    _library?.setSetting(_matchingKey(target, config.baseUrl), '');
+    _library?.setSetting('${_matchingKey(target, config.baseUrl)}.label', '');
+    _publicDanmakuCache.clear();
+    setState(() {
+      _publicDanmakuMatchLabel = null;
+      _publicDanmakuLoading = false;
+      _publicDanmakuTrack = DanmakuTrack.empty;
+      _publicDanmakuCount = 0;
+      _publicDanmakuStatus = '本集关联已清除，请重新匹配';
+      _danmaku = _combinedDanmaku();
+    });
+    _notifyDanmakuSheet();
   }
 
   /// 打开弹幕设置面板。
   Future<void> _openDanmakuSettings() async {
     _cancelAutoHide();
-    await _playbackMenu<void>(
+    await showDanmakuPanel<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (_) => ValueListenableBuilder<int>(
         valueListenable: _danmakuRevision,
         builder: (_, revision, child) => DanmakuSettingsSheet(
           settings: _danmakuSettings,
           danmakuCount: _danmaku.length,
-          status:
-              '源弹幕 $_sourceDanmakuCount 条 · 公共弹幕 $_publicDanmakuCount 条\n$_publicDanmakuStatus',
+          status: _publicDanmakuStatus,
+          sourceCount: _sourceDanmakuCount,
+          publicCount: _publicDanmakuCount,
+          loading: _publicDanmakuLoading,
+          videoTitle: _target?.title,
+          episodeTitle: _target?.chapterTitle,
+          serviceLabel: _danmakuServiceLabel,
+          matchLabel: _publicDanmakuMatchLabel,
+          onClearMatch: _clearDanmakuMatch,
           onMatch: _matchPublicDanmaku,
           onConfigureService: _configureDanmakuService,
           onReload: () => _loadDanmaku(_target, force: true),
@@ -2228,6 +2319,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   ///
   /// [force] 为 true 时忽略节流（暂停、切集、退出这些「状态改变」的时刻必须写准）。
   void _saveProgress({bool force = false}) {
+    if (_suppressProgressSave) return;
     final target = _target;
     final library = _library;
     final snapshot = _player?.snapshot.value;
@@ -2236,6 +2328,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (snapshot.error != null) return;
 
     final position = snapshot.position;
+    if (position <= Duration.zero &&
+        (!_loaded || snapshot.duration <= Duration.zero)) {
+      final saved = library.videoProgress(target.itemId);
+      if (saved?.chapterIndex == target.chapterIndex &&
+          saved!.position > Duration.zero) {
+        return;
+      }
+    }
     // 刚开播还没走表、或位置没动过，不必写库（省掉大量无意义的写）。
     if (!force &&
         (position - _lastSavedPosition).abs() < const Duration(seconds: 2)) {
@@ -5029,104 +5129,6 @@ class _QualitySheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 「匹配公共弹幕」的片名输入：**底部面板 + 跟随键盘**（用户口径）。
-///
-/// 原来用的是 AlertDialog：真机全屏（横屏）里键盘一顶，对话框被挤到只剩一条，
-/// 输入框的标签与文字全糊在一条下划线上（用户截图）。换成底部面板后，键盘顶上来
-/// 面板跟着上移，输入框、取消 / 搜索都在键盘上方，横竖屏都不会被挤扁。
-class _DanmakuMatchSheet extends StatefulWidget {
-  const _DanmakuMatchSheet({required this.initial});
-
-  final String initial;
-
-  @override
-  State<_DanmakuMatchSheet> createState() => _DanmakuMatchSheetState();
-}
-
-class _DanmakuMatchSheetState extends State<_DanmakuMatchSheet> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initial,
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final value = _controller.text.trim();
-    if (value.isEmpty) return;
-    Navigator.of(context).pop(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.transparent),
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            // 键盘高度由系统的 viewInsets 给：面板整体上移，输入框不会被盖住。
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Text(
-                    '匹配公共弹幕',
-                    style: TextStyle(
-                      fontSize: LumeTypography.sectionTitleSize,
-                      fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _controller,
-                    autofocus: true,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _submit(),
-                    decoration: const InputDecoration(
-                      labelText: '片名',
-                      hintText: '输入要匹配的番剧名',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('取消'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _submit,
-                          child: const Text('搜索'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),

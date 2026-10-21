@@ -17,12 +17,24 @@ sys.path.insert(0, str(ROOT / ".cache/python-source-runtime/packages"))
 sys.path.insert(0, str(ROOT / "assets/python"))
 USER_SCRIPTS = []
 CALLS = []
+STORAGE = {}
 
 
 def invoke(raw):
     request = json.loads(raw)
     payload = request["payload"]
     CALLS.append(request)
+    if request["method"] == "web.render":
+        return json.dumps({"ok": True, "value": {"html": "<article>动态结果</article>", "media": [{"url": "https://fixture.invalid/video.mp4", "headers": {"Referer": payload["url"]}}]}})
+    if request["method"] == "html.extract":
+        assert payload["fields"]["title"]["selector"] == "a"
+        return json.dumps({"ok": True, "value": [{"title": "动态结果", "id": "web1"}]})
+    if request["method"] == "storage":
+        key = (request["sourceId"], payload["key"])
+        if payload["operation"] == "get": value = STORAGE.get(key, payload.get("defaultValue"))
+        elif payload["operation"] == "set": STORAGE[key] = payload["value"]; value = True
+        else: STORAGE.pop(key, None); value = True
+        return json.dumps({"ok": True, "value": value})
     if request["method"] == "crypto":
         # Forwarding is tested here; real algorithms use independent Dart KATs.
         return json.dumps({"ok": False, "error": "crypto fixture intentionally unavailable"})
@@ -94,6 +106,28 @@ class HostTests(unittest.TestCase):
             host._close_source(state)
         host._contexts.clear()
         self.assertTrue(call("fixture", "load", script=FIXTURE)["ok"])
+
+    def test_mobile_browser_html_and_storage_helpers(self):
+        source = FIXTURE + """
+    def homeVideoContent(self):
+        page = self.renderPage('https://fixture.invalid/', waitForSelector='.card', steps=[{'type':'click','selector':'#go'}])
+        rows = self.extractHtml(page['html'], {'title':{'selector':'a'}}, '.card', 'https://fixture.invalid/')
+        self.setItem('saved', {'title':rows[0]['title']})
+        assert self.getItem('saved')['title'] == rows[0]['title']
+        return {'list':[{'vod_id':rows[0]['id'], 'vod_name':rows[0]['title']}]}
+    def playerContent(self, flag, id, vipFlags):
+        media = self.renderPage('https://fixture.invalid/watch')['media'][0]
+        return {'parse':0, 'url':media['url'], 'header':media['headers']}
+"""
+        self.assertTrue(call('fixture', 'load', script=source)['ok'])
+        item = self.value('home')[0]
+        self.assertEqual(item['title'], '动态结果')
+        chapters = self.value('chapters', {'id':item['id']})
+        content = self.value('content', {'id':item['id'], 'chapterId':chapters[0]['id']})
+        self.assertEqual(content['url'], 'https://fixture.invalid/video.mp4')
+        self.assertEqual(content['headers']['Referer'], 'https://fixture.invalid/watch')
+        render = next(request for request in CALLS if request['method'] == 'web.render')
+        self.assertEqual(render['payload']['steps'][0]['selector'], '#go')
 
     def test_bundle_relative_and_delayed_import_isolation_and_cleanup(self):
         def bundle(title):
@@ -269,6 +303,41 @@ def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4
         self.assertTrue(call("fixture", "load", script=source)["ok"])
         chapter = self.value("chapters", {"id": "one"})[0]
         self.assertTrue(self.value("content", {"id": "one", "chapterId": chapter["id"]})["webParse"])
+
+    @unittest.skipUnless(importlib.util.find_spec("cryptography"), "RSA tests require the bundled cryptography backend")
+    def test_rsa_import_cipher_and_signature_compatibility(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa, padding
+        from cryptography.hazmat.primitives import hashes, serialization
+        from Crypto.PublicKey import RSA
+        from Crypto.Cipher import PKCS1_v1_5, PKCS1_OAEP
+        from Crypto.Signature import pkcs1_15
+        from Crypto.Hash import SHA256
+        backend = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private_pem = backend.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        public_pem = backend.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        private, public = RSA.importKey(private_pem), RSA.import_key(public_pem)
+        self.assertTrue(private.has_private())
+        self.assertFalse(public.has_private())
+        self.assertEqual(RSA.importKey(public.exportKey()).n, private.n)
+        self.assertEqual(RSA.construct((private.n, private.e, private.d)).n, private.n)
+        message = b"lumebox-rsa-compatibility"
+        ciphertext = PKCS1_v1_5.new(public).encrypt(message)
+        self.assertEqual(backend.decrypt(ciphertext, padding.PKCS1v15()), message)
+        self.assertEqual(PKCS1_v1_5.new(private).decrypt(ciphertext, b"failed"), message)
+        self.assertEqual(PKCS1_v1_5.new(private).decrypt(b"invalid", b"failed"), b"failed")
+        for digest, algorithm in ((None, hashes.SHA1()), (SHA256, hashes.SHA256())):
+            cipher = PKCS1_OAEP.new(public, hashAlgo=digest)
+            encrypted = cipher.encrypt(message)
+            self.assertEqual(backend.decrypt(encrypted, padding.OAEP(mgf=padding.MGF1(algorithm), algorithm=algorithm, label=None)), message)
+            self.assertEqual(PKCS1_OAEP.new(private, hashAlgo=digest).decrypt(encrypted), message)
+        digest = SHA256.new(message)
+        signature = pkcs1_15.new(private).sign(digest)
+        backend.public_key().verify(signature, message, padding.PKCS1v15(), hashes.SHA256())
+        pkcs1_15.new(public).verify(digest, signature)
+        with self.assertRaises(ValueError):
+            pkcs1_15.new(public).verify(SHA256.new(b"changed"), signature)
+        script = FIXTURE + "\nfrom Crypto.PublicKey import RSA\nfrom Crypto.Cipher import PKCS1_v1_5, PKCS1_OAEP\nkey = RSA.importKey(" + repr(public_pem) + ")\n"
+        self.assertTrue(call("rsa-spider", "load", script=script)["ok"])
 
     def test_user_scripts_load_dependencies_and_categories(self):
         for index, path in enumerate(USER_SCRIPTS):

@@ -1,7 +1,6 @@
 import 'support/fake_source_manager.dart';
 
 import 'package:lume_box/core/intro/intro_models.dart';
-import 'package:lume_box/features/video/reference_player_page.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 
 import 'dart:async';
@@ -275,7 +274,6 @@ void main() {
       SourceManager? sourceManager,
       PipBackend? pipBackend,
       PlaybackSourceValidator? validator,
-      bool reference = false,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -283,53 +281,30 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: LumeTheme.build(),
-          home: reference
-              ? ReferencePlayerPage(
-                  fullscreenOnly: false,
-                  media: PlayerMedia(
-                    uri: Uri.parse('https://example.com/a.mp4'),
-                  ),
-                  qualities: qualities,
-                  catalog: catalog ?? const _AllKernelsCatalog(),
-                  speedMeter: speedMeter,
-                  pipBackend: pipBackend,
-                  sourceValidator: validator,
-                  target: target,
-                  sourceManager: sourceManager,
-                  playerFactory: (kernel) {
-                    final created_ = player ?? _FakePlayer(kernel: kernel);
-                    created.add(created_);
-                    return created_;
-                  },
-                )
-              : VideoPlayerPage(
-                  fullscreenOnly: false,
-                  media: PlayerMedia(
-                    uri: Uri.parse('https://example.com/a.mp4'),
-                  ),
-                  qualities: qualities,
-                  catalog: catalog ?? const _AllKernelsCatalog(),
-                  speedMeter: speedMeter,
-                  pipBackend: pipBackend,
-                  sourceValidator: validator,
-                  target: target,
-                  sourceManager: sourceManager,
-                  playerFactory: (kernel) {
-                    final created_ = player ?? _FakePlayer(kernel: kernel);
-                    created.add(created_);
-                    return created_;
-                  },
-                ),
+          home: VideoPlayerPage(
+            fullscreenOnly: false,
+            media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+            qualities: qualities,
+            catalog: catalog ?? const _AllKernelsCatalog(),
+            speedMeter: speedMeter,
+            pipBackend: pipBackend,
+            sourceValidator: validator,
+            target: target,
+            sourceManager: sourceManager,
+            playerFactory: (kernel) {
+              final created_ = player ?? _FakePlayer(kernel: kernel);
+              created.add(created_);
+              return created_;
+            },
+          ),
         ),
       );
       await tester.pumpAndSettle();
       return created;
     }
 
-    for (final reference in [false, true]) {
-      testWidgets('${reference ? '参考' : '原版'}播放器使用设置页当前凭证加载弹幕，修改后立即重载', (
-        tester,
-      ) async {
+    {
+      testWidgets('播放器使用设置页当前凭证加载弹幕，修改后立即重载', (tester) async {
         var stored = <String, String>{};
         final messenger =
             TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -361,7 +336,6 @@ void main() {
           () async {
             final players = await pump(
               tester,
-              reference: reference,
               sourceManager: FakeSourceManager(),
               target: const VideoPlayTarget(
                 sourceId: 'test',
@@ -402,7 +376,7 @@ void main() {
               baseUrl: DandanplayCredentials.officialBase,
             ).save();
             await tester.pumpAndSettle();
-            expect(requests, hasLength(4));
+            expect(requests, hasLength(3));
             final signed = requests.last;
             expect(signed.headers['X-AppId'], 'sample');
             expect(
@@ -896,7 +870,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('弹幕：开'));
       await tester.pumpAndSettle();
-      expect(find.text('显示弹幕'), findsOneWidget);
+      expect(find.text('来源与匹配'), findsOneWidget);
+      await tester.tap(find.text('显示样式'));
+      await tester.pumpAndSettle();
       expect(find.text('不透明度'), findsOneWidget);
       await tester.ensureVisible(find.text('恢复默认'));
       await tester.tap(find.text('恢复默认'));
@@ -955,7 +931,12 @@ void main() {
         await tester.tap(find.byTooltip('弹幕：开'));
         await tester.pumpAndSettle();
         final back = find.byTooltip('返回播放');
-        expect(tester.getRect(back).top, greaterThanOrEqualTo(59));
+        expect(
+          tester.getRect(back).top,
+          greaterThanOrEqualTo(59 / tester.view.devicePixelRatio),
+        );
+        await tester.tap(find.text('显示样式'));
+        await tester.pumpAndSettle();
         await tester.drag(find.text('不透明度'), const Offset(0, -500));
         await tester.pumpAndSettle();
         expect(back.hitTestable(), findsOneWidget);
@@ -1504,44 +1485,6 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('匹配公共弹幕：片名输入面板跟随键盘上移，输入框不再被挤成一条', (tester) async {
-      await pump(
-        tester,
-        target: const VideoPlayTarget(
-          sourceId: 'local',
-          itemId: 'i',
-          title: '片名',
-          chapterIndex: 0,
-          chapterId: 'c',
-          chapterTitle: '第一集',
-        ),
-      );
-      await tester.tap(find.byTooltip('弹幕：开'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('匹配公共弹幕'));
-      await tester.pumpAndSettle();
-
-      final field = find.byType(TextField);
-      expect(field, findsOneWidget);
-      final before = tester.getRect(field);
-      expect(before.height, greaterThan(36), reason: '输入框给足高度（不再是挤在一条下划线上）');
-
-      // 键盘顶上来：面板整体上移**一个键盘的高度**（输入框与按钮都留在键盘上方）。
-      const keyboardPhysical = 800.0;
-      tester.view.viewInsets = const FakeViewPadding(bottom: keyboardPhysical);
-      addTearDown(tester.view.reset);
-      await tester.pumpAndSettle();
-      final after = tester.getRect(field);
-      final ratio = tester.view.devicePixelRatio;
-      expect(
-        before.bottom - after.bottom,
-        closeTo(keyboardPhysical / ratio, 1),
-        reason: '面板上移量等于键盘高度',
-      );
-      expect(find.text('搜索'), findsOneWidget);
-      await tester.pumpWidget(const SizedBox());
-    });
-
     testWidgets('全屏控制栏自动隐藏：播放中无操作 3 秒收起，点屏幕唤回', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
@@ -1662,11 +1605,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.stopped, 1);
     });
-    for (final reference in [false, true]) {
+    {
       for (final mode in ['portrait', 'landscape', 'pip']) {
-        testWidgets('同剧第二集自动跳过贯穿布局与画中画：reference=$reference mode=$mode', (
-          tester,
-        ) async {
+        testWidgets('同剧第二集自动跳过贯穿布局与画中画：mode=$mode', (tester) async {
           final store = (await tester.runAsync(IntroStore.open))!;
           store.update({
             'active': true,
@@ -1695,7 +1636,6 @@ void main() {
           addTearDown(backend.close);
           final players = await pump(
             tester,
-            reference: reference,
             pipBackend: backend,
             sourceManager: FakeSourceManager(),
             target: const VideoPlayTarget(

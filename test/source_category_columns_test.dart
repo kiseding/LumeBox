@@ -35,7 +35,7 @@ void main() {
       tester
           .getTopLeft(find.byKey(const ValueKey('picker-category-columns')))
           .dx,
-      16,
+      14,
     );
     final left = find.byKey(const PageStorageKey('picker-column-0'));
     final right = find.byKey(const PageStorageKey('picker-column-1'));

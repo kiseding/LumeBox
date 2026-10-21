@@ -65,7 +65,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(painter(tester).position.inMilliseconds, greaterThanOrEqualTo(400));
     await tester.pump(const Duration(seconds: 2));
-    expect(painter(tester).position, const Duration(seconds: 1));
+    expect(
+      painter(tester).position,
+      lessThanOrEqualTo(const Duration(seconds: 2)),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    expect(painter(tester).position, const Duration(seconds: 2));
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets('引擎采样略落后时，滚动时钟不突然后退', (tester) async {
@@ -94,5 +99,22 @@ void main() {
       ),
       findsNothing,
     );
+  });
+  testWidgets('400毫秒进度采样有延迟时，每帧持续向前且不周期性跳动', (tester) async {
+    await tester.pumpWidget(view());
+    var previous = painter(tester).position as Duration;
+    for (var frame = 1; frame <= 100; frame++) {
+      if (frame % 25 == 0) {
+        await tester.pumpWidget(
+          view(position: Duration(milliseconds: frame * 16 - 100)),
+        );
+      }
+      await tester.pump(const Duration(milliseconds: 16));
+      final current = painter(tester).position as Duration;
+      final step = (current - previous).inMicroseconds;
+      expect(step, inInclusiveRange(14000, 19000), reason: '第$frame帧');
+      previous = current;
+    }
+    await tester.pumpWidget(const SizedBox());
   });
 }

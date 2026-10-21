@@ -184,9 +184,13 @@ void main() {
         reason: '选中卡片边框读取当前主题色',
       );
       final more = tester.getRect(find.byKey(const ValueKey('picker-more-a')));
-      expect(tester.getRect(a).right - more.right, 8);
+      expect(tester.getRect(a).right - more.right, 4);
       expect(tester.getTopLeft(a).dx, lessThan(tester.getTopLeft(b).dx));
       expect(tester.getTopLeft(a).dy, tester.getTopLeft(b).dy);
+      expect(tester.getRect(a).left, 14);
+      expect(tester.getRect(b).right, 376);
+      expect(tester.getRect(b).left - tester.getRect(a).right, 8);
+      expect(tester.getSize(a).width, 177);
       await tester.tap(find.byKey(const ValueKey('picker-more-b')));
       await tester.pumpAndSettle();
       for (final label in ['置顶此源', '源设置', '浏览', '测试连通性', '更新订阅源']) {
@@ -389,7 +393,7 @@ void main() {
     await longPressDrag(tester, first, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
   });
-  testWidgets('固定 51 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
+  testWidgets('固定 50 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
     await SourcePreferences(pinned: true).save(Section.video, 'plain');
     await tester.runAsync(() => PrivacySettings.instance.setShowAdult(true));
     final manager = FakeSourceManager(
@@ -437,7 +441,7 @@ void main() {
     for (final id in ['plain', 'adult']) {
       expect(
         tester.getSize(find.byKey(ValueKey('picker-source-$id'))).height,
-        51,
+        50,
       );
     }
     expect(find.text('18'), findsOneWidget);

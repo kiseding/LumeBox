@@ -190,6 +190,16 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   var bridge = {
     http: http,
     fs: fs,
+    web: {render: function (options) { return invoke('web.render', options || {}); }},
+    html: {extract: function (html, options) {
+      var args = Object.assign({}, options || {}, {html: String(html)});
+      return invoke('html.extract', args);
+    }},
+    storage: {
+      get: function (key, fallback) { return invoke('storage', {operation: 'get', key: String(key), defaultValue: fallback == null ? null : fallback}); },
+      set: function (key, value) { return invoke('storage', {operation: 'set', key: String(key), value: value}); },
+      remove: function (key) { return invoke('storage', {operation: 'remove', key: String(key)}); }
+    },
     bridge: __LUME_BRIDGE__
   };
 
@@ -212,7 +222,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   };
 
   // 宿主能力不被脚本对象覆盖（脚本自己的实现可以占用其余任何名字）。
-  var reserved = { http: true, fs: true, config: true };
+  var reserved = { http: true, fs: true, web: true, html: true, storage: true, config: true };
 
   function namesOf(name) { return aliases[name] || [name]; }
 
