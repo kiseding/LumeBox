@@ -637,6 +637,60 @@ class CatService extends ChangeNotifier {
         await File('$bundle/index.config.js').exists();
   }
 
+  Future<Uri> _launchSource(Map<String, dynamic> spec) async {
+    await _ensureBridge();
+    try {
+      final waiter = Completer<Uri>();
+      final ready = waiter.future.timeout(const Duration(seconds: 90));
+      ready.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+      _waiters[spec['id']] = waiter;
+      if (!_nodeStarted) {
+        final bootstrap = File('${_root!.path}/bootstrap.js');
+        await bootstrap.writeAsString(
+          await rootBundle.loadString('assets/cat/bootstrap.js'),
+          flush: true,
+        );
+        final specFile = File('${_root!.path}/runtime-spec.json');
+        await specFile.writeAsString(
+          jsonEncode({
+            'bridgePort': _bridge!.port,
+            'token': _token,
+            'sources': [spec],
+          }),
+        );
+        final cache = Directory('${_root!.path}/compile-cache');
+        await cache.create(recursive: true);
+        final launched = await channel.invokeMethod<bool>('start', {
+          'bootstrap': bootstrap.path,
+          'spec': specFile.path,
+          'cache': cache.path,
+        });
+        if (launched != true) throw StateError('Node 已在运行，请完整关闭 App 后重新打开');
+        _nodeStarted = true;
+      } else {
+        if (_bases.containsKey(spec['id'])) {
+          await request(
+            _control!,
+            '/ctl/stop',
+            body: {'id': spec['id'] as String},
+            authenticated: true,
+          );
+        }
+        _bases.remove(spec['id']);
+        _versions.remove(spec['id']);
+        await request(
+          _control!,
+          '/ctl/source',
+          body: spec,
+          authenticated: true,
+        );
+      }
+      return await ready;
+    } finally {
+      _waiters.remove(spec['id']);
+    }
+  }
+
   Future<Uri> activate(CatSubscription record) => _serial(
     () => guardStartup(record.id, () async {
       await boot();
@@ -663,52 +717,7 @@ class CatService extends ChangeNotifier {
         if (!await File('$bundle/index.js').exists()) {
           throw StateError('订阅包尚未下载，请刷新订阅');
         }
-        final waiter = Completer<Uri>();
-        final ready = waiter.future.timeout(const Duration(seconds: 90));
-        ready.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
-        _waiters[record.id] = waiter;
-        if (!_nodeStarted) {
-          final bootstrap = File('${_root!.path}/bootstrap.js');
-          await bootstrap.writeAsString(
-            await rootBundle.loadString('assets/cat/bootstrap.js'),
-            flush: true,
-          );
-          final specFile = File('${_root!.path}/runtime-spec.json');
-          await specFile.writeAsString(
-            jsonEncode({
-              'bridgePort': _bridge!.port,
-              'token': _token,
-              'sources': [spec],
-            }),
-          );
-          final cache = Directory('${_root!.path}/compile-cache');
-          await cache.create(recursive: true);
-          final launched = await channel.invokeMethod<bool>('start', {
-            'bootstrap': bootstrap.path,
-            'spec': specFile.path,
-            'cache': cache.path,
-          });
-          if (launched != true) throw StateError('Node 已在运行，请完整关闭 App 后重新打开');
-          _nodeStarted = true;
-        } else {
-          if (_bases.containsKey(record.id)) {
-            await request(
-              _control!,
-              '/ctl/stop',
-              body: {'id': record.id},
-              authenticated: true,
-            );
-          }
-          _bases.remove(record.id);
-          _versions.remove(record.id);
-          await request(
-            _control!,
-            '/ctl/source',
-            body: spec,
-            authenticated: true,
-          );
-        }
-        final base = await ready;
+        final base = await _launchSource(spec);
         _bases[record.id] = base;
         _versions[record.id] = version;
         final config = await request(base, '/config');
@@ -729,6 +738,68 @@ class CatService extends ChangeNotifier {
       }
     }),
   );
+  static const _localDanmakuId = '__lumebox_local_danmaku';
+  Uri? _localDanmakuBase;
+  Future<Uri> startLocalDanmaku() => _serial(() async {
+    await boot();
+    final existing = _localDanmakuBase;
+    if (existing != null) {
+      try {
+        await request(existing, '/$_token/_health');
+        return existing.replace(path: '/$_token');
+      } catch (_) {
+        await _stopLocalDanmaku();
+      }
+    }
+    final directory = Directory('${_root!.path}/builtin-danmaku/b9cd019d5cbc');
+    await directory.create(recursive: true);
+    for (final name in ['index.js', 'upstream.cjs']) {
+      final bytes = await rootBundle.load('assets/local_danmaku/$name');
+      final data = bytes.buffer.asUint8List(
+        bytes.offsetInBytes,
+        bytes.lengthInBytes,
+      );
+      if (name == 'upstream.cjs' &&
+          sha256.convert(data).toString() !=
+              'b9cd019d5cbc053cb5db447ff1daaa0abf78a3b93b96e24f8738a70a44de5c02') {
+        throw StateError('内置弹幕组件完整性校验失败');
+      }
+      final file = File('${directory.path}/$name');
+      if (!await file.exists() ||
+          sha256.convert(await file.readAsBytes()).toString() !=
+              sha256.convert(data).toString()) {
+        await file.writeAsBytes(data, flush: true);
+      }
+    }
+    final config = File('${directory.path}/index.config.js');
+    await config.writeAsString(
+      'module.exports = ${jsonEncode({'token': _token, 'upstreamPath': '${directory.path}/upstream.cjs'})};',
+      flush: true,
+    );
+    final base = await _launchSource({
+      'id': _localDanmakuId,
+      'index': '${directory.path}/index.js',
+      'config': config.path,
+      'dataRoot': directory.path,
+    });
+    _localDanmakuBase = base;
+    return base.replace(path: '/$_token');
+  });
+
+  Future<void> stopLocalDanmaku() => _serial(_stopLocalDanmaku);
+  Future<void> _stopLocalDanmaku() async {
+    if (_localDanmakuBase == null) return;
+    _localDanmakuBase = null;
+    if (_control != null) {
+      await request(
+        _control!,
+        '/ctl/stop',
+        body: {'id': _localDanmakuId},
+        authenticated: true,
+      );
+    }
+  }
+
   Future<void> _ensureBridge() async {
     if (_bridge != null) return;
     _bridge = await HttpServer.bind(

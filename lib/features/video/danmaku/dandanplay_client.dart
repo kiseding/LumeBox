@@ -1,3 +1,5 @@
+import 'builtin_danmaku_service.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -47,11 +49,21 @@ class DandanplayEpisode {
 /// Official API v2. Source comments and this library are merged by the page.
 /// Credentials are stored in iOS Keychain, never embedded in the repository.
 class DandanplayClient {
-  DandanplayClient({required this.credentials, http.Client? client})
-    : _client = client ?? http.Client();
+  DandanplayClient({
+    required this.credentials,
+    http.Client? client,
+    Future<Uri> Function()? localService,
+  }) : _client = client ?? http.Client(),
+       _localService =
+           localService ?? BuiltinDanmakuService.instance.ensureStarted;
   final DandanplayCredentials credentials;
   final http.Client _client;
-  void close() => _client.close();
+  final Future<Uri> Function() _localService;
+  bool _closed = false;
+  void close() {
+    _closed = true;
+    _client.close();
+  }
 
   Future<Map<String, dynamic>> _get(String path, Map<String, String> query) =>
       _request(path, query).timeout(const Duration(seconds: 30));
@@ -60,7 +72,19 @@ class DandanplayClient {
     String path,
     Map<String, String> query,
   ) async {
-    final base = Uri.tryParse(credentials.baseUrl.trim());
+    Uri? base;
+    if (credentials.builtin) {
+      try {
+        base = await _localService();
+      } on UnsupportedError catch (error) {
+        throw DandanplayException(error.message?.toString() ?? '内置服务不可用');
+      } catch (_) {
+        throw const DandanplayException('内置弹幕服务启动失败，请重试或完整关闭 App 后重开');
+      }
+      if (_closed) throw const DandanplayException('弹幕请求已取消');
+    } else {
+      base = Uri.tryParse(credentials.baseUrl.trim());
+    }
     if (base == null ||
         !['http', 'https'].contains(base.scheme) ||
         base.host.isEmpty ||
@@ -146,6 +170,11 @@ class DandanplayClient {
 
   /// A successful empty search also proves the API accepted these credentials.
   Future<void> checkConnection() async {
+    if (credentials.builtin) {
+      final health = await _get('/_health', {});
+      if (health['ok'] != true) throw const DandanplayException('内置服务未就绪');
+      return;
+    }
     _parseSearch(
       await _get('/api/v2/search/episodes', {
         'anime': '测试',

@@ -1,3 +1,5 @@
+import 'builtin_danmaku_service.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:io';
@@ -25,6 +27,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
   @override
   void initState() {
     super.initState();
+    BuiltinDanmakuService.registerLicense();
     _load();
   }
 
@@ -55,6 +58,15 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     } catch (_) {
       _error = '弹幕源存储暂不可用，请在移动端重新打开。';
     }
+    _sources = [
+      {
+        'id': 'builtin-local',
+        'type': 'builtin',
+        'name': '内置本机服务',
+        'url': DandanplayCredentials.builtinBase,
+      },
+      ..._sources.where((s) => s['type'] != 'builtin'),
+    ];
     if (mounted) setState(() => _loading = false);
   }
 
@@ -69,6 +81,51 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       rethrow;
     }
   }
+
+  Future<void> _showBuiltin() => showModalBottomSheet<void>(
+    context: context,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (context) => Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '内置本机服务',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '无需填写地址。选择此服务后，手机直接联网查询各平台弹幕。首次启动可能稍慢，空闲两分钟自动停止，下次查询自动启动。连接成功不代表当前剧集一定有弹幕。',
+          ),
+          DanmakuConnectionTest(
+            credentials: () => const DandanplayCredentials(
+              '',
+              '',
+              baseUrl: DandanplayCredentials.builtinBase,
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              await BuiltinDanmakuService.instance.stop();
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('停止本机服务'),
+          ),
+          TextButton(
+            onPressed: () => showLicensePage(context: context),
+            child: const Text('开源许可与组件说明'),
+          ),
+          const Text(
+            '基于 YYDS678/danmu_api（AGPL-3.0），源码与手机适配补丁见 LumeBox 仓库 assets/local_danmaku。',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    ),
+  );
 
   Future<void> _chooseType() async {
     final type = await showModalBottomSheet<String>(
@@ -353,12 +410,16 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                   child: ListTile(
                     title: Text(source['name'] ?? ''),
                     subtitle: Text(
-                      source['type'] == 'official'
+                      source['type'] == 'builtin'
+                          ? '无需服务器地址 · 手机联网获取弹幕'
+                          : source['type'] == 'official'
                           ? '弹弹play 开放平台'
                           : 'LogVar / 弹弹play兼容服务',
                     ),
                     leading: IconButton(
-                      tooltip: '设为当前弹幕源',
+                      tooltip: source['type'] == 'builtin'
+                          ? '使用内置本机服务'
+                          : '设为当前弹幕源',
                       icon: LumeIcon(
                         _active == source['id']
                             ? CupertinoIcons.check_mark_circled_solid
@@ -376,34 +437,44 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                         }
                       },
                     ),
-                    onTap: () => _edit(existing: source),
-                    trailing: IconButton(
-                      tooltip: '删除弹幕源',
-                      icon: const LumeIcon(
-                        CupertinoIcons.trash,
-                        slot: 'danmaku_sources_page.5',
-                      ),
-                      onPressed: () async {
-                        final old = List<Map<String, String>>.of(_sources);
-                        final oldActive = _active;
-                        setState(() {
-                          _sources.remove(source);
-                          if (_active == source['id']) {
-                            _active = _sources.firstOrNull?['id'] ?? '';
-                          }
-                        });
-                        try {
-                          await _persist();
-                        } catch (_) {
-                          if (mounted) {
-                            setState(() {
-                              _sources = old;
-                              _active = oldActive;
-                            });
-                          }
-                        }
-                      },
-                    ),
+                    onTap: source['type'] == 'builtin'
+                        ? _showBuiltin
+                        : () => _edit(existing: source),
+                    trailing: source['type'] == 'builtin'
+                        ? IconButton(
+                            tooltip: '测试内置服务',
+                            onPressed: _showBuiltin,
+                            icon: const Icon(Icons.settings_outlined),
+                          )
+                        : IconButton(
+                            tooltip: '删除弹幕源',
+                            icon: const LumeIcon(
+                              CupertinoIcons.trash,
+                              slot: 'danmaku_sources_page.5',
+                            ),
+                            onPressed: () async {
+                              final old = List<Map<String, String>>.of(
+                                _sources,
+                              );
+                              final oldActive = _active;
+                              setState(() {
+                                _sources.remove(source);
+                                if (_active == source['id']) {
+                                  _active = _sources.firstOrNull?['id'] ?? '';
+                                }
+                              });
+                              try {
+                                await _persist();
+                              } catch (_) {
+                                if (mounted) {
+                                  setState(() {
+                                    _sources = old;
+                                    _active = oldActive;
+                                  });
+                                }
+                              }
+                            },
+                          ),
                   ),
                 ),
               const Padding(

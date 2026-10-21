@@ -115,6 +115,7 @@ flutter:
   assets:
     - assets/js/
     - assets/cat/
+    - assets/local_danmaku/
     - assets/icon/
     - assets/models/waifu2x/
     - assets/models/intro/

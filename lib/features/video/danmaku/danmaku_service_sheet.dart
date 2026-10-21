@@ -31,12 +31,13 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
 
   Future<void> _save() async {
     final uri = Uri.tryParse(_url.text.trim());
-    if (uri == null ||
-        !['http', 'https'].contains(uri.scheme) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasQuery ||
-        uri.hasFragment) {
+    if (_url.text != DandanplayCredentials.builtinBase &&
+        (uri == null ||
+            !['http', 'https'].contains(uri.scheme) ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            uri.hasQuery ||
+            uri.hasFragment)) {
       setState(() => _error = '请填写完整服务地址，保留路径前缀，不附查询参数或用户名密码');
       return;
     }
@@ -90,19 +91,27 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
             const SizedBox(height: 12),
             const Text('源弹幕与公共服务弹幕同时加载。服务地址可使用兼容弹弹play的 danmu_api 部署，路径前缀会保留。'),
             const SizedBox(height: 12),
-            TextField(
-              controller: _url,
-              focusNode: _urlFocus,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                labelText: '服务地址',
-                hintText: 'https://你的域名/路径前缀',
+            if (_url.text == DandanplayCredentials.builtinBase)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('内置本机服务：无需填写地址，手机联网获取弹幕'),
+              )
+            else
+              TextField(
+                controller: _url,
+                focusNode: _urlFocus,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: '服务地址',
+                  hintText: 'https://你的域名/路径前缀',
+                ),
+                autocorrect: false,
               ),
-              autocorrect: false,
-            ),
             DropdownButtonFormField<String>(
               key: ValueKey(_url.text),
               initialValue: DanmakuPresets.urls.contains(_url.text)
+                  ? _url.text
+                  : _url.text == DandanplayCredentials.builtinBase
                   ? _url.text
                   : _url.text == DandanplayCredentials.officialBase
                   ? _url.text
@@ -110,6 +119,10 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
               isExpanded: true,
               decoration: const InputDecoration(labelText: '切换弹幕服务'),
               items: [
+                const DropdownMenuItem(
+                  value: DandanplayCredentials.builtinBase,
+                  child: Text('内置本机服务（无需地址）'),
+                ),
                 for (var i = 0; i < DanmakuPresets.urls.length; i++)
                   DropdownMenuItem(
                     value: DanmakuPresets.urls[i],

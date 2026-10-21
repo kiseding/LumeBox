@@ -1,3 +1,5 @@
+import 'builtin_danmaku_service.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
@@ -11,6 +13,8 @@ class DandanplayCredentials {
   });
   static const defaultBase = 'https://dm.999.team/87654321';
   static const officialBase = 'https://api.dandanplay.net';
+  static const builtinBase = BuiltinDanmakuService.address;
+  bool get builtin => baseUrl == builtinBase;
   final String baseUrl;
   final String appId;
   final String appSecret;
@@ -89,6 +93,9 @@ class DanmakuSourcesStore {
     List<Map<String, String>> sources,
     String active,
   ) async {
+    sources = sources
+        .where((s) => s['type'] != 'builtin' || s['id'] == active)
+        .toList();
     final selected = sources.where((s) => s['id'] == active).firstOrNull;
     await channel.invokeMethod<void>('write', {
       'profilesJson': jsonEncode(sources),
@@ -98,11 +105,26 @@ class DanmakuSourcesStore {
       'appSecret': selected?['appSecret'] ?? '',
     });
     revision.value++;
+    if (selected?['url'] != DandanplayCredentials.builtinBase) {
+      await BuiltinDanmakuService.instance.stop();
+    }
   }
 
   static Future<void> saveCredentials(DandanplayCredentials config) async {
     final data = await read();
     final sources = profiles(data);
+    if (config.builtin) {
+      await save([
+        ...sources.where((s) => s['type'] != 'builtin'),
+        {
+          'id': 'builtin-local',
+          'name': '内置本机服务',
+          'type': 'builtin',
+          'url': DandanplayCredentials.builtinBase,
+        },
+      ], 'builtin-local');
+      return;
+    }
     final existing = sources
         .where(
           (s) =>
