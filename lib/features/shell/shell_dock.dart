@@ -32,6 +32,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     required ShellDockController controller,
     this.dockInset = 0,
     this.searchBesideDock = false,
+    this.collapsed = false,
     this.dockBottom,
     this.safePadding,
     required super.child,
@@ -44,6 +45,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   /// 滚动视图把它加进 padding.bottom，只有**滚到最末**时才会真正让出这一段。
   final double dockInset;
   final bool searchBesideDock;
+  final bool collapsed;
   final double? dockBottom;
   final EdgeInsets? safePadding;
 
@@ -52,6 +54,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
       super.updateShouldNotify(oldWidget) ||
       dockInset != oldWidget.dockInset ||
       searchBesideDock != oldWidget.searchBesideDock ||
+      collapsed != oldWidget.collapsed ||
       dockBottom != oldWidget.dockBottom ||
       safePadding != oldWidget.safePadding;
 

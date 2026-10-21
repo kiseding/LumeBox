@@ -156,7 +156,7 @@ void main() {
   testWidgets('从弹幕源管理页添加官方 ID 和密钥后播放器能直接读到', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: DanmakuSourcesPage()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('添加弹幕源').last);
+    await tester.tap(find.byTooltip('添加弹幕源'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('弹弹play 开放平台'));
     await tester.pumpAndSettle();

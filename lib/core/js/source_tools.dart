@@ -48,13 +48,16 @@ class SourceTools {
       case 'aes':
         final key = binary('key');
         final iv = binary('iv');
-        if (![16, 24, 32].contains(key.length))
+        if (![16, 24, 32].contains(key.length)) {
           throw const FormatException('AES 密钥长度无效');
+        }
         final cbc = (p['mode'] ?? 'CBC') == 'CBC';
-        if (!cbc && p['mode'] != 'ECB')
+        if (!cbc && p['mode'] != 'ECB') {
           throw const FormatException('AES 工具支持 CBC/ECB');
-        if (cbc && iv.length != 16)
+        }
+        if (cbc && iv.length != 16) {
           throw const FormatException('AES IV 需要 16 字节');
+        }
         final cipher = cbc
             ? CBCBlockCipher(AESEngine())
             : ECBBlockCipher(AESEngine());
@@ -69,8 +72,9 @@ class SourceTools {
           final count = 16 - input.length % 16;
           input = Uint8List.fromList([...input, ...List.filled(count, count)]);
         }
-        if (input.isEmpty || input.length % 16 != 0)
+        if (input.isEmpty || input.length % 16 != 0) {
           throw const FormatException('AES 数据块长度无效');
+        }
         var output = Uint8List(input.length);
         for (var i = 0; i < input.length; i += 16) {
           cipher.processBlock(input, i, output, i);
@@ -116,8 +120,9 @@ class SourceTools {
         BigInt number(int i) => (node.elements![i] as ASN1Integer).integer!;
         final private = node.elements!.length > 2;
         final n = number(private ? 1 : 0);
-        if (n.bitLength < 1024 || n.bitLength > 4096)
+        if (n.bitLength < 1024 || n.bitLength > 4096) {
           throw const FormatException('RSA 仅支持 1024–4096 位密钥');
+        }
         final encrypt = p['encrypt'] == true;
         final AsymmetricKey key = private
             ? RSAPrivateKey(n, number(3), number(4), number(5))
@@ -146,8 +151,9 @@ class SourceTools {
           );
         }
         final input = binary('data');
-        if (input.length > cipher.inputBlockSize)
+        if (input.length > cipher.inputBlockSize) {
           throw const FormatException('RSA 输入超过单块上限');
+        }
         return base64Encode(cipher.process(input));
       default:
         throw const FormatException('不支持的通用工具操作');
@@ -159,8 +165,9 @@ class _BoundedSink implements Sink<List<int>> {
   final bytes = BytesBuilder(copy: false);
   @override
   void add(List<int> chunk) {
-    if (bytes.length + chunk.length > 8 * 1024 * 1024)
+    if (bytes.length + chunk.length > 8 * 1024 * 1024) {
       throw const FormatException('解压结果超过 8MB');
+    }
     bytes.add(chunk);
   }
 

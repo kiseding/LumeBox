@@ -179,14 +179,14 @@ void main() {
     final light = LumeTheme.paletteOf(Brightness.light).surface;
     final dark = LumeTheme.paletteOf(Brightness.dark).surface;
     expect(cardColorOf('外观'), light);
-    expect(cardColorOf('各模块独立设置'), light);
+    expect(cardColorOf('播放器设置'), light);
 
     // 切深色：整页（含两张内容为 const 的分组卡）当场换成深色卡。
     await tester.pumpWidget(app(ThemeMode.dark));
     await tester.pumpAndSettle();
     expect(LumeTheme.surface, dark, reason: '卡片色板要跟着亮度走');
     expect(cardColorOf('外观'), dark, reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）');
-    expect(cardColorOf('各模块独立设置'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
+    expect(cardColorOf('播放器设置'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
     expect(cardColorOf('底部导航栏管理'), dark);
   });
 
@@ -259,8 +259,7 @@ void main() {
     await pumpSettings(tester);
 
     expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
-    await tester.tap(find.text('各模块独立设置'));
-    await tester.pumpAndSettle();
+    expect(find.text('各模块独立设置'), findsNothing);
     // 播放器设置（内核 / 倍速 / 字幕）也从板块页迁到了全局设置。
     expect(find.text('播放器设置'), findsOneWidget);
     await tester.tap(find.text('播放器设置'));
@@ -405,7 +404,7 @@ void main() {
       '网格标题',
       '底部导航栏管理',
       '悬浮模块',
-      '各模块独立设置',
+      '播放器设置',
       'AI 图片超分与上色',
       '漫画翻译',
       '总订阅导入导出',

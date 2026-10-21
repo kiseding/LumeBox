@@ -32,8 +32,9 @@ class SourceMediaRuntime {
       m[1]!: m[2]!.replaceAll(RegExp(r'^"|"$'), ''),
   };
   static Map<String, Object?> parseM3u8(String text, Uri base) {
-    if (text.length > 1024 * 1024 || !text.trimLeft().startsWith('#EXTM3U'))
+    if (text.length > 1024 * 1024 || !text.trimLeft().startsWith('#EXTM3U')) {
       throw const FormatException('M3U8 清单无效或过大');
+    }
     final segments = <Map<String, Object?>>[];
     final variants = <Map<String, Object?>>[];
     var sequence = 0;
@@ -71,8 +72,9 @@ class SourceMediaRuntime {
       } else if (line.startsWith('#EXT-X-MAP:')) {
         final a = attributes(line);
         if (a['URI'] == null) throw const FormatException('初始化片段缺少 URI');
-        if (key != null && key['iv'] == null)
+        if (key != null && key['iv'] == null) {
           throw const FormatException('加密 EXT-X-MAP 必须声明 IV');
+        }
         init = {
           'url': address(a['URI']!, base).toString(),
           if (a['BYTERANGE'] != null) 'byteRange': a['BYTERANGE'],
@@ -80,8 +82,9 @@ class SourceMediaRuntime {
         };
       } else if (line.startsWith('#EXTINF:')) {
         duration = double.parse(line.substring(8).split(',').first);
-        if (!duration.isFinite || duration < 0)
+        if (!duration.isFinite || duration < 0) {
           throw const FormatException('分片时长无效');
+        }
       } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
         variant = attributes(line);
       } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
@@ -104,8 +107,9 @@ class SourceMediaRuntime {
           final start = parts.length == 2
               ? int.parse(parts.last)
               : rangeEnds[url];
-          if (length <= 0 || start == null || start < 0)
+          if (length <= 0 || start == null || start < 0) {
             throw const FormatException('分片字节范围无效');
+          }
           byteRange = {'start': start, 'length': length};
           rangeEnds[url] = start + length;
           range = null;
@@ -115,8 +119,9 @@ class SourceMediaRuntime {
           RegExp(r'^0[xX]'),
           '',
         );
-        if (key != null && (!RegExp(r'^[0-9a-fA-F]{1,32}$').hasMatch(rawIV)))
+        if (key != null && (!RegExp(r'^[0-9a-fA-F]{1,32}$').hasMatch(rawIV))) {
           throw const FormatException('AES IV 无效');
+        }
         segments.add({
           'url': url,
           'sequence': number,
@@ -147,8 +152,9 @@ class SourceMediaRuntime {
     }
     final data = ByteData.sublistView(bytes);
     var offset = data.getUint32(5) + 4;
-    if (offset < 13 || offset > bytes.length)
+    if (offset < 13 || offset > bytes.length) {
       throw const FormatException('FLV 数据偏移无效');
+    }
     int u24(int i) => (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
     final tags = <Map<String, Object?>>[];
     while (offset + 11 <= bytes.length && tags.length < 256) {
@@ -156,8 +162,9 @@ class SourceMediaRuntime {
       if (offset + 11 + size + 4 > bytes.length) break;
       final type = bytes[offset] & 31;
       final timestamp = u24(offset + 4) | (bytes[offset + 7] << 24);
-      if (data.getUint32(offset + 11 + size) != size + 11)
+      if (data.getUint32(offset + 11 + size) != size + 11) {
         throw const FormatException('FLV tag 长度校验失败');
+      }
       tags.add({
         'type': type,
         'timestampMs': timestamp,
@@ -184,15 +191,17 @@ class SourceMediaRuntime {
       referer: p['referer'] as String?,
     );
     if (p['operation'] == 'parseM3u8') return parseM3u8('${p['text']}', uri);
-    if (p['operation'] == 'inspectFlv')
+    if (p['operation'] == 'inspectFlv') {
       return inspectFlv(base64Decode('${p['data']}'));
+    }
     final response = await http.send(
       url: uri.toString(),
       headers: headers,
       maxBytes: 1024 * 1024 + 1,
     );
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw StateError('媒体清单 HTTP ${response.statusCode}');
+    }
     final playlist = parseM3u8(
       response.text,
       Uri.parse(response.url ?? uri.toString()),
@@ -201,45 +210,51 @@ class SourceMediaRuntime {
     if (p['operation'] != 'segment') throw const FormatException('媒体操作无效');
     final segments = playlist['segments'] as List;
     final index = p['index'];
-    if (index is! int || index < 0 || index >= segments.length)
+    if (index is! int || index < 0 || index >= segments.length) {
       throw const FormatException('分片序号无效，请使用媒体清单地址');
+    }
     final segment = segments[index] as Map;
     var outgoing = Map<String, String>.of(headers);
     // Do not forward playlist cookies to a CDN. Its own scoped session is used.
     final segmentURL = Uri.parse(segment['url'] as String);
-    if (segmentURL.origin != uri.origin)
+    if (segmentURL.origin != uri.origin) {
       outgoing.removeWhere(
         (k, _) => ['cookie', 'authorization'].contains(k.toLowerCase()),
       );
+    }
     outgoing = SiteSessionPool.shared.headersFor(
       segmentURL.toString(),
       outgoing,
       referer: uri.toString(),
     );
     final range = segment['byteRange'] as Map?;
-    if (range != null)
+    if (range != null) {
       outgoing['Range'] =
           'bytes=${range['start']}-${(range['start'] as int) + (range['length'] as int) - 1}';
+    }
     final data = await http.send(
       url: segmentURL.toString(),
       headers: outgoing,
       maxBytes: 16 * 1024 * 1024 + 1,
     );
     if (![200, 206].contains(data.statusCode) ||
-        data.body.length > 16 * 1024 * 1024)
+        data.body.length > 16 * 1024 * 1024) {
       throw StateError('分片加载失败 HTTP ${data.statusCode}');
+    }
     if (range != null &&
-        (data.statusCode != 206 || data.body.length != range['length']))
+        (data.statusCode != 206 || data.body.length != range['length'])) {
       throw const FormatException('服务器未遵守分片 Range');
+    }
     var output = data.body;
     if (segment['key'] is Map) {
       final encryption = segment['key'] as Map;
       final keyURL = Uri.parse(encryption['url'] as String);
       var keyHeaders = Map<String, String>.of(headers);
-      if (keyURL.origin != uri.origin)
+      if (keyURL.origin != uri.origin) {
         keyHeaders.removeWhere(
           (k, _) => ['cookie', 'authorization'].contains(k.toLowerCase()),
         );
+      }
       keyHeaders = SiteSessionPool.shared.headersFor(
         keyURL.toString(),
         keyHeaders,
@@ -263,8 +278,9 @@ class SourceMediaRuntime {
           headers: keyHeaders,
           maxBytes: 17,
         );
-        if (result.statusCode != 200 || result.body.length != 16)
+        if (result.statusCode != 200 || result.body.length != 16) {
           throw const FormatException('AES-128 密钥必须为 16 字节');
+        }
         if (_disposed) throw StateError('媒体会话已关闭');
         if (_keys.length >= 8) _keys.remove(_keys.keys.first);
         cached = (

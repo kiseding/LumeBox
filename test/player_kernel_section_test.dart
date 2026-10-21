@@ -28,10 +28,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   setUp(() async {
@@ -85,8 +85,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
-    await tester.tap(find.text('各模块独立设置'));
-    await tester.pumpAndSettle();
+    expect(find.text('各模块独立设置'), findsNothing);
     await tester.tap(find.text('播放器设置'));
     await tester.pumpAndSettle();
     expect(
@@ -143,11 +142,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final probe = await VideoPlayerSettingsStore.open();
-    expect(
-      probe.load().kernel,
-      PlayerKernel.avplayer,
-      reason: '逃生入口必须能把内核切回来',
-    );
+    expect(probe.load().kernel, PlayerKernel.avplayer, reason: '逃生入口必须能把内核切回来');
   });
 
   testWidgets('库打不开：给出可读提示而不是白屏', (tester) async {

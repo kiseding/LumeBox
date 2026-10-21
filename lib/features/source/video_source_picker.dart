@@ -1,6 +1,5 @@
 import '../../shared/widgets/source_picker_card.dart';
 import '../../shared/widgets/source_picker_header.dart';
-import '../../shared/widgets/source_update_badge.dart';
 
 import 'dart:async';
 
@@ -411,9 +410,6 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       onTap: onTap,
       onMore: onMore,
       moreTooltip: '$name的设置',
-      titleTrailing: descriptor == null
-          ? null
-          : SourceUpdateBadge(section: section, sourceId: id),
       icon: SourceIcon(
         name: name,
         siteUrl: descriptor?.siteUrl ?? siteUrl,

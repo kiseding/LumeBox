@@ -426,8 +426,9 @@ class AvPlayer extends AbstractPlayer {
         _retryTimer = null;
         if (_disposed ||
             generation != _loadGeneration ||
-            !identical(media, _retryMedia))
+            !identical(media, _retryMedia)) {
           return;
+        }
         _recoveringNetwork = true;
         try {
           await _loadMedia(media);

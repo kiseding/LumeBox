@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../settings/playback_settings_group.dart';
+
 import '../../core/player/playback_orientation.dart';
 import '../../core/player/player_capabilities.dart';
 import '../../core/player/player_factory.dart';
@@ -52,10 +54,11 @@ class PlayerSettingsPage extends StatelessWidget {
       child: ListView(
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
+          const PlaybackSettingsGroup(),
           ListTile(
             leading: const Icon(Icons.comment_outlined),
             title: const Text('弹幕服务'),
-            subtitle: const Text('弹弹play · Cynn · Wenjian · 自定义 danmu'),
+            subtitle: const Text('14 个兼容服务 · 弹弹play 官方 · 自定义 danmu'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push<void>(
               context,

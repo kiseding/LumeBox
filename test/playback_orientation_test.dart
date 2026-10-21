@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:lume_box/core/reading/reading.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +46,8 @@ void main() {
   tearDown(() async {
     PlaybackOrientationController.instance.resetForTesting();
     PlaybackOrientationStore.resetForTesting();
+    ReadingLibrary.disposeAll();
+    ReadingStore.disposeAll();
     await SectionScope.closeAll();
     mockPathProvider(null);
     if (root.existsSync()) root.deleteSync(recursive: true);
@@ -102,7 +106,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('各模块独立设置'));
+      await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
     }
 

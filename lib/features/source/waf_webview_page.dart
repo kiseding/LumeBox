@@ -1,4 +1,5 @@
 import '../../core/net/lume_net.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -273,9 +274,12 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   /// 起播顺序：**先定 UA，再带头加载**（顺序反了第一次加载用的还是 WKWebView
   /// 默认 UA，那就是 CF 给白屏的那一份）。
   Future<void> _boot() async {
-    Map<String,dynamic>? retained;
-    try { retained = await SourceWebRuntime.verifyRetained(widget.url); }
-    catch (_) { /* An expired handoff falls back to the ordinary visible page. */ }
+    Map<String, dynamic>? retained;
+    try {
+      retained = await SourceWebRuntime.verifyRetained(widget.url);
+    } catch (_) {
+      /* An expired handoff falls back to the ordinary visible page. */
+    }
     if (!mounted) return;
     if (retained != null) {
       if (retained['verified'] == true) {
@@ -286,8 +290,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         widget.onCollected(parseJsCookie(headers['Cookie'] ?? ''));
         widget.onUserAgent?.call('${retained['userAgent'] ?? ''}');
       }
-      if (mounted)
+      if (mounted) {
         Navigator.of(context).pop(retained['verified'] == true ? 1 : 0);
+      }
       return;
     }
     final controller = _controller;

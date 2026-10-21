@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
 import 'danmaku_connection_test.dart';
+import 'danmaku_presets.dart';
 
 export 'danmaku_credentials.dart' show DanmakuSourcesStore;
 
@@ -76,8 +77,8 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       useSafeArea: true,
       builder: (context) => SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: ListView(
+          shrinkWrap: true,
           children: [
             const ListTile(
               title: Text(
@@ -93,6 +94,13 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
               ListTile(
                 title: Text(choice.value),
                 onTap: () => Navigator.pop(context, choice.key),
+              ),
+            for (var i = 0; i < DanmakuPresets.urls.length; i++)
+              ListTile(
+                title: Text(
+                  '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
+                ),
+                onTap: () => Navigator.pop(context, 'preset:$i'),
               ),
           ],
         ),
@@ -115,7 +123,19 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       );
       return;
     }
-    await _edit(type: type);
+    if (type.startsWith('preset:')) {
+      final index = int.parse(type.substring(7));
+      await _edit(
+        existing: {
+          'id': 'preset-${index + 1}',
+          'type': 'logvar',
+          'name': '弹${index + 1}',
+          'url': DanmakuPresets.urls[index],
+        },
+      );
+    } else {
+      await _edit(type: type);
+    }
   }
 
   Future<void> _edit({String? type, Map<String, String>? existing}) async {
@@ -323,39 +343,12 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
         ? const Center(child: CircularProgressIndicator())
         : _error != null
         ? Center(child: Text(_error!))
-        : _sources.isEmpty
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(30),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const LumeIcon(
-                    CupertinoIcons.chat_bubble_text,
-                    slot: 'danmaku_sources_page.3',
-                    size: 46,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    '还没有弹幕源',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('可以填写兼容服务器地址，或配置弹弹play开放平台。播放页也保留源弹幕与本地弹幕入口。'),
-                  const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: _chooseType,
-                    child: const Text('添加弹幕源'),
-                  ),
-                ],
-              ),
-            ),
-          )
         : ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              for (final source in _sources)
+              for (final source in _sources.where(
+                (source) => !DanmakuPresets.urls.contains(source['url']),
+              ))
                 Card(
                   child: ListTile(
                     title: Text(source['name'] ?? ''),
@@ -411,6 +404,71 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                         }
                       },
                     ),
+                  ),
+                ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('兼容服务 · 点击选择，右侧测试连接'),
+              ),
+              for (var i = 0; i < DanmakuPresets.urls.length; i++)
+                Card(
+                  child: ExpansionTile(
+                    title: Text(
+                      '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
+                    ),
+                    leading: IconButton(
+                      tooltip: '使用弹${i + 1}',
+                      icon: Icon(
+                        _sources.any(
+                              (source) =>
+                                  source['id'] == _active &&
+                                  source['url'] == DanmakuPresets.urls[i],
+                            )
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                      ),
+                      onPressed: () async {
+                        final id = 'preset-${i + 1}';
+                        final sources = [
+                          ..._sources.where((source) => source['id'] != id),
+                          {
+                            'id': id,
+                            'type': 'logvar',
+                            'name': '弹${i + 1}',
+                            'url': DanmakuPresets.urls[i],
+                            'appId': '',
+                            'appSecret': '',
+                          },
+                        ];
+                        try {
+                          await DanmakuSourcesStore.save(sources, id);
+                          if (mounted) {
+                            setState(() {
+                              _sources = sources;
+                              _active = id;
+                            });
+                          }
+                        } catch (_) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(content: Text('保存失败，请重试')),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: DanmakuConnectionTest(
+                          credentials: () => DandanplayCredentials(
+                            '',
+                            '',
+                            baseUrl: DanmakuPresets.urls[i],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               const Padding(

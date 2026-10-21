@@ -122,9 +122,9 @@ class HostTests(unittest.TestCase):
         return {'list':[{'vod_id':lume_tools.digest('sha256','abc'),'vod_name':decoded}]}
 """
         self.assertTrue(call('tools','load',script=source)['ok'])
-        result=call('tools',method='home')['value']['items'][0]
+        result=call('tools',method='home')['value'][0]
         self.assertEqual(result['title'],'host inflate')
-        self.assertEqual(result['id'],'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+        self.assertEqual(result['id'],'py:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
 
     def test_mobile_browser_html_and_storage_helpers(self):
         source = FIXTURE + """

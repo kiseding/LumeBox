@@ -6,7 +6,6 @@ import 'package:lume_box/shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_category_columns.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../core/source/source_subscription_sync.dart';
-import '../../shared/widgets/source_update_badge.dart';
 import '../../shared/widgets/cat_site_tile.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_swipe_tile.dart';
@@ -378,15 +377,11 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
               section: widget.section,
               sourceId: source.id,
             ),
-      titleTrailing: SourceUpdateBadge(
-        section: widget.section,
-        sourceId: source.id,
-      ),
       subtitle: Row(
         children: [
           Flexible(
             child: Text(
-              results[source.id]?.status.label ?? source.version,
+              source.version,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),

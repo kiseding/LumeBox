@@ -9,7 +9,7 @@ class DandanplayCredentials {
     this.appSecret, {
     this.baseUrl = defaultBase,
   });
-  static const defaultBase = 'https://danmu.cynn.top/cynnsq';
+  static const defaultBase = 'https://dm.999.team/87654321';
   static const officialBase = 'https://api.dandanplay.net';
   final String baseUrl;
   final String appId;
@@ -103,8 +103,13 @@ class DanmakuSourcesStore {
   static Future<void> saveCredentials(DandanplayCredentials config) async {
     final data = await read();
     final sources = profiles(data);
-    final active = data['activeId'];
-    final existing = sources.where((s) => s['id'] == active).firstOrNull;
+    final existing = sources
+        .where(
+          (s) =>
+              s['url'] ==
+              config.baseUrl.trim().replaceFirst(RegExp(r'/+$'), ''),
+        )
+        .firstOrNull;
     final id =
         existing?['id'] ?? 'service-${DateTime.now().microsecondsSinceEpoch}';
     final base = config.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');

@@ -131,8 +131,9 @@ class SourcePlayback {
   ) {
     if (source == null ||
         uri == null ||
-        !['http', 'https'].contains(uri.scheme))
+        !['http', 'https'].contains(uri.scheme)) {
       return original;
+    }
     // UA 一直跟着走（验证时的 UA 与 cf_clearance 绑定，换回脚本里那个 UA 等于没验）；
     // Cookie 只发给源站自己的域名。
     final ua =

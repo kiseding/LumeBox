@@ -241,7 +241,7 @@ void main() {
       pump.stop();
     });
 
-    test('后台纹理节拍消失仍取帧，返回前台停止兜底', () async {
+    test('前后台稀疏位置通知均保留视频帧率兜底', () async {
       final engine = _TickingEngine();
       final pump = PipFramePump(engine: engine, frameSource: PipFrameSource());
       pump.start();
@@ -251,18 +251,24 @@ void main() {
       pump.setBackground(false);
       final before = engine.captureCalls;
       await Future<void>.delayed(const Duration(milliseconds: 120));
-      expect(engine.captureCalls, before);
+      expect(engine.captureCalls, greaterThan(before));
       pump.stop();
     });
 
     test('节拍停止后不再取帧（暂停即停，不空转）', () async {
       final engine = _TickingEngine();
-      final pump = PipFramePump(engine: engine, frameSource: PipFrameSource());
+      var playing = true;
+      final pump = PipFramePump(
+        engine: engine,
+        frameSource: PipFrameSource(),
+        playing: () => playing,
+      );
       pump.start();
 
       engine.tick();
       await pumpIdle();
       final afterFirst = engine.captureCalls;
+      playing = false;
 
       // 不再推节拍：等一段时间，取帧次数不该增加（定时器才会继续拉）。
       await Future<void>.delayed(const Duration(milliseconds: 80));

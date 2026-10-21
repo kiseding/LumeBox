@@ -39,6 +39,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     final first = painter(tester);
     final fill = first.entries.first.fill;
+    final initialPosition = first.position as Duration;
     expect(fill.text.style.shadows, isNull);
     expect(
       first.entries.first.outline.text.style.foreground.style,
@@ -46,7 +47,8 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 80));
     final next = painter(tester);
-    expect(next.position, greaterThan(first.position));
+    expect(next.position, greaterThan(initialPosition));
+    expect(identical(first, next), isTrue, reason: '帧动画仅重绘，不重建整个弹幕组件');
     expect(identical(fill, next.entries.first.fill), true);
     // A slightly late engine report must not clear already visible comments.
     await tester.pumpWidget(view(position: const Duration(milliseconds: 60)));
@@ -91,14 +93,7 @@ void main() {
     await tester.pumpWidget(
       view(playing: false, position: const Duration(seconds: 10)),
     );
-    expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w is CustomPaint &&
-            w.painter.runtimeType.toString() == '_DanmakuPainter',
-      ),
-      findsNothing,
-    );
+    expect(painter(tester).entries, isEmpty);
   });
   testWidgets('400毫秒进度采样有延迟时，每帧持续向前且不周期性跳动', (tester) async {
     await tester.pumpWidget(view());

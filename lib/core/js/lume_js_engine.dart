@@ -18,6 +18,7 @@ import '../session/section.dart';
 import '../util/md5.dart';
 import '../util/lume_log.dart';
 import 'cat_polyfills.dart';
+import 'cat_node_modules.dart';
 import 'sandbox/sandbox.dart';
 import 'sandbox_settings.dart';
 import 'source_bridge.dart';
@@ -381,8 +382,9 @@ class LumeSourceHost implements SandboxHost {
     if (request.method == 'tools' ||
         request.method == 'media' ||
         request.method == 'session.configure') {
-      if (request.payload is! Map)
+      if (request.payload is! Map) {
         throw const SandboxHostException('工具入参必须是对象');
+      }
       final p = Map<String, dynamic>.from(request.payload as Map);
       if (request.method == 'tools') return SourceTools.run(p);
       if (request.method == 'media') return _mediaRuntime.invoke(p);
@@ -584,6 +586,8 @@ class LumeSourcePolyfills {
     const _FetchPolyfill(),
     const SourceCompressionPolyfill(),
     const LumeSourceBridgePolyfill(),
+    const CatBufferPolyfill(),
+    const CatCryptoPolyfill(),
     const VeneraComicSourcePolyfill(),
   ]);
 
@@ -609,7 +613,11 @@ class LumeSourcePolyfills {
         const SourceCompressionPolyfill(),
         if (section == Section.cat) ...CatPolyfills.all,
         LumeSourceBridgePolyfill(null, bridge.trim()),
-        if (section != Section.cat) const VeneraComicSourcePolyfill(),
+        if (section != Section.cat) ...[
+          const CatBufferPolyfill(),
+          const CatCryptoPolyfill(),
+          const VeneraComicSourcePolyfill(),
+        ],
       ]);
     }
     return section == Section.cat ? catRegistry : registry;

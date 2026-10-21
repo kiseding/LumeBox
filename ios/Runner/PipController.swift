@@ -398,6 +398,8 @@ extension PipController: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
     starting = false
     paused = false
+    framePump.danmaku.playing = true
+    startAvFrames()
     (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate)
     controller.invalidatePlaybackState()
     emit(kind: "play", message: nil)
@@ -454,6 +456,9 @@ extension PipController: AVPictureInPictureSampleBufferPlaybackDelegate {
     // After entry, all PiP play/pause gestures are forwarded normally.
     if starting && !playing { return }
     paused = !playing
+    framePump.danmaku.playing = playing
+    if playing { (avPlayer ?? avLayer?.player)?.playImmediately(atRate: max(1, playbackRate)) }
+    else { (avPlayer ?? avLayer?.player)?.pause() }
     emit(kind: playing ? "play" : "pause", message: nil)
   }
 

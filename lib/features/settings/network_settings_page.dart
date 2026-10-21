@@ -99,9 +99,10 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
         LumeNet.queue.clearInvalidLinks();
         if (mounted) setState(() {});
       } catch (error) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text('$error')));
+        }
       }
     }
     // Dialog dismissal animations can still be using these controllers.

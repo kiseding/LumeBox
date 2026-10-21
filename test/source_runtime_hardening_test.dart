@@ -91,12 +91,13 @@ void main() {
     final client = LumeHttp(
       client: MockClient((r) async {
         calls.add(r);
-        if (r.url.host == 'origin.test')
+        if (r.url.host == 'origin.test') {
           return http.Response(
             '',
             301,
             headers: {'location': 'https://cdn.test/media'},
           );
+        }
         return http.Response('done', 200);
       }),
       settings: const NetworkSettings(maxRetries: 0),
@@ -125,8 +126,9 @@ void main() {
     final client = LumeHttp(
       client: MockClient((r) async {
         requests++;
-        if (r.url.path == '/first')
+        if (r.url.path == '/first') {
           return http.Response('', 307, headers: {'location': 'second'});
+        }
         expect(r.bodyBytes, [0, 128, 255]);
         expect(r.method, 'POST');
         return http.Response('done', 200);
@@ -160,12 +162,13 @@ void main() {
       var index = 0;
       final client = LumeHttp(
         client: MockClient((r) async {
-          if (index++ == 0)
+          if (index++ == 0) {
             return http.Response(
               'ok',
               200,
               headers: {'set-cookie': 'sid=one; Path=/; Secure'},
             );
+          }
           expect(r.headers['cookie'], 'sid=one');
           return http.Response('ok', 200);
         }),
@@ -195,8 +198,9 @@ void main() {
       sender: (r) async {
         final host = Uri.parse(r.url).host;
         final n = calls.update(host, (v) => v + 1, ifAbsent: () => 1);
-        if (host == 'dead.test')
+        if (host == 'dead.test') {
           return const NetworkResponse(statusCode: 404, body: [], headers: {});
+        }
         events.add('$host$n');
         return NetworkResponse(
           statusCode: host == 'a.test' && n == 1 ? 502 : 200,
@@ -270,11 +274,12 @@ clear.ts
     var chunks = 0;
     final transport = LumeHttp(
       client: MockClient((r) async {
-        if (r.url.path == '/list.m3u8')
+        if (r.url.path == '/list.m3u8') {
           return http.Response(
             '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n#EXT-X-KEY:METHOD=AES-128,URI="https://key.test/key"\n#EXTINF:5,\nhttps://cdn.test/chunk.ts\n#EXT-X-ENDLIST',
             200,
           );
+        }
         expect(r.headers['referer'], 'https://origin.test/list.m3u8');
         expect(r.headers['cookie'], isNot(contains('private')));
         if (r.url.host == 'key.test') {

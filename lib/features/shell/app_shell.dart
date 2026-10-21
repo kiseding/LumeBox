@@ -443,6 +443,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           : SystemUiOverlayStyle.dark,
       child: ShellDockScope(
         controller: _controller,
+        collapsed: _scrollCollapsed,
         dockInset: dockInset,
         dockBottom: dockBottomOffset(context),
         safePadding: MediaQuery.viewPaddingOf(context),
@@ -620,7 +621,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         sectionIcon: _pageCatalog
                             .firstWhere((tab) => tab.id == _activeId)
                             .selectedIcon,
-                        size: _dockHeight,
+                        size: (_dockHeight * .82).clamp(40.0, 150.0),
                         opacity: .86,
                         onPressed: () =>
                             setState(() => _scrollCollapsed = false),

@@ -232,8 +232,9 @@ class LumeHttp {
           target.userInfo.isNotEmpty) {
         throw const FormatException('请求仅支持无内嵌凭据的 HTTP(S) 地址');
       }
-      if (!seen.add('$verb $target'))
+      if (!seen.add('$verb $target')) {
         throw const LumeHttpException('redirect_loop：重定向循环');
+      }
       outgoing = await SiteSessionPool.shared.synchronize(
         target.toString(),
         outgoing,

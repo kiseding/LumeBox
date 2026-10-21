@@ -35,6 +35,7 @@ class DanmakuPanelFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
+    final textColor = LumeTheme.textPrimary;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       padding: EdgeInsets.fromLTRB(
@@ -60,7 +61,24 @@ class DanmakuPanelFrame extends StatelessWidget {
                 context: context,
                 removeTop: true,
                 removeBottom: true,
-                child: child,
+                child: Theme(
+                  data: Theme.of(context).copyWith(
+                    textTheme: Theme.of(context).textTheme
+                        .apply(bodyColor: textColor, displayColor: textColor),
+                    iconTheme: IconThemeData(color: textColor),
+                    inputDecorationTheme: Theme.of(context).inputDecorationTheme
+                        .copyWith(
+                          labelStyle: TextStyle(color: LumeTheme.textSecondary),
+                          floatingLabelStyle: TextStyle(
+                            color: LumeTheme.accent,
+                          ),
+                        ),
+                  ),
+                  child: DefaultTextStyle(
+                    style: TextStyle(color: textColor, fontSize: 14),
+                    child: child,
+                  ),
+                ),
               ),
             ),
           ),

@@ -67,8 +67,9 @@ class SiteSessionPool {
           (uri.host == '${v['domain']}'.replaceFirst(RegExp(r'^\.'), '') ||
               uri.host.endsWith('${v['domain']}')),
     );
-    if (userAgents.length >= 128 && !userAgents.containsKey(uri.host))
+    if (userAgents.length >= 128 && !userAgents.containsKey(uri.host)) {
       throw const FormatException('站点 UA 最多保存 128 项');
+    }
     if (value.trim().isEmpty) {
       userAgents.remove(uri.host);
     } else {
@@ -89,8 +90,9 @@ class SiteSessionPool {
     final uri = Uri.tryParse(url);
     if (uri == null || !['http', 'https'].contains(uri.scheme)) return;
     _referers[uri.host] = uri.removeFragment().replace(userInfo: '').toString();
-    if (userAgent != null && userAgent.isNotEmpty)
+    if (userAgent != null && userAgent.isNotEmpty) {
       _verifiedAgents[uri.host] = userAgent;
+    }
     while (_verifiedAgents.length > 128) {
       _verifiedAgents.remove(_verifiedAgents.keys.first);
     }
@@ -200,8 +202,9 @@ class SiteSessionPool {
   }) async {
     if (!Platform.isIOS) {
       final merged = headersFor(url, headers);
-      if (forceCookies && headers.containsKey('Cookie'))
+      if (forceCookies && headers.containsKey('Cookie')) {
         merged['Cookie'] = headers['Cookie']!;
+      }
       return merged;
     }
     final result = await channel

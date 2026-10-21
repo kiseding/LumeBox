@@ -53,6 +53,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     with SingleTickerProviderStateMixin {
   /// 屏幕上的弹幕实例（含各自的出现时刻与轨道）。
   final List<_ActiveDanmaku> _active = <_ActiveDanmaku>[];
+  final _repaint = ValueNotifier<int>(0);
 
   /// 已投放到屏幕上的弹幕在 track 里的下标（单调推进，避免重复投放）。
   int _cursor = 0;
@@ -140,6 +141,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   @override
   void dispose() {
     _ticker.dispose();
+    _repaint.dispose();
     _reset();
     super.dispose();
   }
@@ -188,7 +190,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (!widget.settings.enabled || widget.track.isEmpty) {
       if (_active.isNotEmpty) {
         _reset();
-        setState(() {});
+        _repaint.value++;
       }
       return;
     }
@@ -198,7 +200,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     _spawn(_renderPosition);
     if (mounted &&
         (_active.isNotEmpty || previousCount != _active.length || !_animate)) {
-      setState(() {});
+      _repaint.value++;
     }
   }
 
@@ -330,13 +332,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     return LayoutBuilder(
       builder: (context, constraints) {
         _viewport = constraints.biggest;
-        if (_active.isEmpty) return const SizedBox.shrink();
         return IgnorePointer(
           child: RepaintBoundary(
             child: CustomPaint(
               painter: _DanmakuPainter(
-                entries: List<_ActiveDanmaku>.of(_active),
-                position: _renderPosition,
+                entries: _active,
+                clock: () => _renderPosition,
+                repaint: _repaint,
                 settings: widget.settings,
                 playing: widget.playing,
                 pixelRatio: MediaQuery.devicePixelRatioOf(context),
@@ -421,7 +423,7 @@ class _ActiveDanmaku {
     final span =
         DanmakuLayout.scrollDuration.inMilliseconds / settings.speedScale;
     if (span <= 0) return 1;
-    final elapsed = (position - bornAt).inMilliseconds.toDouble();
+    final elapsed = (position - bornAt).inMicroseconds / 1000.0;
     return (elapsed / span).clamp(0.0, 1.0);
   }
 
@@ -444,14 +446,16 @@ class _ActiveDanmaku {
 class _DanmakuPainter extends CustomPainter {
   _DanmakuPainter({
     required this.entries,
-    required this.position,
+    required this.clock,
+    required Listenable repaint,
     required this.settings,
     required this.playing,
     required this.pixelRatio,
-  });
+  }) : super(repaint: repaint);
 
   final List<_ActiveDanmaku> entries;
-  final Duration position;
+  final Duration Function() clock;
+  Duration get position => clock();
   final DanmakuSettings settings;
   final bool playing;
   final double pixelRatio;

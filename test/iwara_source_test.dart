@@ -11,7 +11,6 @@ import 'package:lume_box/core/js/sandbox/sandbox.dart';
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
-import 'package:lume_box/core/source/source_models.dart';
 
 import 'support/source_scripts.dart';
 

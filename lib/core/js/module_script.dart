@@ -6,6 +6,14 @@ import 'spider_module_adapter.dart';
 /// ESM/CommonJS module graphs. Source spans are tokenized before rewriting
 /// exports: text in comments, strings and template literals is never replaced.
 class ModuleScript {
+  static const builtins = {
+    'crypto',
+    'node:crypto',
+    'buffer',
+    'node:buffer',
+    'pako',
+  };
+
   /// Read only literal identity fields from a top-level metadata assignment.
   /// Comments, strings and nested objects are skipped by the module tokenizer.
   static Map<String, String>? objectStringFields(String script, String name) {
@@ -79,6 +87,7 @@ class ModuleScript {
       }
       final dependencies = <String, String>{};
       String resolve(String name) {
+        if (builtins.contains(name)) return name;
         if (bundle == null) throw const FormatException('跨文件模块请连同依赖打包为 ZIP 源包');
         final target = bundle.resolve(path, name);
         dependencies[name] = target;
@@ -97,6 +106,9 @@ class ModuleScript {
   var factories = {${bodies.entries.map((row) => '${jsonEncode(row.key)}: function(module, exports, require) {\n${row.value}\n}').join(',\n')}};
   var cache = Object.create(null);
   function require(path) {
+    if (path === 'pako') return globalThis.pako;
+    if (path === 'buffer' || path === 'node:buffer') return {Buffer: globalThis.Buffer};
+    if (path === 'crypto' || path === 'node:crypto') return globalThis.__lumeModules.crypto;
     if (cache[path]) return cache[path].exports;
     if (!factories[path]) throw new Error('源包缺少模块：' + path);
     var module = {exports:{}}; cache[path] = module;

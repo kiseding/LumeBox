@@ -301,6 +301,7 @@ class SourceSubscription {
     var total = files[entry]!.length;
     Future<void> visit(String path, String text) async {
       for (final dependency in ModuleScript.dependencies(text)) {
+        if (ModuleScript.builtins.contains(dependency)) continue;
         if (!dependency.startsWith('.')) {
           throw FormatException('订阅模块依赖须为相对路径；$dependency 请放入 ZIP 源包');
         }

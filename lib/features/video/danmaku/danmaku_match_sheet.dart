@@ -99,7 +99,11 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
     final title = DandanplayClient.normalizedTitle(item.title);
     final query = DandanplayClient.normalizedTitle(_queryTitle);
     if (title == query) return 0;
-    return query.isNotEmpty && (title.contains(query) || query.contains(title))
+    final shortest = title.length < query.length ? title.length : query.length;
+    final longest = title.length > query.length ? title.length : query.length;
+    return shortest >= 3 &&
+            shortest / longest >= .75 &&
+            (title.contains(query) || query.contains(title))
         ? 1
         : 2;
   }
@@ -216,7 +220,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
         )
         .toList();
     final currentWork = _workKey == null ? null : _episodes(_workKey!);
-    return Column(
+    final content = Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
@@ -442,6 +446,16 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
           ),
         ),
       ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: SizedBox(
+            height: constraints.maxHeight < 340 ? 340 : constraints.maxHeight,
+            child: content,
+          ),
+        );
+      },
     );
   }
 }

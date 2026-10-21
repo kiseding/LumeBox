@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
 import 'danmaku_connection_test.dart';
+import 'danmaku_presets.dart';
 
 /// Accepts a full service prefix, including deployment tokens in its path.
 class DanmakuServiceSheet extends StatefulWidget {
@@ -99,41 +100,45 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
               ),
               autocorrect: false,
             ),
-            Wrap(
-              spacing: 8,
-              children: [
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _url.clear();
-                      _error = null;
-                    });
-                    _urlFocus.requestFocus();
-                  },
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('自定义 danmu'),
-                ),
-                TextButton(
-                  onPressed: () => setState(
-                    () => _url.text = DandanplayCredentials.defaultBase,
+            DropdownButtonFormField<String>(
+              key: ValueKey(_url.text),
+              initialValue: DanmakuPresets.urls.contains(_url.text)
+                  ? _url.text
+                  : _url.text == DandanplayCredentials.officialBase
+                  ? _url.text
+                  : 'custom',
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: '切换弹幕服务'),
+              items: [
+                for (var i = 0; i < DanmakuPresets.urls.length; i++)
+                  DropdownMenuItem(
+                    value: DanmakuPresets.urls[i],
+                    child: Text(
+                      '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
+                    ),
                   ),
-                  child: const Text('Cynn'),
+                const DropdownMenuItem(
+                  value: DandanplayCredentials.officialBase,
+                  child: Text('弹弹play 官方（需应用凭据）'),
                 ),
-                TextButton(
-                  onPressed: () => setState(
-                    () => _url.text = 'https://dandan.wenjian.de/wenjian',
-                  ),
-                  child: const Text('Wenjian'),
-                ),
-                TextButton(
-                  onPressed: () => setState(
-                    () => _url.text = DandanplayCredentials.officialBase,
-                  ),
-                  child: const Text('弹弹play官方'),
+                const DropdownMenuItem(
+                  value: 'custom',
+                  child: Text('自定义 danmu 地址'),
                 ),
               ],
+              onChanged: _saving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _url.text = value == 'custom' ? '' : value!;
+                        _error = null;
+                      });
+                    },
             ),
-            if (Uri.tryParse(_url.text)?.host == 'api.dandanplay.net') ...[
+            const SizedBox(height: 12),
+            if (DandanplayCredentials.isOfficial(
+              Uri.tryParse(_url.text.trim()),
+            )) ...[
               TextField(
                 controller: _id,
                 decoration: const InputDecoration(labelText: 'AppId'),

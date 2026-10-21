@@ -29,6 +29,7 @@ class PipFramePump {
     required this.frameSource,
     this.targetFps = 30,
     this.position,
+    this.playing,
   });
 
   /// 取帧来源（MPV / MDK）。
@@ -40,22 +41,18 @@ class PipFramePump {
   /// 目标帧率（仅在引擎没有帧节拍能力时用于定时器）。
   final int targetFps;
   final Duration Function()? position;
+  final bool Function()? playing;
 
   Timer? _timer;
   StreamSubscription<void>? _ticks;
   bool _pumping = false;
   int _captureFailures = 0;
   DateTime? _lastFrameTick;
-  bool _background = false;
 
   void setBackground(bool background) {
-    _background = background;
-    if (!isPumping || _ticks == null) return;
+    if (!isPumping) return;
     if (background) {
       _startTimer();
-    } else {
-      _timer?.cancel();
-      _timer = null;
     }
   }
 
@@ -123,7 +120,7 @@ class PipFramePump {
       LumeLog.info('[pip] 帧转发开始（引擎帧节拍）');
       // Flutter texture ticks may stop when iOS backgrounds the inline view.
       // Keep pulling decoded frames if that signal has gone quiet.
-      if (_background) _startTimer();
+      _startTimer();
       return;
     }
     _startTimer();
@@ -138,7 +135,8 @@ class PipFramePump {
       final last = _lastFrameTick;
       if (_ticks != null &&
           last != null &&
-          DateTime.now().difference(last) < const Duration(milliseconds: 200)) {
+          DateTime.now().difference(last) <
+              Duration(microseconds: 1000000 ~/ targetFps)) {
         return;
       }
       unawaited(_tick());
@@ -164,7 +162,7 @@ class PipFramePump {
   /// 复查 [_running]：停止后不再往原生送帧（否则退出画中画时还会闪最后一帧，
   /// 甚至往已经拆掉的显示层写数据）。
   Future<void> _tick() async {
-    if (_pumping) return;
+    if (_pumping || playing?.call() == false) return;
     _pumping = true;
     try {
       final frame = (await engine.captureFrame())?.forPictureInPicture();

@@ -393,7 +393,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         state == AppLifecycleState.hidden) {
       _returnedFromBackground = true;
       if (!AppPreferences.instance.backgroundPlayback &&
-          _session?.state != PipState.active) {
+          _session?.state != PipState.active &&
+          _session?.state != PipState.entering &&
+          !_pipPreparing) {
         _backgroundPlaying = false;
         unawaited(_player?.pause());
       }
@@ -442,6 +444,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         engine: engine,
         frameSource: backend.frameSource,
         position: () => _player?.snapshot.value.position ?? Duration.zero,
+        playing: () => _player?.snapshot.value.playing ?? false,
       );
       final ready = await _framePump!.prime().timeout(
         const Duration(seconds: 3),
@@ -2412,6 +2415,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               engine: engine,
               frameSource: nativeBackend.frameSource,
               position: () => _player?.snapshot.value.position ?? Duration.zero,
+              playing: () => _player?.snapshot.value.playing ?? false,
             );
             final ready = await _framePump!.prime().timeout(
               const Duration(seconds: 3),
@@ -2501,6 +2505,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       engine: engine,
       frameSource: backend.frameSource,
       position: () => _player?.snapshot.value.position ?? Duration.zero,
+      playing: () => _player?.snapshot.value.playing ?? false,
     );
     _framePump!.start();
     _framePump!.setBackground(_lifecycle != AppLifecycleState.resumed);
@@ -3660,6 +3665,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 : _markSkipFromQuick(snapshot),
             longPress: _clearSkipMarksFromQuick,
           ),
+          action('片头尾', '片头片尾设置', Icons.skip_next_outlined, _openOriginalIntro),
           const Spacer(),
           action(
             '画质',

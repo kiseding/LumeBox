@@ -27,6 +27,27 @@ void main() {
     restoreEnginePlatformGate();
     root.deleteSync(recursive: true);
   });
+  test('模块内建 crypto、buffer、pako 与 CryptoJS 兼容分支无需 ZIP', () async {
+    final manager = LumeSources.manager(Section.video);
+    final imported = await manager.importScript('''
+// LumeSource: {"id":"builtin-module","name":"内建模块","category":"video"}
+// LumeRuntime: module
+import {createHash} from 'node:crypto';
+import {Buffer} from 'buffer';
+import pako from 'pako';
+var embedded = (function(){ var module, exports;
+  if (typeof require === 'function') { try { require('crypto'); } catch (_) {} }
+  return 'ok';
+})();
+export default {categories(){return [{id:'1', title:createHash('sha256').update(Buffer.from('abc')).digest('hex') + ':' + typeof pako.inflate + ':' + embedded}];}};
+''');
+    expect(imported.isSuccess, isTrue, reason: imported.message);
+    final source = (await manager.open(imported.descriptor!.id))!;
+    expect(
+      (await source.categories()).single.title,
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad:function:ok',
+    );
+  }, skip: available ? null : 'QuickJS 原生桥不可用');
   for (final style in ['default', 'named', 'commonjs']) {
     test('真实 QuickJS $style：导入、分类、搜索、详情、选集、播放与重开', () async {
       final manager = LumeSources.manager(Section.video);
@@ -78,8 +99,7 @@ ${style == 'default'
             'category': 'video',
           },
         }),
-        'main.mjs':
-            '''
+        'main.mjs': '''
 import prefix, {suffix as end} from './helper.mjs';
 import * as ns from './classes.cjs';
 export {homeContent} from './home.mjs';

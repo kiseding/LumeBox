@@ -222,12 +222,15 @@ final class PipDanmakuRenderer {
   var playing = true
   private var lastPosition = -1
   private var anchor: CFTimeInterval = 0
+  private var clockPosition: Double = 0
+  private var clockFrame: CFTimeInterval = 0
   var enabled: Bool { bool("enabled", true) && bool("pipEnabled", true) && !items.isEmpty }
   func update(_ args: [String: Any]) {
     settings = args["settings"] as? [String: Any] ?? [:]
     items = (args["items"] as? [[String: Any]] ?? []).sorted { number($0["time"]) < number($1["time"]) }
     labels.removeAll()
     lastPosition = -1
+    clockFrame = 0
   }
   private func bool(_ key: String, _ fallback: Bool) -> Bool { settings[key] as? Bool ?? fallback }
   private func value(_ key: String, _ fallback: Double) -> Double { (settings[key] as? NSNumber)?.doubleValue ?? fallback }
@@ -236,7 +239,18 @@ final class PipDanmakuRenderer {
     guard enabled else { return }
     let now = CACurrentMediaTime()
     if timestampMs != lastPosition { lastPosition = timestampMs; anchor = now }
-    let position = Double(timestampMs) + (playing ? min(500, (now - anchor) * 1000) * value("playbackRate", 1) : 0) - value("delayMs", 0)
+    let rate = max(0.1, value("playbackRate", 1))
+    let target = Double(timestampMs) + (playing ? min(1000, (now - anchor) * 1000) * rate : 0)
+    let delta = min(100, max(0, (now - clockFrame) * 1000))
+    if clockFrame == 0 || !playing || abs(target - clockPosition) > 2000 {
+      clockPosition = target
+    } else {
+      let predicted = clockPosition + delta * rate
+      let correction = min(delta * rate * 0.1, max(-delta * rate * 0.1, (target - predicted) * 0.12))
+      clockPosition = min(Double(timestampMs) + 1000 * rate, predicted + correction)
+    }
+    clockFrame = now
+    let position = clockPosition - value("delayMs", 0)
     let scale = Double(width) / 640
     let fontSize = 16 * value("fontScale", 1) * scale
     let rowHeight = max(16 * scale, fontSize * value("lineSpacing", 1.35))
@@ -246,13 +260,16 @@ final class PipDanmakuRenderer {
     let count = min(rows > 0 ? rows : 64, Int(region / rowHeight))
     guard count > 0, let context = CGContext(data: base, width: width, height: height, bitsPerComponent: 8, bytesPerRow: stride, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return }
     context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: 1, y: -1)
-    context.clip(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(min(Double(height), Double(count) * rowHeight))))
+    context.clip(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
     UIGraphicsPushContext(context)
     defer { UIGraphicsPopContext() }
     let span = 8000 / max(0.5, value("speedScale", 1))
     var low = 0, high = items.count
     while low < high { let mid = (low + high) / 2; if number(items[mid]["time"]) < position - max(5000, span) { low = mid + 1 } else { high = mid } }
     var lanes = Array(repeating: -Double.infinity, count: count)
+    var starts = Array(repeating: -Double.infinity, count: count)
+    var widths = Array(repeating: 0.0, count: count)
+    var modes = Array(repeating: "", count: count)
     var recent: [String: Double] = [:]
     var second = -1, rate = 0, visible = 0
     let blocked = (settings["blockedWords"] as? [String] ?? []).map { $0.lowercased() }
@@ -267,14 +284,6 @@ final class PipDanmakuRenderer {
       if sec != second { second = sec; rate = 0 }
       if rate >= Int(value("maxPerSecond", 8)) { continue }
       if bool("mergeDuplicates", true), let previous = recent[text], time - previous < 5000 { continue }
-      let order = mode == "bottom" ? Array((0..<count).reversed()) : Array(0..<count)
-      guard let lane = order.first(where: { lanes[$0] <= time }) else { continue }
-      let duration = mode == "scroll" ? span : 4000
-      lanes[lane] = time + duration; rate += 1; recent[text] = time
-      let age = position - time
-      if age < 0 || age >= duration { continue }
-      if visible >= Int(value("maxOnScreen", 60)) { break }
-      visible += 1
       let size = fontSize * min(3, max(0.5, number(item["fontSize"]) == 0 ? 1 : number(item["fontSize"])))
       let rawColor = bool("allowColored", true) ? Int(number(item["color"])) : 0xFFFFFF
       // Missing colors used to become zero (black); keep PiP text readable.
@@ -289,10 +298,29 @@ final class PipDanmakuRenderer {
       }
       guard let label = label else { continue }
       let measured = label.size()
+      let order = mode == "bottom" ? Array((0..<count).reversed()) : Array(0..<count)
+      guard let lane = order.first(where: { lane in
+        if lanes[lane] <= time { return true }
+        if mode != "scroll" || modes[lane] != "scroll" { return false }
+        let oldSpeed = (Double(width) + widths[lane]) / span
+        let newSpeed = (Double(width) + Double(measured.width)) / span
+        let elapsed = time - starts[lane]
+        let gap = oldSpeed * elapsed - widths[lane]
+        if gap < 12 * scale { return false }
+        return newSpeed <= oldSpeed || gap / (newSpeed - oldSpeed) >= span - elapsed
+      }) else { continue }
+      let duration = mode == "scroll" ? span : 4000
+      lanes[lane] = time + duration
+      starts[lane] = time; widths[lane] = Double(measured.width); modes[lane] = mode
+      rate += 1; recent[text] = time
+      let age = position - time
+      if age < 0 || age >= duration { continue }
+      if visible >= Int(value("maxOnScreen", 60)) { break }
+      visible += 1
       let x = mode == "scroll" ? Double(width) - (Double(width) + Double(measured.width)) * age / duration : (Double(width) - Double(measured.width)) / 2
-      let y = Double(lane) * rowHeight
+      let y = mode == "bottom" ? available - Double(count - lane) * rowHeight : Double(lane) * rowHeight
       if Double(measured.height) > rowHeight { continue }
-      label.draw(at: CGPoint(x: x.rounded(), y: y.rounded()))
+      label.draw(at: CGPoint(x: x, y: y))
     }
   }
 }

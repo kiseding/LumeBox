@@ -32,7 +32,6 @@ import 'cache_settings_page.dart';
 import 'display_settings_group.dart';
 import 'floating_settings_page.dart';
 import 'debug_panel_page.dart';
-import 'module_settings_pages.dart';
 import 'network_settings_page.dart';
 import 'log_report.dart';
 import 'log_report_page.dart';
@@ -138,14 +137,6 @@ class SettingsPage extends StatelessWidget {
             title: '播放器设置',
             subtitle: '内核、倍速、字幕与弹幕',
             onTap: () => _push(context, const PlayerSettingsHost()),
-          ),
-          SettingsEntryCard(
-            icon: Icons.tune,
-            title: '各模块独立设置',
-            subtitle:
-                '漫画 / 视频 / 猫源分开配置（各存各的，互不影响；'
-                '阅读页与播放页里的就地设置仍然保留）',
-            onTap: () => _push(context, const ModuleSettingsHubPage()),
           ),
           SettingsEntryCard(
             icon: Icons.headphones_outlined,

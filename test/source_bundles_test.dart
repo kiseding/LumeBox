@@ -21,6 +21,31 @@ List<int> sourceZip(Map<String, Object> files) {
 }
 
 void main() {
+  test('订阅模块跳过内建依赖，仅下载真实相对模块', () async {
+    final requests = <String>[];
+    final subscription = SourceSubscription(
+      fetch: (url) async {
+        requests.add(url);
+        final text = url.endsWith('main.mjs')
+            ? "import {createHash} from 'crypto'; import './helper.js'; export default {categories(){return [];}};"
+            : "if(typeof require==='function'){try{require('node:crypto');}catch(_){}}";
+        return SourceFetchResult(
+          bytes: base64Decode(base64Encode(utf8.encode(text))),
+          text: text,
+        );
+      },
+    );
+    final result = await subscription.scriptRefsAt(
+      'https://fixture.invalid/main.mjs',
+      {},
+    );
+    expect(result, hasLength(1));
+    expect(subscription.complete, isTrue);
+    expect(requests, [
+      'https://fixture.invalid/main.mjs',
+      'https://fixture.invalid/helper.js',
+    ]);
+  });
   test('JS 订阅自动递归加载相对依赖与循环依赖，更新后仍可离线重读', () async {
     final responses = {
       'https://fixture.invalid/src/main.mjs': "import {home} from '../lib/helper.mjs'; export default {categories:home};",
