@@ -37,10 +37,11 @@ module.exports.start = async function start(config) {
       if (res.destroyed) return
       res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(bytes)
-    } catch (_) {
+    } catch (error) {
       if (!res.destroyed && !res.headersSent) {
+        const reason = String(error && (error.message || error) || 'unknown').slice(0, 240)
         res.writeHead(502, { 'content-type': 'application/json' })
-        res.end('{"success":false,"errorCode":502}')
+        res.end(JSON.stringify({ success: false, errorCode: 502, errorMessage: '本机弹幕上游请求失败：' + reason }))
       }
     }
   })

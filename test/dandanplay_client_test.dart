@@ -59,7 +59,7 @@ void main() {
     addTearDown(client.close);
     await client.checkConnection();
     expect(await client.search('测试'), isEmpty);
-    expect(starts, 2);
+    expect(starts, 3);
     expect(client.credentials.baseUrl, DandanplayCredentials.builtinBase);
   });
 
@@ -160,6 +160,73 @@ void main() {
     );
     addTearDown(client.close);
     expect(await client.search('作品'), isEmpty);
+  });
+
+  test('官方 TMDB 补充失败时保留原生搜索结果', () async {
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        'sample',
+        'secret',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/search/episodes')) {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'animes': [
+                {
+                  'animeTitle': '不相关动画',
+                  'episodes': [
+                    {'episodeId': 'native-1', 'episodeTitle': '第1集'},
+                  ],
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        // TMDB 补充是可选能力：没有权限/网络失败不能把已有结果丢掉。
+        throw http.ClientException('tmdb unavailable', request.url);
+      }),
+    );
+    addTearDown(client.close);
+    final found = await client.search('作品', episode: 1);
+    expect(found.map((episode) => episode.id), contains('native-1'));
+  });
+
+  test('内置服务返回的上游错误原因会被展示出来', () async {
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        '',
+        '',
+        baseUrl: DandanplayCredentials.builtinBase,
+      ),
+      localService: () async => Uri.parse('http://127.0.0.1:9123/token'),
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'success': false,
+            'errorCode': 502,
+            'errorMessage': '本机弹幕上游请求失败：fetch failed',
+          }),
+          502,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      client.search('作品'),
+      throwsA(
+        isA<DandanplayException>().having(
+          (error) => error.message,
+          'message',
+          contains('本机弹幕上游请求失败'),
+        ),
+      ),
+    );
   });
 
   test('官方动画搜索无同名结果时，查询 TMDB 作品再读取真实剧集 ID', () async {

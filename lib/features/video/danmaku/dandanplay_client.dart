@@ -71,7 +71,7 @@ class DandanplayClient {
   }
 
   Future<Map<String, dynamic>> _get(String path, Map<String, String> query) =>
-      _request(path, query).timeout(const Duration(seconds: 30));
+      _request(path, query).timeout(const Duration(seconds: 45));
 
   Future<Map<String, dynamic>> _request(
     String path,
@@ -83,8 +83,11 @@ class DandanplayClient {
         base = await _localService();
       } on UnsupportedError catch (error) {
         throw DandanplayException(error.message?.toString() ?? '内置服务不可用');
-      } catch (_) {
-        throw const DandanplayException('内置弹幕服务启动失败，请重试或完整关闭 App 后重开');
+      } catch (error) {
+        final detail = '$error'.trim();
+        throw DandanplayException(
+          detail.isEmpty ? '内置弹幕服务启动失败，请重试或完整关闭 App 后重开' : '内置弹幕服务启动失败：$detail',
+        );
       }
       if (_closed) throw const DandanplayException('弹幕请求已取消');
     } else {
@@ -161,11 +164,27 @@ class DandanplayClient {
       throw DandanplayException('$reason（HTTP ${response.statusCode}）');
     }
     if (response.statusCode != 200) {
+      // Local adapter and some compatible servers return a JSON error body even
+      // with a non-200 status; surface its reason instead of a bare HTTP code.
+      String? reason;
+      try {
+        final body = jsonDecode(utf8.decode(response.bodyBytes));
+        if (body is Map) reason = '${body['errorMessage'] ?? ''}'.trim();
+      } catch (_) {}
+      if (reason != null && reason.isNotEmpty) {
+        throw DandanplayException('$reason（HTTP ${response.statusCode}）');
+      }
       throw DandanplayException('弹幕服务请求失败（HTTP ${response.statusCode}）');
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes));
     if (json is! Map<String, dynamic> || json['success'] == false) {
       final code = json is Map ? int.tryParse('${json['errorCode']}') : null;
+      final message = json is Map ? '${json['errorMessage'] ?? ''}'.trim() : '';
+      if (message.isNotEmpty) {
+        throw DandanplayException(
+          code == null ? message : '$message（错误码 $code）',
+        );
+      }
       throw DandanplayException(
         code == null ? '弹幕服务返回了无效结果' : '弹幕服务请求未成功（错误码 $code）',
       );
@@ -178,6 +197,16 @@ class DandanplayClient {
     if (credentials.builtin) {
       final health = await _get('/_health', {});
       if (health['ok'] != true) throw const DandanplayException('内置服务未就绪');
+      // Health only proves the local Node adapter is up. Search is what actually
+      // contacts the upstream danmu_api platforms, so surface its failure here
+      // instead of showing a misleading "连接成功".
+      _parseSearch(
+        await _get('/api/v2/search/episodes', {
+          'anime': '测试',
+          'episode': '1',
+          'v2': 'true',
+        }),
+      );
       return;
     }
     _parseSearch(
@@ -213,40 +242,49 @@ class DandanplayClient {
     }
     // Official /search/episodes primarily searches its native catalogue. TV and
     // movie records may live in TMDB and must be resolved through that API.
-    final tmdb = await _get('/api/v2/search/tmdb', {
-      'keyword': searchTitle(title),
-    });
-    final candidates = (tmdb['animes'] as List? ?? [])
-        .whereType<Map>()
-        .where(
-          (e) =>
-              normalizedTitle('${e['animeTitle'] ?? ''}') ==
-              normalizedTitle(title),
-        )
-        .take(3);
+    //
+    // TMDB enrichment is optional: an account without TMDB permission, a
+    // transient network error or a 404 here must NOT discard the direct results
+    // that already came back. This is why "official search works for custom
+    // services but fails for dandanplay" could happen before.
     final extra = <DandanplayEpisode>[];
-    for (final work in candidates) {
-      final id = '${work['bangumiId'] ?? ''}';
-      if (!RegExp(r'^tmdb-(?:tv|movie)-[0-9]+$').hasMatch(id)) continue;
-      final detail = await _get(
-        '/api/v2/bangumi/${Uri.encodeComponent(id)}',
-        {},
-      );
-      final bangumi = detail['bangumi'];
-      if (bangumi is! Map) continue;
-      extra.addAll(
-        _parseSearch({
-          'animes': [
-            {
-              ...work,
-              ...bangumi,
-              'animeTitle': work['animeTitle'],
-              'animeId': id,
-              'source': 'TMDB',
-            },
-          ],
-        }).where((e) => episode == null || e.number == episode),
-      );
+    try {
+      final tmdb = await _get('/api/v2/search/tmdb', {
+        'keyword': searchTitle(title),
+      });
+      final candidates = (tmdb['animes'] as List? ?? [])
+          .whereType<Map>()
+          .where(
+            (e) =>
+                normalizedTitle('${e['animeTitle'] ?? ''}') ==
+                normalizedTitle(title),
+          )
+          .take(3);
+      for (final work in candidates) {
+        final id = '${work['bangumiId'] ?? ''}';
+        if (!RegExp(r'^tmdb-(?:tv|movie)-[0-9]+$').hasMatch(id)) continue;
+        final detail = await _get(
+          '/api/v2/bangumi/${Uri.encodeComponent(id)}',
+          {},
+        );
+        final bangumi = detail['bangumi'];
+        if (bangumi is! Map) continue;
+        extra.addAll(
+          _parseSearch({
+            'animes': [
+              {
+                ...work,
+                ...bangumi,
+                'animeTitle': work['animeTitle'],
+                'animeId': id,
+                'source': 'TMDB',
+              },
+            ],
+          }).where((e) => episode == null || e.number == episode),
+        );
+      }
+    } catch (_) {
+      // Keep the native-catalogue results; manual matching can still use them.
     }
     final ids = <String>{};
     return [...extra, ...direct].where((e) => ids.add(e.id)).toList();
