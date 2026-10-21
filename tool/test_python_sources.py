@@ -105,6 +105,52 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_empty_home_uses_real_categories_and_default_filters(self):
+        source = FIXTURE + '''
+    def homeVideoContent(self): return {'list':None}
+    def homeContent(self, filter):
+        return {'class':[{'type_id':'empty','type_name':'空分类'}, {'type_id':'movie','type_name':'电影'}],
+                'filters':{'movie':[{'key':'order','value':[{'v':'new','n':'最新'}]}]}}
+    def categoryContent(self, tid, pg, filter, extend):
+        assert int(pg) == 1
+        if tid == 'empty': return {'list':[]}
+        assert extend == {'order':'new'}
+        return {'list':[{'vod_id':'real','vod_name':'真实分类内容'}]}
+'''
+        self.assertTrue(call('fallback', 'load', script=source)['ok'])
+        result = call('fallback', method='home')['value']
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['title'], '电影')
+        self.assertEqual(result[0]['moreUrl'], 'movie')
+        self.assertEqual(result[0]['items'][0]['id'], 'py:real')
+
+    def test_home_capability_without_recommendation_method(self):
+        source = FIXTURE.replace("    def homeVideoContent(self): return {'list':[{'vod_id':'one','vod_name':'首页'}]}\n", '')
+        loaded = call('category-only', 'load', script=source)
+        self.assertIn('home', loaded['value']['methods'])
+        home = call('category-only', method='home')['value']
+        self.assertEqual(home[0]['moreUrl'], '1')
+        self.assertEqual(home[0]['items'][0]['title'], '1')
+
+    def test_failed_category_does_not_hide_other_categories_or_real_errors(self):
+        source = FIXTURE + '''
+    def homeVideoContent(self): return {}
+    def homeContent(self, filter):
+        return {'class':[{'type_id':str(i),'type_name':str(i)} for i in range(6)]}
+    def categoryContent(self, tid, pg, filter, extend):
+        if tid == '0': raise ValueError('分类不可用')
+        if int(tid) > 2: raise AssertionError('首页最多请求三个分类')
+        return {'list':[{'vod_id':tid,'vod_name':tid}]}
+'''
+        self.assertTrue(call('partial', 'load', script=source)['ok'])
+        result = call('partial', method='home')['value']
+        self.assertEqual([row['moreUrl'] for row in result], ['1', '2'])
+        source += "\n    def categoryContent(self, tid, pg, filter, extend): raise ValueError('站点连接失败')\n"
+        self.assertTrue(call('broken', 'load', script=source)['ok'])
+        result = call('broken', method='home')
+        self.assertFalse(result['ok'])
+        self.assertIn('站点连接失败', result['error']['message'])
+
     def setUp(self):
         CALLS.clear()
         for state in host._contexts.values():
@@ -369,6 +415,9 @@ def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4
                 self.assertGreater(len(categories["value"]), 0)
                 print("Validated load/dependencies/categories:", path.name)
                 if path.name in ("金牌.py", "影探4K.py"):
+                    home = call(source_id, method="home")
+                    self.assertTrue(home["ok"], home)
+                    self.assertTrue(home["value"], '真实脚本首页应有推荐或分类首屏')
                     search = call(source_id, method="list", argument={"keyword": "测试", "page": 1})
                     self.assertTrue(search["ok"], search)
                     item = search["value"]["items"][0]

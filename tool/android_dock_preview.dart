@@ -38,15 +38,9 @@ class _DockPreview extends StatefulWidget {
 }
 
 class _DockPreviewState extends State<_DockPreview> {
-  bool fiveTabs = true;
-  String selected = 'novel';
+  bool fourTabs = true;
+  String selected = 'comic';
   static const entries = [
-    ShellDockEntry(
-      id: 'novel',
-      label: '小说',
-      icon: Icons.menu_book_outlined,
-      selectedIcon: Icons.menu_book_rounded,
-    ),
     ShellDockEntry(
       id: 'comic',
       label: '漫画',
@@ -77,8 +71,8 @@ class _DockPreviewState extends State<_DockPreview> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: ShellSettingsController.instance,
     builder: (context, _) {
-      final visible = fiveTabs ? entries : [entries[0], entries[2], entries[4]];
-      final active = visible.any((e) => e.id == selected) ? selected : 'novel';
+      final visible = fourTabs ? entries : [entries[0], entries[1], entries[3]];
+      final active = visible.any((e) => e.id == selected) ? selected : 'comic';
       final appearance = ShellSettingsController.instance.settings.appearance;
       return Scaffold(
         backgroundColor: const Color(0xFFEEEDF4),
@@ -120,11 +114,11 @@ class _DockPreviewState extends State<_DockPreview> {
                   SegmentedButton<bool>(
                     segments: const [
                       ButtonSegment(value: false, label: Text('三项')),
-                      ButtonSegment(value: true, label: Text('五项')),
+                      ButtonSegment(value: true, label: Text('四项')),
                     ],
-                    selected: {fiveTabs},
+                    selected: {fourTabs},
                     onSelectionChanged: (values) =>
-                        setState(() => fiveTabs = values.single),
+                        setState(() => fourTabs = values.single),
                   ),
                   const SizedBox(height: 10),
                   Text(

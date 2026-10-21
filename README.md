@@ -4,37 +4,14 @@ A new Flutter project.
 
 ## 使用说明
 
-- 新旧播放器切换：设置 → 阅读与播放 → 播放器方案；下次打开视频生效，默认仍保留现有播放器。
-- 参考播放器内：播放设置 → 参考播放器使用说明；片头片尾识别页右上角问号也能打开指南。17 个识别开关都有逐项说明。
 - [片头片尾识别、手动打点、模型替换与日志](docs/2026-10-19_片头片尾识别接入.md)
 - [漫画阅读器的截图对照与操作验收](docs/2026-10-18_漫画阅读器截图对照验收.md)
 - [主题色、字体与自适应颜色设置](docs/2026-10-18_个性化设置.md)
 
-参考播放器的视频 AI 采用实验性的 MobileCLIP 零样本分类。准确率、温控和耗电最终以 iPhone 真机为准；评论服务、DLNA 与 AirPlay 路由尚未接入。浏览器 UA、字幕语言自动优选及详情页“只选中不播放”已接到实际行为，仍需真机验收。
 
 底部导航为漫画／视频／设置，猫源从视频选择器进入，网页主页支持长按排序。视频源支持通用 Python Spider、Python／JS 多文件 ZIP 源包、ESM／CommonJS 依赖加载、JS Spider 及远程 T4／RPC，见 [三 TAB 与多文件源包](docs/2026-10-20_三TAB与多文件源包.md)。Python 代码在 App 进程内执行，请仅导入可信来源；Android Java／DEX 需外部后端，原生扩展需随 iOS 构建签名。
 
 Rex 明文经典 Widget 已接入参数、同步存储／共享缓存、搜索到播放和集合解析；大师兄、采集聚合、荐片已通过原文件离线链路及重开测试。REXENC／FWENC 加密模块尚未接通密钥加载，详见 [Rex Widget 接入范围](docs/2026-10-20_Rex-Widget接入.md)。
-
-## 图源（脚本不随本仓库分发）
-
-内置图源统一放在 **[teng662858/LumeBox-Sources](https://github.com/teng662858/LumeBox-Sources)**，
-按板块提供订阅清单，App 里「导入图源 → 订阅地址」粘贴即可：
-
-| 板块 | 订阅地址 |
-|------|----------|
-| 小说 | `https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/novel/sources.txt` |
-| 漫画 | `https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/comic/sources.txt` |
-| 视频 | `https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/video/sources.txt` |
-
-本地要跑「真实引擎 + 真实脚本」的原生用例，先拉一份脚本缓存：
-
-```bash
-dart run tool/fetch_sources.dart   # → .sources-cache/<section>/（已 gitignore）
-```
-
-没拉缓存时那些用例**整组跳过**（不是失败）：它们验的是「脚本对得上站点真实结构」，
-不是 App 自身的行为。
 
 ## 打包产物（未签名 IPA）
 

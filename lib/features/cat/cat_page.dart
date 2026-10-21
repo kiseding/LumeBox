@@ -112,7 +112,51 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   void changed() {
+    final siteId = source?.site.id;
+    if (siteId != null &&
+        service.subscriptions.any(
+          (record) => record.removedSiteIds.contains(siteId),
+        )) {
+      sequence++;
+      source = null;
+      categories = [];
+      groups = [];
+      items = [];
+      loading = false;
+      error = '当前站点已删除，请重新选择源';
+    }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _deleteSite(
+    BuildContext pickerContext,
+    CatSite site,
+    VoidCallback refresh,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: pickerContext,
+      builder: (context) => AlertDialog(
+        title: const Text('删除源'),
+        content: Text('确定删除「${site.name}」？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await service.removeSite(site);
+      if (pickerContext.mounted) refresh();
+    } catch (_) {
+      if (mounted) toast('删除失败，请重试');
+    }
   }
 
   @override
@@ -624,6 +668,15 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
                             SourceSwipeTile(
                               height: cardHeight,
                               actions: <SourceSwipeAction>[
+                                SourceSwipeAction(
+                                  label: '删除',
+                                  color: LumeTheme.danger,
+                                  onTap: () => _deleteSite(
+                                    context,
+                                    site,
+                                    () => pickerSetState(() {}),
+                                  ),
+                                ),
                                 SourceSwipeAction(
                                   label: '设置',
                                   color: LumeTheme.accent,

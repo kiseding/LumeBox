@@ -238,6 +238,28 @@ void main() {
     expect(CatPreloader.selectedSite(restored)!.subscriptionId, second.id);
     await restored.closeForTesting();
   });
+  test('删除猫站点持久化，刷新和重启不会恢复，订阅及历史保留', () async {
+    final record = await service.add(
+      '保留订阅',
+      remoteBase.resolve('/delete.js.md5').toString(),
+    );
+    await service.refreshSites(record);
+    final site = record.sites.single;
+    await service.select(site);
+    await service.remember(site, {'id': 'viewed', 'title': '历史条目'});
+    await service.removeSite(site);
+    expect(service.selectedSiteId, isNull);
+    await service.refreshSites(record);
+    expect(record.sites, isEmpty);
+    expect(record.error, isEmpty);
+    final restored = CatService.testing();
+    await restored.boot();
+    expect(restored.subscriptions.single.removedSiteIds, contains(site.id));
+    expect(restored.subscriptions.single.sites, isEmpty);
+    expect(restored.history.single['id'], 'viewed');
+    await restored.closeForTesting();
+  });
+
   test('包丢失时自动重新下载，不留下启用但无法读取站点的状态', () async {
     final record = await service.add(
       '修复',

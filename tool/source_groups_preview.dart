@@ -134,7 +134,6 @@ class _SourceGroupsPreviewState extends State<SourceGroupsPreview> {
                                     for (final kind in [
                                       'video',
                                       'comic',
-                                      'novel',
                                       'live',
                                     ])
                                       for (var i = 0; i < 14; i++)
@@ -142,7 +141,7 @@ class _SourceGroupsPreviewState extends State<SourceGroupsPreview> {
                                           subscriptionId: 'preview',
                                           key: '$kind-$i',
                                           name:
-                                              '站点 ${['video', 'comic', 'novel', 'live'].indexOf(kind) * 14 + i + 1}',
+                                              '站点 ${['video', 'comic', 'live'].indexOf(kind) * 14 + i + 1}',
                                           api: '/preview',
                                           kind: kind,
                                           iconUrl: i == 13

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -32,13 +35,20 @@ class DebugPanelPage extends StatefulWidget {
 
 class _DebugPanelPageState extends State<DebugPanelPage> {
   late DeveloperModeSettings _settings = DeveloperMode.current;
+  StreamSubscription<void>? _changes;
 
   @override
   void initState() {
     super.initState();
-    DebugRequestLog.changes.listen((_) {
+    _changes = DebugRequestLog.changes.listen((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    _changes?.cancel();
+    super.dispose();
   }
 
   Future<void> _apply(DeveloperModeSettings next) async {
@@ -78,6 +88,28 @@ class _DebugPanelPageState extends State<DebugPanelPage> {
         padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
         children: <Widget>[
           _buildSwitches(),
+          const SizedBox(height: 12),
+          const GlassCard(
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text('怎么排查源加载失败'),
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    '1. 打开开发者模式，再打开请求抓包。\n'
+                    '2. 清空旧记录，回到有问题的源，刷新或搜索一次。\n'
+                    '3. 回到这里，展开失败请求，查看状态、耗时和错误。\n'
+                    '4. 排查结束后关闭抓包，记录会清空。\n\n'
+                    '200：服务器已回应，还需检查返回内容和解析。\n'
+                    '403：访问被拒绝；404：地址不存在；429：请求太频繁；5xx：服务端异常。\n'
+                    '状态 0：查看错误说明，通常是网络连接或超时。\n\n'
+                    '这里记录 App 请求队列的请求，并非手机上所有网络流量；它用于找原因，不会自动修复源。',
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
           _buildCapture(records),
           const SizedBox(height: 12),
@@ -415,7 +447,14 @@ class _RuntimeStatsCard extends StatelessWidget {
             '${settings.timeout.inSeconds}s（重试 ${settings.maxRetries} 次）',
           ),
           _row('全局 UA', settings.userAgent.isEmpty ? '内置默认' : '自定义'),
-          _row('全局代理', settings.proxy.isEmpty ? '直连' : settings.proxy),
+          _row(
+            '全局代理',
+            defaultTargetPlatform == TargetPlatform.iOS
+                ? '跟随系统网络设置'
+                : settings.proxy.isEmpty
+                ? '直连'
+                : settings.proxy,
+          ),
         ],
       ),
     );

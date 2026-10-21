@@ -1,6 +1,5 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import '../../shared/widgets/source_update_badge.dart';
 import '../../core/reading/reading_library.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/session/section.dart';
@@ -359,10 +358,6 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                           record.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                        ),
-                        SourceUpdateBadge(
-                          section: Section.cat,
-                          sourceId: record.id,
                         ),
                       ],
                     ),

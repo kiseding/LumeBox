@@ -1,7 +1,6 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/source/source_subscription_sync.dart';
-import '../../shared/widgets/source_update_badge.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../core/source/source_content_rating.dart';
@@ -847,10 +846,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                             source.name,
                           ))
                             const SourceRatingBadge(),
-                          SourceUpdateBadge(
-                            section: widget.section,
-                            sourceId: source.id,
-                          ),
                           Text(source.hasGroup ? source.group : '未分组'),
                         ],
                       ),
@@ -1122,7 +1117,6 @@ class _SourceTile extends StatelessWidget {
                   runSpacing: 2,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
-                    SourceUpdateBadge(section: section, sourceId: source.id),
                     Text(
                       source.version.isEmpty
                           ? LumeTheme.appName

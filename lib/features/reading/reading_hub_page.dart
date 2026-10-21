@@ -53,11 +53,7 @@ class ReadingHubPage extends StatelessWidget {
     return SourceDrawerActions(
       actions: [
         for (final action in actions?.whereType<IconButton>() ?? <IconButton>[])
-          if (action.tooltip == '扩展仓库')
-            TextButton(
-              onPressed: action.onPressed,
-              child: Text(action.tooltip!),
-            ),
+          if (action.tooltip == '扩展仓库') action,
       ],
       child: DefaultTabController(
         length: tabLabels.length,

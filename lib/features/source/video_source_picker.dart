@@ -24,6 +24,8 @@ import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
 import 'source_section_page.dart';
+import 'source_maintenance.dart';
+import '../../shared/widgets/source_swipe_tile.dart';
 
 enum VideoSourceType {
   all('全部'),
@@ -359,6 +361,54 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     return result;
   }
 
+  Future<void> _deleteEntry(
+    String id,
+    String name,
+    Future<void> Function() remove,
+  ) async {
+    if (busy.contains(id)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除源'),
+        content: Text('确定删除「$name」？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: LumeTheme.danger),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => busy.add(id));
+    try {
+      await remove();
+      if (mounted) await load();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => busy.remove(id));
+    }
+  }
+
+  Future<void> _deleteOrdinary(SourceDescriptor source) =>
+      _deleteEntry(source.id, source.name, () async {
+        final result = await SourceMaintenance(
+          section: Section.video,
+          manager: widget.manager,
+        ).remove([source]);
+        if (result.errors.isNotEmpty) throw StateError('删除未完成');
+      });
+
   Future<void> refresh(CatSubscription record) async {
     if (busy.contains(record.id)) return;
     setState(() => busy.add(record.id));
@@ -381,45 +431,60 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     required bool selected,
     required VoidCallback onTap,
     required VoidCallback onMore,
+    required VoidCallback onDelete,
     SourceDescriptor? descriptor,
     Section section = Section.video,
     String siteUrl = '',
   }) {
     final prefs = SourcePreferences.read(section, id);
-    return SourcePickerCard(
-      tapKey: ValueKey('video-picker-source-$id'),
-      title: name,
-      subtitle: Row(
-        children: [
-          Flexible(
-            child: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          if (prefs.pinned)
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: LumeIcon(
-                Icons.push_pin,
-                slot: 'source_picker_sheet.2',
-                size: 11,
-                color: Theme.of(context).colorScheme.primary,
+    return SourceSwipeTile(
+      key: ValueKey('video-picker-swipe-$id'),
+      actions: [
+        SourceSwipeAction(
+          label: '删除',
+          color: LumeTheme.danger,
+          onTap: onDelete,
+        ),
+      ],
+      child: SourcePickerCard(
+        tapKey: ValueKey('video-picker-source-$id'),
+        title: name,
+        subtitle: Row(
+          children: [
+            Flexible(
+              child: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-        ],
-      ),
-      selected: selected,
-      onTap: onTap,
-      onMore: onMore,
-      moreTooltip: '$name的设置',
-      icon: SourceIcon(
-        name: name,
-        siteUrl: descriptor?.siteUrl ?? siteUrl,
-        iconUrl: prefs.iconUrl.trim().isEmpty
-            ? descriptor?.iconUrl ?? ''
-            : prefs.iconUrl,
-        size: SourceCardMetrics.iconSize,
-        radius: 8,
-        section: section,
-        sourceId: id,
+            if (prefs.pinned)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: LumeIcon(
+                  Icons.push_pin,
+                  slot: 'source_picker_sheet.2',
+                  size: 11,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+          ],
+        ),
+        selected: selected,
+        onTap: onTap,
+        onMore: onMore,
+        moreTooltip: '$name的设置',
+        icon: SourceIcon(
+          name: name,
+          siteUrl: descriptor?.siteUrl ?? siteUrl,
+          iconUrl: prefs.iconUrl.trim().isEmpty
+              ? descriptor?.iconUrl ?? ''
+              : prefs.iconUrl,
+          size: SourceCardMetrics.iconSize,
+          radius: 8,
+          section: section,
+          sourceId: id,
+        ),
       ),
     );
   }
@@ -496,7 +561,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           .toList();
       final order = record.sites.map((s) => s.id).toList();
       sites.sort((a, b) => SourceOrder.compare(Section.cat, a.id, b.id, order));
-      if (sites.isNotEmpty || (record.sites.isEmpty && matches(record.name))) {
+      if (sites.isNotEmpty ||
+          (record.sites.isEmpty &&
+              record.removedSiteIds.isEmpty &&
+              matches(record.name))) {
         groups.add((record, sites));
       }
     }
@@ -515,6 +583,72 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         (!showOrdinary || ordinary.isEmpty) &&
         (!showCat || groups.isEmpty) &&
         (!showWeb || filteredWeb.isEmpty);
+    Widget runtimeGroup(VideoSourceType kind) {
+      final runtime = switch (kind) {
+        VideoSourceType.python => 'python',
+        VideoSourceType.module => 'module',
+        _ => 'javascript',
+      };
+      final entries = ordinary
+          .where((source) => source.runtimeKind == runtime)
+          .toList();
+      if (entries.isEmpty) return const SizedBox.shrink();
+      final title = switch (kind) {
+        VideoSourceType.python => 'PY · Python 源',
+        VideoSourceType.module => '模块 · ESM / CommonJS',
+        _ => '普通 · JS 源',
+      };
+      return Column(
+        key: ValueKey('video-source-group-${kind.name}'),
+        children: [
+          heading(title, entries.length),
+          grid([
+            for (final s in entries)
+              SourceDragTile(
+                key: ValueKey('video-picker-drag-${s.id}'),
+                id: s.id,
+                name: s.name,
+                accepts: (id) => entries.any((s) => s.id == id),
+                onMove: (from, to) async {
+                  final ids = entries.map((s) => s.id).toList();
+                  await SourceOrder.move(
+                    Section.video,
+                    originalOrder,
+                    ids,
+                    ids.indexOf(from),
+                    ids.indexOf(to),
+                  );
+                  changed();
+                },
+                child: card(
+                  id: s.id,
+                  name: s.name,
+                  subtitle: !widget.showingCat && currentId == s.id
+                      ? '当前使用'
+                      : '${s.runtimeKind == 'python'
+                            ? 'PY'
+                            : s.runtimeKind == 'module'
+                            ? '模块'
+                            : 'JS'} · ${s.version}',
+                  descriptor: s,
+                  selected: !widget.showingCat && currentId == s.id,
+                  onTap: () =>
+                      Navigator.pop(context, VideoSourceChoice.ordinary(s.id)),
+                  onDelete: () => _deleteOrdinary(s),
+                  onMore: () => edit(
+                    Section.video,
+                    s.id,
+                    s.name,
+                    s.siteUrl,
+                    widgetParameters: s.runtimeKind == 'module',
+                  ),
+                ),
+              ),
+          ]),
+        ],
+      );
+    }
+
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Material(
@@ -619,72 +753,30 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                       ],
                                     ),
                                   ),
-                                if (showOrdinary && ordinary.isNotEmpty) ...[
-                                  heading(
-                                    type == VideoSourceType.python
-                                        ? 'Python 源'
-                                        : type == VideoSourceType.module
-                                        ? '模块源'
-                                        : type == VideoSourceType.ordinary
-                                        ? '普通视频源'
-                                        : '视频源',
-                                    ordinary.length,
+                                if (showOrdinary &&
+                                    (type != VideoSourceType.all ||
+                                        ordinary.any(
+                                          (s) => s.runtimeKind == 'javascript',
+                                        )))
+                                  runtimeGroup(
+                                    type == VideoSourceType.all
+                                        ? VideoSourceType.ordinary
+                                        : type,
                                   ),
-                                  grid([
-                                    for (final s in ordinary)
-                                      SourceDragTile(
-                                        key: ValueKey(
-                                          'video-picker-drag-${s.id}',
-                                        ),
-                                        id: s.id,
-                                        name: s.name,
-                                        accepts: (id) =>
-                                            ordinary.any((s) => s.id == id),
-                                        onMove: (from, to) async {
-                                          final ids = ordinary
-                                              .map((s) => s.id)
-                                              .toList();
-                                          await SourceOrder.move(
-                                            Section.video,
-                                            originalOrder,
-                                            ids,
-                                            ids.indexOf(from),
-                                            ids.indexOf(to),
-                                          );
-                                          changed();
-                                        },
-                                        child: card(
-                                          id: s.id,
-                                          name: s.name,
-                                          subtitle:
-                                              !widget.showingCat &&
-                                                  currentId == s.id
-                                              ? '当前使用'
-                                              : '${s.runtimeKind == 'python'
-                                                    ? 'PY'
-                                                    : s.runtimeKind == 'module'
-                                                    ? '模块'
-                                                    : 'JS'} · ${s.version}',
-                                          descriptor: s,
-                                          selected:
-                                              !widget.showingCat &&
-                                              currentId == s.id,
-                                          onTap: () => Navigator.pop(
-                                            context,
-                                            VideoSourceChoice.ordinary(s.id),
-                                          ),
-                                          onMore: () => edit(
-                                            Section.video,
-                                            s.id,
-                                            s.name,
-                                            s.siteUrl,
-                                            widgetParameters:
-                                                s.runtimeKind == 'module',
-                                          ),
-                                        ),
+                                if (showCat && groups.isNotEmpty)
+                                  KeyedSubtree(
+                                    key: const ValueKey(
+                                      'video-source-group-cat',
+                                    ),
+                                    child: heading(
+                                      '猫源',
+                                      groups.fold<int>(
+                                        0,
+                                        (count, group) =>
+                                            count + group.$2.length,
                                       ),
-                                  ]),
-                                ],
+                                    ),
+                                  ),
                                 if (showCat)
                                   for (final (record, sites) in groups) ...[
                                     heading(
@@ -758,6 +850,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                               context,
                                               VideoSourceChoice.cat(s),
                                             ),
+                                            onDelete: () => _deleteEntry(
+                                              s.id,
+                                              s.name,
+                                              () => service.removeSite(s),
+                                            ),
                                             onMore: () => edit(
                                               Section.cat,
                                               s.id,
@@ -768,17 +865,26 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                         ),
                                     ]),
                                   ],
+                                if (type == VideoSourceType.all) ...[
+                                  runtimeGroup(VideoSourceType.python),
+                                  runtimeGroup(VideoSourceType.module),
+                                ],
                                 if (showWeb) ...[
-                                  heading(
-                                    '网页主页',
-                                    filteredWeb.length,
-                                    trailing: IconButton(
-                                      tooltip: '添加网页主页',
-                                      onPressed: _addWebHome,
-                                      icon: const LumeIcon(
-                                        Icons.add,
-                                        size: 20,
-                                        slot: 'video_source_picker.add_web',
+                                  KeyedSubtree(
+                                    key: const ValueKey(
+                                      'video-source-group-web',
+                                    ),
+                                    child: heading(
+                                      '网页主页',
+                                      filteredWeb.length,
+                                      trailing: IconButton(
+                                        tooltip: '添加网页主页',
+                                        onPressed: _addWebHome,
+                                        icon: const LumeIcon(
+                                          Icons.add,
+                                          size: 20,
+                                          slot: 'video_source_picker.add_web',
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -828,6 +934,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                             onTap: () => Navigator.pop(
                                               context,
                                               VideoSourceChoice.web(home),
+                                            ),
+                                            onDelete: () => _deleteEntry(
+                                              home.id,
+                                              home.name,
+                                              () async {
+                                                _webStore?.remove(home.id);
+                                              },
                                             ),
                                             onMore: () => _editWebHome(home),
                                           ),

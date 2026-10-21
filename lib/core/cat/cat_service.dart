@@ -35,12 +35,18 @@ class CatSubscription {
     this.checked = 0,
     this.error = '',
     this.sites = const [],
-  });
+    Set<String>? removedSiteIds,
+  }) : removedSiteIds = Set.of(removedSiteIds ?? const {});
   final String id;
   String name, url, hash, configHash, error;
   bool enabled, automatic;
   int checked;
   List<CatSite> sites;
+  final Set<String> removedSiteIds;
+  void replaceSites(List<CatSite> value) {
+    sites = value.where((site) => !removedSiteIds.contains(site.id)).toList();
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -52,10 +58,11 @@ class CatSubscription {
     'checked': checked,
     'error': error,
     'sites': sites.map((site) => site.toJson()).toList(),
+    'removedSiteIds': removedSiteIds.toList(),
   };
   factory CatSubscription.fromJson(Map<String, dynamic> value) {
     final id = catText(value['id']);
-    return CatSubscription(
+    final record = CatSubscription(
       id: id,
       name: catText(value['name']),
       url: catText(value['url']),
@@ -65,11 +72,16 @@ class CatSubscription {
       automatic: value['automatic'] != false,
       checked: (value['checked'] as num?)?.toInt() ?? 0,
       error: catText(value['error']),
+      removedSiteIds: (value['removedSiteIds'] is List)
+          ? (value['removedSiteIds'] as List).whereType<String>().toSet()
+          : {},
       sites: catMaps(value['sites'])
           .map((raw) => CatSite.fromJson(id, raw))
           .where((site) => site.kind != 'novel')
           .toList(),
     );
+    record.replaceSites(record.sites);
+    return record;
   }
 }
 
@@ -700,7 +712,7 @@ class CatService extends ChangeNotifier {
         _bases[record.id] = base;
         _versions[record.id] = version;
         final config = await request(base, '/config');
-        record.sites = CatSite.parseConfig(record.id, config);
+        record.replaceSites(CatSite.parseConfig(record.id, config));
         record.error = '';
         _initialized.removeWhere((id) => id.startsWith('${record.id}|'));
         await save();
@@ -892,11 +904,12 @@ class CatService extends ChangeNotifier {
   Future<void> refreshSites(CatSubscription record) async {
     try {
       final base = await activate(record);
-      record.sites = CatSite.parseConfig(
+      final sites = CatSite.parseConfig(
         record.id,
         await request(base, '/config'),
       );
-      if (record.sites.isEmpty) throw StateError('配置接口没有返回可用站点，请打开站点配置检查');
+      if (sites.isEmpty) throw StateError('配置接口没有返回可用站点，请打开站点配置检查');
+      record.replaceSites(sites);
       if (SourceSubscriptionSync.notice(Section.cat, record.id) != null) {
         for (final site in record.sites) {
           SourceSubscriptionSync.recordChange(
@@ -940,6 +953,39 @@ class CatService extends ChangeNotifier {
 
   Map<String, String>? imageHeadersFor(CatSite site) =>
       _upstreams[site.id] == null ? null : {'Referer': _upstreams[site.id]!};
+  Future<void> removeSite(CatSite site) => _serial(() async {
+    final record = subscriptions
+        .where((r) => r.id == site.subscriptionId)
+        .firstOrNull;
+    if (record == null) return;
+    final oldSites = record.sites;
+    final oldRemoved = Set<String>.of(record.removedSiteIds);
+    final oldSelected = selectedSiteId;
+    final oldSelectionRequired = needsSiteSelection;
+    final oldMessage = recoveryMessage;
+    record.removedSiteIds.add(site.id);
+    record.replaceSites(record.sites);
+    if (selectedSiteId == site.id) {
+      selectedSiteId = null;
+      needsSiteSelection = true;
+      recoveryMessage = '当前站点已删除，请重新选择源';
+    }
+    try {
+      await save();
+    } catch (_) {
+      record.sites = oldSites;
+      record.removedSiteIds
+        ..clear()
+        ..addAll(oldRemoved);
+      selectedSiteId = oldSelected;
+      needsSiteSelection = oldSelectionRequired;
+      recoveryMessage = oldMessage;
+      rethrow;
+    }
+    _initialized.remove(site.id);
+    _upstreams.remove(site.id);
+    notifyListeners();
+  });
   Future<void> remove(CatSubscription record) => _serial(() async {
     if (_control != null && _bases.containsKey(record.id)) {
       await request(
@@ -957,6 +1003,11 @@ class CatService extends ChangeNotifier {
     await save();
   });
   Future<void> select(CatSite site) async {
+    if (subscriptions.any(
+      (record) => record.removedSiteIds.contains(site.id),
+    )) {
+      throw StateError('当前站点已删除，请重新选择源');
+    }
     if (!PrivacySettings.instance.allowsSource(site.id, site.name)) return;
     needsSiteSelection = false;
     selectedSiteId = site.id;

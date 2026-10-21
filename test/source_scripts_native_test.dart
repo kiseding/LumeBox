@@ -34,7 +34,7 @@ void main() {
   group('真实引擎 · 四个扩展源', () {
     test('JComic签名刷新经过真实QuickJS和宿主HTTP桥接', () async {
       const page = 'https://jcomic.net/cat/test/1';
-      final source = await _boot(_script('jcomic_comic.js'),
+      final source = await _boot(_script('JComic漫画.js'),
         section: Section.comic,
         http: _SnapshotHttp(get: {page: _read('jcomic_cat.html')}, stripQuery: true));
       addTearDown(source.dispose);
@@ -42,7 +42,7 @@ void main() {
       final url = list.items.first.cover!;
       final refreshed = await source.data.refreshImage('${url.split('?').first}?expired=1', page);
       expect(refreshed, url);
-    }, skip: _skipUnless(['jcomic_comic.js', 'jcomic_cat.html']));
+    }, skip: _skipUnless(['JComic漫画.js', 'jcomic_cat.html']));
 
 
     test('daniao5 漫画：列表 / 详情 / 章节 / 图片', () async {

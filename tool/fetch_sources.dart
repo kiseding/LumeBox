@@ -11,14 +11,14 @@ import 'package:http/http.dart' as http;
 /// dart run tool/fetch_sources.dart
 /// ```
 ///
-/// 三个板块各有一个订阅清单（`<section>/sources.txt`，一行一个脚本地址），
+/// 漫画和视频各有一个订阅清单（`<section>/sources.txt`，一行一个脚本地址），
 /// 这里按清单逐个拉下来，存成 `.sources-cache/<section>/<文件名>`。
 /// 每条带 20s 超时 + 两次重试：GitHub raw 在国内网络下偶尔超时，
 /// 一条失败不打断整体（最后打印拉到几份）。
 Future<void> main(List<String> args) async {
   const base =
       'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main';
-  const sections = <String>['novel', 'comic', 'video'];
+  const sections = <String>['comic', 'video'];
   const timeout = Duration(seconds: 20);
   final root = Directory('.sources-cache');
   var ok = 0;
@@ -29,8 +29,7 @@ Future<void> main(List<String> args) async {
     for (var attempt = 0; attempt < 3; attempt++) {
       final client = http.Client();
       try {
-        final response =
-            await client.get(Uri.parse(url)).timeout(timeout);
+        final response = await client.get(Uri.parse(url)).timeout(timeout);
         if (response.statusCode == 200) return response.body;
         stderr.writeln('[fail] $url → HTTP ${response.statusCode}');
         return null;

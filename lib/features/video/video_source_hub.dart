@@ -82,7 +82,19 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
     );
     if (!mounted) return;
     // Imports can change the available sources even when the drawer is closed.
-    setState(() => _revision++);
+    setState(() {
+      _revision++;
+      if (_site != null &&
+          CatService.instance.subscriptions.any(
+            (record) => record.removedSiteIds.contains(_site!.id),
+          )) {
+        _site = null;
+      }
+      if (_webHome != null &&
+          WebHomeStore.instance?.byId(_webHome!.id) == null) {
+        _webHome = null;
+      }
+    });
     if (selected == null) return;
     _selection++;
     if (selected.site case final site?) {

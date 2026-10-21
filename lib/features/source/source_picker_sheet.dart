@@ -29,6 +29,7 @@ import '../../core/theme/lume_theme.dart';
 import 'source_action_dialogs.dart';
 import 'source_preferences_page.dart';
 import 'source_section_page.dart';
+import 'source_maintenance.dart';
 import 'add_source_button.dart';
 import 'source_drawer_actions.dart';
 
@@ -209,7 +210,11 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     if (confirmed != true || !mounted || busy.contains(source.id)) return;
     setState(() => busy.add(source.id));
     try {
-      await manager.remove(source.id);
+      final result = await SourceMaintenance(
+        section: widget.section,
+        manager: manager,
+      ).remove([source]);
+      if (result.errors.isNotEmpty) throw StateError('删除未完成');
       widget.onChanged?.call();
       await reload();
     } catch (error) {
@@ -462,6 +467,18 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
       child: sourceTile(source),
     );
 
+    Widget swipeCard(SourceDescriptor source) => SourceSwipeTile(
+      key: ValueKey('picker-swipe-${source.id}'),
+      actions: [
+        SourceSwipeAction(
+          label: '删除',
+          color: LumeTheme.danger,
+          onTap: () => deleteSource(source),
+        ),
+      ],
+      child: sourceTile(source),
+    );
+
     Widget list(List<SourceDescriptor> entries) {
       // 所有板块统一用长按拖拽排序；猫源的设置/删除走左滑，不抢长按。
       Widget tile(BuildContext context, int i) => SourceDragTile(
@@ -472,7 +489,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         onMove: (from, to) => move(entries, from, to),
         child: widget.section == Section.cat
             ? catCard(entries[i])
-            : sourceTile(entries[i]),
+            : swipeCard(entries[i]),
       );
       if (entries.isEmpty) {
         return Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'));
@@ -575,7 +592,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                             grouped[group.$1]!.any((entry) => entry.id == id),
                         onMove: (from, to) =>
                             move(grouped[group.$1]!, from, to),
-                        child: sourceTile(source),
+                        child: swipeCard(source),
                       ),
                   ],
                 ),
@@ -607,6 +624,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                 onQueryChanged: (value) =>
                     setState(() => query = value.trim().toLowerCase()),
                 extraActions: [
+                  ...widget.extraActions,
                   if (widget.section == Section.cat)
                     IconButton(
                       tooltip: columns ? '切换为单列' : '切换为双列',
@@ -639,11 +657,6 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                   ),
                 ),
               Expanded(child: groupedList),
-              if (widget.extraActions.isNotEmpty)
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  children: widget.extraActions,
-                ),
             ],
           ),
         ),

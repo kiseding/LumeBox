@@ -594,6 +594,8 @@ def _decoded(value):
 def _items(value):
     raw = _decoded(value)
     entries = raw if isinstance(raw, list) else raw.get("list", [])
+    if not isinstance(entries, (list, tuple)):
+        return []
     return [{"id": "py:" + str(x.get("vod_id", x.get("id", ""))),
              "title": str(x.get("vod_name", x.get("name", ""))),
              "cover": x.get("vod_pic", x.get("pic", "")),
@@ -610,6 +612,65 @@ def _detail(state, item_id):
     return state["detail"]
 
 
+def _home(state):
+    """Prefer real recommendations; otherwise show real category first pages."""
+    spider = state["spider"]
+    failure = None
+    for name, args in (("homeVideoContent", ()), ("homeContent", (False,))):
+        if not _method(spider, name):
+            continue
+        try:
+            items = _items(_invoke(spider, name, args))
+            if items:
+                return items
+        except TimeoutError:
+            raise
+        except Exception as error:
+            failure = error
+    if not _method(spider, "homeContent") or not _method(spider, "categoryContent"):
+        if failure:
+            raise failure
+        return []
+    metadata = _decoded(_invoke(spider, "homeContent", (True,)))
+    if not isinstance(metadata, dict):
+        return []
+    filter_groups = metadata.get("filters") or {}
+    if not isinstance(filter_groups, dict):
+        filter_groups = {}
+    boards, seen = [], set()
+    for category in metadata.get("class") or []:
+        if not isinstance(category, dict) or category.get("type_id") is None:
+            continue
+        category_id = str(category["type_id"])
+        if not category_id or category_id in seen:
+            continue
+        if len(seen) >= 3:
+            break
+        seen.add(category_id)
+        filters = {}
+        for group in filter_groups.get(category_id) or []:
+            if not isinstance(group, dict):
+                continue
+            values = group.get("value", [])
+            if group.get("key") and values:
+                filters[str(group["key"])] = values[0].get("v", "")
+        try:
+            page = _dispatch(state, "list", {"categoryId": category_id, "page": 1, "filters": filters})
+            if page["items"]:
+                boards.append({"title": str(category.get("type_name") or category_id),
+                               "moreUrl": category_id, "items": page["items"][:12]})
+        except TimeoutError:
+            # Keep completed boards within the existing call budget.
+            if boards:
+                return boards
+            raise
+        except Exception as error:
+            failure = error
+    if not boards and failure:
+        raise failure
+    return boards
+
+
 def _dispatch(state, method, arg):
     spider = state["spider"]
     if not state["initialized"]:
@@ -617,6 +678,8 @@ def _dispatch(state, method, arg):
             _invoke(spider, "init", (state.get("config", {}).get("extend", ""),))
         state["initialized"] = True
     arg = arg or {}
+    if method == "home":
+        return _home(state)
     if method in ("categories", "filters"):
         if not _method(spider, "homeContent"):
             return []
@@ -627,7 +690,7 @@ def _dispatch(state, method, arg):
         return [{"id": x["key"], "title": x.get("name", x["key"]),
                  "options": [{"id": str(v.get("v", "")), "title": str(v.get("n", ""))} for v in x.get("value", [])]}
                 for x in groups.get(str(arg.get("categoryId", "")), [])]
-    if method in ("list", "home"):
+    if method == "list":
         if arg.get("keyword"):
             search = _method(spider, "searchContent")
             if search is None:
@@ -647,8 +710,6 @@ def _dispatch(state, method, arg):
             raw = _invoke(spider, "homeVideoContent") if _method(spider, "homeVideoContent") else _invoke(spider, "homeContent", (False,)) if _method(spider, "homeContent") else {"list": []}
         value = _decoded(raw)
         items = _items(value)
-        if method == "home":
-            return items
         more = False
         if isinstance(value, dict):
             try:
@@ -743,7 +804,7 @@ def execute(request):
                     found = None
                 if found is None:
                     warnings.append("含尚未内置的可选/延迟依赖：" + name)
-        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content"] + (["filters"] if _method(spider, "homeContent") else []) + (["home"] if _method(spider, "homeVideoContent") else []), "warnings": list(dict.fromkeys(warnings))}}
+        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content"] + (["filters"] if _method(spider, "homeContent") else []) + (["home"] if _method(spider, "homeVideoContent") or _method(spider, "homeContent") else []), "warnings": list(dict.fromkeys(warnings))}}
     state = _contexts.get(source_id)
     if state is None:
         raise ValueError("Python 源已释放，请重新选择")
