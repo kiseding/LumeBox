@@ -1,3 +1,4 @@
+import 'network_cancellation.dart';
 import 'ios_verified_webview.dart';
 import 'site_session_pool.dart';
 import 'source_text_decoder.dart';
@@ -167,6 +168,7 @@ class LumeHttp {
   }
 
   NetworkQueue? _injectedQueue;
+  final _lifetime = NetworkCancellation();
   String? _legacySessionHost;
 
   /// 绑定共享队列：同一板块的图源共用一个队列，并发额度才真的互通。
@@ -211,6 +213,7 @@ class LumeHttp {
     int? maxBytes,
     bool followRedirects = true,
   }) async {
+    _lifetime.check();
     final rewritten = _rewriteUrl?.call(url) ?? url;
     var target = Uri.parse(rewritten);
     var verb = method.toUpperCase();
@@ -346,8 +349,14 @@ class LumeHttp {
         );
       }
     }
+    final cancellation = NetworkCancellation();
+    final stopLifetime = _lifetime.onCancel(cancellation.cancel);
+    final stopOwner = NetworkCancellation.current?.onCancel(
+      cancellation.cancel,
+    );
     final request = NetworkRequest(
       url: target,
+      cancellation: cancellation,
       reuseVerifiedSession:
           target != url || (_sessionUserAgent?.call()?.isNotEmpty ?? false),
       method: method.toUpperCase(),
@@ -387,10 +396,12 @@ class LumeHttp {
           response = await IosVerifiedWebView.read(request)
               .timeout(const Duration(seconds: 20));
         } catch (_) {
+          cancellation.check();
           // Preserve the original challenge response; never claim a passed session.
         }
       }
     } on TimeoutException catch (error) {
+      cancellation.cancel(error);
       throw LumeHttpException(
         '${LumeSourceNetworkMarker.failure}：请求超时（${budget.inSeconds}s）',
         cause: error,
@@ -403,6 +414,9 @@ class LumeHttp {
         '${LumeSourceNetworkMarker.failure}：$error',
         cause: error,
       );
+    } finally {
+      stopLifetime();
+      stopOwner?.call();
     }
 
     return LumeHttpResponse(
@@ -422,7 +436,11 @@ class LumeHttp {
   /// 生效）；只有显式注入了 `client` 的调用方（测试的失败替身）才用这条路径，
   /// 保证「注入即生效」的既有语义不变。
   Future<NetworkResponse> _sendWithClient(NetworkRequest request) async {
-    final outgoing = http.Request(request.method, Uri.parse(request.url));
+    final outgoing = http.AbortableRequest(
+      request.method,
+      Uri.parse(request.url),
+      abortTrigger: request.cancellation?.signal,
+    );
     outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
     if (request.bodyBytes != null) {
@@ -505,7 +523,10 @@ class LumeHttp {
       error is http.ClientException ||
       error is TimeoutException;
 
-  void dispose() => _client.close();
+  void dispose() {
+    _lifetime.cancel();
+    _client.close();
+  }
 }
 
 extension LumeHttpBinary on LumeHttp {

@@ -1,3 +1,6 @@
+import '../../shared/widgets/network_owned_state.dart';
+import '../../core/net/network_cancellation.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/theme/lume_theme.dart';
@@ -59,7 +62,8 @@ class VideoDetailPage extends StatefulWidget {
   State<VideoDetailPage> createState() => _VideoDetailPageState();
 }
 
-class _VideoDetailPageState extends State<VideoDetailPage> {
+class _VideoDetailPageState extends State<VideoDetailPage>
+    with NetworkOwnedState<VideoDetailPage> {
   late final tmdb = TmdbDetailController(widget.item.title);
   DataSource? _source;
   SourceDetail? detail;
@@ -89,6 +93,14 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   }
 
   Future<void> load() async {
+    try {
+      await networkRequests.run('detail', loadOwned);
+    } on NetworkCancelled {
+      // Leaving the page or replacing this load is not a source failure.
+    }
+  }
+
+  Future<void> loadOwned() async {
     setState(() {
       loading = true;
       error = null;
@@ -104,6 +116,8 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       } catch (_) {
         // Some video sources only implement episodes/content. Metadata is optional.
       }
+      NetworkCancellation.current?.check();
+      if (!mounted) return;
       detail = metadata;
       unawaited(updatePalette());
       final episodes = direct == null
@@ -129,6 +143,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         chapterCount: episodes.length,
       );
     } catch (failure) {
+      if (NetworkCancellation.current?.isCancelled ?? false) return;
       if (mounted) {
         setState(() {
           error = '$failure';

@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import '../util/debug_request_log.dart';
 import '../util/lume_log.dart';
 import 'network_settings.dart';
+import 'network_cancellation.dart';
 
 /// 一次待发请求。队列只认这些字段，不认识 http 包的类型。
 class NetworkRequest {
@@ -26,6 +27,7 @@ class NetworkRequest {
     this.followRedirects = true,
     this.timeout,
     this.reuseVerifiedSession = false,
+    this.cancellation,
   });
 
   final String url;
@@ -52,6 +54,23 @@ class NetworkRequest {
   final bool followRedirects;
   final Duration? timeout;
   final bool reuseVerifiedSession;
+  final NetworkCancellation? cancellation;
+  NetworkRequest withCancellation(NetworkCancellation token) => NetworkRequest(
+    url: url,
+    method: method,
+    headers: headers,
+    body: body,
+    bodyBytes: bodyBytes,
+    source: source,
+    retryOn: retryOn,
+    proxy: proxy,
+    allowBadCertificate: allowBadCertificate,
+    maxBytes: maxBytes,
+    followRedirects: followRedirects,
+    timeout: timeout,
+    reuseVerifiedSession: reuseVerifiedSession,
+    cancellation: token,
+  );
 
   /// 响应体读取上限（字节）；null = 读完整。见 [readResponseBody] 的说明
   /// （只有「探测型」请求该设它，正常业务请求一律读全）。
@@ -154,6 +173,7 @@ class NetworkQueue {
   final NetworkSender sender;
 
   final Random _random;
+  final _inFlight = <String, _SharedNetworkFlight>{};
 
   /// 单次重试的最大等待：即使服务器给了更长的 Retry-After 也不无限等。
   static const Duration maxRetryAfter = Duration(seconds: 30);
@@ -184,22 +204,94 @@ class NetworkQueue {
   /// 一次请求的最终结论（状态码、耗时、字节数）只有这一层同时掌握，放到调用方
   /// 会漏掉重试与排队时间。抓包默认关闭，关闭时 [DebugRequestLog.record] 立即
   /// 返回，本层没有额外开销。
-  Future<NetworkResponse> send(NetworkRequest request) async {
+  Future<NetworkResponse> send(NetworkRequest request) {
+    final consumer = request.cancellation ?? NetworkCancellation.current;
+    if (consumer?.isCancelled ?? false) {
+      return Future.sync(() {
+        consumer!.check();
+        throw StateError('cancelled');
+      });
+    }
+    final key = _identity(request);
+    final shared =
+        const {'GET', 'HEAD'}.contains(request.method.toUpperCase()) &&
+        (request.body?.isEmpty ?? true) &&
+        (request.bodyBytes?.isEmpty ?? true);
+    var flight = shared ? _inFlight[key] : null;
+    if (flight == null) {
+      flight = _SharedNetworkFlight();
+      if (shared) _inFlight[key] = flight;
+      final active = flight;
+      Future<void>.microtask(() async {
+        final budget =
+            (request.timeout ?? settings.timeout) *
+            (request.retryOn ? settings.maxRetries + 1 : 1);
+        final timer = Timer(
+          budget,
+          () => active.token.cancel(TimeoutException('请求总预算已耗尽', budget)),
+        );
+        try {
+          active.token.check();
+          final response = await _send(
+            request.withCancellation(active.token),
+            key,
+          );
+          active.result.complete(
+            NetworkResponse(
+              statusCode: response.statusCode,
+              body: List.unmodifiable(response.body),
+              headers: Map.unmodifiable(response.headers),
+            ),
+          );
+        } catch (error, stack) {
+          active.result.completeError(error, stack);
+        } finally {
+          timer.cancel();
+          active.finished = true;
+          if (identical(_inFlight[key], active)) _inFlight.remove(key);
+        }
+      });
+    }
+    final active = flight;
+    active.consumers++;
+    final result = consumer == null
+        ? active.result.future
+        : consumer.guard(active.result.future);
+    return result.whenComplete(() {
+      active.consumers--;
+      if (active.consumers == 0 && !active.finished) {
+        if (identical(_inFlight[key], active)) _inFlight.remove(key);
+        active.token.cancel();
+      }
+    });
+  }
+
+  static String _identity(NetworkRequest request) => sha256
+      .convert(
+        utf8.encode(
+          jsonEncode([
+            request.method.toUpperCase(),
+            request.url,
+            request.source,
+            request.proxy,
+            request.allowBadCertificate,
+            request.followRedirects,
+            request.reuseVerifiedSession,
+            request.timeout?.inMicroseconds,
+            request.maxBytes,
+            request.retryOn,
+            (request.headers.entries
+                .map((e) => [e.key.toLowerCase(), e.value])
+                .toList()
+              ..sort((a, b) => jsonEncode(a).compareTo(jsonEncode(b)))),
+          ]),
+        ),
+      )
+      .toString();
+
+  Future<NetworkResponse> _send(NetworkRequest request, String cacheKey) async {
+    final token = request.cancellation!;
     final host = hostOf(request.url);
-    final cacheKey = sha256
-        .convert(
-          utf8.encode(
-            jsonEncode([
-              request.method,
-              request.url,
-              (request.headers.entries.toList()
-                    ..sort((a, b) => a.key.compareTo(b.key)))
-                  .map((e) => [e.key, e.value])
-                  .toList(),
-            ]),
-          ),
-        )
-        .toString();
     _deadLinks.removeWhere((_, v) => v.until.isBefore(DateTime.now()));
     final cached = _deadLinks[cacheKey];
     if (request.method == 'GET' && cached != null) return cached.response;
@@ -207,12 +299,33 @@ class NetworkQueue {
     var attempt = 0;
     final watch = Stopwatch()..start();
     while (true) {
-      await _acquire(host, image);
+      await _acquire(host, image, token);
       NetworkResponse response;
       try {
-        response = await sender(request);
+        token.check();
+        final attemptToken = NetworkCancellation();
+        final remove = token.onCancel(() {
+          try {
+            token.check();
+          } catch (error) {
+            attemptToken.cancel(error);
+          }
+        });
+        final deadline = Timer(
+          request.timeout ?? settings.timeout,
+          () => attemptToken.cancel(TimeoutException('单次请求超时')),
+        );
+        try {
+          response = await attemptToken.guard(
+            Future.sync(() => sender(request.withCancellation(attemptToken))),
+          );
+        } finally {
+          deadline.cancel();
+          remove();
+        }
       } catch (error) {
         _release(host, image);
+        if (token.isCancelled || error is NetworkCancelled) rethrow;
         if (!request.retryOn ||
             isCertificateFailure(error) ||
             attempt >= settings.maxRetries) {
@@ -225,7 +338,7 @@ class NetworkQueue {
         _cooldowns[host] = DateTime.now().add(delay);
         _trimHostHistory();
         _logRetry(request, host, '网络异常（$error）', delay, attempt + 1);
-        await Future<void>.delayed(delay);
+        await token.delay(delay);
         attempt++;
         continue;
       }
@@ -278,7 +391,7 @@ class NetworkQueue {
         delay,
         attempt + 1,
       );
-      await Future<void>.delayed(delay);
+      await token.delay(delay);
       attempt++;
     }
   }
@@ -405,12 +518,17 @@ class NetworkQueue {
   // -------------------------------------------------------------- 额度闸门
 
   /// 拿到「全局 + 该域名」两个额度；拿不到就等，被唤醒后重新检查。
-  Future<void> _acquire(String host, bool image) async {
+  Future<void> _acquire(
+    String host,
+    bool image,
+    NetworkCancellation token,
+  ) async {
     while (true) {
+      token.check();
       final remaining =
           _cooldowns[host]?.difference(DateTime.now()) ?? Duration.zero;
       if (remaining > Duration.zero) {
-        await Future<void>.delayed(remaining);
+        await token.delay(remaining);
         continue;
       }
       final globalOk = _activeGlobal < settings.globalConcurrency;
@@ -426,7 +544,11 @@ class NetworkQueue {
       }
       final waiter = Completer<void>();
       _waiters.add(waiter);
-      await waiter.future;
+      try {
+        await token.guard(waiter.future);
+      } finally {
+        _waiters.remove(waiter);
+      }
     }
   }
 
@@ -448,4 +570,11 @@ class NetworkQueue {
       if (!waiter.isCompleted) waiter.complete();
     }
   }
+}
+
+class _SharedNetworkFlight {
+  final token = NetworkCancellation();
+  final result = Completer<NetworkResponse>();
+  int consumers = 0;
+  bool finished = false;
 }

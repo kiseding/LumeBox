@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import WebKit
+import Network
 import UIKit
 
 /// 内置网页视图的**原生 Cookie 仓库读取**（iOS）。
@@ -25,13 +26,19 @@ final class WafCookieController: NSObject {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "cancelVerifiedRead":
+        if let args = call.arguments as? [String: Any], let id = args["requestId"] as? String {
+          self.reads[id]?.cancel(); self.imageReads[id]?.cancel()
+        }
+        result(nil)
       case "readVerifiedResource":
         guard let args = call.arguments as? [String: Any], let text = args["url"] as? String,
               let url = URL(string: text), url.scheme == "https", url.user == nil,
               self.imageReads.count < 4 else {
           result(FlutterError(code: "invalid_image", message: "Image session unavailable", details: nil)); return
         }
-        let id = UUID()
+        let id = args["requestId"] as? String ?? UUID().uuidString
+        guard self.imageReads[id] == nil else { result(FlutterError(code:"duplicate_request",message:"Duplicate image request",details:nil)); return }
         let task = VerifiedImageRead(url: url, userAgent: args["userAgent"] as? String,
                                      method: args["method"] as? String ?? "GET",
                                      headers: args["headers"] as? [String: String] ?? [:],
@@ -49,7 +56,8 @@ final class WafCookieController: NSObject {
         guard self.reads.count < 4 else {
           result(FlutterError(code: "busy", message: "Browser session busy", details: nil)); return
         }
-        let id = UUID()
+        let id = args["requestId"] as? String ?? UUID().uuidString
+        guard self.reads[id] == nil else { result(FlutterError(code:"duplicate_request",message:"Duplicate page request",details:nil)); return }
         let task = VerifiedPageRead(url: url, userAgent: args["userAgent"] as? String) { response in
           self.reads.removeValue(forKey: id)
           result(response)
@@ -70,8 +78,8 @@ final class WafCookieController: NSObject {
   }
 
   private let imageNetwork = ImageNetworkController()
-  private var reads: [UUID: VerifiedPageRead] = [:]
-  private var imageReads: [UUID: VerifiedImageRead] = [:]
+  private var reads: [String: VerifiedPageRead] = [:]
+  private var imageReads: [String: VerifiedImageRead] = [:]
 
   /// 枚举默认数据仓里的全部 Cookie；`WKHTTPCookieStore` 是异步回调接口。
   ///
@@ -129,10 +137,13 @@ final class WafCookieController: NSObject {
 
 /// Use Apple's TLS/HTTP stack. Only matching Cloudflare verification cookies may be reused.
 private final class ImageNetworkController {
-  private var reads: [UUID: SourceHTTPRead] = [:]
+  private var reads: [String: SourceHTTPRead] = [:]
   func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name:"lumebox/image_network",binaryMessenger:messenger)
     channel.setMethodCallHandler { [weak self] call, result in
+      if call.method == "cancel", let args = call.arguments as? [String:Any], let id = args["requestId"] as? String {
+        self?.reads[id]?.cancel(); result(nil); return
+      }
       guard call.method == "get" else { result(FlutterMethodNotImplemented); return }
       guard let self = self, let args = call.arguments as? [String:Any],
         let address = args["url"] as? String, let url = URL(string:address),
@@ -140,8 +151,11 @@ private final class ImageNetworkController {
         result(FlutterError(code:"bad_url",message:"HTTP 请求地址无效",details:nil)); return
       }
       guard self.reads.count < 16 else { result(FlutterError(code:"network_busy",message:"系统网络请求队列忙",details:nil)); return }
-      let id = UUID()
-      let read = SourceHTTPRead(url:url,options:args) { [weak self] value in
+      let id = args["requestId"] as? String ?? UUID().uuidString
+      guard self.reads[id] == nil else { result(FlutterError(code:"duplicate_request",message:"重复请求标识",details:nil)); return }
+      let read = SourceHTTPRead(url:url,options:args,state: { waiting in
+        channel.invokeMethod("state",arguments:["requestId":id,"waiting":waiting])
+      }) { [weak self] value in
         self?.reads.removeValue(forKey:id); result(value)
       }
       self.reads[id] = read; read.start()
@@ -159,9 +173,13 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
   private var response: HTTPURLResponse?
   private var bytes = Data()
   private var finished = false
+  private var deadline: DispatchWorkItem?
+  private var pathObserver: UUID?
+  private let state: (Bool)->Void
   private let limit: Int
-  init(url:URL,options:[String:Any],completion:@escaping (Any)->Void) {
+  init(url:URL,options:[String:Any],state:@escaping (Bool)->Void,completion:@escaping (Any)->Void) {
     self.url=url; self.options=options; callback=completion
+    self.state=state
     limit=min(16*1024*1024+1,max(1,options["maxBytes"] as? Int ?? 8*1024*1024))
     super.init()
   }
@@ -170,6 +188,14 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     config.httpCookieStorage=nil; config.httpShouldSetCookies=false; config.urlCache=nil
     let timeout=min(120,max(0.1,options["timeoutSeconds"] as? Double ?? 20))
     config.timeoutIntervalForRequest=timeout; config.timeoutIntervalForResource=timeout
+    config.waitsForConnectivity=true
+    let expiry=DispatchWorkItem { [weak self] in
+      self?.finish(FlutterError(code:"api_timeout",message:"等待网络或请求超时",details:nil))
+    }
+    deadline=expiry; DispatchQueue.main.asyncAfter(deadline:.now()+timeout,execute:expiry)
+    pathObserver=SourceNetworkPath.shared.observe { [weak self] available in
+      guard let self=self, !self.finished else { return }; self.state(!available)
+    }
     // Do not install connectionProxyDictionary, custom sockets or protocol tunnels.
     session=URLSession(configuration:config,delegate:self,delegateQueue:OperationQueue.main)
     var request=URLRequest(url:url)
@@ -183,6 +209,7 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
   func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive response:URLResponse,
     completionHandler:@escaping (URLSession.ResponseDisposition)->Void) {
     self.response=response as? HTTPURLResponse
+    state(false)
     completionHandler(.allow)
   }
   func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive data:Data) {
@@ -204,6 +231,13 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     }
     succeed()
   }
+  func urlSession(_ session:URLSession,taskIsWaitingForConnectivity task:URLSessionTask) { if !finished { state(true) } }
+  func cancel() { finish(FlutterError(code:"cancelled",message:"请求已取消",details:nil)) }
+  private func stopWaiting() {
+    deadline?.cancel(); deadline=nil
+    if let id=pathObserver { SourceNetworkPath.shared.remove(id); pathObserver=nil }
+    state(false)
+  }
   private func succeed() {
     guard !finished else { return }
     guard let response=response, let address=response.url else { finish(FlutterError(code:"http_response",message:"系统未返回 HTTP 响应",details:nil)); return }
@@ -216,14 +250,14 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     }
     // Cancel the stream at the requested prefix limit; deliver a result only once.
     let data=bytes
-    finished=true; task?.cancel(); session?.invalidateAndCancel(); session=nil
+    finished=true; stopWaiting(); task?.cancel(); session?.invalidateAndCancel(); session=nil
     group.notify(queue:.main) {
       self.deliver(["status":response.statusCode,"headers":headers,"body":FlutterStandardTypedData(bytes:data)])
     }
   }
   private func finish(_ value:Any) {
     guard !finished else { return }
-    finished=true; task?.cancel(); session?.invalidateAndCancel(); session=nil
+    finished=true; stopWaiting(); task?.cancel(); session?.invalidateAndCancel(); session=nil
     deliver(value)
   }
   private func deliver(_ value:Any) {
@@ -242,6 +276,27 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     if response.url?.scheme=="https" && next.scheme=="http" { outgoing.setValue(nil,forHTTPHeaderField:"Referer") }
     completionHandler(outgoing)
   }
+}
+
+/// One system network observer for all source requests; no probes or proxy tunnel.
+private final class SourceNetworkPath {
+  static let shared=SourceNetworkPath()
+  private let monitor=NWPathMonitor()
+  private var available: Bool?
+  private var listeners: [UUID:(Bool)->Void]=[:]
+  private init() {
+    monitor.pathUpdateHandler = { [weak self] path in
+      guard let self=self else { return }; self.available=path.status == .satisfied
+      for callback in Array(self.listeners.values) { callback(self.available!) }
+    }
+    monitor.start(queue:.main)
+  }
+  func observe(_ callback:@escaping (Bool)->Void)->UUID {
+    let id=UUID(); listeners[id]=callback
+    if let available=available { callback(available) }
+    return id
+  }
+  func remove(_ id:UUID) { listeners.removeValue(forKey:id) }
 }
 
 /// Navigation uses the same default WebKit data store as the visible verification page.
@@ -324,6 +379,7 @@ private final class VerifiedPageRead: NSObject, WKNavigationDelegate {
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     finish(FlutterError(code: "navigation_failed", message: error.localizedDescription, details: nil))
   }
+  func cancel() { finish(FlutterError(code:"cancelled",message:"请求已取消",details:nil)) }
   private func finish(_ value: Any) {
     guard let callback = completion else { return }
     if holdsPermit { SourceWebBudget.release(); holdsPermit=false }
@@ -412,6 +468,7 @@ private final class VerifiedImageRead: NSObject, WKNavigationDelegate {
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     finish(FlutterError(code: "image_navigation", message: error.localizedDescription, details: nil))
   }
+  func cancel() { finish(FlutterError(code:"cancelled",message:"请求已取消",details:nil)) }
   private func finish(_ value: Any) {
     guard let callback = completion else { return }
     if holdsPermit { SourceWebBudget.release(); holdsPermit=false }

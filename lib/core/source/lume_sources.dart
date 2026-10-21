@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../net/network_cancellation.dart';
+
 import '../session/privacy_settings.dart';
 
 import '../cache/section_memory_cache.dart';
@@ -481,10 +483,41 @@ class LumeSources {
 ///
 /// 它不新增任何能力，也不缓存状态——运行时、数据库与沙箱仍在注册表层，
 /// 因此停用、删除、导入之后的行为与直接调用门面完全一致。
-class _LumeSourceManager implements SourceManager, SubscriptionImportManager {
+class _LumeSourceManager
+    implements
+        SourceManager,
+        SubscriptionImportManager,
+        SourceRevisionManager,
+        SourceInspectionManager {
   _LumeSourceManager(this._section);
 
   final Section _section;
+  @override
+  Future<SourceRevisionInfo?> previousVersion(String sourceId) async {
+    final old = (await SourceRegistry.open(_section)).previousSource(sourceId);
+    return old == null
+        ? null
+        : SourceRevisionInfo(
+            version: '${old['version']}',
+            savedAt: DateTime.fromMillisecondsSinceEpoch(old['savedAt'] as int),
+          );
+  }
+
+  @override
+  Future<SourceImportResult> restorePreviousVersion(String sourceId) async {
+    final outcome = await (await SourceRegistry.open(_section))
+        .restorePrevious(sourceId);
+    return outcome.record == null
+        ? SourceImportResult.failure(outcome.message ?? '恢复失败')
+        : SourceImportResult.success(LumeSources._describe(outcome.record!));
+  }
+
+  @override
+  Future<DataSource?> openForInspection(String sourceId) =>
+      LumeSources.open(_section, sourceId, cached: false);
+  @override
+  Future<String?> sourceLoadFailure(String sourceId) async =>
+      (await SourceRegistry.open(_section)).loadFailureFor(sourceId);
 
   @override
   bool get runtimeAvailable => LumeSources.runtimeAvailableFor(_section);
@@ -633,6 +666,7 @@ class _EngineRuntime implements JsSourceRuntime {
     String method,
     Object? argument,
   ) async {
+    NetworkCancellation.current?.check();
     final engine = await registry.engineFor(_sourceId);
     if (engine == null) {
       throw const SourceException(SourceErrorKind.notFound, '源不可用（未启用或脚本载入失败）');
@@ -642,6 +676,7 @@ class _EngineRuntime implements JsSourceRuntime {
     // 改完域名 / 账号后，下一次调用就用新值——不必重新导入脚本、也不必重建引擎。
     await _applyScriptConfig(registry, engine);
     var result = await engine.callResult(method, argument);
+    NetworkCancellation.current?.check();
     if (!result.isOk &&
         result.error?.kind == SandboxErrorKind.disposed &&
         method != 'postDanmaku') {

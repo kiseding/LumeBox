@@ -1,3 +1,6 @@
+import '../../shared/widgets/network_owned_state.dart';
+import '../../core/net/network_cancellation.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -45,7 +48,8 @@ class CatDetailPage extends StatefulWidget {
   State<CatDetailPage> createState() => _CatDetailPageState();
 }
 
-class _CatDetailPageState extends State<CatDetailPage> {
+class _CatDetailPageState extends State<CatDetailPage>
+    with NetworkOwnedState<CatDetailPage> {
   late final pipeline = SectionImagePipeline(
     cacheDir: widget.library.imageCacheDir,
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
@@ -84,6 +88,14 @@ class _CatDetailPageState extends State<CatDetailPage> {
   }
 
   Future<void> load() async {
+    try {
+      await networkRequests.run('detail', loadOwned);
+    } on NetworkCancelled {
+      // Page lifetime ended.
+    }
+  }
+
+  Future<void> loadOwned() async {
     setState(() {
       loading = true;
       error = null;
@@ -132,6 +144,7 @@ class _CatDetailPageState extends State<CatDetailPage> {
         }
       }
     } catch (failure) {
+      if (NetworkCancellation.current?.isCancelled ?? false) return;
       if (mounted) {
         setState(() {
           error = '$failure';

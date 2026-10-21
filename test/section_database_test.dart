@@ -23,11 +23,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_sections');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
   });
 
   tearDown(() async {
@@ -38,6 +38,101 @@ void main() {
 
   Future<SectionDatabase> openDatabase(Section section) async =>
       SectionDatabase.open(await SectionScope.open(section));
+
+  group('源版本恢复', () {
+    test('同版本脚本更新也保存上一版，同脚本刷新不覆盖备份', () async {
+      final db = await openDatabase(Section.video);
+      void write(String script, {bool remember = true, String? rejected}) =>
+          db.upsertSource(
+            id: 'demo',
+            name: '自定义名',
+            version: '1',
+            section: Section.video.id,
+            script: script,
+            rememberPrevious: remember,
+            rejectedScript: rejected,
+          );
+      write('old');
+      expect(db.previousSource('demo'), isNull);
+      db.setSourceSiteConfig(
+        'demo',
+        const SourceSiteConfig(
+          account: 'user',
+          password: 'pass',
+          domainOverride: 'https://custom.example',
+        ),
+      );
+      db.setSourceGroup('demo', '我的分组');
+      db.setSourceEnabled('demo', false);
+      db.setSourceOrigin('demo', 'https://subscription.example/source.js');
+      db.setSetting('reading-progress', 'chapter-8');
+      write('bad');
+      expect(db.previousSource('demo')!['script'], 'old');
+      write('bad');
+      expect(db.previousSource('demo')!['script'], 'old');
+      write('old', remember: false, rejected: 'bad');
+      expect(db.previousSource('demo'), isNull);
+      expect(db.isRejectedSource('demo', 'bad'), true);
+      expect(db.isRejectedSource('demo', 'fixed'), false);
+      final restored = db.source('demo')!;
+      expect(restored.script, 'old');
+      expect(restored.enabled, false);
+      expect(restored.siteConfig.account, 'user');
+      expect(restored.siteConfig.password, 'pass');
+      expect(restored.siteConfig.domainOverride, 'https://custom.example');
+      expect(restored.group, '我的分组');
+      expect(restored.originUrl, 'https://subscription.example/source.js');
+      expect(db.setting('reading-progress'), 'chapter-8');
+      write('fixed');
+      expect(db.previousSource('demo')!['script'], 'old');
+      expect(db.isRejectedSource('demo', 'bad'), false);
+    });
+    test('删除源清理备份，板块之间不共享源版本', () async {
+      final video = await openDatabase(Section.video);
+      final comic = await openDatabase(Section.comic);
+      for (final text in ['one', 'two']) {
+        video.upsertSource(
+          id: 'demo',
+          name: '源',
+          version: text,
+          section: Section.video.id,
+          script: text,
+        );
+      }
+      expect(video.previousSource('demo'), isNotNull);
+      expect(comic.previousSource('demo'), isNull);
+      video.deleteSource('demo');
+      expect(video.previousSource('demo'), isNull);
+      video.upsertSource(
+        id: 'demo',
+        name: '源',
+        version: '3',
+        section: Section.video.id,
+        script: 'three',
+      );
+      expect(video.previousSource('demo'), isNull);
+    });
+    test('旧库升级与重启后仍能读取备份', () async {
+      final scope = await SectionScope.open(Section.video);
+      final db = await SectionDatabase.open(scope);
+      for (final text in ['old', 'new']) {
+        db.upsertSource(
+          id: 'demo',
+          name: '源',
+          version: text,
+          section: Section.video.id,
+          script: text,
+        );
+      }
+      SectionDatabase.disposeAll();
+      final raw = sqlite3.open(scope.dbPath);
+      raw.execute('PRAGMA user_version=8');
+      raw.close();
+      final migrated = await SectionDatabase.open(scope);
+      expect(migrated.source('demo')!.script, 'new');
+      expect(migrated.previousSource('demo')!['script'], 'old');
+    });
+  });
 
   group('板块库：归属标记', () {
     test('标记随图源落库，读取时回得到', () async {
@@ -190,10 +285,7 @@ CREATE TABLE section_setting (
     Future<SourceRegistry> seed(Section section) async {
       final scope = await SectionScope.open(section);
       final database = await SectionDatabase.open(scope);
-      for (final (id, name) in <(String, String)>[
-        ('a', 'A源'),
-        ('b', 'B源'),
-      ]) {
+      for (final (id, name) in <(String, String)>[('a', 'A源'), ('b', 'B源')]) {
         database.upsertSource(
           id: id,
           name: name,
@@ -309,10 +401,9 @@ CREATE TABLE section_setting (
     });
 
     test('保存后的配置读得回来，且只影响本源', () async {
-      final registry = await seeded(
-        Section.video,
-        <String>['https://main.example'],
-      );
+      final registry = await seeded(Section.video, <String>[
+        'https://main.example',
+      ]);
       registry.setSourceSiteConfig(
         'mirror',
         const SourceSiteConfig(
@@ -328,15 +419,13 @@ CREATE TABLE section_setting (
       expect(record.siteConfig.password, 'secret');
 
       // 跨板块的同名源看不到这份配置（配置按源存在各自的板块库里）。
-      final other = await seeded(
-        Section.comic,
-        <String>['https://comic.example'],
-      );
+      final other = await seeded(Section.comic, <String>[
+        'https://comic.example',
+      ]);
       expect(other.source('mirror')!.siteConfig.domainOverride, '');
-      expect(
-        other.source('mirror')!.siteConfig.mirrors,
-        <String>['https://comic.example'],
-      );
+      expect(other.source('mirror')!.siteConfig.mirrors, <String>[
+        'https://comic.example',
+      ]);
       SourceRegistry.close(Section.comic);
       SourceRegistry.close(Section.video);
     });
@@ -370,16 +459,10 @@ CREATE TABLE section_setting (
 
       final record = registry.source('mirror')!;
       expect(record.version, '2.0.0');
-      expect(
-        record.siteConfig.mirrors,
-        <String>['https://new.example'],
-        reason: '镜像由脚本声明，整体替换',
-      );
-      expect(
-        record.siteConfig.mirrorIndex,
-        0,
-        reason: '旧下标 1 越界，收敛到新列表的主站',
-      );
+      expect(record.siteConfig.mirrors, <String>[
+        'https://new.example',
+      ], reason: '镜像由脚本声明，整体替换');
+      expect(record.siteConfig.mirrorIndex, 0, reason: '旧下标 1 越界，收敛到新列表的主站');
       expect(record.siteConfig.account, 'reader', reason: '账号属于用户配置，不动');
       expect(record.siteConfig.password, 'secret');
       SourceRegistry.close(Section.video);

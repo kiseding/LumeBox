@@ -1,3 +1,5 @@
+import '../../core/net/network_cancellation.dart';
+import '../../shared/widgets/network_owned_state.dart';
 import 'browse_header_motion.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -119,7 +121,8 @@ class ExploreView extends StatefulWidget {
   State<ExploreView> createState() => _ExploreViewState();
 }
 
-class _ExploreViewState extends State<ExploreView> {
+class _ExploreViewState extends State<ExploreView>
+    with NetworkOwnedState<ExploreView> {
   /// 布局偏好是应用级单例：本页监听它，别处改了这里也当场重排。
   final BrowseLayoutSettings _layoutSettings = BrowseLayoutSettings.instance;
 
@@ -284,6 +287,7 @@ class _ExploreViewState extends State<ExploreView> {
     _requestSeq++;
     _suggestSeq++;
     _suggestDebounce?.cancel();
+    networkRequests.cancel('suggestions');
     _search.dispose();
     // 图源管理器是**板块级共享**的（本页只是借用）：这里**不 close**。
     // 关掉它等于关掉整个板块的图源库与运行时——本页在图源变更后会原地刷新、
@@ -297,6 +301,7 @@ class _ExploreViewState extends State<ExploreView> {
 
   /// 解析当前图源、打开数据源、取分类与首页列表。
   Future<void> _bootstrap() async {
+    networkRequests.cancelAll();
     setState(() {
       _state = SourceStateKind.loading;
       _headerHidden = false;
@@ -447,7 +452,10 @@ class _ExploreViewState extends State<ExploreView> {
     // after categories rather than racing the script's initialization.
     await (() async {
       try {
-        final categories = await source.categories();
+        final categories = await networkRequests.run(
+          'categories',
+          () => source.categories(),
+        );
         if (!mounted ||
             seq != _facetRequestSeq ||
             !identical(source, _source)) {
@@ -469,12 +477,15 @@ class _ExploreViewState extends State<ExploreView> {
     }
     await (() async {
       try {
-        final groups = await loadSourceFilters(
-          source: source,
-          cache: _inlineFilterCache,
-          force: true,
-          categoryId: _categoryId,
-          selection: Map.of(_facetFilters),
+        final groups = await networkRequests.run(
+          'filters',
+          () => loadSourceFilters(
+            source: source,
+            cache: _inlineFilterCache,
+            force: true,
+            categoryId: _categoryId,
+            selection: Map.of(_facetFilters),
+          ),
         );
         if (!mounted ||
             seq != _facetRequestSeq ||
@@ -763,11 +774,14 @@ class _ExploreViewState extends State<ExploreView> {
     _pendingPage = page;
     final seq = _requestSeq;
     try {
-      final result = await source
-          .list(
-            categoryId: _categoryId,
-            page: page,
-            filters: _facetFilters.isEmpty ? null : _facetFilters,
+      final result = await networkRequests
+          .run(
+            'browse',
+            () => source.list(
+              categoryId: _categoryId,
+              page: page,
+              filters: _facetFilters.isEmpty ? null : _facetFilters,
+            ),
           )
           .timeout(
             const Duration(seconds: 40),
@@ -828,6 +842,7 @@ class _ExploreViewState extends State<ExploreView> {
 
   /// 下拉刷新：重置分页 + 重取分类 + 重取第 1 页（用户点名三件事都要做）。
   Future<void> _refresh() async {
+    networkRequests.cancelAll();
     // 预热缓存作废：用户明确要求要新的。
     SectionPreloader.discard(widget.section);
     await _loadCategories();
@@ -993,6 +1008,7 @@ class _ExploreViewState extends State<ExploreView> {
   /// 联想只是输入辅助：它不改搜索请求本身（见 [_submitSearch]）。
   void _onSearchChanged(String value) {
     _suggestDebounce?.cancel();
+    networkRequests.cancel('suggestions');
     final keyword = value.trim();
     _suggestSeq++;
     if (keyword.isEmpty) {
@@ -1008,10 +1024,18 @@ class _ExploreViewState extends State<ExploreView> {
 
   Future<void> _loadSuggestions(String keyword) async {
     final seq = ++_suggestSeq;
-    final suggestions = await SearchSuggestions(
-      source: _source,
-      history: _historyStore?.load() ?? const <String>[],
-    ).forKeyword(keyword);
+    List<String> suggestions;
+    try {
+      suggestions = await networkRequests.run(
+        'suggestions',
+        () => SearchSuggestions(
+          source: _source,
+          history: _historyStore?.load() ?? const <String>[],
+        ).forKeyword(keyword),
+      );
+    } on NetworkCancelled {
+      return;
+    }
     if (!mounted || seq != _suggestSeq) return;
     // 关键词可能已经被清掉 / 改掉：只在还匹配时上屏。
     if (_search.text.trim() != keyword) return;
@@ -1022,6 +1046,7 @@ class _ExploreViewState extends State<ExploreView> {
   void _closeSuggestions() {
     if (_suggestions.isEmpty) return;
     _suggestDebounce?.cancel();
+    networkRequests.cancel('suggestions');
     _suggestSeq++;
     setState(() => _suggestions = const <String>[]);
   }
@@ -1039,6 +1064,7 @@ class _ExploreViewState extends State<ExploreView> {
   void _submitSearch(String value) {
     final keyword = value.trim();
     _suggestDebounce?.cancel();
+    networkRequests.cancel('suggestions');
     _suggestSeq++;
     if (keyword.isEmpty) return;
     _historyStore?.remember(keyword);
@@ -1306,6 +1332,7 @@ class _ExploreViewState extends State<ExploreView> {
               onTap: () {
                 _search.clear();
                 _suggestDebounce?.cancel();
+                networkRequests.cancel('suggestions');
                 _suggestSeq++;
                 setState(() {
                   _searching = false;

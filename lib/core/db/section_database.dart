@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:sqlite3/sqlite3.dart';
 
 import '../session/section_scope.dart';
@@ -15,7 +17,7 @@ import 'source_record.dart';
 class SectionDatabase {
   SectionDatabase._(this._db, this._sectionId);
 
-  static const int _schemaVersion = 8;
+  static const int _schemaVersion = 9;
 
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
@@ -54,8 +56,10 @@ CREATE TABLE IF NOT EXISTS section_setting (
   static Future<SectionDatabase> open(SectionScope scope) async {
     final existing = _opened[scope.section.id];
     if (existing != null) return existing;
-    final database =
-        SectionDatabase._(sqlite3.open(scope.dbPath), scope.section.id);
+    final database = SectionDatabase._(
+      sqlite3.open(scope.dbPath),
+      scope.section.id,
+    );
     try {
       database._migrate();
     } catch (error, stackTrace) {
@@ -81,19 +85,20 @@ CREATE TABLE IF NOT EXISTS section_setting (
       _db.execute(_schema);
     } else if (version < 2) {
       _db.execute(
-          "ALTER TABLE source ADD COLUMN section TEXT NOT NULL DEFAULT ''");
-      // 旧库的图源归属就是它所在的板块目录，回填即可。
-      _db.execute(
-        "UPDATE source SET section = ? WHERE section = ''",
-        [_sectionId],
+        "ALTER TABLE source ADD COLUMN section TEXT NOT NULL DEFAULT ''",
       );
+      // 旧库的图源归属就是它所在的板块目录，回填即可。
+      _db.execute("UPDATE source SET section = ? WHERE section = ''", [
+        _sectionId,
+      ]);
     }
     if (!createdFresh && version < 4) {
       // 订阅来源地址：从订阅链接导入时记下，供「更新订阅源」重新拉取。
       // 本地导入的图源留空（没有可更新的来源）。
       try {
         _db.execute(
-            "ALTER TABLE source ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''");
+          "ALTER TABLE source ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''",
+        );
       } catch (error) {
         LumeLog.warn('迁移 source.origin_url 跳过: $error');
       }
@@ -103,7 +108,8 @@ CREATE TABLE IF NOT EXISTS section_setting (
       for (final column in <String>['user_agent', 'cookie', 'proxy']) {
         try {
           _db.execute(
-              "ALTER TABLE source ADD COLUMN $column TEXT NOT NULL DEFAULT ''");
+            "ALTER TABLE source ADD COLUMN $column TEXT NOT NULL DEFAULT ''",
+          );
         } catch (error) {
           // 列已存在（重复迁移或新库）：忽略。
           LumeLog.warn('迁移 source.$column 跳过: $error');
@@ -131,11 +137,15 @@ CREATE TABLE IF NOT EXISTS section_setting (
     if (!createdFresh && version < 6) {
       // 桥接服务地址（用户口径 2.2）：reCAPTCHA v3 这类源需要一个无头浏览器桥，
       // 地址按图源存，交给脚本去转发请求（见 NetworkProfile.bridge）。
-      _db.execute("ALTER TABLE source ADD COLUMN bridge TEXT NOT NULL DEFAULT ''");
+      _db.execute(
+        "ALTER TABLE source ADD COLUMN bridge TEXT NOT NULL DEFAULT ''",
+      );
     }
     if (version < 7) {
       // 「忽略证书错误」按源存（'1' 开 / '' 关）：证书过期站点的唯一出路。
-      _db.execute("ALTER TABLE source ADD COLUMN allow_bad_cert TEXT NOT NULL DEFAULT ''");
+      _db.execute(
+        "ALTER TABLE source ADD COLUMN allow_bad_cert TEXT NOT NULL DEFAULT ''",
+      );
     }
     if (version < 8) {
       // 换网址 / 账号登入按源存一列 JSON（镜像表、选中下标、自定义域名、账号密码）。
@@ -143,12 +153,18 @@ CREATE TABLE IF NOT EXISTS section_setting (
       // 将来加字段（比如登录态过期时间）也不必再动表结构。
       try {
         _db.execute(
-            "ALTER TABLE source ADD COLUMN site_config TEXT NOT NULL DEFAULT ''");
+          "ALTER TABLE source ADD COLUMN site_config TEXT NOT NULL DEFAULT ''",
+        );
       } catch (error) {
         // 列已存在（重复迁移）：忽略。
         LumeLog.warn('迁移 source.site_config 跳过: $error');
       }
     }
+    _db.execute('''CREATE TABLE IF NOT EXISTS source_revision (
+      source_id TEXT PRIMARY KEY REFERENCES source(id) ON DELETE CASCADE,
+      snapshot TEXT NOT NULL, saved_at INTEGER NOT NULL,
+      restored INTEGER NOT NULL DEFAULT 0, blocked_hash TEXT NOT NULL DEFAULT ''
+    )''');
     if (version < _schemaVersion) {
       _db.execute('PRAGMA user_version = $_schemaVersion');
     }
@@ -163,9 +179,7 @@ CREATE TABLE IF NOT EXISTS section_setting (
       return;
     }
     if (owner != _sectionId) {
-      throw StateError(
-        '板块库归属不符：库中标记为「$owner」，不能以「$_sectionId」打开',
-      );
+      throw StateError('板块库归属不符：库中标记为「$owner」，不能以「$_sectionId」打开');
     }
   }
 
@@ -186,44 +200,93 @@ CREATE TABLE IF NOT EXISTS section_setting (
     required String section,
     required String script,
     List<String> mirrors = const <String>[],
+    bool rememberPrevious = true,
+    String? rejectedScript,
   }) {
     if (section != _sectionId) {
-      throw ArgumentError(
-        '拒绝跨板块写入：记录归属「$section」，本库属于「$_sectionId」',
-      );
+      throw ArgumentError('拒绝跨板块写入：记录归属「$section」，本库属于「$_sectionId」');
     }
     // 镜像表**整体替换**（脚本改了地址，库里就该跟着变），但同一份配置里的
     // 用户字段（选中下标 / 自定义域名 / 账号密码）必须原样保留——覆盖导入一份
     // 新脚本不该把用户配好的登录账号抹掉。
-    final previous = source(id)?.siteConfig ?? SourceSiteConfig.none;
+    final old = source(id);
+    final previous = old?.siteConfig ?? SourceSiteConfig.none;
     final site = previous.copyWith(mirrors: mirrors).normalized();
-    _db.execute(
-      'INSERT INTO source (id, name, version, section, script, enabled, '
-      'updated_at, site_config) VALUES (?, ?, ?, ?, ?, 1, ?, ?) '
-      'ON CONFLICT(id) DO UPDATE SET name = excluded.name, '
-      'version = excluded.version, section = excluded.section, '
-      'script = excluded.script, '
-      'updated_at = excluded.updated_at, '
-      'site_config = excluded.site_config',
-      [
-        id,
-        name,
-        version,
-        section,
-        script,
-        DateTime.now().millisecondsSinceEpoch,
-        _encodeSite(site),
-      ],
-    );
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      if (rememberPrevious && old != null && old.script != script) {
+        _db.execute(
+          'INSERT INTO source_revision (source_id,snapshot,saved_at) VALUES (?,?,?) '
+          "ON CONFLICT(source_id) DO UPDATE SET snapshot=excluded.snapshot,saved_at=excluded.saved_at,restored=0,blocked_hash=''",
+          [
+            id,
+            jsonEncode({
+              'name': old.name,
+              'version': old.version,
+              'script': old.script,
+            }),
+            DateTime.now().millisecondsSinceEpoch,
+          ],
+        );
+      }
+      _db.execute(
+        'INSERT INTO source (id, name, version, section, script, enabled, '
+        'updated_at, site_config) VALUES (?, ?, ?, ?, ?, 1, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET name = excluded.name, '
+        'version = excluded.version, section = excluded.section, '
+        'script = excluded.script, '
+        'updated_at = excluded.updated_at, '
+        'site_config = excluded.site_config',
+        [
+          id,
+          name,
+          version,
+          section,
+          script,
+          DateTime.now().millisecondsSinceEpoch,
+          _encodeSite(site),
+        ],
+      );
+      if (rejectedScript != null) {
+        markSourceRolledBack(id, rejectedScript);
+        clearSourceFailure(id);
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
+
+  Map<String, dynamic>? previousSource(String id) {
+    final rows = _db.select(
+      'SELECT snapshot,saved_at FROM source_revision WHERE source_id=? AND restored=0',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    return {
+      ...(jsonDecode(rows.first['snapshot'] as String) as Map)
+          .cast<String, dynamic>(),
+      'savedAt': rows.first['saved_at'],
+    };
+  }
+
+  bool isRejectedSource(String id, String script) => _db.select(
+    'SELECT source_id FROM source_revision WHERE source_id=? AND blocked_hash=?',
+    [id, sha256.convert(utf8.encode(script)).toString()],
+  ).isNotEmpty;
+  void markSourceRolledBack(String id, String rejectedScript) => _db.execute(
+    'UPDATE source_revision SET restored=1,blocked_hash=? WHERE source_id=?',
+    [sha256.convert(utf8.encode(rejectedScript)).toString(), id],
+  );
 
   /// 写入单图源的「换网址 / 账号登入」配置（整体覆盖；镜像表也由它写，
   /// 因此用户在设置里改完就落库，不需要重新导入脚本）。
   void setSourceSiteConfig(String id, SourceSiteConfig config) {
-    _db.execute(
-      'UPDATE source SET site_config = ? WHERE id = ?',
-      [_encodeSite(config.normalized()), id],
-    );
+    _db.execute('UPDATE source SET site_config = ? WHERE id = ?', [
+      _encodeSite(config.normalized()),
+      id,
+    ]);
   }
 
   /// 配置 → 落库文本；整份都是默认值时存空串（与「从未配置过」同一形态）。
@@ -240,10 +303,10 @@ CREATE TABLE IF NOT EXISTS section_setting (
 
   /// 记录图源的订阅来源地址（从订阅链接导入时调用）。
   void setSourceOrigin(String id, String url) {
-    _db.execute(
-      'UPDATE source SET origin_url = ? WHERE id = ?',
-      [url.trim(), id],
-    );
+    _db.execute('UPDATE source SET origin_url = ? WHERE id = ?', [
+      url.trim(),
+      id,
+    ]);
   }
 
   /// 写入单图源网络覆盖（UA / Cookie / 代理）。空串表示继承全局设置。
@@ -258,28 +321,23 @@ CREATE TABLE IF NOT EXISTS section_setting (
     _db.execute(
       'UPDATE source SET user_agent = ?, cookie = ?, proxy = ?, bridge = ?, '
       'allow_bad_cert = ? WHERE id = ?',
-      [
-        userAgent,
-        cookie,
-        proxy,
-        bridge,
-        allowBadCertificate ? '1' : '',
-        id,
-      ],
+      [userAgent, cookie, proxy, bridge, allowBadCertificate ? '1' : '', id],
     );
   }
 
   void setSourceEnabled(String id, bool enabled) {
-    _db.execute('UPDATE source SET enabled = ? WHERE id = ?',
-        [enabled ? 1 : 0, id]);
+    _db.execute('UPDATE source SET enabled = ? WHERE id = ?', [
+      enabled ? 1 : 0,
+      id,
+    ]);
   }
 
   /// 写入图源分组名（空串表示取消分组）。
   void setSourceGroup(String id, String group) {
-    _db.execute(
-      'UPDATE source SET source_group = ? WHERE id = ?',
-      [group.trim(), id],
-    );
+    _db.execute('UPDATE source SET source_group = ? WHERE id = ?', [
+      group.trim(),
+      id,
+    ]);
   }
 
   /// 记录一次失败：失败计数 +1，达到 [threshold] 即标记失效。
@@ -298,10 +356,10 @@ CREATE TABLE IF NOT EXISTS section_setting (
     final count = (rows.first['failure_count'] as int?) ?? 0;
     final alreadyBroken = ((rows.first['broken_at'] as int?) ?? 0) > 0;
     if (count >= threshold && !alreadyBroken) {
-      _db.execute(
-        'UPDATE source SET broken_at = ? WHERE id = ?',
-        [DateTime.now().millisecondsSinceEpoch, id],
-      );
+      _db.execute('UPDATE source SET broken_at = ? WHERE id = ?', [
+        DateTime.now().millisecondsSinceEpoch,
+        id,
+      ]);
     }
   }
 
@@ -320,16 +378,17 @@ CREATE TABLE IF NOT EXISTS section_setting (
       _db.execute('DELETE FROM source WHERE id = ?', [id]);
 
   String? setting(String key) {
-    final rows =
-        _db.select('SELECT value FROM section_setting WHERE key = ?', [key]);
+    final rows = _db.select('SELECT value FROM section_setting WHERE key = ?', [
+      key,
+    ]);
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
 
   void setSetting(String key, String value) => _db.execute(
-        'INSERT INTO section_setting (key, value) VALUES (?, ?) '
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        [key, value],
-      );
+    'INSERT INTO section_setting (key, value) VALUES (?, ?) '
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [key, value],
+  );
 
   void dispose() {
     _opened.removeWhere((_, value) => identical(value, this));

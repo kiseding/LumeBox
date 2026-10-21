@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../source/source_preferences.dart';
 import '../source/source_site_config.dart';
 import '../cache/section_memory_cache.dart';
@@ -42,6 +44,39 @@ class SourceImportOutcome {
 /// 脚本因此只可能从本板块的库里读出来执行。
 class SourceRegistry {
   SourceRegistry._(this.section, this._database, this._http);
+  Future<void> _mutations = Future<void>.value();
+  Future<T> _mutate<T>(Future<T> Function() action) {
+    final result = Completer<T>();
+    _mutations = _mutations.then((_) async {
+      try {
+        result.complete(await action());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
+  }
+
+  Map<String, dynamic>? previousSource(String id) =>
+      _owns(id) ? _database.previousSource(id) : null;
+  Future<SourceImportOutcome> restorePrevious(String id) => _mutate(() async {
+    final old = previousSource(id);
+    final active = source(id);
+    if (old == null || active == null) {
+      return const SourceImportOutcome.failure('没有可恢复的上一版');
+    }
+    final result = await _importValidated(
+      old['script'] as String,
+      originUrl: active.originUrl,
+      rememberPrevious: false,
+      rejectedScript: active.script,
+      restoredName: active.name,
+    );
+    if (result.isSuccess) {
+      _database.clearSourceFailure(id);
+    }
+    return result;
+  });
 
   final Section section;
   final SectionDatabase _database;
@@ -191,6 +226,21 @@ class SourceRegistry {
     String script, {
     String originUrl = '',
     bool preserveLocalSources = false,
+  }) => _mutate(
+    () => _importValidated(
+      script,
+      originUrl: originUrl,
+      preserveLocalSources: preserveLocalSources,
+    ),
+  );
+
+  Future<SourceImportOutcome> _importValidated(
+    String script, {
+    String originUrl = '',
+    bool preserveLocalSources = false,
+    bool rememberPrevious = true,
+    String? rejectedScript,
+    String? restoredName,
   }) async {
     if (!_engineAvailable) {
       LumeLog.warn('[${section.id}] 当前平台不提供源引擎');
@@ -251,6 +301,11 @@ class SourceRegistry {
         return SourceImportOutcome.failure(mismatch);
       }
       final previous = source(metadata.id);
+      if (rememberPrevious && _database.isRejectedSource(metadata.id, text)) {
+        return const SourceImportOutcome.failure(
+          '此脚本版本已回滚，已保留当前版本；等待源作者发布新版本后再更新',
+        );
+      }
       if (preserveLocalSources &&
           previous != null &&
           previous.originUrl.isEmpty) {
@@ -258,12 +313,19 @@ class SourceRegistry {
           '订阅源 ${metadata.id} 与手动导入的源同名，已保留手动源',
         );
       }
+      await RexWidgetSettings.saveDefinitions(
+        section,
+        metadata.id,
+        rawMetadata?['widgetParameters'],
+      );
       _database.upsertSource(
         id: metadata.id,
-        name: metadata.name,
+        name: restoredName ?? metadata.name,
         version: metadata.version,
         section: section.id,
         script: text,
+        rememberPrevious: rememberPrevious,
+        rejectedScript: rejectedScript,
         // 站点镜像**由脚本声明**（身份声明的 `mirrors`），导入 / 更新时整体替换；
         // 同一份配置里的用户字段（选中下标 / 自定义域名 / 账号密码）由库层保留。
         mirrors: metadata.mirrors,
@@ -273,11 +335,6 @@ class SourceRegistry {
       if (originUrl.trim().isNotEmpty) {
         _database.setSourceOrigin(metadata.id, originUrl);
       }
-      await RexWidgetSettings.saveDefinitions(
-        section,
-        metadata.id,
-        rawMetadata?['widgetParameters'],
-      );
       release(metadata.id);
       final record = _database.source(metadata.id);
       if (record == null) {
@@ -545,6 +602,8 @@ class SourceRegistry {
   }
 
   final Map<String, Future<SourceEngine?>> _loadingEngines = {};
+  final _loadFailures = <String, String>{};
+  String? loadFailureFor(String id) => _loadFailures[id];
   final Map<String, int> _engineEpochs = {};
   bool get isDisposed => _disposed;
   Future<SourceEngine?> _loadEngine(String sourceId, int epoch) async {
@@ -560,6 +619,7 @@ class SourceRegistry {
       section: section,
     );
     if (engine == null) {
+      _loadFailures[sourceId] = '当前安装包不支持该源运行环境';
       LumeLog.warn('[${section.id}] 源引擎不可用: $sourceId');
       return null;
     }
@@ -568,6 +628,7 @@ class SourceRegistry {
       return null;
     }
     if (!await engine.loadScript(stripScriptBom(record.script))) {
+      _loadFailures[sourceId] = engine.loadFailure ?? '源脚本载入失败';
       // 运行时载入失败的原因同样记全：日志是用户排查「图源为什么打不开」的入口。
       LumeLog.warn(
         '[${section.id}] 源脚本载入失败: $sourceId'
@@ -581,6 +642,7 @@ class SourceRegistry {
       return null;
     }
     _engines[sourceId] = engine;
+    _loadFailures.remove(sourceId);
     return engine;
   }
 

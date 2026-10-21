@@ -1,4 +1,7 @@
 import 'dart:async';
+
+import '../../net/network_cancellation.dart';
+
 import 'dart:convert';
 import 'dart:ffi';
 
@@ -161,7 +164,10 @@ class SandboxContext {
   ///
   /// 参数与返回值都必须是 JSON 可序列化的值。调用过程会持续驱动宿主代理
   /// 往返与微任务排空，直到脚本给出结果、或预算耗尽。
+  NetworkCancellation? _requestToken;
   Future<SandboxResult> call(String path, [Object? argument]) async {
+    final requestToken = NetworkCancellation.current;
+    requestToken?.check();
     if (_destroyed) {
       return const SandboxFailure(SandboxErrorKind.disposed, '沙箱已释放');
     }
@@ -176,6 +182,7 @@ class SandboxContext {
     final callId = 'c${_sequence++}';
     final completer = Completer<SandboxResult>();
     _pendingCalls[callId] = completer;
+    _requestToken = requestToken;
     try {
       final posted = _evaluate(
         '__lumeInvoke(${_jsString(callId)}, ${_jsString(path)}, '
@@ -198,6 +205,7 @@ class SandboxContext {
       return SandboxFailure(SandboxErrorKind.engine, message);
     } finally {
       _pendingCalls.remove(callId);
+      if (identical(_requestToken, requestToken)) _requestToken = null;
     }
   }
 
@@ -649,15 +657,16 @@ class SandboxContext {
       return;
     }
     try {
-      final value = await host
-          .invoke(
-            SandboxHostRequest(
-              sandboxId: id,
-              method: method,
-              payload: payload['payload'],
-            ),
-          )
-          .timeout(_activeBudget.remaining);
+      final value = await NetworkCancellation.runWith(
+        NetworkCancellation.current ?? _requestToken,
+        () => host.invoke(
+          SandboxHostRequest(
+            sandboxId: id,
+            method: method,
+            payload: payload['payload'],
+          ),
+        ),
+      ).timeout(_activeBudget.remaining);
       if (_destroyed || _poisoned) return;
       try {
         _settleHost(callId, true, jsonEncode(value));
@@ -690,12 +699,16 @@ class SandboxContext {
       LumeLog.warn('[$id] 定时器数量超出上限（${policy.maxTimers}），已忽略 $timerId');
       return;
     }
+    final owner = NetworkCancellation.current ?? _requestToken;
     _timers[timerId] = Timer(Duration(milliseconds: delay), () {
       _timers.remove(timerId);
-      if (_destroyed || _poisoned) return;
-      _evaluate(
-        '__lumeTimer(${_jsString(timerId)});',
-        fileName: '$id.timer.js',
+      if (_destroyed || _poisoned || (owner?.isCancelled ?? false)) return;
+      NetworkCancellation.runWith(
+        owner,
+        () => _evaluate(
+          '__lumeTimer(${_jsString(timerId)});',
+          fileName: '$id.timer.js',
+        ),
       );
     });
   }

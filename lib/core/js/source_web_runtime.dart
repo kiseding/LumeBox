@@ -1,6 +1,9 @@
 import '../net/lume_net.dart';
 
 import 'dart:async';
+
+import '../net/network_cancellation.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
@@ -113,7 +116,10 @@ class SourceWebRuntime {
     } else {
       throw const FormatException('不支持的网页宿主接口');
     }
+    final token = NetworkCancellation.current;
+    token?.check();
     _pending.add(id);
+    final stopCancel = token?.onCancel(() => unawaited(_cancel(id)));
     try {
       if (method == 'render') {
         final url = args['url'] as String;
@@ -131,6 +137,7 @@ class SourceWebRuntime {
             SiteSessionPool.shared.userAgentFor(url) ?? args['userAgent'];
         args['inspectable'] = SiteSessionPool.shared.inspectable;
       }
+      token?.check();
       final result = await channel
           .invokeMethod<Object?>(method, {...args, 'requestId': id})
           .timeout(
@@ -188,6 +195,7 @@ class SourceWebRuntime {
       unawaited(_cancel(id));
       throw TimeoutException('网页操作超时');
     } finally {
+      stopCancel?.call();
       _pending.remove(id);
     }
   }

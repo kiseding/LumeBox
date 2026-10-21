@@ -99,7 +99,11 @@ class LumeNet {
       // 显式放宽的请求逐条留痕：这类请求的安全性由用户自己承担，日志要能查到。
       LumeLog.warn('本次请求已放宽证书校验（按源开启）：${request.url}');
     }
-    final outgoing = http.Request(request.method, Uri.parse(request.url));
+    final outgoing = http.AbortableRequest(
+      request.method,
+      Uri.parse(request.url),
+      abortTrigger: request.cancellation?.signal,
+    );
     outgoing.followRedirects = request.followRedirects;
     outgoing.headers.addAll(request.headers);
     if (request.bodyBytes != null) {

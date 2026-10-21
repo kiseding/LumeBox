@@ -1,3 +1,4 @@
+import '../net/network_cancellation.dart';
 import '../source/source_preferences.dart';
 
 import 'dart:async';
@@ -227,6 +228,7 @@ class SectionImagePipeline {
   int _running = 0;
   final Queue<Completer<void>> _slots = Queue<Completer<void>>();
   bool _disposed = false;
+  final _requestLifetime = NetworkCancellation();
 
   bool get isDisposed => _disposed;
 
@@ -361,6 +363,7 @@ class SectionImagePipeline {
 
   /// 关闭客户端、取消在飞请求、清空内存缓存并拒绝后续调用。可重复调用。
   void dispose() {
+    _requestLifetime.cancel();
     if (_disposed) return;
     _disposed = true;
     for (final pipeline in _sourcePipelines.values) {
@@ -768,6 +771,7 @@ class SectionImagePipeline {
       final response = await (requestSender ?? LumeNet.queue.send)(
         NetworkRequest(
           url: target,
+          cancellation: _requestLifetime,
           headers: outgoingHeaders,
           source: sourceLabel,
           timeout: timeout,

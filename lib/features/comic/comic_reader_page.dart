@@ -1,3 +1,5 @@
+import '../../shared/widgets/network_owned_state.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -129,7 +131,7 @@ class ComicReaderPage extends StatefulWidget {
 }
 
 class _ComicReaderPageState extends State<ComicReaderPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, NetworkOwnedState<ComicReaderPage> {
   late final SectionImagePipeline _pipeline;
   late final ComicImageTools _imageTools;
   late final Future<void> _imageModelReady;
@@ -295,7 +297,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       widget.library.setting(ComicBookmarks.keyFor(widget.target.itemId)),
     );
     _speechSettings = SpeechSettings.decode(
-      widget.library.setting(SpeechSettings.settingKey) ?? widget.library.setting('novel.speech.settings'),
+      widget.library.setting(SpeechSettings.settingKey) ??
+          widget.library.setting('novel.speech.settings'),
     ).copyWith(autoDialogue: false);
     _openComicSpeech();
     _chapters = widget.chapters;
@@ -388,7 +391,9 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   // ------------------------------------------------------------------ 加载
 
+  int _chapterLoadSequence = 0;
   Future<void> _loadChapter({bool resume = false, int? targetPage}) async {
+    final loadSequence = ++_chapterLoadSequence;
     if (_chapters.isEmpty) {
       setState(() {
         _loading = false;
@@ -407,11 +412,14 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     // 本章已经进来了：它的「预取」记录作废（下次接近时应该能重新预取）。
     _prefetchedChapters.remove(chapter.id);
     try {
-      final content = await widget.dataSource.content(
-        itemId: widget.target.itemId,
-        chapterId: chapter.id,
+      final content = await networkRequests.run(
+        'chapter',
+        () => widget.dataSource.content(
+          itemId: widget.target.itemId,
+          chapterId: chapter.id,
+        ),
       );
-      if (!mounted) return;
+      if (!mounted || loadSequence != _chapterLoadSequence) return;
       switch (content) {
         case null:
           setState(() {
@@ -444,7 +452,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       }
     } on SourceException catch (error) {
       LumeLog.warn('[${widget.target.itemId}] 章节内容获取失败: $error');
-      if (!mounted) return;
+      if (!mounted || loadSequence != _chapterLoadSequence) return;
       setState(() {
         _loading = false;
         _failed = true;
@@ -452,7 +460,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       });
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
-      if (!mounted) return;
+      if (!mounted || loadSequence != _chapterLoadSequence) return;
       setState(() {
         _loading = false;
         _failed = true;
@@ -599,9 +607,12 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   Future<void> _prefetchChapterHead(String chapterId) async {
     try {
-      final content = await widget.dataSource.content(
-        itemId: widget.target.itemId,
-        chapterId: chapterId,
+      final content = await networkRequests.run(
+        'prefetch',
+        () => widget.dataSource.content(
+          itemId: widget.target.itemId,
+          chapterId: chapterId,
+        ),
       );
       if (!mounted || content is! ImageContent) return;
       _pipeline.configureImageHeaders(content.imageHeaders);

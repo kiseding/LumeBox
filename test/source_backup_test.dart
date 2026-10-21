@@ -39,11 +39,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_backup');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
   });
 
   tearDown(() async {
@@ -58,9 +58,9 @@ void main() {
 
   /// 只有视频与视频板块「有运行时」，其余跳过（模拟平台边界）。
   SourceBackupService service() => SourceBackupService(
-        runtimeAvailableFor: (section) =>
-            section == Section.video || section == Section.cat,
-      );
+    runtimeAvailableFor: (section) =>
+        section == Section.video || section == Section.cat,
+  );
 
   Future<SourceRegistry> seed(Section section, String id, String title) async {
     await SectionScope.open(section);
@@ -71,6 +71,38 @@ async function getList(page) { return { list: [{ id: 'a', title: '$title' }] }; 
 ''');
     return registry;
   }
+
+  test('真实源更新回滚：保留用户配置，拒绝同一坏脚本再次导入', () async {
+    final registry = await seed(Section.video, 'rollback-demo', '旧源');
+    registry.rename('rollback-demo', '用户命名');
+    registry.setSourceNetwork(
+      'rollback-demo',
+      userAgent: 'custom-UA',
+      cookie: 'login=keep',
+      proxy: '',
+    );
+    final changed = await registry.import('''
+// LumeSource: {"id":"rollback-demo","name":"新源","version":"2.0.0"}
+function getList() { throw new Error('模拟站点改版'); }
+''');
+    expect(changed.isSuccess, true);
+    registry.rename('rollback-demo', '用户命名');
+    final bad = registry.source('rollback-demo')!.script;
+    expect(registry.previousSource('rollback-demo')!['version'], '1.0.0');
+    final restored = await registry.restorePrevious('rollback-demo');
+    expect(restored.isSuccess, true, reason: restored.message);
+    expect(restored.record!.name, '用户命名');
+    expect(restored.record!.version, '1.0.0');
+    expect(restored.record!.network.cookie, 'login=keep');
+    expect(restored.record!.network.userAgent, 'custom-UA');
+    expect(registry.previousSource('rollback-demo'), isNull);
+    final repeat = await registry.import(bad);
+    expect(repeat.isSuccess, false);
+    expect(repeat.message, contains('已回滚'));
+    expect(registry.source('rollback-demo')!.version, '1.0.0');
+    final fresh = await registry.import(bad.replaceAll('2.0.0', '2.0.1'));
+    expect(fresh.isSuccess, true, reason: fresh.message);
+  }, skip: skipReason);
 
   group('导出备份', () {
     test('只含脚本与配置：Cookie 绝不进备份', () async {
@@ -110,13 +142,10 @@ async function getList(page) { return { list: [{ id: 'a', title: '$title' }] }; 
     test('启停状态与订阅来源都带上', () async {
       final registry = await seed(Section.video, 'v2', '订阅源');
       // 订阅来源通过 import 的 originUrl 记录（与导入链路同一路径）。
-      await registry.import(
-        '''
+      await registry.import('''
 // LumeSource: {"id":"v2","name":"订阅源","version":"1.0.0"}
 async function getList(page) { return { list: [] }; }
-''',
-        originUrl: 'https://example.com/sub.js',
-      );
+''', originUrl: 'https://example.com/sub.js');
       registry.setEnabled('v2', false);
 
       final backup = await service().export();
@@ -197,7 +226,8 @@ async function getList(page) { return { list: [] }; }
               id: 'fresh-1',
               name: '新源',
               version: '1.0.0',
-              script: '// LumeSource: {"id":"fresh-1","name":"新源"}\n'
+              script:
+                  '// LumeSource: {"id":"fresh-1","name":"新源"}\n'
                   'async function getList(page) { return { list: [] }; }',
               enabled: true,
             ),
@@ -251,7 +281,8 @@ async function getList(page) { return { list: [] }; }
               'id': 'v1',
               'name': '视频源',
               // 恢复走真实导入校验：脚本必须有可识别的 LumeSource 元信息。
-              'script': '// LumeSource: {"id":"v1","name":"视频源"}\n'
+              'script':
+                  '// LumeSource: {"id":"v1","name":"视频源"}\n'
                   'async function getList(page) { return { list: [] }; }',
             },
           ],
@@ -270,7 +301,8 @@ async function getList(page) { return { list: [] }; }
       expect(
         result.imported,
         1,
-        reason: 'imported=${result.imported} failed=${result.failed} '
+        reason:
+            'imported=${result.imported} failed=${result.failed} '
             '（video 那条应成功）',
       );
 

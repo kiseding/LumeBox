@@ -1,3 +1,4 @@
+import 'network_waiting_view.dart';
 import 'module_glass_scope.dart';
 export 'module_glass_scope.dart' show GlassModule, GlassPart, ModuleGlassScope;
 
@@ -469,8 +470,15 @@ class GlassScaffold extends StatelessWidget {
                     )
                   : null,
               child: behindBar
-                  ? SafeArea(top: false, bottom: false, child: child)
-                  : SafeArea(bottom: _reservesBottom(context), child: child),
+                  ? SafeArea(
+                      top: false,
+                      bottom: false,
+                      child: NetworkWaitingView(child: child),
+                    )
+                  : SafeArea(
+                      bottom: _reservesBottom(context),
+                      child: NetworkWaitingView(child: child),
+                    ),
             ),
           ),
         ),

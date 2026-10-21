@@ -1,4 +1,8 @@
+import '../../core/source/source_health.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
+
+import 'source_health_page.dart';
 
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/source_drag_tile.dart';
@@ -279,6 +283,96 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     if (imported && mounted) await _reload();
   }
 
+  Future<SourceDescriptor?> _chooseSource(String title) =>
+      showDialog<SourceDescriptor>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: Text(title),
+          children: [
+            for (final source in _sources ?? <SourceDescriptor>[])
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, source),
+                child: Text(source.name),
+              ),
+          ],
+        ),
+      );
+  Future<void> _inspectSource([SourceDescriptor? selected]) async {
+    final source = selected ?? await _chooseSource('选择要体检的源');
+    if (source == null || !mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SourceHealthPage(
+          section: widget.section,
+          manager: _manager,
+          source: source,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _restoreSource([SourceDescriptor? selected]) async {
+    final manager = _manager;
+    if (manager is! SourceRevisionManager) return;
+    final source = selected ?? await _chooseSource('选择要恢复的源');
+    if (source == null || !mounted) return;
+    final old = await (manager as SourceRevisionManager).previousVersion(
+      source.id,
+    );
+    if (!mounted) return;
+    if (old == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这个源没有可恢复的上一版；首次安装或已经恢复的源不会重复回滚。')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('恢复上一版源'),
+        content: Text(
+          '「${source.name}」\n当前版本：${source.version}\n恢复版本：${old.version}\n\n保留账号、设置和阅读记录。恢复后建议重新体检。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _maintaining = true);
+    try {
+      final result = await (manager as SourceRevisionManager)
+          .restorePreviousVersion(source.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.isSuccess ? '已恢复上一版，请重新打开源或进行体检。' : result.message ?? '恢复失败',
+          ),
+        ),
+      );
+      await _reload();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('恢复失败：${SourceHealthCheck.safeMessage(error)}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _maintaining = false);
+    }
+  }
+
   /// 批量测试本板块全部图源。
   ///
   /// 顺序逐个测（不是并发轰炸）：网络层已有并发限制，但测试本身会真实打目标站，
@@ -519,12 +613,16 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   tooltip: '站点维护',
                   enabled: !_maintaining && _testing.isEmpty,
                   onSelected: (action) {
-                    if (action == 'select') {
+                    if (action == 'health') {
+                      _inspectSource();
+                    } else if (action == 'rollback') {
+                      _restoreSource();
+                    } else if (action == 'select') {
                       setState(() {
                         _selecting = !_selecting;
                         _selectedIds.clear();
                       });
-                    } else {
+                    } else if (action == 'remove' || action == 'clear') {
                       _removeSources(
                         List.of(_sources ?? []),
                         clearData: action == 'clear',
@@ -532,6 +630,17 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     }
                   },
                   itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'health',
+                      enabled: (_sources ?? []).isNotEmpty,
+                      child: const Text('一键源体检'),
+                    ),
+                    if (_manager is SourceRevisionManager)
+                      PopupMenuItem(
+                        value: 'rollback',
+                        enabled: (_sources ?? []).isNotEmpty,
+                        child: const Text('恢复上一版源'),
+                      ),
                     PopupMenuItem(
                       value: 'select',
                       child: Text(_selecting ? '退出多选' : '多选站点'),

@@ -130,7 +130,8 @@ void main() {
     );
     expect(response.body, [0, 255, 128, 1]);
     expect(browserCall.method, 'readVerifiedResource');
-    expect(browserCall.arguments, {
+    expect(browserCall.arguments['requestId'], startsWith('verified-'));
+    expect(Map.of(browserCall.arguments as Map)..remove('requestId'), {
       'url': 'https://images.example/a.webp',
       'userAgent': 'verified-UA',
       'method': 'GET',

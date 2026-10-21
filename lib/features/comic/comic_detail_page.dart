@@ -1,3 +1,5 @@
+import '../../shared/widgets/network_owned_state.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -50,7 +52,8 @@ class ComicDetailPage extends StatefulWidget {
   State<ComicDetailPage> createState() => _ComicDetailPageState();
 }
 
-class _ComicDetailPageState extends State<ComicDetailPage> {
+class _ComicDetailPageState extends State<ComicDetailPage>
+    with NetworkOwnedState<ComicDetailPage> {
   NetworkProfile _sourceNetwork = NetworkProfile.none;
   late final SectionImagePipeline _pipeline = SectionImagePipeline(
     cacheDir: widget.library.imageCacheDir,
@@ -127,8 +130,14 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
         });
         return;
       }
-      final detail = await source.detail(widget.target.itemId);
-      final chapters = await source.chapters(widget.target.itemId);
+      final detail = await networkRequests.run(
+        'detail',
+        () => source.detail(widget.target.itemId),
+      );
+      final chapters = await networkRequests.run(
+        'chapters',
+        () => source.chapters(widget.target.itemId),
+      );
       if (!mounted) return;
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么。
       _pipeline.bindSession(source.section, source.id);

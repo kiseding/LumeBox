@@ -1,3 +1,4 @@
+import '../net/network_cancellation.dart';
 import 'source_tools.dart';
 import '../player/source_media_runtime.dart';
 import '../net/site_session_pool.dart';
@@ -60,125 +61,155 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
   static void _install() {
     if (_installed) return;
     _installed = true;
-    channel.setMethodCallHandler((call) async {
-      if (call.method != 'host') throw MissingPluginException();
-      try {
-        final args = Map<String, dynamic>.from(call.arguments as Map);
-        final client = _clients[args['sourceId']];
-        if (client == null) throw StateError('Python 源已释放');
-        final request = jsonDecode(args['request'] as String) as Map;
-        final payload = Map<String, dynamic>.from(request['payload'] as Map);
-        Object? value;
-        if (request['method'] == 'http') {
-          final uri = Uri.tryParse('${payload['url']}');
-          if (uri == null ||
-              !['http', 'https'].contains(uri.scheme) ||
-              uri.host.isEmpty) {
-            throw const FormatException('Python 源只允许 http(s) 网络请求');
-          }
-          final response = await client.sendBytes(
-            url: uri.toString(),
-            method: '${payload['method'] ?? 'GET'}',
-            headers: (payload['headers'] as Map?)?.map(
-              (k, v) => MapEntry('$k', '$v'),
-            ),
-            bodyBytes: base64Decode('${payload['body'] ?? ''}'),
-            followRedirects: false,
-            timeout: Duration(
-              milliseconds: ((request['timeout'] as num? ?? 20) * 1000)
-                  .round()
-                  .clamp(1, 30000),
-            ),
-            maxBytes: 8 * 1024 * 1024,
-          );
-          value = {
-            'status': response.statusCode,
-            'headers': response.headers,
-            'body': base64Encode(response.body),
-          };
-        } else if (request['method'] == 'tools') {
-          value = SourceTools.run(payload);
-        } else if (request['method'] == 'media') {
-          value = await _engines[args['sourceId']]!._mediaRuntime.invoke(
-            payload,
-          );
-        } else if (request['method'] == 'session.configure') {
-          SiteSessionPool.shared.setUserAgent(
-            '${payload['url']}',
-            '${payload['userAgent'] ?? ''}',
-          );
-          await SiteSessionPool.shared.save();
-          value = true;
-        } else if (request['method'] == 'web.render' ||
-            request['method'] == 'html.extract') {
-          final engine = _engines[args['sourceId']]!;
-          if (request['method'] == 'web.render') {
-            SourceRequestLog.record(engine.sourceId, '${payload['url']}');
-            payload['forceCookies'] =
-                (payload['headers'] as Map?)?.keys.any(
-                  (k) => '$k'.toLowerCase() == 'cookie',
-                ) ??
-                false;
-            final headers = engine.http.browserRequestHeaders(
-              (payload['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
-              url: '${payload['url']}',
-            );
-            payload['headers'] = headers;
-            payload.putIfAbsent('userAgent', () => headers['User-Agent']);
-            final budget = ((request['timeout'] as num? ?? 8) * 1000 - 250)
-                .round()
-                .clamp(100, 8000);
-            payload['timeoutMs'] =
-                ((payload['timeoutMs'] as num?)?.round() ?? 6000).clamp(
-                  100,
-                  budget,
-                );
-          }
-          value = await engine._web.invoke(
-            request['method'] == 'web.render' ? 'render' : 'extract',
-            payload,
-          );
-          if (request['method'] == 'web.render' && value is Map) {
-            SiteSessionPool.shared.rememberSourcePage(
-              engine.sourceId,
-              '${value['url'] ?? payload['url']}',
-            );
-          }
-        } else if (request['method'] == 'storage') {
-          value = await _engines[args['sourceId']]!._storage.invoke(payload);
-        } else if (request['method'] == 'proxy') {
-          value = await _engines[args['sourceId']]!._proxy.start();
-        } else if (request['method'] == 'crypto') {
-          value = PythonCrypto.run(payload);
-        } else {
-          throw const FormatException('不支持的 Python 宿主接口');
-        }
-        return jsonEncode({'ok': true, 'value': value});
-      } catch (error) {
-        // Never return request URLs, headers or native exception payloads.
-        return jsonEncode({
-          'ok': false,
-          'error': error is SourceWebVerificationException
-              ? error.toString()
-              : error is SourceWebFailure
-              ? error.toString()
-              : error is LumeHttpException
-              ? error.message
-              : error is FormatException
-              ? error.message
-              : error is UnsupportedError
-              ? error.message
-              : error is TimeoutException
-              ? '网页操作超时'
-              : error is PlatformException
-              ? '网页操作失败：${error.code}'
-              : 'Python 宿主请求失败，请检查网络或参数',
-        });
-      }
+    channel.setMethodCallHandler((call) {
+      final source = call.arguments is Map
+          ? (call.arguments as Map)['sourceId']
+          : null;
+      return NetworkCancellation.runWith(
+        _engines[source]?._requestToken,
+        () => _handleHost(call),
+      );
     });
   }
 
-  Future<SandboxResult> _request(Map<String, Object?> args) async {
+  static Future<dynamic> _handleHost(MethodCall call) async {
+    if (call.method != 'host') throw MissingPluginException();
+    try {
+      final args = Map<String, dynamic>.from(call.arguments as Map);
+      final client = _clients[args['sourceId']];
+      if (client == null) throw StateError('Python 源已释放');
+      final request = jsonDecode(args['request'] as String) as Map;
+      final payload = Map<String, dynamic>.from(request['payload'] as Map);
+      Object? value;
+      if (request['method'] == 'http') {
+        final uri = Uri.tryParse('${payload['url']}');
+        if (uri == null ||
+            !['http', 'https'].contains(uri.scheme) ||
+            uri.host.isEmpty) {
+          throw const FormatException('Python 源只允许 http(s) 网络请求');
+        }
+        final response = await client.sendBytes(
+          url: uri.toString(),
+          method: '${payload['method'] ?? 'GET'}',
+          headers: (payload['headers'] as Map?)?.map(
+            (k, v) => MapEntry('$k', '$v'),
+          ),
+          bodyBytes: base64Decode('${payload['body'] ?? ''}'),
+          followRedirects: false,
+          timeout: Duration(
+            milliseconds: ((request['timeout'] as num? ?? 20) * 1000)
+                .round()
+                .clamp(1, 30000),
+          ),
+          maxBytes: 8 * 1024 * 1024,
+        );
+        value = {
+          'status': response.statusCode,
+          'headers': response.headers,
+          'body': base64Encode(response.body),
+        };
+      } else if (request['method'] == 'tools') {
+        value = SourceTools.run(payload);
+      } else if (request['method'] == 'media') {
+        value = await _engines[args['sourceId']]!._mediaRuntime.invoke(payload);
+      } else if (request['method'] == 'session.configure') {
+        SiteSessionPool.shared.setUserAgent(
+          '${payload['url']}',
+          '${payload['userAgent'] ?? ''}',
+        );
+        await SiteSessionPool.shared.save();
+        value = true;
+      } else if (request['method'] == 'web.render' ||
+          request['method'] == 'html.extract') {
+        final engine = _engines[args['sourceId']]!;
+        if (request['method'] == 'web.render') {
+          SourceRequestLog.record(engine.sourceId, '${payload['url']}');
+          payload['forceCookies'] =
+              (payload['headers'] as Map?)?.keys.any(
+                (k) => '$k'.toLowerCase() == 'cookie',
+              ) ??
+              false;
+          final headers = engine.http.browserRequestHeaders(
+            (payload['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
+            url: '${payload['url']}',
+          );
+          payload['headers'] = headers;
+          payload.putIfAbsent('userAgent', () => headers['User-Agent']);
+          final budget = ((request['timeout'] as num? ?? 8) * 1000 - 250)
+              .round()
+              .clamp(100, 8000);
+          payload['timeoutMs'] =
+              ((payload['timeoutMs'] as num?)?.round() ?? 6000).clamp(
+                100,
+                budget,
+              );
+        }
+        value = await engine._web.invoke(
+          request['method'] == 'web.render' ? 'render' : 'extract',
+          payload,
+        );
+        if (request['method'] == 'web.render' && value is Map) {
+          SiteSessionPool.shared.rememberSourcePage(
+            engine.sourceId,
+            '${value['url'] ?? payload['url']}',
+          );
+        }
+      } else if (request['method'] == 'storage') {
+        value = await _engines[args['sourceId']]!._storage.invoke(payload);
+      } else if (request['method'] == 'proxy') {
+        value = await _engines[args['sourceId']]!._proxy.start();
+      } else if (request['method'] == 'crypto') {
+        value = PythonCrypto.run(payload);
+      } else {
+        throw const FormatException('不支持的 Python 宿主接口');
+      }
+      return jsonEncode({'ok': true, 'value': value});
+    } catch (error) {
+      // Never return request URLs, headers or native exception payloads.
+      return jsonEncode({
+        'ok': false,
+        'error': error is SourceWebVerificationException
+            ? error.toString()
+            : error is SourceWebFailure
+            ? error.toString()
+            : error is LumeHttpException
+            ? error.message
+            : error is FormatException
+            ? error.message
+            : error is UnsupportedError
+            ? error.message
+            : error is TimeoutException
+            ? '网页操作超时'
+            : error is PlatformException
+            ? '网页操作失败：${error.code}'
+            : 'Python 宿主请求失败，请检查网络或参数',
+      });
+    }
+  }
+
+  Future<void> _requests = Future<void>.value();
+  NetworkCancellation? _requestToken;
+  Future<SandboxResult> _request(Map<String, Object?> args) {
+    final scope = NetworkCancellation.current;
+    final done = Completer<SandboxResult>();
+    _requests = _requests.then((_) async {
+      if (scope?.isCancelled ?? false) {
+        done.complete(const SandboxFailure(SandboxErrorKind.disposed, '请求已取消'));
+        return;
+      }
+      _requestToken = scope;
+      try {
+        done.complete(await _executeRequest(args));
+      } catch (error, stack) {
+        done.completeError(error, stack);
+      } finally {
+        _requestToken = null;
+      }
+    });
+    return done.future;
+  }
+
+  Future<SandboxResult> _executeRequest(Map<String, Object?> args) async {
     if (_disposed) {
       return const SandboxFailure(SandboxErrorKind.disposed, 'Python 源已释放');
     }

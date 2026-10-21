@@ -1,3 +1,5 @@
+import '../../shared/widgets/network_owned_state.dart';
+import '../../core/net/network_cancellation.dart';
 import '../reading/browse_header_motion.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -54,7 +56,8 @@ class CatPage extends StatefulWidget {
   State<CatPage> createState() => _CatPageState();
 }
 
-class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
+class _CatPageState extends State<CatPage>
+    with WidgetsBindingObserver, NetworkOwnedState<CatPage> {
   final service = CatService.instance;
   final scroll = ScrollController();
   bool _headerHidden = false;
@@ -292,6 +295,8 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
 
   Future<void> selectSite(CatSite site) async {
     if (!mounted) return;
+    networkRequests.cancelAll();
+    sequence++;
     setState(() {
       source = CatDataSource(service, site);
       categories = [];
@@ -306,6 +311,15 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> refresh() async {
+    try {
+      networkRequests.cancelAll();
+      await networkRequests.run('browse', refreshOwned);
+    } on NetworkCancelled {
+      // The old page request is no longer needed.
+    }
+  }
+
+  Future<void> refreshOwned() async {
     CatPreloader.discard();
     final current = source;
     if (current == null) return;
@@ -339,6 +353,7 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
       _preloadCovers(results.items);
       if (scroll.hasClients && scroll.offset > 0) scroll.jumpTo(0);
     } catch (failure) {
+      if (NetworkCancellation.current?.isCancelled ?? false) return;
       if (mounted && token == sequence) {
         setState(() {
           loading = false;
@@ -373,6 +388,14 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
   }
 
   Future<void> nextPage() async {
+    try {
+      await networkRequests.run('more', nextPageOwned);
+    } on NetworkCancelled {
+      // The old page request is no longer needed.
+    }
+  }
+
+  Future<void> nextPageOwned() async {
     final current = source;
     if (current == null) return;
     final token = sequence;
@@ -398,7 +421,11 @@ class _CatPageState extends State<CatPage> with WidgetsBindingObserver {
         more = result.hasMore;
       });
     } catch (failure) {
-      if (mounted) toast('$failure');
+      if (!(NetworkCancellation.current?.isCancelled ?? false) &&
+          mounted &&
+          token == sequence) {
+        toast('$failure');
+      }
     } finally {
       if (mounted) setState(() => loadingMore = false);
     }

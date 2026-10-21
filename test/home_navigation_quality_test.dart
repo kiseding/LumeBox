@@ -123,7 +123,8 @@ void main() {
   test('iOS图片字节和失败状态原样返回供统一管线处理', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(IosImageNetwork.channel, (call) async {
-          expect(call.arguments, {
+          expect(call.arguments['requestId'], startsWith('http-'));
+          expect(Map.of(call.arguments as Map)..remove('requestId'), {
             'url': 'https://demo/cover',
             'headers': {'Referer': 'https://demo/'},
             'method': 'GET',

@@ -1,3 +1,5 @@
+import '../../shared/widgets/network_owned_state.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -185,7 +187,8 @@ class SourceFilterPage extends StatefulWidget {
   State<SourceFilterPage> createState() => _SourceFilterPageState();
 }
 
-class _SourceFilterPageState extends State<SourceFilterPage> {
+class _SourceFilterPageState extends State<SourceFilterPage>
+    with NetworkOwnedState<SourceFilterPage> {
   List<SourceFilterGroup>? _groups;
   List<SourceCategory> _categories = const <SourceCategory>[];
   Object? _error;
@@ -215,9 +218,9 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
       _previewError = null;
     });
     try {
-      final result = await widget.source.list(
-        categoryId: _categoryId,
-        filters: _filters,
+      final result = await networkRequests.run(
+        'browse',
+        () => widget.source.list(categoryId: _categoryId, filters: _filters),
       );
       if (!mounted || seq != _previewSeq) return;
       setState(() {
@@ -267,16 +270,22 @@ class _SourceFilterPageState extends State<SourceFilterPage> {
       // 分类失败不阻塞标签（分类是「分类」那一行，标签是各维度行）。
       var categories = const <SourceCategory>[];
       try {
-        categories = await widget.source.categories();
+        categories = await networkRequests.run(
+          'categories',
+          () => widget.source.categories(),
+        );
       } catch (error) {
         LumeLog.info('[filter] 分类取不到，只显示标签组：$error');
       }
-      final groups = await loadSourceFilters(
-        source: widget.source,
-        cache: widget.cache,
-        force: force,
-        categoryId: _categoryId,
-        selection: _filters,
+      final groups = await networkRequests.run(
+        'filters',
+        () => loadSourceFilters(
+          source: widget.source,
+          cache: widget.cache,
+          force: force,
+          categoryId: _categoryId,
+          selection: _filters,
+        ),
       );
       if (!mounted) return;
       setState(() {

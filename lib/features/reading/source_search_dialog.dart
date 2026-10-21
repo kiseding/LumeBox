@@ -1,3 +1,6 @@
+import '../../shared/widgets/network_owned_state.dart';
+import '../../core/net/network_cancellation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -20,7 +23,8 @@ class SourceSearchDialog extends StatefulWidget {
   State<SourceSearchDialog> createState() => _SourceSearchDialogState();
 }
 
-class _SourceSearchDialogState extends State<SourceSearchDialog> {
+class _SourceSearchDialogState extends State<SourceSearchDialog>
+    with NetworkOwnedState<SourceSearchDialog> {
   late final input = TextEditingController(text: widget.initialQuery);
   late final history = SearchHistoryStore(
     widget.library.section,
@@ -45,15 +49,24 @@ class _SourceSearchDialogState extends State<SourceSearchDialog> {
 
   void changed(String value) {
     timer?.cancel();
+    networkRequests.cancelAll();
     final token = ++revision;
     final query = value.trim();
     setState(() => suggestions = query.isEmpty ? history.load() : []);
     if (query.isEmpty) return;
     timer = Timer(const Duration(milliseconds: 300), () async {
-      final found = await SearchSuggestions(
-        source: widget.source,
-        history: const [],
-      ).forKeyword(query);
+      List<String> found;
+      try {
+        found = await networkRequests.run(
+          'suggestions',
+          () => SearchSuggestions(
+            source: widget.source,
+            history: const [],
+          ).forKeyword(query),
+        );
+      } on NetworkCancelled {
+        return;
+      }
       if (!mounted || token != revision || input.text.trim() != query) return;
       setState(() => suggestions = found);
     });

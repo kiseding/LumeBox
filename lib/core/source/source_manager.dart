@@ -98,6 +98,22 @@ abstract interface class SubscriptionImportManager {
   });
 }
 
+abstract interface class SourceRevisionManager {
+  Future<SourceRevisionInfo?> previousVersion(String sourceId);
+  Future<SourceImportResult> restorePreviousVersion(String sourceId);
+}
+
+abstract interface class SourceInspectionManager {
+  Future<DataSource?> openForInspection(String sourceId);
+  Future<String?> sourceLoadFailure(String sourceId);
+}
+
+class SourceRevisionInfo {
+  const SourceRevisionInfo({required this.version, required this.savedAt});
+  final String version;
+  final DateTime savedAt;
+}
+
 /// 订阅更新的结论。
 class SourceUpdateResult {
   const SourceUpdateResult._({

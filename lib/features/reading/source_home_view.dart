@@ -1,3 +1,5 @@
+import '../../shared/widgets/network_owned_state.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/media/media_library.dart';
@@ -70,7 +72,8 @@ class SourceHomeView extends StatefulWidget {
   State<SourceHomeView> createState() => _SourceHomeViewState();
 }
 
-class _SourceHomeViewState extends State<SourceHomeView> {
+class _SourceHomeViewState extends State<SourceHomeView>
+    with NetworkOwnedState<SourceHomeView> {
   SourceHome? _home;
   Object? _error;
   int _seq = 0;
@@ -104,6 +107,7 @@ class _SourceHomeViewState extends State<SourceHomeView> {
     super.didUpdateWidget(oldWidget);
     // 换图源：重新取首页（代号作废在飞结果）。
     if (!identical(oldWidget.source, widget.source)) {
+      networkRequests.cancelAll();
       _bindSession();
       _load();
     } else if (!identical(oldWidget.pipeline, widget.pipeline) &&
@@ -136,13 +140,15 @@ class _SourceHomeViewState extends State<SourceHomeView> {
       if (!mounted || seq != _seq) return;
       final home =
           SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
-          await (source as HomeCapable).home().timeout(
-            const Duration(seconds: 40),
-            onTimeout: () => throw const SourceException(
-              SourceErrorKind.network,
-              '首页请求超时，请重试或检查网页验证会话',
-            ),
-          );
+          await networkRequests
+              .run('home', () => (source as HomeCapable).home())
+              .timeout(
+                const Duration(seconds: 40),
+                onTimeout: () => throw const SourceException(
+                  SourceErrorKind.network,
+                  '首页请求超时，请重试或检查网页验证会话',
+                ),
+              );
       if (!mounted || seq != _seq) return;
       setState(() => _home = home);
       _preloadFirstScreen(home);
@@ -517,7 +523,8 @@ class SourceHomeMorePage extends StatefulWidget {
   State<SourceHomeMorePage> createState() => _SourceHomeMorePageState();
 }
 
-class _SourceHomeMorePageState extends State<SourceHomeMorePage> {
+class _SourceHomeMorePageState extends State<SourceHomeMorePage>
+    with NetworkOwnedState<SourceHomeMorePage> {
   final List<SourceItem> _items = <SourceItem>[];
   int _page = 0;
   bool _hasMore = true;
@@ -540,9 +547,9 @@ class _SourceHomeMorePageState extends State<SourceHomeMorePage> {
     });
     final page = _page + 1;
     try {
-      final result = await widget.source.list(
-        categoryId: widget.moreUrl,
-        page: page,
+      final result = await networkRequests.run(
+        'browse',
+        () => widget.source.list(categoryId: widget.moreUrl, page: page),
       );
       if (!mounted) return;
       setState(() {

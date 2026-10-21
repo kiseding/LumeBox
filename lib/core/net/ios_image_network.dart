@@ -3,48 +3,80 @@ import 'package:flutter/services.dart';
 import 'network_queue.dart';
 import 'ios_verified_webview.dart';
 import 'waf.dart';
+import 'network_activity.dart';
 
 class IosImageNetwork {
   static const channel = MethodChannel('lumebox/image_network');
+  static bool _installed = false;
+  static int _sequence = 0;
+  static final _active = <String>{};
   static Future<NetworkResponse> send(NetworkRequest request) async {
-    final raw = await channel.invokeMapMethod<String, dynamic>('get', {
-      'url': request.url,
-      'headers': request.headers,
-      'method': request.method,
-      'followRedirects': request.followRedirects,
-      if (request.maxBytes != null) 'maxBytes': request.maxBytes,
-      if (request.bodyBytes != null)
-        'bodyBytes': Uint8List.fromList(request.bodyBytes!),
-      if (request.body != null) 'body': request.body,
-      if (request.reuseVerifiedSession) 'reuseVerification': true,
-      'timeoutSeconds':
-          (request.timeout ?? const Duration(seconds: 15)).inMilliseconds /
-          1000,
-    });
-    if (raw == null) throw StateError('图片网络未返回响应');
-    final response = NetworkResponse(
-      statusCode: raw['status'] as int,
-      body: (raw['body'] as List).cast<int>(),
-      headers: (raw['headers'] as Map).map(
-        (key, value) => MapEntry('$key', '$value'),
-      ),
-    );
-    if (request.reuseVerifiedSession &&
-        (request.source.startsWith('封面:') ||
-            request.source == '图片缓存' ||
-            request.method == 'POST') &&
-        WafDetector.isChallenge(
-          statusCode: response.statusCode,
-          headers: response.headers,
-          body: String.fromCharCodes(response.body.take(16000)),
-        )) {
-      try {
-        return await IosVerifiedWebView.readResource(request)
-            .timeout(const Duration(seconds: 20));
-      } catch (_) {
-        // A still-blocked image remains a challenge; offer manual verification.
-      }
+    if (!_installed) {
+      _installed = true;
+      channel.setMethodCallHandler((call) async {
+        if (call.method == 'state' && call.arguments is Map) {
+          final args = call.arguments as Map;
+          final id = '${args['requestId']}';
+          if (_active.contains(id)) {
+            NetworkActivity.setWaiting(id, args['waiting'] == true);
+          }
+        }
+      });
     }
-    return response;
+    request.cancellation?.check();
+    final id = 'http-${_sequence++}';
+    _active.add(id);
+    final remove = request.cancellation?.onCancel(() {
+      channel
+          .invokeMethod<void>('cancel', {'requestId': id})
+          .catchError((_) {});
+    });
+    try {
+      final raw = await channel.invokeMapMethod<String, dynamic>('get', {
+        'requestId': id,
+        'url': request.url,
+        'headers': request.headers,
+        'method': request.method,
+        'followRedirects': request.followRedirects,
+        if (request.maxBytes != null) 'maxBytes': request.maxBytes,
+        if (request.bodyBytes != null)
+          'bodyBytes': Uint8List.fromList(request.bodyBytes!),
+        if (request.body != null) 'body': request.body,
+        if (request.reuseVerifiedSession) 'reuseVerification': true,
+        'timeoutSeconds':
+            (request.timeout ?? const Duration(seconds: 15)).inMilliseconds /
+            1000,
+      });
+      if (raw == null) throw StateError('图片网络未返回响应');
+      final response = NetworkResponse(
+        statusCode: raw['status'] as int,
+        body: (raw['body'] as List).cast<int>(),
+        headers: (raw['headers'] as Map).map(
+          (key, value) => MapEntry('$key', '$value'),
+        ),
+      );
+      if (request.reuseVerifiedSession &&
+          (request.source.startsWith('封面:') ||
+              request.source == '图片缓存' ||
+              request.method == 'POST') &&
+          WafDetector.isChallenge(
+            statusCode: response.statusCode,
+            headers: response.headers,
+            body: String.fromCharCodes(response.body.take(16000)),
+          )) {
+        try {
+          return await IosVerifiedWebView.readResource(request)
+              .timeout(const Duration(seconds: 20));
+        } catch (_) {
+          request.cancellation?.check();
+          // A still-blocked image remains a challenge; offer manual verification.
+        }
+      }
+      return response;
+    } finally {
+      remove?.call();
+      _active.remove(id);
+      NetworkActivity.setWaiting(id, false);
+    }
   }
 }

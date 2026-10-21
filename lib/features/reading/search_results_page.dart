@@ -1,3 +1,6 @@
+import '../../shared/widgets/network_owned_state.dart';
+import '../../core/net/network_cancellation.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/search/search_settings.dart';
@@ -67,7 +70,8 @@ class SearchResultsPage extends StatefulWidget {
   State<SearchResultsPage> createState() => _SearchResultsPageState();
 }
 
-class _SearchResultsPageState extends State<SearchResultsPage> {
+class _SearchResultsPageState extends State<SearchResultsPage>
+    with NetworkOwnedState<SearchResultsPage> {
   /// 请求中（含首次进入与重试）。
   bool _loading = true;
 
@@ -106,6 +110,15 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
       widget.manager ?? LumeSources.manager(widget.section);
 
   Future<void> _run() async {
+    try {
+      networkRequests.cancelAll();
+      await networkRequests.run('search', _runOwned);
+    } on NetworkCancelled {
+      // Leaving the page or replacing this load is not a source failure.
+    }
+  }
+
+  Future<void> _runOwned() async {
     final seq = ++_seq;
     setState(() {
       _loading = true;
@@ -229,6 +242,14 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
 
   /// 翻页（只有当前源搜索有下一页；聚合搜索一次问全）。
   Future<void> _loadMore() async {
+    try {
+      await networkRequests.run('more', _loadMoreOwned);
+    } on NetworkCancelled {
+      // A superseded search no longer needs its next page.
+    }
+  }
+
+  Future<void> _loadMoreOwned() async {
     if (_loadingMore || !_hasMore || widget.mode == SearchMode.aggregate) {
       return;
     }
