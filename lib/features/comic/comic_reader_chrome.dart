@@ -1113,6 +1113,18 @@ extension _ComicReaderChrome on _ComicReaderPageState {
       default:
         return [
           _entry(
+            Icons.login,
+            '站点账号登录',
+            () => close(_loginToSource),
+            detail: '检查真实登录状态并同步会话',
+          ),
+          _entry(
+            Icons.public,
+            '打开作品网页',
+            () => close(_openSourcePage),
+            detail: '图片被拦截时，可在原站网页中查看',
+          ),
+          _entry(
             Icons.ios_share,
             '分享页面',
             _images.isEmpty || _loading || _sharing

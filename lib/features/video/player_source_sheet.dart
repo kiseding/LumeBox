@@ -200,95 +200,81 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    final landscape = media.size.width > media.size.height;
-    return Align(
-      alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
-      child: SizedBox(
-        width: landscape ? 440 : double.infinity,
-        height: media.size.height * (landscape ? .94 : .76),
-        child: Material(
-          color: LumeTheme.base,
-          borderRadius: BorderRadius.circular(20),
-          clipBehavior: Clip.antiAlias,
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Material(
+      color: LumeTheme.base,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          '选集与线路',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '复制地址',
-                        onPressed: widget.address.trim().isEmpty ? null : _copy,
-                        icon: const Icon(Icons.link, size: 22),
-                      ),
-                      IconButton(
-                        tooltip: '关闭',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  if (widget.qualities.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    SizedBox(
-                      height: 42,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        separatorBuilder: (_, _) => const SizedBox(width: 8),
-                        itemCount: widget.qualities.length,
-                        itemBuilder: (context, index) => ChoiceChip(
-                          label: Text(widget.qualities[index].label),
-                          selected: index == widget.currentIndex,
-                          labelStyle: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: index == widget.currentIndex
-                                    ? LumeTheme.onAccent
-                                    : LumeTheme.textPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                          onSelected: widget.onSelectQuality == null
-                              ? null
-                              : (_) {
-                                  Navigator.pop(context);
-                                  widget.onSelectQuality!(index);
-                                },
-                        ),
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 6),
-                      child: Text(
-                        '切换线路后从当前位置继续',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ],
-                  const Divider(height: 12),
-                  if (_selectingEpisode) const LinearProgressIndicator(),
-                  if (_episodeError != null)
-                    Text(
-                      _episodeError!,
+                  const Expanded(
+                    child: Text(
+                      '选集与线路',
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  Expanded(child: _buildEpisodes()),
+                  ),
+                  IconButton(
+                    tooltip: '复制地址',
+                    onPressed: widget.address.trim().isEmpty ? null : _copy,
+                    icon: const Icon(Icons.link, size: 22),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
-            ),
+              if (widget.qualities.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 42,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemCount: widget.qualities.length,
+                    itemBuilder: (context, index) => ChoiceChip(
+                      label: Text(widget.qualities[index].label),
+                      selected: index == widget.currentIndex,
+                      labelStyle: Theme.of(context).textTheme.labelLarge
+                          ?.copyWith(
+                            color: index == widget.currentIndex
+                                ? LumeTheme.onAccent
+                                : LumeTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                      onSelected: widget.onSelectQuality == null
+                          ? null
+                          : (_) {
+                              Navigator.pop(context);
+                              widget.onSelectQuality!(index);
+                            },
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Text('切换线路后从当前位置继续', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+              const Divider(height: 12),
+              if (_selectingEpisode) const LinearProgressIndicator(),
+              if (_episodeError != null)
+                Text(
+                  _episodeError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              Expanded(child: _buildEpisodes()),
+            ],
           ),
         ),
       ),

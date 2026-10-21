@@ -1,3 +1,6 @@
+import '../../core/web/web_home_sources.dart';
+import '../web/web_home_page.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -175,6 +178,21 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
   /// 当前筛选的板块；null 表示「全部」。
   Section? _filter;
+  String? _runtimeFilter;
+  WebHomeStore? _webStore;
+  void _webChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadWeb() async {
+    final store = widget.managerFactory == null
+        ? await WebHomeStore.open()
+        : WebHomeStore.instance;
+    if (!mounted) return;
+    _webStore = store;
+    store?.addListener(_webChanged);
+    setState(() {});
+  }
 
   /// 平台是否提供图源运行时。正式实现四个板块同值，任一可用即认为可用。
   bool get _runtimeAvailable =>
@@ -184,10 +202,12 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   void initState() {
     super.initState();
     _reload();
+    _loadWeb();
   }
 
   @override
   void dispose() {
+    _webStore?.removeListener(_webChanged);
     // 退出即释放：四个板块各自的运行时与数据库连接一起收口。
     for (final manager in _managers.values) {
       manager.close();
@@ -224,6 +244,9 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   List<SourceDescriptor> _listOf(Section section) =>
       (_sources[section] ?? const <SourceDescriptor>[])
           .where((s) => PrivacySettings.instance.allowsSource(s.id, s.name))
+          .where(
+            (s) => _runtimeFilter == null || s.runtimeKind == _runtimeFilter,
+          )
           .toList();
 
   int _enabledCount(Section section) =>
@@ -744,9 +767,12 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     final allEmpty = Section.values.every(
       (section) => _listOf(section).isEmpty,
     );
-    if (allEmpty && _failed.isEmpty) {
+    if (allEmpty &&
+        _failed.isEmpty &&
+        (_webStore?.items.isEmpty ?? true) &&
+        _runtimeFilter == null) {
       return NoticeCard(
-        title: '四板块均无源',
+        title: '暂无源',
         subtitle: '源由用户导入：点右下角按钮，并选择导入的目标板块',
         action: FilledButton(
           onPressed: () => _import(),
@@ -761,6 +787,33 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
         // 筛选条不是滚动视图，自己让出玻璃顶栏的高度。
         SizedBox(height: GlassScaffold.barHeight(context)),
         _buildFilterBar(),
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              for (final kind in <(String?, String)>[
+                (null, '全部类型'),
+                ('javascript', 'JS'),
+                ('python', 'PY'),
+                ('module', '模块'),
+                ('web', '网页'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(kind.$2),
+                    selected: _runtimeFilter == kind.$1,
+                    onSelected: (_) => setState(() {
+                      _runtimeFilter = kind.$1;
+                      _selected.clear();
+                    }),
+                  ),
+                ),
+            ],
+          ),
+        ),
         if (_maintaining) const LinearProgressIndicator(),
         if (_selecting)
           Padding(
@@ -805,7 +858,55 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
             // Dock，96 那套会多出一截空白（用户口径：二级页底部不要多余留白）。
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
             children: <Widget>[
-              for (final section in visible) ..._buildSectionChildren(section),
+              if (_runtimeFilter != 'web')
+                for (final section in visible)
+                  ..._buildSectionChildren(section),
+              if ((_runtimeFilter == null || _runtimeFilter == 'web') &&
+                  (_filter == null || _filter == Section.video)) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '网页',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                if (_webStore?.items.isEmpty ?? true)
+                  const _SectionNote('暂无网页源，可从视频源选择面板的 + 添加'),
+                for (final web in _webStore?.items ?? <WebHomeSource>[])
+                  ListTile(
+                    title: Text(web.name),
+                    subtitle: Text(web.url),
+                    onTap: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => WebHomePage(source: web),
+                      ),
+                    ),
+                    trailing: IconButton(
+                      tooltip: '删除网页源',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        final yes = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: Text('删除「${web.name}」？'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('取消'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('删除'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (yes == true) _webStore?.remove(web.id);
+                      },
+                    ),
+                  ),
+              ],
             ],
           ),
         ),

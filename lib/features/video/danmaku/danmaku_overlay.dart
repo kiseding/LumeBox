@@ -1,3 +1,5 @@
+import '../../../core/player/playback_clock.dart';
+
 import 'package:flutter/scheduler.dart';
 
 import 'dart:ui' as ui;
@@ -66,11 +68,9 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   late final Ticker _ticker;
   Duration _elapsed = Duration.zero;
-  Duration _anchor = Duration.zero;
   Duration _lastFrame = Duration.zero;
   Duration _renderPosition = Duration.zero;
-  Duration _clockPosition = Duration.zero;
-  Duration _clockFrame = Duration.zero;
+  final _clock = PlaybackClock();
   bool get _animate =>
       widget.playing && widget.settings.enabled && !widget.track.isEmpty;
   void _frame(Duration elapsed) {
@@ -85,7 +85,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   void _syncTicker() {
     if (_animate && !_ticker.isActive) {
-      _elapsed = _anchor = _lastFrame = Duration.zero;
+      _elapsed = _lastFrame = Duration.zero;
       _ticker.start();
     } else if (!_animate && _ticker.isActive) {
       _ticker.stop();
@@ -96,7 +96,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void initState() {
     super.initState();
     _ticker = createTicker(_frame);
-    _renderPosition = _clockPosition = widget.position;
+    _renderPosition = widget.position;
     _syncTicker();
     _onTick();
   }
@@ -106,11 +106,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     super.didUpdateWidget(oldWidget);
     // 换集 / 换弹幕源：整层重置。
     if (!identical(oldWidget.track, widget.track)) _reset();
-    if (oldWidget.position != widget.position ||
-        oldWidget.playing != widget.playing ||
-        oldWidget.playbackRate != widget.playbackRate) {
-      _anchor = _elapsed;
-    }
     if (oldWidget.settings != widget.settings) {
       final previous = List<_ActiveDanmaku>.of(_active);
       _active.clear();
@@ -149,40 +144,19 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   /// 每帧推进：投放新弹幕 + 清理过期弹幕。
   void _onTick() {
     if (!mounted) return;
-    // Interpolate between engine reports, but never run far ahead during a stall.
-    final advance = _animate
-        ? (_elapsed - _anchor).inMicroseconds.clamp(0, 1000000)
-        : 0;
-    final target =
-        widget.position +
-        Duration(microseconds: (advance * widget.playbackRate).round());
-    final frameDelta = (_elapsed - _clockFrame).inMicroseconds.clamp(0, 500000);
-    _clockFrame = _elapsed;
-    if (!_animate || (target - _clockPosition).inMilliseconds.abs() > 2000) {
-      _clockPosition = target;
-    } else {
-      final predicted =
-          _clockPosition +
-          Duration(microseconds: (frameDelta * widget.playbackRate).round());
-      // Correct sampling jitter gently, in proportion to this frame's length.
-      // Never snap backwards at the interpolation limit (visible every 500ms).
-      final limit = (frameDelta * widget.playbackRate * .1).round();
-      final correction = ((target - predicted).inMicroseconds * .12)
-          .round()
-          .clamp(-limit, limit);
-      final next = predicted + Duration(microseconds: correction);
-      final ceiling =
-          widget.position +
-          Duration(microseconds: (1000000 * widget.playbackRate).round());
-      _clockPosition = next > ceiling ? ceiling : next;
-    }
-    final position = _clockPosition;
+    final position = _clock.advance(
+      sample: widget.position,
+      frame: _elapsed,
+      playing: _animate,
+      rate: widget.playbackRate,
+    );
     _renderPosition =
         position - Duration(milliseconds: widget.settings.delayMs);
 
     // 跳转检测：位置倒退（seek 回去 / 换集）或大幅前跳 → 重置。
     final delta = widget.position - _lastPosition;
-    if (delta.isNegative || delta > const Duration(seconds: 2)) {
+    if (delta < const Duration(milliseconds: -150) ||
+        delta > const Duration(seconds: 2)) {
       _reset(keepCursorAt: widget.position);
     }
     _lastPosition = widget.position;
@@ -507,10 +481,7 @@ class _DanmakuPainter extends CustomPainter {
           Paint()..color = Colors.white.withValues(alpha: opacity),
         );
       }
-      final offset = Offset(
-        (dx * pixelRatio).round() / pixelRatio,
-        (dy * pixelRatio).round() / pixelRatio,
-      );
+      final offset = Offset(dx, (dy * pixelRatio).round() / pixelRatio);
       entry.outline?.paint(canvas, offset);
       painter.paint(canvas, offset);
       if (opacity < 1) canvas.restore();

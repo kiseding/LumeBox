@@ -1,3 +1,4 @@
+import '../source/source_login_page.dart';
 import '../../shared/widgets/network_owned_state.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -135,6 +136,55 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   late final SectionImagePipeline _pipeline;
   late final ComicImageTools _imageTools;
   late final Future<void> _imageModelReady;
+
+  Future<void> _loginToSource() => _openSourcePage(login: true);
+
+  Future<void> _openSourcePage({bool login = false}) async {
+    try {
+      final sources = await LumeSources.manager(widget.dataSource.section)
+          .list();
+      final descriptor = sources
+          .where((s) => s.id == widget.dataSource.id)
+          .firstOrNull;
+      if (!mounted) return;
+      if (descriptor == null || descriptor.siteUrl.isEmpty) {
+        throw const FormatException('没有找到站点地址，请到源设置补充');
+      }
+      final base = Uri.parse(
+        descriptor.siteConfig.domainOverride.isNotEmpty
+            ? descriptor.siteConfig.domainOverride
+            : descriptor.siteUrl,
+      );
+      final item = Uri.tryParse(widget.target.itemId);
+      // Only resolve actual paths/URLs. Numeric script IDs are not website URLs.
+      final page =
+          !login &&
+              item != null &&
+              (item.hasScheme || item.path.startsWith('/'))
+          ? base.resolveUri(item)
+          : base;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SourceLoginPage(
+            section: widget.dataSource.section,
+            sourceId: widget.dataSource.id,
+            name: descriptor.name,
+            url: page.toString(),
+            userAgent: descriptor.network.userAgent,
+            loginMode: login,
+          ),
+        ),
+      );
+      if (mounted) await _loadChapter(resume: false);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('站点页面暂时无法打开，请到源设置核对站点地址')));
+      }
+    }
+  }
 
   Future<void> _chooseSourceImageModel() async {
     var descriptor = SourceDescriptor(
@@ -1133,7 +1183,13 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         state: SourceStateKind.scriptError,
         detail: _failureDetail,
         onRetry: () => _loadChapter(resume: false),
-        action: (_failureDetail?.contains('NEED_WEBVIEW_VERIFY') ?? false)
+        action: RegExp('登录|登入|购买').hasMatch(_failureDetail ?? '')
+            ? OutlinedButton.icon(
+                onPressed: _loginToSource,
+                icon: const Icon(Icons.login),
+                label: const Text('站点账号登录'),
+              )
+            : (_failureDetail?.contains('NEED_WEBVIEW_VERIFY') ?? false)
             ? OutlinedButton.icon(
                 icon: const LumeIcon(Icons.public, slot: 'comic_reader_page.1'),
                 label: const Text('章节网页验证'),

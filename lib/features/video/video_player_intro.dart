@@ -122,18 +122,16 @@ extension _OriginalIntro on _VideoPlayerPageState {
       return;
     }
     _cancelAutoHide();
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => IntroEpisodeSheet(
-          controller: controller,
-          position: () => _player?.snapshot.value.position ?? Duration.zero,
-          onRebind: () {
-            _introMedia = null;
-            final snapshot = _player?.snapshot.value;
-            if (snapshot != null) _syncOriginalIntro(snapshot);
-          },
-        ),
+    await _playbackMenu<void>(
+      context: context,
+      builder: (_) => IntroEpisodeSheet(
+        controller: controller,
+        position: () => _player?.snapshot.value.position ?? Duration.zero,
+        onRebind: () {
+          _introMedia = null;
+          final snapshot = _player?.snapshot.value;
+          if (snapshot != null) _syncOriginalIntro(snapshot);
+        },
       ),
     );
     if (mounted) _scheduleAutoHide();

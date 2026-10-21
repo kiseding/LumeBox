@@ -92,7 +92,7 @@ void main() {
       expect(requests.single.queryParameters['episode'], '1');
       // Both fields stay usable above the software keyboard in either layout.
       tester.view.viewInsets = FakeViewPadding(
-        bottom: (landscape ? 180 : 300) * tester.view.devicePixelRatio,
+        bottom: (landscape ? 300 : 300) * tester.view.devicePixelRatio,
       );
       addTearDown(tester.view.reset);
       await tester.pumpAndSettle();
@@ -102,8 +102,13 @@ void main() {
       expect(field.height, greaterThan(36));
       expect(
         field.bottom,
-        lessThan((landscape ? 450 : 850) - (landscape ? 180 : 300)),
+        lessThan((landscape ? 450 : 850) - (landscape ? 300 : 300)),
       );
+      await tester.enterText(
+        find.byKey(const ValueKey('danmaku-match-title')),
+        '熔城测试',
+      );
+      expect(find.text('熔城测试'), findsOneWidget);
       expect(tester.takeException(), isNull);
       tester.view.resetViewInsets();
       await tester.pumpAndSettle();

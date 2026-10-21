@@ -206,7 +206,10 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: _buildContent);
+
+  Widget _buildContent(BuildContext context, BoxConstraints constraints) {
+    final compact = constraints.maxHeight < 280;
     final works = _works.entries.toList()
       ..sort(
         (a, b) =>
@@ -222,59 +225,64 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
     final currentWork = _workKey == null ? null : _episodes(_workKey!);
     final content = Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-          child: Row(
-            children: [
-              if (_workKey != null)
+        if (!compact)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+            child: Row(
+              children: [
+                if (_workKey != null)
+                  IconButton(
+                    tooltip: '返回作品列表',
+                    onPressed: _loadingTrack
+                        ? null
+                        : () => setState(() {
+                            _workKey = null;
+                            _selected = null;
+                            _error = null;
+                          }),
+                    icon: const LumeIcon(
+                      Icons.arrow_back,
+                      slot: 'danmaku.match.back',
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _workKey == null ? '1 · 选择作品' : '2 · 确认集数',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
                 IconButton(
-                  tooltip: '返回作品列表',
-                  onPressed: _loadingTrack
-                      ? null
-                      : () => setState(() {
-                          _workKey = null;
-                          _selected = null;
-                          _error = null;
-                        }),
+                  tooltip: '返回弹幕设置',
+                  onPressed: () => Navigator.pop(context),
                   icon: const LumeIcon(
-                    Icons.arrow_back,
-                    slot: 'danmaku.match.back',
+                    Icons.close,
+                    slot: 'danmaku.match.close',
                   ),
                 ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _workKey == null ? '1 · 选择作品' : '2 · 确认集数',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: '返回弹幕设置',
-                onPressed: () => Navigator.pop(context),
-                icon: const LumeIcon(Icons.close, slot: 'danmaku.match.close'),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '正在播放：${widget.title} · 第${widget.episode}集',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: LumeTheme.textSecondary,
+              if (!compact)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '正在播放：${widget.title} · 第${widget.episode}集',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: LumeTheme.textSecondary,
+                    ),
                   ),
                 ),
-              ),
               const SizedBox(height: 8),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,7 +326,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                   ),
                 ],
               ),
-              if (widget.serviceLabel != null)
+              if (!compact && widget.serviceLabel != null)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -329,7 +337,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                     ),
                   ),
                 ),
-              if (_error != null)
+              if (!compact && _error != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
@@ -425,37 +433,29 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                   ],
                 ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_workKey != null)
-                FilledButton(
-                  onPressed: _selected == null || _loading || _loadingTrack
-                      ? null
-                      : _load,
-                  child: Text(_loadingTrack ? '正在加载弹幕…' : '加载所选集弹幕'),
-                ),
-              if (widget.onChangeService != null)
-                TextButton(
-                  onPressed: _loadingTrack ? null : widget.onChangeService,
-                  child: const Text('更换服务 / 自定义 danmu 地址'),
-                ),
-            ],
+        if (!compact)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_workKey != null)
+                  FilledButton(
+                    onPressed: _selected == null || _loading || _loadingTrack
+                        ? null
+                        : _load,
+                    child: Text(_loadingTrack ? '正在加载弹幕…' : '加载所选集弹幕'),
+                  ),
+                if (!compact && widget.onChangeService != null)
+                  TextButton(
+                    onPressed: _loadingTrack ? null : widget.onChangeService,
+                    child: const Text('更换服务 / 自定义 danmu 地址'),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: SizedBox(
-            height: constraints.maxHeight < 340 ? 340 : constraints.maxHeight,
-            child: content,
-          ),
-        );
-      },
-    );
+    return content;
   }
 }

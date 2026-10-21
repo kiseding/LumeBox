@@ -1,3 +1,6 @@
+import 'source_login_page.dart';
+import '../../core/session/section.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -342,9 +345,32 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
               const SizedBox(height: 12),
               _group(
                 '账号登入',
-                '需要站点本身支持登录（有些站点没有登录功能）。凭据只存在本板块'
-                    '这份源记录里，不写日志、不随备份导出；登入会话请用 LumeSource.fs 缓存。',
+                '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
                 <Widget>[
+                  if (widget.source.siteUrl.isNotEmpty)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.login),
+                      label: const Text('打开站点网页登录 / 检查状态'),
+                      onPressed: () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SourceLoginPage(
+                            section: widget.source.section ?? Section.comic,
+                            sourceId: widget.source.id,
+                            name: widget.source.name,
+                            url:
+                                widget
+                                    .source
+                                    .siteConfig
+                                    .domainOverride
+                                    .isNotEmpty
+                                ? widget.source.siteConfig.domainOverride
+                                : widget.source.siteUrl,
+                            userAgent: widget.source.network.userAgent,
+                          ),
+                        ),
+                      ),
+                    ),
                   TextField(
                     controller: _account,
                     decoration: const InputDecoration(

@@ -1,9 +1,29 @@
+import AVFoundation
+import CoreMedia
 import Flutter
 import UIKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor func testPipMediaTimebaseAndPlaybackRate() throws {
+    let pump = PipFramePump()
+    pump.ensureDisplayLayer()
+    let layer = try XCTUnwrap(pump.displayLayer)
+    let clock = try XCTUnwrap(layer.controlTimebase)
+    pump.setPlaybackState(playing: false)
+    XCTAssertEqual(CMTimebaseGetRate(clock), 0)
+    XCTAssertTrue(pump.submit(pixels: Data(repeating: 255, count: 32), width: 4, height: 2, timestampMs: 30000))
+    XCTAssertEqual(CMTimeGetSeconds(CMTimebaseGetTime(clock)), 30, accuracy: 0.01)
+    pump.setPlaybackState(playing: true, rate: 0.5)
+    XCTAssertEqual(CMTimebaseGetRate(clock), 0.5)
+    pump.setPlaybackState(playing: false)
+    XCTAssertTrue(pump.submit(pixels: Data(repeating: 255, count: 32), width: 4, height: 2, timestampMs: 5000))
+    XCTAssertEqual(CMTimeGetSeconds(CMTimebaseGetTime(clock)), 5, accuracy: 0.01)
+    pump.teardown()
+    XCTAssertNil(pump.displayLayer)
+  }
+
 
   func testSourceLegacyEncoding() {
     let data=Data([0xd6,0xd0,0xce,0xc4])

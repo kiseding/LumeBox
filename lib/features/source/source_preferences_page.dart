@@ -1,3 +1,5 @@
+import 'source_login_page.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/source/source_picker_groups.dart';
@@ -175,6 +177,25 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             key: _widgetParameters,
             section: widget.section,
             sourceId: widget.sourceId,
+          ),
+        if (widget.siteUrl.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.login),
+            title: const Text('站点账号登录'),
+            subtitle: const Text('打开站点网页登录，检查状态并同步会话'),
+            onTap: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SourceLoginPage(
+                  section: widget.section,
+                  sourceId: widget.sourceId,
+                  name: widget.name,
+                  url: custom.text.trim().isNotEmpty
+                      ? custom.text.trim()
+                      : widget.siteUrl,
+                ),
+              ),
+            ),
           ),
         if (widget.onNetwork != null)
           ListTile(

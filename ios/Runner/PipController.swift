@@ -39,6 +39,7 @@ final class PipController: NSObject {
   private var avOutputItem: AVPlayerItem?
   private var avTimer: Timer?
   private var avUsesFrames = false
+  private var avTransform = CGAffineTransform.identity
 
 
   /// 帧通道：与 Dart 侧 `PipFrameSource` 的帧提交一一对应。
@@ -185,8 +186,10 @@ final class PipController: NSObject {
       stop(result: result)
     case "updateState":
       let args = call.arguments as? [String: Any] ?? [:]
+      if let rate = args["playbackRate"] as? Double, rate.isFinite, rate > 0 { playbackRate = Float(rate) }
       paused = !(((args["playing"] as? Bool) ?? false) || starting)
       framePump.danmaku.playing = !paused
+      framePump.setPlaybackState(playing: !paused, rate: Double(playbackRate))
       durationSeconds = (args["durationMs"] as? Double ?? 0) / 1000
       if #available(iOS 15.0, *) { controller?.invalidatePlaybackState() }
       result(nil)
@@ -236,6 +239,7 @@ final class PipController: NSObject {
   }
 
   private func attach(player: AVPlayer) {
+    if #available(iOS 15.0, *) { player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible }
     let needsFrames = framePump.danmaku.enabled
     if avPlayer === player && avUsesFrames == needsFrames && controller != nil { return }
     if controller?.isPictureInPictureActive == true { return }
@@ -251,6 +255,8 @@ final class PipController: NSObject {
       framePump.ensureDisplayLayer()
       if let layer = framePump.displayLayer { attach(frameLayer: layer) }
       let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+      // Resolve track metadata once, never synchronously on every frame.
+      avTransform = item.asset.tracks(withMediaType: .video).first?.preferredTransform ?? .identity
       item.add(output)
       avOutput = output
       avOutputItem = item
@@ -285,6 +291,7 @@ final class PipController: NSObject {
     avTimer?.invalidate(); avTimer = nil
     if let output = avOutput, let item = avOutputItem { item.remove(output) }
     avOutput = nil; avOutputItem = nil
+    avTransform = .identity
   }
 
   private func startAvFrames() {
@@ -294,9 +301,8 @@ final class PipController: NSObject {
       let time = player.currentTime()
       guard time.isValid, time.seconds.isFinite,
             let pixels = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else { return }
-      let transform = player.currentItem?.asset.tracks(withMediaType: .video).first?.preferredTransform ?? .identity
       self.framePump.danmaku.playing = player.rate > 0
-      self.framePump.submit(buffer: pixels, timestampMs: Int(time.seconds * 1000), transform: transform)
+      self.framePump.submit(buffer: pixels, timestampMs: Int(time.seconds * 1000), transform: self.avTransform)
       // Inline preparation only needs a priming frame; resume the pump on PiP start.
       if self.controller?.isPictureInPictureActive != true && !self.starting {
         self.avTimer?.invalidate(); self.avTimer = nil
@@ -337,8 +343,9 @@ final class PipController: NSObject {
       starting = true
       startAvFrames()
       paused = false
-      playbackRate = avPlayer?.rate ?? avLayer?.player?.rate ?? 1
-      if playbackRate <= 0 { playbackRate = 1 }
+      let currentRate = (avPlayer ?? avLayer?.player)?.rate ?? 0
+      if currentRate > 0 { playbackRate = currentRate }
+      framePump.setPlaybackState(playing: true, rate: Double(playbackRate))
       (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate)
       candidate.invalidatePlaybackState()
       candidate.startPictureInPicture()
@@ -399,6 +406,7 @@ extension PipController: AVPictureInPictureControllerDelegate {
     starting = false
     paused = false
     framePump.danmaku.playing = true
+    framePump.setPlaybackState(playing: true, rate: Double(playbackRate))
     startAvFrames()
     (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate)
     controller.invalidatePlaybackState()
@@ -457,7 +465,8 @@ extension PipController: AVPictureInPictureSampleBufferPlaybackDelegate {
     if starting && !playing { return }
     paused = !playing
     framePump.danmaku.playing = playing
-    if playing { (avPlayer ?? avLayer?.player)?.playImmediately(atRate: max(1, playbackRate)) }
+    framePump.setPlaybackState(playing: playing, rate: Double(playbackRate))
+    if playing { (avPlayer ?? avLayer?.player)?.playImmediately(atRate: playbackRate) }
     else { (avPlayer ?? avLayer?.player)?.pause() }
     emit(kind: playing ? "play" : "pause", message: nil)
   }

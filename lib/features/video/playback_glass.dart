@@ -1,4 +1,5 @@
-import '../../shared/widgets/drawer_geometry.dart';
+import 'danmaku/danmaku_panel.dart';
+
 import 'package:flutter/material.dart';
 
 // Compatibility wrapper for existing routes; playback effects have been removed.
@@ -22,10 +23,4 @@ Future<T?> showPlaybackMenu<T>({
   Color? backgroundColor,
   bool isScrollControlled = false,
   bool useSafeArea = false,
-}) => showLumeBottomSheet<T>(
-  context: context,
-  backgroundColor: backgroundColor,
-  isScrollControlled: isScrollControlled,
-  useSafeArea: useSafeArea,
-  builder: builder,
-);
+}) => showDanmakuPanel<T>(context: context, builder: builder);

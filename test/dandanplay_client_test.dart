@@ -94,7 +94,7 @@ void main() {
         expect(headers['x-appid'], 'sample');
         expect(headers['x-appsecret'], isNull);
         final data =
-            'sample${headers['x-timestamp']}/api/v2/search/episodes'
+            'sample${headers['x-timestamp']}${request.url.path}'
             'secret';
         expect(
           headers['x-signature'],
@@ -105,6 +105,66 @@ void main() {
     );
     addTearDown(client.close);
     expect(await client.search('作品'), isEmpty);
+  });
+
+  test('官方动画搜索无同名结果时，查询 TMDB 作品再读取真实剧集 ID', () async {
+    final paths = <String>[];
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        'sample',
+        'secret',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient((r) async {
+        paths.add(r.url.path);
+        if (r.url.path.endsWith('/search/episodes')) {
+          return http.Response(
+            '{"success":true,"animes":[{"animeTitle":"不相关动画","episodes":[{"episodeId":1,"episodeTitle":"第1集"}]}]}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (r.url.path.endsWith('/search/tmdb')) {
+          return http.Response(
+            jsonEncode({
+              'animes': [
+                {'animeTitle': '大刑伺候', 'bangumiId': 'tmdb-tv-123'},
+                {'animeTitle': '近似名称', 'bangumiId': 'tmdb-tv-456'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(r.url.path, '/api/v2/bangumi/tmdb-tv-123');
+        return http.Response(
+          jsonEncode({
+            'bangumi': {
+              'episodes': [
+                {
+                  'episodeId': 9000001,
+                  'episodeTitle': '第1集',
+                  'episodeNumber': '1',
+                },
+                {
+                  'episodeId': 9000002,
+                  'episodeTitle': '第2集',
+                  'episodeNumber': '2',
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(client.close);
+    final found = await client.search('大刑伺候', episode: 1);
+    final match = DandanplayClient.exactMatch(found, '大刑伺候', episode: 1);
+    expect(match?.id, '9000001');
+    expect(paths.length, 3);
+    expect(found.any((e) => e.id == '9000002'), false);
   });
 
   test('官方缺少凭证时不发送无效网络请求', () async {
@@ -163,7 +223,12 @@ void main() {
         baseUrl: DandanplayCredentials.officialBase,
       ),
       client: MockClient((request) async {
-        expect(request.url.queryParameters['anime'], '作品');
+        expect(
+          request.url.queryParameters[request.url.path.endsWith('/tmdb')
+              ? 'keyword'
+              : 'anime'],
+          '作品',
+        );
         expect(request.headers['X-AppId'], 'sample');
         final data =
             'sample${request.headers['X-Timestamp']}${request.url.path}secret';

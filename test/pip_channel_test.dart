@@ -94,7 +94,11 @@ void main() {
       duration: const Duration(seconds: 484),
     );
     expect(received?.method, 'updateState');
-    expect(received?.arguments, {'playing': false, 'durationMs': 484000.0});
+    expect(received?.arguments, {
+      'playing': false,
+      'durationMs': 484000.0,
+      'playbackRate': 1.0,
+    });
   });
 
   test('原生未接入：isSupported 如实降级为 false，不抛异常', () async {

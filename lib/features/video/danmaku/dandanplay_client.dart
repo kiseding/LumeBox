@@ -166,6 +166,53 @@ class DandanplayClient {
       'v2': 'true',
       if (episode != null) 'episode': '$episode',
     });
+    final direct = _parseSearch(json);
+    if (!credentials.official ||
+        direct.any((e) => normalizedTitle(e.title) == normalizedTitle(title))) {
+      return direct;
+    }
+    // Official /search/episodes primarily searches its native catalogue. TV and
+    // movie records may live in TMDB and must be resolved through that API.
+    final tmdb = await _get('/api/v2/search/tmdb', {
+      'keyword': searchTitle(title),
+    });
+    final candidates = (tmdb['animes'] as List? ?? [])
+        .whereType<Map>()
+        .where(
+          (e) =>
+              normalizedTitle('${e['animeTitle'] ?? ''}') ==
+              normalizedTitle(title),
+        )
+        .take(3);
+    final extra = <DandanplayEpisode>[];
+    for (final work in candidates) {
+      final id = '${work['bangumiId'] ?? ''}';
+      if (!RegExp(r'^tmdb-(?:tv|movie)-[0-9]+$').hasMatch(id)) continue;
+      final detail = await _get(
+        '/api/v2/bangumi/${Uri.encodeComponent(id)}',
+        {},
+      );
+      final bangumi = detail['bangumi'];
+      if (bangumi is! Map) continue;
+      extra.addAll(
+        _parseSearch({
+          'animes': [
+            {
+              ...work,
+              ...bangumi,
+              'animeTitle': work['animeTitle'],
+              'animeId': id,
+              'source': 'TMDB',
+            },
+          ],
+        }).where((e) => episode == null || e.number == episode),
+      );
+    }
+    final ids = <String>{};
+    return [...extra, ...direct].where((e) => ids.add(e.id)).toList();
+  }
+
+  static List<DandanplayEpisode> _parseSearch(Map<String, dynamic> json) {
     final animes = json['animes'];
     if (animes is! List) {
       throw const DandanplayException('服务未返回作品列表，请检查弹幕服务地址');
@@ -195,7 +242,7 @@ class DandanplayClient {
         if (item is! Map) continue;
         final id = '${item['episodeId'] ?? ''}';
         if (id.isEmpty || id == 'null' || animeTitle.isEmpty) continue;
-        final episodeTitle = '${item['episodeTitle'] ?? ''}';
+        final episodeTitle = '${item['episodeTitle'] ?? item['title'] ?? ''}';
         result.add(
           DandanplayEpisode(
             id: id,

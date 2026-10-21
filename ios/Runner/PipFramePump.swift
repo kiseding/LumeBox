@@ -24,6 +24,28 @@ final class PipFramePump {
   private var pool: CVPixelBufferPool?
   private var poolWidth = 0
   private var poolHeight = 0
+  private var timebase: CMTimebase?
+  private var timelineReady = false
+  private var playing = true
+  private var playbackRate = 1.0
+  func setPlaybackState(playing: Bool, rate: Double = 1) {
+    self.playing = playing
+    playbackRate = rate.isFinite && rate > 0 ? rate : 1
+    if let timebase = timebase { CMTimebaseSetRate(timebase, rate: playing ? playbackRate : 0) }
+  }
+  private func presentationTime(_ milliseconds: Int) -> CMTime {
+    let media = CMTime(value: CMTimeValue(milliseconds), timescale: 1000)
+    guard let timebase = timebase else { return media }
+    let current = CMTimebaseGetTime(timebase)
+    if !timelineReady || abs(CMTimeGetSeconds(current - media)) > 2 {
+      displayLayer?.flush()
+      CMTimebaseSetTime(timebase, time: media)
+      CMTimebaseSetRate(timebase, rate: playing ? playbackRate : 0)
+      timelineReady = true
+    }
+    return CMTimebaseGetTime(timebase)
+  }
+
 
   /// 帧计数（诊断）。
   private(set) var receivedFrames = 0
@@ -37,6 +59,15 @@ final class PipFramePump {
     layer.videoGravity = .resizeAspect
     // 画中画窗口尺寸由系统决定，层本身的 frame 不重要，但要有合法值。
     layer.frame = CGRect(x: 0, y: 0, width: 16, height: 9)
+    var clock: CMTimebase?
+    if CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault,
+      sourceClock: CMClockGetHostTimeClock(), timebaseOut: &clock) == noErr,
+      let clock = clock {
+      timebase = clock
+      layer.controlTimebase = clock
+      CMTimebaseSetRate(clock, rate: playing ? playbackRate : 0)
+    }
+    timelineReady = false
     displayLayer = layer
     return true
   }
@@ -46,6 +77,7 @@ final class PipFramePump {
     displayLayer?.flushAndRemoveImage()
     displayLayer?.removeFromSuperlayer()
     displayLayer = nil
+    timebase = nil; timelineReady = false
     pool = nil
     poolWidth = 0
     poolHeight = 0
@@ -199,7 +231,7 @@ final class PipFramePump {
 
     var timing = CMSampleTimingInfo(
       duration: CMTime(value: 1, timescale: 30),
-      presentationTimeStamp: CMTime(value: CMTimeValue(timestampMs), timescale: 1000),
+      presentationTimeStamp: presentationTime(timestampMs),
       decodeTimeStamp: .invalid
     )
     var sample: CMSampleBuffer?
@@ -224,6 +256,19 @@ final class PipDanmakuRenderer {
   private var anchor: CFTimeInterval = 0
   private var clockPosition: Double = 0
   private var clockFrame: CFTimeInterval = 0
+  private struct Entry {
+    let label: NSAttributedString
+    let width: Double, start: Double, duration: Double, y: Double
+    let scrolling: Bool
+  }
+  private var active: [Entry] = []
+  private var nextIndex = -1
+  private var layoutKey = ""
+  private var lastDraw = -Double.infinity
+  private var laneEnds: [Double] = [], laneStarts: [Double] = [], laneWidths: [Double] = []
+  private var laneModes: [String] = []
+  private var recent: [String: Double] = [:]
+  private var second = -1, admitted = 0
   var enabled: Bool { bool("enabled", true) && bool("pipEnabled", true) && !items.isEmpty }
   func update(_ args: [String: Any]) {
     settings = args["settings"] as? [String: Any] ?? [:]
@@ -231,6 +276,7 @@ final class PipDanmakuRenderer {
     labels.removeAll()
     lastPosition = -1
     clockFrame = 0
+    nextIndex = -1; active.removeAll(); layoutKey = ""
   }
   private func bool(_ key: String, _ fallback: Bool) -> Bool { settings[key] as? Bool ?? fallback }
   private func value(_ key: String, _ fallback: Double) -> Double { (settings[key] as? NSNumber)?.doubleValue ?? fallback }
@@ -264,25 +310,33 @@ final class PipDanmakuRenderer {
     UIGraphicsPushContext(context)
     defer { UIGraphicsPopContext() }
     let span = 8000 / max(0.5, value("speedScale", 1))
-    var low = 0, high = items.count
-    while low < high { let mid = (low + high) / 2; if number(items[mid]["time"]) < position - max(5000, span) { low = mid + 1 } else { high = mid } }
-    var lanes = Array(repeating: -Double.infinity, count: count)
-    var starts = Array(repeating: -Double.infinity, count: count)
-    var widths = Array(repeating: 0.0, count: count)
-    var modes = Array(repeating: "", count: count)
-    var recent: [String: Double] = [:]
-    var second = -1, rate = 0, visible = 0
+    let key = "\(width)|\(height)|\(count)|\(fontSize)|\(span)"
+    // Keep an admitted comment in its lane until it leaves. Rebuilding the
+    // last eight seconds every frame changed lanes as the window advanced.
+    if nextIndex < 0 || key != layoutKey || position < lastDraw - 150 || position - lastDraw > 2000 {
+      active.removeAll(); recent.removeAll(); second = -1; admitted = 0
+      laneEnds = Array(repeating: -Double.infinity, count: count)
+      laneStarts = laneEnds; laneWidths = Array(repeating: 0, count: count)
+      laneModes = Array(repeating: "", count: count)
+      var low = 0, high = items.count
+      while low < high { let mid = (low + high) / 2; if number(items[mid]["time"]) < position - max(5000, span) { low = mid + 1 } else { high = mid } }
+      nextIndex = low; layoutKey = key
+    }
+    lastDraw = position
+    active.removeAll { position - $0.start >= $0.duration }
+    recent = recent.filter { position - $0.value < 5000 }
     let blocked = (settings["blockedWords"] as? [String] ?? []).map { $0.lowercased() }
-    for index in low..<items.count {
-      let item = items[index], time = number(item["time"])
+    while nextIndex < items.count {
+      let item = items[nextIndex], time = number(item["time"])
       if time > position { break }
+      nextIndex += 1
       guard let text = item["text"] as? String, !text.isEmpty else { continue }
       let mode = item["mode"] as? String ?? "scroll"
       if mode == "scroll" && !bool("showScroll", true) || mode == "top" && !bool("showTop", true) || mode == "bottom" && !bool("showBottom", true) { continue }
       if blocked.contains(where: { text.lowercased().contains($0) }) { continue }
       let sec = Int(time / 1000)
-      if sec != second { second = sec; rate = 0 }
-      if rate >= Int(value("maxPerSecond", 8)) { continue }
+      if sec != second { second = sec; admitted = 0 }
+      if admitted >= Int(value("maxPerSecond", 8)) { continue }
       if bool("mergeDuplicates", true), let previous = recent[text], time - previous < 5000 { continue }
       let size = fontSize * min(3, max(0.5, number(item["fontSize"]) == 0 ? 1 : number(item["fontSize"])))
       let rawColor = bool("allowColored", true) ? Int(number(item["color"])) : 0xFFFFFF
@@ -300,27 +354,32 @@ final class PipDanmakuRenderer {
       let measured = label.size()
       let order = mode == "bottom" ? Array((0..<count).reversed()) : Array(0..<count)
       guard let lane = order.first(where: { lane in
-        if lanes[lane] <= time { return true }
-        if mode != "scroll" || modes[lane] != "scroll" { return false }
-        let oldSpeed = (Double(width) + widths[lane]) / span
+        if laneEnds[lane] <= time { return true }
+        if mode != "scroll" || laneModes[lane] != "scroll" { return false }
+        let oldSpeed = (Double(width) + laneWidths[lane]) / span
         let newSpeed = (Double(width) + Double(measured.width)) / span
-        let elapsed = time - starts[lane]
-        let gap = oldSpeed * elapsed - widths[lane]
+        let elapsed = time - laneStarts[lane]
+        let gap = oldSpeed * elapsed - laneWidths[lane]
         if gap < 12 * scale { return false }
         return newSpeed <= oldSpeed || gap / (newSpeed - oldSpeed) >= span - elapsed
       }) else { continue }
       let duration = mode == "scroll" ? span : 4000
-      lanes[lane] = time + duration
-      starts[lane] = time; widths[lane] = Double(measured.width); modes[lane] = mode
-      rate += 1; recent[text] = time
+      laneEnds[lane] = time + duration
+      laneStarts[lane] = time; laneWidths[lane] = Double(measured.width); laneModes[lane] = mode
+      admitted += 1; recent[text] = time
       let age = position - time
       if age < 0 || age >= duration { continue }
-      if visible >= Int(value("maxOnScreen", 60)) { break }
-      visible += 1
-      let x = mode == "scroll" ? Double(width) - (Double(width) + Double(measured.width)) * age / duration : (Double(width) - Double(measured.width)) / 2
+      if active.count >= Int(value("maxOnScreen", 60)) { continue }
       let y = mode == "bottom" ? available - Double(count - lane) * rowHeight : Double(lane) * rowHeight
       if Double(measured.height) > rowHeight { continue }
-      label.draw(at: CGPoint(x: x, y: y))
+      active.append(Entry(label: label, width: Double(measured.width), start: time,
+                          duration: duration, y: y, scrolling: mode == "scroll"))
+    }
+    for entry in active {
+      let age = position - entry.start
+      guard age >= 0 && age < entry.duration else { continue }
+      let x = entry.scrolling ? Double(width) - (Double(width) + entry.width) * age / entry.duration : (Double(width) - entry.width) / 2
+      entry.label.draw(at: CGPoint(x: x, y: entry.y))
     }
   }
 }

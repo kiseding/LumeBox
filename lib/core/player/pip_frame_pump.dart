@@ -1,3 +1,5 @@
+import 'playback_clock.dart';
+
 import 'dart:async';
 
 import 'mpv_engine.dart';
@@ -30,6 +32,7 @@ class PipFramePump {
     this.targetFps = 30,
     this.position,
     this.playing,
+    this.playbackRate,
   });
 
   /// 取帧来源（MPV / MDK）。
@@ -42,6 +45,15 @@ class PipFramePump {
   final int targetFps;
   final Duration Function()? position;
   final bool Function()? playing;
+  final double Function()? playbackRate;
+  final _watch = Stopwatch()..start();
+  final _clock = PlaybackClock();
+  Duration _timestamp() => _clock.advance(
+    sample: position?.call() ?? Duration.zero,
+    frame: _watch.elapsed,
+    playing: playing?.call() ?? true,
+    rate: playbackRate?.call() ?? 1,
+  );
 
   Timer? _timer;
   StreamSubscription<void>? _ticks;
@@ -84,7 +96,7 @@ class PipFramePump {
         pixels: frame.toTightBgra(),
         width: frame.width,
         height: frame.height,
-        timestamp: position?.call() ?? Duration.zero,
+        timestamp: _timestamp(),
       );
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
@@ -176,7 +188,7 @@ class PipFramePump {
         pixels: frame.toTightBgra(),
         width: frame.width,
         height: frame.height,
-        timestamp: position?.call() ?? Duration.zero,
+        timestamp: _timestamp(),
       );
     } catch (error, stackTrace) {
       // 单拍失败不中断泵（下一拍继续）。

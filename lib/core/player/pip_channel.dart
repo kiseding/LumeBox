@@ -78,11 +78,13 @@ class MethodChannelPipBackend implements PipBackend {
   Future<void> updatePlaybackState({
     required bool playing,
     required Duration duration,
+    double playbackRate = 1,
   }) async {
     try {
       await _methods.invokeMethod<void>('updateState', {
         'playing': playing,
         'durationMs': duration.inMilliseconds.toDouble(),
+        'playbackRate': playbackRate,
       });
     } catch (error) {
       LumeLog.info('[pip] 同步播放状态失败：$error');

@@ -367,6 +367,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   PipFramePump? _framePump;
   bool? _pipPlaying;
   Duration? _pipDuration;
+  double? _pipRate;
   late final PlaybackSpeedMeter _networkSpeed =
       widget.speedMeter ?? PlaybackSpeedMeter();
   DateTime? _nextSpeedProbe;
@@ -445,6 +446,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         frameSource: backend.frameSource,
         position: () => _player?.snapshot.value.position ?? Duration.zero,
         playing: () => _player?.snapshot.value.playing ?? false,
+        playbackRate: () => _settings.speed,
       );
       final ready = await _framePump!.prime().timeout(
         const Duration(seconds: 3),
@@ -1491,6 +1493,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     context: context,
     builder: builder,
     glass: _settings.playbackGlass,
+    backgroundColor: backgroundColor,
     isScrollControlled: isScrollControlled,
     useSafeArea: useSafeArea,
   );
@@ -2396,6 +2399,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           await nativeBackend.updatePlaybackState(
             playing: true,
             duration: player.snapshot.value.duration,
+            playbackRate: _settings.speed,
           );
           if (player is AvPlayer) {
             final id = player.nativePlayerId;
@@ -2416,6 +2420,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               frameSource: nativeBackend.frameSource,
               position: () => _player?.snapshot.value.position ?? Duration.zero,
               playing: () => _player?.snapshot.value.playing ?? false,
+              playbackRate: () => _settings.speed,
             );
             final ready = await _framePump!.prime().timeout(
               const Duration(seconds: 3),
@@ -2506,6 +2511,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       frameSource: backend.frameSource,
       position: () => _player?.snapshot.value.position ?? Duration.zero,
       playing: () => _player?.snapshot.value.playing ?? false,
+      playbackRate: () => _settings.speed,
     );
     _framePump!.start();
     _framePump!.setBackground(_lifecycle != AppLifecycleState.resumed);
@@ -2521,15 +2527,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final backend = _session?.backend;
     final snapshot = _player?.snapshot.value;
     if (backend is! MethodChannelPipBackend || snapshot == null) return;
-    if (_pipPlaying == snapshot.playing && _pipDuration == snapshot.duration) {
+    final playing =
+        snapshot.playing ||
+        _pipPreparing ||
+        _session?.state == PipState.entering;
+    if (_pipPlaying == playing &&
+        _pipDuration == snapshot.duration &&
+        _pipRate == _settings.speed) {
       return;
     }
-    _pipPlaying = snapshot.playing;
+    _pipPlaying = playing;
+    _pipRate = _settings.speed;
     _pipDuration = snapshot.duration;
     unawaited(
       backend.updatePlaybackState(
-        playing: snapshot.playing,
+        playing: playing,
         duration: snapshot.duration,
+        playbackRate: _settings.speed,
       ),
     );
   }

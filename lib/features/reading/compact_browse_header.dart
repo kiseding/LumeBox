@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../shell/dock_liquid_lens.dart';
+import '../shell/dock_liquid_surface.dart';
+import '../../core/theme/lume_theme.dart';
 import '../shell/dock_native_glass.dart';
 
 import '../../core/reading/browse_layout.dart';
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/drawer_geometry.dart';
-import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/lume_icon.dart';
 import '../shell/shell_dock.dart';
 import 'browse_layout_button.dart';
@@ -120,9 +121,18 @@ class _SearchGlassButton extends StatefulWidget {
 
 class _SearchGlassButtonState extends State<_SearchGlassButton> {
   bool _pressed = false;
+  final _surfaceKey = GlobalKey();
+  Offset _origin() {
+    final box = _surfaceKey.currentContext?.findRenderObject();
+    return box is RenderBox ? box.localToGlobal(Offset.zero) : Offset.zero;
+  }
+
   @override
   Widget build(BuildContext context) {
     final liquid = widget.appearance.liquid;
+    final style = FloatingModules.instance.style(FloatingModule.dock);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final glassColor = dark ? LumeTheme.glass : Colors.white;
     final reduced = MediaQuery.disableAnimationsOf(context);
     final animate = widget.appearance.animateSelection && !reduced;
     final native =
@@ -144,6 +154,7 @@ class _SearchGlassButtonState extends State<_SearchGlassButton> {
             width: size,
             height: size,
             child: Stack(
+              key: _surfaceKey,
               fit: StackFit.expand,
               children: [
                 if (native)
@@ -152,18 +163,64 @@ class _SearchGlassButtonState extends State<_SearchGlassButton> {
                     cornerRadius: size / 2,
                     style: liquid.nativeGlassStyle,
                     reduceTransparency: MediaQuery.highContrastOf(context),
+                    tintColor: glassColor,
+                    tintOpacity: liquid.value(DockLiquidParameter.nativeTint),
                   ),
-                GlassPanel(
-                  key: const ValueKey('browse-search-surface'),
-                  module: widget.beside && !native ? FloatingModule.dock : null,
-                  radius: size / 2,
-                  color: native ? Colors.transparent : null,
-                  blur: native ? 0 : 6,
-                  border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: widget.appearance.borderOpacity,
+                if (!native)
+                  DockLiquidSurface(
+                    filterKey: const ValueKey('browse-search-surface'),
+                    borderRadius: BorderRadius.circular(size / 2),
+                    blurSigma: style.blur,
+                    fallbackSigma:
+                        style.blur *
+                        (1 -
+                            press *
+                                liquid.value(
+                                  DockLiquidParameter.blurReduction,
+                                )),
+                    fallbackChild: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: glassColor.withValues(alpha: style.opacity),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: (dark ? Colors.white : const Color(0xFF6E6E73))
+                              .withValues(
+                                alpha:
+                                    widget.appearance.borderOpacity *
+                                    (dark ? 1 : .28),
+                              ),
+                        ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withValues(alpha: style.opacity * .35),
+                            glassColor.withValues(alpha: style.opacity * .1),
+                          ],
+                        ),
+                      ),
                     ),
+                    lensRect: Rect.fromLTWH(0, 0, size, size),
+                    lensRadius: size / 2,
+                    lensScale: 1,
+                    feather:
+                        size * liquid.value(DockLiquidParameter.clarityFeather),
+                    clarity: liquid.enabled(DockLiquidEffect.clarity)
+                        ? press *
+                              liquid.value(DockLiquidParameter.blurReduction)
+                        : 0,
+                    coreAlpha: liquid.value(DockLiquidParameter.coreAlpha),
+                    backgroundAdapt: liquid.value(
+                      DockLiquidParameter.backgroundAdapt,
+                    ),
+                    tintColor: glassColor,
+                    tintOpacity: style.opacity,
+                    pixelRatio: MediaQuery.devicePixelRatioOf(context),
+                    stageOrigin: _origin,
                   ),
+                Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
                   child: Listener(
                     onPointerDown: widget.onPressed == null
                         ? null

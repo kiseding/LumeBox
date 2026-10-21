@@ -453,7 +453,7 @@ void main() {
     final managers = fakeManagers();
     await pumpPage(tester, managers);
 
-    expect(find.text('四板块均无源'), findsOneWidget);
+    expect(find.text('暂无源'), findsOneWidget);
     expect(find.text('导入源'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsOneWidget);
   });
