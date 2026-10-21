@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 
+import '../../../core/util/lume_log.dart';
 import 'danmaku_models.dart';
 import 'danmaku_credentials.dart';
 
@@ -149,6 +150,13 @@ class DandanplayClient {
       url = next;
     }
     response = response!;
+    LumeLog.info(
+      '[danmaku] ${credentials.builtin
+          ? 'builtin'
+          : credentials.official
+          ? 'official'
+          : 'compatible'} ${url.path} -> ${response.statusCode}',
+    );
     if (response.statusCode == 401 || response.statusCode == 403) {
       final reason = switch (response.headers['x-error-message']) {
         'Invalid Timestamp' => '设备时间不准确，请开启系统自动设置日期与时间',
@@ -236,6 +244,9 @@ class DandanplayClient {
       if (episode != null) 'episode': '$episode',
     });
     final direct = _parseSearch(json);
+    LumeLog.info(
+      '[danmaku] search "${searchTitle(title)}" ep=${episode ?? '-'} -> ${direct.length}',
+    );
     if (!credentials.official ||
         direct.any((e) => normalizedTitle(e.title) == normalizedTitle(title))) {
       return direct;
@@ -344,11 +355,17 @@ class DandanplayClient {
     final json = await _get('/api/v2/comment/${Uri.encodeComponent(id)}', {
       'withRelated': 'true',
       'format': 'json',
+      // The local upstream caches comment results. If its first upstream fetch
+      // failed and cached an empty list, retrying immediately would keep
+      // returning 0. A changing cache key makes "重新加载本集" actually retry.
+      if (credentials.builtin) '_': '${DateTime.now().microsecondsSinceEpoch}',
     });
     if (json['comments'] is! List) {
       throw const DandanplayException('服务未返回弹幕列表，请重试或检查弹幕服务地址');
     }
-    return parseComments(json);
+    final track = parseComments(json);
+    LumeLog.info('[danmaku] comments $id -> ${track.length}');
+    return track;
   }
 
   static DanmakuTrack parseComments(Map<String, dynamic> json) {
