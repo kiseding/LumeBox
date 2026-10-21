@@ -265,6 +265,7 @@ typedef struct JSValueLink {
 } JSValueLink;
 
 struct JSRuntime {
+    int lume_oom_pending; /* host diagnostic; no allocation during OOM */
     JSMallocFunctions mf;
     JSMallocState malloc_state;
     const char *rt_info;
@@ -8097,8 +8098,16 @@ static int JS_ThrowTypeErrorReadOnly(JSContext *ctx, int flags, JSAtom atom)
     }
 }
 
+int JS_LumeTakeOutOfMemory(JSRuntime *rt)
+{
+    int pending = rt->lume_oom_pending;
+    rt->lume_oom_pending = 0;
+    return pending;
+}
+
 JSValue JS_ThrowOutOfMemory(JSContext *ctx)
 {
+    ctx->rt->lume_oom_pending = 1;
     JSRuntime *rt = ctx->rt;
     if (!rt->in_out_of_memory) {
         rt->in_out_of_memory = true;

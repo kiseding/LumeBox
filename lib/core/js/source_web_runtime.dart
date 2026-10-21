@@ -1,4 +1,5 @@
 import '../net/lume_net.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -29,9 +30,15 @@ class SourceWebRuntime {
   static Future<Map<String, dynamic>?> verifyRetained(String url) async {
     final id = _retained.remove(Uri.parse(url).host);
     if (id == null) return null;
-    final reply = await channel
-        .invokeMapMethod<String, dynamic>('verify', {'requestId': id})
-        .timeout(const Duration(seconds: 185));
+    Map<String, dynamic>? reply;
+    try {
+      reply = await channel
+          .invokeMapMethod<String, dynamic>('verify', {'requestId': id})
+          .timeout(const Duration(seconds: 185));
+    } on TimeoutException {
+      await channel.invokeMethod<void>('cancel', {'requestId': id});
+      rethrow;
+    }
     if (reply?['verified'] == true) {
       SiteSessionPool.shared.rememberPage(
         url,
@@ -117,7 +124,9 @@ class SourceWebRuntime {
         args['headers'] = await SiteSessionPool.shared.synchronize(
           url,
           headers,
+          forceCookies: args['forceCookies'] == true,
         );
+        if (_disposed) throw StateError('源已释放');
         args['userAgent'] =
             SiteSessionPool.shared.userAgentFor(url) ?? args['userAgent'];
         args['inspectable'] = SiteSessionPool.shared.inspectable;
@@ -164,6 +173,7 @@ class SourceWebRuntime {
         );
         await SiteSessionPool.shared.synchronize(url, {});
       }
+      if (_disposed) throw StateError('源已释放');
       return result;
     } on PlatformException catch (error) {
       if (error.code == 'verification') {

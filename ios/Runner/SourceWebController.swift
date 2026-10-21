@@ -169,10 +169,17 @@ final class SourceWebController {
       if parts.count != 2 { continue }
       let name = parts[0].trimmingCharacters(in: .whitespaces)
       let identity = host + "|" + name
-      if seededCookies.contains(identity) { continue }
+      if seededCookies.contains(identity) && args["forceCookies"] as? Bool != true { continue }
       if seededCookies.count >= 1024 { seededCookies.removeAll() }
       seededCookies.insert(identity)
-      if current.contains(where: { $0.name == name && ($0.domain.trimmingCharacters(in: CharacterSet(charactersIn:".")) == host || host.hasSuffix($0.domain)) }) { continue }
+      let existing = current.first { $0.name == name && ($0.domain == host || ($0.domain.hasPrefix(".") && host.hasSuffix($0.domain))) }
+      if let existing=existing {
+        if args["forceCookies"] as? Bool == true, existing.value != String(parts[1]), var properties=existing.properties {
+          properties[.value]=String(parts[1])
+          if let cookie=HTTPCookie(properties:properties) { group.enter(); store.setCookie(cookie) { group.leave() } }
+        }
+        continue
+      }
       var properties: [HTTPCookiePropertyKey: Any] = [.name: parts[0].trimmingCharacters(in: .whitespaces),
         .value: String(parts[1]), .domain: host, .path: "/"]
       if url.scheme == "https" { properties[.secure] = "TRUE" }

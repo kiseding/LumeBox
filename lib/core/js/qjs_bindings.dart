@@ -239,32 +239,41 @@ class Qjs {
     Pointer<NativeFunction<JsChannelCallback>>,
     Pointer<NativeFunction<JsChannelCallback>>,
     Pointer<NativeFunction<JsChannelCallback>>,
-  )? _newContext;
+  )?
+  _newContext;
   static Pointer<JsValueHandle> Function(
     Pointer<JsContextHandle>,
     Pointer<Utf8>,
     int,
     Pointer<Utf8>,
     int,
-  )? _evaluate;
-  static Pointer<Utf8> Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>)?
-      _toCString;
+  )?
+  _evaluate;
+  static Pointer<Utf8> Function(
+    Pointer<JsContextHandle>,
+    Pointer<JsValueHandle>,
+  )?
+  _toCString;
   static void Function(Pointer<JsContextHandle>, Pointer<Utf8>)? _freeCString;
   static void Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>, int)?
-      _freeValue;
+  _freeValue;
   static void Function(Pointer<JsContextHandle>)? _freeContext;
   static void Function(Pointer<JsRuntimeHandle>)? _freeRuntime;
   static Pointer<JsValueHandle> Function(Pointer<JsContextHandle>)?
-      _getException;
-  static Pointer<JsValueHandle> Function(Pointer<JsContextHandle>, Pointer<Utf8>)?
-      _newString;
+  _getException;
+  static Pointer<JsValueHandle> Function(
+    Pointer<JsContextHandle>,
+    Pointer<Utf8>,
+  )?
+  _newString;
   static int Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>)?
-      _valueToAtom;
+  _valueToAtom;
   static Pointer<JsValueHandle> Function(
     Pointer<JsContextHandle>,
     Pointer<JsValueHandle>,
     int,
-  )? _getProperty;
+  )?
+  _getProperty;
   static void Function(Pointer<JsContextHandle>, int)? _freeAtom;
   static int Function(Pointer<JsRuntimeHandle>)? _executePendingJob;
   static int Function(Pointer<JsValueHandle>)? _valueTag;
@@ -274,7 +283,8 @@ class Qjs {
     Pointer<JsRuntimeHandle>,
     Pointer<NativeFunction<JsInterruptCallback>>,
     Pointer<Void>,
-  )? _setInterruptHandler;
+  )?
+  _setInterruptHandler;
   static bool _interruptResolved = false;
 
   static void _clearCache() {
@@ -349,8 +359,11 @@ class Qjs {
       _newRuntime ??= _lookup(
         _newRuntime,
         'JS_NewRuntimeDartBridge',
-        (lib) => lib.lookupFunction<_NewRuntimeNative,
-            Pointer<JsRuntimeHandle> Function()>('JS_NewRuntimeDartBridge'),
+        (lib) =>
+            lib.lookupFunction<
+              _NewRuntimeNative,
+              Pointer<JsRuntimeHandle> Function()
+            >('JS_NewRuntimeDartBridge'),
       );
 
   static Pointer<JsContextHandle> Function(
@@ -358,18 +371,21 @@ class Qjs {
     Pointer<NativeFunction<JsChannelCallback>>,
     Pointer<NativeFunction<JsChannelCallback>>,
     Pointer<NativeFunction<JsChannelCallback>>,
-  ) get newContext =>
-      _newContext ??= _lookup(
-        _newContext,
-        'JS_NewContextDartBridge',
-        (lib) => lib.lookupFunction<_NewContextNative,
-            Pointer<JsContextHandle> Function(
-              Pointer<JsRuntimeHandle>,
-              Pointer<NativeFunction<JsChannelCallback>>,
-              Pointer<NativeFunction<JsChannelCallback>>,
-              Pointer<NativeFunction<JsChannelCallback>>,
-            )>('JS_NewContextDartBridge'),
-      );
+  )
+  get newContext => _newContext ??= _lookup(
+    _newContext,
+    'JS_NewContextDartBridge',
+    (lib) =>
+        lib.lookupFunction<
+          _NewContextNative,
+          Pointer<JsContextHandle> Function(
+            Pointer<JsRuntimeHandle>,
+            Pointer<NativeFunction<JsChannelCallback>>,
+            Pointer<NativeFunction<JsChannelCallback>>,
+            Pointer<NativeFunction<JsChannelCallback>>,
+          )
+        >('JS_NewContextDartBridge'),
+  );
 
   static Pointer<JsValueHandle> Function(
     Pointer<JsContextHandle>,
@@ -377,55 +393,82 @@ class Qjs {
     int,
     Pointer<Utf8>,
     int,
-  ) get evaluate => _evaluate ??= _lookup(
-        _evaluate,
-        'jsEval',
-        (lib) => lib.lookupFunction<_EvalNative,
-            Pointer<JsValueHandle> Function(Pointer<JsContextHandle>,
-                Pointer<Utf8>, int, Pointer<Utf8>, int)>('jsEval'),
-      );
+  )
+  get evaluate => _evaluate ??= _lookup(
+    _evaluate,
+    'jsEval',
+    (lib) =>
+        lib.lookupFunction<
+          _EvalNative,
+          Pointer<JsValueHandle> Function(
+            Pointer<JsContextHandle>,
+            Pointer<Utf8>,
+            int,
+            Pointer<Utf8>,
+            int,
+          )
+        >('jsEval'),
+  );
 
-  static Pointer<Utf8> Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>)
-      get toCString => _toCString ??= _lookup(
-            _toCString,
-            'jsToCString',
-            (lib) => lib.lookupFunction<_ToCStringNative,
-                Pointer<Utf8> Function(Pointer<JsContextHandle>,
-                    Pointer<JsValueHandle>)>('jsToCString'),
-          );
+  static Pointer<Utf8> Function(
+    Pointer<JsContextHandle>,
+    Pointer<JsValueHandle>,
+  )
+  get toCString => _toCString ??= _lookup(
+    _toCString,
+    'jsToCString',
+    (lib) =>
+        lib.lookupFunction<
+          _ToCStringNative,
+          Pointer<Utf8> Function(
+            Pointer<JsContextHandle>,
+            Pointer<JsValueHandle>,
+          )
+        >('jsToCString'),
+  );
 
   static void Function(Pointer<JsContextHandle>, Pointer<Utf8>)
-      get freeCString => _freeCString ??= _lookup(
-            _freeCString,
-            'jsFreeCString',
-            (lib) => lib.lookupFunction<_FreeCStringNative,
-                void Function(Pointer<JsContextHandle>, Pointer<Utf8>)>(
-                'jsFreeCString'),
-          );
+  get freeCString => _freeCString ??= _lookup(
+    _freeCString,
+    'jsFreeCString',
+    (lib) =>
+        lib.lookupFunction<
+          _FreeCStringNative,
+          void Function(Pointer<JsContextHandle>, Pointer<Utf8>)
+        >('jsFreeCString'),
+  );
 
   static void Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>, int)
-      get freeValue => _freeValue ??= _lookup(
-            _freeValue,
-            'jsFreeValue',
-            (lib) => lib.lookupFunction<_FreeValueNative,
-                void Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>,
-                    int)>('jsFreeValue'),
-          );
+  get freeValue => _freeValue ??= _lookup(
+    _freeValue,
+    'jsFreeValue',
+    (lib) =>
+        lib.lookupFunction<
+          _FreeValueNative,
+          void Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>, int)
+        >('jsFreeValue'),
+  );
 
   static void Function(Pointer<JsContextHandle>) get freeContext =>
       _freeContext ??= _lookup(
         _freeContext,
         'jsFreeContext',
-        (lib) => lib.lookupFunction<_FreeContextNative,
-            void Function(Pointer<JsContextHandle>)>('jsFreeContext'),
+        (lib) =>
+            lib.lookupFunction<
+              _FreeContextNative,
+              void Function(Pointer<JsContextHandle>)
+            >('jsFreeContext'),
       );
 
   static void Function(Pointer<JsRuntimeHandle>) get freeRuntime =>
       _freeRuntime ??= _lookup(
         _freeRuntime,
         'jsFreeRuntime',
-        (lib) => lib.lookupFunction<_FreeRuntimeNative,
-            void Function(Pointer<JsRuntimeHandle>)>('jsFreeRuntime'),
+        (lib) =>
+            lib.lookupFunction<
+              _FreeRuntimeNative,
+              void Function(Pointer<JsRuntimeHandle>)
+            >('jsFreeRuntime'),
       );
 
   /// 取出并清除上下文里的待处理异常。
@@ -433,89 +476,133 @@ class Qjs {
   /// 必须在求值失败后立即调用：quickjs 会把未消费的异常留在上下文里，
   /// 之后的每次求值都会直接把该异常抛回来（实测到的「上下文被污染」现象）。
   static Pointer<JsValueHandle> Function(Pointer<JsContextHandle>)
-      get getException => _getException ??= _lookup(
-            _getException,
-            'jsGetException',
-            (lib) => lib.lookupFunction<_GetExceptionNative,
-                Pointer<JsValueHandle> Function(
-                    Pointer<JsContextHandle>)>('jsGetException'),
-          );
+  get getException => _getException ??= _lookup(
+    _getException,
+    'jsGetException',
+    (lib) =>
+        lib.lookupFunction<
+          _GetExceptionNative,
+          Pointer<JsValueHandle> Function(Pointer<JsContextHandle>)
+        >('jsGetException'),
+  );
 
   /// 新建一个 JS 字符串值（读属性用的键）。
-  static Pointer<JsValueHandle> Function(Pointer<JsContextHandle>, Pointer<Utf8>)
-      get newString => _newString ??= _lookup(
-            _newString,
-            'jsNewString',
-            (lib) => lib.lookupFunction<_NewStringNative,
-                    Pointer<JsValueHandle> Function(
-                        Pointer<JsContextHandle>, Pointer<Utf8>)>(
-                'jsNewString'),
-          );
+  static Pointer<JsValueHandle> Function(
+    Pointer<JsContextHandle>,
+    Pointer<Utf8>,
+  )
+  get newString => _newString ??= _lookup(
+    _newString,
+    'jsNewString',
+    (lib) =>
+        lib.lookupFunction<
+          _NewStringNative,
+          Pointer<JsValueHandle> Function(
+            Pointer<JsContextHandle>,
+            Pointer<Utf8>,
+          )
+        >('jsNewString'),
+  );
 
   /// JS 值 → 属性原子上（属性名做键用）。
   static int Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>)
-      get valueToAtom => _valueToAtom ??= _lookup(
-            _valueToAtom,
-            'jsValueToAtom',
-            (lib) => lib.lookupFunction<_ValueToAtomNative,
-                    int Function(Pointer<JsContextHandle>,
-                        Pointer<JsValueHandle>)>(
-                'jsValueToAtom'),
-          );
+  get valueToAtom => _valueToAtom ??= _lookup(
+    _valueToAtom,
+    'jsValueToAtom',
+    (lib) =>
+        lib.lookupFunction<
+          _ValueToAtomNative,
+          int Function(Pointer<JsContextHandle>, Pointer<JsValueHandle>)
+        >('jsValueToAtom'),
+  );
 
   /// 读对象属性（返回新引用，用完要 [freeValue]）。
   static Pointer<JsValueHandle> Function(
     Pointer<JsContextHandle>,
     Pointer<JsValueHandle>,
     int,
-  ) get getProperty => _getProperty ??= _lookup(
-        _getProperty,
-        'jsGetProperty',
-        (lib) => lib.lookupFunction<_GetPropertyNative,
-                Pointer<JsValueHandle> Function(Pointer<JsContextHandle>,
-                    Pointer<JsValueHandle>, int)>(
-            'jsGetProperty'),
-      );
+  )
+  get getProperty => _getProperty ??= _lookup(
+    _getProperty,
+    'jsGetProperty',
+    (lib) =>
+        lib.lookupFunction<
+          _GetPropertyNative,
+          Pointer<JsValueHandle> Function(
+            Pointer<JsContextHandle>,
+            Pointer<JsValueHandle>,
+            int,
+          )
+        >('jsGetProperty'),
+  );
 
   /// 释放属性原子。
   static void Function(Pointer<JsContextHandle>, int) get freeAtom =>
       _freeAtom ??= _lookup(
         _freeAtom,
         'jsFreeAtom',
-        (lib) => lib.lookupFunction<_FreeAtomNative,
-            void Function(Pointer<JsContextHandle>, int)>('jsFreeAtom'),
+        (lib) =>
+            lib.lookupFunction<
+              _FreeAtomNative,
+              void Function(Pointer<JsContextHandle>, int)
+            >('jsFreeAtom'),
       );
 
   static int Function(Pointer<JsRuntimeHandle>) get executePendingJob =>
       _executePendingJob ??= _lookup(
         _executePendingJob,
         'jsExecutePendingJob',
-        (lib) => lib.lookupFunction<_ExecutePendingJobNative,
-            int Function(Pointer<JsRuntimeHandle>)>('jsExecutePendingJob'),
+        (lib) =>
+            lib.lookupFunction<
+              _ExecutePendingJobNative,
+              int Function(Pointer<JsRuntimeHandle>)
+            >('jsExecutePendingJob'),
       );
 
-  static int Function(Pointer<JsValueHandle>) get valueTag => _valueTag ??=
-      _lookup(
+  static int Function(Pointer<JsValueHandle>) get valueTag =>
+      _valueTag ??= _lookup(
         _valueTag,
         'jsValueGetTag',
-        (lib) => lib.lookupFunction<_ValueGetTagNative,
-            int Function(Pointer<JsValueHandle>)>('jsValueGetTag'),
+        (lib) =>
+            lib.lookupFunction<
+              _ValueGetTagNative,
+              int Function(Pointer<JsValueHandle>)
+            >('jsValueGetTag'),
       );
+
+  /// Allocation-free OOM diagnostic. Older installed bridges can lack it.
+  static bool takeOutOfMemory(Pointer<JsRuntimeHandle> runtime) {
+    try {
+      return library!.lookupFunction<
+            Int32 Function(Pointer<JsRuntimeHandle>),
+            int Function(Pointer<JsRuntimeHandle>)
+          >('jsTakeOutOfMemory')(runtime) !=
+          0;
+    } on ArgumentError {
+      return false;
+    }
+  }
 
   static void Function(Pointer<JsRuntimeHandle>, int) get setMemoryLimit =>
       _setMemoryLimit ??= _lookup(
         _setMemoryLimit,
         'jsSetMemoryLimit',
-        (lib) => lib.lookupFunction<_SetSizeNative,
-            void Function(Pointer<JsRuntimeHandle>, int)>('jsSetMemoryLimit'),
+        (lib) =>
+            lib.lookupFunction<
+              _SetSizeNative,
+              void Function(Pointer<JsRuntimeHandle>, int)
+            >('jsSetMemoryLimit'),
       );
 
   static void Function(Pointer<JsRuntimeHandle>, int) get setMaxStackSize =>
       _setMaxStackSize ??= _lookup(
         _setMaxStackSize,
         'jsSetMaxStackSize',
-        (lib) => lib.lookupFunction<_SetSizeNative,
-            void Function(Pointer<JsRuntimeHandle>, int)>('jsSetMaxStackSize'),
+        (lib) =>
+            lib.lookupFunction<
+              _SetSizeNative,
+              void Function(Pointer<JsRuntimeHandle>, int)
+            >('jsSetMaxStackSize'),
       );
 
   /// 安装中断处理器。符号不可用时返回 false。

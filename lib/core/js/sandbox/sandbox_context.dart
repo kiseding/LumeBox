@@ -85,7 +85,9 @@ class SandboxContext {
     final effective = policy.clamped();
     final runtime = Qjs.newRuntime();
     SandboxGuard.attach(runtime, effective);
-    _bridge ??= NativeCallable<JsChannelCallback>.isolateLocal(_onBridgeMessage);
+    _bridge ??= NativeCallable<JsChannelCallback>.isolateLocal(
+      _onBridgeMessage,
+    );
     final context = Qjs.newContext(
       runtime,
       _bridge!.nativeFunction,
@@ -122,7 +124,10 @@ class SandboxContext {
   // ------------------------------------------------------------------ 操作期
 
   /// 标记一次操作的开始，之后所有求值从该预算记账。
-  void beginOperation(SandboxBudget budget) => _budget = budget;
+  void beginOperation(SandboxBudget budget) {
+    _budget = budget;
+    if (!_destroyed) Qjs.takeOutOfMemory(_runtime);
+  }
 
   void endOperation() => _budget = null;
 
@@ -133,13 +138,15 @@ class SandboxContext {
 
   /// 载入脚本源码。脚本语法错误不会污染上下文（异常已被消费），
   /// 由调用方决定是否重建。
-  SandboxResult loadSource(String source) => evalJson(source, fileName: '$id.js');
+  SandboxResult loadSource(String source) =>
+      evalJson(source, fileName: '$id.js');
 
   /// 同步求值并把脚本返回值按 JSON 解码。
   SandboxResult evalJson(String code, {String? fileName}) {
     final text = _evaluate(code, fileName: fileName);
     if (text == null) {
-      final failure = _lastError ?? const SandboxError(SandboxErrorKind.engine, '未知错误');
+      final failure =
+          _lastError ?? const SandboxError(SandboxErrorKind.engine, '未知错误');
       return SandboxFailure(failure.kind, failure.message);
     }
     if (text.length > policy.maxResultChars) {
@@ -252,7 +259,11 @@ class SandboxContext {
     Pointer<JsValueHandle>? value;
     try {
       input.asTypedList(bytes.length + 1).setAll(0, bytes);
-      SandboxGuard.arm(_runtime, _activeBudget.remaining, policy.maxInstructions);
+      SandboxGuard.arm(
+        _runtime,
+        _activeBudget.remaining,
+        policy.maxInstructions,
+      );
       value = Qjs.evaluate(
         _context,
         input.cast<Utf8>(),
@@ -270,7 +281,8 @@ class SandboxContext {
         // 留给下一次求值，形成「上下文被污染」的假象（已实测）。
         final error = _errorFrom(_takeException());
         _lastError = error;
-        if (error.kind != SandboxErrorKind.script || policy.poisonOnScriptError) {
+        if (error.kind != SandboxErrorKind.script ||
+            policy.poisonOnScriptError) {
           _fail(error.kind, error.message);
         }
         return null;
@@ -287,7 +299,8 @@ class SandboxContext {
       // 空转 8 秒的脚本会被当成正常结果收下，3–5 秒预算形同虚设。
       final budget = _budget;
       if (budget != null && budget.isExpired) {
-        final message = '执行超时（${budget.elapsed.inMilliseconds}ms > '
+        final message =
+            '执行超时（${budget.elapsed.inMilliseconds}ms > '
             '${budget.policy.timeout.inMilliseconds}ms）';
         _lastError = SandboxError(SandboxErrorKind.timeout, message);
         _fail(SandboxErrorKind.timeout, message);
@@ -409,8 +422,9 @@ class SandboxContext {
           .toList(growable: false);
       if (frames.isEmpty) return message;
       final summary = frames.join(' / ');
-      final clipped =
-          summary.length > 200 ? '${summary.substring(0, 200)}…' : summary;
+      final clipped = summary.length > 200
+          ? '${summary.substring(0, 200)}…'
+          : summary;
       return '$message${String.fromCharCode(10)}$clipped';
     } catch (error) {
       // 诊断信息拿不到，不该让报错本身也失败。
@@ -476,6 +490,11 @@ class SandboxContext {
   /// 拿不到任何能行动的信息。这里统一换成中断原因的中文名，与墙钟补判路径
   /// （「执行超时（…ms > …ms）」）的口径对齐。
   SandboxError _errorFrom(String message) {
+    // OOM can reject a Promise with null when even allocating Error fails.
+    // A native flag distinguishes this from a legitimate script `throw null`.
+    if (Qjs.takeOutOfMemory(_runtime)) {
+      return const SandboxError(SandboxErrorKind.memory, '脚本内存已达到上限，上下文已回收');
+    }
     final lower = message.toLowerCase();
     if (lower.contains('interrupted')) {
       final reason = SandboxGuard.takenReason(_runtime);
@@ -531,7 +550,8 @@ class SandboxContext {
         // 任务体内抛出的异常同样会留在上下文里，必须消费。
         final error = _errorFrom(_takeException());
         _lastError = error;
-        if (error.kind != SandboxErrorKind.script || policy.poisonOnScriptError) {
+        if (error.kind != SandboxErrorKind.script ||
+            policy.poisonOnScriptError) {
           _fail(error.kind, error.message);
           return false;
         }
@@ -673,7 +693,10 @@ class SandboxContext {
     _timers[timerId] = Timer(Duration(milliseconds: delay), () {
       _timers.remove(timerId);
       if (_destroyed || _poisoned) return;
-      _evaluate('__lumeTimer(${_jsString(timerId)});', fileName: '$id.timer.js');
+      _evaluate(
+        '__lumeTimer(${_jsString(timerId)});',
+        fileName: '$id.timer.js',
+      );
     });
   }
 
@@ -707,7 +730,8 @@ class SandboxContext {
     // 直接被投递回来。原生中断通路不可用时，这里是唯一能核对预算的关口：
     // 已越过 3–5 秒上限的结果一律按超时处理，否则预算形同虚设。
     if (_activeBudget.isExpired) {
-      final message = '执行超时（${_activeBudget.elapsed.inMilliseconds}ms > '
+      final message =
+          '执行超时（${_activeBudget.elapsed.inMilliseconds}ms > '
           '${policy.timeout.inMilliseconds}ms）';
       _fail(SandboxErrorKind.timeout, message);
       _settle(completer, SandboxFailure(SandboxErrorKind.timeout, message));

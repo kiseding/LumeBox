@@ -211,14 +211,18 @@ class LumeHttp {
     int? maxBytes,
     bool followRedirects = true,
   }) async {
-    final rewritten=_rewriteUrl?.call(url) ?? url;
+    final rewritten = _rewriteUrl?.call(url) ?? url;
     var target = Uri.parse(rewritten);
     var verb = method.toUpperCase();
-    var outgoing = _headersFor(headers,url:url);
-    if (rewritten!=url) {
-      outgoing.removeWhere((k,_)=>['cookie','authorization'].contains(k.toLowerCase()));
-      final ref=outgoing.keys.where((k)=>k.toLowerCase()=='referer').firstOrNull;
-      if(ref!=null) outgoing[ref]=_rewriteUrl!(outgoing[ref]!);
+    var outgoing = _headersFor(headers, url: url);
+    if (rewritten != url) {
+      outgoing.removeWhere(
+        (k, _) => ['cookie', 'authorization'].contains(k.toLowerCase()),
+      );
+      final ref = outgoing.keys
+          .where((k) => k.toLowerCase() == 'referer')
+          .firstOrNull;
+      if (ref != null) outgoing[ref] = _rewriteUrl!(outgoing[ref]!);
     }
     var payload = body;
     var binary = bodyBytes;
@@ -233,6 +237,9 @@ class LumeHttp {
       outgoing = await SiteSessionPool.shared.synchronize(
         target.toString(),
         outgoing,
+        forceCookies:
+            hop == 0 &&
+            (headers?.keys.any((k) => k.toLowerCase() == 'cookie') ?? false),
       );
       final response = await _sendOne(
         url: target.toString(),
@@ -443,12 +450,12 @@ class LumeHttp {
     String? url,
   }) => url == null
       ? _headersFor(headers)
-      : SiteSessionPool.shared.headersFor(url, _headersFor(headers,url:url));
+      : SiteSessionPool.shared.headersFor(url, _headersFor(headers, url: url));
 
   Map<String, String> _headersFor(Map<String, String>? headers, {String? url}) {
-    final host=url==null?null:Uri.tryParse(url)?.host;
-    if(host!=null) _legacySessionHost ??= host;
-    final legacyAllowed=host==null || host==_legacySessionHost;
+    final host = url == null ? null : Uri.tryParse(url)?.host;
+    if (host != null) _legacySessionHost ??= host;
+    final legacyAllowed = host == null || host == _legacySessionHost;
     // HTTP 头名不区分大小写；统一需合并的头名，避免覆盖脚本的小写头。
     final merged = <String, String>{};
     for (final entry in (headers ?? const <String, String>{}).entries) {
@@ -465,7 +472,9 @@ class LumeHttp {
     // 配置 → 脚本 → 最新验证会话，同名 Cookie 只保留优先级最高的一份。
     final existing = merged['Cookie'];
     final session = legacyAllowed ? _sessionCookies?.call() : null;
-    final profile = legacyAllowed ? _profile.mergedWith(_settings).cookie.trim() : '';
+    final profile = legacyAllowed
+        ? _profile.mergedWith(_settings).cookie.trim()
+        : '';
     final mergedCookie = mergeCookieHeader(
       existing: mergeCookieHeader(existing: profile, wafCookies: existing),
       wafCookies: session,

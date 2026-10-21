@@ -114,6 +114,11 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
           final engine = _engines[args['sourceId']]!;
           if (request['method'] == 'web.render') {
             SourceRequestLog.record(engine.sourceId, '${payload['url']}');
+            payload['forceCookies'] =
+                (payload['headers'] as Map?)?.keys.any(
+                  (k) => '$k'.toLowerCase() == 'cookie',
+                ) ??
+                false;
             final headers = engine.http.browserRequestHeaders(
               (payload['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
               url: '${payload['url']}',
@@ -155,6 +160,10 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
           'ok': false,
           'error': error is SourceWebVerificationException
               ? error.toString()
+              : error is SourceWebFailure
+              ? error.toString()
+              : error is LumeHttpException
+              ? error.message
               : error is FormatException
               ? error.message
               : error is UnsupportedError

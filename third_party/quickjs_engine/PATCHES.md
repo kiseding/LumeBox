@@ -44,7 +44,7 @@ quickjs 本体是支持的：解释器热路径每 10000 条指令轮询一次
 
 ## 与上游的差异清单
 
-除上述一处外，本副本与上游 0.1.6 **完全一致**。另外为减小仓库体积，删除了两类
+除上述中断包装及下述内存诊断外，本副本与上游 0.1.6 **完全一致**。另外为减小仓库体积，删除了两类
 非源码内容（不影响构建，因为构建入口 `native/CMakeLists.txt` 与各平台 podspec /
 Package.swift 都指向 `native/cxx`）：
 
@@ -56,3 +56,11 @@ Package.swift 都指向 `native/cxx`）：
 **升级上游时的做法**：把新版本重新 vendored 进来，然后照上面重新打一次补丁
 （或反向 apply 本文件描述的 diff）；同时确认
 `test/js_sandbox/malicious_script_test.dart` 与 `deadloop_timeout_test.dart` 仍然通过。
+
+## 内存不足诊断（2026-10-21）
+
+QuickJS 在堆已满时可能无法分配 Error，异步方法最终仅拒绝 `null`。宿主不能据此区分普通的 `throw null` 和内存耗尽。
+
+在 `JS_ThrowOutOfMemory` 设置运行时标记，通过只读取并清除标记的 `jsTakeOutOfMemory` 导出交给 Dart。读取不分配 JS 内存；每次操作开始清除旧标记，错误发生时检查标记并回收上下文。内存、指令和时间上限没有放宽；旧原生桥缺少符号时回退现有文本分类。
+
+验证：`test/js_sandbox/deadloop_timeout_test.dart` 的内存耗尽与重建用例，以及普通 `throw null` 保留脚本错误的回归用例。仅构建 Windows QuickJS 插件用于测试，不构建应用或安装包。

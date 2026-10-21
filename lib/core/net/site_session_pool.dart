@@ -35,7 +35,7 @@ class SiteSessionPool {
   }
 
   Future<void> save() async {
-    _library ??= await ReadingLibrary.open(Section.video);
+    _library = await ReadingLibrary.open(Section.video);
     _library!.setSetting(
       'site.network.options',
       jsonEncode({'inspectable': inspectable, 'userAgents': userAgents}),
@@ -195,13 +195,20 @@ class SiteSessionPool {
 
   Future<Map<String, String>> synchronize(
     String url,
-    Map<String, String> headers,
-  ) async {
-    if (!Platform.isIOS) return headersFor(url, headers);
+    Map<String, String> headers, {
+    bool forceCookies = false,
+  }) async {
+    if (!Platform.isIOS) {
+      final merged = headersFor(url, headers);
+      if (forceCookies && headers.containsKey('Cookie'))
+        merged['Cookie'] = headers['Cookie']!;
+      return merged;
+    }
     final result = await channel
         .invokeMapMethod<String, dynamic>('session', {
           'url': url,
           'headers': headers,
+          'forceCookies': forceCookies,
           'inspectable': inspectable,
         })
         .timeout(const Duration(seconds: 3));
@@ -215,6 +222,19 @@ class SiteSessionPool {
     final cleaned = Map<String, String>.of(headers)
       ..removeWhere((k, _) => k.toLowerCase() == 'cookie');
     return headersFor(url, cleaned);
+  }
+
+  void forgetHosts(Set<String> hosts, {Set<String> protectedHosts = const {}}) {
+    bool removable(String host) =>
+        hosts.contains(host) && !protectedHosts.contains(host);
+    _cookies.removeWhere((_, v) {
+      final d = '${v['domain']}'.replaceFirst(RegExp(r'^\.'), '');
+      return hosts.any((h) => h == d || h.endsWith('.$d')) &&
+          !protectedHosts.any((h) => h == d || h.endsWith('.$d'));
+    });
+    _referers.removeWhere((host, _) => removable(host));
+    _verifiedAgents.removeWhere((host, _) => removable(host));
+    _sourcePages.removeWhere((_, url) => removable(Uri.parse(url).host));
   }
 
   void clear() {

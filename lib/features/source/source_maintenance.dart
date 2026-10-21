@@ -1,3 +1,4 @@
+import '../../core/net/site_session_pool.dart';
 import '../../core/js/source_script_storage.dart';
 import '../../core/source/source_preferences.dart';
 
@@ -116,6 +117,7 @@ class SourceMaintenance {
           }
         }
         try {
+          SiteSessionPool.shared.forgetHosts(hosts, protectedHosts: protected);
           if (clearWebData != null) {
             await clearWebData!(hosts, protected);
           } else {

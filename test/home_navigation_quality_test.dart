@@ -128,6 +128,7 @@ void main() {
             'headers': {'Referer': 'https://demo/'},
             'method': 'GET',
             'timeoutSeconds': 15.0,
+            'followRedirects': true,
           });
           return {
             'status': 403,

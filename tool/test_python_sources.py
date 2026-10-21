@@ -24,6 +24,11 @@ def invoke(raw):
     request = json.loads(raw)
     payload = request["payload"]
     CALLS.append(request)
+    if request["method"] == "tools":
+        import zlib
+        assert payload["operation"] == "inflate"
+        value = base64.b64encode(zlib.decompress(base64.b64decode(payload["data"]))).decode()
+        return json.dumps({"ok":True,"value":value})
     if request["method"] == "web.render":
         return json.dumps({"ok": True, "value": {"html": "<article>动态结果</article>", "media": [{"url": "https://fixture.invalid/video.mp4", "headers": {"Referer": payload["url"]}}]}})
     if request["method"] == "html.extract":
@@ -106,6 +111,20 @@ class HostTests(unittest.TestCase):
             host._close_source(state)
         host._contexts.clear()
         self.assertTrue(call("fixture", "load", script=FIXTURE)["ok"])
+
+    def test_shared_tools_import_and_host_decompression(self):
+        source = FIXTURE + """
+    def homeVideoContent(self):
+        import lume_tools, zlib
+        assert lume_tools.base64_decode(lume_tools.base64_encode('中文')) == '中文'
+        assert lume_tools.url_decode(lume_tools.url_encode('中文 +/?')) == '中文 +/?'
+        decoded = lume_tools.inflate(zlib.compress(b'host inflate')).decode()
+        return {'list':[{'vod_id':lume_tools.digest('sha256','abc'),'vod_name':decoded}]}
+"""
+        self.assertTrue(call('tools','load',script=source)['ok'])
+        result=call('tools',method='home')['value']['items'][0]
+        self.assertEqual(result['title'],'host inflate')
+        self.assertEqual(result['id'],'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
 
     def test_mobile_browser_html_and_storage_helpers(self):
         source = FIXTURE + """

@@ -400,6 +400,11 @@ class LumeSourceHost implements SandboxHost {
       final args = Map<String, dynamic>.from(request.payload as Map);
       if (request.method == 'web.render') {
         SourceRequestLog.record(sourceId, '${args['url']}');
+        args['forceCookies'] =
+            (args['headers'] as Map?)?.keys.any(
+              (k) => '$k'.toLowerCase() == 'cookie',
+            ) ??
+            false;
         final headers = _http.browserRequestHeaders(
           _stringMap(args['headers']),
           url: '${args['url']}',

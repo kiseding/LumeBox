@@ -46,11 +46,7 @@ void main() {
         );
         addTearDown(run.kill);
 
-        expect(
-          run.armed,
-          isTrue,
-          reason: 'worker 应已进到调用脚本这一步（否则测的不是死循环）',
-        );
+        expect(run.armed, isTrue, reason: 'worker 应已进到调用脚本这一步（否则测的不是死循环）');
 
         if (!run.completed) {
           // 未被回收：把中断通路的可用性一起留档，便于定位是「通路没接上」
@@ -152,7 +148,9 @@ void main() {
         );
 
         // 后续请求在全新上下文里正常工作（代数递增 = 确实是新建的实例）。
-        final after = await engine.callResult('detail', <String, Object?>{'id': 'x'});
+        final after = await engine.callResult('detail', <String, Object?>{
+          'id': 'x',
+        });
         expect(after.isOk, isTrue);
         expect((after.value! as Map)['title'], '详情');
         expect(
@@ -164,6 +162,16 @@ void main() {
       skip: skipReason,
       timeout: const Timeout(Duration(seconds: 60)),
     );
+
+    test('普通 throw null 不会被误判成内存耗尽', () async {
+      final engine = await openEngine(
+        sourceId: 'null-error',
+        script: 'var LumeSource = {fail: async function(){throw null;}};',
+      );
+      addTearDown(engine.dispose);
+      final result = await engine.callResult('fail');
+      expect(result.error?.kind, SandboxErrorKind.script);
+    }, skip: skipReason);
 
     test(
       '1c 污染后重建：新上下文可用，旧实例不被复用',
@@ -200,11 +208,7 @@ void main() {
         final after = await engine.callResult('probe');
         expect(after.isOk, isTrue, reason: '新上下文必须能正常干活');
         expect(engine.generation, greaterThan(1));
-        expect(
-          engine.isPoisoned,
-          isFalse,
-          reason: '污染标记属于旧上下文，新上下文应当是干净的',
-        );
+        expect(engine.isPoisoned, isFalse, reason: '污染标记属于旧上下文，新上下文应当是干净的');
       },
       skip: skipReason,
       timeout: const Timeout(Duration(seconds: 60)),
@@ -240,17 +244,14 @@ void main() {
         addTearDown(run.kill);
 
         expect(run.armed, isTrue, reason: 'worker 应已进到调用脚本这一步');
-        expect(
-          run.completed,
-          isTrue,
-          reason: '失控脚本应在预算内被回收（修复中断通路后的正向断言）',
-        );
+        expect(run.completed, isTrue, reason: '失控脚本应在预算内被回收（修复中断通路后的正向断言）');
 
         // 观测窗口很短（约 0.4 秒）时也至少要两次 tick，否则量不出空档。
         expect(
           ticks.length,
           greaterThanOrEqualTo(2),
-          reason: '观测窗口内至少要有两次 tick 才能测出空档'
+          reason:
+              '观测窗口内至少要有两次 tick 才能测出空档'
               '（实际 ${ticks.length} 次；0 次意味着主线程被卡住）',
         );
         // 取相邻 tick 的最大空档（tick 数 × 周期 = 真实卡顿时长的下界）。
@@ -268,7 +269,8 @@ void main() {
         expect(
           maxGapWall,
           lessThan(stallLimit),
-          reason: '主 isolate 在失控脚本运行期间必须持续调度：'
+          reason:
+              '主 isolate 在失控脚本运行期间必须持续调度：'
               '相邻 tick 的空档不应超过 1 秒'
               '（实测最大空档 ${maxGapWall.inMilliseconds}ms ≈ '
               '$maxGapPeriods 个周期，共 ${ticks.length} 次 tick，'
@@ -297,7 +299,9 @@ void main() {
       expect(SandboxPolicy.maxTimeout, const Duration(seconds: 10));
       expect(smokePolicy().timeout, SandboxPolicy.minTimeout);
       expect(
-        const SandboxPolicy(timeout: Duration(milliseconds: 100)).clamped().timeout,
+        const SandboxPolicy(timeout: Duration(milliseconds: 100))
+            .clamped()
+            .timeout,
         SandboxPolicy.minTimeout,
       );
     });
