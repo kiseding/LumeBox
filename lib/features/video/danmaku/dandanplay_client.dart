@@ -35,6 +35,10 @@ class DandanplayEpisode {
   final String episode;
   final String animeId, source, type;
   final int? number, year;
+  bool get supplementary => RegExp(
+    r'速通|高光|合集|花絮|预告|片花|剪辑|解说|幕后|主题曲|片尾曲|片头曲|trailer|highlights|recap',
+    caseSensitive: false,
+  ).hasMatch(episode);
 
   String get workTitle => DandanplayClient.searchTitle(title);
   String get workKey =>
@@ -43,6 +47,7 @@ class DandanplayEpisode {
     if (year != null) '$year',
     if (type.isNotEmpty) type,
     if (source.isNotEmpty) source,
+    if (supplementary) '附加内容／合集，请核对',
   ].join(' · ');
 }
 
@@ -418,6 +423,7 @@ class DandanplayClient {
     final exact = items
         .where(
           (item) =>
+              !item.supplementary &&
               normalizedTitle(item.title) == normalizedTitle(title) &&
               (episode == null ||
                   (item.number ?? parsedEpisodeNumber(item.episode)) ==

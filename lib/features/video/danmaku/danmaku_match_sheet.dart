@@ -144,7 +144,9 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
     setState(() {
       _workKey = key;
       _error = null;
-      _selected = current.length == 1 ? current.single : null;
+      _selected = current.length == 1 && !current.single.supplementary
+          ? current.single
+          : null;
     });
   }
 
@@ -375,12 +377,13 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                               : Icons.radio_button_unchecked,
                         ),
                         title: Text(item.episode),
-                        subtitle:
-                            (item.number ??
-                                    DandanplayClient.parsedEpisodeNumber(
-                                      item.episode,
-                                    )) ==
-                                _queryEpisode
+                        subtitle: item.supplementary
+                            ? const Text('附加内容／合集，请核对后手动选择')
+                            : (item.number ??
+                                      DandanplayClient.parsedEpisodeNumber(
+                                        item.episode,
+                                      )) ==
+                                  _queryEpisode
                             ? const Text('当前集数')
                             : null,
                         onTap: _loadingTrack

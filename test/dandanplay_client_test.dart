@@ -8,6 +8,27 @@ import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  test('上游把速通合集标成第1集时，不会被当成正片自动关联', () {
+    const clip = DandanplayEpisode(
+      id: 'clip',
+      title: '花开锦绣',
+      episode: '速通版 前4集高光合集',
+      number: 1,
+    );
+    const normal = DandanplayEpisode(
+      id: 'normal',
+      title: '花开锦绣',
+      episode: '第1集',
+      number: 1,
+    );
+    expect(DandanplayClient.exactMatch([clip], '花开锦绣', episode: 1), isNull);
+    expect(
+      DandanplayClient.exactMatch([clip, normal], '花开锦绣', episode: 1),
+      normal,
+    );
+    expect(clip.details, contains('附加内容'));
+  });
+
   test('内置地址运行时解析，端口令牌不持久化且不发送官方签名', () async {
     var starts = 0;
     final client = DandanplayClient(
