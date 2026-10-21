@@ -26,7 +26,9 @@ void main() {
           name: '示例源',
           version: '1.0.0',
           enabled: true,
-          siteConfig: SourceSiteConfig(mirrors: <String>[main, mirror1, mirror2]),
+          siteConfig: SourceSiteConfig(
+            mirrors: <String>[main, mirror1, mirror2],
+          ),
         ),
       ],
     );
@@ -67,10 +69,7 @@ void main() {
     expect(find.text('m2.example'), findsOneWidget);
     expect(find.text('主站'), findsOneWidget);
     // 优先级说明固定出现在这一组里。
-    expect(
-      find.textContaining('自定义域名 > 选中镜像 > 主站'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('自定义域名 > 选中镜像 > 主站'), findsOneWidget);
 
     await tapVisible(tester, find.text('m1.example'));
     await tapVisible(tester, find.widgetWithText(FilledButton, '保存'));
@@ -86,10 +85,7 @@ void main() {
 
     // 同时选一个非主站镜像，并填一个自定义域名。
     await tapVisible(tester, find.text('m2.example'));
-    await tapVisible(
-      tester,
-      find.widgetWithText(TextField, '自定义域名（填了优先）'),
-    );
+    await tapVisible(tester, find.widgetWithText(TextField, '自定义域名（填了优先）'));
     await tester.enterText(
       find.widgetWithText(TextField, '自定义域名（填了优先）'),
       'custom.example',
@@ -127,7 +123,7 @@ void main() {
     final manager = await pumpPage(tester);
     await openSettings(tester);
 
-    expect(find.textContaining('需要站点本身支持登录'), findsOneWidget);
+    expect(find.textContaining('保存账号密码不代表已经登录'), findsOneWidget);
 
     final password = find.widgetWithText(TextField, '密码');
     final field = tester.widget<TextField>(password);

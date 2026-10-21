@@ -67,6 +67,51 @@ void main() {
     expect(source.droppedForRate, 1);
   });
 
+  test('33ms 抖动节拍不会被砍成15fps，平均保持30fps且不突发送帧', () async {
+    var elapsed = Duration.zero;
+    final source = PipFrameSource(monotonicTime: () => elapsed)
+      ..attach((_) async {});
+    for (var i = 0; i < 100; i++) {
+      elapsed = Duration(milliseconds: i * 33);
+      await source.submitFrame(
+        pixels: pixels(16),
+        width: 2,
+        height: 2,
+        timestamp: elapsed,
+      );
+    }
+    expect(source.submittedFrames, inInclusiveRange(97, 100));
+    final before = source.submittedFrames;
+    for (var i = 0; i < 10; i++) {
+      await source.submitFrame(
+        pixels: pixels(16),
+        width: 2,
+        height: 2,
+        timestamp: elapsed,
+      );
+    }
+    expect(source.submittedFrames, before);
+    elapsed += const Duration(seconds: 10);
+    expect(
+      await source.submitFrame(
+        pixels: pixels(16),
+        width: 2,
+        height: 2,
+        timestamp: elapsed,
+      ),
+      true,
+    );
+    expect(
+      await source.submitFrame(
+        pixels: pixels(16),
+        width: 2,
+        height: 2,
+        timestamp: elapsed,
+      ),
+      false,
+    );
+  });
+
   test('体积上限：超大帧直接丢弃并计数', () async {
     final source = PipFrameSource(maxFrameBytes: 64);
     source.attach((frame) async {});

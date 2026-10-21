@@ -74,6 +74,49 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('全局管理运行类型筛选保留板块隔离', (tester) async {
+    final managers = fakeManagers(
+      sources: {
+        Section.video: const [
+          SourceDescriptor(
+            id: 'py',
+            name: '测试 Python',
+            version: '1',
+            enabled: true,
+            runtimeKind: 'python',
+          ),
+          SourceDescriptor(
+            id: 'mod',
+            name: '测试模块',
+            version: '1',
+            enabled: true,
+            runtimeKind: 'module',
+          ),
+        ],
+        Section.comic: [comicA],
+      },
+    );
+    await pumpPage(tester, managers);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'PY'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试 Python'), findsOneWidget);
+    expect(find.text('测试模块'), findsNothing);
+    expect(find.text('漫画源'), findsNothing);
+    await tester.tap(find.widgetWithText(ChoiceChip, '模块'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试模块'), findsOneWidget);
+    expect(find.text('测试 Python'), findsNothing);
+    await tester.tap(find.widgetWithText(ChoiceChip, '网页'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试模块'), findsNothing);
+    expect(find.textContaining('暂无网页源'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, '全部类型'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试 Python'), findsOneWidget);
+    expect(find.text('漫画源'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全局多选按筛选范围操作，取消删除不改数据', (tester) async {
     final managers = fakeManagers(
       sources: {

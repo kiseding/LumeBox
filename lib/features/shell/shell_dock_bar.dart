@@ -13,6 +13,7 @@ import '../../core/shell/shell_settings.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../core/theme/lume_theme.dart';
 import 'dock_liquid_lens.dart';
+import 'shell_dock.dart';
 import 'dock_liquid_surface.dart';
 import 'dock_native_glass.dart';
 import '../../core/theme/icon_customization.dart';
@@ -891,12 +892,15 @@ class _ShellDockBarState extends State<ShellDockBar>
             final dropOpacity = (style.opacity * 1.35).clamp(0.0, 1.0);
             // 底座单独的横向/纵向伸缩降为辅助效果（默认 0）；按压主行为是
             // 整条底栏统一放大 + 变白，见 geometry.wholeScale。
+            final adjacentSearch =
+                widget.trailingWidth > 0 &&
+                ShellDockScope.maybeScopeOf(context)?.searchBesideDock == true;
             final transform = Matrix4.identity()
               ..setEntry(
                 0,
                 0,
                 1 +
-                    capsule *
+                    (adjacentSearch ? 0 : capsule) *
                         _amount(DockLiquidParameter.capsuleX) *
                         (geometry.press +
                             .35 * geometry.stretch -
@@ -1019,7 +1023,13 @@ class _ShellDockBarState extends State<ShellDockBar>
               key: ShellDockBar.capsuleSurfaceKey,
               alignment: Alignment.center,
               transform: Matrix4.diagonal3Values(
-                geometry.wholeScale,
+                adjacentSearch && constraints.maxWidth > 0
+                    ? 1 +
+                          2 *
+                              ShellDockScope.searchGap *
+                              geometry.press /
+                              constraints.maxWidth
+                    : geometry.wholeScale,
                 geometry.wholeScale,
                 1,
               ),

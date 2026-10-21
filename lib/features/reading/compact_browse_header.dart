@@ -128,7 +128,18 @@ class _SearchGlassButtonState extends State<_SearchGlassButton> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: FloatingModules.instance,
+    builder: (context, _) {
+      final style = FloatingModules.instance.style(FloatingModule.dock);
+      return Transform.translate(
+        offset: Offset(style.x, style.y),
+        child: _surface(context),
+      );
+    },
+  );
+
+  Widget _surface(BuildContext context) {
     final liquid = widget.appearance.liquid;
     final style = FloatingModules.instance.style(FloatingModule.dock);
     final dark = Theme.of(context).brightness == Brightness.dark;

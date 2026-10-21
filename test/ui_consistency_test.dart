@@ -121,11 +121,13 @@ void main() {
     }) async {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
+      // Open real SQLite before entering the fake widget clock.
+      library ??= await ReadingLibrary.open(Section.video);
       await tester.pumpWidget(
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             library: library,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _AllKernelsCatalog(),

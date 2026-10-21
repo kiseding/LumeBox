@@ -144,12 +144,57 @@ class HostTests(unittest.TestCase):
 '''
         self.assertTrue(call('partial', 'load', script=source)['ok'])
         result = call('partial', method='home')['value']
-        self.assertEqual([row['moreUrl'] for row in result], ['1', '2'])
+        self.assertEqual([row['moreUrl'] for row in result], ['1'])
         source += "\n    def categoryContent(self, tid, pg, filter, extend): raise ValueError('站点连接失败')\n"
         self.assertTrue(call('broken', 'load', script=source)['ok'])
         result = call('broken', method='home')
         self.assertFalse(result['ok'])
         self.assertIn('站点连接失败', result['error']['message'])
+
+    def test_startup_reuses_metadata_and_first_usable_category_returns_immediately(self):
+        source = FIXTURE + """
+    reads = 0
+    pages = []
+    def homeVideoContent(self): return {}
+    def homeContent(self, filter):
+        if filter: self.reads += 1
+        return {'class':[{'type_id':'1','type_name':'电影'},{'type_id':'2','type_name':'慢分类'}], 'filters':{}}
+    def categoryContent(self, tid, pg, filter, extend):
+        self.pages.append(tid)
+        if tid == '2': raise AssertionError('可用首页不应等待其他分类')
+        return {'list':[{'vod_id':'one','vod_name':'电影'}]}
+"""
+        self.assertTrue(call('fast', 'load', script=source)['ok'])
+        self.assertTrue(call('fast', method='categories')['ok'])
+        self.assertTrue(call('fast', method='filters', argument={'categoryId':'1'})['ok'])
+        self.assertTrue(call('fast', method='home')['value'])
+        spider = host._contexts['fast']['spider']
+        self.assertEqual(spider.reads, 1)
+        self.assertEqual(spider.pages, ['1'])
+        call('fast', 'config', config={'account':'new'})
+        call('fast', method='categories')
+        self.assertEqual(spider.reads, 2)
+        host._contexts['fast']['home_metadata'] = (-1000, '{}')
+        call('fast', method='categories')
+        self.assertEqual(spider.reads, 3)
+        call('other', 'load', script=source)
+        call('other', method='categories')
+        self.assertEqual(host._contexts['other']['spider'].reads, 1)
+        self.assertEqual(spider.reads, 3)
+
+    def test_metadata_failure_is_not_cached_and_false_mode_recommendations_still_work(self):
+        source = FIXTURE + """
+    reads = 0
+    def homeVideoContent(self): return {}
+    def homeContent(self, filter):
+        if not filter: return {'list':[{'vod_id':'false','vod_name':'推荐'}]}
+        self.reads += 1
+        raise ValueError('分类暂时不可用')
+"""
+        call('modes', 'load', script=source)
+        self.assertEqual(call('modes', method='home')['value'][0]['id'], 'py:false')
+        self.assertFalse(call('modes', method='categories')['ok'])
+        self.assertEqual(host._contexts['modes']['spider'].reads, 2)
 
     def setUp(self):
         CALLS.clear()

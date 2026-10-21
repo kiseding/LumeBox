@@ -199,6 +199,22 @@ void main() {
     expect(button.height, closeTo(78, .01));
     expect(button.center.dy, closeTo(nav.center.dy, .01));
     expect(button.left - nav.right, closeTo(10, .01));
+    // Held navigation touches the search rim; releasing restores the gap.
+    final tab = find
+        .descendant(of: find.byKey(AppShell.dockKey), matching: find.text('视频'))
+        .first;
+    final gesture = await tester.startGesture(tester.getCenter(tab));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    var held = tester.getRect(dockCapsule());
+    button = tester.getRect(search);
+    expect(button.left - held.right, closeTo(0, .1));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(search).left - tester.getRect(dockCapsule()).right,
+      closeTo(10, .01),
+    );
     await tester.tap(find.byTooltip('搜索'));
     await tester.pumpAndSettle();
     expect(find.text('搜索范围'), findsOneWidget);

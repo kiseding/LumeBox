@@ -612,15 +612,45 @@ def _detail(state, item_id):
     return state["detail"]
 
 
+def _home_metadata(state):
+    """Share one short-lived category/filter response during page startup."""
+    cached = state.get("home_metadata")
+    if cached and time.monotonic() - cached[0] < 30:
+        return json.loads(cached[1])
+    value = _decoded(_invoke(state["spider"], "homeContent", (True,)))
+    if not isinstance(value, dict):
+        return {}
+    # Serialize a private copy: script-owned data and filter reads cannot mutate it.
+    state["home_metadata"] = (time.monotonic(), json.dumps(value, ensure_ascii=False))
+    return value
+
+
 def _home(state):
     """Prefer real recommendations; otherwise show real category first pages."""
     spider = state["spider"]
     failure = None
-    for name, args in (("homeVideoContent", ()), ("homeContent", (False,))):
-        if not _method(spider, name):
-            continue
+    metadata = {}
+    if _method(spider, "homeVideoContent"):
         try:
-            items = _items(_invoke(spider, name, args))
+            items = _items(_invoke(spider, "homeVideoContent"))
+            if items:
+                return items
+        except TimeoutError:
+            raise
+        except Exception as error:
+            failure = error
+    if _method(spider, "homeContent"):
+        try:
+            metadata = _home_metadata(state)
+            items = _items(metadata)
+            if items:
+                return items
+        except TimeoutError:
+            raise
+        except Exception as error:
+            failure = error
+        try:
+            items = _items(_invoke(spider, "homeContent", (False,)))
             if items:
                 return items
         except TimeoutError:
@@ -631,7 +661,6 @@ def _home(state):
         if failure:
             raise failure
         return []
-    metadata = _decoded(_invoke(spider, "homeContent", (True,)))
     if not isinstance(metadata, dict):
         return []
     filter_groups = metadata.get("filters") or {}
@@ -659,6 +688,8 @@ def _home(state):
             if page["items"]:
                 boards.append({"title": str(category.get("type_name") or category_id),
                                "moreUrl": category_id, "items": page["items"][:12]})
+                # A usable screen should not wait for two more serial site calls.
+                return boards
         except TimeoutError:
             # Keep completed boards within the existing call budget.
             if boards:
@@ -683,7 +714,7 @@ def _dispatch(state, method, arg):
     if method in ("categories", "filters"):
         if not _method(spider, "homeContent"):
             return []
-        value = _decoded(_invoke(spider, "homeContent", (True,)))
+        value = _home_metadata(state)
         if method == "categories":
             return [{"id": str(x["type_id"]), "title": str(x["type_name"])} for x in value.get("class", [])]
         groups = value.get("filters", {})
@@ -809,6 +840,8 @@ def execute(request):
     if state is None:
         raise ValueError("Python 源已释放，请重新选择")
     if action == "config":
+        if state.get("config") != request.get("config", {}):
+            state.pop("home_metadata", None)
         state["config"] = request.get("config", {})
         state["spider"].config = state["config"]
         return {"ok": True, "value": None}

@@ -27,6 +27,7 @@ class ShellDockController extends ChangeNotifier {
 /// 板块页 / 播放器要隐藏 Dock 时从这里取控制器；拿不到（例如页面被 push 到了
 /// 导航壳之外）就说明它不在壳里，此时不需要隐藏——它本来就盖住了 Dock。
 class ShellDockScope extends InheritedNotifier<ShellDockController> {
+  static const searchGap = 10.0;
   const ShellDockScope({
     super.key,
     required ShellDockController controller,

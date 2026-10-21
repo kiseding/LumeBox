@@ -27,7 +27,16 @@ class PipFrameSource {
   PipFrameSource({
     this.maxFramesPerSecond = 30,
     this.maxFrameBytes = 8 * 1024 * 1024,
-  });
+    Duration Function()? monotonicTime,
+  }) : assert(maxFramesPerSecond > 0),
+       _now = monotonicTime ?? _monotonicClock();
+
+  static Duration Function() _monotonicClock() {
+    final watch = Stopwatch()..start();
+    return () => watch.elapsed;
+  }
+
+  final Duration Function() _now;
 
   /// 送帧上限（超过即丢帧：画中画窗口不是主屏，不追求满帧）。
   final int maxFramesPerSecond;
@@ -38,7 +47,7 @@ class PipFrameSource {
   /// 帧提交端口（由原生通道实现注入；为空表示原生未接入）。
   Future<void> Function(Map<String, Object?> frame)? onFrame;
 
-  DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Duration? _nextFrameAt;
   int _droppedForRate = 0;
   int _droppedForSize = 0;
   int _submitted = 0;
@@ -76,21 +85,27 @@ class PipFrameSource {
 
     if (pixels.length > maxFrameBytes) {
       _droppedForSize++;
-      LumeLog.warn(
-        '[pip] 帧过大已丢弃（${pixels.length} > $maxFrameBytes 字节）',
-      );
+      LumeLog.warn('[pip] 帧过大已丢弃（${pixels.length} > $maxFrameBytes 字节）');
       return false;
     }
 
-    final now = DateTime.now();
-    final minGap = Duration(
+    final now = _now();
+    final interval = Duration(
       microseconds: (1000000 / maxFramesPerSecond).round(),
     );
-    if (now.difference(_lastFrameAt) < minGap) {
+    // A 33ms timer is slightly early for 30fps. Comparing with the last accepted
+    // frame dropped every other frame. Retain the cadence deadline instead.
+    final tolerance = Duration(
+      microseconds: (interval.inMicroseconds ~/ 10).clamp(0, 2000),
+    );
+    final next = _nextFrameAt;
+    if (next != null && now + tolerance < next) {
       _droppedForRate++;
       return false;
     }
-    _lastFrameAt = now;
+    _nextFrameAt = next != null && now < next + interval
+        ? next + interval
+        : now + interval;
 
     await sink(<String, Object?>{
       'width': width,
@@ -109,7 +124,7 @@ class PipFrameSource {
     _submitted = 0;
     _droppedForRate = 0;
     _droppedForSize = 0;
-    _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+    _nextFrameAt = null;
   }
 
   /// 诊断摘要。

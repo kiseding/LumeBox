@@ -146,7 +146,13 @@ class DandanplayClient {
 
   /// A successful empty search also proves the API accepted these credentials.
   Future<void> checkConnection() async {
-    await search('测试', episode: 1);
+    _parseSearch(
+      await _get('/api/v2/search/episodes', {
+        'anime': '测试',
+        'episode': '1',
+        'v2': 'true',
+      }),
+    );
   }
 
   static String describeError(Object error) => switch (error) {

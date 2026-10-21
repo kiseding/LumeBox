@@ -1584,27 +1584,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Slider), findsOneWidget, reason: '关掉自动隐藏后控制栏一直显示');
     });
-    testWidgets('画中画保留当前内核、自动播放；短暂 inactive 不关闭窗口', (tester) async {
-      final backend = _TestPipBackend();
-      addTearDown(backend.close);
-      final created = await pump(tester, pipBackend: backend);
-      created.single.emit(playing: false);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
-      await tester.pumpAndSettle();
-      expect(created.length, 1, reason: '画中画不重建或切换内核');
-      expect(created.single.kernel, PlayerKernel.avplayer);
-      expect(created.single.snapshot.value.playing, true);
-      expect(backend.started, 1);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
-      expect(backend.stopped, 0, reason: '开窗引起的短暂焦点变化不能立即退出画中画');
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
-      expect(backend.stopped, 1);
-    });
+    for (final kernel in PlayerKernel.values) {
+      testWidgets('画中画保留 $kernel 内核、自动播放；短暂 inactive 不关闭窗口', (tester) async {
+        (await ReadingLibrary.open(Section.video))
+            .setSetting(VideoPlayerSettingsStore.keyKernel, kernel.id);
+        final backend = _TestPipBackend();
+        addTearDown(backend.close);
+        final created = await pump(tester, pipBackend: backend);
+        created.single.emit(playing: false);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.picture_in_picture_alt));
+        await tester.pumpAndSettle();
+        expect(created.length, 1, reason: '画中画不重建或切换内核');
+        expect(created.single.kernel, kernel);
+        expect(created.single.snapshot.value.playing, true);
+        expect(backend.started, 1);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        expect(backend.stopped, 0, reason: '开窗引起的短暂焦点变化不能立即退出画中画');
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        expect(backend.stopped, 1);
+      });
+    }
     {
       for (final mode in ['portrait', 'landscape', 'pip']) {
         testWidgets('同剧第二集自动跳过贯穿布局与画中画：mode=$mode', (tester) async {
