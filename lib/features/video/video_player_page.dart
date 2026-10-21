@@ -1841,7 +1841,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         try {
           final config = await DandanplayCredentials.load();
           if (!publicCurrent()) return;
-          _danmakuServiceLabel = config.official
+          _danmakuServiceLabel = config.builtin
+              ? '内置本机服务'
+              : config.official
               ? '弹弹play 官方'
               : Uri.parse(config.baseUrl).host;
           if (config.official && !config.configured) {
@@ -1985,7 +1987,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             target.chapterTitle,
             chapterIndex: target.chapterIndex,
           ),
-          serviceLabel: config.official
+          serviceLabel: config.builtin
+              ? '内置本机服务'
+              : config.official
               ? '弹弹play 官方'
               : Uri.parse(config.baseUrl).host,
           onChangeService: () {

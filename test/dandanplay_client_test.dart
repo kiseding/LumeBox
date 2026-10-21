@@ -8,6 +8,40 @@ import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  test('内置地址运行时解析，端口令牌不持久化且不发送官方签名', () async {
+    var starts = 0;
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        '',
+        '',
+        baseUrl: DandanplayCredentials.builtinBase,
+      ),
+      localService: () async {
+        starts++;
+        return Uri.parse('http://127.0.0.1:9123/private-token');
+      },
+      client: MockClient((request) async {
+        expect(request.url.host, '127.0.0.1');
+        expect(
+          request.headers.keys.any(
+            (s) => s.toLowerCase().contains('signature'),
+          ),
+          false,
+        );
+        if (request.url.path.endsWith('/_health')) {
+          return http.Response('{"ok":true}', 200);
+        }
+        expect(request.url.path, '/private-token/api/v2/search/episodes');
+        return http.Response('{"animes":[]}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    await client.checkConnection();
+    expect(await client.search('测试'), isEmpty);
+    expect(starts, 2);
+    expect(client.credentials.baseUrl, DandanplayCredentials.builtinBase);
+  });
+
   test('精确作品必须同时核对集数，支持中文集数和平台后缀编号', () {
     const first = DandanplayEpisode(
       id: 'ep1',

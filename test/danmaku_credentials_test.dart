@@ -153,6 +153,19 @@ void main() {
     );
   });
 
+  testWidgets('内置服务不用添加地址，保存选择后播放器读到稳定标识', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: DanmakuSourcesPage()));
+    await tester.pumpAndSettle();
+    expect(find.text('内置本机服务'), findsOneWidget);
+    await tester.tap(find.byTooltip('使用内置本机服务'));
+    await tester.pumpAndSettle();
+    final config = await DandanplayCredentials.load();
+    expect(config.builtin, true);
+    expect(config.baseUrl, DandanplayCredentials.builtinBase);
+    expect(config.appId, isEmpty);
+    expect(find.byType(TextField), findsNothing);
+  });
+
   testWidgets('从弹幕源管理页添加官方 ID 和密钥后播放器能直接读到', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: DanmakuSourcesPage()));
     await tester.pumpAndSettle();

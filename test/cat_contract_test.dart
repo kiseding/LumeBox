@@ -79,7 +79,9 @@ void main() {
         ),
       );
       req.response.headers.contentType = ContentType.json;
-      if (req.uri.path == '/ctl/source') {
+      if (req.uri.path.endsWith('/_health')) {
+        req.response.write('{"ok":true,"service":"local-danmaku"}');
+      } else if (req.uri.path == '/ctl/source') {
         await bridge('sourceStarted', {
           'id': body['id'],
           'address': nodeBase.toString(),
@@ -183,6 +185,31 @@ void main() {
     await node.close(force: true);
     root.deleteSync(recursive: true);
   });
+  test('内置服务安装校验、随机地址、重复启动复用，且不进入猫源订阅表', () async {
+    final first = await service.startLocalDanmaku();
+    expect(first.host, '127.0.0.1');
+    expect(first.path, matches(RegExp(r'^/[a-f0-9]{64}$')));
+    expect(starts, 1);
+    expect(service.subscriptions, isEmpty);
+    final specification = catMaps(runtime!['sources']).single;
+    final bytes = await File(
+      '${File(specification['index']).parent.path}/upstream.cjs',
+    ).readAsBytes();
+    expect(
+      sha256.convert(bytes).toString(),
+      jsonDecode(
+        await File('assets/local_danmaku/manifest.json').readAsString(),
+      )['patchedSha256'],
+    );
+    expect(await service.startLocalDanmaku(), first);
+    expect(starts, 1);
+    await service.stopLocalDanmaku();
+    final second = await service.startLocalDanmaku();
+    expect(second, first);
+    expect(starts, 1, reason: '停止服务不停止共享 Node 进程');
+    expect(service.subscriptions, isEmpty);
+  });
+
   test('猫源批量移除收藏与历史互不影响，保持其他站点记录', () async {
     final site = CatSite(
       subscriptionId: 'collection',
