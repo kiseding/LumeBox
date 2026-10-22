@@ -1949,7 +1949,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             _publicDanmakuTrack = resolvedTrack;
             _publicDanmakuCount = resolvedTrack.length;
             _publicDanmakuStatus = resolvedTrack.isEmpty
-                ? '本服务该集返回 0 条弹幕，可重新匹配或更换服务'
+                ? (config.builtin
+                      ? '内置服务该集返回 0 条；如果开了 VPN/代理，请关闭后重新加载本集'
+                      : '本服务该集返回 0 条弹幕，可重新匹配或更换服务')
                 : '公共库已加载 ${resolvedTrack.length} 条';
             _danmaku = _combinedDanmaku();
           });
