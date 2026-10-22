@@ -4,6 +4,7 @@ import '../../shared/widgets/source_picker_header.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 
 import '../../core/cat/cat_service.dart';
 import '../../core/reading/reading_library.dart';
@@ -15,6 +16,7 @@ import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/web/web_home_sources.dart';
+import '../../core/web/html_home_import.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_card_metrics.dart';
@@ -98,6 +100,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   final busy = <String>{};
   WebHomeStore? _webStore;
   List<WebHomeSource> webHomes = const [];
+  bool _importingHtml = false;
 
   @override
   void initState() {
@@ -209,7 +212,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 '模块源',
                 '导入 ESM / CommonJS、ZIP 源包或远程 Spider',
               ),
-              (VideoSourceType.web, Icons.language, '网页主页', '添加、编辑网页主页'),
+              (
+                VideoSourceType.web,
+                Icons.language,
+                '网页主页',
+                '添加网页地址或导入 HTML 文件',
+              ),
             ])
               ListTile(
                 leading: LumeIcon(
@@ -253,6 +261,34 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }
 
   Future<void> _addWebHome() async {
+    final kind = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const ValueKey('web-home-add-url'),
+              leading: const Icon(Icons.language),
+              title: const Text('添加网页地址'),
+              onTap: () => Navigator.pop(sheetContext, 'url'),
+            ),
+            ListTile(
+              key: const ValueKey('web-home-import-html'),
+              leading: const Icon(Icons.upload_file),
+              title: const Text('导入 HTML 文件'),
+              subtitle: const Text('可一次选择多个 .html / .htm 文件'),
+              onTap: () => Navigator.pop(sheetContext, 'html'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || kind == null) return;
+    if (kind == 'html') {
+      await _importHtmlHomes();
+      return;
+    }
     final store = await WebHomeStore.open();
     if (!mounted) return;
     final source = await _webHomeDialog(store: store);
@@ -261,6 +297,82 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     if (!mounted) return;
     setState(() => type = VideoSourceType.web);
     await load();
+  }
+
+  Future<void> _importHtmlHomes() async {
+    if (_importingHtml) return;
+    setState(() => _importingHtml = true);
+    try {
+      final files = await openFiles(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'HTML 网页',
+            extensions: ['html', 'htm'],
+            uniformTypeIdentifiers: ['public.html'],
+            mimeTypes: ['text/html'],
+          ),
+        ],
+      );
+      if (!mounted || files.isEmpty) return;
+      final store = await WebHomeStore.open();
+      var imported = 0, repeated = 0;
+      final failures = <String>[];
+      for (final file in files) {
+        try {
+          if (await file.length() > HtmlHomeImport.maxBytes) {
+            throw const FormatException('文件不能超过 2 MB');
+          }
+          final source = HtmlHomeImport.decode(
+            file.name,
+            await file.readAsBytes(),
+          );
+          if (!mounted) return;
+          if (store.byId(source.id) != null) {
+            repeated++;
+            continue;
+          }
+          store.upsert(source);
+          imported++;
+        } catch (error) {
+          failures.add(
+            '${file.name}：${error is FormatException ? error.message : error}',
+          );
+        }
+      }
+      if (!mounted) return;
+      setState(() => type = VideoSourceType.web);
+      await load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已导入 $imported 个网页${repeated > 0 ? '，跳过 $repeated 个重复文件' : ''}',
+          ),
+        ),
+      );
+      if (failures.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('部分文件未导入'),
+            content: SingleChildScrollView(child: Text(failures.join('\n'))),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导入失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _importingHtml = false);
+    }
   }
 
   Future<void> _editWebHome(WebHomeSource source) async {
@@ -278,7 +390,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     final nameController = TextEditingController(text: existing?.name ?? '');
     final urlController = TextEditingController(text: existing?.url ?? '');
     String? error;
-    final result = await showDialog<WebHomeSource>(
+    final route = DialogRoute<WebHomeSource>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
@@ -294,15 +406,21 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 ),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: urlController,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: '主页地址',
-                  hintText: 'https://example.com',
+              if (existing?.isLocal == true)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Text('本地 HTML 已保存在 App 内，可以修改名称或删除。'),
+                )
+              else
+                TextField(
+                  controller: urlController,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: '主页地址',
+                    hintText: 'https://example.com',
+                  ),
                 ),
-              ),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -337,6 +455,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   setDialogState(() => error = '请填写名称');
                   return;
                 }
+                if (existing?.isLocal == true) {
+                  Navigator.pop(dialogContext, existing!.copyWith(name: name));
+                  return;
+                }
                 if (!isValidWebHomeUrl(url)) {
                   setDialogState(() => error = '请输入有效的 http(s) 地址');
                   return;
@@ -356,6 +478,9 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         ),
       ),
     );
+    final result = await Navigator.of(context, rootNavigator: true).push(route);
+    // TextFields remain mounted while the dialog's exit transition runs.
+    await route.completed;
     nameController.dispose();
     urlController.dispose();
     return result;
@@ -877,14 +1002,33 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                     child: heading(
                                       '网页主页',
                                       filteredWeb.length,
-                                      trailing: IconButton(
-                                        tooltip: '添加网页主页',
-                                        onPressed: _addWebHome,
-                                        icon: const LumeIcon(
-                                          Icons.add,
-                                          size: 20,
-                                          slot: 'video_source_picker.add_web',
-                                        ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            key: const ValueKey(
+                                              'video-import-html',
+                                            ),
+                                            tooltip: '导入 HTML 文件',
+                                            onPressed: _importingHtml
+                                                ? null
+                                                : _importHtmlHomes,
+                                            icon: const Icon(
+                                              Icons.upload_file,
+                                              size: 20,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: '添加网页主页',
+                                            onPressed: _addWebHome,
+                                            icon: const LumeIcon(
+                                              Icons.add,
+                                              size: 20,
+                                              slot:
+                                                  'video_source_picker.add_web',
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
@@ -896,7 +1040,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                         size: 20,
                                         slot: 'video_source_picker.web_empty',
                                       ),
-                                      label: const Text('添加网页主页地址'),
+                                      label: const Text('添加网页主页 / HTML'),
                                     )
                                   else
                                     grid([
@@ -928,6 +1072,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                             subtitle:
                                                 widget.currentWebId == home.id
                                                 ? '当前使用'
+                                                : home.isLocal
+                                                ? '本地 HTML'
                                                 : home.url,
                                             selected:
                                                 widget.currentWebId == home.id,

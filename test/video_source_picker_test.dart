@@ -121,6 +121,99 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('本地 HTML 可批量导入、跳过重复、改名及删除，不改变普通源', (tester) async {
+    final valid = File('${root.path}/fixture.html')
+      ..writeAsStringSync(
+        '<!doctype html><html><head><title>本地直播</title></head><body>fixture</body></html>',
+      );
+    final bad = File('${root.path}/broken.html')..writeAsStringSync('not html');
+    var selected = [valid.path, bad.path];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/file_selector'),
+      (call) async {
+        expect(call.method, 'openFile');
+        expect((call.arguments as Map)['multiple'], true);
+        return selected;
+      },
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/file_selector'),
+        null,
+      ),
+    );
+    Future<void> flush() async {
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+    }
+
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('video-import-html')));
+    await flush();
+    final store = await WebHomeStore.open();
+    expect(store.items, hasLength(1));
+    expect(store.items.single.isLocal, true);
+    expect(find.text('部分文件未导入'), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    selected = [valid.path];
+    await tester.tap(find.byKey(const ValueKey('video-import-html')));
+    await flush();
+    expect(store.items, hasLength(1));
+    expect(manager.imported, isEmpty);
+    await tester.tap(find.byTooltip('本地直播的设置'));
+    await tester.pumpAndSettle();
+    expect(find.text('本地 HTML 已保存在 App 内，可以修改名称或删除。'), findsOneWidget);
+    final html = store.items.single.html;
+    await tester.enterText(find.byType(TextField).last, '我的直播');
+    await tester.tap(find.text('保存'));
+    await flush();
+    expect(store.items.single.name, '我的直播');
+    expect(store.items.single.html, html);
+    await tester.tap(find.byTooltip('我的直播的设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除').last);
+    await flush();
+    expect(store.items, isEmpty);
+  });
+
+  testWidgets('网页添加菜单仍能保存普通地址，取消编辑保留原值', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加网页主页'));
+    await tester.pumpAndSettle();
+    expect(find.text('导入 HTML 文件'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('web-home-add-url')));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), '网页首页');
+    await tester.enterText(fields.at(1), 'example.com/home');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    final store = await WebHomeStore.open();
+    expect(store.items.single.url, 'https://example.com/home');
+    expect(store.items.single.isLocal, false);
+    await tester.tap(find.byTooltip('网页首页的设置'));
+    await tester.pumpAndSettle();
+    await tester.enterText(fields.at(0), '取消改名');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(store.items.single.name, '网页首页');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全部按运行类型分组，不混排 JS、PY 与模块', (tester) async {
     manager.sources.addAll(const [
       SourceDescriptor(

@@ -5,36 +5,53 @@ import 'package:flutter/foundation.dart';
 import '../reading/reading.dart';
 import '../session/section.dart';
 
-/// A user-added web home page: a normal website opened inside the app.
-///
-/// These are deliberately separate from JS/Cat sources: they have no scripts,
-/// no item model and no playback contract. The video page only hands them to
-/// the built-in WebView.
+/// A website or a self-contained HTML home, separate from JS/Cat source runtimes.
 @immutable
 class WebHomeSource {
+  static const maxHtmlBytes = 2 * 1024 * 1024;
   const WebHomeSource({
     required this.id,
     required this.name,
     required this.url,
+    this.html,
   });
 
   final String id;
   final String name;
   final String url;
+  final String? html;
+  bool get isLocal => html != null;
 
   Uri? get uri => Uri.tryParse(url);
 
-  WebHomeSource copyWith({String? name, String? url}) =>
-      WebHomeSource(id: id, name: name ?? this.name, url: url ?? this.url);
+  WebHomeSource copyWith({String? name, String? url}) => WebHomeSource(
+    id: id,
+    name: name ?? this.name,
+    url: url ?? this.url,
+    html: html,
+  );
 
-  Map<String, Object?> toJson() => {'id': id, 'name': name, 'url': url};
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'url': url,
+    if (isLocal) 'html': html,
+  };
 
   static WebHomeSource? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final id = '${raw['id'] ?? ''}'.trim();
     final name = '${raw['name'] ?? ''}'.trim();
     final url = '${raw['url'] ?? ''}'.trim();
-    if (id.isEmpty || name.isEmpty || url.isEmpty) return null;
+    final html = raw['html'];
+    if (id.isEmpty || name.isEmpty) return null;
+    if (html is String &&
+        html.trim().isNotEmpty &&
+        html.length <= maxHtmlBytes &&
+        utf8.encode(html).length <= maxHtmlBytes) {
+      return WebHomeSource(id: id, name: name, url: '', html: html);
+    }
+    if (!isValidWebHomeUrl(url)) return null;
     return WebHomeSource(id: id, name: name, url: url);
   }
 
@@ -43,10 +60,11 @@ class WebHomeSource {
       other is WebHomeSource &&
       other.id == id &&
       other.name == name &&
-      other.url == url;
+      other.url == url &&
+      other.html == html;
 
   @override
-  int get hashCode => Object.hash(id, name, url);
+  int get hashCode => Object.hash(id, name, url, html);
 }
 
 /// Persists the web home list in the video section library.
@@ -93,8 +111,29 @@ class WebHomeStore extends ChangeNotifier {
     _save(next);
   }
 
-  void remove(String id) =>
-      _save(_items.where((item) => item.id != id).toList());
+  void remove(String id) {
+    _library.setSetting('video.web.home.state.$id', '{}');
+    _save(_items.where((item) => item.id != id).toList());
+  }
+
+  Map<String, dynamic> readLocalState(String id) {
+    final raw = _library.setting('video.web.home.state.$id');
+    if (raw == null) return {};
+    try {
+      final state = jsonDecode(raw);
+      return state is Map<String, dynamic> ? state : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void writeLocalState(String id, Map<String, dynamic> state) {
+    final encoded = jsonEncode(state);
+    if (utf8.encode(encoded).length > 2 * 1024 * 1024) {
+      throw const FormatException('这个网页的本地缓存已超过 2 MB');
+    }
+    _library.setSetting('video.web.home.state.$id', encoded);
+  }
 
   void move(int from, int to) {
     if (from == to ||
