@@ -298,7 +298,10 @@ class DandanplayClient {
       // Keep the native-catalogue results; manual matching can still use them.
     }
     final ids = <String>{};
-    return [...extra, ...direct].where((e) => ids.add(e.id)).toList();
+    // Native catalogue results first: TMDB-derived entries often have a
+    // dandanplay episodeId but no comments, so they must not shadow a native
+    // result with the same title/episode.
+    return [...direct, ...extra].where((e) => ids.add(e.id)).toList();
   }
 
   static List<DandanplayEpisode> _parseSearch(Map<String, dynamic> json) {
@@ -485,6 +488,14 @@ class DandanplayClient {
                       episode),
         )
         .toList();
-    return exact.length == 1 ? exact.single : null;
+    if (exact.length == 1) return exact.single;
+    if (exact.length > 1) {
+      // Prefer a native source over a TMDB-only mapping when both match.
+      final native = exact
+          .where((item) => item.source.toLowerCase() != 'tmdb')
+          .toList();
+      if (native.length == 1) return native.single;
+    }
+    return null;
   }
 }

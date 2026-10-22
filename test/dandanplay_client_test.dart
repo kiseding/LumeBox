@@ -337,6 +337,28 @@ void main() {
     expect(DandanplayClient.exactMatch([exact, exact], '半步多·沧澜传'), isNull);
   });
 
+  test('官方同时返回原生与 TMDB 条目时优先选原生条目', () {
+    const native = DandanplayEpisode(
+      id: 'native',
+      title: '楚语者(2026)【国产剧】from tencent',
+      episode: '第1集',
+      number: 1,
+      source: 'tencent',
+    );
+    const tmdb = DandanplayEpisode(
+      id: 'tmdb',
+      title: '楚语者',
+      episode: '第1集',
+      number: 1,
+      source: 'TMDB',
+    );
+    expect(
+      DandanplayClient.exactMatch([tmdb, native], '楚语者', episode: 1)?.id,
+      'native',
+    );
+    expect(DandanplayClient.exactMatch([tmdb], '楚语者', episode: 1)?.id, 'tmdb');
+  });
+
   test('签名前清理粘贴凭证的首尾空格，搜索清理年份与来源后缀', () async {
     final client = DandanplayClient(
       credentials: const DandanplayCredentials(
