@@ -444,7 +444,8 @@ class DandanplayClient {
     // 平台
     'tencent', 'qq', 'youku', 'iqiyi', 'qiyi', 'mgtv', 'bilibili',
     'sohu', 'migu', 'leshi', 'xigua', 'hongguo', 'bahamut', 'animeko',
-    'dandan', 'tmdb', 'imgo', '360', 'vod', 'local', 'custom',
+    'dandan', 'tmdb', 'imgo', '360', 'vod', 'local', 'custom', 'renren',
+    'hanjutv',
     '腾讯视频', '优酷', '爱奇艺', '芒果tv', '哔哩哔哩', 'b站', '咪咕视频',
     '搜狐视频', '乐视视频', '西瓜视频', '人人视频', '韩剧tv',
     // 状态
@@ -635,6 +636,40 @@ class DandanplayClient {
       if (native.length == 1) return native.single;
     }
     return null;
+  }
+
+  /// 自动匹配的候选队列：同名、同集、非附加内容；原生来源在前，TMDB 在后。
+  ///
+  /// [exactMatch] 要求唯一，同名同集有多个来源时会返回 null；自动匹配不应
+  /// 因此直接失败，而应按顺序尝试，取第一个有弹幕的条目。
+  static List<DandanplayEpisode> candidates(
+    Iterable<DandanplayEpisode> items,
+    String title, {
+    int? episode,
+    int limit = 4,
+  }) {
+    final query = normalizedTitle(title);
+    if (query.isEmpty) return const <DandanplayEpisode>[];
+    final exact = items
+        .where(
+          (item) =>
+              !item.supplementary &&
+              normalizedTitle(item.title) == query &&
+              (episode == null ||
+                  (item.number ?? parsedEpisodeNumber(item.episode)) ==
+                      episode),
+        )
+        .toList();
+    exact.sort((a, b) {
+      final aTmdb = a.source.toLowerCase() == 'tmdb' ? 1 : 0;
+      final bTmdb = b.source.toLowerCase() == 'tmdb' ? 1 : 0;
+      return aTmdb.compareTo(bTmdb);
+    });
+    final seen = <String>{};
+    return exact
+        .where((item) => seen.add(item.id))
+        .take(limit)
+        .toList(growable: false);
   }
 
   /// 同一作品、同一集、非 TMDB 的候选，用于某个条目返回 0 条时换一个来源。

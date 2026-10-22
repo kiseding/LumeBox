@@ -1881,15 +1881,32 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               id = match?.id;
               if (!publicCurrent()) return;
               if (id == null) {
-                setState(
-                  () => _publicDanmakuStatus = matches.isEmpty
-                      ? '${config.official ? '官方弹幕库' : '此服务'}未找到“${target.title}”第$number集，可手动匹配或更换服务'
-                      : '未找到唯一的同名、同集结果，请核对年份与集数后手动匹配',
-                );
-                return;
+                // 同名同集有多个来源时 exactMatch 会故意返回 null；
+                // 自动匹配按候选队列逐个试，取第一个有弹幕的。
+                for (final candidate in DandanplayClient.candidates(
+                  matches,
+                  target.title,
+                  episode: number,
+                )) {
+                  final candidateTrack = await client.comments(candidate.id);
+                  if (!publicCurrent()) return;
+                  if (candidateTrack.isEmpty) continue;
+                  match = candidate;
+                  id = candidate.id;
+                  track = candidateTrack;
+                  break;
+                }
+                if (id == null) {
+                  setState(
+                    () => _publicDanmakuStatus = matches.isEmpty
+                        ? '${config.official ? '官方弹幕库' : '此服务'}未找到“${target.title}”第$number集，可手动匹配或更换服务'
+                        : '同名、同集条目均未加载到弹幕，请手动匹配或更换服务',
+                  );
+                  return;
+                }
               }
             }
-            track = await client.comments(id);
+            track ??= await client.comments(id);
             // 官方 TMDB 补充条目有时只有 episodeId、没有任何弹幕；如果同一作品
             // 在原生目录里还有候选，自动换一个候选再取一次，避免“官方永远 0 条”。
             if (track.isEmpty && match != null && config.official) {

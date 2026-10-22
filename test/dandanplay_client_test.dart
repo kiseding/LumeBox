@@ -369,6 +369,11 @@ void main() {
     expect(DandanplayClient.searchTitle('大刑伺候 2026年'), '大刑伺候');
     expect(DandanplayClient.searchTitle('大刑伺候 2026 第二季'), '大刑伺候 第二季');
     expect(DandanplayClient.searchTitle('大刑伺候 第二季 2026'), '大刑伺候 第二季');
+    expect(
+      DandanplayClient.searchTitle('亢奋 第三季(2026)【电视剧】from renren'),
+      '亢奋 第三季',
+    );
+    expect(DandanplayClient.searchTitle('铁拳教育(2026)【韩剧】from hanjutv'), '铁拳教育');
   });
 
   test('保留可能改变作品身份的标题内容', () {
@@ -439,6 +444,53 @@ void main() {
       ], tmdb).map((item) => item.id),
       ['native'],
     );
+  });
+
+  test('自动匹配允许同名同集多个来源，原生排在 TMDB 前', () {
+    const tmdb = DandanplayEpisode(
+      id: 'tmdb',
+      title: '铁拳教育(2026)【电视剧】from tencent',
+      episode: '第1集',
+      number: 1,
+      source: 'TMDB',
+    );
+    const nativeA = DandanplayEpisode(
+      id: 'renren',
+      title: '铁拳教育',
+      episode: '第1集',
+      number: 1,
+      source: 'renren',
+    );
+    const nativeB = DandanplayEpisode(
+      id: 'hanjutv',
+      title: '铁拳教育(2026)【韩剧】from hanjutv',
+      episode: '第1集',
+      number: 1,
+      source: 'hanjutv',
+    );
+    const otherEpisode = DandanplayEpisode(
+      id: 'ep2',
+      title: '铁拳教育',
+      episode: '第2集',
+      number: 2,
+      source: 'renren',
+    );
+    // 多个原生来源时 exactMatch 仍然保持“不猜”的严格口径。
+    expect(
+      DandanplayClient.exactMatch([tmdb, nativeA, nativeB], '铁拳教育', episode: 1),
+      isNull,
+    );
+    final candidates = DandanplayClient.candidates(
+      [tmdb, nativeA, nativeB, otherEpisode],
+      '铁拳教育',
+      episode: 1,
+    );
+    expect(candidates.map((item) => item.id), isNot(contains('ep2')));
+    expect(candidates.last.id, 'tmdb');
+    expect(candidates.take(2).map((item) => item.id).toSet(), {
+      'renren',
+      'hanjutv',
+    });
   });
 
   test('自动搜索用清洗后的片名作为请求词', () async {
