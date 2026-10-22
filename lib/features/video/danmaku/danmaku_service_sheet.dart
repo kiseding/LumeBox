@@ -18,8 +18,39 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
   late final _id = TextEditingController(text: widget.initial.appId);
   late final _secret = TextEditingController(text: widget.initial.appSecret);
   final _urlFocus = FocusNode();
+  List<Map<String, String>> _profiles = const [];
   String? _error;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  /// 播放器面板切换弹幕源时带出设置页已保存的官方凭证，避免重复填写。
+  Future<void> _loadProfiles() async {
+    try {
+      final data = await DanmakuSourcesStore.read();
+      if (mounted) {
+        setState(() => _profiles = DanmakuSourcesStore.profiles(data));
+      }
+    } catch (_) {
+      // 读不到已保存配置时保持空字段即可。
+    }
+  }
+
+  void _applySavedCredentials(String url) {
+    final saved = _profiles
+        .where((profile) => profile['url'] == url)
+        .firstOrNull;
+    if (saved == null) return;
+    final appId = saved['appId'] ?? '';
+    final secret = saved['appSecret'] ?? '';
+    if (appId.isNotEmpty) _id.text = appId;
+    if (secret.isNotEmpty) _secret.text = secret;
+  }
+
   @override
   void dispose() {
     _urlFocus.dispose();
@@ -145,6 +176,7 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
                       setState(() {
                         _url.text = value == 'custom' ? '' : value!;
                         _error = null;
+                        if (value != 'custom') _applySavedCredentials(value!);
                       });
                     },
             ),

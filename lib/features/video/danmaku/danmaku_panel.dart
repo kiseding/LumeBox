@@ -46,37 +46,44 @@ class DanmakuPanelFrame extends StatelessWidget {
       ),
       child: Align(
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
-        child: SizedBox(
-          key: const ValueKey('danmaku-panel-frame'),
-          width: landscape ? math.min(400, media.size.width * .46) : 560,
-          height: landscape ? double.infinity : media.size.height * .85,
-          child: Material(
-            color: LumeTheme.base,
-            borderRadius: BorderRadius.circular(20),
-            clipBehavior: Clip.antiAlias,
-            child: MediaQuery.removeViewInsets(
-              context: context,
-              removeBottom: true,
-              child: MediaQuery.removePadding(
+        child: LayoutBuilder(
+          builder: (context, constraints) => SizedBox(
+            key: const ValueKey('danmaku-panel-frame'),
+            width: landscape ? math.min(400, media.size.width * .46) : 560,
+            // 键盘弹出时 AnimatedPadding 已经把可用高度压小；这里跟随可用
+            // 约束而不是用屏幕高度的百分比，否则输入框会被键盘盖住。
+            height: landscape ? double.infinity : constraints.maxHeight * .92,
+            child: Material(
+              color: LumeTheme.base,
+              borderRadius: BorderRadius.circular(20),
+              clipBehavior: Clip.antiAlias,
+              child: MediaQuery.removeViewInsets(
                 context: context,
-                removeTop: true,
                 removeBottom: true,
-                child: Theme(
-                  data: Theme.of(context).copyWith(
-                    textTheme: Theme.of(context).textTheme
-                        .apply(bodyColor: textColor, displayColor: textColor),
-                    iconTheme: IconThemeData(color: textColor),
-                    inputDecorationTheme: Theme.of(context).inputDecorationTheme
-                        .copyWith(
-                          labelStyle: TextStyle(color: LumeTheme.textSecondary),
-                          floatingLabelStyle: TextStyle(
-                            color: LumeTheme.accent,
+                child: MediaQuery.removePadding(
+                  context: context,
+                  removeTop: true,
+                  removeBottom: true,
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      textTheme: Theme.of(context).textTheme
+                          .apply(bodyColor: textColor, displayColor: textColor),
+                      iconTheme: IconThemeData(color: textColor),
+                      inputDecorationTheme: Theme.of(context)
+                          .inputDecorationTheme
+                          .copyWith(
+                            labelStyle: TextStyle(
+                              color: LumeTheme.textSecondary,
+                            ),
+                            floatingLabelStyle: TextStyle(
+                              color: LumeTheme.accent,
+                            ),
                           ),
-                        ),
-                  ),
-                  child: DefaultTextStyle(
-                    style: TextStyle(color: textColor, fontSize: 14),
-                    child: child,
+                    ),
+                    child: DefaultTextStyle(
+                      style: TextStyle(color: textColor, fontSize: 14),
+                      child: child,
+                    ),
                   ),
                 ),
               ),
