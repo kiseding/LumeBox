@@ -1866,15 +1866,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               id = null;
             }
             DandanplayEpisode? match;
+            var matches = const <DandanplayEpisode>[];
             if (id == null) {
               final number = DandanplayClient.episodeNumber(
                 target.chapterTitle,
                 chapterIndex: target.chapterIndex,
               );
-              final matches = await client.search(
-                target.title,
-                episode: number,
-              );
+              matches = await client.search(target.title, episode: number);
               match = DandanplayClient.exactMatch(
                 matches,
                 target.title,
@@ -1892,12 +1890,47 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               }
             }
             track = await client.comments(id);
+            // 官方 TMDB 补充条目有时只有 episodeId、没有任何弹幕；如果同一作品
+            // 在原生目录里还有候选，自动换一个候选再取一次，避免“官方永远 0 条”。
+            if (track.isEmpty && match != null && config.official) {
+              final episode =
+                  match.number ??
+                  DandanplayClient.parsedEpisodeNumber(match.episode);
+              final candidates = matches
+                  .where(
+                    (item) =>
+                        item.id != id &&
+                        !item.supplementary &&
+                        item.source.toLowerCase() != 'tmdb' &&
+                        DandanplayClient.normalizedTitle(item.title) ==
+                            DandanplayClient.normalizedTitle(match!.title) &&
+                        (episode == null ||
+                            (item.number ??
+                                    DandanplayClient.parsedEpisodeNumber(
+                                      item.episode,
+                                    )) ==
+                                episode),
+                  )
+                  .take(3);
+              for (final candidate in candidates) {
+                final retry = await client.comments(candidate.id);
+                if (!publicCurrent()) return;
+                if (retry.isEmpty) continue;
+                track = retry;
+                match = candidate;
+                id = candidate.id;
+                break;
+              }
+            }
             if (!publicCurrent()) return;
-            if (!track.isEmpty) {
+            final resolvedTrack = track;
+            final resolvedId = id;
+            if (resolvedTrack == null || resolvedId == null) return;
+            if (!resolvedTrack.isEmpty) {
               final label = match == null
                   ? savedLabel!
                   : '${match.title} · ${match.episode}';
-              _library?.setSetting(key, id);
+              _library?.setSetting(key, resolvedId);
               _library?.setSetting('$key.label', label);
               _publicDanmakuMatchLabel = label;
             }
@@ -1906,16 +1939,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               '${_matchingKey(target, config.baseUrl)}.label',
             );
           }
+          final resolvedTrack = track;
+          if (resolvedTrack == null) return;
           if (!publicCurrent()) return;
-          if (!track.isEmpty) {
-            _publicDanmakuCache.put(cacheKey, target.chapterId, track);
+          if (!resolvedTrack.isEmpty) {
+            _publicDanmakuCache.put(cacheKey, target.chapterId, resolvedTrack);
           }
           setState(() {
-            _publicDanmakuTrack = track!;
-            _publicDanmakuCount = track.length;
-            _publicDanmakuStatus = track.isEmpty
+            _publicDanmakuTrack = resolvedTrack;
+            _publicDanmakuCount = resolvedTrack.length;
+            _publicDanmakuStatus = resolvedTrack.isEmpty
                 ? '本服务该集返回 0 条弹幕，可重新匹配或更换服务'
-                : '公共库已加载 ${track.length} 条';
+                : '公共库已加载 ${resolvedTrack.length} 条';
             _danmaku = _combinedDanmaku();
           });
         } catch (error) {
