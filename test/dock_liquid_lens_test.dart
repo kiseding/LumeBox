@@ -251,11 +251,6 @@ void main() {
           ..setFloat(6, 0)
           ..setFloat(7, size.width)
           ..setFloat(8, size.height)
-          ..setFloat(9, 0)
-          ..setFloat(10, 0)
-          ..setFloat(11, 0)
-          ..setFloat(12, 0)
-          ..setFloat(13, 0)
           ..setImageSampler(0, input);
         final rec = ui.PictureRecorder();
         Canvas(rec).drawRect(Offset.zero & size, Paint()..shader = shader);

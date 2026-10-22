@@ -5,49 +5,37 @@ import 'package:flutter/foundation.dart';
 import '../reading/reading.dart';
 import '../session/section.dart';
 
-/// A website or an imported, self-contained HTML home with the fm bridge.
+/// A user-added web home page: a normal website opened inside the app.
+///
+/// These are deliberately separate from JS/Cat sources: they have no scripts,
+/// no item model and no playback contract. The video page only hands them to
+/// the built-in WebView.
 @immutable
 class WebHomeSource {
   const WebHomeSource({
     required this.id,
     required this.name,
     required this.url,
-    this.html,
   });
 
   final String id;
   final String name;
   final String url;
-  final String? html;
-  bool get isLocal => html != null;
-  String get locationLabel => isLocal ? '本地 HTML · 兼容接口' : url;
 
   Uri? get uri => Uri.tryParse(url);
 
-  WebHomeSource copyWith({String? name, String? url}) => WebHomeSource(
-    id: id,
-    name: name ?? this.name,
-    url: url ?? this.url,
-    html: html,
-  );
+  WebHomeSource copyWith({String? name, String? url}) =>
+      WebHomeSource(id: id, name: name ?? this.name, url: url ?? this.url);
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'name': name,
-    'url': url,
-    if (html != null) 'html': html,
-  };
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'url': url};
 
   static WebHomeSource? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final id = '${raw['id'] ?? ''}'.trim();
     final name = '${raw['name'] ?? ''}'.trim();
     final url = '${raw['url'] ?? ''}'.trim();
-    final html = raw['html'] is String ? raw['html'] as String : null;
-    if (id.isEmpty || name.isEmpty || (url.isEmpty && html == null)) {
-      return null;
-    }
-    return WebHomeSource(id: id, name: name, url: url, html: html);
+    if (id.isEmpty || name.isEmpty || url.isEmpty) return null;
+    return WebHomeSource(id: id, name: name, url: url);
   }
 
   @override
@@ -55,11 +43,10 @@ class WebHomeSource {
       other is WebHomeSource &&
       other.id == id &&
       other.name == name &&
-      other.url == url &&
-      other.html == html;
+      other.url == url;
 
   @override
-  int get hashCode => Object.hash(id, name, url, html);
+  int get hashCode => Object.hash(id, name, url);
 }
 
 /// Persists the web home list in the video section library.
@@ -106,10 +93,8 @@ class WebHomeStore extends ChangeNotifier {
     _save(next);
   }
 
-  void remove(String id) {
-    _library.setSetting('video.web.cache.$id', '{}');
-    _save(_items.where((item) => item.id != id).toList());
-  }
+  void remove(String id) =>
+      _save(_items.where((item) => item.id != id).toList());
 
   void move(int from, int to) {
     if (from == to ||

@@ -155,7 +155,7 @@ class DandanplayClient {
           ? 'builtin'
           : credentials.official
           ? 'official'
-          : 'compatible'} $path -> ${response.statusCode}',
+          : 'compatible'} ${url.path} -> ${response.statusCode}',
     );
     if (response.statusCode == 401 || response.statusCode == 403) {
       final reason = switch (response.headers['x-error-message']) {
@@ -188,11 +188,6 @@ class DandanplayClient {
     if (json is! Map<String, dynamic> || json['success'] == false) {
       final code = json is Map ? int.tryParse('${json['errorCode']}') : null;
       final message = json is Map ? '${json['errorMessage'] ?? ''}'.trim() : '';
-      // HTTP 200 may still carry an API rejection. Keep the business code in
-      // diagnostics without recording credentials or the raw response body.
-      LumeLog.warn(
-        '[danmaku] $path -> API rejected errorCode=${code ?? 'unknown'}',
-      );
       if (message.isNotEmpty) {
         throw DandanplayException(
           code == null ? message : '$message（错误码 $code）',

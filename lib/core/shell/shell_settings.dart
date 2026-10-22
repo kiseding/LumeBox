@@ -124,12 +124,6 @@ class DockAppearance {
     this.animateSelection = true,
     this.animationMs = 250,
     this.liquid = const DockLiquidSettings(),
-    this.searchGap = 10,
-    this.searchSize = 1,
-    this.searchIconScale = .45,
-    this.searchOpacity = 1,
-    this.searchBlur = 1,
-    this.searchLiquid = true,
   });
 
   /// 与上一轮精修后的实际取值一致：默认即「当前这版外观」。
@@ -167,14 +161,6 @@ class DockAppearance {
   /// 弹簧越软，吸附与回弹越慢。
   final int animationMs;
   final DockLiquidSettings liquid;
-  final double searchGap,
-      searchSize,
-      searchIconScale,
-      searchOpacity,
-      searchBlur;
-  final bool searchLiquid;
-  double get searchButtonSize => (height * searchSize).clamp(40.0, 150.0);
-  double get searchWidth => searchButtonSize + searchGap;
 
   /// Keep space for the separate search button even at large margins/heights.
   double marginFor(double availableWidth, {double trailingWidth = 0}) =>
@@ -192,12 +178,6 @@ class DockAppearance {
     bool? animateSelection,
     int? animationMs,
     DockLiquidSettings? liquid,
-    double? searchGap,
-    double? searchSize,
-    double? searchIconScale,
-    double? searchOpacity,
-    double? searchBlur,
-    bool? searchLiquid,
   }) => DockAppearance(
     horizontalMargin: horizontalMargin ?? this.horizontalMargin,
     height: height ?? this.height,
@@ -207,12 +187,6 @@ class DockAppearance {
     animateSelection: animateSelection ?? this.animateSelection,
     animationMs: animationMs ?? this.animationMs,
     liquid: liquid ?? this.liquid,
-    searchGap: searchGap ?? this.searchGap,
-    searchSize: searchSize ?? this.searchSize,
-    searchIconScale: searchIconScale ?? this.searchIconScale,
-    searchOpacity: searchOpacity ?? this.searchOpacity,
-    searchBlur: searchBlur ?? this.searchBlur,
-    searchLiquid: searchLiquid ?? this.searchLiquid,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -224,12 +198,6 @@ class DockAppearance {
     'animateSelection': animateSelection,
     'animationMs': animationMs,
     'liquid': liquid.toJson(),
-    'searchGap': searchGap,
-    'searchSize': searchSize,
-    'searchIconScale': searchIconScale,
-    'searchOpacity': searchOpacity,
-    'searchBlur': searchBlur,
-    'searchLiquid': searchLiquid,
   };
 
   static DockAppearance fromJson(Object? json) {
@@ -244,12 +212,6 @@ class DockAppearance {
     final rawMs = json['animationMs'];
     return DockAppearance(
       liquid: DockLiquidSettings.fromJson(json['liquid']),
-      searchGap: read('searchGap', 10, 0, 28),
-      searchSize: read('searchSize', 1, .75, 1.3),
-      searchIconScale: read('searchIconScale', .45, .3, .65),
-      searchOpacity: read('searchOpacity', 1, 0, 2),
-      searchBlur: read('searchBlur', 1, 0, 2),
-      searchLiquid: json['searchLiquid'] != false,
       horizontalMargin: read('horizontalMargin', 24, 0, 100),
       height: read('height', 54, 40, 150),
       safeGap: read('safeGap', 4, -50, 100),
@@ -272,13 +234,7 @@ class DockAppearance {
         other.shadowOpacity == shadowOpacity &&
         other.animateSelection == animateSelection &&
         other.animationMs == animationMs &&
-        other.liquid == liquid &&
-        other.searchGap == searchGap &&
-        other.searchSize == searchSize &&
-        other.searchIconScale == searchIconScale &&
-        other.searchOpacity == searchOpacity &&
-        other.searchBlur == searchBlur &&
-        other.searchLiquid == searchLiquid;
+        other.liquid == liquid;
   }
 
   @override
@@ -291,12 +247,6 @@ class DockAppearance {
     animateSelection,
     animationMs,
     liquid,
-    searchGap,
-    searchSize,
-    searchIconScale,
-    searchOpacity,
-    searchBlur,
-    searchLiquid,
   );
 }
 

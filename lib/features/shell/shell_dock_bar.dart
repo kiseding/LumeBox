@@ -16,7 +16,6 @@ import 'dock_liquid_lens.dart';
 import 'shell_dock.dart';
 import 'dock_liquid_surface.dart';
 import 'dock_native_glass.dart';
-import 'dock_search_button.dart';
 import '../../core/theme/icon_customization.dart';
 
 /// 底部 Dock 里的一条页签（只有展示数据，不含页面构造）。
@@ -74,8 +73,6 @@ class ShellDockBar extends StatefulWidget {
     this.visible = true,
     this.applyViewPadding = true,
     this.trailingWidth = 0,
-    this.showSearch = false,
-    this.onSearch,
   });
 
   /// 水滴（选中底座）的定位键（测试与截图预览按它量位置 / 宽度）。
@@ -113,8 +110,6 @@ class ShellDockBar extends StatefulWidget {
   /// （否则横屏刘海会把预览条挤偏）。
   final bool applyViewPadding;
   final double trailingWidth;
-  final bool showSearch;
-  final VoidCallback? onSearch;
 
   /// 胶囊总高（外框）= 内容条 + 手势条避让。
   double get capsuleHeight => appearance.height + contentInset;
@@ -728,9 +723,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                     : EdgeInsets.zero;
                 final margin = widget.appearance.marginFor(
                   constraints.maxWidth - safe.horizontal,
-                  trailingWidth: widget.showSearch
-                      ? widget.appearance.searchWidth
-                      : widget.trailingWidth,
+                  trailingWidth: widget.trailingWidth,
                 );
                 return AnimatedSlide(
                   offset: widget.visible ? Offset.zero : const Offset(0, 1.2),
@@ -742,70 +735,18 @@ class _ShellDockBarState extends State<ShellDockBar>
                     padding: EdgeInsets.fromLTRB(
                       margin + safe.left,
                       0,
-                      margin +
-                          safe.right +
-                          (widget.showSearch ? 0 : widget.trailingWidth),
+                      margin + safe.right + widget.trailingWidth,
                       layoutBottom,
                     ),
                     child: Transform.translate(
                       offset: Offset(0, sink),
-                      child: widget.showSearch
-                          ? _buildDockGroup(style, dark)
-                          : _buildCapsule(style, dark),
+                      child: _buildCapsule(style, dark),
                     ),
                   ),
                 );
               },
             ),
           ),
-        ),
-      );
-    },
-  );
-
-  Widget _buildDockGroup(FloatingStyle style, bool dark) => AnimatedBuilder(
-    animation: _pressController,
-    builder: (context, _) {
-      final press = _motionEnabled
-          ? _pressController.value.clamp(0.0, 1.0)
-          : 0.0;
-      return Transform.scale(
-        key: const ValueKey('shell.dock.group'),
-        scale: 1 + press * _amount(DockLiquidParameter.pressScale),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(child: _buildCapsule(style, dark)),
-            SizedBox(width: widget.appearance.searchGap),
-            Padding(
-              padding: EdgeInsets.only(bottom: widget.contentInset),
-              child: DockSearchButton(
-                size: widget.appearance.searchButtonSize,
-                appearance: widget.appearance,
-                beside: true,
-                press: press,
-                onPressed: widget.onSearch,
-                onPressChanged: (down) {
-                  if (!down) {
-                    _releasePress();
-                    return;
-                  }
-                  if (!_motionEnabled || !widget.appearance.searchLiquid) {
-                    return;
-                  }
-                  _pointerFocus.value = 1;
-                  _pressController.animateTo(
-                    1,
-                    duration: Duration(
-                      milliseconds: _amount(DockLiquidParameter.pressMs)
-                          .round(),
-                    ),
-                    curve: Curves.easeOutCubic,
-                  );
-                },
-              ),
-            ),
-          ],
         ),
       );
     },
@@ -952,10 +893,8 @@ class _ShellDockBarState extends State<ShellDockBar>
             // 底座单独的横向/纵向伸缩降为辅助效果（默认 0）；按压主行为是
             // 整条底栏统一放大 + 变白，见 geometry.wholeScale。
             final adjacentSearch =
-                widget.showSearch ||
-                (widget.trailingWidth > 0 &&
-                    ShellDockScope.maybeScopeOf(context)?.searchBesideDock ==
-                        true);
+                widget.trailingWidth > 0 &&
+                ShellDockScope.maybeScopeOf(context)?.searchBesideDock == true;
             final transform = Matrix4.identity()
               ..setEntry(
                 0,
@@ -1084,16 +1023,14 @@ class _ShellDockBarState extends State<ShellDockBar>
               key: ShellDockBar.capsuleSurfaceKey,
               alignment: Alignment.center,
               transform: Matrix4.diagonal3Values(
-                widget.showSearch
-                    ? 1
-                    : adjacentSearch && constraints.maxWidth > 0
+                adjacentSearch && constraints.maxWidth > 0
                     ? 1 +
                           2 *
                               ShellDockScope.searchGap *
                               geometry.press /
                               constraints.maxWidth
                     : geometry.wholeScale,
-                widget.showSearch ? 1 : geometry.wholeScale,
+                geometry.wholeScale,
                 1,
               ),
               child: Stack(

@@ -7,31 +7,6 @@ import 'package:flutter/widgets.dart';
 /// 避免一个来源恢复时把另一个来源的隐藏一并取消。
 class ShellDockController extends ChangeNotifier {
   final Set<Object> _hiddenBy = <Object>{};
-  Object? _searchOwner;
-  final search = ValueNotifier<VoidCallback?>(null);
-  bool _disposed = false;
-  VoidCallback? get searchAction => search.value;
-
-  void registerSearch(Object owner, VoidCallback? action) {
-    if (_disposed) return;
-    if (_searchOwner == owner && search.value == action) return;
-    _searchOwner = owner;
-    search.value = action;
-  }
-
-  void unregisterSearch(Object owner) {
-    if (_disposed) return;
-    if (_searchOwner != owner) return;
-    _searchOwner = null;
-    search.value = null;
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    search.dispose();
-    super.dispose();
-  }
 
   /// Dock 当前是否应当显示。
   bool get visible => _hiddenBy.isEmpty;
@@ -58,7 +33,6 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     required ShellDockController controller,
     this.dockInset = 0,
     this.searchBesideDock = false,
-    this.searchInDock = false,
     this.collapsed = false,
     this.dockBottom,
     this.safePadding,
@@ -72,7 +46,6 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   /// 滚动视图把它加进 padding.bottom，只有**滚到最末**时才会真正让出这一段。
   final double dockInset;
   final bool searchBesideDock;
-  final bool searchInDock;
   final bool collapsed;
   final double? dockBottom;
   final EdgeInsets? safePadding;
@@ -82,7 +55,6 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
       super.updateShouldNotify(oldWidget) ||
       dockInset != oldWidget.dockInset ||
       searchBesideDock != oldWidget.searchBesideDock ||
-      searchInDock != oldWidget.searchInDock ||
       collapsed != oldWidget.collapsed ||
       dockBottom != oldWidget.dockBottom ||
       safePadding != oldWidget.safePadding;

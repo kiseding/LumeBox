@@ -9,7 +9,6 @@ import '../shell/shell_dock_bar.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
-import 'icon_library_page.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序 + 外观材质**。
 ///
@@ -94,8 +93,6 @@ class TabBarSettingsPage extends StatelessWidget {
         const SizedBox(height: 12),
         _buildAppearance(context),
         const SizedBox(height: 12),
-        _buildSearchAppearance(context),
-        const SizedBox(height: 12),
         _buildHandleStyles(context),
         const SizedBox(height: 12),
         _buildFooter(context),
@@ -110,124 +107,6 @@ class TabBarSettingsPage extends StatelessWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text(ShellSettings.lastTabMessage)));
-  }
-
-  Widget _buildSearchAppearance(BuildContext context) {
-    final appearance = _controller.appearance;
-    Widget slider(
-      String id,
-      String label,
-      String description,
-      double value,
-      double min,
-      double max,
-      DockAppearance Function(double) update,
-    ) => _appearanceSlider(
-      key: ValueKey('dock-search-$id'),
-      label: label,
-      description: description,
-      value: value,
-      min: min,
-      max: max,
-      divisions: 100,
-      display: id == 'gap'
-          ? '${value.round()} pt'
-          : '${(value * 100).round()}%',
-      onChanged: (value) =>
-          _controller.setAppearance(update(value), persist: false),
-      onChangeEnd: (_) => _controller.saveAppearance(),
-    );
-    return GlassCard(
-      radius: 14,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '底栏搜索',
-            style: TextStyle(
-              fontSize: LumeTypography.titleSize,
-              fontWeight: FontWeight.w600,
-              color: LumeTheme.textPrimary,
-            ),
-          ),
-          const SettingsFooterNote(
-            '搜索与左侧页签共用底栏，间隔只作视觉分隔。玻璃材质、位置与回弹跟随底栏，以下参数可单独微调。',
-            padding: EdgeInsets.zero,
-          ),
-          ListTile(
-            key: const ValueKey('dock-search-icon'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('搜索图标'),
-            subtitle: const Text('更换图标、颜色与描边'),
-            leading: const LumeIcon(
-              Icons.search,
-              slot: 'browse.floating.search',
-            ),
-            trailing: const LumeIcon(
-              Icons.chevron_right,
-              slot: 'tab_bar_settings_page.1',
-            ),
-            onTap: () =>
-                editAppIcon(context, 'browse.floating.search', Icons.search),
-          ),
-          slider(
-            'gap',
-            '与页签间隔',
-            '0 为贴合，增大后视觉上分开，仍作为同一个底栏联动。',
-            appearance.searchGap,
-            0,
-            28,
-            (v) => _controller.appearance.copyWith(searchGap: v),
-          ),
-          slider(
-            'size',
-            '搜索按钮大小',
-            '相对底栏高度缩放，触摸区域至少 40 pt。',
-            appearance.searchSize,
-            .75,
-            1.3,
-            (v) => _controller.appearance.copyWith(searchSize: v),
-          ),
-          slider(
-            'icon-size',
-            '搜索图标大小',
-            '调整图标在按钮中的比例。',
-            appearance.searchIconScale,
-            .3,
-            .65,
-            (v) => _controller.appearance.copyWith(searchIconScale: v),
-          ),
-          slider(
-            'opacity',
-            '搜索玻璃白度',
-            '100% 跟随底栏白度；单独调整搜索按钮的玻璃浓淡。',
-            appearance.searchOpacity,
-            0,
-            2,
-            (v) => _controller.appearance.copyWith(searchOpacity: v),
-          ),
-          slider(
-            'blur',
-            '搜索玻璃磨砂',
-            '100% 跟随底栏磨砂；0% 保留清晰背景。',
-            appearance.searchBlur,
-            0,
-            2,
-            (v) => _controller.appearance.copyWith(searchBlur: v),
-          ),
-          SwitchListTile.adaptive(
-            key: const ValueKey('dock-search-liquid'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('搜索按压液态联动'),
-            subtitle: const Text('按住搜索时整组底栏一起回弹，搜索透镜跟随液态玻璃细调参数。'),
-            value: appearance.searchLiquid,
-            onChanged: (v) =>
-                _controller.setAppearance(appearance.copyWith(searchLiquid: v)),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildIntro(int visibleCount) {
@@ -1255,8 +1134,6 @@ class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
                 onSelect: (id) => setState(() => _activeId = id),
                 appearance: appearance,
                 applyViewPadding: false,
-                showSearch: true,
-                onSearch: () {},
               ),
             ),
             Positioned(

@@ -54,27 +54,30 @@ class DanmakuPanelFrame extends StatelessWidget {
             color: LumeTheme.base,
             borderRadius: BorderRadius.circular(20),
             clipBehavior: Clip.antiAlias,
-            child: MediaQuery(
-              // Derive both removals from the same data. Nesting the two
-              // constructors with this outer context restores viewInsets in
-              // the inner query and makes forms avoid the keyboard twice.
-              data: media
-                  .removeViewInsets(removeBottom: true)
-                  .removePadding(removeTop: true, removeBottom: true),
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  textTheme: Theme.of(context).textTheme
-                      .apply(bodyColor: textColor, displayColor: textColor),
-                  iconTheme: IconThemeData(color: textColor),
-                  inputDecorationTheme: Theme.of(context).inputDecorationTheme
-                      .copyWith(
-                        labelStyle: TextStyle(color: LumeTheme.textSecondary),
-                        floatingLabelStyle: TextStyle(color: LumeTheme.accent),
-                      ),
-                ),
-                child: DefaultTextStyle(
-                  style: TextStyle(color: textColor, fontSize: 14),
-                  child: child,
+            child: MediaQuery.removeViewInsets(
+              context: context,
+              removeBottom: true,
+              child: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                removeBottom: true,
+                child: Theme(
+                  data: Theme.of(context).copyWith(
+                    textTheme: Theme.of(context).textTheme
+                        .apply(bodyColor: textColor, displayColor: textColor),
+                    iconTheme: IconThemeData(color: textColor),
+                    inputDecorationTheme: Theme.of(context).inputDecorationTheme
+                        .copyWith(
+                          labelStyle: TextStyle(color: LumeTheme.textSecondary),
+                          floatingLabelStyle: TextStyle(
+                            color: LumeTheme.accent,
+                          ),
+                        ),
+                  ),
+                  child: DefaultTextStyle(
+                    style: TextStyle(color: textColor, fontSize: 14),
+                    child: child,
+                  ),
                 ),
               ),
             ),

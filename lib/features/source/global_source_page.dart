@@ -875,7 +875,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
                 for (final web in _webStore?.items ?? <WebHomeSource>[])
                   ListTile(
                     title: Text(web.name),
-                    subtitle: Text(web.locationLabel),
+                    subtitle: Text(web.url),
                     onTap: () => Navigator.push<void>(
                       context,
                       MaterialPageRoute(

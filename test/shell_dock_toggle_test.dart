@@ -17,9 +17,6 @@ import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
 import 'package:lume_box/features/shell/shell_dock_bar.dart';
 import 'package:lume_box/features/shell/dock_liquid_lens.dart';
-import 'package:lume_box/features/reading/compact_browse_header.dart';
-import 'package:lume_box/features/shell/dock_search_button.dart';
-import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
 ///
@@ -68,101 +65,7 @@ void main() {
   // 模型：开关、排序、最少保留
   // ==========================================================================
 
-  testWidgets('真实壳层搜索与当前页绑定，收起后保留搜索并在展开后回到底栏', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(430, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final controller = ShellDockController();
-    final searches = <String>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: AppShell(
-          controller: controller,
-          desktopRail: false,
-          pageBuilder: (id) => Stack(
-            children: [
-              ListView(
-                children: List.generate(
-                  80,
-                  (i) => SizedBox(height: 80, child: Text('item $i')),
-                ),
-              ),
-              BrowseSearchButton(onPressed: () => searches.add(id)),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(DockSearchButton), findsOneWidget);
-    await tester.tap(find.byTooltip('搜索'));
-    expect(searches, ['comic']);
-    await tester.tap(find.text('视频'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('搜索'));
-    expect(searches, ['comic', 'video']);
-    await tester.drag(find.byType(ListView), const Offset(0, -300));
-    await tester.pumpAndSettle();
-    expect(find.byType(DockHandleButton), findsOneWidget);
-    expect(find.byType(DockSearchButton), findsOneWidget);
-    await tester.tap(find.byTooltip('搜索'));
-    expect(searches.last, 'video');
-    await tester.tap(find.byType(DockHandleButton));
-    await tester.pumpAndSettle();
-    expect(
-      find.descendant(
-        of: find.byType(ShellDockBar),
-        matching: find.byType(DockSearchButton),
-      ),
-      findsOneWidget,
-    );
-    controller.hide('player');
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<ShellDockBar>(find.byType(ShellDockBar)).visible,
-      isFalse,
-    );
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump();
-    expect(controller.searchAction, isNull);
-    controller.dispose();
-  });
-
   group('模型 · 逐项开关', () {
-    testWidgets('底栏管理的搜索调节实时改变预览，保存后可重新读取', (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: TabBarSettingsPage()));
-      await tester.pumpAndSettle();
-      final slider = find.byKey(const ValueKey('dock-search-size'));
-      final settingsScroll = find
-          .descendant(
-            of: find.byType(ListView),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      await tester.scrollUntilVisible(slider, 450, scrollable: settingsScroll);
-      await tester.pumpAndSettle();
-      tester.widget<Slider>(slider).onChanged!(1.2);
-      await tester.pumpAndSettle();
-      expect(ShellSettingsController.instance.appearance.searchSize, 1.2);
-      final blur = find.byKey(const ValueKey('dock-search-blur'));
-      await tester.scrollUntilVisible(blur, 250, scrollable: settingsScroll);
-      tester.widget<Slider>(blur).onChanged!(.4);
-      await tester.pumpAndSettle();
-      final liquid = find.byKey(const ValueKey('dock-search-liquid'));
-      await tester.ensureVisible(liquid);
-      await tester.pumpAndSettle();
-      await tester.tap(liquid);
-      await tester.pumpAndSettle();
-      final controller = ShellSettingsController.instance;
-      expect(controller.appearance.searchLiquid, isFalse);
-      expect(controller.appearance.searchBlur, .4);
-      await controller.saveAppearance();
-      final saved = controller.appearance;
-      controller.resetForTesting();
-      await controller.boot();
-      expect(controller.appearance, saved);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
     test('默认全部显示、顺序为规范顺序', () {
       const settings = ShellSettings();
       expect(settings.visibleCount, 3);
@@ -935,9 +838,7 @@ void main() {
         find.descendant(of: preview, matching: find.byType(ShellDockBar)),
       );
       final lens = tester.widget<DockLiquidLens>(
-        find
-            .descendant(of: preview, matching: find.byType(DockLiquidLens))
-            .first,
+        find.descendant(of: preview, matching: find.byType(DockLiquidLens)),
       );
       expect(dock.appearance, appearance);
       expect(lens.highlight, appearance.borderOpacity);
