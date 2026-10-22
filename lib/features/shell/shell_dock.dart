@@ -35,6 +35,9 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     this.searchBesideDock = false,
     this.collapsed = false,
     this.dockBottom,
+    this.navigationHeight,
+    this.navigationMargin,
+    this.usesSystemNavigation = false,
     this.safePadding,
     required super.child,
   }) : super(notifier: controller);
@@ -48,6 +51,9 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   final bool searchBesideDock;
   final bool collapsed;
   final double? dockBottom;
+  final double? navigationHeight;
+  final double? navigationMargin;
+  final bool usesSystemNavigation;
   final EdgeInsets? safePadding;
 
   @override
@@ -57,6 +63,9 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
       searchBesideDock != oldWidget.searchBesideDock ||
       collapsed != oldWidget.collapsed ||
       dockBottom != oldWidget.dockBottom ||
+      navigationHeight != oldWidget.navigationHeight ||
+      navigationMargin != oldWidget.navigationMargin ||
+      usesSystemNavigation != oldWidget.usesSystemNavigation ||
       safePadding != oldWidget.safePadding;
 
   static ShellDockScope? maybeScopeOf(BuildContext context) =>

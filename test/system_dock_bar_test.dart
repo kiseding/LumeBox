@@ -1,0 +1,373 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/shell/shell_settings.dart';
+import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/features/reading/compact_browse_header.dart';
+import 'package:lume_box/features/settings/native_navigation_settings_card.dart';
+import 'package:lume_box/features/shell/app_shell.dart';
+import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/features/shell/shell_dock_bar.dart';
+import 'package:lume_box/features/shell/system_dock_bar.dart';
+
+const entries = [
+  ShellDockEntry(
+    id: 'comic',
+    label: '漫画',
+    icon: Icons.book,
+    selectedIcon: Icons.book,
+  ),
+  ShellDockEntry(
+    id: 'video',
+    label: '视频',
+    icon: Icons.play_circle,
+    selectedIcon: Icons.play_circle,
+  ),
+  ShellDockEntry(
+    id: 'settings',
+    label: '设置',
+    icon: Icons.settings,
+    selectedIcon: Icons.settings,
+  ),
+];
+
+class NativeHarness {
+  NativeHarness(this.tester);
+  final WidgetTester tester;
+  final updates = <Map<Object?, Object?>>[];
+  final created = <Map<Object?, Object?>>[];
+  final channels = <MethodChannel>[];
+  final disposed = <int>[];
+  Completer<void>? creationGate;
+  bool failUpdates = false;
+
+  void install({bool supported = true}) {
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      SystemTabBarCapabilities.channel,
+      (_) async => {'supported': supported, 'height': 64.0},
+    );
+    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (
+      call,
+    ) async {
+      if (call.method == 'create') {
+        final args = call.arguments as Map;
+        created.add(
+          const StandardMessageCodec().decodeMessage(
+            ByteData.sublistView(args['params'] as Uint8List),
+          ) as Map<Object?, Object?>,
+        );
+        final channel = MethodChannel(
+          '${SystemDockBar.viewType}_${args['id']}',
+        );
+        channels.add(channel);
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (failUpdates) throw PlatformException(code: 'unavailable');
+          updates.add(Map<Object?, Object?>.from(call.arguments as Map));
+          return {'height': 64.0};
+        });
+        await creationGate?.future;
+      } else if (call.method == 'dispose') {
+        disposed.add(call.arguments as int);
+      }
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
+      messenger.setMockMethodCallHandler(
+        SystemTabBarCapabilities.channel,
+        null,
+      );
+      for (final channel in channels) {
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    });
+  }
+
+  Future<void> event(String method, Object? args) async {
+    final done = Completer<void>();
+    tester.binding.channelBuffers.push(
+      channels.last.name,
+      const StandardMethodCodec().encodeMethodCall(MethodCall(method, args)),
+      (_) => done.complete(),
+    );
+    await done.future;
+  }
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory directory;
+
+  setUp(() {
+    ShellSettingsController.instance.resetForTesting();
+    directory = Directory.systemTemp.createTempSync('system-navigation-');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => directory.path,
+        );
+  });
+  tearDown(() {
+    ShellSettingsController.instance.resetForTesting();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+    directory.deleteSync(recursive: true);
+  });
+
+  test('原生参数单独保存，隐藏排序及修改自定义外观不会覆盖它', () {
+    const native = NativeNavigationSettings(
+      enabled: false,
+      showLabels: false,
+      followThemeColor: false,
+      tintColor: 0xFF008A6A,
+      iconSize: 28,
+      horizontalMargin: 12,
+      safeGap: 8,
+    );
+    var settings = const ShellSettings(nativeNavigation: native);
+    settings = settings
+        .withMove(0, 2)
+        .withVisible('video', false)!
+        .withHandleStyle(DockHandleStyle.arrow)
+        .withAppearance(const DockAppearance(height: 70));
+    final restored = ShellSettings.fromJson(settings.toJson());
+    expect(restored, settings);
+    expect(restored.nativeNavigation, native);
+    expect(restored.withDefaultTabs().nativeNavigation, native);
+    final old = Map<String, Object?>.of(settings.toJson())
+      ..remove('nativeNavigation');
+    final migrated = ShellSettings.fromJson(old);
+    expect(migrated.tabs.map((t) => t.id), settings.tabs.map((t) => t.id));
+    expect(migrated.appearance, settings.appearance);
+    expect(migrated.nativeNavigation, const NativeNavigationSettings());
+  });
+
+  test('损坏数值回退或收敛，窄屏边距不能挤掉导航项', () {
+    final parsed = NativeNavigationSettings.fromJson({
+      'iconSize': double.nan,
+      'safeGap': double.infinity,
+      'horizontalMargin': 999,
+      'tintColor': -1,
+      'showLabels': 'bad',
+    });
+    expect(parsed.iconSize, 24);
+    expect(parsed.safeGap, 0);
+    expect(parsed.horizontalMargin, 40);
+    expect(parsed.tintColor, 0xFF7C5CFF);
+    expect(parsed.showLabels, isTrue);
+    expect(
+      SystemDockBar.marginFor(
+        width: 280,
+        entryCount: 3,
+        requested: 40,
+        trailingWidth: 74,
+      ),
+      25,
+    );
+  });
+
+  testWidgets('平台视图创建期间修改配置，创建后只应用最新配置与主题', (tester) async {
+    final harness = NativeHarness(tester)..creationGate = Completer<void>();
+    harness.install();
+    final selected = <String>[];
+    var unavailable = 0;
+    Widget scene(String id, Brightness brightness, bool labels, bool visible) =>
+        MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          themeAnimationDuration: Duration.zero,
+          home: Align(
+            alignment: Alignment.bottomCenter,
+            child: SystemDockBar(
+              entries: entries,
+              activeId: id,
+              onSelect: selected.add,
+              settings: NativeNavigationSettings(
+                showLabels: labels,
+                followThemeColor: false,
+                tintColor: 0xFF008A6A,
+                iconSize: 28,
+              ),
+              height: 64,
+              bottomMargin: 34,
+              visible: visible,
+              onHeightChanged: (_) {},
+              onUnavailable: () => unavailable++,
+            ),
+          ),
+        );
+    await tester.pumpWidget(scene('comic', Brightness.light, true, true));
+    await tester.pumpWidget(scene('settings', Brightness.dark, false, true));
+    harness.creationGate!.complete();
+    await tester.pumpAndSettle();
+    expect(harness.updates.last['activeId'], 'settings');
+    expect(harness.updates.last['brightness'], 'dark');
+    expect(harness.updates.last['showLabels'], false);
+    expect(harness.updates.last['iconSize'], 28);
+    expect(harness.updates.last['tintColor'], 0xFF008A6A);
+    final count = harness.updates.length;
+    await tester.pumpWidget(scene('settings', Brightness.dark, false, true));
+    await tester.pumpAndSettle();
+    expect(harness.updates.length, count);
+    await harness.event('selected', 'video');
+    await harness.event('selected', 'retired-tab');
+    expect(selected, ['video']);
+    await tester.pumpWidget(scene('settings', Brightness.dark, false, false));
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsNothing);
+    expect(harness.disposed, hasLength(1));
+    expect(unavailable, 0);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('原生切页、布局更新、排序、全屏和键盘显隐共用原有页面状态', (tester) async {
+    final harness = NativeHarness(tester)..install();
+    final controller = ShellDockController();
+    addTearDown(controller.dispose);
+    var keyBottom = 0.0;
+    var searches = 0;
+    Widget scene() => MaterialApp(
+      theme: LumeTheme.build(),
+      navigatorObservers: [ShellDockObserver(controller)],
+      home: MediaQuery(
+        data: MediaQueryData(
+          size: const Size(390, 844),
+          viewPadding: const EdgeInsets.only(bottom: 34),
+          viewInsets: EdgeInsets.only(bottom: keyBottom),
+        ),
+        child: AppShell(
+          controller: controller,
+          desktopRail: false,
+            pageBuilder: (id) => Stack(
+              fit: StackFit.expand,
+            children: [
+              Text('page-$id'),
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(tester.element(find.text('page-$id'))).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const Scaffold(body: Text('detail')),
+                      ),
+                    ),
+                child: const Text('detail-open'),
+              ),
+              if (id == 'comic' || id == 'video')
+                BrowseSearchButton(onPressed: () => searches++),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    expect(find.byType(SystemDockBar), findsOneWidget);
+    final page = tester.element(find.text('page-comic'));
+    final scope = ShellDockScope.maybeScopeOf(page)!;
+    expect(scope.navigationHeight, 64);
+    expect(scope.dockBottom, 34);
+    expect(scope.dockInset, 106);
+    final creations = harness.created.length;
+    ShellSettingsController.instance.updateNativeNavigation(
+      const NativeNavigationSettings(safeGap: 12, horizontalMargin: 16),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.element(find.text('page-comic')), same(page));
+    expect(harness.created.length, creations);
+    expect(ShellDockScope.maybeScopeOf(page)!.dockBottom, 46);
+    await tester.tap(find.byTooltip('搜索'));
+    await tester.pumpAndSettle();
+    expect(searches, 1);
+    await harness.event('selected', 'settings');
+    await tester.pumpAndSettle();
+    expect(find.text('page-settings'), findsOneWidget);
+    await tester.tap(find.text('detail-open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsNothing);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsOneWidget);
+    keyBottom = 320;
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsNothing);
+    keyBottom = 0;
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    ShellSettingsController.instance.apply(
+      ShellSettingsController.instance.settings.withMove(0, 2),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
+      ['video', 'settings', 'comic'],
+    );
+    expect(find.text('page-settings'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('原生通道失败自动恢复自定义 Dock，不切换当前页面', (tester) async {
+    final harness = NativeHarness(tester)..failUpdates = true;
+    harness.install();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          desktopRail: false,
+          pageBuilder: (id) => Text('page-$id'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ShellDockBar), findsOneWidget);
+    expect(find.byType(SystemDockBar), findsNothing);
+    expect(find.text('page-comic'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('设置参数可实时修改、保存、重读，关闭原生后恢复旧 Dock 偏好', (tester) async {
+    final controller = ShellSettingsController.instance;
+    await tester.binding.setSurfaceSize(const Size(500, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NativeNavigationSettingsPage(
+          controller: controller,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('native-navigation-labels')));
+    await tester.pumpAndSettle();
+    expect(controller.settings.nativeNavigation.showLabels, false);
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('native-navigation-icon-size')),
+    );
+    slider.onChanged!(29);
+    slider.onChangeEnd!(29);
+    await tester.pumpAndSettle();
+    await controller.saveNativeNavigation();
+    expect(
+      (await ShellSettingsStore.open()).load().nativeNavigation.iconSize,
+      29,
+    );
+    final oldAppearance = controller.appearance;
+    await tester.tap(find.byKey(const ValueKey('native-navigation-enabled')));
+    await tester.pumpAndSettle();
+    expect(controller.settings.nativeNavigation.enabled, false);
+    expect(controller.appearance, oldAppearance);
+    expect(
+      (await ShellSettingsStore.open()).load().nativeNavigation.enabled,
+      false,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+}

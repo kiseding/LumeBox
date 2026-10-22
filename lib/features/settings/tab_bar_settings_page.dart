@@ -9,6 +9,7 @@ import '../shell/shell_dock_bar.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
+import 'native_navigation_settings_card.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序 + 外观材质**。
 ///
@@ -62,6 +63,24 @@ class TabBarSettingsPage extends StatelessWidget {
       padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
       children: <Widget>[
         _buildIntro(visibleCount),
+        const SizedBox(height: 12),
+        ListTile(
+          key: const ValueKey('native-navigation-open'),
+          title: const Text('原生系统导航'),
+          subtitle: const Text('系统导航开关、强调色、文字、图标与边距'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => NativeNavigationSettingsPage(
+                controller: _controller,
+                entries: [
+                  for (final config in _controller.settings.visibleTabs)
+                    _previewEntry(ShellTab.byId(config.id)!),
+                ],
+              ),
+            ),
+          ),
+        ),
         const SizedBox(height: 12),
         // 拖拽排序：ReorderableListView 需要有限高度，这里用 shrinkWrap
         // 嵌在 ListView 里（本页条目固定 3 条，不存在长列表性能问题）。

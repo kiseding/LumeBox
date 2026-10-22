@@ -68,7 +68,20 @@ jobs:
             -target arm64-apple-ios13.0-simulator -F "$FRAMEWORKS" \
             ios/Runner/SpeechStream.swift ios/Runner/SpeechController.swift \
             ios/Runner/ICloudSyncController.swift ios/Runner/ComicImageToolsController.swift \
-            ios/Runner/IntroRecognitionController.swift ios/Runner/LumeGlassBackdrop.swift
+            ios/Runner/IntroRecognitionController.swift ios/Runner/LumeGlassBackdrop.swift \
+            ios/Runner/LumeSystemTabBar.swift
+
+      - name: System tab bar simulator check (no IPA)
+        if: ${{ inputs.typecheck_only == true }}
+        run: bash tool/check_ios_system_tab_bar.sh
+
+      - name: Upload system tab bar simulator preview
+        if: ${{ inputs.typecheck_only == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-tab-bar-preview
+          path: out/system-tab-bar/native-tab-bar.png
+          if-no-files-found: error
 
       - name: Python native bridge and simulator check (no IPA)
         if: ${{ inputs.typecheck_only == true }}

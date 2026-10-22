@@ -71,17 +71,20 @@ class BrowseSearchButton extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final appearance = ShellSettingsController.instance.appearance;
+    final navigationHeight = scope?.navigationHeight ?? appearance.height;
     final collapsed = beside && scope?.collapsed == true;
     final size = beside
         ? (collapsed
-              ? (appearance.height * .82).clamp(40.0, 150.0)
-              : appearance.height)
+              ? (navigationHeight * .82).clamp(40.0, 150.0)
+              : navigationHeight)
         : 52.0;
     final safe = scope?.safePadding ?? MediaQuery.viewPaddingOf(context);
-    final margin = appearance.marginFor(
-      MediaQuery.sizeOf(context).width - safe.horizontal,
-      trailingWidth: size + 10,
-    );
+    final margin =
+        scope?.navigationMargin ??
+        appearance.marginFor(
+          MediaQuery.sizeOf(context).width - safe.horizontal,
+          trailingWidth: size + 10,
+        );
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
@@ -133,7 +136,10 @@ class _SearchGlassButtonState extends State<_SearchGlassButton> {
     builder: (context, _) {
       final style = FloatingModules.instance.style(FloatingModule.dock);
       return Transform.translate(
-        offset: Offset(style.x, style.y),
+        offset:
+            ShellDockScope.maybeScopeOf(context)?.usesSystemNavigation == true
+            ? Offset.zero
+            : Offset(style.x, style.y),
         child: _surface(context),
       );
     },
