@@ -43,4 +43,12 @@
 
 原生组件测试脚本为 `tool/check_ios_system_tab_bar.sh`；`typecheck_only=true` 工作流运行它并上传 `system-tab-bar-preview`，不会生成 IPA。截图是组件验证宿主，不能视作完整 Flutter App 的真机效果。
 
+### 主分支模拟器结果记录
+
+[main 检查 #189](https://github.com/teng662858/LumeBox/actions/runs/39755293577)已通过 Swift 类型检查，失败在模拟器运行阶段：旧检查器只收到进程号，没有收到完成标记。该次原生源码与通过的 #188 相同，旧日志不足以区分 App 启动中断或控制台回传缺失。
+
+`cf26b2e` 加固检查宿主及脚本：应用将启动、断言完成、截图完成或失败详情写入状态文件；检查器只在状态为 passed 且截图为有效 PNG 时通过，删除上次结果以防误用。仅在未进入应用的启动异常时重试一次，断言失败或进入应用后退出均直接失败，日志与崩溃报告会随 artifact 保留。测试宿主的最低系统版本与项目、Flutter 框架统一为 iOS 15，并明确使用模拟器 SDK。
+
+检查器的 6 项本地测试通过，命令为 `python -m unittest discover -s tool -p test_ios_tab_bar_runner.py -v`。[main 检查 #190](https://github.com/teng662858/LumeBox/actions/runs/39756917711)整体成功，Swift 类型、系统导航模拟器及 Python 原生桥接检查均通过，未生成 IPA。系统导航首轮启动即通过，产物记录 phase 为 passed，包含实际四项胶囊截图；此次修改未改变 App 导航及 HTML 导入实现。该运行对应代码 `cf26b2e`，之后仅补充本段验收记录。
+
 发布前仍需在 iPhone 验证实际 Flutter 内容后的玻璃取样、横屏安全区、键盘和播放器切换：调整参数后返回漫画/视频，检查四项位于同一个胶囊、点击搜索保持当前内容页、整体收起为左侧入口；进入阅读器/播放器后确认整条隐藏，再返回确认恢复。
