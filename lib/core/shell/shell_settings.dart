@@ -8,7 +8,9 @@ import 'package:path_provider/path_provider.dart';
 import '../session/section.dart';
 import '../util/lume_log.dart';
 import 'dock_liquid_settings.dart';
+import 'native_navigation_settings.dart';
 export 'dock_liquid_settings.dart';
+export 'native_navigation_settings.dart';
 
 /// 底部导航栏里的一个页签（稳定标识 + 展示名）。
 ///
@@ -256,6 +258,7 @@ class ShellSettings {
     this.tabs = _defaultTabs,
     this.handleStyle = DockHandleStyle.lines,
     this.appearance = DockAppearance.defaults,
+    this.nativeNavigation = const NativeNavigationSettings(),
   });
 
   static const List<ShellTabConfig> _defaultTabs = <ShellTabConfig>[
@@ -272,6 +275,8 @@ class ShellSettings {
 
   /// 尺寸、玻璃边缘、投影与选中动效（管理页可调，壳层实时读取）。
   final DockAppearance appearance;
+
+  final NativeNavigationSettings nativeNavigation;
 
   /// 可见的页签（按显示顺序）。
   List<ShellTabConfig> get visibleTabs =>
@@ -321,6 +326,7 @@ class ShellSettings {
       tabs: next,
       handleStyle: handleStyle,
       appearance: appearance,
+      nativeNavigation: nativeNavigation,
     );
   }
 
@@ -345,6 +351,7 @@ class ShellSettings {
       tabs: next,
       handleStyle: handleStyle,
       appearance: appearance,
+      nativeNavigation: nativeNavigation,
     );
   }
 
@@ -355,6 +362,7 @@ class ShellSettings {
       tabs: tabs,
       handleStyle: style,
       appearance: appearance,
+      nativeNavigation: nativeNavigation,
     );
   }
 
@@ -365,11 +373,23 @@ class ShellSettings {
       tabs: tabs,
       handleStyle: handleStyle,
       appearance: appearance,
+      nativeNavigation: nativeNavigation,
     );
   }
 
+  ShellSettings withNativeNavigation(NativeNavigationSettings value) =>
+      value == nativeNavigation
+      ? this
+      : ShellSettings(
+          tabs: tabs,
+          handleStyle: handleStyle,
+          appearance: appearance,
+          nativeNavigation: value,
+        );
+
   /// 恢复默认顺序与可见性（全部显示、规范顺序），外观参数保持不变。
-  ShellSettings withDefaultTabs() => ShellSettings(appearance: appearance);
+  ShellSettings withDefaultTabs() =>
+      ShellSettings(appearance: appearance, nativeNavigation: nativeNavigation);
 
   /// 恢复默认顺序与可见性（全部显示、规范顺序）。
   static const ShellSettings defaults = ShellSettings();
@@ -378,6 +398,7 @@ class ShellSettings {
     'tabs': <Object?>[for (final tab in tabs) tab.toJson()],
     'handleStyle': handleStyle.id,
     'appearance': appearance.toJson(),
+    'nativeNavigation': nativeNavigation.toJson(),
   };
 
   /// 从落盘 JSON 还原。
@@ -424,6 +445,9 @@ class ShellSettings {
       tabs: parsed,
       handleStyle: DockHandleStyle.fromId(json['handleStyle']),
       appearance: DockAppearance.fromJson(json['appearance']),
+      nativeNavigation: NativeNavigationSettings.fromJson(
+        json['nativeNavigation'],
+      ),
     );
   }
 
@@ -432,6 +456,7 @@ class ShellSettings {
     if (other is! ShellSettings) return false;
     if (other.handleStyle != handleStyle) return false;
     if (other.appearance != appearance) return false;
+    if (other.nativeNavigation != nativeNavigation) return false;
     if (other.tabs.length != tabs.length) return false;
     for (var i = 0; i < tabs.length; i++) {
       if (other.tabs[i].id != tabs[i].id) return false;
@@ -444,6 +469,7 @@ class ShellSettings {
   int get hashCode => Object.hash(
     handleStyle,
     appearance,
+    nativeNavigation,
     Object.hashAll(tabs.map((tab) => Object.hash(tab.id, tab.visible))),
   );
 }
@@ -616,6 +642,15 @@ class ShellSettingsController extends ChangeNotifier {
 
   /// 把当前外观参数落盘（滑块松手 / 开关切换后调用）。
   Future<void> saveAppearance() => _persist();
+
+  void updateNativeNavigation(NativeNavigationSettings value) {
+    final next = _settings.withNativeNavigation(value);
+    if (identical(next, _settings)) return;
+    _settings = next;
+    notifyListeners();
+  }
+
+  Future<void> saveNativeNavigation() => _persist();
 
   /// 写盘。**失败不影响本次运行**（内存里已生效），只记日志——
   /// 一个偏好项写不进去，不该让用户觉得「点了没反应」。

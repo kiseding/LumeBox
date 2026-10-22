@@ -31,6 +31,7 @@ import '../video/video_source_hub.dart';
 import 'section_preloader.dart';
 import 'shell_dock.dart';
 import 'shell_dock_bar.dart';
+import 'system_dock_bar.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 
@@ -102,6 +103,40 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 当前页签的**标识**（不是下标：顺序会变、页签会隐藏）。
   String _activeId = _pageCatalog.first.id;
   bool _scrollCollapsed = false;
+  bool _systemNavigationAvailable = false;
+  double _systemNavigationHeight = 64;
+
+  bool get _usesSystemNavigation =>
+      !(widget.desktopRail ?? _isDesktopPlatform) &&
+      _systemNavigationAvailable &&
+      _shellSettings.settings.nativeNavigation.enabled;
+
+  double get _navigationHeight =>
+      _usesSystemNavigation ? _systemNavigationHeight : _dockHeight;
+
+  double _navigationBottom(BuildContext context) => _usesSystemNavigation
+      ? MediaQuery.viewPaddingOf(context).bottom +
+            _shellSettings.settings.nativeNavigation.safeGap
+      : dockBottomOffset(context);
+
+  Future<void> _loadSystemNavigation() async {
+    final capabilities = await SystemTabBarCapabilities.load();
+    if (!mounted || !capabilities.supported) return;
+    setState(() {
+      _systemNavigationAvailable = true;
+      _systemNavigationHeight = capabilities.height;
+    });
+  }
+
+  void _systemHeightChanged(double height) {
+    if (!mounted || height == _systemNavigationHeight) return;
+    setState(() => _systemNavigationHeight = height);
+  }
+
+  void _systemNavigationUnavailable() {
+    if (!mounted || !_systemNavigationAvailable) return;
+    setState(() => _systemNavigationAvailable = false);
+  }
 
   /// 收起悬浮球上的水平拖动累计距离：向右滑超过阈值就展开 Dock。
   double _handleDrag = 0;
@@ -214,6 +249,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadSystemNavigation());
     _controller.addListener(_onDockVisibilityChanged);
     WidgetsBinding.instance.addObserver(this);
     for (final section in Section.values) {
@@ -432,8 +468,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 固定留一大块底部空白，没滚到底时也空着（用户口径：改成动态边距）。
     final dockInset = rail
         ? 0.0
-        : (dockBottomOffset(context) +
-                  _dockHeight +
+        : (_navigationBottom(context) +
+                  _navigationHeight +
                   dockContentInset(context) +
                   _dockSpacing)
               .clamp(0.0, double.infinity);
@@ -445,7 +481,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         controller: _controller,
         collapsed: _scrollCollapsed,
         dockInset: dockInset,
-        dockBottom: dockBottomOffset(context),
+        dockBottom: _navigationBottom(context),
+        navigationHeight: _navigationHeight,
+        usesSystemNavigation: _usesSystemNavigation,
+        keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+        navigationMargin: _usesSystemNavigation
+            ? SystemDockBar.marginFor(
+                width:
+                    MediaQuery.sizeOf(context).width -
+                    MediaQuery.viewPaddingOf(context).horizontal,
+                entryCount: _visibleTabs.length,
+                requested:
+                    _shellSettings.settings.nativeNavigation.horizontalMargin,
+                trailingWidth: (_activeId == 'comic' || _activeId == 'video')
+                    ? _navigationHeight + ShellDockScope.searchGap
+                    : 0,
+              )
+            : null,
         safePadding: MediaQuery.viewPaddingOf(context),
         searchBesideDock:
             !rail && (_activeId == 'comic' || _activeId == 'video'),
@@ -462,8 +514,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 一起算进去：只滑「自身高度」会让按钮停在屏幕里，等于没藏。
   /// 用绝对像素而不是 `AnimatedSlide` 的「自身尺寸倍数」：那个倍数会随图标内边距
   /// 变化而漂移，是条看不见的耦合。这里多给一点余量，滑出屏幕即可。
-  static double get _entryHideTravel =>
-      _dockHeight + _dockMargin + _dockBottomMargin + _dockSpacing + 64;
+  double get _entryHideTravel =>
+      _navigationHeight + _dockMargin + _dockBottomMargin + _dockSpacing + 64;
 
   /// 「设置页被隐藏」时的恢复入口。
   ///
@@ -483,8 +535,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       right: 0,
       // 落在 Dock 上方一档。
       bottom:
-          dockBottomOffset(context) +
-          _dockHeight +
+          _navigationBottom(context) +
+          _navigationHeight +
           dockContentInset(context) +
           _dockSpacing,
       // 与胶囊左沿对齐：留白同样按**布局宽度**算（见 [dockMarginFor]）。
@@ -494,7 +546,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           child: Padding(
             padding: EdgeInsets.only(
               left:
-                  dockMarginFor(constraints.maxWidth) +
+                  (ShellDockScope.maybeScopeOf(context)?.navigationMargin ??
+                      dockMarginFor(constraints.maxWidth)) +
                   MediaQuery.viewPaddingOf(context).left,
             ),
             child: TweenAnimationBuilder<double>(
@@ -597,7 +650,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               ? Padding(
                   padding: EdgeInsets.only(
                     left: 8,
-                    bottom: dockBottomOffset(context),
+                    bottom: _navigationBottom(context),
                   ),
                   child: Align(
                     heightFactor: 1,
@@ -621,13 +674,39 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         sectionIcon: _pageCatalog
                             .firstWhere((tab) => tab.id == _activeId)
                             .selectedIcon,
-                        size: (_dockHeight * .82).clamp(40.0, 150.0),
+                        size: (_navigationHeight * .82).clamp(40.0, 150.0),
                         opacity: .86,
                         onPressed: () =>
                             setState(() => _scrollCollapsed = false),
                       ),
                     ),
                   ),
+                )
+              : _usesSystemNavigation
+              ? SystemDockBar(
+                  key: AppShell.dockKey,
+                  entries: [
+                    for (final tab in tabs)
+                      ShellDockEntry(
+                        id: tab.id,
+                        label: tab.label,
+                        icon: tab.icon,
+                        selectedIcon: tab.selectedIcon,
+                      ),
+                  ],
+                  activeId: _activeId,
+                  onSelect: _select,
+                  settings: _shellSettings.settings.nativeNavigation,
+                  height: _systemNavigationHeight,
+                  bottomMargin: _navigationBottom(context),
+                  trailingWidth: (_activeId == 'comic' || _activeId == 'video')
+                      ? _navigationHeight + ShellDockScope.searchGap
+                      : 0,
+                  visible:
+                      _controller.visible &&
+                      MediaQuery.viewInsetsOf(context).bottom == 0,
+                  onHeightChanged: _systemHeightChanged,
+                  onUnavailable: _systemNavigationUnavailable,
                 )
               : ShellDockBar(
                   key: AppShell.dockKey,

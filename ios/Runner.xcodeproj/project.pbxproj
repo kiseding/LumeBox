@@ -28,6 +28,7 @@
 		A1B2C3D4000000000000000E /* WafCookieController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000000D /* WafCookieController.swift */; };
 		A1B2C3D40000000000000010 /* BatteryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000000F /* BatteryController.swift */; };
 		AC0160160000000000000005 /* LumeGlassBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0160160000000000000006 /* LumeGlassBackdrop.swift */; };
+		AC2026102200000000000001 /* LumeSystemTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2026102200000000000002 /* LumeSystemTabBar.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
@@ -83,6 +84,7 @@
 		A1B2C3D4000000000000000D /* WafCookieController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WafCookieController.swift; sourceTree = "<group>"; };
 		A1B2C3D4000000000000000F /* BatteryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryController.swift; sourceTree = "<group>"; };
 		AC0160160000000000000006 /* LumeGlassBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LumeGlassBackdrop.swift; sourceTree = "<group>"; };
+		AC2026102200000000000002 /* LumeSystemTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LumeSystemTabBar.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 				AA2010200000000000000002 /* LumePythonController.m */,
 				AA2010200000000000000003 /* LumePythonController.h */,
 				AC0160160000000000000006 /* LumeGlassBackdrop.swift */,
+				AC2026102200000000000002 /* LumeSystemTabBar.swift */,
 				AC0160160000000000000001 /* ComicImageToolsController.swift */,
 				AC0160160000000000000003 /* PrivacyController.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
@@ -380,6 +383,7 @@
 				A1B2C3D40000000000000010 /* BatteryController.swift in Sources */,
 				AA2010200000000000000001 /* LumePythonController.m in Sources */,
 				AC0160160000000000000005 /* LumeGlassBackdrop.swift in Sources */,
+				AC2026102200000000000001 /* LumeSystemTabBar.swift in Sources */,
 				AC0160160000000000000002 /* ComicImageToolsController.swift in Sources */,
 				AC0160160000000000000004 /* PrivacyController.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,

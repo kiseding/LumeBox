@@ -35,6 +35,10 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     this.searchBesideDock = false,
     this.collapsed = false,
     this.dockBottom,
+    this.navigationHeight,
+    this.navigationMargin,
+    this.usesSystemNavigation = false,
+    this.keyboardVisible = false,
     this.safePadding,
     required super.child,
   }) : super(notifier: controller);
@@ -48,6 +52,12 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   final bool searchBesideDock;
   final bool collapsed;
   final double? dockBottom;
+  final double? navigationHeight;
+  final double? navigationMargin;
+  final bool usesSystemNavigation;
+  // Descendant Scaffolds may remove viewInsets after resizing their body.
+  // Preserve the shell's keyboard state for every navigation/search control.
+  final bool keyboardVisible;
   final EdgeInsets? safePadding;
 
   @override
@@ -57,6 +67,10 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
       searchBesideDock != oldWidget.searchBesideDock ||
       collapsed != oldWidget.collapsed ||
       dockBottom != oldWidget.dockBottom ||
+      navigationHeight != oldWidget.navigationHeight ||
+      navigationMargin != oldWidget.navigationMargin ||
+      usesSystemNavigation != oldWidget.usesSystemNavigation ||
+      keyboardVisible != oldWidget.keyboardVisible ||
       safePadding != oldWidget.safePadding;
 
   static ShellDockScope? maybeScopeOf(BuildContext context) =>
@@ -69,6 +83,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   static double bottomInset(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<ShellDockScope>();
     if (scope?.notifier?.visible != true ||
+        scope?.keyboardVisible == true ||
         MediaQuery.viewInsetsOf(context).bottom > 0) {
       return 0;
     }
