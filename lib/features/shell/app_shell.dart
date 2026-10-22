@@ -35,7 +35,7 @@ import 'system_dock_bar.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 
-/// 主导航：三个页签（漫画 / 视频 / 设置），猫源从视频页进入。
+/// 主导航：漫画 / 视频 / 设置与同一胶囊内的搜索入口。
 ///
 /// 移动端是底部悬浮 Dock（毛玻璃胶囊）；桌面端（Windows / macOS / Linux）
 /// 自动换成左侧 NavigationRail —— 同一套页签，两种排布，页签内容不变。
@@ -386,7 +386,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _select(String id) {
+    if (id == ShellDockEntry.search.id) {
+      unawaited(_searchFromNavigation());
+      return;
+    }
     if (id == _activeId) return;
+    _controller.clearSearch();
     AppPreferences.instance.selectionFeedback();
     // **先预热再切**（真机反馈：切板块要等、进页面才开始发请求）。这里趁手指刚
     // 点下去、页面还没构建的那一小段，把板块运行时（阅读库 + 源引擎）与首页
@@ -397,6 +402,34 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _activeId = id;
       _scrollCollapsed = false;
     });
+  }
+
+  Future<void> _searchFromNavigation() async {
+    if (_activeId == ShellTab.settingsId) {
+      final target = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(title: Text('搜索内容')),
+              for (final tab in _pageCatalog.where(
+                (tab) => tab.id != ShellTab.settingsId,
+              ))
+                ListTile(
+                  leading: Icon(tab.icon),
+                  title: Text('搜索${tab.label}'),
+                  onTap: () => Navigator.pop(context, tab.id),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || target == null) return;
+      _select(target);
+    }
+    _controller.requestSearch();
   }
 
   Future<void> _warmUp(String id) async {
@@ -490,17 +523,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 width:
                     MediaQuery.sizeOf(context).width -
                     MediaQuery.viewPaddingOf(context).horizontal,
-                entryCount: _visibleTabs.length,
+                entryCount: _visibleTabs.length + 1,
                 requested:
                     _shellSettings.settings.nativeNavigation.horizontalMargin,
-                trailingWidth: (_activeId == 'comic' || _activeId == 'video')
-                    ? _navigationHeight + ShellDockScope.searchGap
-                    : 0,
+                trailingWidth: 0,
               )
             : null,
         safePadding: MediaQuery.viewPaddingOf(context),
-        searchBesideDock:
-            !rail && (_activeId == 'comic' || _activeId == 'video'),
+        integratedSearch: !rail,
         child: rail ? _buildRail() : _buildDock(),
       ),
     );
@@ -693,15 +723,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         icon: tab.icon,
                         selectedIcon: tab.selectedIcon,
                       ),
+                    ShellDockEntry.search,
                   ],
                   activeId: _activeId,
                   onSelect: _select,
                   settings: _shellSettings.settings.nativeNavigation,
                   height: _systemNavigationHeight,
                   bottomMargin: _navigationBottom(context),
-                  trailingWidth: (_activeId == 'comic' || _activeId == 'video')
-                      ? _navigationHeight + ShellDockScope.searchGap
-                      : 0,
                   visible:
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
@@ -718,6 +746,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         icon: tab.icon,
                         selectedIcon: tab.selectedIcon,
                       ),
+                    ShellDockEntry.search,
                   ],
                   activeId: _activeId,
                   onSelect: _select,
@@ -725,9 +754,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
                   appearance: _dockAppearance,
-                  trailingWidth: (_activeId == 'comic' || _activeId == 'video')
-                      ? _dockHeight + 10
-                      : 0,
                   contentInset: contentInset,
                   bottomMargin: dockBottomOffset(context),
                 ),

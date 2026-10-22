@@ -7,6 +7,37 @@ import 'package:flutter/widgets.dart';
 /// 避免一个来源恢复时把另一个来源的隐藏一并取消。
 class ShellDockController extends ChangeNotifier {
   final Set<Object> _hiddenBy = <Object>{};
+  Object? _searchOwner;
+  VoidCallback? _search;
+  bool _searchPending = false;
+
+  void attachSearch(Object owner, VoidCallback? search) {
+    _searchOwner = owner;
+    _search = search;
+    if (_searchPending && search != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (identical(_searchOwner, owner) && _searchPending) requestSearch();
+      });
+    }
+  }
+
+  void detachSearch(Object owner) {
+    if (!identical(_searchOwner, owner)) return;
+    _searchOwner = null;
+    _search = null;
+  }
+
+  void clearSearch() {
+    _searchOwner = null;
+    _search = null;
+    _searchPending = false;
+  }
+
+  void requestSearch() {
+    final search = _search;
+    _searchPending = search == null;
+    search?.call();
+  }
 
   /// Dock 当前是否应当显示。
   bool get visible => _hiddenBy.isEmpty;
@@ -33,6 +64,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
     required ShellDockController controller,
     this.dockInset = 0,
     this.searchBesideDock = false,
+    this.integratedSearch = false,
     this.collapsed = false,
     this.dockBottom,
     this.navigationHeight,
@@ -50,6 +82,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
   /// 滚动视图把它加进 padding.bottom，只有**滚到最末**时才会真正让出这一段。
   final double dockInset;
   final bool searchBesideDock;
+  final bool integratedSearch;
   final bool collapsed;
   final double? dockBottom;
   final double? navigationHeight;
@@ -65,6 +98,7 @@ class ShellDockScope extends InheritedNotifier<ShellDockController> {
       super.updateShouldNotify(oldWidget) ||
       dockInset != oldWidget.dockInset ||
       searchBesideDock != oldWidget.searchBesideDock ||
+      integratedSearch != oldWidget.integratedSearch ||
       collapsed != oldWidget.collapsed ||
       dockBottom != oldWidget.dockBottom ||
       navigationHeight != oldWidget.navigationHeight ||

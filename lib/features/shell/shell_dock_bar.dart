@@ -23,6 +23,12 @@ import '../../core/theme/icon_customization.dart';
 /// 壳层与设置页的真实预览共用这一份数据形状：设置页里看到的就是壳层里跑的
 /// 同一个 [ShellDockBar]，不存在「预览一套、线上另一套」。
 class ShellDockEntry {
+  static const search = ShellDockEntry(
+    id: 'search',
+    label: '搜索',
+    icon: Icons.search,
+    selectedIcon: Icons.search,
+  );
   const ShellDockEntry({
     required this.id,
     required this.label,
@@ -564,9 +570,11 @@ class _ShellDockBarState extends State<ShellDockBar>
     _dragPull = 0;
     setState(() {
       _dragging = false;
-      _resolvedIndex = target;
+      _resolvedIndex = widget.entries[target].id == 'search'
+          ? _indexOf(widget.activeId)
+          : target;
     });
-    _animateToIndex(target, velocity: velocity);
+    _animateToIndex(_resolvedIndex, velocity: velocity);
     widget.onSelect(widget.entries[target].id);
   }
 

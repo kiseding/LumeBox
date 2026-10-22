@@ -123,7 +123,10 @@ class _NativeNavigationSettingsCardState
                     child: SystemDockBar(
                       entries: widget.entries,
                       activeId: id,
-                      onSelect: (id) => setState(() => _previewId = id),
+                      onSelect: (id) {
+                        if (id != ShellDockEntry.search.id)
+                          setState(() => _previewId = id);
+                      },
                       settings: settings,
                       height: height,
                       bottomMargin: 12 + settings.safeGap,

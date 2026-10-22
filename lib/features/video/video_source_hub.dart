@@ -138,9 +138,15 @@ class _VideoSourceHubState extends State<VideoSourceHub> {
     child: IndexedStack(
       index: _cat ? 1 : 0,
       children: [
-        VideoPage(sourceRevision: _revision),
+        TickerMode(
+          enabled: !_cat,
+          child: VideoPage(sourceRevision: _revision),
+        ),
         if (_catCreated)
-          CatPage(requestedSite: _site)
+          TickerMode(
+            enabled: _cat,
+            child: CatPage(requestedSite: _site),
+          )
         else
           const SizedBox.shrink(),
       ],

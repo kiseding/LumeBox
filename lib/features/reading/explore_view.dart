@@ -1211,8 +1211,11 @@ class _ExploreViewState extends State<ExploreView>
                   ),
                 ),
               ),
-              if (_compactHome && !_searching)
-                BrowseSearchButton(onPressed: _openSearch),
+              if (_compactHome)
+                BrowseSearchButton(
+                  onPressed: _openSearch,
+                  visible: !_searching,
+                ),
             ],
           ),
         ),

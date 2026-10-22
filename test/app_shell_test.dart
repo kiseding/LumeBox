@@ -8,6 +8,8 @@ import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/features/shell/shell_dock_bar.dart';
+import 'package:lume_box/features/reading/compact_browse_header.dart';
 import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
 /// 主导航壳的验证：三页签的顺序与文案、移动端 Dock / 桌面端 NavigationRail
@@ -40,13 +42,13 @@ void main() {
     matching: find.text(text),
   );
 
-  testWidgets('移动端：底部 Dock 三页签，顺序为 漫画 / 视频 / 设置', (tester) async {
+  testWidgets('移动端：底部 Dock 四项，顺序为 漫画 / 视频 / 设置 / 搜索', (tester) async {
     await pumpShell(tester, desktopRail: false);
 
     expect(find.byKey(AppShell.dockKey), findsOneWidget);
     expect(find.byKey(AppShell.railKey), findsNothing);
 
-    const expected = <String>['漫画', '视频', '设置'];
+    const expected = <String>['漫画', '视频', '设置', '搜索'];
     for (final label in expected) {
       expect(inDock(label), findsOneWidget, reason: 'Dock 缺少页签：$label');
     }
@@ -64,7 +66,98 @@ void main() {
     }
   });
 
-  testWidgets('向上浏览收成左侧入口，向下浏览恢复三个页签', (tester) async {
+  testWidgets('胶囊搜索保留当前页面，设置页可选择漫画或视频并交接搜索', (tester) async {
+    final searches = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          controller: controller,
+          desktopRail: false,
+          pageBuilder: (id) => Stack(
+            fit: StackFit.expand,
+            children: [
+              Text('content-$id'),
+              if (id != 'settings')
+                BrowseSearchButton(onPressed: () => searches.add(id)),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final comic = tester.element(find.text('content-comic'));
+    final pill = tester.getRect(find.byKey(ShellDockBar.selectionPillKey));
+    await tester.tap(inDock('搜索'));
+    await tester.pumpAndSettle();
+    expect(searches, ['comic']);
+    expect(tester.element(find.text('content-comic')), same(comic));
+    expect(
+      tester.getRect(find.byKey(ShellDockBar.selectionPillKey)).center.dx,
+      closeTo(pill.center.dx, .1),
+    );
+    expect(find.byKey(const ValueKey('browse-search-surface')), findsNothing);
+    await tester.tap(inDock('视频'));
+    await tester.pumpAndSettle();
+    await tester.tap(inDock('搜索'));
+    await tester.pumpAndSettle();
+    expect(searches, ['comic', 'video']);
+    await tester.tap(inDock('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(inDock('搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索漫画'), findsOneWidget);
+    expect(find.text('搜索视频'), findsOneWidget);
+    await tester.tap(find.text('搜索漫画'));
+    await tester.pumpAndSettle();
+    expect(searches, ['comic', 'video', 'comic']);
+    expect(find.text('content-comic'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.requestSearch();
+    expect(searches, ['comic', 'video', 'comic']);
+  });
+
+  testWidgets('只把搜索交给当前可见的视频面，等待加载时可暂存一次搜索', (tester) async {
+    var cat = false;
+    final searches = <String>[];
+    Widget scene() => MaterialApp(
+      home: ShellDockScope(
+        controller: controller,
+        integratedSearch: true,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            TickerMode(
+              enabled: !cat,
+              child: BrowseSearchButton(
+                onPressed: () => searches.add('ordinary'),
+              ),
+            ),
+            TickerMode(
+              enabled: cat,
+              child: BrowseSearchButton(onPressed: () => searches.add('cat')),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.requestSearch();
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    expect(searches, ['ordinary']);
+    cat = true;
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    controller.requestSearch();
+    expect(searches, ['ordinary', 'cat']);
+    cat = false;
+    await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    controller.requestSearch();
+    expect(searches, ['ordinary', 'cat', 'ordinary']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('向上浏览收成左侧入口，向下浏览恢复四项导航', (tester) async {
     await pumpShell(tester, desktopRail: false);
     final pageContext = tester.element(find.byType(ComicPage));
     final metrics = FixedScrollMetrics(

@@ -284,10 +284,13 @@ void main() {
     expect(harness.created.length, creations);
     expect(ShellDockScope.maybeScopeOf(page)!.dockBottom, 46);
     final barRect = tester.getRect(find.byType(UiKitView));
-    final expandedSearchRect = tester.getRect(find.byTooltip('搜索'));
-    expect(expandedSearchRect.left - barRect.right, closeTo(10, .1));
-    expect(expandedSearchRect.bottom, closeTo(barRect.bottom, .1));
-    await tester.tap(find.byTooltip('搜索'));
+    expect(barRect.width, closeTo(358, .1));
+    expect(
+      (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
+      ['comic', 'video', 'settings', 'search'],
+    );
+    expect(find.byKey(const ValueKey('browse-search-surface')), findsNothing);
+    await harness.event('selected', 'search');
     await tester.pumpAndSettle();
     expect(searches, 1);
     UserScrollNotification(
@@ -303,18 +306,15 @@ void main() {
       direction: ScrollDirection.reverse,
     ).dispatch(page);
     await tester.pumpAndSettle();
-    final handleRect = tester.getRect(find.byType(DockHandleButton));
-    final collapsedSearchRect = tester.getRect(find.byTooltip('搜索'));
-    expect(collapsedSearchRect.left - handleRect.right, closeTo(10, .1));
-    expect(collapsedSearchRect.right, lessThan(195));
-    expect(collapsedSearchRect.bottom, closeTo(handleRect.bottom, .1));
+    expect(find.byType(DockHandleButton), findsOneWidget);
+    expect(find.byTooltip('搜索'), findsNothing);
     expect(find.byType(UiKitView), findsNothing);
-    await tester.tap(find.byTooltip('搜索'));
-    await tester.pumpAndSettle();
-    expect(searches, 2);
     await tester.tap(find.byTooltip('展开导航'));
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsOneWidget);
+    await harness.event('selected', 'search');
+    await tester.pumpAndSettle();
+    expect(searches, 2);
     final hideToken = Object();
     controller.hide(hideToken);
     await tester.pumpAndSettle();
@@ -322,7 +322,10 @@ void main() {
     expect(find.byType(DockHandleButton), findsNothing);
     controller.show(hideToken);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('搜索'), findsOneWidget);
+    expect((harness.updates.last['entries'] as List).last, {
+      'id': 'search',
+      'label': '搜索',
+    });
     expect(find.byType(UiKitView), findsOneWidget);
     await tester.tap(find.text('detail-open'));
     await tester.pumpAndSettle();
@@ -331,7 +334,10 @@ void main() {
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsOneWidget);
-    expect(find.byTooltip('搜索'), findsOneWidget);
+    expect((harness.updates.last['entries'] as List).last, {
+      'id': 'search',
+      'label': '搜索',
+    });
     keyBottom = 320;
     await tester.pumpWidget(scene());
     await tester.pumpAndSettle();
@@ -348,7 +354,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
-      ['video', 'settings', 'comic'],
+      ['video', 'settings', 'comic', 'search'],
     );
     expect(find.text('page-settings'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -356,7 +362,7 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('旧系统回退 Dock 时，搜索同样靠左收起并随全屏令牌隐藏', (tester) async {
+  testWidgets('旧系统回退 Dock 时，搜索位于胶囊内并一起收起、隐藏', (tester) async {
     NativeHarness(tester).install(supported: false);
     final controller = ShellDockController();
     addTearDown(controller.dispose);
@@ -380,6 +386,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ShellDockBar), findsOneWidget);
     expect(find.byType(UiKitView), findsNothing);
+    final capsule = tester.getRect(find.byKey(ShellDockBar.capsuleFilterKey));
+    expect(capsule.contains(tester.getCenter(find.text('搜索'))), true);
     final page = tester.element(find.text('fallback-comic'));
     UserScrollNotification(
       metrics: FixedScrollMetrics(
@@ -394,10 +402,8 @@ void main() {
       direction: ScrollDirection.reverse,
     ).dispatch(page);
     await tester.pumpAndSettle();
-    final handle = tester.getRect(find.byType(DockHandleButton));
-    final search = tester.getRect(find.byTooltip('搜索'));
-    expect(search.left - handle.right, closeTo(10, .1));
-    expect(search.right, lessThan(160));
+    expect(find.byType(DockHandleButton), findsOneWidget);
+    expect(find.text('搜索'), findsNothing);
     final token = Object();
     controller.hide(token);
     await tester.pumpAndSettle();
@@ -405,7 +411,7 @@ void main() {
     expect(find.byTooltip('搜索'), findsNothing);
     controller.show(token);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('搜索'), findsOneWidget);
+    expect(find.text('搜索'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

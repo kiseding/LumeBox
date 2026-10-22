@@ -116,7 +116,7 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
           !entries.isEmpty, entries.count <= 5 else { return false }
     var next: [LumeSystemTabSpec] = []
     for entry in entries {
-      guard let id = entry["id"] as? String, ["comic", "video", "settings"].contains(id),
+      guard let id = entry["id"] as? String, ["comic", "video", "settings", "search"].contains(id),
             let label = entry["label"] as? String, !label.isEmpty,
             !next.contains(where: { $0.id == id }) else { return false }
       next.append(LumeSystemTabSpec(id: id, label: label))
@@ -134,12 +134,13 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
         switch spec.id {
         case "comic": symbol = "book"
         case "video": symbol = "play.circle"
+        case "search": symbol = "magnifyingglass"
         default: symbol = "gearshape"
         }
         let item = UITabBarItem(
           title: labels ? spec.label : nil,
           image: UIImage(systemName: symbol, withConfiguration: configuration),
-          selectedImage: UIImage(systemName: symbol + ".fill", withConfiguration: configuration)
+          selectedImage: UIImage(systemName: spec.id == "search" ? symbol : symbol + ".fill", withConfiguration: configuration)
         )
         item.accessibilityLabel = spec.label
         item.accessibilityIdentifier = "shell.tab.\(spec.id)"
@@ -166,5 +167,14 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
   func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
     guard let index = tabBar.items?.firstIndex(where: { $0 === item }), index < specs.count else { return }
     channel.invokeMethod("selected", arguments: specs[index].id)
+  }
+
+  func tabBar(_ tabBar: UITabBar, shouldSelect item: UITabBarItem) -> Bool {
+    guard let index = tabBar.items?.firstIndex(where: { $0 === item }), index < specs.count else { return false }
+    if specs[index].id == "search" {
+      channel.invokeMethod("selected", arguments: "search")
+      return false
+    }
+    return true
   }
 }

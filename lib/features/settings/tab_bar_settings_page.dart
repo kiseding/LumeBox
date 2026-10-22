@@ -76,6 +76,7 @@ class TabBarSettingsPage extends StatelessWidget {
                 entries: [
                   for (final config in _controller.settings.visibleTabs)
                     _previewEntry(ShellTab.byId(config.id)!),
+                  ShellDockEntry.search,
                 ],
               ),
             ),
@@ -136,7 +137,7 @@ class TabBarSettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '当前显示 $visibleCount 个页签',
+            '当前显示 ${visibleCount + 1} 项导航',
             style: TextStyle(
               fontSize: LumeTypography.titleSize,
               fontWeight: FontWeight.w600,
@@ -146,7 +147,7 @@ class TabBarSettingsPage extends StatelessWidget {
           const SizedBox(height: 4),
           const SettingsFooterNote(
             '拖动手柄调整顺序，开关控制显示与隐藏。改动立即生效，不用重启 App。'
-            '至少要保留 1 个页签，否则底部导航就空了。',
+            '搜索固定在最右侧；漫画、视频、设置中至少保留 1 个页签。',
             padding: EdgeInsets.zero,
           ),
         ],
@@ -172,6 +173,7 @@ class TabBarSettingsPage extends StatelessWidget {
           final tab = ShellTab.byId(config.id);
           if (tab != null) visibleEntries.add(_previewEntry(tab));
         }
+        visibleEntries.add(ShellDockEntry.search);
         return GlassCard(
           radius: 14,
           padding: const EdgeInsets.all(16),
@@ -1150,7 +1152,10 @@ class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
               child: ShellDockBar(
                 entries: widget.entries,
                 activeId: _resolvedActiveId,
-                onSelect: (id) => setState(() => _activeId = id),
+                onSelect: (id) {
+                  if (id != ShellDockEntry.search.id)
+                    setState(() => _activeId = id);
+                },
                 appearance: appearance,
                 applyViewPadding: false,
               ),

@@ -491,7 +491,7 @@ void main() {
 
       final capsule = tester.getRect(dockCapsule());
       expect(capsule.left, closeTo(32, .01));
-      expect(capsule.width, closeTo(390 - 64 - 70, .01));
+      expect(capsule.width, closeTo(390 - 64, .01));
       expect(capsule.height, closeTo(60, .01));
       expect(844 - capsule.bottom, closeTo(10, .01));
 
@@ -508,9 +508,9 @@ void main() {
       expect(item.height, closeTo(60, .01));
     });
 
-    testWidgets('默认三个页签都在', (tester) async {
+    testWidgets('默认四项导航都在', (tester) async {
       await pumpShell(tester);
-      expect(dockLabels(tester), <String>['漫画', '视频', '设置']);
+      expect(dockLabels(tester), <String>['漫画', '视频', '设置', '搜索']);
     });
 
     testWidgets('隐藏一个页签：底部立刻少一个（实时生效，无需重启）', (tester) async {
@@ -519,7 +519,11 @@ void main() {
       await ShellSettingsController.instance.setVisible('comic', false);
       await tester.pumpAndSettle();
 
-      expect(dockLabels(tester), <String>['视频', '设置'], reason: '隐藏后底部不该还有「漫画」');
+      expect(dockLabels(tester), <String>[
+        '视频',
+        '设置',
+        '搜索',
+      ], reason: '隐藏后底部不该还有「漫画」');
     });
 
     testWidgets('排序实时生效：底部页签顺序跟着变', (tester) async {
@@ -630,7 +634,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(AppShell.dockKey), findsOneWidget);
-      expect(dockLabels(tester), <String>['漫画']);
+      expect(dockLabels(tester), <String>['漫画', '搜索']);
     });
 
     testWidgets('隐藏设置 → 走恢复入口 → 在设置页里改配置：不被弹出去', (tester) async {
@@ -685,7 +689,7 @@ void main() {
       await ShellSettingsController.instance.restoreDefaults();
       await tester.pumpAndSettle();
 
-      expect(dockLabels(tester), <String>['漫画', '视频', '设置']);
+      expect(dockLabels(tester), <String>['漫画', '视频', '设置', '搜索']);
     });
   });
 
@@ -703,7 +707,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('列出全部 4 个页签，各有独立开关', (tester) async {
+    testWidgets('列出三个可配置页签，搜索固定在预览最右侧', (tester) async {
       await pumpPage(tester);
 
       // 只数页签行：外观卡里的「真实 Dock 预览」也带着同一批文案，
@@ -726,7 +730,7 @@ void main() {
         ),
         findsNWidgets(3),
       );
-      expect(find.textContaining('当前显示 3 个页签'), findsOneWidget);
+      expect(find.textContaining('当前显示 4 项导航'), findsOneWidget);
     });
 
     testWidgets('外观卡：材质/尺寸/动效选项齐全，改动写回模型', (tester) async {
@@ -1015,7 +1019,7 @@ void main() {
         ShellSettingsController.instance.settings.isVisible('comic'),
         isFalse,
       );
-      expect(find.textContaining('当前显示 2 个页签'), findsOneWidget);
+      expect(find.textContaining('当前显示 3 项导航'), findsOneWidget);
     });
 
     testWidgets('只剩 1 个时：最后一颗开关置灰，并说明原因', (tester) async {
@@ -1024,7 +1028,7 @@ void main() {
       }
       await pumpPage(tester);
 
-      expect(find.textContaining('当前显示 1 个页签'), findsOneWidget);
+      expect(find.textContaining('当前显示 2 项导航'), findsOneWidget);
       expect(
         find.textContaining('最后一个显示的页签，不能关掉'),
         findsOneWidget,
@@ -1066,12 +1070,12 @@ void main() {
       expect(ShellSettingsController.instance.settings.visibleCount, 3);
       // 滚回顶部确认界面也恢复了。
       await tester.scrollUntilVisible(
-        find.textContaining('当前显示 3 个页签'),
+        find.textContaining('当前显示 4 项导航'),
         -300,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('当前显示 3 个页签'), findsOneWidget);
+      expect(find.textContaining('当前显示 4 项导航'), findsOneWidget);
     });
 
     testWidgets('拖拽手柄存在（每一行一个）', (tester) async {

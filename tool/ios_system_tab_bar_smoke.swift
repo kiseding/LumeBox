@@ -40,7 +40,7 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
   private let messenger = SmokeMessenger()
   private var platformView: FlutterPlatformView?
   private var configuration: [String: Any] = [
-    "entries": [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"]],
+    "entries": [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]],
     "activeId": "comic", "showLabels": true, "iconSize": 24,
     "brightness": "light", "tintColor": 0xFF7C5CFF,
   ]
@@ -90,7 +90,12 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
 
   private func verify(_ view: UIView) {
     let bar = view.subviews.compactMap { $0 as? UITabBar }.first!
-    precondition(bar.items?.count == 3 && bar.selectedItem === bar.items?[0])
+    precondition(bar.items?.count == 4 && bar.selectedItem === bar.items?[0])
+    let searchItem = bar.items![3]
+    precondition(searchItem.image != nil && searchItem.selectedImage != nil)
+    precondition(bar.delegate?.tabBar?(bar, shouldSelect: searchItem) == false)
+    precondition(bar.selectedItem === bar.items?[0], "Search must keep the current content tab selected")
+    precondition(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "search" })
     precondition(bar.bounds.height >= 49 && bar.bounds.height <= 100)
     let original = bar.items![0]
     configuration["activeId"] = "video"
@@ -122,7 +127,7 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
     _ = messenger.update(configuration)
     precondition(bar.items?.count == 2 && bar.items?.first?.accessibilityIdentifier == "shell.tab.settings",
                  "Invalid duplicate IDs must leave the previous native navigation intact")
-    configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"]]
+    configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]]
     configuration["iconSize"] = 24
     _ = messenger.update(configuration)
     view.layoutIfNeeded()

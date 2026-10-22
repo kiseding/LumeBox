@@ -57,13 +57,59 @@ class CompactBrowseHeader extends StatelessWidget {
   );
 }
 
-class BrowseSearchButton extends StatelessWidget {
-  const BrowseSearchButton({super.key, required this.onPressed});
+class BrowseSearchButton extends StatefulWidget {
+  const BrowseSearchButton({
+    super.key,
+    required this.onPressed,
+    this.visible = true,
+  });
   final VoidCallback? onPressed;
+  final bool visible;
+
+  @override
+  State<BrowseSearchButton> createState() => _BrowseSearchButtonState();
+}
+
+class _BrowseSearchButtonState extends State<BrowseSearchButton> {
+  ShellDockController? _controller;
+
+  void _attach() {
+    _controller?.attachSearch(
+      this,
+      widget.onPressed == null
+          ? null
+          : () {
+              if (mounted) widget.onPressed?.call();
+            },
+    );
+  }
+
+  @override
+  void deactivate() {
+    _controller?.detachSearch(this);
+    super.deactivate();
+  }
 
   @override
   Widget build(BuildContext context) {
     final scope = ShellDockScope.maybeScopeOf(context);
+    final controller =
+        scope?.integratedSearch == true && TickerMode.valuesOf(context).enabled
+        ? scope?.notifier
+        : null;
+    if (!identical(controller, _controller)) _controller?.detachSearch(this);
+    _controller = controller;
+    _attach();
+    if (scope?.integratedSearch == true || !widget.visible) {
+      // Keep the containing Stack sized by its positioned browse content.
+      return const Positioned(
+        left: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        child: SizedBox.shrink(),
+      );
+    }
     final beside = scope?.searchBesideDock == true;
     if (beside &&
         (scope?.notifier?.visible != true ||
@@ -107,7 +153,7 @@ class BrowseSearchButton extends StatelessWidget {
         builder: (context, value, _) => _SearchGlassButton(
           size: value,
           appearance: appearance,
-          onPressed: onPressed,
+          onPressed: widget.onPressed,
           beside: beside,
         ),
       ),
