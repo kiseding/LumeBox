@@ -1153,8 +1153,9 @@ class _DockAppearancePreviewState extends State<_DockAppearancePreview> {
                 entries: widget.entries,
                 activeId: _resolvedActiveId,
                 onSelect: (id) {
-                  if (id != ShellDockEntry.search.id)
+                  if (id != ShellDockEntry.search.id) {
                     setState(() => _activeId = id);
+                  }
                 },
                 appearance: appearance,
                 applyViewPadding: false,

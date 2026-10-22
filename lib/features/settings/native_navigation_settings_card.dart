@@ -124,8 +124,9 @@ class _NativeNavigationSettingsCardState
                       entries: widget.entries,
                       activeId: id,
                       onSelect: (id) {
-                        if (id != ShellDockEntry.search.id)
+                        if (id != ShellDockEntry.search.id) {
                           setState(() => _previewId = id);
+                        }
                       },
                       settings: settings,
                       height: height,

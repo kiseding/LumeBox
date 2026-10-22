@@ -85,6 +85,7 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
   private var specs: [LumeSystemTabSpec] = []
   private var showLabels = true
   private var iconSize: CGFloat = 24
+  private var selectedContentId: String?
 
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     container = LumeSystemTabBarContainer(frame: frame)
@@ -149,6 +150,7 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
       container.bar.setItems(items, animated: false)
     }
     let activeId = values["activeId"] as? String
+    selectedContentId = activeId
     let index = specs.firstIndex(where: { $0.id == activeId })
     container.bar.selectedItem = index.flatMap { container.bar.items?[$0] }
     container.overrideUserInterfaceStyle = values["brightness"] as? String == "dark" ? .dark : .light
@@ -166,15 +168,12 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
 
   func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
     guard let index = tabBar.items?.firstIndex(where: { $0 === item }), index < specs.count else { return }
-    channel.invokeMethod("selected", arguments: specs[index].id)
-  }
-
-  func tabBar(_ tabBar: UITabBar, shouldSelect item: UITabBarItem) -> Bool {
-    guard let index = tabBar.items?.firstIndex(where: { $0 === item }), index < specs.count else { return false }
     if specs[index].id == "search" {
-      channel.invokeMethod("selected", arguments: "search")
-      return false
+      let previous = specs.firstIndex(where: { $0.id == selectedContentId })
+      tabBar.selectedItem = previous.flatMap { tabBar.items?[$0] }
+    } else {
+      selectedContentId = specs[index].id
     }
-    return true
+    channel.invokeMethod("selected", arguments: specs[index].id)
   }
 }

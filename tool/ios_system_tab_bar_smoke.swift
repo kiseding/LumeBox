@@ -93,7 +93,8 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
     precondition(bar.items?.count == 4 && bar.selectedItem === bar.items?[0])
     let searchItem = bar.items![3]
     precondition(searchItem.image != nil && searchItem.selectedImage != nil)
-    precondition(bar.delegate?.tabBar?(bar, shouldSelect: searchItem) == false)
+    bar.selectedItem = searchItem
+    bar.delegate?.tabBar?(bar, didSelect: searchItem)
     precondition(bar.selectedItem === bar.items?[0], "Search must keep the current content tab selected")
     precondition(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "search" })
     precondition(bar.bounds.height >= 49 && bar.bounds.height <= 100)
