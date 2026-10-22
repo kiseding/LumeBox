@@ -125,16 +125,16 @@ class DanmakuSourcesStore {
       ], 'builtin-local');
       return;
     }
-    final existing = sources
-        .where(
-          (s) =>
-              s['url'] ==
-              config.baseUrl.trim().replaceFirst(RegExp(r'/+$'), ''),
-        )
-        .firstOrNull;
+    final base = config.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    // 同一个地址可能保存了多个 AppSecret（密钥 1 / 密钥 2）。更新时优先
+    // 更新“当前正在使用”的那条，而不是永远命中列表里的第一条。
+    final activeId = data['activeId'] ?? '';
+    final active = sources.where((s) => s['id'] == activeId).firstOrNull;
+    final existing = (active != null && active['url'] == base)
+        ? active
+        : sources.where((s) => s['url'] == base).firstOrNull;
     final id =
         existing?['id'] ?? 'service-${DateTime.now().microsecondsSinceEpoch}';
-    final base = config.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final next = {
       'id': id,
       'name':
