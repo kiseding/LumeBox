@@ -4,10 +4,51 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:lume_box/core/util/lume_log.dart';
 import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  test('HTTP 200 的官方业务失败记录错误码，本机日志不记录回环令牌', () async {
+    LumeLog.clear();
+    final official = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        'app',
+        'secret',
+        baseUrl: DandanplayCredentials.officialBase,
+      ),
+      client: MockClient(
+        (_) async => http.Response('{"success":false,"errorCode":37}', 200),
+      ),
+    );
+    addTearDown(official.close);
+    await expectLater(
+      official.checkConnection(),
+      throwsA(isA<DandanplayException>()),
+    );
+    expect(
+      LumeLog.snapshot.map((entry) => entry.message),
+      contains(
+        '[danmaku] /api/v2/search/episodes -> API rejected errorCode=37',
+      ),
+    );
+    final builtin = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        '',
+        '',
+        baseUrl: DandanplayCredentials.builtinBase,
+      ),
+      localService: () async =>
+          Uri.parse('http://127.0.0.1:1234/private-local-token'),
+      client: MockClient((_) async => http.Response('{"comments":[]}', 200)),
+    );
+    addTearDown(builtin.close);
+    await builtin.comments('10002');
+    final logs = LumeLog.snapshot.map((entry) => entry.message).join('\n');
+    expect(logs, contains('builtin /api/v2/comment/10002 -> 200'));
+    expect(logs, isNot(contains('private-local-token')));
+  });
+
   test('上游把速通合集标成第1集时，不会被当成正片自动关联', () {
     const clip = DandanplayEpisode(
       id: 'clip',

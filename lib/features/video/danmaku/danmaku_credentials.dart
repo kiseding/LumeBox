@@ -113,6 +113,21 @@ class DanmakuSourcesStore {
   static Future<void> saveCredentials(DandanplayCredentials config) async {
     final data = await read();
     final sources = profiles(data);
+    // Switching the first legacy configuration to another service must not
+    // discard the official credentials before they become a saved profile.
+    if (!data.containsKey('profilesJson') &&
+        (data['baseUrl'] ?? '').isNotEmpty) {
+      sources.add({
+        'id': 'legacy',
+        'name': '现有弹幕服务',
+        'type': DandanplayCredentials.isOfficial(Uri.tryParse(data['baseUrl']!))
+            ? 'official'
+            : 'logvar',
+        'url': data['baseUrl']!,
+        'appId': data['appId'] ?? '',
+        'appSecret': data['appSecret'] ?? '',
+      });
+    }
     if (config.builtin) {
       await save([
         ...sources.where((s) => s['type'] != 'builtin'),

@@ -31,6 +31,7 @@ import '../video/video_source_hub.dart';
 import 'section_preloader.dart';
 import 'shell_dock.dart';
 import 'shell_dock_bar.dart';
+import 'dock_search_button.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
 
@@ -430,10 +431,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 悬浮 Dock（含悬浮留白）占掉的底部高度：交给页面当**滚动尾部内边距**用
     // （见 [ShellDockScope.dockInset]），不再注入 MediaQuery——注入等于给每个页面
     // 固定留一大块底部空白，没滚到底时也空着（用户口径：改成动态边距）。
+    final contentHeight =
+        (_activeId == 'comic' || _activeId == 'video') &&
+            _dockAppearance.searchButtonSize > _dockHeight
+        ? _dockAppearance.searchButtonSize
+        : _dockHeight;
     final dockInset = rail
         ? 0.0
         : (dockBottomOffset(context) +
-                  _dockHeight +
+                  contentHeight +
                   dockContentInset(context) +
                   _dockSpacing)
               .clamp(0.0, double.infinity);
@@ -449,6 +455,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         safePadding: MediaQuery.viewPaddingOf(context),
         searchBesideDock:
             !rail && (_activeId == 'comic' || _activeId == 'video'),
+        searchInDock: !rail && (_activeId == 'comic' || _activeId == 'video'),
         child: rail ? _buildRail() : _buildDock(),
       ),
     );
@@ -577,7 +584,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         ],
       ),
       bottomNavigationBar: AnimatedBuilder(
-        animation: _controller,
+        animation: Listenable.merge([_controller, _controller.search]),
         builder: (context, _) => AnimatedSwitcher(
           duration: const Duration(milliseconds: 240),
           switchInCurve: Curves.easeOutCubic,
@@ -597,6 +604,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               ? Padding(
                   padding: EdgeInsets.only(
                     left: 8,
+                    right: 8 + MediaQuery.viewPaddingOf(context).right,
                     bottom: dockBottomOffset(context),
                   ),
                   child: Align(
@@ -614,17 +622,30 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         }
                         _handleDrag = 0;
                       },
-                      child: DockHandleButton(
-                        key: AppShell.dockKey,
-                        style: _shellSettings.handleStyle,
-                        sectionId: _activeId,
-                        sectionIcon: _pageCatalog
-                            .firstWhere((tab) => tab.id == _activeId)
-                            .selectedIcon,
-                        size: (_dockHeight * .82).clamp(40.0, 150.0),
-                        opacity: .86,
-                        onPressed: () =>
-                            setState(() => _scrollCollapsed = false),
+                      child: Row(
+                        children: [
+                          DockHandleButton(
+                            key: AppShell.dockKey,
+                            style: _shellSettings.handleStyle,
+                            sectionId: _activeId,
+                            sectionIcon: _pageCatalog
+                                .firstWhere((tab) => tab.id == _activeId)
+                                .selectedIcon,
+                            size: (_dockHeight * .82).clamp(40.0, 150.0),
+                            opacity: .86,
+                            onPressed: () =>
+                                setState(() => _scrollCollapsed = false),
+                          ),
+                          const Spacer(),
+                          if (_activeId == 'comic' || _activeId == 'video')
+                            DockSearchButton(
+                              size: (_dockAppearance.searchButtonSize * .82)
+                                  .clamp(40.0, 150.0),
+                              appearance: _dockAppearance,
+                              onPressed: _controller.searchAction,
+                              beside: true,
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -646,9 +667,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
                   appearance: _dockAppearance,
-                  trailingWidth: (_activeId == 'comic' || _activeId == 'video')
-                      ? _dockHeight + 10
-                      : 0,
+                  showSearch: _activeId == 'comic' || _activeId == 'video',
+                  onSearch: _controller.searchAction,
                   contentInset: contentInset,
                   bottomMargin: dockBottomOffset(context),
                 ),

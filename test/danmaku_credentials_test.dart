@@ -72,6 +72,25 @@ void main() {
     expect((await DandanplayCredentials.load()).appSecret, 'key');
   });
 
+  test('旧官方配置首次切到内置服务后仍保留官方凭证', () async {
+    old = {
+      'appId': 'app',
+      'appSecret': 'key',
+      'baseUrl': DandanplayCredentials.officialBase,
+    };
+    await const DandanplayCredentials(
+      '',
+      '',
+      baseUrl: DandanplayCredentials.builtinBase,
+    ).save();
+    expect((await DandanplayCredentials.load()).builtin, isTrue);
+    final official = DanmakuSourcesStore.profiles(stored).singleWhere(
+      (source) => source['url'] == DandanplayCredentials.officialBase,
+    );
+    expect(official['appId'], 'app');
+    expect(official['appSecret'], 'key');
+  });
+
   test('播放页修改服务保留其它配置并通知当前播放器重载', () async {
     await DanmakuSourcesStore.save([
       {

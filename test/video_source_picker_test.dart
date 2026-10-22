@@ -278,6 +278,51 @@ void main() {
     expect(find.text('排序last'), findsOneWidget);
   });
 
+  testWidgets('从系统文件选择器导入 HTML，自动命名并保存为本地主页', (tester) async {
+    final file = File('${root.path}/live.html');
+      file.writeAsStringSync(
+      '<!doctype html><html><head><title>直播合集</title></head><body>内容</body></html>',
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/file_selector'),
+      (call) async {
+        expect(call.method, 'openFile');
+        expect('${call.arguments}', contains('html'));
+        return [file.path];
+      },
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/file_selector'),
+        null,
+      ),
+    );
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加网页主页'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入 HTML 文件'));
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('已选择本地 HTML，将保存到 App 内并启用兼容接口'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    final saved = WebHomeStore.instance!.items.single;
+    expect(saved.name, '直播合集');
+    expect(saved.html, contains('<body>内容</body>'));
+    expect(saved.url, isEmpty);
+    expect(find.text('本地 HTML · 兼容接口'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Python 和模块分类显示真实源，普通分类不混入', (tester) async {
     manager.sources.addAll(const [
       SourceDescriptor(

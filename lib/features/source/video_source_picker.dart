@@ -4,6 +4,7 @@ import '../../shared/widgets/source_picker_header.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 
 import '../../core/cat/cat_service.dart';
 import '../../core/reading/reading_library.dart';
@@ -15,6 +16,7 @@ import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/web/web_home_sources.dart';
+import '../../core/web/web_home_import.dart';
 import '../../shared/widgets/drawer_geometry.dart';
 import '../../shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_card_metrics.dart';
@@ -209,7 +211,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 '模块源',
                 '导入 ESM / CommonJS、ZIP 源包或远程 Spider',
               ),
-              (VideoSourceType.web, Icons.language, '网页主页', '添加、编辑网页主页'),
+              (VideoSourceType.web, Icons.language, '网页主页', '网址或本地 HTML'),
             ])
               ListTile(
                 leading: LumeIcon(
@@ -277,43 +279,111 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }) async {
     final nameController = TextEditingController(text: existing?.name ?? '');
     final urlController = TextEditingController(text: existing?.url ?? '');
+    String? html = existing?.html;
+    bool importing = false;
     String? error;
     final result = await showDialog<WebHomeSource>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: Text(existing == null ? '添加网页主页' : '编辑网页主页'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: '名称',
-                  hintText: '例如：影视主页',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: urlController,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: '主页地址',
-                  hintText: 'https://example.com',
-                ),
-              ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: '名称',
+                    hintText: '例如：影视主页',
                   ),
                 ),
-            ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: urlController,
+                  enabled: html == null,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: '主页地址',
+                    hintText: 'https://example.com',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (html != null) const Text('已选择本地 HTML，将保存到 App 内并启用兼容接口'),
+                TextButton.icon(
+                  icon: const Icon(Icons.upload_file),
+                  label: Text(
+                    importing
+                        ? '正在读取…'
+                        : html == null
+                        ? '导入 HTML 文件'
+                        : '更换 HTML 文件',
+                  ),
+                  onPressed: importing
+                      ? null
+                      : () async {
+                          setDialogState(() => importing = true);
+                          try {
+                            final file = await openFile(
+                              acceptedTypeGroups: const [
+                                XTypeGroup(
+                                  label: 'HTML 网页',
+                                  extensions: ['html', 'htm'],
+                                  uniformTypeIdentifiers: ['public.html'],
+                                ),
+                              ],
+                            );
+                            if (file == null) return;
+                            if (await file.length() > WebHomeImport.maxBytes) {
+                              throw const FormatException('HTML 文件不能超过 2 MB');
+                            }
+                            final document = WebHomeImport.decode(
+                              await file.readAsBytes(),
+                            );
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              html = document;
+                              error = null;
+                              if (nameController.text.trim().isEmpty) {
+                                nameController.text = WebHomeImport.name(
+                                  document,
+                                  file.name,
+                                );
+                              }
+                            });
+                          } catch (failure) {
+                            if (dialogContext.mounted) {
+                              setDialogState(
+                                () => error = failure is FormatException
+                                    ? failure.message
+                                    : '读取 HTML 失败，请重新选择文件',
+                              );
+                            }
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => importing = false);
+                            }
+                          }
+                        },
+                ),
+                if (html != null)
+                  TextButton(
+                    onPressed: () => setDialogState(() => html = null),
+                    child: const Text('改用网页地址'),
+                  ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           actions: [
             if (existing != null)
@@ -329,27 +399,32 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () {
-                final name = nameController.text.trim();
-                var url = urlController.text.trim();
-                if (!url.contains('://')) url = 'https://$url';
-                if (name.isEmpty) {
-                  setDialogState(() => error = '请填写名称');
-                  return;
-                }
-                if (!isValidWebHomeUrl(url)) {
-                  setDialogState(() => error = '请输入有效的 http(s) 地址');
-                  return;
-                }
-                Navigator.pop(
-                  dialogContext,
-                  WebHomeSource(
-                    id: existing?.id ?? store.nextId(),
-                    name: name,
-                    url: url,
-                  ),
-                );
-              },
+              onPressed: importing
+                  ? null
+                  : () {
+                      final name = nameController.text.trim();
+                      var url = urlController.text.trim();
+                      if (html == null && !url.contains('://')) {
+                        url = 'https://$url';
+                      }
+                      if (name.isEmpty) {
+                        setDialogState(() => error = '请填写名称');
+                        return;
+                      }
+                      if (html == null && !isValidWebHomeUrl(url)) {
+                        setDialogState(() => error = '请输入有效的 http(s) 地址');
+                        return;
+                      }
+                      Navigator.pop(
+                        dialogContext,
+                        WebHomeSource(
+                          id: existing?.id ?? store.nextId(),
+                          name: name,
+                          url: html == null ? url : '',
+                          html: html,
+                        ),
+                      );
+                    },
               child: const Text('保存'),
             ),
           ],
@@ -928,7 +1003,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                             subtitle:
                                                 widget.currentWebId == home.id
                                                 ? '当前使用'
-                                                : home.url,
+                                                : home.locationLabel,
                                             selected:
                                                 widget.currentWebId == home.id,
                                             onTap: () => Navigator.pop(
