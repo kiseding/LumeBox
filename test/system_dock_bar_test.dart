@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
@@ -12,6 +13,7 @@ import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
 import 'package:lume_box/features/shell/shell_dock_bar.dart';
 import 'package:lume_box/features/shell/system_dock_bar.dart';
+import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
 const entries = [
   ShellDockEntry(
@@ -243,8 +245,8 @@ void main() {
         child: AppShell(
           controller: controller,
           desktopRail: false,
-            pageBuilder: (id) => Stack(
-              fit: StackFit.expand,
+          pageBuilder: (id) => Stack(
+            fit: StackFit.expand,
             children: [
               Text('page-$id'),
               TextButton(
@@ -281,24 +283,64 @@ void main() {
     expect(tester.element(find.text('page-comic')), same(page));
     expect(harness.created.length, creations);
     expect(ShellDockScope.maybeScopeOf(page)!.dockBottom, 46);
+    final barRect = tester.getRect(find.byType(UiKitView));
+    final expandedSearchRect = tester.getRect(find.byTooltip('搜索'));
+    expect(expandedSearchRect.left - barRect.right, closeTo(10, .1));
+    expect(expandedSearchRect.bottom, closeTo(barRect.bottom, .1));
     await tester.tap(find.byTooltip('搜索'));
     await tester.pumpAndSettle();
     expect(searches, 1);
-    await harness.event('selected', 'settings');
+    UserScrollNotification(
+      metrics: FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 1000,
+        pixels: 200,
+        viewportDimension: 600,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: 1,
+      ),
+      context: page,
+      direction: ScrollDirection.reverse,
+    ).dispatch(page);
     await tester.pumpAndSettle();
-    expect(find.text('page-settings'), findsOneWidget);
+    final handleRect = tester.getRect(find.byType(DockHandleButton));
+    final collapsedSearchRect = tester.getRect(find.byTooltip('搜索'));
+    expect(collapsedSearchRect.left - handleRect.right, closeTo(10, .1));
+    expect(collapsedSearchRect.right, lessThan(195));
+    expect(collapsedSearchRect.bottom, closeTo(handleRect.bottom, .1));
+    expect(find.byType(UiKitView), findsNothing);
+    await tester.tap(find.byTooltip('搜索'));
+    await tester.pumpAndSettle();
+    expect(searches, 2);
+    await tester.tap(find.byTooltip('展开导航'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsOneWidget);
+    final hideToken = Object();
+    controller.hide(hideToken);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('搜索'), findsNothing);
+    expect(find.byType(DockHandleButton), findsNothing);
+    controller.show(hideToken);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('搜索'), findsOneWidget);
+    expect(find.byType(UiKitView), findsOneWidget);
     await tester.tap(find.text('detail-open'));
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsNothing);
+    expect(find.byTooltip('搜索'), findsNothing);
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsOneWidget);
+    expect(find.byTooltip('搜索'), findsOneWidget);
     keyBottom = 320;
     await tester.pumpWidget(scene());
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsNothing);
+    expect(find.byTooltip('搜索'), findsNothing);
     keyBottom = 0;
     await tester.pumpWidget(scene());
+    await tester.pumpAndSettle();
+    await harness.event('selected', 'settings');
     await tester.pumpAndSettle();
     ShellSettingsController.instance.apply(
       ShellSettingsController.instance.settings.withMove(0, 2),
@@ -312,6 +354,59 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('旧系统回退 Dock 时，搜索同样靠左收起并随全屏令牌隐藏', (tester) async {
+    NativeHarness(tester).install(supported: false);
+    final controller = ShellDockController();
+    addTearDown(controller.dispose);
+    await tester.binding.setSurfaceSize(const Size(320, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          controller: controller,
+          desktopRail: false,
+          pageBuilder: (id) => Stack(
+            fit: StackFit.expand,
+            children: [
+              Text('fallback-$id'),
+              BrowseSearchButton(onPressed: () {}),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ShellDockBar), findsOneWidget);
+    expect(find.byType(UiKitView), findsNothing);
+    final page = tester.element(find.text('fallback-comic'));
+    UserScrollNotification(
+      metrics: FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 1000,
+        pixels: 200,
+        viewportDimension: 600,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: 1,
+      ),
+      context: page,
+      direction: ScrollDirection.reverse,
+    ).dispatch(page);
+    await tester.pumpAndSettle();
+    final handle = tester.getRect(find.byType(DockHandleButton));
+    final search = tester.getRect(find.byTooltip('搜索'));
+    expect(search.left - handle.right, closeTo(10, .1));
+    expect(search.right, lessThan(160));
+    final token = Object();
+    controller.hide(token);
+    await tester.pumpAndSettle();
+    expect(find.byType(DockHandleButton), findsNothing);
+    expect(find.byTooltip('搜索'), findsNothing);
+    controller.show(token);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('搜索'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('原生通道失败自动恢复自定义 Dock，不切换当前页面', (tester) async {

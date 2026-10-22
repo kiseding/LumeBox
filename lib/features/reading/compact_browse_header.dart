@@ -67,6 +67,7 @@ class BrowseSearchButton extends StatelessWidget {
     final beside = scope?.searchBesideDock == true;
     if (beside &&
         (scope?.notifier?.visible != true ||
+            scope?.keyboardVisible == true ||
             MediaQuery.viewInsetsOf(context).bottom > 0)) {
       return const SizedBox.shrink();
     }
@@ -88,7 +89,14 @@ class BrowseSearchButton extends StatelessWidget {
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
-      right: beside ? (collapsed ? 8 : margin) + safe.right : 16,
+      // Keep one horizontal anchor throughout the animation. When the Dock
+      // collapses, search joins the left-hand handle instead of staying right.
+      left: beside
+          ? collapsed
+                ? safe.left + 8 + size + ShellDockScope.searchGap
+                : MediaQuery.sizeOf(context).width - safe.right - margin - size
+          : null,
+      right: beside ? null : 16,
       bottom: beside
           ? scope?.dockBottom ?? safe.bottom + appearance.safeGap
           : safe.bottom + 12,

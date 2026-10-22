@@ -484,6 +484,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         dockBottom: _navigationBottom(context),
         navigationHeight: _navigationHeight,
         usesSystemNavigation: _usesSystemNavigation,
+        keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
         navigationMargin: _usesSystemNavigation
             ? SystemDockBar.marginFor(
                 width:
@@ -545,7 +546,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           child: Padding(
             padding: EdgeInsets.only(
               left:
-                  dockMarginFor(constraints.maxWidth) +
+                  (ShellDockScope.maybeScopeOf(context)?.navigationMargin ??
+                      dockMarginFor(constraints.maxWidth)) +
                   MediaQuery.viewPaddingOf(context).left,
             ),
             child: TweenAnimationBuilder<double>(
