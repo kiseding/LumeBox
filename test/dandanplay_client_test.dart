@@ -359,6 +359,110 @@ void main() {
     expect(DandanplayClient.exactMatch([tmdb], '楚语者', episode: 1)?.id, 'tmdb');
   });
 
+  test('清理裸年份、类型、平台、清晰度与语言后缀', () {
+    expect(DandanplayClient.searchTitle('大刑伺候 2026·国产剧·tencent'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候 2026 国产剧 tencent'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('[国产剧] 大刑伺候 全40集 1080P'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候.2026.国产剧.tencent'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候.2026.1080P.WEB-DL'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候 国语'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候 2026年'), '大刑伺候');
+    expect(DandanplayClient.searchTitle('大刑伺候 2026 第二季'), '大刑伺候 第二季');
+    expect(DandanplayClient.searchTitle('大刑伺候 第二季 2026'), '大刑伺候 第二季');
+  });
+
+  test('保留可能改变作品身份的标题内容', () {
+    expect(DandanplayClient.searchTitle('【我推的孩子】'), '【我推的孩子】');
+    expect(
+      DandanplayClient.searchTitle('Re:Zero(从零开始的异世界生活)'),
+      'Re:Zero(从零开始的异世界生活)',
+    );
+    expect(DandanplayClient.searchTitle('大刑伺候 剧场版'), '大刑伺候 剧场版');
+    expect(DandanplayClient.searchTitle('大刑伺候 OVA'), '大刑伺候 OVA');
+    expect(
+      DandanplayClient.searchTitle('2001 A Space Odyssey'),
+      '2001 A Space Odyssey',
+    );
+    expect(DandanplayClient.searchTitle('2012'), '2012');
+    expect(DandanplayClient.searchTitle('Spider-Man 1080P'), 'Spider-Man');
+  });
+
+  test('自动匹配能接受带裸年份/类型/平台后缀的服务标题', () {
+    const decorated = DandanplayEpisode(
+      id: 'ep1',
+      title: '大刑伺候 2026·国产剧·tencent',
+      episode: '【qq】 大刑伺候 第1集',
+      number: 1,
+      source: 'tencent',
+    );
+    expect(
+      DandanplayClient.exactMatch(
+        [decorated],
+        '大刑伺候 2026·国产剧·tencent',
+        episode: 1,
+      )?.id,
+      'ep1',
+    );
+    expect(
+      DandanplayClient.exactMatch([decorated], '大刑伺候', episode: 1)?.id,
+      'ep1',
+    );
+  });
+
+  test('同一集空条目会换到非 TMDB 候选', () {
+    const tmdb = DandanplayEpisode(
+      id: 'tmdb',
+      title: '大刑伺候 2026·国产剧·tencent',
+      episode: '第1集',
+      number: 1,
+      source: 'TMDB',
+    );
+    const native = DandanplayEpisode(
+      id: 'native',
+      title: '大刑伺候(2026)【国产剧】from tencent',
+      episode: '第1集',
+      number: 1,
+      source: 'tencent',
+    );
+    const otherEpisode = DandanplayEpisode(
+      id: 'ep2',
+      title: '大刑伺候',
+      episode: '第2集',
+      number: 2,
+      source: 'tencent',
+    );
+    expect(
+      DandanplayClient.alternatives([
+        tmdb,
+        native,
+        otherEpisode,
+      ], tmdb).map((item) => item.id),
+      ['native'],
+    );
+  });
+
+  test('自动搜索用清洗后的片名作为请求词', () async {
+    final queries = <String>[];
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        '',
+        '',
+        baseUrl: 'https://danmu.example/custom',
+      ),
+      client: MockClient((request) async {
+        queries.add(request.url.queryParameters['anime'] ?? '');
+        return http.Response(
+          '{"success":true,"animes":[]}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(client.close);
+    expect(await client.search('大刑伺候 2026·国产剧·tencent', episode: 1), isEmpty);
+    expect(queries, ['大刑伺候']);
+  });
+
   test('签名前清理粘贴凭证的首尾空格，搜索清理年份与来源后缀', () async {
     final client = DandanplayClient(
       credentials: const DandanplayCredentials(

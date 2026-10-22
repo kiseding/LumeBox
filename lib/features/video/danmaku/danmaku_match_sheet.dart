@@ -141,11 +141,16 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
               _queryEpisode,
         )
         .toList();
+    // TMDB 映射条目经常只有 episodeId、没有弹幕，不能当作默认选中项；
+    // 同集还有原生来源时优先原生。
+    final preferred = current
+        .where((item) => item.source.toLowerCase() != 'tmdb')
+        .toList();
     setState(() {
       _workKey = key;
       _error = null;
-      _selected = current.length == 1 && !current.single.supplementary
-          ? current.single
+      _selected = preferred.length == 1 && !preferred.single.supplementary
+          ? preferred.single
           : null;
     });
   }
@@ -181,18 +186,37 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
   }
 
   Future<void> _load() async {
-    final episode = _selected;
-    if (episode == null) return;
+    final selected = _selected;
+    if (selected == null) return;
+    var episode = selected;
     final generation = ++_generation;
     setState(() {
       _loadingTrack = true;
       _error = null;
     });
     try {
-      final track = await widget.client.comments(episode.id);
+      var track = await widget.client.comments(episode.id);
       if (!mounted || generation != _generation) return;
+      // 选中的条目可能是 TMDB 映射或某个没有弹幕的来源；同作品同集还有
+      // 其他非 TMDB 候选时自动换一个，避免用户再搜一次。
       if (track.isEmpty) {
-        setState(() => _error = '这部作品的该集返回 0 条弹幕，尚未保存关联。请换一集或更换服务。');
+        for (final candidate in DandanplayClient.alternatives(
+          _items,
+          episode,
+        )) {
+          if (!mounted || generation != _generation) return;
+          final retry = await widget.client.comments(candidate.id);
+          if (!mounted || generation != _generation) return;
+          if (retry.isEmpty) continue;
+          episode = candidate;
+          track = retry;
+          break;
+        }
+      }
+      if (track.isEmpty) {
+        setState(
+          () => _error = '这部作品的该集返回 0 条弹幕（已尝试同集的其他来源），尚未保存关联。请换一集或更换服务。',
+        );
         return;
       }
       Navigator.pop(context, DanmakuMatchSelection(episode, track));
@@ -205,6 +229,18 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
         setState(() => _loadingTrack = false);
       }
     }
+  }
+
+  Widget? _episodeNote(DandanplayEpisode item) {
+    final notes = <String>[
+      if (item.source.toLowerCase() == 'tmdb') 'TMDB 映射，可能没有弹幕',
+      if (item.supplementary) '附加内容／合集，请核对后手动选择',
+      if (!item.supplementary &&
+          (item.number ?? DandanplayClient.parsedEpisodeNumber(item.episode)) ==
+              _queryEpisode)
+        '当前集数',
+    ];
+    return notes.isEmpty ? null : Text(notes.join(' · '));
   }
 
   @override
@@ -377,15 +413,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                               : Icons.radio_button_unchecked,
                         ),
                         title: Text(item.episode),
-                        subtitle: item.supplementary
-                            ? const Text('附加内容／合集，请核对后手动选择')
-                            : (item.number ??
-                                      DandanplayClient.parsedEpisodeNumber(
-                                        item.episode,
-                                      )) ==
-                                  _queryEpisode
-                            ? const Text('当前集数')
-                            : null,
+                        subtitle: _episodeNote(item),
                         onTap: _loadingTrack
                             ? null
                             : () => setState(() => _selected = item),

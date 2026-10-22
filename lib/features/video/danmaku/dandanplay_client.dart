@@ -235,17 +235,18 @@ class DandanplayClient {
   };
 
   Future<List<DandanplayEpisode>> search(String title, {int? episode}) async {
-    if (searchTitle(title).isEmpty) {
+    final query = searchTitle(title);
+    if (query.isEmpty) {
       throw const DandanplayException('请先填写要匹配的片名');
     }
     final json = await _get('/api/v2/search/episodes', {
-      'anime': searchTitle(title),
+      'anime': query,
       'v2': 'true',
       if (episode != null) 'episode': '$episode',
     });
     final direct = _parseSearch(json);
     LumeLog.info(
-      '[danmaku] search "${searchTitle(title)}" ep=${episode ?? '-'} -> ${direct.length}',
+      '[danmaku] search "$query" ep=${episode ?? '-'} -> ${direct.length}',
     );
     if (!credentials.official ||
         direct.any((e) => normalizedTitle(e.title) == normalizedTitle(title))) {
@@ -260,9 +261,7 @@ class DandanplayClient {
     // services but fails for dandanplay" could happen before.
     final extra = <DandanplayEpisode>[];
     try {
-      final tmdb = await _get('/api/v2/search/tmdb', {
-        'keyword': searchTitle(title),
-      });
+      final tmdb = await _get('/api/v2/search/tmdb', {'keyword': query});
       final candidates = (tmdb['animes'] as List? ?? [])
           .whereType<Map>()
           .where(
@@ -397,23 +396,162 @@ class DandanplayClient {
     return DanmakuTrack.parse(result);
   }
 
-  static String searchTitle(String title) => title
-      .replaceFirst(
-        RegExp(
-          r'(?:\s+from\s+|(?<=[）)】\]])\s*from\s*)[\w-]+\s*$',
-          caseSensitive: false,
-        ),
-        '',
-      )
-      .replaceAll(RegExp(r'[（(\[]((?:19|20)\d{2})[）)\]]'), '')
-      .replaceAllMapped(
-        RegExp(r'【[^】]*】'),
-        (match) =>
-            RegExp(r'第.+季|season', caseSensitive: false).hasMatch(match[0]!)
-            ? match[0]!
-            : '',
-      )
-      .trim();
+  static final RegExp _fromSuffix = RegExp(
+    r'(?:\s+from\s+|(?<=[）)】\]])\s*from\s*)([^\s]+)$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _bracketTag = RegExp(r'[【\[（(]([^】\]）)]*)[】\]）)]');
+
+  static final RegExp _yearToken = RegExp(r'^(?:19|20)\d{2}年?$');
+
+  static final RegExp _seasonTag = RegExp(
+    r'第\s*(?:\d+|[零〇一二两三四五六七八九十百]+)\s*季|season\s*\d+|\bS\d{1,2}\b',
+    caseSensitive: false,
+  );
+
+  static final RegExp _episodeCount = RegExp(
+    r'^(?:全|共|更新至|已更新|连载至)\s*\d+\s*[集话話期]?$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _episodeNumberToken = RegExp(
+    r'^第?\s*(?:\d+|[零〇一二两三四五六七八九十百]+)\s*[集话話期]$',
+  );
+
+  static final RegExp _separator = RegExp(r'[\s·•・|/\\_\-—–.．]+');
+
+  static final RegExp _trailingToken = RegExp(
+    r'[\s·•・|/\\_\-—–.．]+([^\s·•・|/\\_\-—–.．]+)\s*$',
+  );
+
+  /// 服务端作品名里的常见装饰。只按“整词”匹配，避免误伤
+  /// `电影人生` 这种名字里恰好包含类型词的标题。
+  static const Set<String> _metadataTokens = <String>{
+    // 类型
+    '国产剧', '电视剧', '连续剧', '剧集', '动漫', '动画', '番剧', '综艺',
+    '纪录片', '电影', '美剧', '日剧', '韩剧', '港剧', '台剧', '短剧',
+    '网剧', '微短剧',
+    // 语言 / 字幕
+    '国语', '粤语', '普通话', '中字', '中文字幕', '双语', '日语', '英语',
+    '韩语', '原声', '配音', '国语版', '粤语版', '普通话版', '中字版',
+    '双语版', '国语中字', '国粤双语', '中英双字', '中英字幕', '简繁字幕',
+    '简中', '繁中',
+    // 清晰度 / 压制
+    '4k', '2160p', '1080p', '720p', '480p', 'hd', 'bd', 'fhd', 'uhd',
+    'hdr', '蓝光', '超清', '高清', '原画', '标清', 'tv', 'tv版',
+    'web-dl', 'webrip', 'bluray', 'remux',
+    // 平台
+    'tencent', 'qq', 'youku', 'iqiyi', 'qiyi', 'mgtv', 'bilibili',
+    'sohu', 'migu', 'leshi', 'xigua', 'hongguo', 'bahamut', 'animeko',
+    'dandan', 'tmdb', 'imgo', '360', 'vod', 'local', 'custom',
+    '腾讯视频', '优酷', '爱奇艺', '芒果tv', '哔哩哔哩', 'b站', '咪咕视频',
+    '搜狐视频', '乐视视频', '西瓜视频', '人人视频', '韩剧tv',
+    // 状态
+    '完结', '已完结', '连载', '更新中', '抢先版', '未删减', '未删减版',
+  };
+
+  static bool _isMetadataToken(String token) {
+    final value = token.trim().toLowerCase();
+    if (value.isEmpty) return false;
+    // 季数是有意义的信息，不能当装饰词删掉。
+    if (_seasonTag.hasMatch(value)) return false;
+    return _yearToken.hasMatch(value) ||
+        _episodeCount.hasMatch(value) ||
+        _episodeNumberToken.hasMatch(value) ||
+        _metadataTokens.contains(value);
+  }
+
+  static bool _isMetadataBracket(String inner) {
+    final value = inner.trim();
+    if (value.isEmpty || _seasonTag.hasMatch(value)) return false;
+    if (_isMetadataToken(value)) return true;
+    final parts = value.split(_separator).where((part) => part.isNotEmpty);
+    return parts.isNotEmpty && parts.every(_isMetadataToken);
+  }
+
+  /// 自动匹配和手动搜索共用的片名清洗。
+  ///
+  /// 图源标题常见为 `大刑伺候 2026·国产剧·tencent`、
+  /// `[国产剧] 大刑伺候 全40集 1080P` 这类形态。只去掉年份/类型/语言/
+  /// 清晰度/平台等装饰，保留季数、`OVA`、`剧场版`、`【我推的孩子】`
+  /// 这类可能改变作品身份的信息。
+  static String searchTitle(String title) {
+    var value = title.trim();
+    if (value.isEmpty) return value;
+
+    value = value.replaceFirstMapped(_fromSuffix, (match) {
+      final platform = match.group(1) ?? '';
+      return _isMetadataToken(platform) ? '' : match.group(0)!;
+    }).trim();
+
+    value = value
+        .replaceAllMapped(
+          _bracketTag,
+          (match) =>
+              _isMetadataBracket(match.group(1) ?? '') ? '' : match.group(0)!,
+        )
+        .trim();
+
+    // 年份既可能单独出现，也可能夹在季数/平台之间：
+    // `大刑伺候 2026 第二季` 只去掉年份，保留第二季。
+    value = value
+        .replaceAll(
+          RegExp(
+            r'[\s·•・|/\\_\-—–.．]+(?:19|20)\d{2}年?(?=[\s·•・|/\\_\-—–.．]|$)',
+          ),
+          '',
+        )
+        .trim();
+    // 不删开头的年份：`2001 太空漫游` / `2012` 本身就是片名，
+    // 只有年份出现在标题之后（或中文标题直接粘连）才当作装饰。
+    // 中文标题后直接跟年份、没有分隔符的情况。
+    value = value
+        .replaceAll(
+          RegExp(
+            r'(?<=[\u4e00-\u9fff])(?:19|20)\d{2}年?(?=[\s·•・|/\\_\-—–.．]|$)',
+          ),
+          '',
+        )
+        .trim();
+
+    // `WEB-DL` / `Blu-Ray` 这类压制标记自带连字符，直接按整段清掉，
+    // 避免被后面的逐词逻辑拆成 `WEB` 和 `DL`。
+    value = value
+        .replaceAll(
+          RegExp(
+            r'[\s·•・|/\\_\-—–.．]*(?:web[\s-]?dl|webrip|web[\s-]?rip|blu[\s-]?ray|bdrip|brrip|remux|hdtv)(?=[\s·•・|/\\_\-—–.．]|$)',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+
+    // 从末尾逐个剥掉平台/类型/语言/清晰度等整词，
+    // 遇到季数（第二季 / S02）就停。
+    while (true) {
+      final match = _trailingToken.firstMatch(value);
+      if (match == null) break;
+      final token = match.group(1) ?? '';
+      if (!_isMetadataToken(token)) break;
+      value = value.substring(0, match.start).trim();
+    }
+
+    // `全40集` / `更新至20集` 可能和片名粘在一起。
+    value = value
+        .replaceFirst(
+          RegExp(
+            r'[\s·•・|/\\_\-—–.．]*(?:全|共|更新至|已更新|连载至)\s*\d+\s*[集话話期]?$',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+
+    value = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    value = value.replaceFirst(RegExp(r'[\s·•・|/\\_\-—–.．]+$'), '').trim();
+    return value.isEmpty ? title.trim() : value;
+  }
 
   static String normalizedTitle(String title) =>
       searchTitle(title)
@@ -497,5 +635,33 @@ class DandanplayClient {
       if (native.length == 1) return native.single;
     }
     return null;
+  }
+
+  /// 同一作品、同一集、非 TMDB 的候选，用于某个条目返回 0 条时换一个来源。
+  ///
+  /// 集数未知时返回空表：宁可让用户手动选，也不要把其他集的弹幕加载进来。
+  static List<DandanplayEpisode> alternatives(
+    Iterable<DandanplayEpisode> items,
+    DandanplayEpisode selected, {
+    int? episode,
+    int limit = 3,
+  }) {
+    final number =
+        episode ?? selected.number ?? parsedEpisodeNumber(selected.episode);
+    final title = normalizedTitle(selected.title);
+    if (number == null || title.isEmpty) {
+      return const <DandanplayEpisode>[];
+    }
+    return items
+        .where(
+          (item) =>
+              item.id != selected.id &&
+              !item.supplementary &&
+              item.source.toLowerCase() != 'tmdb' &&
+              normalizedTitle(item.title) == title &&
+              (item.number ?? parsedEpisodeNumber(item.episode)) == number,
+        )
+        .take(limit)
+        .toList(growable: false);
   }
 }

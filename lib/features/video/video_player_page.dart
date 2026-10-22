@@ -1893,26 +1893,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             // 官方 TMDB 补充条目有时只有 episodeId、没有任何弹幕；如果同一作品
             // 在原生目录里还有候选，自动换一个候选再取一次，避免“官方永远 0 条”。
             if (track.isEmpty && match != null && config.official) {
-              final episode =
-                  match.number ??
-                  DandanplayClient.parsedEpisodeNumber(match.episode);
-              final candidates = matches
-                  .where(
-                    (item) =>
-                        item.id != id &&
-                        !item.supplementary &&
-                        item.source.toLowerCase() != 'tmdb' &&
-                        DandanplayClient.normalizedTitle(item.title) ==
-                            DandanplayClient.normalizedTitle(match!.title) &&
-                        (episode == null ||
-                            (item.number ??
-                                    DandanplayClient.parsedEpisodeNumber(
-                                      item.episode,
-                                    )) ==
-                                episode),
-                  )
-                  .take(3);
-              for (final candidate in candidates) {
+              for (final candidate in DandanplayClient.alternatives(
+                matches,
+                match,
+              )) {
                 final retry = await client.comments(candidate.id);
                 if (!publicCurrent()) return;
                 if (retry.isEmpty) continue;
