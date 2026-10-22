@@ -17,7 +17,7 @@ run-name: ${{ inputs.typecheck_only && 'Swift typecheck only — no package' || 
 
 jobs:
   build-ipa:
-    name: Build unsigned IPA
+    name: ${{ inputs.typecheck_only && 'Swift and simulator checks (no IPA)' || 'Build unsigned IPA' }}
     runs-on: macos-latest
     timeout-minutes: 60
     env:
@@ -76,12 +76,12 @@ jobs:
         run: bash tool/check_ios_system_tab_bar.sh
 
       - name: Upload system tab bar simulator preview
-        if: ${{ inputs.typecheck_only == true }}
+        if: ${{ always() && inputs.typecheck_only == true }}
         uses: actions/upload-artifact@v4
         with:
           name: system-tab-bar-preview
-          path: out/system-tab-bar/native-tab-bar.png
-          if-no-files-found: error
+          path: out/system-tab-bar/
+          if-no-files-found: warn
 
       - name: Python native bridge and simulator check (no IPA)
         if: ${{ inputs.typecheck_only == true }}

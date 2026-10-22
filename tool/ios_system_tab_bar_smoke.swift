@@ -39,6 +39,27 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
   var window: UIWindow?
   private let messenger = SmokeMessenger()
   private var platformView: FlutterPlatformView?
+  private func checkpoint(_ phase: String, detail: String = "") {
+    let status: [String: Any] = ["phase": phase, "detail": detail]
+    let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/native-tab-bar-status.json")
+    do {
+      try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try JSONSerialization.data(withJSONObject: status).write(to: output, options: .atomic)
+    } catch {
+      fputs("Cannot save smoke status: \(error)\n", stderr)
+      exit(1)
+    }
+    print("LUME_SYSTEM_TAB_BAR_SMOKE_\(phase): \(detail)")
+    fflush(stdout)
+  }
+
+  private func require(_ condition: @autoclosure () -> Bool,
+                       _ message: String = "Native tab bar assertion failed", line: UInt = #line) {
+    if !condition() {
+      checkpoint("failed", detail: "\(message) (line \(line))")
+      exit(1)
+    }
+  }
   private var configuration: [String: Any] = [
     "entries": [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]],
     "activeId": "comic", "showLabels": true, "iconSize": 24,
@@ -46,6 +67,7 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
   ]
 
   func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    checkpoint("launched")
     let window = UIWindow(frame: UIScreen.main.bounds)
     let controller = UIViewController()
     controller.view.backgroundColor = .systemBackground
@@ -74,12 +96,20 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
                           width: window.bounds.width - 32, height: height)
       view.layoutIfNeeded()
       self.verify(view)
+      self.checkpoint("verified")
       DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
           window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let output = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/native-tab-bar.png")
-        try! image.pngData()!.write(to: output)
+        do {
+          guard let png = image.pngData() else { throw NSError(domain: "Smoke", code: 1) }
+          try png.write(to: output, options: .atomic)
+        } catch {
+          self.checkpoint("failed", detail: "Cannot save screenshot: \(error)")
+          exit(1)
+        }
+        self.checkpoint("passed")
         print("LUME_SYSTEM_TAB_BAR_SMOKE_OK")
         fflush(stdout)
         exit(0)
@@ -90,43 +120,43 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
 
   private func verify(_ view: UIView) {
     let bar = view.subviews.compactMap { $0 as? UITabBar }.first!
-    precondition(bar.items?.count == 4 && bar.selectedItem === bar.items?[0])
+    require(bar.items?.count == 4 && bar.selectedItem === bar.items?[0])
     let searchItem = bar.items![3]
-    precondition(searchItem.image != nil && searchItem.selectedImage != nil)
+    require(searchItem.image != nil && searchItem.selectedImage != nil)
     bar.selectedItem = searchItem
     bar.delegate?.tabBar?(bar, didSelect: searchItem)
-    precondition(bar.selectedItem === bar.items?[0], "Search must keep the current content tab selected")
-    precondition(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "search" })
-    precondition(bar.bounds.height >= 49 && bar.bounds.height <= 100)
+    require(bar.selectedItem === bar.items?[0], "Search must keep the current content tab selected")
+    require(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "search" })
+    require(bar.bounds.height >= 49 && bar.bounds.height <= 100)
     let original = bar.items![0]
     configuration["activeId"] = "video"
-    precondition(messenger.update(configuration) != nil)
-    precondition(bar.selectedItem === bar.items?[1] && bar.items?[0] === original,
+    require(messenger.update(configuration) != nil)
+    require(bar.selectedItem === bar.items?[1] && bar.items?[0] === original,
                  "Selecting a tab must preserve native items and their animation state")
     bar.delegate?.tabBar?(bar, didSelect: bar.items![2])
-    precondition(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "settings" })
+    require(messenger.received.contains { $0.method == "selected" && ($0.arguments as? String) == "settings" })
 
     configuration["showLabels"] = false
     configuration["brightness"] = "dark"
     configuration["iconSize"] = 28
     configuration["tintColor"] = 0xFF008A6A
     _ = messenger.update(configuration)
-    precondition(bar.items!.allSatisfy { $0.title == nil && $0.accessibilityLabel != nil })
-    precondition(view.overrideUserInterfaceStyle == .dark)
+    require(bar.items!.allSatisfy { $0.title == nil && $0.accessibilityLabel != nil })
+    require(view.overrideUserInterfaceStyle == .dark)
     var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-    precondition(bar.tintColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
-    precondition(abs(green - 138.0 / 255.0) < 0.001 && abs(blue - 106.0 / 255.0) < 0.001)
+    require(bar.tintColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+    require(abs(green - 138.0 / 255.0) < 0.001 && abs(blue - 106.0 / 255.0) < 0.001)
 
     configuration["entries"] = [["id": "settings", "label": "设置"], ["id": "comic", "label": "漫画"]]
     configuration["activeId"] = "comic"
     configuration["showLabels"] = true
     configuration["brightness"] = "light"
     _ = messenger.update(configuration)
-    precondition(bar.items?.count == 2 && bar.selectedItem === bar.items?[1])
-    precondition(bar.items?.first?.accessibilityIdentifier == "shell.tab.settings")
+    require(bar.items?.count == 2 && bar.selectedItem === bar.items?[1])
+    require(bar.items?.first?.accessibilityIdentifier == "shell.tab.settings")
     configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "comic", "label": "重复"]]
     _ = messenger.update(configuration)
-    precondition(bar.items?.count == 2 && bar.items?.first?.accessibilityIdentifier == "shell.tab.settings",
+    require(bar.items?.count == 2 && bar.items?.first?.accessibilityIdentifier == "shell.tab.settings",
                  "Invalid duplicate IDs must leave the previous native navigation intact")
     configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]]
     configuration["iconSize"] = 24
