@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/reading/browse_layout.dart';
+import 'package:lume_box/core/net/network_cancellation.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
@@ -387,6 +388,299 @@ void main() {
     });
   });
 
+  group('搜索速度与取消', () {
+    List<SourceDescriptor> descriptors(int count) => [
+      for (var i = 0; i < count; i++)
+        SourceDescriptor(
+          id: 'speed-$i',
+          name: '速度源$i',
+          version: '1',
+          enabled: true,
+        ),
+    ];
+
+    test('限制脚本并发，快源先通知，最终仍按源顺序排列', () async {
+      final gates = List.generate(3, (_) => Completer<void>());
+      final sources = [
+        for (var i = 0; i < 3; i++)
+          _SearchSource(
+            section: Section.video,
+            id: 'speed-$i',
+            gate: gates[i].future,
+            items: [SourceItem(id: '$i', title: '影片$i')],
+          ),
+      ];
+      final opened = <String>[];
+      final progress = <AggregateSearchProgress>[];
+      final fast = Completer<void>();
+      final run = AggregateSearch.run(
+        sources: descriptors(3),
+        keyword: '影片',
+        concurrency: 2,
+        open: (id) async {
+          opened.add(id);
+          return sources[int.parse(id.split('-').last)];
+        },
+        onProgress: (value) {
+          progress.add(value);
+          if (value.completed == 1) fast.complete();
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(opened, ['speed-0', 'speed-1']);
+      gates[1].complete();
+      await fast.future;
+      expect(gates[0].isCompleted, isFalse);
+      expect(progress.last.hits.single.sourceId, 'speed-1');
+      await Future<void>.delayed(Duration.zero);
+      expect(opened, ['speed-0', 'speed-1', 'speed-2']);
+      gates[2].complete();
+      gates[0].complete();
+      final result = await run;
+      expect(result.hits.map((hit) => hit.sourceId), [
+        'speed-0',
+        'speed-1',
+        'speed-2',
+      ]);
+      expect(progress.last.completed, 3);
+      expect(result.failed, 0);
+    });
+
+    testWidgets('超时取消慢源并继续排队的源，不被过期结果覆盖', (tester) async {
+      final gate = Completer<void>();
+      NetworkCancellation? slowToken;
+      final updates = <AggregateSearchProgress>[];
+      final run = AggregateSearch.run(
+        sources: descriptors(2),
+        keyword: '影片',
+        concurrency: 1,
+        sourceTimeout: const Duration(seconds: 1),
+        open: (id) async {
+          if (id == 'speed-0') slowToken = NetworkCancellation.current;
+          return _SearchSource(
+            section: Section.video,
+            id: id,
+            gate: id == 'speed-0' ? gate.future : null,
+            items: [SourceItem(id: id, title: '影片')],
+          );
+        },
+        onProgress: updates.add,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      final result = await run;
+      expect(slowToken!.isCancelled, isTrue);
+      expect(result.failed, 1);
+      expect(result.hits.single.sourceId, 'speed-1');
+      final count = updates.length;
+      gate.complete();
+      await tester.pump();
+      expect(updates, hasLength(count));
+    });
+
+    test('退出搜索立即取消，尚未开始的站点不再打开', () async {
+      final parent = NetworkCancellation();
+      final opened = <String>[];
+      final gate = Completer<void>();
+      NetworkCancellation? child;
+      final run = parent.run(
+        () => AggregateSearch.run(
+          sources: descriptors(3),
+          keyword: '影片',
+          concurrency: 1,
+          open: (id) async {
+            child = NetworkCancellation.current;
+            opened.add(id);
+            return _SearchSource(section: Section.video, gate: gate.future);
+          },
+        ),
+      );
+      final cancelled = expectLater(run, throwsA(isA<NetworkCancelled>()));
+      await Future<void>.delayed(Duration.zero);
+      parent.cancel();
+      await cancelled;
+      expect(child!.isCancelled, isTrue);
+      expect(opened, ['speed-0']);
+      gate.complete();
+    });
+
+    testWidgets('快源结果在慢源完成前可点击，同 ID 条目保留正确来源', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final gate = Completer<void>();
+      final manager = FakeSourceManager(
+        sources: descriptors(2),
+        opened: {
+          'speed-0': _SearchSource(
+            section: Section.video,
+            gate: gate.future,
+            items: const [SourceItem(id: 'same', title: '慢源影片')],
+          ),
+          'speed-1': _SearchSource(
+            section: Section.video,
+            items: const [SourceItem(id: 'same', title: '快源影片')],
+          ),
+        },
+      );
+      ExploreSelection? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          home: SearchResultsPage(
+            section: Section.video,
+            keyword: '影片',
+            mode: SearchMode.aggregate,
+            manager: manager,
+            onOpenItem: (value) => selected = value,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('快源影片'), findsOneWidget);
+      expect(find.text('慢源影片'), findsNothing);
+      await tester.tap(find.text('快源影片'));
+      expect(selected!.sourceId, 'speed-1');
+      gate.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('快源影片'));
+      expect(selected!.sourceId, 'speed-1', reason: '另一个源先排到前面后仍保持身份');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('未传入 sourceId 时解析并记住当前源，结果可以打开', (tester) async {
+      final manager = FakeSourceManager(
+        sources: descriptors(1),
+        opened: {
+          'speed-0': _SearchSource(
+            section: Section.video,
+            items: const [SourceItem(id: 'item', title: '当前影片')],
+          ),
+        },
+      );
+      ExploreSelection? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          home: SearchResultsPage(
+            section: Section.video,
+            keyword: '影片',
+            mode: SearchMode.single,
+            manager: manager,
+            onOpenItem: (value) => selected = value,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('当前影片'));
+      expect(selected!.sourceId, 'speed-0');
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  group('聚合搜索结果布局', () {
+    testWidgets('布局与卡片样式按板块保存，站点筛选不重复请求，窄屏大字体可用', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 850));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final library = await ReadingLibrary.open(Section.video);
+      final first = _SearchSource(
+        section: Section.video,
+        items: const [SourceItem(id: 'same', title: '甲源作品')],
+      );
+      final second = _SearchSource(
+        section: Section.video,
+        items: const [SourceItem(id: 'same', title: '乙源作品')],
+      );
+      final manager = FakeSourceManager(
+        sources: const [
+          SourceDescriptor(
+            id: 'layout-a',
+            name: '甲源',
+            version: '1',
+            enabled: true,
+          ),
+          SourceDescriptor(
+            id: 'layout-b',
+            name: '乙源',
+            version: '1',
+            enabled: true,
+          ),
+        ],
+        opened: {'layout-a': first, 'layout-b': second},
+      );
+      ExploreSelection? selected;
+      Widget page() => MaterialApp(
+        theme: LumeTheme.build(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: SearchResultsPage(
+          section: Section.video,
+          keyword: '作品',
+          mode: SearchMode.aggregate,
+          manager: manager,
+          onOpenItem: (value) => selected = value,
+        ),
+      );
+      Future<void> layout(String title) async {
+        await tester.tap(find.byTooltip('搜索结果布局'));
+        await tester.pumpAndSettle();
+        final item = find.widgetWithText(CheckedPopupMenuItem<String>, title);
+        await tester.ensureVisible(item);
+        await tester.tap(item);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-groups')), findsOneWidget);
+      await layout('左侧站点分类');
+      expect(find.byKey(const ValueKey('search-sites-left')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('search-filter-layout-b')));
+      await tester.pumpAndSettle();
+      expect(find.text('甲源作品'), findsNothing);
+      await tester.tap(find.text('乙源作品'));
+      expect(selected!.sourceId, 'layout-b');
+      await layout('简洁列表');
+      expect(
+        find.byKey(const ValueKey('search-list-layout-b')),
+        findsOneWidget,
+      );
+      await layout('顶部站点分类');
+      expect(find.byKey(const ValueKey('search-sites-top')), findsOneWidget);
+      expect(first.keywords, ['作品']);
+      expect(second.keywords, ['作品']);
+      expect(library.setting('search.results.siteLayout'), 'top');
+      expect(library.setting('search.results.cards'), 'false');
+      final comic = await ReadingLibrary.open(Section.comic);
+      expect(comic.setting('search.results.siteLayout'), isNull);
+      await tester.pumpWidget(const SizedBox());
+      ReadingLibrary.close(Section.video);
+      final reopened = await ReadingLibrary.open(Section.video);
+      expect(reopened.setting('search.results.siteLayout'), 'top');
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-sites-top')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-list-all')), findsOneWidget);
+      await layout('站点分组');
+      await layout('封面卡片');
+      expect(reopened.setting('search.results.cards'), 'true');
+      expect(find.byKey(const ValueKey('search-groups')), findsOneWidget);
+      await tester.tap(find.byTooltip('修改关键词'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '新关键词');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(find.text('搜索 · 新关键词'), findsOneWidget);
+      expect(first.keywords.last, '新关键词');
+      expect(second.keywords.last, '新关键词');
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   group('聚合搜索站点选择', () {
     for (final section in [Section.cat, Section.comic, Section.video]) {
       testWidgets('${section.label}：只请求勾选站点，结果页可修改并记住选择', (tester) async {
@@ -755,7 +1049,7 @@ void main() {
       expect(find.text('影片 丙'), findsOneWidget);
     });
 
-    testWidgets('空输入展示本地历史，有输入仅匹配源标题', (tester) async {
+    testWidgets('输入即时匹配本地历史，不额外执行完整搜索', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
       SearchHistoryStore(Section.video, library).remember('历史关键词');
 
@@ -775,7 +1069,8 @@ void main() {
 
       // 这个替身没有实现 SuggestCapable：联想只能来自本地历史。
       expect(source, isNot(isA<SuggestCapable>()));
-      expect(find.text('历史关键词'), findsNothing, reason: '无标题匹配隐藏联想');
+      expect(find.text('历史关键词'), findsOneWidget);
+      expect(source.keywords, isEmpty, reason: '输入联想不能调用完整搜索接口');
     });
 
     testWidgets('点联想条目：填入关键词并发起搜索', (tester) async {

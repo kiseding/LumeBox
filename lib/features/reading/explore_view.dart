@@ -1021,7 +1021,13 @@ class _ExploreViewState extends State<ExploreView>
       setState(() => _suggestions = _historyStore?.load() ?? const <String>[]);
       return;
     }
-    setState(() => _suggestions = const <String>[]);
+    setState(
+      () => _suggestions = SearchSuggestions(
+        source: _source,
+        history: _historyStore?.load() ?? const <String>[],
+      ).localForKeyword(keyword),
+    );
+    if (_source is! SuggestCapable) return;
     _suggestDebounce = Timer(
       const Duration(milliseconds: 300),
       () => unawaited(_loadSuggestions(keyword)),
@@ -1050,7 +1056,6 @@ class _ExploreViewState extends State<ExploreView>
 
   /// 关掉联想弹窗（点页面空白 / 按返回时调用）。
   void _closeSuggestions() {
-    if (_suggestions.isEmpty) return;
     _suggestDebounce?.cancel();
     networkRequests.cancel('suggestions');
     _suggestSeq++;

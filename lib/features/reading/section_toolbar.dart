@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/session/privacy_settings.dart';
+import '../../core/net/network_cancellation.dart';
 
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
@@ -100,13 +101,33 @@ class SearchHit {
   final SourceItem item;
 }
 
+@immutable
+class AggregateSearchProgress {
+  const AggregateSearchProgress({
+    required this.hits,
+    required this.completed,
+    required this.total,
+    required this.failed,
+    required this.sources,
+    required this.completedSourceIds,
+    required this.failedSourceIds,
+  });
+  final List<SearchHit> hits;
+  final int completed;
+  final int total;
+  final int failed;
+  final List<SourceDescriptor> sources;
+  final Set<String> completedSourceIds;
+  final Set<String> failedSourceIds;
+}
+
 /// 聚合搜索：**并发**问本板块选中的已启用源，把结果合并回来。
 ///
 /// 三条口径：
 /// - 单个源失败只丢它自己（结果里带一条 failed 说明），其余照常返回；
 /// - 结果按「源顺序」排列（保持用户看图源列表时的顺序感），不做跨源去重
 ///   （同名作品在不同源上就是不同条目，去重会把用户想切的源吃掉）；
-/// - 不做串行等待：全部并发发出去，网络层自己的并发额度会兜住防封。
+/// - 有限并发，避免同时启动大量脚本；每完成一个源就通知界面显示结果。
 class AggregateSearch {
   AggregateSearch._();
 
@@ -117,7 +138,13 @@ class AggregateSearch {
     String? categoryId,
     int limitPerSource = 30,
     Set<String>? sourceIds,
+    int concurrency = 4,
+    Duration sourceTimeout = const Duration(seconds: 30),
+    ValueChanged<AggregateSearchProgress>? onProgress,
   }) async {
+    if (concurrency < 1 || sourceTimeout <= Duration.zero) {
+      throw ArgumentError('搜索并发和超时必须大于零');
+    }
     final enabled = sources
         .where(
           (source) =>
@@ -126,44 +153,90 @@ class AggregateSearch {
               (sourceIds == null || sourceIds.contains(source.id)),
         )
         .toList();
-    final results = await Future.wait(
-      enabled.map((descriptor) async {
-        try {
-          final source = await open(descriptor.id);
-          if (source == null) return (descriptor: descriptor, list: null);
-          // 分类筛选同样下发到每个源（图源的分类是它自己的维度）。
-          final list = await source.list(
-            categoryId: categoryId,
-            keyword: keyword,
-            page: 1,
-          );
-          return (descriptor: descriptor, list: list);
-        } catch (error) {
-          LumeLog.info('[search] 聚合搜索跳过 ${descriptor.name}：$error');
-          return (descriptor: descriptor, list: null);
-        }
-      }),
-    );
-
-    final hits = <SearchHit>[];
+    final parent = NetworkCancellation.current;
+    final results = List<List<SearchHit>?>.filled(enabled.length, null);
+    var next = 0;
+    var completed = 0;
     var failed = 0;
-    for (final entry in results) {
-      final list = entry.list;
-      if (list == null) {
-        failed++;
-        continue;
-      }
-      for (final item in list.items.take(limitPerSource)) {
-        hits.add(
-          SearchHit(
-            sourceId: entry.descriptor.id,
-            sourceName: entry.descriptor.name,
-            item: item,
-          ),
+    final completedIds = <String>{};
+    final failedIds = <String>{};
+    List<SearchHit> snapshot() => [for (final result in results) ...?result];
+    void publish() => onProgress?.call(
+      AggregateSearchProgress(
+        hits: List.unmodifiable(snapshot()),
+        completed: completed,
+        total: enabled.length,
+        failed: failed,
+        sources: List.unmodifiable(enabled),
+        completedSourceIds: Set.unmodifiable(completedIds),
+        failedSourceIds: Set.unmodifiable(failedIds),
+      ),
+    );
+    parent?.check();
+    publish();
+    Future<void> worker() async {
+      while (next < enabled.length) {
+        parent?.check();
+        final index = next++;
+        final descriptor = enabled[index];
+        final token = NetworkCancellation();
+        final unlink = parent?.onCancel(token.cancel);
+        final timer = Timer(
+          sourceTimeout,
+          () => token.cancel(TimeoutException('搜索源超时', sourceTimeout)),
         );
+        try {
+          final list = await token.run(
+            () => token.guard(
+              Future.sync(() async {
+                token.check();
+                final source = await open(descriptor.id);
+                token.check();
+                return source?.list(
+                  categoryId: categoryId,
+                  keyword: keyword,
+                  page: 1,
+                );
+              }),
+            ),
+          );
+          parent?.check();
+          if (list == null) {
+            failed++;
+            failedIds.add(descriptor.id);
+          } else {
+            final seen = <String>{};
+            results[index] = [
+              for (final item
+                  in list.items
+                      .where((item) => seen.add(item.id))
+                      .take(limitPerSource))
+                SearchHit(
+                  sourceId: descriptor.id,
+                  sourceName: descriptor.name,
+                  item: item,
+                ),
+            ];
+          }
+        } catch (error) {
+          parent?.check();
+          failed++;
+          failedIds.add(descriptor.id);
+          LumeLog.info('[search] 聚合搜索跳过 ${descriptor.name}：$error');
+        } finally {
+          timer.cancel();
+          unlink?.call();
+        }
+        completed++;
+        completedIds.add(descriptor.id);
+        publish();
       }
     }
-    return (hits: hits, failed: failed);
+
+    await Future.wait([
+      for (var i = 0; i < concurrency && i < enabled.length; i++) worker(),
+    ]);
+    return (hits: snapshot(), failed: failed);
   }
 }
 
@@ -287,20 +360,13 @@ class SearchSuggestions {
         LumeLog.info('[search] 联想接口失败，改用本地历史：$error');
       }
     }
-    if (source != null) {
-      try {
-        final result = await source.list(keyword: text);
-        final titles = _dedupe(
-          result.items.map((item) => item.title).toList(),
-          text,
-        );
-        if (titles.isNotEmpty) return titles.take(maxEntries).toList();
-      } catch (error) {
-        LumeLog.info('[search] 标题联想请求失败：$error');
-      }
-    }
-    return const <String>[];
+    // 输入时不执行完整搜索；真正的搜索只在提交时发起。
+    return localForKeyword(text);
   }
+
+  List<String> localForKeyword(String keyword) => keyword.trim().isEmpty
+      ? history.take(maxEntries).toList()
+      : _dedupe(history, keyword.trim()).take(maxEntries).toList();
 
   /// 去重 + 只留包含关键词的 + 去掉与关键词本身相同的那条。
   static List<String> _dedupe(List<String> values, String keyword) {

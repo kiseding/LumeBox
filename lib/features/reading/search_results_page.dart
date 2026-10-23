@@ -18,8 +18,10 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/state_view.dart';
 import 'explore_view.dart';
+import 'aggregate_search_results.dart';
 import 'poster_card.dart';
 import 'section_toolbar.dart';
+import 'source_search_dialog.dart';
 
 /// 独立的**搜索结果页**（用户口径：搜索完必须离开首页推荐网格，跳到这里）。
 ///
@@ -87,6 +89,11 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   /// 聚合搜索里没取到数据的源数量（如实说明，不假装全部成功）。
   int _aggregateFailed = 0;
   int _aggregateSiteCount = 0;
+  int _aggregateCompleted = 0;
+  List<SourceDescriptor> _aggregateSites = const [];
+  Set<String> _completedSourceIds = const {};
+  Set<String> _failedSourceIds = const {};
+  String? _resolvedSourceId;
 
   /// 结果里出现的图源名字（列表行显示来源用）。
   final Map<String, String> _sourceNames = <String, String>{};
@@ -99,6 +106,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   /// 请求代号：重试 / 翻页交错时丢弃过期结果。
   int _seq = 0;
   late Set<String>? _sourceIds = widget.sourceIds;
+  late String _keyword = widget.keyword;
 
   @override
   void initState() {
@@ -127,50 +135,53 @@ class _SearchResultsPageState extends State<SearchResultsPage>
       _items = const <SourceItem>[];
       _page = 1;
       _hasMore = false;
+      _loadingMore = false;
       _aggregateFailed = 0;
+      _aggregateSiteCount = 0;
+      _aggregateCompleted = 0;
+      _aggregateSites = const [];
+      _completedSourceIds = const {};
+      _failedSourceIds = const {};
+      _sourceNames.clear();
     });
     try {
       if (widget.mode == SearchMode.aggregate) {
         final sources = await _manager.list();
         if (!mounted || seq != _seq) return;
-        final siteCount = sources
-            .where(
-              (source) =>
-                  source.enabled &&
-                  (_sourceIds == null || _sourceIds!.contains(source.id)),
-            )
-            .length;
-        final result = await AggregateSearch.run(
+        await AggregateSearch.run(
           sources: sources,
           sourceIds: _sourceIds,
-          keyword: SearchSettings.instance.prepare(widget.keyword),
+          keyword: SearchSettings.instance.prepare(_keyword),
           open: (sourceId) => _manager.open(sourceId),
+          onProgress: (progress) {
+            if (!mounted || seq != _seq) return;
+            setState(() {
+              _hits = progress.hits
+                  .where(
+                    (hit) => SearchSettings.instance.accepts(
+                      hit.item.title,
+                      _keyword,
+                    ),
+                  )
+                  .toList();
+              _aggregateSites = progress.sources;
+              _completedSourceIds = progress.completedSourceIds;
+              _failedSourceIds = progress.failedSourceIds;
+              _aggregateFailed = progress.failed;
+              _aggregateSiteCount = progress.total;
+              _aggregateCompleted = progress.completed;
+              _loading = progress.completed < progress.total;
+            });
+          },
         );
-        if (!mounted || seq != _seq) return;
-        final names = <String, String>{
-          for (final descriptor in sources) descriptor.id: descriptor.name,
-        };
-        setState(() {
-          _sourceNames
-            ..clear()
-            ..addAll(names);
-          _hits = result.hits
-              .where(
-                (hit) => SearchSettings.instance.accepts(
-                  hit.item.title,
-                  widget.keyword,
-                ),
-              )
-              .toList();
-          _aggregateFailed = result.failed;
-          _aggregateSiteCount = siteCount;
-          _loading = false;
-        });
         return;
       }
 
       // 当前源搜索：与浏览页同一套 list(keyword:)。
-      final sourceId = widget.sourceId ?? (await _manager.current())?.id;
+      final sourceId =
+          widget.sourceId ??
+          _resolvedSourceId ??
+          (await _manager.current())?.id;
       final DataSource? source = sourceId == null
           ? null
           : await _manager.open(sourceId);
@@ -186,21 +197,23 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         return;
       }
       final result = await source.list(
-        keyword: SearchSettings.instance.prepare(widget.keyword),
+        keyword: SearchSettings.instance.prepare(_keyword),
         page: 1,
       );
       if (!mounted || seq != _seq) return;
       setState(() {
-        _sourceNames[source.id] = source.name;
+        _resolvedSourceId = sourceId;
+        _sourceNames[sourceId!] = source.name;
         _items = result.items
             .where(
-              (item) =>
-                  SearchSettings.instance.accepts(item.title, widget.keyword),
+              (item) => SearchSettings.instance.accepts(item.title, _keyword),
             )
             .toList();
         _hasMore = result.hasMore;
         _loading = false;
       });
+    } on NetworkCancelled {
+      rethrow;
     } catch (error, stackTrace) {
       if (error is! SourceException) {
         LumeLog.error(error, stackTrace);
@@ -213,6 +226,28 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         _failure = error;
       });
     }
+  }
+
+  Future<void> _editKeyword() async {
+    final library = await ReadingLibrary.open(widget.section);
+    if (!mounted) return;
+    final query = await showDialog<String>(
+      context: context,
+      builder: (_) => SourceSearchDialog(
+        source: null,
+        library: library,
+        initialQuery: _keyword,
+        title: widget.mode.label,
+      ),
+    );
+    if (!mounted ||
+        query == null ||
+        query.trim().isEmpty ||
+        query.trim() == _keyword) {
+      return;
+    }
+    _keyword = query.trim();
+    await _run();
   }
 
   Future<void> _chooseSources() async {
@@ -243,6 +278,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   /// 翻页（只有当前源搜索有下一页；聚合搜索一次问全）。
   Future<void> _loadMore() async {
     try {
+      if (_loading || _loadingMore || !_hasMore) return;
       await networkRequests.run('more', _loadMoreOwned);
     } on NetworkCancelled {
       // A superseded search no longer needs its next page.
@@ -250,35 +286,43 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   }
 
   Future<void> _loadMoreOwned() async {
-    if (_loadingMore || !_hasMore || widget.mode == SearchMode.aggregate) {
+    if (_loading ||
+        _loadingMore ||
+        !_hasMore ||
+        widget.mode == SearchMode.aggregate) {
       return;
     }
-    final sourceId = widget.sourceId ?? (await _manager.current())?.id;
+    final sourceId = _resolvedSourceId;
     if (sourceId == null) return;
     setState(() => _loadingMore = true);
     final seq = _seq;
     try {
       final source = await _manager.open(sourceId);
       final result = await source?.list(
-        keyword: SearchSettings.instance.prepare(widget.keyword),
+        keyword: SearchSettings.instance.prepare(_keyword),
         page: _page + 1,
       );
-      if (!mounted || seq != _seq || result == null) {
-        if (mounted) setState(() => _loadingMore = false);
+      if (!mounted || seq != _seq) return;
+      if (result == null) {
+        setState(() => _loadingMore = false);
         return;
       }
       setState(() {
         _page++;
         _hasMore = result.hasMore;
         _loadingMore = false;
+        final seen = _items.map((item) => item.id).toSet();
         _items = <SourceItem>[
           ..._items,
           ...result.items.where(
             (item) =>
-                SearchSettings.instance.accepts(item.title, widget.keyword),
+                SearchSettings.instance.accepts(item.title, _keyword) &&
+                seen.add(item.id),
           ),
         ];
       });
+    } on NetworkCancelled {
+      rethrow;
     } catch (error) {
       LumeLog.warn('[${widget.section.id}] 搜索翻页失败: $error');
       if (!mounted || seq != _seq) return;
@@ -294,15 +338,17 @@ class _SearchResultsPageState extends State<SearchResultsPage>
       widget.mode == SearchMode.aggregate ? _hits.length : _items.length;
 
   /// 条目 +（聚合时）它来自哪个源。
-  List<({SourceItem item, String? sourceName})> get _rows {
+  List<({SourceItem item, String? sourceName, String? sourceId})> get _rows {
     if (widget.mode == SearchMode.aggregate) {
-      return <({SourceItem item, String? sourceName})>[
-        for (final hit in _hits) (item: hit.item, sourceName: hit.sourceName),
+      return <({SourceItem item, String? sourceName, String? sourceId})>[
+        for (final hit in _hits)
+          (item: hit.item, sourceName: hit.sourceName, sourceId: hit.sourceId),
       ];
     }
     final name = _sourceNames.values.isEmpty ? null : _sourceNames.values.first;
-    return <({SourceItem item, String? sourceName})>[
-      for (final item in _items) (item: item, sourceName: name),
+    return <({SourceItem item, String? sourceName, String? sourceId})>[
+      for (final item in _items)
+        (item: item, sourceName: name, sourceId: _resolvedSourceId),
     ];
   }
 
@@ -331,17 +377,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
     return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 
-  void _open(SourceItem item, String? sourceName) {
-    // 条目所属源：聚合搜索优先用它带的来源名反查 id，当前源搜索直接用当前源。
-    var sourceId = widget.sourceId;
-    if (widget.mode == SearchMode.aggregate) {
-      for (final hit in _hits) {
-        if (identical(hit.item, item) || hit.item.id == item.id) {
-          sourceId = hit.sourceId;
-          break;
-        }
-      }
-    }
+  void _open(SourceItem item, String? sourceId) {
     if (sourceId == null) return;
     widget.onOpenItem(ExploreSelection(sourceId: sourceId, item: item));
   }
@@ -377,7 +413,9 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         child: Padding(
           padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
           child: SizedBox(
-            height: kToolbarHeight,
+            height:
+                kToolbarHeight *
+                MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
             child: Row(
               children: <Widget>[
                 IconButton(
@@ -389,29 +427,49 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '搜索 · ${widget.keyword}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: LumeTypography.sectionTitleSize,
-                          fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
-                        ),
+                  child: Tooltip(
+                    message: '修改关键词',
+                    child: InkWell(
+                      onTap: _editKeyword,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '搜索 · $_keyword',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: LumeTypography.sectionTitleSize,
+                                    fontWeight: FontWeight.w600,
+                                    color: LumeTheme.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.edit_outlined, size: 16),
+                            ],
+                          ),
+                          Text(
+                            _loading
+                                ? (widget.mode == SearchMode.aggregate
+                                      ? '正在搜索 $_aggregateCompleted/$_aggregateSiteCount 个站点 · $_count 条'
+                                      : '正在搜索…')
+                                : '${widget.mode.label} · $_count 条',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: LumeTypography.descriptionSize,
+                              color: LumeTheme.descriptionColor,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        _loading ? '正在搜索…' : '${widget.mode.label} · $_count 条',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: LumeTypography.descriptionSize,
-                          color: LumeTheme.descriptionColor,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 if (widget.mode == SearchMode.aggregate)
@@ -436,7 +494,9 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   }
 
   Widget _buildBody() {
-    if (_loading) return const SourceStateView(state: SourceStateKind.loading);
+    if (_loading && _count == 0 && widget.mode == SearchMode.single) {
+      return const SourceStateView(state: SourceStateKind.loading);
+    }
     final failure = _failure;
     if (failure != null) {
       final detail = failure is SourceException ? failure.message : '$failure';
@@ -444,6 +504,20 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         state: stateForError(failure),
         detail: detail,
         onRetry: _run,
+      );
+    }
+    if (widget.mode == SearchMode.aggregate &&
+        (_loading || _aggregateSites.isNotEmpty)) {
+      return AggregateSearchResults(
+        section: widget.section,
+        hits: _hits,
+        sites: _aggregateSites,
+        completed: _completedSourceIds,
+        failed: _failedSourceIds,
+        loading: _loading,
+        pipeline: widget.pipeline,
+        onOpen: (hit) => _open(hit.item, hit.sourceId),
+        onRetry: () => unawaited(_run()),
       );
     }
     if (_count == 0) {
@@ -457,7 +531,24 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         onRetry: _run,
       );
     }
-    return _mode == BrowseLayoutMode.list ? _buildList() : _buildGrid();
+    return Column(
+      children: [
+        if (_loading)
+          LinearProgressIndicator(
+            value: _aggregateSiteCount == 0
+                ? null
+                : _aggregateCompleted / _aggregateSiteCount,
+          ),
+        if (_aggregateFailed > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text('$_aggregateFailed 个源未取得结果，其他来源正常显示'),
+          ),
+        Expanded(
+          child: _mode == BrowseLayoutMode.list ? _buildList() : _buildGrid(),
+        ),
+      ],
+    );
   }
 
   /// 布局档：与探索页同一套偏好（用户选过的按板块记住）。
@@ -508,7 +599,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                   item: row.item,
                   pipeline: widget.pipeline,
                   meta: _metaOf(row.item, row.sourceName),
-                  onTap: () => _open(row.item, row.sourceName),
+                  onTap: () => _open(row.item, row.sourceId),
                 );
               },
             ),
@@ -533,7 +624,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
           final row = rows[index];
           return GlassCard(
             padding: const EdgeInsets.all(10),
-            onTap: () => _open(row.item, row.sourceName),
+            onTap: () => _open(row.item, row.sourceId),
             child: Row(
               children: <Widget>[
                 SizedBox(
@@ -594,7 +685,9 @@ class _SearchResultsPageState extends State<SearchResultsPage>
     final text = _loadingMore
         ? '正在加载…'
         : count != null
-        ? (_aggregateFailed == 0
+        ? (_loading
+              ? '正在搜索 $_aggregateCompleted/$_aggregateSiteCount 个站点 · 已找到 $count 条'
+              : _aggregateFailed == 0
               ? '共 $count 条'
               : '共 $count 条（$_aggregateFailed 个源没取到）')
         : null;

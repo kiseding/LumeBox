@@ -15,10 +15,12 @@ class SourceSearchDialog extends StatefulWidget {
     required this.source,
     required this.library,
     required this.initialQuery,
+    this.title,
   });
   final DataSource? source;
   final ReadingLibrary library;
   final String initialQuery;
+  final String? title;
   @override
   State<SourceSearchDialog> createState() => _SourceSearchDialogState();
 }
@@ -52,8 +54,13 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
     networkRequests.cancelAll();
     final token = ++revision;
     final query = value.trim();
-    setState(() => suggestions = query.isEmpty ? history.load() : []);
-    if (query.isEmpty) return;
+    setState(
+      () => suggestions = SearchSuggestions(
+        source: widget.source,
+        history: history.load(),
+      ).localForKeyword(query),
+    );
+    if (query.isEmpty || widget.source is! SuggestCapable) return;
     timer = Timer(const Duration(milliseconds: 300), () async {
       List<String> found;
       try {
@@ -61,7 +68,7 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
           'suggestions',
           () => SearchSuggestions(
             source: widget.source,
-            history: const [],
+            history: history.load(),
           ).forKeyword(query),
         );
       } on NetworkCancelled {
@@ -106,7 +113,7 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text('搜索 · ${widget.source?.name ?? '当前站点'}'),
+    title: Text(widget.title ?? '搜索 · ${widget.source?.name ?? '当前站点'}'),
     content: SizedBox(
       width: 320,
       child: Column(
@@ -120,6 +127,7 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
             onSubmitted: submit,
             onTapOutside: (_) {
               timer?.cancel();
+              networkRequests.cancelAll();
               revision++;
               setState(() => suggestions = []);
               FocusScope.of(context).unfocus();
