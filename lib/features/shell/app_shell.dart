@@ -1,3 +1,4 @@
+import '../../core/net/lume_net.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -148,6 +149,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   double _handleDrag = 0;
   Timer? _backgroundWarmTimer;
   Timer? _subscriptionTimer;
+  Timer? _subscriptionStartupTimer;
   int _seenSubscriptionChanges = 0;
   bool _foreground = true;
   final _backgroundWarmed = <String>{};
@@ -260,7 +262,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           .addListener(_onSubscriptionChanges);
     }
     _startSubscriptionMonitor();
-    _syncSubscriptions();
+    _scheduleSubscriptionSync();
     _scheduleBackgroundWarm();
     _shellSettings.addListener(_onShellSettingsChanged);
     // 装上「自动过 WAF 校验」的钩子（用户口径 2 / 3 / 4）：脚本抛
@@ -302,6 +304,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void dispose() {
     _controller.removeListener(_onDockVisibilityChanged);
     _subscriptionTimer?.cancel();
+    _subscriptionStartupTimer?.cancel();
     for (final section in Section.values) {
       SourceSubscriptionSync.changeCount(section)
           .removeListener(_onSubscriptionChanges);
@@ -317,6 +320,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (mounted && _controller.visible && _scrollCollapsed) {
       setState(() => _scrollCollapsed = false);
     }
+  }
+
+  void _scheduleSubscriptionSync() {
+    _subscriptionStartupTimer?.cancel();
+    _subscriptionStartupTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _foreground) _syncSubscriptions();
+    });
   }
 
   void _syncSubscriptions({bool force = false}) {
@@ -361,12 +371,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
     if (_foreground) {
-      _syncSubscriptions();
+      _scheduleSubscriptionSync();
       _startSubscriptionMonitor();
       _backgroundWarmed.clear();
       _scheduleBackgroundWarm();
     } else {
       _subscriptionTimer?.cancel();
+      _subscriptionStartupTimer?.cancel();
       _backgroundWarmTimer?.cancel();
     }
   }
@@ -468,7 +479,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Future<void> _warmNext() async {
     if (!mounted || !_foreground || _backgroundWarming) return;
-    if (!_controller.visible || ModalRoute.of(context)?.isCurrent == false) {
+    if (!_controller.visible ||
+        ModalRoute.of(context)?.isCurrent == false ||
+        LumeNet.queue.activeGlobal > 0) {
       _scheduleBackgroundWarm();
       return;
     }

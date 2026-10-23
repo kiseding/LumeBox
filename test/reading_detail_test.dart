@@ -1,6 +1,7 @@
 import 'package:lume_box/core/media/media_library.dart';
 
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/comic/comic_detail_page.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
+import 'package:lume_box/shared/widgets/chapter_tile.dart';
 
 import 'support/fake_reading_source.dart';
 import 'support/fake_source_manager.dart';
@@ -75,6 +77,37 @@ void main() {
     itemId: 'item-1',
     title: '测试漫画',
   );
+
+  testWidgets('漫画元信息先显示，慢目录不阻塞标题简介且不误报空目录', (tester) async {
+    final source = _SlowChapters();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(id: 'a', name: '测试源', version: '1', enabled: true),
+      ],
+      opened: {'a': source},
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: ComicDetailPage(
+          library: comicLibrary,
+          manager: manager,
+          target: comicTarget,
+          runtimeAvailable: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('元信息先返回'), findsWidgets);
+    expect(find.textContaining('目录还在请求'), findsOneWidget);
+    expect(find.text('正在加载目录…'), findsOneWidget);
+    expect(find.text(kNoChaptersHint), findsNothing);
+    source.gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('共 1 章'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('漫画详情：元信息、章节列表与倒序切换', (tester) async {
     await pump(
@@ -189,18 +222,17 @@ void main() {
     final progress = comicLibrary.comicProgress('item-1')!;
     expect(progress.chapterIndex, 1);
   });
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+class _SlowChapters extends FakeReadingDataSource {
+  _SlowChapters() : super(section: Section.comic, chapterCount: 1);
+  final gate = Completer<void>();
+  @override
+  Future<SourceDetail?> detail(String itemId) async =>
+      SourceDetail(id: itemId, title: '元信息先返回', description: '目录还在请求，简介已经可读');
+  @override
+  Future<List<SourceChapter>> chapters(String itemId) async {
+    await gate.future;
+    return super.chapters(itemId);
+  }
 }

@@ -73,6 +73,8 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   List<SourceChapter> _chapters = const <SourceChapter>[];
   ReadingProgress? _progress;
   bool _loading = true;
+  bool _chaptersLoading = false;
+  int _loadRevision = 0;
   String? _failure;
 
   /// 章节列表是否倒序展示。
@@ -107,27 +109,34 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   }
 
   Future<void> _load() async {
+    final revision = ++_loadRevision;
+    networkRequests.cancelAll();
     setState(() {
       _loading = true;
+      _chaptersLoading = false;
       _failure = null;
     });
     try {
-      final descriptors = await widget.manager.list();
+      final (descriptors, source) = await (
+        widget.manager.list(),
+        widget.manager.open(widget.target.sourceId),
+      ).wait;
+      if (!mounted || revision != _loadRevision) return;
       _sourceNetwork =
           descriptors
               .where((source) => source.id == widget.target.sourceId)
               .firstOrNull
               ?.network ??
           NetworkProfile.none;
-      final source = await widget.manager.open(widget.target.sourceId);
       _pipeline.bindSource(source);
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么
       // （源站上了 Cloudflare 校验而图片请求不带 cf_clearance 时，封面就是一片空白）。
       if (source != null) _pipeline.bindSession(source.section, source.id);
-      if (!mounted) return;
+      if (!mounted || revision != _loadRevision) return;
       if (source == null) {
         setState(() {
           _loading = false;
+          _chaptersLoading = false;
           _failure = '源不可用（已停用或脚本载入失败），去探索页的源管理里检查';
         });
         return;
@@ -136,11 +145,23 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         'detail',
         () => source.detail(widget.target.itemId),
       );
+      if (!mounted || revision != _loadRevision) return;
+      if (detail?.cover != null) {
+        _pipeline.configureImageHeaders({detail!.cover!: detail.coverHeaders});
+      }
+      setState(() {
+        _source = source;
+        _detail = detail;
+        _loading = false;
+        _chaptersLoading = true;
+        _onShelf = widget.library.onShelf(widget.target.itemId);
+        _progress = widget.library.progress(widget.target.itemId);
+      });
       final chapters = await networkRequests.run(
         'chapters',
         () => source.chapters(widget.target.itemId),
       );
-      if (!mounted) return;
+      if (!mounted || revision != _loadRevision) return;
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么。
       _pipeline.bindSession(source.section, source.id);
       if (detail?.cover != null) {
@@ -151,6 +172,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _detail = detail;
         _chapters = chapters;
         _loading = false;
+        _chaptersLoading = false;
         _onShelf = widget.library.onShelf(widget.target.itemId);
         _progress = widget.library.progress(widget.target.itemId);
       });
@@ -170,16 +192,18 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       }
     } on SourceException catch (error) {
       LumeLog.warn('[${widget.target.itemId}] 详情获取失败: $error');
-      if (!mounted) return;
+      if (!mounted || revision != _loadRevision) return;
       setState(() {
         _loading = false;
+        _chaptersLoading = false;
         _failure = error.message;
       });
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
-      if (!mounted) return;
+      if (!mounted || revision != _loadRevision) return;
       setState(() {
         _loading = false;
+        _chaptersLoading = false;
         _failure = '$error';
       });
     }
@@ -348,7 +372,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     final corrected = order.automatic ? order.indexes(_chapters) : null;
     if (_loading) return const SourceStateView(state: SourceStateKind.loading);
     final failure = _failure;
-    if (failure != null && _chapters.isEmpty) {
+    if (failure != null && _detail == null && _chapters.isEmpty) {
       return SourceStateView(
         state: SourceStateKind.scriptError,
         detail: failure,
@@ -361,7 +385,22 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         SliverToBoxAdapter(child: _buildDescription()),
         SliverToBoxAdapter(child: _buildChapterHeader()),
         SliverToBoxAdapter(child: _buildDownloadCard()),
-        if (_chapters.isEmpty)
+        if (_chaptersLoading)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: LinearProgressIndicator(),
+            ),
+          )
+        else if (_failure != null)
+          SliverToBoxAdapter(
+            child: SourceStateView(
+              state: SourceStateKind.networkError,
+              detail: _failure,
+              onRetry: _load,
+            ),
+          )
+        else if (_chapters.isEmpty)
           const SliverToBoxAdapter(
             child: SizedBox(
               height: 160,
@@ -463,7 +502,9 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                           ),
                         const SizedBox(height: 8),
                         Text(
-                          '共 ${_chapters.length} 章',
+                          _chaptersLoading
+                              ? '正在加载目录…'
+                              : '共 ${_chapters.length} 章',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: LumeTypography.descriptionSize,
@@ -587,7 +628,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       child: Row(
         children: <Widget>[
           Text(
-            '章节（${_chapters.length}）',
+            _chaptersLoading ? '章节加载中…' : '章节（${_chapters.length}）',
             style: TextStyle(
               fontSize: LumeTypography.titleSize,
               fontWeight: FontWeight.w600,

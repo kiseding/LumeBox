@@ -129,6 +129,17 @@ class JsDataSource
     return value;
   }
 
+  Future<Set<String>>? _contract;
+  Future<Set<String>> _contractMethods() {
+    return _contract ??= runtime.contractMethods().catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      _contract = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+  }
+
   /// 脚本是否真的实现了 `home()`（探测一次、缓存住）。
   bool? _hasHome;
 
@@ -136,7 +147,7 @@ class JsDataSource
   Future<bool> supportsHome() async {
     final cached = _hasHome;
     if (cached != null) return cached;
-    final methods = await runtime.contractMethods();
+    final methods = await _contractMethods();
     final has = methods.contains(JsSourceContract.home);
     _hasHome = has;
     return has;
@@ -155,7 +166,7 @@ class JsDataSource
   Future<bool> supportsFilters() async {
     final cached = _hasFilters;
     if (cached != null) return cached;
-    final methods = await runtime.contractMethods();
+    final methods = await _contractMethods();
     final has = methods.contains(JsSourceContract.filters);
     _hasFilters = has;
     return has;

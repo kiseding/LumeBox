@@ -137,7 +137,11 @@ class _SourceHomeViewState extends State<SourceHomeView>
     }
     try {
       if (force) SectionPreloader.discard(source.section);
-      await SectionPreloader.waitForWarm(source.section);
+      await SectionPreloader.waitForWarm(
+        source.section,
+        sourceId: source.id,
+        home: true,
+      );
       if (!mounted || seq != _seq) return;
       final home =
           SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
@@ -186,7 +190,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
         : home.items;
     final urls = <String>[];
     for (final item in items) {
-      if (urls.length >= 12) break;
+      if (urls.length >= 4) break;
       final cover = (item.cover ?? '').trim();
       if (cover.isNotEmpty) {
         pipeline.configureImageHeaders({cover: item.coverHeaders});

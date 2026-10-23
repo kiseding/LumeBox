@@ -338,18 +338,58 @@ class SectionImagePipeline {
     return _download(upgradeToHttps(normalizeTransform(trimmed)));
   }
 
+  final _preloadQueue = Queue<({String url, int? width, String cacheKey})>();
+  final _preloadKeys = <String>{};
+  var _activePreloads = 0;
+
   /// 预加载一批图片（阅读器前后 N 张）。结果只进缓存，不返回给调用方。
   /// 预加载失败只记日志：它属于「提前准备」，不该打断阅读。
   void preload(Iterable<String> urls, {int? targetWidth}) {
-    for (final url in urls) {
-      unawaited(_preloadOne(url, targetWidth));
+    if (_disposed) return;
+    for (final raw in urls) {
+      final url = raw.trim();
+      final cacheKey = key(url, targetWidth);
+      if (url.isEmpty ||
+          _memory.get(cacheKey) != null ||
+          !_preloadKeys.add(cacheKey)) {
+        continue;
+      }
+      _preloadQueue.add((url: url, width: targetWidth, cacheKey: cacheKey));
+    }
+    _drainPreloads();
+  }
+
+  void _drainPreloads() {
+    // Background work reserves room for images that just became visible.
+    final limit = (maxConcurrent - 1).clamp(1, 2);
+    while (!_disposed && _activePreloads < limit && _preloadQueue.isNotEmpty) {
+      final next = _preloadQueue.removeFirst();
+      _activePreloads++;
+      unawaited(
+        _preloadOne(next.url, next.width)
+            .catchError((Object error) {
+              if (!_disposed) LumeLog.info('预加载失败: $error');
+            })
+            .whenComplete(() {
+              _preloadKeys.remove(next.cacheKey);
+              _activePreloads--;
+              _drainPreloads();
+            }),
+      );
     }
   }
 
   /// 声明预加载窗口：窗口内的图钉住不回收；窗口外的图在无引用时立刻回收，
   /// 或随预算被 LRU 淘汰。滑动时每次窗口变化调用它即可。
-  void retain(Iterable<String> urls, {int? targetWidth}) =>
-      _memory.retain(urls.map((url) => key(url.trim(), targetWidth)).toSet());
+  void retain(Iterable<String> urls, {int? targetWidth}) {
+    final retained = urls.map((url) => key(url.trim(), targetWidth)).toSet();
+    _memory.retain(retained);
+    _preloadQueue.removeWhere((entry) {
+      if (retained.contains(entry.cacheKey)) return false;
+      _preloadKeys.remove(entry.cacheKey);
+      return true;
+    });
+  }
 
   /// 登记一次展示引用（widget 挂载时调用）。
   void acquire(String url, {int? targetWidth}) =>
@@ -363,6 +403,8 @@ class SectionImagePipeline {
 
   /// 关闭客户端、取消在飞请求、清空内存缓存并拒绝后续调用。可重复调用。
   void dispose() {
+    _preloadQueue.clear();
+    _preloadKeys.clear();
     _requestLifetime.cancel();
     if (_disposed) return;
     _disposed = true;

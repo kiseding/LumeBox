@@ -765,13 +765,21 @@ class _ExploreViewState extends State<ExploreView>
       // 预热命中：直接吃切页签时提前取好的第一页（省掉一次网络往返）。
       final warmSeq = _requestSeq;
       _pendingPage = page;
-      await SectionPreloader.waitForWarm(widget.section);
+      if (_categoryId == null && _facetFilters.isEmpty) {
+        await SectionPreloader.waitForWarm(
+          widget.section,
+          sourceId: source.id,
+          home: false,
+        );
+      }
       if (!mounted || warmSeq != _requestSeq) return;
-      final warm = SectionPreloader.takeWarmPage(
-        widget.section,
-        sourceId: source.id,
-        categoryId: _categoryId,
-      );
+      final warm = _facetFilters.isNotEmpty
+          ? null
+          : SectionPreloader.takeWarmPage(
+              widget.section,
+              sourceId: source.id,
+              categoryId: _categoryId,
+            );
       if (warm != null) {
         setState(() {
           _page = 1;

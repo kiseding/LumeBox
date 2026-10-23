@@ -1,3 +1,6 @@
+import 'dart:ui' as ui;
+
+import '../../core/theme/cover_palette.dart';
 import '../../shared/widgets/source_translation.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
@@ -111,6 +114,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       final source = widget.source ?? await widget.loadSource?.call();
       if (source == null) throw StateError('源不可用（未启用或脚本加载失败）');
       _source = source;
+      pipeline.bindSource(source);
+      pipeline.bindSession(source.section, source.id);
       final direct = SourcePlayback.itemAddress(widget.item.id);
       SourceDetail? metadata;
       try {
@@ -120,7 +125,13 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       }
       NetworkCancellation.current?.check();
       if (!mounted) return;
-      detail = metadata;
+      final cover = metadata?.cover ?? widget.item.cover;
+      if (cover != null) {
+        pipeline.configureImageHeaders({
+          cover: metadata?.coverHeaders ?? widget.item.coverHeaders,
+        });
+      }
+      setState(() => detail = metadata);
       unawaited(updatePalette());
       final episodes = direct == null
           ? await source.chapters(widget.item.id)
@@ -290,19 +301,23 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     final cover = sourceCover;
     if (cover == null || cover.isEmpty) return;
     try {
-      final scheme = await ColorScheme.fromImageProvider(
-        provider: NetworkImage(
-          cover,
-          headers: detail?.coverHeaders ?? widget.item.coverHeaders,
-        ),
-      );
+      final sample = await pipeline.colorSample(cover);
+      if (sample == null) return;
+      Color? color;
+      try {
+        final pixels = await sample.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        );
+        if (pixels != null) {
+          color = dominantCoverColor(pixels.buffer.asUint8List());
+        }
+      } finally {
+        sample.dispose();
+      }
+      if (color == null || cover != sourceCover) return;
       if (mounted) {
         setState(
-          () => _pageColor = Color.lerp(
-            scheme.primary,
-            const Color(0xffa87996),
-            .45,
-          )!,
+          () => _pageColor = Color.lerp(color, const Color(0xffa87996), .45)!,
         );
       }
     } catch (_) {

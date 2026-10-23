@@ -14,6 +14,7 @@ class SectionPreloader {
   static final _tasks = <Section, Future<void>>{};
   static final _generation = <Section, int>{};
   static final _requests = NetworkRequestOwner();
+  static final _targets = <Section, Completer<({String id, bool home})?>>{};
 
   static Future<void> warm(
     Section section, {
@@ -23,11 +24,13 @@ class SectionPreloader {
     final existing = _tasks[section];
     if (existing != null) return existing;
     final generation = _generation[section] ?? 0;
+    final target = Completer<({String id, bool home})?>();
+    _targets[section] = target;
     late Future<void> task;
     task = _requests
         .run(
           section.id,
-          () => _perform(section, manager, openLibrary, generation),
+          () => _perform(section, manager, openLibrary, generation, target),
           timeout: const Duration(seconds: 12),
         )
         .catchError((Object error) {
@@ -36,6 +39,8 @@ class SectionPreloader {
           }
         })
         .whenComplete(() {
+          if (!target.isCompleted) target.complete(null);
+          if (identical(_targets[section], target)) _targets.remove(section);
           if (identical(_tasks[section], task)) _tasks.remove(section);
         });
     _tasks[section] = task;
@@ -47,6 +52,7 @@ class SectionPreloader {
     SourceManager? manager,
     Future<void> Function()? openLibrary,
     int generation,
+    Completer<({String id, bool home})?> target,
   ) async {
     final token = NetworkCancellation.current;
     try {
@@ -63,8 +69,13 @@ class SectionPreloader {
       if (source == null) return;
       SourceHome? home;
       SourceList? list;
-      if (source is HomeCapable &&
-          await (source as HomeCapable).supportsHome()) {
+      final homeSupported =
+          source is HomeCapable && await (source as HomeCapable).supportsHome();
+      token?.check();
+      if (!target.isCompleted) {
+        target.complete((id: source.id, home: homeSupported));
+      }
+      if (homeSupported) {
         token?.check();
         home = await (source as HomeCapable).home();
       } else {
@@ -81,10 +92,25 @@ class SectionPreloader {
     }
   }
 
-  static Future<void> waitForWarm(Section section) async {
+  static Future<void> waitForWarm(
+    Section section, {
+    String? sourceId,
+    bool? home,
+  }) async {
     final task = _tasks[section];
     if (task != null) {
-      await task.timeout(const Duration(seconds: 3), onTimeout: () {});
+      final target = _targets[section];
+      await (() async {
+        final destination = await target?.future;
+        if (destination != null &&
+            ((sourceId != null && destination.id != sourceId) ||
+                (home != null && destination.home != home))) {
+          // A foreground category page must not wait for an unrelated home request.
+          if (identical(_tasks[section], task)) discard(section);
+          return;
+        }
+        await task;
+      })().timeout(const Duration(seconds: 3), onTimeout: () {});
     }
   }
 

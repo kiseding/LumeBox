@@ -310,6 +310,34 @@ void main() {
     expect(SectionPreloader.hasWarm(Section.video), isFalse);
   });
 
+  test('分类页不等待首页预热，错模式任务立即取消', () async {
+    final source = _SlowHomeSource();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'warm-source',
+          name: '源',
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {'warm-source': source},
+    );
+    final warm = SectionPreloader.warm(Section.video, manager: manager);
+    await source.started.future;
+    await SectionPreloader.waitForWarm(
+      Section.video,
+      sourceId: 'warm-source',
+      home: false,
+    ).timeout(const Duration(milliseconds: 500));
+    await warm;
+    expect(source.token!.isCancelled, isTrue);
+    expect(source.gate.isCompleted, isFalse);
+    source.gate.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(SectionPreloader.hasWarm(Section.video), isFalse);
+  });
+
   group('切板块预加载', () {
     test('预热结果能被子页面取走（同一源 / 分类 / 关键词才算命中）', () async {
       final source = _WarmSource();
@@ -475,5 +503,18 @@ class _DelayedWarmSource extends _WarmSource {
   }) async {
     await gate.future;
     return super.list(page: page);
+  }
+}
+
+class _SlowHomeSource extends _WarmHomeSource {
+  final started = Completer<void>();
+  final gate = Completer<void>();
+  NetworkCancellation? token;
+  @override
+  Future<SourceHome> home() async {
+    token = NetworkCancellation.current;
+    started.complete();
+    await gate.future;
+    return super.home();
   }
 }
