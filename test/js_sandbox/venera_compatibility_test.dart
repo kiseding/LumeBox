@@ -114,7 +114,10 @@ class FacetFixture extends ComicSource {
   }, skip: skip);
 
   test('官方 comic 对象与图片钩子保留封面和章节的独立请求头', () async {
-    final engine = await openEngine(sourceId: 'venera-image-headers', section: Section.comic, script: r'''
+    final engine = await openEngine(
+      sourceId: 'venera-image-headers',
+      section: Section.comic,
+      script: r'''
 class ImageFixture extends ComicSource {
   key = 'image-fixture'; name = 'Images'; version = '1';
   explore = [{title:'推荐', load:async()=>({comics:[new Comic({id:'1',title:'作品',cover:'https://img.example/cover.jpg'})]})}];
@@ -125,21 +128,31 @@ class ImageFixture extends ComicSource {
     onImageLoad: (url,id,ep)=>new ImageLoadingConfig({url:url,headers:{Referer:'https://site.example/'+id+'/'+ep,Cookie:'image=ok'}})
   };
 }
-''');
+''',
+    );
     addTearDown(engine.dispose);
     final list = await engine.callResult('list');
     expect(list.isOk, true, reason: list.error?.message);
     final item = (((list.value as Map)['items'] as List).first as Map);
     expect((item['coverHeaders'] as Map)['Referer'], 'https://site.example/');
-    final detail = await engine.callResult('detail', {'id':'1'});
-    expect(detail.isOk,true,reason:detail.error?.message);
-    expect(((detail.value as Map)['coverHeaders'] as Map)['Referer'],'https://site.example/');
-    final content = await engine.callResult('content', {'id':'1','chapterId':'ep'});
-    expect(content.isOk,true,reason:content.error?.message);
-    final headers = ((content.value as Map)['imageHeaders'] as Map)['https://img.example/page.jpg'] as Map;
-    expect(headers['Referer'],'https://site.example/1/ep');
-    expect(headers['Cookie'],'image=ok');
-  },skip:skip);
+    final detail = await engine.callResult('detail', {'id': '1'});
+    expect(detail.isOk, true, reason: detail.error?.message);
+    expect(
+      ((detail.value as Map)['coverHeaders'] as Map)['Referer'],
+      'https://site.example/',
+    );
+    final content = await engine.callResult('content', {
+      'id': '1',
+      'chapterId': 'ep',
+    });
+    expect(content.isOk, true, reason: content.error?.message);
+    final headers =
+        ((content.value as Map)['imageHeaders']
+                as Map)['https://img.example/page.jpg']
+            as Map;
+    expect(headers['Referer'], 'https://site.example/1/ep');
+    expect(headers['Cookie'], 'image=ok');
+  }, skip: skip);
 
   test('Network.fetchBytes 保留非 UTF8 字节并支持官方方法签名', () async {
     final saved = HttpOverrides.current;
@@ -148,7 +161,13 @@ class ImageFixture extends ComicSource {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     server.listen((request) async {
-      request.response.add([0, 255, 128, 65]);
+      final bytes = await request.fold<List<int>>(
+        [],
+        (all, part) => all..addAll(part),
+      );
+      expect(bytes, [0, 255, 128, 65]);
+      expect(request.headers.value('referer'), 'https://comic.example/');
+      request.response.add(bytes);
       await request.response.close();
     });
     final url = 'http://127.0.0.1:${server.port}/image';
@@ -160,8 +179,10 @@ class ImageFixture extends ComicSource {
 class BytesFixture extends ComicSource {
   key = 'bytes-fixture'; name = 'Bytes'; version = '1';
   async probe() {
-    const result = await Network.fetchBytes('GET', '$url', {});
-    return {status: result.status, bytes: Convert.hexEncode(result.body)};
+    const bytes = new Uint8Array([77, 0, 255, 128, 65, 88]).subarray(1, 5);
+    const result = await Network.fetchBytes('POST', '$url', {'Referer':'https://comic.example/'}, bytes);
+    const posted = await Network.post('$url', {'Referer':'https://comic.example/'}, bytes);
+    return {status: result.status, bytes: Convert.hexEncode(result.body), binary: result.body instanceof ArrayBuffer, posted: posted.status};
   }
 }
 ''',
@@ -171,5 +192,7 @@ class BytesFixture extends ComicSource {
     expect(result.isOk, true, reason: result.error?.message);
     expect((result.value as Map)['status'], 200);
     expect((result.value as Map)['bytes'], '00ff8041');
+    expect((result.value as Map)['binary'], true);
+    expect((result.value as Map)['posted'], 200);
   }, skip: skip);
 }

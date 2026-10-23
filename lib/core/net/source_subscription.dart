@@ -7,6 +7,7 @@ import '../util/lume_log.dart';
 import '../util/md5.dart';
 import 'lume_http.dart';
 import '../source/source_package.dart';
+import '../source/kazumi_rule.dart';
 import '../source/source_bundle.dart';
 import '../js/module_script.dart';
 import '../js/rex_widget.dart';
@@ -142,6 +143,25 @@ class SourceSubscription {
       return const <SourceScriptRef>[];
     }
     final download = await fetch(url);
+    final kazumiIndex = KazumiRule.indexUrls(download.text, url);
+    if (kazumiIndex != null) {
+      final refs = <SourceScriptRef>[];
+      for (final item in kazumiIndex) {
+        if (refs.length >= budget) {
+          complete = false;
+          break;
+        }
+        try {
+          refs.addAll(
+            await scriptRefsAt(item, visited, remaining: budget - refs.length),
+          );
+        } catch (error) {
+          complete = false;
+          onSkip?.call(item, error);
+        }
+      }
+      return refs;
+    }
     if (RexCollection.matches(download.text)) {
       return _collection(
         RexCollection.parse(download.text, origin: url),

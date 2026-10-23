@@ -408,7 +408,11 @@ void main() {
         ..concurrency = 9
         ..colorizeEndpoint = 'https://image.example/v1/images/edits'
         ..colorizeModel = 'image-model'
-        ..colorizePrompt = 'colorize';
+        ..colorizePrompt = 'colorize'
+        ..serverTranslation = true
+        ..imageTranslationEndpoint = 'https://manga.example'
+        ..serverOcr = 'mocr'
+        ..serverTranslator = 'deepl';
       await settings.save();
       final reloaded = ComicImageToolsSettings();
       await reloaded.boot();
@@ -422,6 +426,10 @@ void main() {
       );
       expect(reloaded.colorizeModel, 'image-model');
       expect(reloaded.colorizePrompt, 'colorize');
+      expect(reloaded.serverTranslation, true);
+      expect(reloaded.imageTranslationEndpoint, 'https://manga.example');
+      expect(reloaded.serverOcr, 'mocr');
+      expect(reloaded.serverTranslator, 'deepl');
     },
   );
 
@@ -604,6 +612,40 @@ void main() {
     finishFirst.complete();
     await Future.wait([a, b]);
     expect(calls, 2);
+  });
+
+  testWidgets('服务器翻译设置适配 320pt 与大字号，日文识别选项可见', (tester) async {
+    final settings = ComicImageToolsSettings.instance;
+    final previous = settings.serverTranslation,
+        previousOcr = settings.serverOcr;
+    settings.serverTranslation = true;
+    settings.serverOcr = 'mocr';
+    addTearDown(() {
+      settings.serverTranslation = previous;
+      settings.serverOcr = previousOcr;
+    });
+    await tester.binding.setSurfaceSize(const Size(320, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: const ComicImageToolsSettingsPage(translation: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('服务器识别模型'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('日文漫画（manga-ocr）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('apply-to-page returns enhanced bytes when allowApply', (

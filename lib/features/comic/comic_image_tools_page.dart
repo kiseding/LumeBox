@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/reading/comic_image_tools.dart';
+import '../../core/reading/manga_translation_client.dart';
 import '../../core/reading/ocr_evaluation.dart';
 import '../../core/translation/text_translation.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -63,6 +64,9 @@ class ComicImageToolsSettingsPage extends StatefulWidget {
 class _SettingsState extends State<ComicImageToolsSettingsPage> {
   final settings = ComicImageToolsSettings.instance;
   late final endpoint = TextEditingController(text: settings.endpoint);
+  late final imageServer = TextEditingController(
+    text: settings.imageTranslationEndpoint,
+  );
   late final model = TextEditingController(text: settings.model);
   late final colorizeEndpoint = TextEditingController(
     text: settings.colorizeEndpoint,
@@ -79,6 +83,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   @override
   void dispose() {
     endpoint.dispose();
+    imageServer.dispose();
     model.dispose();
     colorizeEndpoint.dispose();
     colorizeModel.dispose();
@@ -242,21 +247,44 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     T value,
     Map<T, String> options,
     ValueChanged<T> changed,
-  ) => ListTile(
-    title: Text(title),
-    trailing: DropdownButton<T>(
-      value: value,
-      items: [
-        for (final entry in options.entries)
-          DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-      ],
-      onChanged: (v) {
-        if (v != null) {
-          setState(() => changed(v));
-          save();
-        }
-      },
-    ),
+  ) => LayoutBuilder(
+    builder: (context, constraints) {
+      final dropdown = DropdownButton<T>(
+        value: value,
+        isExpanded: true,
+        items: [
+          for (final entry in options.entries)
+            DropdownMenuItem(
+              value: entry.key,
+              child: Text(
+                entry.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (v) {
+          if (v != null) {
+            setState(() => changed(v));
+            save();
+          }
+        },
+      );
+      if (constraints.maxWidth < 420 ||
+          MediaQuery.textScalerOf(context).scale(14) > 18) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [Text(title), dropdown],
+          ),
+        );
+      }
+      return ListTile(
+        title: Text(title),
+        trailing: SizedBox(width: 230, child: dropdown),
+      );
+    },
   );
 
   @override
@@ -273,14 +301,61 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 ComicImageToolsSettings.languages,
                 (v) => settings.target = v,
               ),
-              choice('原文语言', settings.source, {
-                'auto': '自动识别',
-                ...ComicImageToolsSettings.languages,
-              }, (v) => settings.source = v),
-              choice('翻译方式', settings.ai, {
-                false: '设备端（免费）',
-                true: '自填 AI 接口',
-              }, (v) => settings.ai = v),
+              if (!settings.serverTranslation)
+                choice('原文语言', settings.source, {
+                  'auto': '自动识别',
+                  ...ComicImageToolsSettings.languages,
+                }, (v) => settings.source = v),
+              choice(
+                '翻译方式',
+                settings.serverTranslation
+                    ? 'server'
+                    : settings.ai
+                    ? 'ai'
+                    : 'device',
+                {'device': '设备端（免费）', 'ai': '自填 AI 接口', 'server': '漫画翻译服务器'},
+                (v) {
+                  settings.serverTranslation = v == 'server';
+                  settings.ai = v == 'ai';
+                },
+              ),
+              if (settings.serverTranslation) ...[
+                const SettingsFooterNote(
+                  '整张图片上传到你填写的 manga-image-translator 服务。服务器负责识别、翻译、擦字与排版；模型和翻译器密钥需预先在服务器配置。',
+                ),
+                TextField(
+                  controller: imageServer,
+                  decoration: const InputDecoration(
+                    labelText: '服务器地址',
+                    hintText: 'https://服务器地址 或完整 /translate/with-form/image 接口',
+                  ),
+                ),
+                choice('服务器识别模型', settings.serverOcr, {
+                  '48px': '通用漫画 OCR',
+                  'mocr': '日文漫画（manga-ocr）',
+                }, (v) => settings.serverOcr = v),
+                choice('服务器翻译器', settings.serverTranslator, {
+                  'chatgpt': 'ChatGPT',
+                  'deepl': 'DeepL',
+                  'youdao': '有道',
+                  'baidu': '百度',
+                  'sakura': 'Sakura',
+                }, (v) => settings.serverTranslator = v),
+                FilledButton(
+                  onPressed: () async {
+                    try {
+                      MangaTranslationClient.endpoint(imageServer.text);
+                      settings.imageTranslationEndpoint = imageServer.text
+                          .trim();
+                      await settings.save();
+                      if (mounted) setState(() => status = '图片翻译服务器配置已保存');
+                    } catch (error) {
+                      if (mounted) setState(() => status = '$error');
+                    }
+                  },
+                  child: const Text('保存图片翻译服务器'),
+                ),
+              ],
               const Padding(
                 padding: EdgeInsets.all(16),
                 child: Text(
@@ -295,7 +370,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('清理本机译文缓存'),
               ),
-              if (settings.ai) ...[
+              if (settings.ai && !settings.serverTranslation) ...[
                 TextField(
                   controller: endpoint,
                   decoration: const InputDecoration(
@@ -656,7 +731,20 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
       message = translate ? '正在识别并翻译…' : '正在分块超分…';
     });
     try {
-      if (translate) {
+      if (translate && tools.preferences.serverTranslation) {
+        final timer = Stopwatch()..start();
+        final result = await tools.translateImageOnServer(bytes);
+        if (mounted && current == generation) {
+          setState(() {
+            enhanced = result;
+            colorized = null;
+            regions = [];
+            message = '服务器已完成图片翻译，可切回原图对照';
+            measurement =
+                '服务器处理与传输 ${(timer.elapsedMilliseconds / 1000).toStringAsFixed(2)} 秒';
+          });
+        }
+      } else if (translate) {
         final result = await tools.translate(bytes);
         if (mounted && current == generation) {
           setState(() {

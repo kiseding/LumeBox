@@ -186,6 +186,56 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('被普通弹窗盖住时隐藏原生玻璃，关闭后复用平台视图', (tester) async {
+    final messenger = tester.binding.defaultBinaryMessenger;
+    var creations = 0;
+    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (
+      call,
+    ) async {
+      if (call.method == 'create') creations++;
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              const SizedBox(
+                width: 200,
+                height: 60,
+                child: FrostedGlassWidget(nativeGlass: true, child: Text('玻璃')),
+              ),
+              Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showGlassDialog<void>(
+                    context: context,
+                    builder: (_) => const AlertDialog(content: Text('输入表单')),
+                  ),
+                  child: const Text('打开'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsOneWidget);
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsNothing);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(UiKitView), findsOneWidget);
+    expect(creations, 1);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   test('修改任一玻璃效果开关保留降低透明度偏好', () {
     final settings = const DockLiquidSettings().withReduceTransparency(true);
     for (final effect in DockLiquidEffect.values) {

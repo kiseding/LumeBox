@@ -34,6 +34,49 @@ void main() {
         ),
       )
       .painter;
+  testWidgets('后台和隐藏页停止弹幕帧，恢复后继续绘制', (tester) async {
+    await tester.pumpWidget(view());
+    await tester.pump(const Duration(milliseconds: 100));
+    final before = painter(tester).position;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 1));
+    expect(painter(tester).position, before);
+    expect(tester.binding.transientCallbackCount, 0);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
+    await tester.pumpWidget(TickerMode(enabled: false, child: view()));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('没有当前弹幕的长空档不持续调度帧，进度更新到出现时恢复', (tester) async {
+    final future = DanmakuTrack.parse([
+      {'time': 30000, 'text': '稍后出现'},
+    ]);
+    Widget scene(Duration position) => MaterialApp(
+      home: SizedBox(
+        width: 400,
+        height: 240,
+        child: DanmakuOverlay(
+          position: position,
+          playing: true,
+          track: future,
+          settings: const DanmakuSettings(),
+        ),
+      ),
+    );
+    await tester.pumpWidget(scene(Duration.zero));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pumpWidget(scene(const Duration(seconds: 30)));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('逐帧推进且复用文字排版，清晰描边没有模糊阴影', (tester) async {
     await tester.pumpWidget(view());
     await tester.pump(const Duration(milliseconds: 16));

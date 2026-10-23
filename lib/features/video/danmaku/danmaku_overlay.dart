@@ -52,7 +52,7 @@ class DanmakuOverlay extends StatefulWidget {
 }
 
 class _DanmakuOverlayState extends State<DanmakuOverlay>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   /// 屏幕上的弹幕实例（含各自的出现时刻与轨道）。
   final List<_ActiveDanmaku> _active = <_ActiveDanmaku>[];
   final _repaint = ValueNotifier<int>(0);
@@ -71,8 +71,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   Duration _lastFrame = Duration.zero;
   Duration _renderPosition = Duration.zero;
   final _clock = PlaybackClock();
+  bool _foreground = true, _tickerMode = true;
   bool get _animate =>
-      widget.playing && widget.settings.enabled && !widget.track.isEmpty;
+      _foreground &&
+      _tickerMode &&
+      widget.playing &&
+      widget.settings.enabled &&
+      !widget.track.isEmpty;
   void _frame(Duration elapsed) {
     _elapsed = elapsed;
     if (widget.tickInterval > const Duration(milliseconds: 16) &&
@@ -83,11 +88,18 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     _onTick();
   }
 
+  bool get _needsFrames =>
+      _animate &&
+      (_active.isNotEmpty ||
+          (_cursor < widget.track.items.length &&
+              widget.track.items[_cursor].time <=
+                  _renderPosition + const Duration(milliseconds: 250)));
+
   void _syncTicker() {
-    if (_animate && !_ticker.isActive) {
+    if (_needsFrames && !_ticker.isActive) {
       _elapsed = _lastFrame = Duration.zero;
       _ticker.start();
-    } else if (!_animate && _ticker.isActive) {
+    } else if (!_needsFrames && _ticker.isActive) {
       _ticker.stop();
     }
   }
@@ -95,10 +107,27 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _ticker = createTicker(_frame);
     _renderPosition = widget.position;
     _syncTicker();
     _onTick();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _tickerMode = TickerMode.valuesOf(context).enabled;
+    _syncTicker();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _syncTicker();
   }
 
   @override
@@ -135,6 +164,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker.dispose();
     _repaint.dispose();
     _reset();
@@ -172,6 +202,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     final previousCount = _active.length;
     _expire(_renderPosition);
     _spawn(_renderPosition);
+    _syncTicker();
     if (mounted &&
         (_active.isNotEmpty || previousCount != _active.length || !_animate)) {
       _repaint.value++;

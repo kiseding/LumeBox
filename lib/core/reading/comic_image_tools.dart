@@ -11,6 +11,7 @@ import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:path_provider/path_provider.dart';
 
 import '../translation/text_translation.dart';
+import 'manga_translation_client.dart';
 
 class ComicTranslationReport {
   const ComicTranslationReport({
@@ -52,6 +53,10 @@ class ComicImageToolsSettings extends ChangeNotifier {
   String target = 'zh-Hans';
   String source = 'auto';
   bool ai = false;
+  bool serverTranslation = false;
+  String imageTranslationEndpoint = '';
+  String serverOcr = '48px';
+  String serverTranslator = 'chatgpt';
   String endpoint = '';
   String model = '';
   String colorizeEndpoint = '';
@@ -87,6 +92,19 @@ class ComicImageToolsSettings extends ChangeNotifier {
           ? data['source'] as String
           : 'auto';
       ai = data['ai'] == true;
+      serverTranslation = data['serverTranslation'] == true;
+      imageTranslationEndpoint = '${data['imageTranslationEndpoint'] ?? ''}';
+      serverOcr = data['serverOcr'] == 'mocr' ? 'mocr' : '48px';
+      serverTranslator =
+          [
+            'chatgpt',
+            'deepl',
+            'youdao',
+            'baidu',
+            'sakura',
+          ].contains(data['serverTranslator'])
+          ? data['serverTranslator'] as String
+          : 'chatgpt';
       endpoint = data['endpoint'] is String ? data['endpoint'] as String : '';
       model = data['model'] is String ? data['model'] as String : '';
       colorizeEndpoint = data['colorizeEndpoint'] is String
@@ -117,6 +135,10 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'target': target,
       'source': source,
       'ai': ai,
+      'serverTranslation': serverTranslation,
+      'imageTranslationEndpoint': imageTranslationEndpoint,
+      'serverOcr': serverOcr,
+      'serverTranslator': serverTranslator,
       'endpoint': endpoint,
       'model': model,
       'colorizeEndpoint': colorizeEndpoint,
@@ -453,6 +475,31 @@ class ComicImageTools {
       for (var i = 0; i < regions.length; i++)
         regions[i].translated(strings[i]),
     ];
+  }
+
+  /// Explicit whole-page server translation. Originals and downloads stay intact.
+  Future<Uint8List> translateImageOnServer(Uint8List bytes) async {
+    if (_disposed) throw StateError('图片处理已取消');
+    final owned = client == null;
+    final transport = client ?? http.Client();
+    if (owned) _ownedClients.add(transport);
+    try {
+      final result = await MangaTranslationClient.translate(
+        transport,
+        bytes,
+        url: preferences.imageTranslationEndpoint,
+        target: preferences.target,
+        ocr: preferences.serverOcr,
+        translator: preferences.serverTranslator,
+      );
+      if (_disposed) throw StateError('图片处理已取消');
+      return result;
+    } finally {
+      if (owned) {
+        _ownedClients.remove(transport);
+        transport.close();
+      }
+    }
   }
 
   /// 云端 AI 上色（OpenAI 兼容的图片编辑接口）。

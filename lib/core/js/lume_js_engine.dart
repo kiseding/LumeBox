@@ -540,15 +540,36 @@ class LumeSourceHost implements SandboxHost {
     if (url.isEmpty) {
       throw const SandboxHostException('http.fetch 缺少 url');
     }
+    List<int>? binaryBody;
+    final encoded = payload['bodyBase64'];
+    if (encoded != null) {
+      if (encoded is! String ||
+          encoded.length > 1400000 ||
+          payload['body'] != null) {
+        throw const SandboxHostException('二进制请求正文无效或超过 1MB');
+      }
+      binaryBody = base64Decode(encoded);
+      if (binaryBody.length > 1024 * 1024) {
+        throw const SandboxHostException('二进制请求正文超过 1MB');
+      }
+    }
     final LumeHttpResponse response;
     try {
-      response = await _http.send(
-        url: url,
-        method: '${payload['method'] ?? 'GET'}',
-        headers: _stringMap(payload['headers']),
-        body: payload['body'] == null ? null : '${payload['body']}',
-        timeout: timeout,
-      );
+      response = binaryBody != null
+          ? await _http.sendBytes(
+              url: url,
+              method: '${payload['method'] ?? 'GET'}',
+              headers: _stringMap(payload['headers']),
+              bodyBytes: binaryBody,
+              timeout: timeout,
+            )
+          : await _http.send(
+              url: url,
+              method: '${payload['method'] ?? 'GET'}',
+              headers: _stringMap(payload['headers']),
+              body: payload['body'] == null ? null : '${payload['body']}',
+              timeout: timeout,
+            );
     } on Object catch (error) {
       if (!_isNetworkFailure(error)) rethrow;
       throw SandboxHostException('$networkFailureMarker：$error');

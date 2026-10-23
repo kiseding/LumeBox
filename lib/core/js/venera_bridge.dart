@@ -426,7 +426,10 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
 
   function request(method, url, headers, body) {
     var options = { method: method, headers: headersOf(headers) };
-    if (body != null) options.body = typeof body === 'string' ? body : (body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? fromBytes(binaryBytes(body)) : JSON.stringify(body));
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+      return globalThis.LumeBridge.invoke('http.fetch', {method: method, url: String(url), headers: options.headers, bodyBase64: Convert.encodeBase64(body)});
+    }
+    if (body != null) options.body = typeof body === 'string' ? body : JSON.stringify(body);
     return globalThis.fetch(String(url), options).then(function (response) {
       // Venera 的 Network 返回 { status, headers, body }，body 是字符串；
       // 我们的 fetch 已经是这个形状（多给了 text()/json()，Venera 源用不到）。
@@ -445,11 +448,10 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       if (!/^(GET|POST|PUT|DELETE|PATCH|HEAD)$/i.test(String(method))) {
         headers = url; url = method; method = 'GET';
       }
-      return globalThis.LumeBridge.invoke('http.fetch', {
-        method: method, url: String(url), headers: headersOf(headers),
-        body: body == null ? null : (typeof body === 'string' ? body : fromBytes(binaryBytes(body))),
-        binary: true
-      }).then(function (reply) {
+      var payload = {method: method, url: String(url), headers: headersOf(headers), binary: true};
+      if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) payload.bodyBase64 = Convert.encodeBase64(body);
+      else if (body != null) payload.body = typeof body === 'string' ? body : JSON.stringify(body);
+      return globalThis.LumeBridge.invoke('http.fetch', payload).then(function (reply) {
         return { status: reply.status, headers: reply.headers, body: base64Decode(reply.bodyBase64 || '') };
       });
     },

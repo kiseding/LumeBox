@@ -390,8 +390,7 @@ class SourceRegistry {
   );
 
   /// Venera 那套源的特征：脚本用 `document.querySelectorAll` 这类**网页 DOM**
-  /// 解析能力（Venera 给自己的 JS 环境提供了 DOM / cheerio 垫片），本 App 的沙箱
-  /// 只有 fetch / JSON，真机表现就是「cannot read property 'querySelectorAll' of null」。
+  /// 当前兼容层支持 HtmlDocument 常用选择器；完整浏览器 DOM 与 cheerio 不在契约内。
   static final RegExp _veneraPattern = RegExp(
     r'querySelectorAll|querySelector\(|cheerio|\.innerHTML|document\.createElement',
     caseSensitive: false,
@@ -402,17 +401,12 @@ class SourceRegistry {
     // 内容指纹优先：这类脚本「跑不起来」的原因不在报错文案里，而在它是不是
     // 本 App 的图源脚本。先按内容定性，再按文案兜底。
     if (script != null && _veneraPattern.hasMatch(script)) {
-      return '这不是本 App 的图源脚本：脚本里用到了**网页 DOM 解析**'
-          '（querySelectorAll / cheerio / innerHTML）——那是 Venera 那套自带 DOM 垫片的'
-          '客户端专用写法，本 App 的沙箱只提供 fetch / JSON，跑不起来。\n'
-          '两条出路：① 换一份直接抓接口的图源脚本（getList / getDetail / getContent + fetch）；'
-          '② 这类站点大多有 JSON 接口，照接口重写一份即可（可参考 sources/ 里的示例）。\n'
+      return 'HTML 源解析失败：当前兼容层支持 Venera 常用 HtmlDocument 选择器，'
+          '但不提供完整浏览器 DOM、cheerio 或任意伪类。请检查所用 API、选择器与源版本。\n'
           '引擎原文：$detail';
     }
     if (detail.isNotEmpty && _veneraPattern.hasMatch(detail)) {
-      return '这个源是 **Venera 那套脚本**（依赖网页 DOM 解析：querySelectorAll 等），'
-          '本 App 的沙箱没有 DOM 垫片，跑不起来。\n'
-          '出路：换一份抓 JSON 接口的图源，或按站点接口重写。\n'
+      return 'HTML 解析接口或选择器不受当前兼容层支持，请检查源版本和请求返回的正文。\n'
           '引擎原文：$detail';
     }
     if (script != null && _nodeBundlePattern.hasMatch(script)) {
@@ -456,8 +450,8 @@ class SourceRegistry {
     if (_veneraPattern.hasMatch(text)) {
       return '$text\n'
           '（这个源用到了**网页 DOM 解析**：querySelectorAll / cheerio / innerHTML——'
-          '那是 Venera 那套自带 DOM 垫片的客户端专用写法，本 App 的沙箱只有 fetch / JSON，'
-          '跑不起来；换一份抓 JSON 接口的图源即可。）';
+          '当前 Venera 兼容层支持 HtmlDocument 常用选择器。请先检查返回正文和节点是否为空，'
+          '再核对所用 API；完整浏览器 DOM、cheerio 与任意伪类不受支持。）';
     }
     return text;
   }

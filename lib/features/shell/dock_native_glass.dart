@@ -91,12 +91,25 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
   @override
   Widget build(BuildContext context) {
     if (!DockNativeGlass.supported) return const SizedBox.expand();
-    return IgnorePointer(
-      child: UiKitView(
-        viewType: DockNativeGlass.viewType,
-        creationParams: _configuration,
-        creationParamsCodec: const StandardMessageCodec(),
-        onPlatformViewCreated: _onPlatformViewCreated,
+    final route = ModalRoute.of(context);
+    final animation = route?.animation;
+    return AnimatedBuilder(
+      animation: animation ?? const AlwaysStoppedAnimation<double>(1),
+      builder: (context, child) => Offstage(
+        offstage:
+            route?.isCurrent == false ||
+            !TickerMode.valuesOf(context).enabled ||
+            (animation != null &&
+                animation.status != AnimationStatus.completed),
+        child: child,
+      ),
+      child: IgnorePointer(
+        child: UiKitView(
+          viewType: DockNativeGlass.viewType,
+          creationParams: _configuration,
+          creationParamsCodec: const StandardMessageCodec(),
+          onPlatformViewCreated: _onPlatformViewCreated,
+        ),
       ),
     );
   }

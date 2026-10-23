@@ -31,9 +31,6 @@ class WafDetector {
     Map<String, String> headers = const <String, String>{},
     String body = '',
   }) {
-    if (statusCode != 403 && statusCode != 503 && statusCode != 429) {
-      return false;
-    }
     final headerText = headers.entries
         .map((entry) => '${entry.key}: ${entry.value}')
         .join('\n')
@@ -45,6 +42,16 @@ class WafDetector {
       return true;
     }
     final text = body.toLowerCase();
+    if (statusCode != 403 && statusCode != 503 && statusCode != 429) {
+      // CF can return a challenge document with HTTP 200. A normal article
+      // mentioning Cloudflare must not be mistaken for a verification page.
+      return RegExp(
+            r'<title[^>]*>\s*(just a moment|attention required)',
+            caseSensitive: false,
+          ).hasMatch(body) ||
+          (text.contains('challenge-platform') &&
+              (text.contains('__cf_chl') || text.contains('cf-chl-')));
+    }
     return text.contains('need_webview_verify') ||
         text.contains('waf_recaptcha_v3') ||
         text.contains('just a moment') ||

@@ -6,6 +6,7 @@ import '../js/source_script.dart';
 import '../js/module_script.dart';
 import 'source_bundle.dart';
 import 'remote_spider.dart';
+import 'kazumi_rule.dart';
 import '../js/rex_widget.dart';
 
 enum SourcePackageKind { javascript, python, module }
@@ -134,12 +135,15 @@ class SourcePackage {
   }
 
   static bool looksLikeScript(String text) =>
-      kindOf(text) != SourcePackageKind.javascript;
+      KazumiRule.matches(text) || kindOf(text) != SourcePackageKind.javascript;
 
   /// Give scripts without Lume metadata a stable identity before overwrite
   /// confirmation. URL/file identity survives edits; pasted scripts use content.
   static String prepare(String raw, {String name = '', String originUrl = ''}) {
     final clean = stripScriptBom(raw);
+    if (KazumiRule.matches(clean)) {
+      return KazumiRule.convert(clean, originUrl: originUrl);
+    }
     final script = RemoteSpider.matches(clean)
         ? RemoteSpider.convert(clean)
         : clean;
