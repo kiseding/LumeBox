@@ -10,6 +10,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
+import 'package:lume_box/features/settings/settings_ui.dart';
 import 'package:lume_box/features/settings/liquid_glass_settings_page.dart';
 import 'package:lume_box/features/source/source_section_page.dart';
 import 'package:lume_box/core/source/source.dart';
@@ -109,7 +110,7 @@ void main() {
   testWidgets('底部导航栏管理（对照组，本来就传了 behindBar）', (tester) async {
     await pump(tester, const LiquidGlassSettingsPage());
     final gap =
-        tester.getRect(find.text('光感与层次')).top -
+        tester.getRect(find.byType(SettingsPageIntro).first).top -
         tester.getRect(find.byType(AppBar)).bottom;
     expect(gap, inInclusiveRange(0, 32));
   });

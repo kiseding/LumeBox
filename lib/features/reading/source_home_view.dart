@@ -124,6 +124,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
 
   Future<void> _load({bool force = false}) async {
     final seq = ++_seq;
+    networkRequests.cancel('home');
     setState(() {
       _home = null;
       _error = null;
@@ -140,15 +141,15 @@ class _SourceHomeViewState extends State<SourceHomeView>
       if (!mounted || seq != _seq) return;
       final home =
           SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
-          await networkRequests
-              .run('home', () => (source as HomeCapable).home())
-              .timeout(
-                const Duration(seconds: 40),
-                onTimeout: () => throw const SourceException(
-                  SourceErrorKind.network,
-                  '首页请求超时，请重试或检查网页验证会话',
-                ),
-              );
+          await networkRequests.run<SourceHome>(
+            'home',
+            () => (source as HomeCapable).home(),
+            timeout: const Duration(seconds: 40),
+            timeoutError: () => const SourceException(
+              SourceErrorKind.network,
+              '首页请求超时，请重试或检查网页验证会话',
+            ),
+          );
       if (!mounted || seq != _seq) return;
       setState(() => _home = home);
       _preloadFirstScreen(home);

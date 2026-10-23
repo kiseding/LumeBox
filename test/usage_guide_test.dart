@@ -80,6 +80,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
+      find.text('诊断与关于'),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('诊断与关于'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
       find.text('使用说明'),
       160,
       scrollable: find.byType(Scrollable).first,

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../../core/net/network_cancellation.dart';
+
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
@@ -11,6 +13,7 @@ class SectionPreloader {
   static final _warm = <Section, _WarmEntry>{};
   static final _tasks = <Section, Future<void>>{};
   static final _generation = <Section, int>{};
+  static final _requests = NetworkRequestOwner();
 
   static Future<void> warm(
     Section section, {
@@ -21,13 +24,17 @@ class SectionPreloader {
     if (existing != null) return existing;
     final generation = _generation[section] ?? 0;
     late Future<void> task;
-    task = _perform(section, manager, openLibrary, generation)
-        .timeout(
-          const Duration(seconds: 12),
-          onTimeout: () {
-            if ((_generation[section] ?? 0) == generation) discard(section);
-          },
+    task = _requests
+        .run(
+          section.id,
+          () => _perform(section, manager, openLibrary, generation),
+          timeout: const Duration(seconds: 12),
         )
+        .catchError((Object error) {
+          if (error is! NetworkCancelled) {
+            LumeLog.info('[warm] ${section.id} 预热停止：$error');
+          }
+        })
         .whenComplete(() {
           if (identical(_tasks[section], task)) _tasks.remove(section);
         });
@@ -41,25 +48,34 @@ class SectionPreloader {
     Future<void> Function()? openLibrary,
     int generation,
   ) async {
+    final token = NetworkCancellation.current;
     try {
       await openLibrary?.call();
+      token?.check();
       if (manager == null || !manager.runtimeAvailable) return;
       final current = await manager.current();
+      token?.check();
       if (current == null) return;
       final cached = _valid(section, current.id);
       if (cached != null) return;
       final source = await manager.open(current.id);
+      token?.check();
       if (source == null) return;
       SourceHome? home;
       SourceList? list;
       if (source is HomeCapable &&
           await (source as HomeCapable).supportsHome()) {
+        token?.check();
         home = await (source as HomeCapable).home();
       } else {
+        token?.check();
         list = await source.list(page: 1);
       }
+      token?.check();
       if ((_generation[section] ?? 0) != generation) return;
       _warm[section] = _WarmEntry(source.id, list, home);
+    } on NetworkCancelled {
+      // Discarded warm-ups must not start any later source requests.
     } catch (error) {
       LumeLog.info('[warm] ${section.id} 预热失败，页面可正常重试：$error');
     }
@@ -104,6 +120,7 @@ class SectionPreloader {
 
   static void discard([Section? section]) {
     for (final target in section == null ? Section.values : [section]) {
+      _requests.cancel(target.id);
       _warm.remove(target);
       _tasks.remove(target);
       _generation[target] = (_generation[target] ?? 0) + 1;

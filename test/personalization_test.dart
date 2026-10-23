@@ -314,26 +314,24 @@ void main() {
     await host(
       tester,
       const Scaffold(
-        body: SingleChildScrollView(child: DisplaySettingsGroup()),
+        body: SingleChildScrollView(
+          child: Column(
+            children: [AdaptiveColorSetting(), DisplaySettingsGroup()],
+          ),
+        ),
       ),
     );
     Future<void> open() async {
-      await tester.tap(find.text('主题色'));
-      await tester.pumpAndSettle();
+      if (find.byType(AppearancePalettePage).evaluate().isEmpty) {
+        await tester.tap(find.text('主题色'));
+        await tester.pumpAndSettle();
+      }
       await tester.scrollUntilVisible(
-        find.descendant(
-          of: find.byType(OptionSheet<String>),
-          matching: find.text('自定义颜色'),
-        ),
+        find.text('自定义颜色'),
         200,
         scrollable: find.byType(Scrollable).last,
       );
-      await tester.tap(
-        find.descendant(
-          of: find.byType(OptionSheet<String>),
-          matching: find.text('自定义颜色'),
-        ),
-      );
+      await tester.tap(find.text('自定义颜色'));
       await tester.pumpAndSettle();
     }
 
@@ -374,6 +372,8 @@ void main() {
     await tester.tap(find.byTooltip('取消自定义颜色'));
     await tester.pumpAndSettle();
     expect(controller.settings.customAccentArgb, 0xFF19A7CE);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('appearance.adaptiveColor')));
     await tester.pump();
     expect(controller.settings.adaptiveColor, isTrue);

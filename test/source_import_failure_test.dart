@@ -35,8 +35,9 @@ void main() {
   }
 
   final available = Qjs.isAvailable;
-  final skipReason =
-      available ? null : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
+  final skipReason = available
+      ? null
+      : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
 
   late Directory root;
 
@@ -44,11 +45,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_import_failure');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 猫源在 Android 上就有引擎（QuickJS 二选一），配合下面的引擎覆盖，
     // 这套用例在非 iOS 的平台也能跑真实沙箱。
     CatEngines.debugPlatformOverride = 'android';
@@ -117,20 +118,21 @@ function getList(page) { return { list: [] }; }
     expect(registry.sources, isEmpty, reason: '失败不落库');
   }, skip: skipReason);
 
-  test('按脚本内容认出 Venera 那套源：报错点名 DOM 解析，并给两条出路', () async {
+  test('Venera 节点为空时保留原始错误，并说明选择器兼容边界', () async {
     // 真机那份 venera-configs/merge.json 就是这一类：装完跑起来报
     // 「cannot read property 'querySelectorAll' of null」——脚本靠网页 DOM 解析，
-    // 本 App 的沙箱只给 fetch / JSON。
+    // 当前兼容层提供 HtmlDocument 常用选择器。
     // 这类脚本**导入能过**（DOM 用法要到运行期才炸），因此定性走运行期那条路：
     // 错误卡在引擎原文后追加一句说明（用户看不懂那句英文 TypeError）。
     final message = SourceRegistry.describeRuntimeFailure(
       "脚本错误: cannot read property 'querySelectorAll' of null",
     );
-    expect(message, contains('querySelectorAll'),
-        reason: '引擎原文必须保留（排障要看原文）');
+    expect(message, contains('querySelectorAll'), reason: '引擎原文必须保留（排障要看原文）');
     expect(message, contains('DOM 解析'), reason: '要点名它靠网页 DOM 解析');
     expect(message, contains('Venera'), reason: '并点名这是哪一套客户端的写法');
-    expect(message, contains('fetch'), reason: '要给出「换接口型脚本」这条出路');
+    expect(message, contains('节点是否为空'));
+    expect(message, contains('HtmlDocument'));
+    expect(message, contains('完整浏览器 DOM'));
   }, skip: skipReason);
 
   test('猫源脚本只是顺手 require 了服务端模块、没用到：照常导入（真机订阅源回归）', () async {
@@ -180,7 +182,10 @@ async function getList(page) {
 ''');
     expect(imported.isSuccess, isTrue, reason: imported.message ?? '');
 
-    final result = await LumeSources.testConnectivity(Section.video, 'probe-empty');
+    final result = await LumeSources.testConnectivity(
+      Section.video,
+      'probe-empty',
+    );
     expect(result.status, SourceTestStatus.empty);
     expect(result.message, contains('没有返回任何条目'));
     expect(result.elapsed, isNotNull);
@@ -202,7 +207,10 @@ async function getList(page) {
 ''');
     expect(imported.isSuccess, isTrue, reason: imported.message ?? '');
 
-    final result = await LumeSources.testConnectivity(Section.video, 'probe-ok');
+    final result = await LumeSources.testConnectivity(
+      Section.video,
+      'probe-ok',
+    );
     expect(result.status, SourceTestStatus.ok);
     expect(result.itemCount, 2);
     expect(result.categoryCount, 1);
@@ -220,7 +228,10 @@ async function getCategories() { return [{ id: 'c1', title: '分类一' }]; }
 ''');
     expect(imported.isSuccess, isTrue, reason: imported.message ?? '');
 
-    final result = await LumeSources.testConnectivity(Section.video, 'probe-nolist');
+    final result = await LumeSources.testConnectivity(
+      Section.video,
+      'probe-nolist',
+    );
     expect(result.status, SourceTestStatus.failed);
     expect(result.message, contains('没有实现 list 方法'));
     expect(result.message, contains('getList'));
@@ -234,7 +245,10 @@ async function getList(page) { return { list: [{ id: 'x', title: 'x' }] }; }
 ''');
     registry.setEnabled('probe-off', false);
 
-    final result = await LumeSources.testConnectivity(Section.video, 'probe-off');
+    final result = await LumeSources.testConnectivity(
+      Section.video,
+      'probe-off',
+    );
     expect(result.status, SourceTestStatus.failed);
     expect(result.message, contains('已停用'));
   }, skip: skipReason);
@@ -251,15 +265,22 @@ async function getList(page) { return { list: [{ id: 'a', title: '旧条目' }] 
     expect(registry.source('sub-src')!.isSubscribed, isTrue);
 
     // 订阅端给了新脚本：更新后条目变了，来源地址与网络配置不动。
-    registry.setSourceNetwork('sub-src', userAgent: 'UA', cookie: 'c', proxy: '');
+    registry.setSourceNetwork(
+      'sub-src',
+      userAgent: 'UA',
+      cookie: 'c',
+      proxy: '',
+    );
     final resolver = SourceSubscription(
       fetch: (url) async {
         expect(url, origin);
         return SourceFetchResult(
-          bytes: Uint8List.fromList(utf8.encode('''
+          bytes: Uint8List.fromList(
+            utf8.encode('''
 // LumeSource: {"id":"sub-src","name":"订阅源","version":"2.0.0"}
 async function getList(page) { return { list: [{ id: 'b', title: '新条目' }] }; }
-''')),
+'''),
+          ),
           text: '''
 // LumeSource: {"id":"sub-src","name":"订阅源","version":"2.0.0"}
 async function getList(page) { return { list: [{ id: 'b', title: '新条目' }] }; }
@@ -324,9 +345,11 @@ async function getList(page) { return { list: [{ id: 'a', title: '旧' }] }; }
     const listUrl = 'https://example.com/list.txt';
     const otherUrl = 'https://example.com/other.js';
     const mineUrl = 'https://example.com/mine.js';
-    const other = '// LumeSource: {"id":"other","name":"别的源","version":"9.0.0"}\n'
+    const other =
+        '// LumeSource: {"id":"other","name":"别的源","version":"9.0.0"}\n'
         'async function getList(page) { return { list: [] }; }';
-    const mine = '// LumeSource: {"id":"mine","name":"我的源","version":"2.0.0"}\n'
+    const mine =
+        '// LumeSource: {"id":"mine","name":"我的源","version":"2.0.0"}\n'
         "async function getList(page) { return { list: [{ id: 'a', title: '新' }] }; }";
     final resolver = SourceSubscription(
       fetch: (url) async {
@@ -360,7 +383,8 @@ async function getList(page) { return { list: [{ id: 'a', title: '旧' }] }; }
     const listUrl = 'https://example.com/comic/sources.js';
     const good = 'https://example.com/comic/a.js';
     const dead = 'https://example.com/comic/deleted.js';
-    const script = '// LumeSource: {"id":"a","name":"甲","version":"1.0.0"}\n'
+    const script =
+        '// LumeSource: {"id":"a","name":"甲","version":"1.0.0"}\n'
         'async function getList(page) { return { list: [] }; }';
     final skips = <String>[];
     final resolver = SourceSubscription(
@@ -408,7 +432,8 @@ async function getList(page) { return { list: [{ id: 'a', title: '旧' }] }; }
     const listUrl = 'https://example.com/list2.txt';
     const deadUrl = 'https://example.com/gone.js';
     const mineUrl = 'https://example.com/mine2.js';
-    const mine = '// LumeSource: {"id":"mine2","name":"我的源","version":"2.0.0"}\n'
+    const mine =
+        '// LumeSource: {"id":"mine2","name":"我的源","version":"2.0.0"}\n'
         "async function getList(page) { return { list: [{ id: 'a', title: '新' }] }; }";
     final skippedNames = <String>[];
     final resolver = SourceSubscription(
@@ -526,10 +551,7 @@ async function getList(page) {
 
     expect(outcome.isSuccess, isTrue, reason: outcome.message ?? '');
     expect(outcome.record!.id, 'demo-video');
-    expect(
-      registry.sources.map((item) => item.id),
-      contains('demo-video'),
-    );
+    expect(registry.sources.map((item) => item.id), contains('demo-video'));
   }, skip: skipReason);
 
   test('读缓存（真实引擎）：生产链路真的写缓存，覆盖导入即作废', () async {
@@ -559,6 +581,7 @@ async function getList(page) { return { list: [] }; }
     expect((await reopened!.categories()).single.title, '新分类');
   }, skip: skipReason);
 }
+
 /// Windows 下取构建产物，其他平台走进程镜像（与 sandbox_native_test 一致）。
 DynamicLibrary? _resolveBridge() {
   if (!Platform.isWindows) {

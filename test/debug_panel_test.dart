@@ -31,10 +31,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   setUp(() async {
@@ -89,11 +89,7 @@ void main() {
         const NetworkRequest(url: 'https://example.com/a', source: '测试源'),
       );
       expect(response.statusCode, 200, reason: '关闭抓包不影响请求本身');
-      expect(
-        DebugRequestLog.snapshot,
-        isEmpty,
-        reason: '默认不收集：关着开关时一条记录都不该有',
-      );
+      expect(DebugRequestLog.snapshot, isEmpty, reason: '默认不收集：关着开关时一条记录都不该有');
     });
 
     test('总开关关着时，抓包开关开了也不记（capturing 依赖两者）', () async {
@@ -177,7 +173,10 @@ void main() {
       }
       expect(DebugRequestLog.snapshot, hasLength(DebugRequestLog.limit));
       // 新 → 旧：最新的在最前，最旧的已被丢掉。
-      expect(DebugRequestLog.snapshot.first.url, endsWith('/${DebugRequestLog.limit + 9}'));
+      expect(
+        DebugRequestLog.snapshot.first.url,
+        endsWith('/${DebugRequestLog.limit + 9}'),
+      );
     });
 
     test('关掉开关会清空缓冲（不留「关掉但旧数据还在」）', () {
@@ -292,10 +291,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
-        MaterialApp(
-          theme: LumeTheme.build(),
-          home: const DebugPanelPage(),
-        ),
+        MaterialApp(theme: LumeTheme.build(), home: const DebugPanelPage()),
       );
       await tester.pumpAndSettle();
     }
@@ -311,8 +307,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('调试面板'), 160,
-        scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        find.text('诊断与关于'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('诊断与关于'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('调试面板'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
       expect(find.text('调试面板'), findsOneWidget);
     });

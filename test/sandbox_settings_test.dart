@@ -13,7 +13,6 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/core/util/lume_log.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
 
-
 /// 全局沙箱超时（文档第 4 条点名的可配项）。
 ///
 /// 交付的是「设置页能改超时、改了真的生效、且**只能**改超时」：
@@ -29,10 +28,10 @@ void main() {
   void mockPathProvider(String? path) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async =>
-          call.method == 'getApplicationSupportDirectory' ? path : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async =>
+              call.method == 'getApplicationSupportDirectory' ? path : null,
+        );
   }
 
   setUp(() async {
@@ -116,8 +115,14 @@ void main() {
       // 指令预算**是唯一跟着超时走的**：超时 5s → 5×5000 万 = 2.5 亿（详见
       // SandboxPolicy.instructionsFor 的说明：它只是「更早发现 CPU 空转」的辅助，
       // 一级闸门是墙钟超时）。
-      expect(policy.maxInstructions, SandboxPolicy.instructionsFor(const Duration(seconds: 5)));
-      expect(policy.maxInstructions, greaterThan(SandboxPolicy.standard.maxInstructions));
+      expect(
+        policy.maxInstructions,
+        SandboxPolicy.instructionsFor(const Duration(seconds: 5)),
+      );
+      expect(
+        policy.maxInstructions,
+        greaterThan(SandboxPolicy.standard.maxInstructions),
+      );
       // 逐项核对：其余是防死循环 / 防内存失控的兜底，不许跟着超时一起变。
       expect(policy.memoryLimitBytes, SandboxPolicy.standard.memoryLimitBytes);
       expect(policy.stackLimitBytes, SandboxPolicy.standard.stackLimitBytes);
@@ -152,7 +157,9 @@ void main() {
       expect(LumeJsEngine.policy.timeout, const Duration(seconds: 10));
 
       // 改成 5 秒。
-      LumeSandboxSettings.apply(const SandboxSettings(timeout: Duration(seconds: 5)));
+      LumeSandboxSettings.apply(
+        const SandboxSettings(timeout: Duration(seconds: 5)),
+      );
       expect(LumeJsEngine.callTimeout, const Duration(seconds: 5));
       expect(LumeJsEngine.policy.timeout, const Duration(seconds: 5));
       expect(
@@ -188,8 +195,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('沙箱设置'), 160,
-        scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        find.text('诊断与关于'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('诊断与关于'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('沙箱设置'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(find.text('沙箱设置'));
       await tester.pumpAndSettle();
     }

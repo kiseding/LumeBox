@@ -195,6 +195,25 @@ void main() {
     await error.timeout(const Duration(seconds: 2));
   });
 
+  test('页面总超时会取消底层 token，晚到响应被吸收且同槽新任务不受旧计时器影响', () async {
+    final owner = NetworkRequestOwner();
+    addTearDown(owner.dispose);
+    final held = Completer<int>();
+    late NetworkCancellation token;
+    final run = owner.run('home', () {
+      token = NetworkCancellation.current!;
+      return held.future;
+    }, timeout: const Duration(milliseconds: 20));
+    final error = expectLater(run, throwsA(isA<TimeoutException>()));
+    await error;
+    expect(token.isCancelled, isTrue);
+    held.completeError(StateError('late'));
+    await tick();
+    expect(await owner.run('home', () async => 7), 7);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(await owner.run('home', () async => 8), 8);
+  });
+
   test('页面替换任务与 dispose 取消各自 Zone，晚到错误被吸收', () async {
     final owner = NetworkRequestOwner();
     final firstHeld = Completer<int>(), secondHeld = Completer<int>();

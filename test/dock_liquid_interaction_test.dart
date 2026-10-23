@@ -312,7 +312,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('设置页预设一键应用到液态参数', (tester) async {
+  testWidgets('旧页面兼容入口仅展示系统材质，不恢复已删除的自绘预设', (tester) async {
     final controller = ShellSettingsController.instance;
     final original = controller.appearance;
     addTearDown(() => controller.setAppearance(original));
@@ -323,36 +323,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('dock-liquid-preset-softFree')), findsOne);
-    await tester.tap(find.byKey(const ValueKey('dock-liquid-preset-softFree')));
-    await tester.pumpAndSettle();
-    expect(controller.appearance.liquid, DockLiquidPreset.softFree.build());
-    final nativeChip = find.byKey(
-      const ValueKey('dock-glass-renderer-nativeIos'),
-    );
-    await tester.scrollUntilVisible(
-      nativeChip,
-      200,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(nativeChip);
-    await tester.pumpAndSettle();
     expect(
-      controller.appearance.liquid.glassRenderer,
-      DockGlassRenderer.nativeIos,
+      find.byKey(const ValueKey('dock-liquid-preset-softFree')),
+      findsNothing,
     );
-    final thin = find.byKey(const ValueKey('dock-native-style-thin'));
-    await tester.scrollUntilVisible(
-      thin,
-      200,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(thin);
-    await tester.pumpAndSettle();
-    expect(
-      controller.appearance.liquid.nativeGlassStyle,
-      DockNativeGlassStyle.thin,
-    );
+    expect(find.text('系统材质'), findsOneWidget);
+    expect(controller.appearance, original);
   });
 
   testWidgets('按压时整条底栏与图标文字一起放大', (tester) async {

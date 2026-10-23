@@ -578,6 +578,91 @@ void main() {
     });
   });
 
+  testWidgets('当前源下一页失败可手动重试，不自动刷失败源；重复页停止加载', (tester) async {
+    final source = _RetryPageSource();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'source-a',
+          name: '分页源',
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {'source-a': source},
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: SearchResultsPage(
+          section: Section.video,
+          keyword: '影片',
+          mode: SearchMode.single,
+          sourceId: 'source-a',
+          manager: manager,
+          onOpenItem: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(GridView), const Offset(0, -10000));
+    await tester.pumpAndSettle();
+    expect(find.text('加载下一页失败，点击重试'), findsOneWidget);
+    expect(source.requests, [1, 2]);
+    await tester.drag(find.byType(GridView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(source.requests, [1, 2]);
+    await tester.tap(find.text('加载下一页失败，点击重试'));
+    await tester.pumpAndSettle();
+    expect(source.requests.take(3), [1, 2, 2]);
+    await tester.drag(find.byType(GridView), const Offset(0, -3000));
+    await tester.pumpAndSettle();
+    expect(source.requests, [1, 2, 2, 3]);
+    expect(find.textContaining('31 条'), findsOneWidget);
+    await tester.drag(find.byType(GridView), const Offset(0, -3000));
+    await tester.pumpAndSettle();
+    expect(source.requests, [1, 2, 2, 3]);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('快速切源后旧初始化完成，不再覆盖新源或触发旧源列表请求', (tester) async {
+    final first = _SearchSource(
+      section: Section.video,
+      items: const [SourceItem(id: 'a', title: '旧源作品')],
+    );
+    final second = _SearchSource(
+      section: Section.video,
+      id: 'source-b',
+      items: const [SourceItem(id: 'b', title: '新源作品')],
+    );
+    final manager = _DeferredOpenManager(second);
+    final pipeline = await openPipeline(Section.video);
+    addTearDown(pipeline.dispose);
+    Widget scene(int revision) => MaterialApp(
+      theme: LumeTheme.build(),
+      home: ExploreView(
+        section: Section.video,
+        revision: revision,
+        manager: manager,
+        pipeline: pipeline,
+        onOpenItem: (_) {},
+      ),
+    );
+    await tester.pumpWidget(scene(0));
+    await tester.pump();
+    manager.selected = 'source-b';
+    await tester.pumpWidget(scene(1));
+    await tester.pumpAndSettle();
+    expect(find.text('新源作品'), findsOneWidget);
+    manager.old.complete(first);
+    await tester.pumpAndSettle();
+    expect(find.text('旧源作品'), findsNothing);
+    expect(find.text('新源作品'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   group('聚合搜索结果布局', () {
     testWidgets('布局与卡片样式按板块保存，站点筛选不重复请求，窄屏大字体可用', (tester) async {
       await tester.binding.setSurfaceSize(const Size(320, 850));
@@ -1271,4 +1356,57 @@ class _SuggestSource extends _SearchSource implements SuggestCapable {
     suggestKeywords.add(keyword);
     return suggestions;
   }
+}
+
+class _RetryPageSource extends _SearchSource {
+  _RetryPageSource() : super(section: Section.video);
+  final requests = <int>[];
+  var failed = false;
+  @override
+  Future<SourceList> list({
+    String? categoryId,
+    String? keyword,
+    int page = 1,
+    Map<String, String>? filters,
+  }) async {
+    requests.add(page);
+    if (page == 2 && !failed) {
+      failed = true;
+      throw const SourceException(SourceErrorKind.network, '临时失败');
+    }
+    return SourceList(
+      items: page == 1
+          ? [for (var i = 0; i < 30; i++) SourceItem(id: '$i', title: '影片$i')]
+          : const [
+              SourceItem(id: '0', title: '影片0'),
+              SourceItem(id: 'new', title: '影片新条目'),
+            ],
+      hasMore: true,
+    );
+  }
+}
+
+class _DeferredOpenManager extends FakeSourceManager {
+  _DeferredOpenManager(DataSource second)
+    : super(
+        sources: const [
+          SourceDescriptor(
+            id: 'source-a',
+            name: '旧源',
+            version: '1',
+            enabled: true,
+          ),
+          SourceDescriptor(
+            id: 'source-b',
+            name: '新源',
+            version: '1',
+            enabled: true,
+          ),
+        ],
+        opened: {'source-b': second},
+      );
+  final old = Completer<DataSource?>();
+  @override
+  Future<DataSource?> open(String id) =>
+      id == 'source-a' ? old.future : super.open(id);
 }

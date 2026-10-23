@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:lume_box/core/js/source_registry.dart';
+import 'package:lume_box/core/net/network_cancellation.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -251,6 +252,62 @@ void main() {
     expect(SectionPreloader.hasWarm(Section.video), isFalse);
     await SectionPreloader.warm(Section.video, manager: manager);
     expect(SectionPreloader.hasWarm(Section.video), isTrue);
+  });
+
+  test('刷新取消尚未完成的预热，迟到的初始化不能再打开源或覆盖新任务', () async {
+    final libraryGate = Completer<void>();
+    final source = _WarmSource();
+    final manager = FakeSourceManager(
+      sources: const [
+        SourceDescriptor(
+          id: 'warm-source',
+          name: '预热源',
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {'warm-source': source},
+    );
+    NetworkCancellation? token;
+    final old = SectionPreloader.warm(
+      Section.video,
+      manager: manager,
+      openLibrary: () {
+        token = NetworkCancellation.current;
+        return libraryGate.future;
+      },
+    );
+    SectionPreloader.discard(Section.video);
+    await old;
+    expect(token!.isCancelled, isTrue);
+    await SectionPreloader.warm(Section.video, manager: manager);
+    expect(source.listCalls, [1]);
+    libraryGate.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(source.listCalls, [1]);
+    expect(manager.openedIds, ['warm-source']);
+    expect(SectionPreloader.hasWarm(Section.video), isTrue);
+  });
+
+  testWidgets('12 秒预热预算取消底层请求，迟到初始化不再消耗源请求', (tester) async {
+    final gate = Completer<void>();
+    final manager = FakeSourceManager();
+    NetworkCancellation? token;
+    final run = SectionPreloader.warm(
+      Section.video,
+      manager: manager,
+      openLibrary: () {
+        token = NetworkCancellation.current;
+        return gate.future;
+      },
+    );
+    await tester.pump(const Duration(seconds: 12));
+    await run;
+    expect(token!.isCancelled, isTrue);
+    gate.complete();
+    await tester.pump();
+    expect(manager.openedIds, isEmpty);
+    expect(SectionPreloader.hasWarm(Section.video), isFalse);
   });
 
   group('切板块预加载', () {

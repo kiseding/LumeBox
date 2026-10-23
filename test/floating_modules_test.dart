@@ -7,7 +7,7 @@ import 'package:lume_box/core/theme/floating_modules.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('悬浮模块独立保存，读入越界值收敛且底栏可向下调', () async {
+  test('旧悬浮模块数据仍可读取，已移除的位移和材质不再覆盖当前界面', () async {
     final root = Directory.systemTemp.createTempSync('floating-modules');
     addTearDown(() => root.deleteSync(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -28,11 +28,9 @@ void main() {
     controller.save();
     controller.reset(FloatingModule.home);
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .1);
-    expect(controller.style(FloatingModule.home).y, 12);
-    expect(controller.style(FloatingModule.dock).opacity, .3);
-    // 用户自己调过的磨砂强度在迁移后仍然生效（底栏默认换材质不覆盖手动值）。
-    expect(controller.style(FloatingModule.dock).blur, 6);
+    expect(controller.style(FloatingModule.home).opacity, .72);
+    expect(controller.style(FloatingModule.home).offset, Offset.zero);
+    expect(controller.style(FloatingModule.dock), FloatingStyle.dockDefault);
     final clamped = FloatingStyle.fromJson({
       'opacity': -1,
       'x': 400,
@@ -50,17 +48,17 @@ void main() {
     );
     await controller.boot();
     expect(controller.style(FloatingModule.home).opacity, .72);
-    expect(controller.style(FloatingModule.home).offset.dx, 8);
-    expect(controller.style(FloatingModule.home).offset.dy, 19);
+    expect(controller.style(FloatingModule.home).offset.dx, 0);
+    expect(controller.style(FloatingModule.home).offset.dy, 0);
     expect(controller.style(FloatingModule.home).blur, 6);
-    // Once migrated, newly chosen opacity remains under the user's control.
+    // 已移除的旧模块覆盖值不会重新进入页面材质。
     controller.set(FloatingModule.home, const FloatingStyle(opacity: .4));
     controller.save();
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .4);
+    expect(controller.style(FloatingModule.home).opacity, .72);
   });
 
-  test('底栏新材质：白玻璃 45% + 磨砂 15，旧配置一次性迁移且之后仍可调', () async {
+  test('旧底栏材质数据不改变当前默认样式', () async {
     final root = Directory.systemTemp.createTempSync('floating-dock-glass');
     addTearDown(() => root.deleteSync(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -83,8 +81,8 @@ void main() {
     final migrated = controller.style(FloatingModule.dock);
     expect(migrated.opacity, .45, reason: '一次性换成更透的白玻璃');
     expect(migrated.blur, 15, reason: '模糊半径拉到设置上限');
-    expect(migrated.x, 3, reason: '迁移只换材质，不动用户摆的位置');
-    expect(migrated.offset.dy, 4);
+    expect(migrated.x, 0);
+    expect(migrated.offset.dy, 0);
 
     // 迁移之后滑块照常生效：再次启动不能把用户的新值覆盖回去。
     controller.set(
@@ -93,7 +91,7 @@ void main() {
     );
     controller.save();
     await controller.boot();
-    expect(controller.style(FloatingModule.dock).opacity, .4);
+    expect(controller.style(FloatingModule.dock).opacity, .45);
     expect(controller.style(FloatingModule.dock).blur, 15);
   });
 }

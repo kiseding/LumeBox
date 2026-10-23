@@ -106,6 +106,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('阅读与播放'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(

@@ -212,6 +212,7 @@ class _ExploreViewState extends State<ExploreView>
   /// 请求代号：下拉刷新 / 换源 / 换筛选都会 +1；过期结果直接丢弃，
   /// 否则旧请求回来会把新列表覆盖回去。
   int _requestSeq = 0;
+  int _bootstrapSeq = 0;
 
   /// 排序（客户端，只作用于已加载的条目；图源契约里没有排序参数）。
   BrowseSort _sort = BrowseSort.none;
@@ -303,7 +304,9 @@ class _ExploreViewState extends State<ExploreView>
 
   /// 解析当前图源、打开数据源、取分类与首页列表。
   Future<void> _bootstrap() async {
+    final bootstrapSeq = ++_bootstrapSeq;
     networkRequests.cancelAll();
+    _resetPagination();
     setState(() {
       _state = SourceStateKind.loading;
       _headerHidden = false;
@@ -312,7 +315,7 @@ class _ExploreViewState extends State<ExploreView>
     });
     try {
       final sources = await _manager.list();
-      if (!mounted) return;
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
       final enabled = sources
           .where((source) => source.enabled)
           .toList(growable: false);
@@ -334,7 +337,8 @@ class _ExploreViewState extends State<ExploreView>
         return;
       }
       final current = await _manager.current();
-      if (current == null || !mounted) {
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
+      if (current == null) {
         _settle(
           state: SourceStateKind.disabled,
           detail: '板块内没有可用的源',
@@ -343,7 +347,7 @@ class _ExploreViewState extends State<ExploreView>
         return;
       }
       final source = await _manager.open(current.id);
-      if (!mounted) return;
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
       if (source == null) {
         _settle(
           state: SourceStateKind.scriptError,
@@ -395,18 +399,22 @@ class _ExploreViewState extends State<ExploreView>
       unawaited(_loadCategories());
       await _loadPage();
       if (mounted &&
+          bootstrapSeq == _bootstrapSeq &&
           identical(source, _source) &&
           (_categories.isEmpty || _filterGroups.isEmpty)) {
         // Some script hosts populate metadata during their first list request.
         // Recheck once after it completes instead of waiting for a pull refresh.
         await _loadCategories();
       }
+    } on NetworkCancelled {
+      // A newer source load owns the page.
     } on SourceException catch (error) {
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
       LumeLog.warn('[${widget.section.id}] 探索页源状态异常: $error');
       _settle(state: stateForError(error), detail: error.message);
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
-      if (!mounted) return;
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
       setState(() {
         _state = SourceStateKind.scriptError;
         _detail = '$error';
@@ -780,22 +788,19 @@ class _ExploreViewState extends State<ExploreView>
     _pendingPage = page;
     final seq = _requestSeq;
     try {
-      final result = await networkRequests
-          .run(
-            'browse',
-            () => source.list(
-              categoryId: _categoryId,
-              page: page,
-              filters: _facetFilters.isEmpty ? null : _facetFilters,
-            ),
-          )
-          .timeout(
-            const Duration(seconds: 40),
-            onTimeout: () => throw const SourceException(
-              SourceErrorKind.network,
-              '列表请求超时，请重试或检查网页验证会话',
-            ),
-          );
+      final result = await networkRequests.run(
+        'browse',
+        () => source.list(
+          categoryId: _categoryId,
+          page: page,
+          filters: _facetFilters.isEmpty ? null : _facetFilters,
+        ),
+        timeout: const Duration(seconds: 40),
+        timeoutError: () => const SourceException(
+          SourceErrorKind.network,
+          '列表请求超时，请重试或检查网页验证会话',
+        ),
+      );
       if (!mounted || seq != _requestSeq) return;
       // 翻页拿到「一条新条目都没有」的一页，通常是两种事：真的到底了，或者
       // 站点的分页参数写法不对（第 2 页又返回了第 1 页）。前者照常收尾；
@@ -842,16 +847,23 @@ class _ExploreViewState extends State<ExploreView>
         }
       });
     } finally {
-      if (_pendingPage == page) _pendingPage = 0;
+      if (seq == _requestSeq && _pendingPage == page) _pendingPage = 0;
     }
   }
 
   /// 下拉刷新：重置分页 + 重取分类 + 重取第 1 页（用户点名三件事都要做）。
   Future<void> _refresh() async {
+    final refreshSeq = ++_bootstrapSeq;
     networkRequests.cancelAll();
+    setState(() {
+      _resetPagination();
+      _loadingFirst = true;
+      _failure = null;
+    });
     // 预热缓存作废：用户明确要求要新的。
     SectionPreloader.discard(widget.section);
     await _loadCategories();
+    if (!mounted || refreshSeq != _bootstrapSeq) return;
     await _loadPage();
   }
 

@@ -75,13 +75,27 @@ class NetworkCancellation {
 class NetworkRequestOwner {
   final _slots = <String, NetworkCancellation>{};
   bool _disposed = false;
-  Future<T> run<T>(String slot, Future<T> Function() operation) {
+  Future<T> run<T>(
+    String slot,
+    Future<T> Function() operation, {
+    Duration? timeout,
+    Object Function()? timeoutError,
+  }) {
     if (_disposed) return Future.error(const NetworkCancelled());
     _slots.remove(slot)?.cancel();
     final token = NetworkCancellation();
     _slots[slot] = token;
+    final timer = timeout == null
+        ? null
+        : Timer(
+            timeout,
+            () => token.cancel(
+              timeoutError?.call() ?? TimeoutException('请求超时', timeout),
+            ),
+          );
     return token.run(() => token.guard(Future.sync(operation))).whenComplete(
       () {
+        timer?.cancel();
         if (identical(_slots[slot], token)) _slots.remove(slot);
       },
     );

@@ -102,6 +102,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   int _page = 1;
   bool _hasMore = false;
   bool _loadingMore = false;
+  Object? _moreFailure;
 
   /// 请求代号：重试 / 翻页交错时丢弃过期结果。
   int _seq = 0;
@@ -136,6 +137,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
       _page = 1;
       _hasMore = false;
       _loadingMore = false;
+      _moreFailure = null;
       _aggregateFailed = 0;
       _aggregateSiteCount = 0;
       _aggregateCompleted = 0;
@@ -276,9 +278,14 @@ class _SearchResultsPageState extends State<SearchResultsPage>
   }
 
   /// 翻页（只有当前源搜索有下一页；聚合搜索一次问全）。
-  Future<void> _loadMore() async {
+  Future<void> _loadMore({bool retry = false}) async {
     try {
-      if (_loading || _loadingMore || !_hasMore) return;
+      if (_loading ||
+          _loadingMore ||
+          !_hasMore ||
+          (_moreFailure != null && !retry)) {
+        return;
+      }
       await networkRequests.run('more', _loadMoreOwned);
     } on NetworkCancelled {
       // A superseded search no longer needs its next page.
@@ -294,7 +301,10 @@ class _SearchResultsPageState extends State<SearchResultsPage>
     }
     final sourceId = _resolvedSourceId;
     if (sourceId == null) return;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _moreFailure = null;
+    });
     final seq = _seq;
     try {
       final source = await _manager.open(sourceId);
@@ -304,20 +314,21 @@ class _SearchResultsPageState extends State<SearchResultsPage>
       );
       if (!mounted || seq != _seq) return;
       if (result == null) {
-        setState(() => _loadingMore = false);
-        return;
+        throw const SourceException(
+          SourceErrorKind.notFound,
+          '当前源不可用，请切换或重新启用',
+        );
       }
       setState(() {
         _page++;
-        _hasMore = result.hasMore;
-        _loadingMore = false;
         final seen = _items.map((item) => item.id).toSet();
+        final fresh = result.items.where((item) => seen.add(item.id)).toList();
+        _hasMore = result.hasMore && fresh.isNotEmpty;
+        _loadingMore = false;
         _items = <SourceItem>[
           ..._items,
-          ...result.items.where(
-            (item) =>
-                SearchSettings.instance.accepts(item.title, _keyword) &&
-                seen.add(item.id),
+          ...fresh.where(
+            (item) => SearchSettings.instance.accepts(item.title, _keyword),
           ),
         ];
       });
@@ -328,7 +339,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
       if (!mounted || seq != _seq) return;
       setState(() {
         _loadingMore = false;
-        _hasMore = false; // 失败就不再追，避免反复打源站
+        _moreFailure = error; // 保留下一页，等待用户明确重试。
       });
     }
   }
@@ -547,6 +558,14 @@ class _SearchResultsPageState extends State<SearchResultsPage>
         Expanded(
           child: _mode == BrowseLayoutMode.list ? _buildList() : _buildGrid(),
         ),
+        if (_moreFailure != null)
+          TextButton.icon(
+            onPressed: () => unawaited(_loadMore(retry: true)),
+            icon: const Icon(Icons.refresh),
+            label: const Text('加载下一页失败，点击重试'),
+          )
+        else if (_loadingMore)
+          const LinearProgressIndicator(),
       ],
     );
   }
