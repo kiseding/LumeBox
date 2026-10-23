@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -21,7 +23,7 @@ Future<void> showBangumiMatchSheet({
   required ReadingLibrary library,
   required SourceItem item,
   required String initialTitle,
-}) => showModalBottomSheet<void>(
+}) => showGlassModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,

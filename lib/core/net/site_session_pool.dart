@@ -52,6 +52,14 @@ class SiteSessionPool {
         })
         .cast<Object?>()
         .toList();
+    // This snapshot is authoritative for this host: a removed browser cookie
+    // must not survive in the HTTP client's fallback pool.
+    _cookies.removeWhere((_, cookie) {
+      final domain = '${cookie['domain'] ?? ''}'.toLowerCase();
+      final bare = domain.replaceFirst(RegExp(r'^\.'), '');
+      return target.host == bare ||
+          (domain.startsWith('.') && target.host.endsWith('.$bare'));
+    });
     importCookies(cookies);
     _storage[target.origin] = {
       for (final area in ['localStorage', 'sessionStorage'])
@@ -180,9 +188,8 @@ class SiteSessionPool {
         final domain = c.domain?.toLowerCase() ?? uri.host;
         final bare = domain.replaceFirst(RegExp(r'^\.'), '');
         if (uri.host != bare && !uri.host.endsWith('.$bare')) continue;
-        final defaultPath = uri.path.contains('/')
-            ? uri.path.substring(0, uri.path.lastIndexOf('/') + 1)
-            : '/';
+        final slash = uri.path.lastIndexOf('/');
+        final defaultPath = slash <= 0 ? '/' : uri.path.substring(0, slash);
         // WebKit is authoritative on iOS. Off-device fallback keeps server
         // cookies host-only instead of implementing an incomplete public-suffix list.
         importCookies([

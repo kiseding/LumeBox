@@ -5,15 +5,13 @@ import 'package:flutter/services.dart';
 
 import '../../core/shell/dock_liquid_settings.dart';
 
-/// iOS 原生系统材质底座，用于和自绘 Shader 方案做 A/B 对比。
+/// iOS 原生系统材质底座，供底栏和全局玻璃表面共用。
 ///
 /// iOS 26 原生层使用 `UIGlassEffect`，旧系统回退磨砂。
 /// Flutter 侧负责布局，图标/文字/交互仍由 Flutter
 /// 绘制，因此这是“原生材质底座 + Flutter 内容层”，不是完整的原生 TabBar。
 ///
-/// 限制：受 Flutter 平台视图合成方式限制，原生视图无法参与 Flutter 的
-/// `BackdropFilter` 取样，所以该模式下会关闭自绘透镜的折射/清澈遮罩，
-/// 只保留填充、描边与拖动形变。
+/// 材质的模糊、折射与高光由系统管理；配置通过通道更新，避免重建原生视图。
 class DockNativeGlass extends StatefulWidget {
   const DockNativeGlass({
     super.key,
@@ -52,6 +50,8 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
     'cornerRadius': widget.cornerRadius,
     'brightness': Theme.of(context).brightness.name,
     'reduceTransparency': widget.reduceTransparency,
+    'tintColor': widget.tintColor.toARGB32(),
+    'tintOpacity': widget.tintOpacity,
   };
 
   @override
@@ -91,29 +91,13 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
   @override
   Widget build(BuildContext context) {
     if (!DockNativeGlass.supported) return const SizedBox.expand();
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        IgnorePointer(
-          child: UiKitView(
-            viewType: DockNativeGlass.viewType,
-            creationParams: _configuration,
-            creationParamsCodec: const StandardMessageCodec(),
-            onPlatformViewCreated: _onPlatformViewCreated,
-          ),
-        ),
-        if (widget.tintOpacity > 0)
-          IgnorePointer(
-            child: ClipRRect(
-              borderRadius: widget.borderRadius,
-              child: ColoredBox(
-                color: widget.tintColor.withValues(
-                  alpha: widget.tintOpacity.clamp(0.0, 1.0),
-                ),
-              ),
-            ),
-          ),
-      ],
+    return IgnorePointer(
+      child: UiKitView(
+        viewType: DockNativeGlass.viewType,
+        creationParams: _configuration,
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onPlatformViewCreated,
+      ),
     );
   }
 }

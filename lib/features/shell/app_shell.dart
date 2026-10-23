@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/module_glass_scope.dart';
@@ -109,6 +111,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool get _usesSystemNavigation =>
       !(widget.desktopRail ?? _isDesktopPlatform) &&
       _systemNavigationAvailable &&
+      !_shellSettings.appearance.hasCustomGeometry &&
       _shellSettings.settings.nativeNavigation.enabled;
 
   double get _navigationHeight =>
@@ -401,7 +404,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Future<void> _searchFromNavigation() async {
     if (_activeId == ShellTab.settingsId) {
-      final target = await showModalBottomSheet<String>(
+      final target = await showGlassModalBottomSheet<String>(
         context: context,
         showDragHandle: true,
         builder: (context) => SafeArea(
@@ -694,7 +697,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       },
                       child: DockHandleButton(
                         key: AppShell.dockKey,
-                        style: _shellSettings.handleStyle,
+                        style: DockHandleStyle.currentSection,
                         sectionId: _activeId,
                         sectionIcon: _pageCatalog
                             .firstWhere((tab) => tab.id == _activeId)

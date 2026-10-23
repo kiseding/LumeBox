@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/session/privacy_settings.dart';
@@ -40,7 +42,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('应用锁'),
             subtitle: const Text('启动及返回前台时验证，后台遮挡应用画面'),
             value: settings.appLock,
@@ -66,7 +68,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
             padding: EdgeInsets.all(16),
           ),
           const Divider(),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('显示成人内容'),
             subtitle: const Text('显示已标记为 18+ 的源及对应收藏、历史；关闭只隐藏，不删除数据'),
             value: settings.showAdult,

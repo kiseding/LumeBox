@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/reading/reading_library.dart';
@@ -86,7 +88,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     final address = TextEditingController(text: url);
     final username = TextEditingController();
     final password = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('添加猫源订阅'),
@@ -210,7 +212,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     }
     if (action == 'remove') await service.remove(record);
     if (action == 'info' && mounted) {
-      await showDialog<void>(
+      await showGlassDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(record.name),

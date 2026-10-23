@@ -1,3 +1,6 @@
+import '../../shared/widgets/native_glass_controls.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:math' as math;
@@ -6,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 Future<Color?> showCustomAccentPicker(BuildContext context, Color initial) =>
-    showModalBottomSheet<Color>(
+    showGlassModalBottomSheet<Color>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -147,7 +150,7 @@ class _CustomAccentPickerState extends State<CustomAccentPicker> {
                         ).toColor(),
                         overlayColor: Colors.transparent,
                       ),
-                      child: Slider(
+                      child: NativeGlassSlider(
                         key: const Key('accent.hue'),
                         value: _hsv.hue,
                         max: 360,

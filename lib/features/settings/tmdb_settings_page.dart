@@ -1,3 +1,6 @@
+import '../../shared/widgets/native_glass_controls.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:typed_data';
@@ -58,7 +61,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
       if (mounted) setState(() => testing = false);
     }
     if (mounted) {
-      await showDialog<void>(
+      await showGlassDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(isApi ? '测试 API 代理' : '测试 图片代理'),
@@ -75,7 +78,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
   }
 
   Future<void> disconnect() async {
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('断开连接'),
@@ -108,7 +111,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('启用 TMDB'),
             value: settings.enabled,
             onChanged: (value) {

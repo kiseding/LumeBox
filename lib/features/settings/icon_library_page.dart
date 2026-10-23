@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -119,7 +121,7 @@ class _IconLibraryPageState extends State<IconLibraryPage> {
               if (v == 'export') await _export();
               if (!context.mounted) return;
               if (v == 'reset') {
-                final yes = await showDialog<bool>(
+                final yes = await showGlassDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('恢复全部默认图标？'),
@@ -447,7 +449,7 @@ class _IconPickerPageState extends State<IconPickerPage> {
                         onLongPress: image == null
                             ? null
                             : () async {
-                                final yes = await showDialog<bool>(
+                                final yes = await showGlassDialog<bool>(
                                   context: context,
                                   builder: (context) => AlertDialog(
                                     title: const Text('删除这张图标图片？'),

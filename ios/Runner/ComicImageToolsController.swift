@@ -5,6 +5,7 @@ import ImageIO
 import CoreML
 import Security
 import SwiftUI
+import NaturalLanguage
 #if canImport(Translation)
 import Translation
 #endif
@@ -317,7 +318,14 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       translationID = id; translationResult = result
       lock.lock(); active.insert(id); lock.unlock()
       let source = args["source"] as? String ?? "auto"
-      let view = ComicTranslationTaskView(texts: texts, source: source, target: target, completion: { [weak self] strings, error in self?.finishTranslation(strings, error: error) })
+      if source == target {
+        finishTranslation(texts, error: nil)
+        return
+      }
+      let view = ComicTranslationTaskView(texts: texts, source: source, target: target, completion: { [weak self] strings, error in
+        guard self?.translationID == id else { return }
+        self?.finishTranslation(strings, error: error)
+      })
       let host = UIHostingController(rootView: view)
       translationHost = host
       host.presentationController?.delegate = self
@@ -333,9 +341,15 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     translationResult = nil
     if let id = translationID { end(id) }; translationID = nil
     let host = translationHost; translationHost = nil
-    host?.dismiss(animated: true)
-    if let strings = strings { result(strings) }
-    else { result(FlutterError(code: "translation", message: error ?? "翻译失败", details: nil)) }
+    // Complete only after dismissal; the next queued batch must not present
+    // its controller on top of a sheet still being dismissed.
+    let complete = {
+      if let strings = strings { result(strings) }
+      else { result(FlutterError(code: "translation", message: error ?? "翻译失败", details: nil)) }
+    }
+    if let host = host, host.presentingViewController != nil {
+      host.dismiss(animated: true, completion: complete)
+    } else { complete() }
   }
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finishTranslation(nil, error: "翻译已取消") }
 }
@@ -350,7 +364,7 @@ private struct ComicTranslationTaskView: View {
   @State private var started = false
   var body: some View {
     VStack(spacing: 24) {
-      Text("设备端漫画翻译").font(.headline)
+      Text("设备端翻译").font(.headline)
       ProgressView("正在准备语言包并翻译…")
       Text("首次使用请按系统提示下载语言包").font(.footnote)
       Button("取消") { completion(nil, "翻译已取消") }
@@ -362,6 +376,13 @@ private struct ComicTranslationTaskView: View {
           var translated: [String] = []
           for text in texts {
             try Task.checkCancellation()
+            // Mixed feeds often already contain target-language titles. The
+            // Translation framework rejects identical source/target pairs.
+            if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) ||
+                NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue == target {
+              translated.append(text)
+              continue
+            }
             let response = try await session.translate(text)
             translated.append(response.targetText)
           }

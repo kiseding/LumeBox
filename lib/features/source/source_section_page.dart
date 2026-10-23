@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../core/source/source_health.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -136,7 +137,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   /// 删除前二次确认：删除会连同脚本与运行时一起移除。
   Future<void> _delete(SourceDescriptor source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除源'),
@@ -182,7 +183,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   /// 重命名：只改展示名（脚本与运行时不动），列表随即刷新。
   Future<void> _rename(SourceDescriptor source) async {
-    final name = await showDialog<String>(
+    final name = await showGlassDialog<String>(
       context: context,
       builder: (_) => _RenameDialog(initialName: source.name),
     );
@@ -199,7 +200,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   /// 分组名由用户自定（没有预设分组）：文档里举的例子是「视频组 / 漫画组 /
   /// ——分组的用处是**同一板块内**按用户自己的习惯归类（如「主力 / 备用」）。
   Future<void> _setGroup(SourceDescriptor source) async {
-    final group = await showDialog<String>(
+    final group = await showGlassDialog<String>(
       context: context,
       builder: (_) =>
           _GroupDialog(initialGroup: source.group, knownGroups: _knownGroups()),
@@ -231,7 +232,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
 
   /// 恢复被标记失效的源：清零失败计数并解除标记。
   Future<void> _recover(SourceDescriptor source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('恢复源'),
@@ -284,7 +285,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   }
 
   Future<SourceDescriptor?> _chooseSource(String title) =>
-      showDialog<SourceDescriptor>(
+      showGlassDialog<SourceDescriptor>(
         context: context,
         builder: (context) => SimpleDialog(
           title: Text(title),
@@ -327,7 +328,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       );
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('恢复上一版源'),
@@ -428,7 +429,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   /// 不会出现「改了配置还在用旧 Cookie」的错觉。换网址 / 账号登入只落库：
   /// 它在**每次调用前**注入脚本（`LumeSource.config`），因此下一次浏览就用新值。
   Future<void> _editNetwork(SourceDescriptor source) async {
-    final result = await showDialog<SourceSettingsResult>(
+    final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),
     );
@@ -470,7 +471,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       return;
     }
     var copied = false;
-    await showDialog<void>(
+    await showGlassDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('导出脚本 · ${source.name}'),
@@ -509,7 +510,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   }
 
   Future<bool> _confirmMaintenance(String title, String detail) async =>
-      await showDialog<bool>(
+      await showGlassDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(title),

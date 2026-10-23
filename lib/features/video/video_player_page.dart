@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_controls.dart';
 import 'danmaku/danmaku_panel.dart';
 import 'danmaku/danmaku_match_sheet.dart';
 
@@ -1872,8 +1873,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             final savedLabel = _library?.setting('$key.label');
             if (id?.isEmpty == true ||
                 savedLabel == null ||
-                savedLabel.isEmpty) {
+                savedLabel.isEmpty ||
+                config.builtin) {
               id = null;
+            }
+            // Compatible servers may allocate transient episode IDs. After a
+            // restart, resolve a stale saved association through search again.
+            if (id != null) {
+              try {
+                track = await client.comments(id);
+                if (track.isEmpty) {
+                  track = null;
+                  id = null;
+                }
+              } catch (_) {
+                id = null;
+              }
+              if (!publicCurrent()) return;
             }
             DandanplayEpisode? match;
             var matches = const <DandanplayEpisode>[];
@@ -1898,7 +1914,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   target.title,
                   episode: number,
                 )) {
-                  final candidateTrack = await client.comments(candidate.id);
+                  DanmakuTrack candidateTrack;
+                  try {
+                    candidateTrack = await client.comments(candidate.id);
+                  } catch (error) {
+                    LumeLog.warn('[danmaku] 候选加载失败，继续同集其他来源：$error');
+                    continue;
+                  }
                   if (!publicCurrent()) return;
                   if (candidateTrack.isEmpty) continue;
                   match = candidate;
@@ -1924,7 +1946,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 matches,
                 match,
               )) {
-                final retry = await client.comments(candidate.id);
+                DanmakuTrack retry;
+                try {
+                  retry = await client.comments(candidate.id);
+                } catch (_) {
+                  continue;
+                }
                 if (!publicCurrent()) return;
                 if (retry.isEmpty) continue;
                 track = retry;
@@ -2865,7 +2892,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               },
             ),
             Text('音量 ${(_gesture.volume * 100).round()}%'),
-            Slider(
+            NativeGlassSlider(
               value: _gesture.volume,
               min: 0,
               max: 1,
@@ -2884,7 +2911,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   ? '前向缓冲 ${buffer == 0 ? '自动' : '$buffer 秒'}'
                   : '当前内核未提供缓冲参数',
             ),
-            Slider(
+            NativeGlassSlider(
               value: buffer.toDouble().clamp(
                 0,
                 SectionModuleSettings.maxBufferSeconds.toDouble(),
@@ -4245,7 +4272,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final total = snapshot.duration.inMilliseconds;
     final preview = _previewTarget;
     final shown = preview ?? snapshot.position;
-    final slider = Slider(
+    final slider = NativeGlassSlider(
       value: _fraction(shown, snapshot.duration),
       secondaryTrackValue: _fraction(
         shown + (_player?.stats.value.buffered ?? Duration.zero),

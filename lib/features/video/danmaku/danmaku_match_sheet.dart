@@ -195,27 +195,35 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
       _error = null;
     });
     try {
-      var track = await widget.client.comments(episode.id);
-      if (!mounted || generation != _generation) return;
+      var track = DanmakuTrack.parse([]);
+      Object? failure;
       // 选中的条目可能是 TMDB 映射或某个没有弹幕的来源；同作品同集还有
       // 其他非 TMDB 候选时自动换一个，避免用户再搜一次。
-      if (track.isEmpty) {
-        for (final candidate in DandanplayClient.alternatives(
-          _items,
-          episode,
-        )) {
-          if (!mounted || generation != _generation) return;
-          final retry = await widget.client.comments(candidate.id);
-          if (!mounted || generation != _generation) return;
-          if (retry.isEmpty) continue;
-          episode = candidate;
-          track = retry;
-          break;
+      for (final candidate in [
+        selected,
+        ...DandanplayClient.alternatives(_items, selected),
+      ]) {
+        if (!mounted || generation != _generation) return;
+        DanmakuTrack retry;
+        try {
+          retry = await widget.client.comments(candidate.id);
+        } catch (error) {
+          failure = error;
+          continue;
         }
+        if (!mounted || generation != _generation) return;
+        if (retry.isEmpty) continue;
+        episode = candidate;
+        track = retry;
+        break;
       }
       if (track.isEmpty) {
         setState(
-          () => _error = '这部作品的该集返回 0 条弹幕（已尝试同集的其他来源），尚未保存关联。请换一集或更换服务。',
+          () => _error = failure != null
+              ? DandanplayClient.describeError(failure)
+              : episode.source.toLowerCase() == 'tmdb'
+              ? '官方 TMDB 条目只有作品信息，该集暂无弹幕。请更换为兼容弹幕服务后重新搜索。'
+              : '这部作品的该集返回 0 条弹幕（已尝试同集的其他来源），尚未保存关联。请换一集或更换服务。',
         );
         return;
       }
@@ -326,6 +334,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                 ),
               const SizedBox(height: 8),
               Row(
+                key: const ValueKey('danmaku-match-editors'),
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(

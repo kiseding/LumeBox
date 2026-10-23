@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image/image.dart' as img;
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/source/source_favicon.dart';
 import 'package:lume_box/shared/widgets/source_icon.dart';
@@ -15,6 +16,45 @@ import 'package:lume_box/shared/widgets/source_icon.dart';
 /// 换成 PNG、或只写在首页 `<link rel=icon>` 里，都要能走到真图标；
 /// 全都拿不到时必须老实回退首字母，不许把 HTML 当图片画出来。
 void main() {
+  test('ICO 站点图标转换为 Flutter 可解码的 PNG', () async {
+    final ico = img.encodeIco(img.Image(width: 16, height: 16));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        source: 'ICO',
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            ico,
+            200,
+            headers: {'content-type': 'image/x-icon'},
+          ),
+        ),
+      ),
+    );
+    final bytes = await resolver.load(origin: 'https://ico.example');
+    expect(bytes!.take(4), [0x89, 0x50, 0x4e, 0x47]);
+    expect(img.decodePng(bytes)?.width, 16);
+  });
+
+  test('失败的图标不永久缓存，网络恢复后能再次获取', () async {
+    var ready = false;
+    final data = img.encodePng(img.Image(width: 2, height: 2));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        source: 'retry',
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            ready ? data : [],
+            ready ? 200 : 403,
+            headers: {'content-type': 'image/png'},
+          ),
+        ),
+      ),
+    );
+    expect(await resolver.load(origin: 'https://retry.example'), isNull);
+    ready = true;
+    expect(await resolver.load(origin: 'https://retry.example'), isNotNull);
+  });
+
   /// 1x1 PNG（最小可解码图片）：用来当「真图标」。
   final png = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAF/gH8YQ3G'
@@ -33,41 +73,44 @@ void main() {
     // apple-touch-icon 排第一（浏览器也是这个优先级）；SVG 那条被丢掉。
     expect(links.first, 'https://a.com/img/logo256.png');
     expect(links.first, isNot(contains('.svg')));
-    expect(
-      links.toSet(),
-      <String>{
-        'https://a.com/img/logo256.png',
-        'https://a.com/img/icon32.png',
-        'https://a.com/favicon.ico',
-      },
-    );
+    expect(links.toSet(), <String>{
+      'https://a.com/img/logo256.png',
+      'https://a.com/img/icon32.png',
+      'https://a.com/favicon.ico',
+    });
     // 站点没给图标时给空列表（调用方据此收手，不再瞎猜）。
-    expect(SourceFavicon.iconLinksFromHtml('<html></html>', 'https://a.com'), isEmpty);
+    expect(
+      SourceFavicon.iconLinksFromHtml('<html></html>', 'https://a.com'),
+      isEmpty,
+    );
   });
 
-  test('候选顺序：源声明的图标 → /favicon.ico → /favicon.png → apple-touch-icon', () async {
-    final asked = <String>[];
-    final resolver = SourceFavicon(
-      http: LumeHttp(
-        source: '测试',
-        client: MockClient((request) async {
-          asked.add(request.url.toString());
-          return http.Response.bytes(<int>[], 404);
-        }),
-      ),
-    );
-    await resolver.load(
-      origin: 'https://a.com',
-      explicit: <String>['https://cdn.example.com/my.png'],
-    );
-    expect(asked, <String>[
-      'https://cdn.example.com/my.png',
-      'https://a.com/favicon.ico',
-      'https://a.com/favicon.png',
-      'https://a.com/apple-touch-icon.png',
-      'https://a.com/',
-    ]);
-  });
+  test(
+    '候选顺序：源声明的图标 → /favicon.ico → /favicon.png → apple-touch-icon',
+    () async {
+      final asked = <String>[];
+      final resolver = SourceFavicon(
+        http: LumeHttp(
+          source: '测试',
+          client: MockClient((request) async {
+            asked.add(request.url.toString());
+            return http.Response.bytes(<int>[], 404);
+          }),
+        ),
+      );
+      await resolver.load(
+        origin: 'https://a.com',
+        explicit: <String>['https://cdn.example.com/my.png'],
+      );
+      expect(asked, <String>[
+        'https://cdn.example.com/my.png',
+        'https://a.com/favicon.ico',
+        'https://a.com/favicon.png',
+        'https://a.com/apple-touch-icon.png',
+        'https://a.com/',
+      ]);
+    },
+  );
 
   test('favicon.ico 是 404 页：继续找首页 <link rel=icon> 里的真图标', () async {
     final asked = <String>[];
@@ -81,7 +124,9 @@ void main() {
             return http.Response(
               '<html><head><link rel="icon" href="/img/logo256.png"></head></html>',
               200,
-              headers: <String, String>{'content-type': 'text/html; charset=utf-8'},
+              headers: <String, String>{
+                'content-type': 'text/html; charset=utf-8',
+              },
             );
           }
           if (url == 'https://a.com/img/logo256.png') {
@@ -109,7 +154,10 @@ void main() {
   test('内容不是图片就当没有：HTML / SVG / 空响应都不算图标', () async {
     Future<Uint8List?> load(http.Response Function(http.Request) respond) {
       final resolver = SourceFavicon(
-        http: LumeHttp(source: '测试', client: MockClient((r) async => respond(r))),
+        http: LumeHttp(
+          source: '测试',
+          client: MockClient((r) async => respond(r)),
+        ),
       );
       return resolver.load(origin: 'https://a.com');
     }
@@ -183,13 +231,15 @@ void main() {
     SourceFavicon resolver(Uint8List? bytes) => SourceFavicon(
       http: LumeHttp(
         source: '测试',
-        client: MockClient((request) async => bytes == null
-            ? http.Response.bytes(<int>[], 404)
-            : http.Response.bytes(
-                bytes,
-                200,
-                headers: <String, String>{'content-type': 'image/png'},
-              )),
+        client: MockClient(
+          (request) async => bytes == null
+              ? http.Response.bytes(<int>[], 404)
+              : http.Response.bytes(
+                  bytes,
+                  200,
+                  headers: <String, String>{'content-type': 'image/png'},
+                ),
+        ),
       ),
       fetchHtmlHomepage: false,
     );

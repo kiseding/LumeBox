@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+import '../../shared/widgets/source_translation.dart';
 import '../../shared/widgets/network_owned_state.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -205,7 +207,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   }
 
   Future<void> _unshelve() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('移出书架'),
@@ -434,7 +436,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text(
+                        SourceText(
                           detail?.title ?? widget.target.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -483,6 +485,12 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                       ],
                     ),
                   ),
+                ],
+              ),
+              SourceTranslationAction(
+                texts: [
+                  detail?.title ?? widget.target.title,
+                  if (detail?.description != null) detail!.description!,
                 ],
               ),
               const SizedBox(height: 14),
@@ -558,7 +566,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       child: GlassCard(
         radius: 14,
         padding: const EdgeInsets.all(14),
-        child: Text(
+        child: SourceText(
           description,
           style: TextStyle(
             fontWeight: FontWeight.w600,

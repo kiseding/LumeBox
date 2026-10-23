@@ -94,8 +94,8 @@ void main() {
       expect(shown, settings, reason: '关掉再打开应当回到完全一致的配置');
     });
 
-    test('收起悬浮球默认极简线条，JSON 往返保留选择', () {
-      expect(const ShellSettings().handleStyle, DockHandleStyle.lines);
+    test('收起悬浮球默认使用当前板块选中图标，JSON 往返保留选择', () {
+      expect(const ShellSettings().handleStyle, DockHandleStyle.currentSection);
       final arrow = const ShellSettings().withHandleStyle(
         DockHandleStyle.arrow,
       );
@@ -108,7 +108,7 @@ void main() {
         ..remove('handleStyle');
       expect(
         ShellSettings.fromJson(legacy).handleStyle,
-        DockHandleStyle.lines,
+        DockHandleStyle.currentSection,
         reason: '旧配置没有该字段时回退默认，不报错',
       );
     });
@@ -693,21 +693,27 @@ void main() {
   // ==========================================================================
 
   group('导航管理精简', () {
-    testWidgets('旧管理工具仅保留液态动效，删除排序、位移与隐藏开关', (tester) async {
+    testWidgets('旧管理入口只保留 UIKit 原生材质参数', (tester) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         MaterialApp(theme: LumeTheme.build(), home: const TabBarSettingsPage()),
       );
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, '底栏液态动效'), findsOneWidget);
+      expect(find.widgetWithText(AppBar, '原生液态玻璃'), findsOneWidget);
       expect(find.byType(ReorderableListView), findsNothing);
+      for (final label in ['启用系统玻璃', '减少透明效果', '底栏尺寸与位置', '渲染器', '预设']) {
+        expect(find.text(label), findsNothing);
+      }
+      expect(find.text('材质风格'), findsOneWidget);
+      expect(find.byKey(const ValueKey('native-glass-tint')), findsOneWidget);
+      expect(find.byKey(const ValueKey('native-glass-radius')), findsOneWidget);
       for (final label in ['导航栏高度', '左右留白', '离底部距离', '收起悬浮球']) {
         expect(find.text(label), findsNothing);
       }
       expect(
         find.byKey(const ValueKey('dock-liquid-preset-softFree')),
-        findsOneWidget,
+        findsNothing,
       );
     });
     testWidgets('设置二级导航页保留系统导航、板块图标与液态管理入口', (tester) async {
@@ -723,13 +729,14 @@ void main() {
       expect(find.text('底部导航栏管理'), findsNothing);
       await tester.tap(find.text('导航与首页'));
       await tester.pumpAndSettle();
-      for (final label in ['原生系统导航', '当前板块图标', '液态玻璃管理', '内容分类显示']) {
+      for (final label in ['原生系统导航', '底栏尺寸与位置', '液态玻璃管理', '内容分类显示']) {
         expect(find.text(label), findsOneWidget);
       }
+      expect(find.text('当前板块图标'), findsNothing);
       expect(find.text('悬浮模块'), findsNothing);
       await tester.tap(find.text('液态玻璃管理'));
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, '液态玻璃管理'), findsOneWidget);
+      expect(find.widgetWithText(AppBar, '原生液态玻璃'), findsOneWidget);
     });
   });
 

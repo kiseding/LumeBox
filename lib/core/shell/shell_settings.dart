@@ -89,7 +89,7 @@ enum DockHandleStyle {
     for (final style in values) {
       if (style.id == id) return style;
     }
-    return DockHandleStyle.lines;
+    return DockHandleStyle.currentSection;
   }
 
   String get label => switch (this) {
@@ -145,6 +145,15 @@ class DockAppearance {
 
   /// Zero fills the available width; positive values are preferred logical pixels.
   final double preferredWidth, horizontalOffset, verticalOffset;
+  bool get hasCustomGeometry =>
+      height != 54 ||
+      horizontalMargin != 24 ||
+      effectiveLeftMargin != 24 ||
+      effectiveRightMargin != 24 ||
+      preferredWidth != 0 ||
+      horizontalOffset != 0 ||
+      verticalOffset != 0 ||
+      safeGap != 4;
   double get effectiveLeftMargin => leftMargin ?? horizontalMargin;
   double get effectiveRightMargin => rightMargin ?? horizontalMargin;
 
@@ -342,7 +351,7 @@ class DockHorizontalLayout {
 class ShellSettings {
   const ShellSettings({
     this.tabs = _defaultTabs,
-    this.handleStyle = DockHandleStyle.lines,
+    this.handleStyle = DockHandleStyle.currentSection,
     this.appearance = DockAppearance.defaults,
     this.nativeNavigation = const NativeNavigationSettings(),
   });
@@ -483,6 +492,7 @@ class ShellSettings {
   Map<String, Object?> toJson() => <String, Object?>{
     'tabs': <Object?>[for (final tab in tabs) tab.toJson()],
     'handleStyle': handleStyle.id,
+    'handleDefaultVersion': 2,
     'appearance': appearance.toJson(),
     'nativeNavigation': nativeNavigation.toJson(),
   };
@@ -527,13 +537,20 @@ class ShellSettings {
     }
 
     if (parsed.every((tab) => !tab.visible)) return defaults;
+    final appearance = DockAppearance.fromJson(json['appearance']);
+    final nativeNavigation = NativeNavigationSettings.fromJson(
+      json['nativeNavigation'],
+    );
     return ShellSettings(
       tabs: parsed,
-      handleStyle: DockHandleStyle.fromId(json['handleStyle']),
-      appearance: DockAppearance.fromJson(json['appearance']),
-      nativeNavigation: NativeNavigationSettings.fromJson(
-        json['nativeNavigation'],
-      ),
+      handleStyle:
+          json['handleDefaultVersion'] != 2 && json['handleStyle'] == 'lines'
+          ? DockHandleStyle.currentSection
+          : DockHandleStyle.fromId(json['handleStyle']),
+      appearance: appearance,
+      nativeNavigation: appearance.hasCustomGeometry
+          ? nativeNavigation.copyWith(enabled: false)
+          : nativeNavigation,
     );
   }
 
@@ -642,7 +659,7 @@ class ShellSettingsController extends ChangeNotifier {
   bool get settingsVisible => _settings.settingsVisible;
 
   /// 导航栏收起时左下角悬浮球的样式。
-  DockHandleStyle get handleStyle => _settings.handleStyle;
+  DockHandleStyle get handleStyle => DockHandleStyle.currentSection;
 
   /// 尺寸 / 玻璃边缘 / 投影 / 动效（管理页实时改，壳层实时读）。
   DockAppearance get appearance => _settings.appearance;
@@ -724,7 +741,24 @@ class ShellSettingsController extends ChangeNotifier {
     DockAppearance appearance, {
     bool persist = true,
   }) async {
-    final next = _settings.withAppearance(appearance);
+    // Every geometry editor must affect the actual capsule, including older
+    // saved layouts. Full UITabBar owns its dimensions; native glass does not.
+    final old = _settings.appearance;
+    final geometryChanged =
+        old.height != appearance.height ||
+        old.horizontalMargin != appearance.horizontalMargin ||
+        old.leftMargin != appearance.leftMargin ||
+        old.rightMargin != appearance.rightMargin ||
+        old.preferredWidth != appearance.preferredWidth ||
+        old.horizontalOffset != appearance.horizontalOffset ||
+        old.verticalOffset != appearance.verticalOffset ||
+        old.safeGap != appearance.safeGap;
+    final updated = _settings.withAppearance(appearance);
+    final next = geometryChanged
+        ? updated.withNativeNavigation(
+            _settings.nativeNavigation.copyWith(enabled: false),
+          )
+        : updated;
     if (next == _settings) {
       if (persist) await _persist();
       return;

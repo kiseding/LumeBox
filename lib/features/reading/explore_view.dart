@@ -1,3 +1,5 @@
+import '../../shared/widgets/source_translation.dart';
+import '../../core/source/source_labels.dart';
 import '../../core/net/network_cancellation.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import 'browse_header_motion.dart';
@@ -531,6 +533,13 @@ class _ExploreViewState extends State<ExploreView>
   Widget _buildInlineFacets() => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
+      if (_items.isNotEmpty)
+        Align(
+          alignment: Alignment.centerRight,
+          child: SourceTranslationAction(
+            texts: _items.map((item) => item.title).toList(),
+          ),
+        ),
       if (_categories.isEmpty && _filterGroups.isNotEmpty)
         Align(
           alignment: Alignment.centerRight,
@@ -573,16 +582,20 @@ class _ExploreViewState extends State<ExploreView>
                 for (final category in _categories.where(
                   (c) => c.title != '全部',
                 ))
-                  _facetChip(category.title, _categoryId == category.id, () {
-                    setState(() {
-                      _homeBrowseMode = null;
-                      _categoryId = category.id;
-                      _facetFilters = Map.of(_facetFilters)
-                        ..remove('tid')
-                        ..remove('class');
-                    });
-                    unawaited(_refresh());
-                  }),
+                  _facetChip(
+                    sourceLabel(category.title),
+                    _categoryId == category.id,
+                    () {
+                      setState(() {
+                        _homeBrowseMode = null;
+                        _categoryId = category.id;
+                        _facetFilters = Map.of(_facetFilters)
+                          ..remove('tid')
+                          ..remove('class');
+                      });
+                      unawaited(_refresh());
+                    },
+                  ),
               ],
             ),
           ),
@@ -593,7 +606,7 @@ class _ExploreViewState extends State<ExploreView>
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Text(
-                group.title,
+                sourceLabel(group.title),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.captionSize,
@@ -603,7 +616,7 @@ class _ExploreViewState extends State<ExploreView>
             ),
             Expanded(
               child: BrowseChoiceAccess(
-                title: group.title,
+                title: sourceLabel(group.title),
                 showAccess: false,
                 choices: group.options
                     .map((o) => SourceCategory(id: o.id, title: o.title))
@@ -645,7 +658,7 @@ class _ExploreViewState extends State<ExploreView>
                         ),
                       for (final option in group.options)
                         _facetChip(
-                          option.title,
+                          sourceLabel(option.title),
                           (_facetFilters[group.id] ??
                                   (group.id == 'tid' &&
                                           group.options.any(

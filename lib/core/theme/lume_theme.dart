@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/lume_icon.dart';
@@ -567,7 +569,7 @@ class LumeTheme {
         style: TextButton.styleFrom(
           foregroundColor: accentColor,
           disabledForegroundColor: textPrimary,
-        ),
+        ).copyWith(backgroundBuilder: nativeButtonBackground),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -575,14 +577,14 @@ class LumeTheme {
           foregroundColor: onAccent,
           disabledForegroundColor: textPrimary,
           disabledBackgroundColor: surfaceAlt,
-        ),
+        ).copyWith(backgroundBuilder: nativeButtonBackground),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: accentColor,
           disabledForegroundColor: textPrimary,
           side: BorderSide.none,
-        ),
+        ).copyWith(backgroundBuilder: nativeButtonBackground),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: chipIdleBackground,

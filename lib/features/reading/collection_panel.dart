@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import 'poster_card.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -61,7 +62,7 @@ class _CollectionPanelState extends State<CollectionPanel> {
   final selected = <String>{};
   Future<void> remove(Set<String> ids) async {
     if (ids.isEmpty) return;
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除${widget.title}'),

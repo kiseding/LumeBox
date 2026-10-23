@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
@@ -16,6 +18,18 @@ class DockLayoutSettingsPage extends StatelessWidget {
     listenable: controller,
     builder: (context, _) {
       final appearance = controller.appearance;
+      void apply(DockAppearance value, {bool persist = true}) {
+        // Full UITabBar owns its height. A native material backdrop with Flutter
+        // layout allows the dimensions requested here while retaining UIGlassEffect.
+        if (controller.settings.nativeNavigation.enabled) {
+          controller.updateNativeNavigation(
+            controller.settings.nativeNavigation.copyWith(enabled: false),
+          );
+        }
+        controller.setAppearance(value, persist: persist);
+        if (persist) controller.saveNativeNavigation();
+      }
+
       Widget slider(
         String id,
         String label,
@@ -29,16 +43,14 @@ class DockLayoutSettingsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('$label · ${value.round()} pt'),
-            Slider(
+            NativeGlassSlider(
               key: ValueKey('dock-layout-$id'),
               value: value.clamp(min, max),
               min: min,
               max: max,
               divisions: (max - min).round(),
-              onChanged: (v) =>
-                  controller.setAppearance(change(v), persist: false),
-              onChangeEnd: (_) =>
-                  controller.setAppearance(controller.appearance),
+              onChanged: (v) => apply(change(v), persist: false),
+              onChangeEnd: (_) => apply(controller.appearance),
             ),
           ],
         ),
@@ -52,10 +64,10 @@ class DockLayoutSettingsPage extends StatelessWidget {
           children: [
             const SettingsPageIntro(
               title: '让导航恰到好处',
-              description: '自绘底栏实时预览，拖动结束后自动保存。单位为逻辑像素 pt。',
+              description: '胶囊尺寸实时预览，拖动结束后自动保存。iOS 玻璃使用系统原生材质，单位为逻辑像素 pt。',
             ),
             if (controller.settings.nativeNavigation.enabled)
-              const SettingsNoteCard('当前使用原生系统导航。以下尺寸仅作用于自绘底栏；关闭原生系统导航后应用。'),
+              const SettingsNoteCard('调节尺寸后自动使用可调胶囊布局，玻璃仍为 iOS 原生材质。'),
             DockAppearancePreview(
               appearance: appearance,
               entries: navigationPreviewEntries(),
@@ -91,11 +103,11 @@ class DockLayoutSettingsPage extends StatelessWidget {
               padding: EdgeInsets.zero,
               child: Column(
                 children: [
-                  SwitchListTile.adaptive(
+                  NativeSwitchListTile.adaptive(
                     title: const Text('自动宽度'),
                     subtitle: const Text('按屏幕与左右边距撑满；关闭后指定宽度'),
                     value: appearance.preferredWidth == 0,
-                    onChanged: (v) => controller.setAppearance(
+                    onChanged: (v) => apply(
                       appearance.copyWith(
                         preferredWidth: v
                             ? 0
@@ -171,7 +183,7 @@ class DockLayoutSettingsPage extends StatelessWidget {
             TextButton.icon(
               icon: const Icon(Icons.restart_alt),
               label: const Text('恢复尺寸与位置默认'),
-              onPressed: () => controller.setAppearance(
+              onPressed: () => apply(
                 appearance.copyWith(
                   horizontalMargin: 24,
                   leftMargin: 24,

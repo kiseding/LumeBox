@@ -1,3 +1,4 @@
+import '../../core/source/source_labels.dart';
 import '../../shared/widgets/network_owned_state.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -319,7 +320,7 @@ class _SourceFilterPageState extends State<SourceFilterPage>
   String _titleOf(String? id) {
     if (id == null) return '全部';
     for (final category in _categories) {
-      if (category.id == id) return category.title;
+      if (category.id == id) return sourceLabel(category.title);
     }
     return id;
   }
@@ -493,7 +494,7 @@ class _SourceFilterPageState extends State<SourceFilterPage>
                 final category = _categories[index];
                 final on = _categoryId == category.id;
                 return ChoiceChip(
-                  label: Text(category.title),
+                  label: Text(sourceLabel(category.title)),
                   selected: on,
                   onSelected: (_) {
                     setState(() => _categoryId = on ? null : category.id);
@@ -559,7 +560,7 @@ class _SourceFilterPageState extends State<SourceFilterPage>
           Padding(
             padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
             child: Text(
-              group.title,
+              sourceLabel(group.title),
               style: TextStyle(
                 fontSize: LumeTypography.bodySize,
                 fontWeight: FontWeight.w600,
@@ -577,7 +578,7 @@ class _SourceFilterPageState extends State<SourceFilterPage>
                 final option = group.options[index];
                 final on = selected.contains(option.id);
                 return ChoiceChip(
-                  label: Text(option.title),
+                  label: Text(sourceLabel(option.title)),
                   selected: on,
                   onSelected: (_) => _toggle(group.id, option.id),
                 );

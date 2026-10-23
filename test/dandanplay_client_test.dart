@@ -8,6 +8,54 @@ import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  test('Cloudflare 无状态集数编号可从搜索结果直接读取弹幕', () async {
+    const id =
+        'lb1.aHR0cHM6Ly93d3cuaXFpeWkuY29tL3ZfZXhhbXBsZS5odG1s.signature_123';
+    const token = 'private-service-token';
+    final client = DandanplayClient(
+      credentials: const DandanplayCredentials(
+        '',
+        '',
+        baseUrl: 'https://worker.example/$token',
+      ),
+      client: MockClient((request) async {
+        expect(request.headers['User-Agent'], 'LumeBox/1.0');
+        if (request.url.path.endsWith('/search/episodes')) {
+          return http.Response(
+            jsonEncode({
+              'animes': [
+                {
+                  'animeTitle': '作品',
+                  'episodes': [
+                    {'episodeId': id, 'episodeTitle': '第1集'},
+                  ],
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(request.url.path, '/$token/api/v2/comment/$id');
+        expect(request.url.queryParameters['format'], 'json');
+        return http.Response(
+          jsonEncode({
+            'count': 1,
+            'comments': [
+              {'p': '1,1,16777215,1', 'm': '测试弹幕'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(client.close);
+    final episodes = await client.search('作品');
+    expect(episodes.single.id, id);
+    expect(await client.comments(episodes.single.id), hasLength(1));
+  });
+
   for (final type in ['tv', 'movie']) {
     test('官方 TMDB $type 反查真实弹幕库，避免选入空映射', () async {
       final client = DandanplayClient(
@@ -567,7 +615,7 @@ void main() {
     );
     addTearDown(client.close);
     expect(await client.search('大刑伺候 2026·国产剧·tencent', episode: 1), isEmpty);
-    expect(queries, ['大刑伺候']);
+    expect(queries, ['大刑伺候', '大刑伺候']);
   });
 
   test('签名前清理粘贴凭证的首尾空格，搜索清理年份与来源后缀', () async {

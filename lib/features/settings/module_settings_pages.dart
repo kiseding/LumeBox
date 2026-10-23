@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../video/player_settings_host.dart';
@@ -721,7 +723,7 @@ class _Slider extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: Slider(
+              child: NativeGlassSlider(
                 value: value.clamp(min, max),
                 min: min,
                 max: max,

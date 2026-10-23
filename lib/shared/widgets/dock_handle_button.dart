@@ -1,6 +1,6 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import 'dart:ui' as ui;
+import 'frosted_glass_widget.dart';
 
 import 'package:flutter/material.dart';
 
@@ -115,8 +115,8 @@ class DockHandleButton extends StatelessWidget {
               boxShadow: LumeTheme.floatShadow,
             ),
             child: ClipOval(
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: FrostedGlassWidget(
+                radius: size / 2,
                 child: DecoratedBox(
                   decoration: fill,
                   child: Material(

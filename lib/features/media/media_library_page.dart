@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -120,7 +122,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
   }
 
   Future<void> _link() async {
-    final value = await showDialog<String>(
+    final value = await showGlassDialog<String>(
       context: context,
       builder: (_) => const _MediaLinkDialog(),
     );
@@ -248,7 +250,7 @@ Future<MediaResource?> editMediaPlacement(
   BuildContext context,
   MediaResource resource,
 ) async {
-  final value = await showDialog<(ResourceKind, Section)>(
+  final value = await showGlassDialog<(ResourceKind, Section)>(
     context: context,
     builder: (_) => _PlacementDialog(resource: resource),
   );

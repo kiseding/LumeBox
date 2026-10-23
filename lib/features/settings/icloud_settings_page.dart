@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -43,7 +45,7 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
                   : '上次本机同步：${cloud.lastSync!.toLocal()}',
             ),
           ),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('自动 iCloud 同步'),
             subtitle: const Text('回到前台及前台每 5 分钟合并同步；默认关闭'),
             value: cloud.automatic,
@@ -55,7 +57,7 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
             title: Text('收藏、收藏夹与阅读 / 播放进度'),
             subtitle: Text('始终参与同步；逐条合并，保留删除记录避免重新出现'),
           ),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('同步设置'),
             subtitle: const Text('阅读和播放设置、外观、布局、悬浮与图片处理设置；不包含密钥和应用锁'),
             value: cloud.includeSettings,
@@ -66,7 +68,7 @@ class _ICloudSettingsPageState extends State<ICloudSettingsPage> {
                     unawaited(cloud.save());
                   },
           ),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             title: const Text('同步源订阅地址'),
             subtitle: const Text('漫画 / 视频的 JS 源订阅地址；源脚本与猫源运行包留在本机'),
             value: cloud.includeSubscriptions,

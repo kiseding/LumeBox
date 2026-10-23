@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import '../util/lume_log.dart';
 import 'liquid_glass_style.dart';
 import 'glass_modules.dart';
+import 'native_glass_style.dart';
+export 'native_glass_style.dart';
 export 'liquid_glass_style.dart';
 
 /// Persisted shared material, with module/part overrides and a solid fallback.
@@ -18,6 +20,13 @@ class FrostedSettings extends ChangeNotifier {
   bool get frostedEnabled => _frostedEnabled;
   final Map<String, LiquidGlassStyle> _styles = {};
   bool reduceTransparency = false;
+  NativeGlassStyle native = const NativeGlassStyle();
+  Future<void> setNative(NativeGlassStyle value, {bool persist = true}) {
+    native = value;
+    notifyListeners();
+    return persist ? save() : Future<void>.value();
+  }
+
   String _key(GlassModule module, GlassPart? part) =>
       '${module.name}:${part?.name ?? 'all'}';
   LiquidGlassStyle style(GlassModule module, GlassPart? part) =>
@@ -58,6 +67,7 @@ class FrostedSettings extends ChangeNotifier {
     _frostedEnabled = true;
     _styles.clear();
     reduceTransparency = false;
+    native = const NativeGlassStyle();
     try {
       final base = directory ?? await getApplicationSupportDirectory();
       _file = File('${base.path}/$fileName');
@@ -68,6 +78,9 @@ class FrostedSettings extends ChangeNotifier {
         if (data is Map) {
           _frostedEnabled = data['frostedEnabled'] != false;
           reduceTransparency = data['reduceTransparency'] == true;
+          if (data['native'] is Map) {
+            native = NativeGlassStyle.fromJson(data['native'] as Map);
+          }
           if (data['styles'] is Map) {
             for (final entry in (data['styles'] as Map).entries) {
               final valid = [
@@ -103,6 +116,7 @@ class FrostedSettings extends ChangeNotifier {
     final contents = jsonEncode({
       'frostedEnabled': _frostedEnabled,
       'reduceTransparency': reduceTransparency,
+      'native': native.toJson(),
       'styles': {for (final e in _styles.entries) e.key: e.value.toJson()},
     });
     void write() {

@@ -126,7 +126,7 @@ void main() {
         return [
           for (var i = 0; i < (oversized ? 1 : 2); i++)
             {
-              'text': '字' * (oversized ? 40001 : 25000),
+              'text': oversized ? '字' * 40001 : '${'字' * 24999}$i',
               'x': .1,
               'y': i * .2,
               'width': .5,
@@ -680,6 +680,9 @@ void main() {
       });
       await tester.pumpAndSettle();
       await tester.tap(find.text('翻译当前页'));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
       await tester.pumpAndSettle();
       expect(find.text('你好'), findsOneWidget);
       await tester.tap(find.byType(SwitchListTile));

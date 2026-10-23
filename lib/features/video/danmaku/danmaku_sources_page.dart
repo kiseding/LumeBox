@@ -1,3 +1,4 @@
+import '../../../shared/widgets/native_glass_surfaces.dart';
 import 'builtin_danmaku_service.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -82,7 +83,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     }
   }
 
-  Future<void> _showBuiltin() => showModalBottomSheet<void>(
+  Future<void> _showBuiltin() => showGlassModalBottomSheet<void>(
     context: context,
     useSafeArea: true,
     showDragHandle: true,
@@ -128,7 +129,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
   );
 
   Future<void> _chooseType() async {
-    final type = await showModalBottomSheet<String>(
+    final type = await showGlassModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       useSafeArea: true,
@@ -165,7 +166,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     );
     if (!mounted || type == null) return;
     if (type == 'plugin') {
-      await showModalBottomSheet<void>(
+      await showGlassModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
         useSafeArea: true,

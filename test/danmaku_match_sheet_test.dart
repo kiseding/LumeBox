@@ -89,7 +89,7 @@ void main() {
       );
       await tester.tap(find.text('打开'));
       await tester.pumpAndSettle();
-      expect(requests.single.queryParameters['episode'], '1');
+      expect(requests.first.queryParameters['episode'], '1');
       // Both fields stay usable above the software keyboard in either layout.
       final titleField = find.byKey(const ValueKey('danmaku-match-title'));
       await tester.tap(titleField);
@@ -144,117 +144,119 @@ void main() {
     });
   }
 
-  testWidgets('手动匹配选到 TMDB 空条目时会自动换同集原生来源', (tester) async {
-    final requests = <Uri>[];
-    final client = DandanplayClient(
-      credentials: const DandanplayCredentials(
-        '',
-        '',
-        baseUrl: 'https://danmu.example/custom',
-      ),
-      client: MockClient((request) async {
-        requests.add(request.url);
-        if (request.url.path.endsWith('/search/episodes')) {
-          expect(request.url.queryParameters['anime'], '大刑伺候');
-          return http.Response(
-            jsonEncode({
-              'animes': [
-                {
-                  'animeId': 1,
-                  'animeTitle': '大刑伺候(2026)【国产剧】from tencent',
-                  'source': 'TMDB',
-                  'episodes': [
-                    {
-                      'episodeId': 11,
-                      'episodeTitle': '第1集',
-                      'episodeNumber': '1',
-                    },
-                  ],
-                },
-                {
-                  'animeId': 2,
-                  'animeTitle': '大刑伺候(2026)【国产剧】from tencent',
-                  'source': 'tencent',
-                  'episodes': [
-                    {
-                      'episodeId': 12,
-                      'episodeTitle': '第1集',
-                      'episodeNumber': '1',
-                    },
-                  ],
-                },
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
-        }
-        if (request.url.path.endsWith('/comment/11')) {
-          return http.Response(
-            '{"comments":[]}',
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
-        }
-        if (request.url.path.endsWith('/comment/12')) {
-          return http.Response(
-            jsonEncode({
-              'comments': [
-                {'p': '0,1,16777215,test', 'm': '原生来源的弹幕'},
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
-        }
-        fail('unexpected ${request.url}');
-      }),
-    );
-    addTearDown(client.close);
-    DanmakuMatchSelection? selected;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: LumeTheme.build(),
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                onPressed: () async {
-                  selected = await showDanmakuPanel<DanmakuMatchSelection>(
-                    context: context,
-                    builder: (_) => DanmakuMatchSheet(
-                      client: client,
-                      title: '大刑伺候 2026·国产剧·tencent',
-                      episode: 1,
-                    ),
-                  );
-                },
-                child: const Text('打开'),
+  for (final firstStatus in [200, 502]) {
+    testWidgets('手动匹配选到空或失败条目时换同集来源 HTTP=$firstStatus', (tester) async {
+      final requests = <Uri>[];
+      final client = DandanplayClient(
+        credentials: const DandanplayCredentials(
+          '',
+          '',
+          baseUrl: 'https://danmu.example/custom',
+        ),
+        client: MockClient((request) async {
+          requests.add(request.url);
+          if (request.url.path.endsWith('/search/episodes')) {
+            expect(request.url.queryParameters['anime'], '大刑伺候');
+            return http.Response(
+              jsonEncode({
+                'animes': [
+                  {
+                    'animeId': 1,
+                    'animeTitle': '大刑伺候(2026)【国产剧】from tencent',
+                    'source': 'TMDB',
+                    'episodes': [
+                      {
+                        'episodeId': 11,
+                        'episodeTitle': '第1集',
+                        'episodeNumber': '1',
+                      },
+                    ],
+                  },
+                  {
+                    'animeId': 2,
+                    'animeTitle': '大刑伺候(2026)【国产剧】from tencent',
+                    'source': 'tencent',
+                    'episodes': [
+                      {
+                        'episodeId': 12,
+                        'episodeTitle': '第1集',
+                        'episodeNumber': '1',
+                      },
+                    ],
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          if (request.url.path.endsWith('/comment/11')) {
+            return http.Response(
+              '{"comments":[]}',
+              firstStatus,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          if (request.url.path.endsWith('/comment/12')) {
+            return http.Response(
+              jsonEncode({
+                'comments': [
+                  {'p': '0,1,16777215,test', 'm': '原生来源的弹幕'},
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          fail('unexpected ${request.url}');
+        }),
+      );
+      addTearDown(client.close);
+      DanmakuMatchSelection? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    selected = await showDanmakuPanel<DanmakuMatchSelection>(
+                      context: context,
+                      builder: (_) => DanmakuMatchSheet(
+                        client: client,
+                        title: '大刑伺候 2026·国产剧·tencent',
+                        episode: 1,
+                      ),
+                    );
+                  },
+                  child: const Text('打开'),
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('打开'));
-    await tester.pumpAndSettle();
-    expect(requests.single.queryParameters['anime'], '大刑伺候');
-    await tester.tap(find.byKey(const ValueKey('danmaku-work-1|2026|TMDB')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('danmaku-episode-11')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('加载所选集弹幕'));
-    await tester.pumpAndSettle();
-    expect(selected?.episode.id, '12');
-    expect(selected?.track.length, 1);
-    expect(
-      requests.map((uri) => uri.path),
-      contains('/custom/api/v2/comment/11'),
-    );
-    expect(
-      requests.map((uri) => uri.path),
-      contains('/custom/api/v2/comment/12'),
-    );
-    expect(tester.takeException(), isNull);
-  });
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      expect(requests.first.queryParameters['anime'], '大刑伺候');
+      await tester.tap(find.byKey(const ValueKey('danmaku-work-1|2026|TMDB')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('danmaku-episode-11')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('加载所选集弹幕'));
+      await tester.pumpAndSettle();
+      expect(selected?.episode.id, '12');
+      expect(selected?.track.length, 1);
+      expect(
+        requests.map((uri) => uri.path),
+        contains('/custom/api/v2/comment/11'),
+      );
+      expect(
+        requests.map((uri) => uri.path),
+        contains('/custom/api/v2/comment/12'),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

@@ -249,6 +249,26 @@ class DandanplayClient {
       if (episode != null) 'episode': '$episode',
     });
     final direct = _parseSearch(json);
+    // Some compatible services apply the episode filter before resolving all
+    // platforms. Their unfiltered catalogue can contain more sources for this
+    // exact episode. Keep IDs scoped to the selected service.
+    if (!credentials.official && episode != null) {
+      try {
+        final all = _parseSearch(
+          await _get('/api/v2/search/episodes', {'anime': query, 'v2': 'true'}),
+        );
+        final ids = direct.map((e) => e.id).toSet();
+        direct.addAll(
+          all.where(
+            (e) =>
+                (e.number ?? parsedEpisodeNumber(e.episode)) == episode &&
+                ids.add(e.id),
+          ),
+        );
+      } catch (_) {
+        // An optional wider search must not discard successful direct results.
+      }
+    }
     LumeLog.info(
       '[danmaku] search "$query" ep=${episode ?? '-'} -> ${direct.length}',
     );

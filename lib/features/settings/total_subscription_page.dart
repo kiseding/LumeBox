@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:convert';
@@ -49,7 +51,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     final total = await service.read(input.text);
     if (!mounted) return;
     setState(() => busy = false);
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('导入总订阅'),

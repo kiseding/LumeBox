@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -198,7 +200,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[
-      SwitchListTile.adaptive(
+      NativeSwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
         title: const Text('避让底部字幕'),
         value: _danmaku?.avoidSubtitles ?? true,
@@ -221,7 +223,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       ),
       const SizedBox(height: 20),
       _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
-      SwitchListTile.adaptive(
+      NativeSwitchListTile.adaptive(
         title: const Text('启用播放器手势'),
         subtitle: const Text('控制下列滑动和长按手势；不影响按钮与进度条操作'),
         value: settings.gestures.enabled,
@@ -235,7 +237,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         ('横向滑动调进度', settings.gestures.seek, 'seek'),
         ('长按临时倍速', settings.gestures.boost, 'boost'),
       ])
-        SwitchListTile.adaptive(
+        NativeSwitchListTile.adaptive(
           title: Text(item.$1),
           value: item.$2,
           onChanged: !settings.gestures.enabled
@@ -252,7 +254,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 ),
         ),
       _label('上下滑动灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
-      Slider(
+      NativeGlassSlider(
         value: settings.gestureSensitivity,
         min: PlayerSettings.minGestureSensitivity,
         max: PlayerSettings.maxGestureSensitivity,
@@ -264,7 +266,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             : (v) => _update(settings.copyWith(gestureSensitivity: v)),
       ),
       _label('横滑一屏跨度 ${settings.gestures.seekSeconds} 秒'),
-      Slider(
+      NativeGlassSlider(
         value: settings.gestures.seekSeconds.toDouble(),
         min: 30,
         max: 180,
@@ -278,7 +280,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               ),
       ),
       _label('长按加速倍率 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×'),
-      Slider(
+      NativeGlassSlider(
         value: settings.gestures.boostMultiplier,
         min: 1.25,
         max: 3,
@@ -366,7 +368,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           if (value != null) _update(settings.copyWith(defaultQuality: value));
         },
       ),
-      SwitchListTile.adaptive(
+      NativeSwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
         title: const Text('后台静默校验播放源'),
         value: settings.backgroundSourceValidation,
@@ -383,7 +385,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           color: LumeTheme.descriptionColor,
         ),
       ),
-      SwitchListTile.adaptive(
+      NativeSwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
         title: const Text('记住手动选择的清晰度'),
         subtitle: const Text('下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。'),
@@ -499,7 +501,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Slider(
+          NativeGlassSlider(
             value: speed.clamp(
               PlayerSettings.minSpeed,
               PlayerSettings.maxSpeed,
@@ -822,7 +824,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           _gated(
             context,
             supported: style,
-            child: Slider(
+            child: NativeGlassSlider(
               value: prefs.subtitleShadow,
               divisions: 10,
               label: '${(prefs.subtitleShadow * 100).round()}%',
@@ -838,7 +840,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           _gated(
             context,
             supported: style,
-            child: Slider(
+            child: NativeGlassSlider(
               value: prefs.subtitleOffsetY,
               min: -1,
               max: 1,
@@ -859,7 +861,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           _gated(
             context,
             supported: style,
-            child: Slider(
+            child: NativeGlassSlider(
               value: prefs.subtitleBackground,
               divisions: 20,
               label: '${(prefs.subtitleBackground * 100).round()}%',
@@ -874,7 +876,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           _gated(
             context,
             supported: capabilities.subtitleDelay,
-            child: Slider(
+            child: NativeGlassSlider(
               value: settings.subtitleDelay.inMilliseconds.toDouble(),
               min: PlayerSettings.minSubtitleDelay.inMilliseconds.toDouble(),
               max: PlayerSettings.maxSubtitleDelay.inMilliseconds.toDouble(),
@@ -921,7 +923,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           _gated(
             context,
             supported: capabilities.audioDelay,
-            child: Slider(
+            child: NativeGlassSlider(
               value: prefs.audioDelay.inMilliseconds.toDouble(),
               min: PlayerSettings.minSubtitleDelay.inMilliseconds.toDouble(),
               max: PlayerSettings.maxSubtitleDelay.inMilliseconds.toDouble(),

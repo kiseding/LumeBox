@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -83,7 +85,7 @@ class _NativeNavigationSettingsCardState
             fontWeight: FontWeight.w600,
           ),
         ),
-        SwitchListTile.adaptive(
+        NativeSwitchListTile.adaptive(
           key: const ValueKey('native-navigation-enabled'),
           contentPadding: EdgeInsets.zero,
           title: const Text('使用系统导航栏'),
@@ -145,14 +147,14 @@ class _NativeNavigationSettingsCardState
               );
             },
           ),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             key: const ValueKey('native-navigation-labels'),
             contentPadding: EdgeInsets.zero,
             title: const Text('显示标签文字'),
             value: settings.showLabels,
             onChanged: (value) => _change(settings.copyWith(showLabels: value)),
           ),
-          SwitchListTile.adaptive(
+          NativeSwitchListTile.adaptive(
             key: const ValueKey('native-navigation-theme-tint'),
             contentPadding: EdgeInsets.zero,
             title: const Text('强调色跟随主题'),
@@ -238,7 +240,7 @@ class _NativeNavigationSettingsCardState
         padding: const EdgeInsets.only(top: 12),
         child: Text('$label  ${value.round()}'),
       ),
-      Slider(
+      NativeGlassSlider(
         key: ValueKey('native-navigation-$id'),
         value: value,
         min: min,

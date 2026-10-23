@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -144,7 +146,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                     color: Theme.of(context).colorScheme.error,
                   ),
                 ),
-              Slider(
+              NativeGlassSlider(
                 key: const Key('audio-book-seek'),
                 min: 0,
                 max: duration > 0 ? duration : 1,

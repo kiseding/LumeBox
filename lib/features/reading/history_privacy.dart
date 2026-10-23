@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -18,7 +20,7 @@ class HistoryPrivacy {
 
   static Future<String?> input(BuildContext context, String title) async {
     var entered = '';
-    final result = await showDialog<String>(
+    final result = await showGlassDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),

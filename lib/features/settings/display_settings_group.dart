@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/lume_icon.dart';
@@ -104,7 +106,7 @@ class AdaptiveColorSetting extends StatelessWidget {
     listenable: AppearanceController.instance,
     builder: (context, _) => GlassCard(
       padding: EdgeInsets.zero,
-      child: SwitchListTile.adaptive(
+      child: NativeSwitchListTile.adaptive(
         key: const Key('appearance.adaptiveColor'),
         title: const Text('自适应颜色'),
         subtitle: const Text('首页配色跟随推荐封面；无封面时使用主题色'),

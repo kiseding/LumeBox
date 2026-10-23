@@ -1,3 +1,5 @@
+import '../../shared/widgets/source_translation.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/missing_cover.dart';
@@ -305,7 +307,7 @@ class ShelfEmptyHint extends StatelessWidget {
               color: LumeTheme.muted,
             ),
             const SizedBox(height: 12),
-            Text(
+            SourceText(
               title,
               style: TextStyle(
                 fontSize: LumeTypography.titleSize,
@@ -348,7 +350,7 @@ class PosterTitle extends StatelessWidget {
     height: 26,
     child: Align(
       alignment: overlay ? Alignment.bottomLeft : Alignment.topLeft,
-      child: Text(
+      child: SourceText(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
@@ -582,7 +584,7 @@ class CompactSourceItemTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
+                    SourceText(
                       item.title,
                       maxLines: columns > 1 ? 1 : 2,
                       overflow: TextOverflow.ellipsis,

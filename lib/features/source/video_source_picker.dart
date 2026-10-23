@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_picker_card.dart';
 import '../../shared/widgets/source_picker_header.dart';
 
@@ -184,7 +185,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }
 
   Future<void> add() async {
-    final target = await showModalBottomSheet<VideoSourceType>(
+    final target = await showGlassModalBottomSheet<VideoSourceType>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -261,7 +262,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }
 
   Future<void> _addWebHome() async {
-    final kind = await showModalBottomSheet<String>(
+    final kind = await showGlassModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -351,7 +352,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         ),
       );
       if (failures.isNotEmpty) {
-        await showDialog<void>(
+        await showGlassDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('部分文件未导入'),
@@ -492,7 +493,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     Future<void> Function() remove,
   ) async {
     if (busy.contains(id)) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除源'),

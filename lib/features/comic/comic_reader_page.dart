@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../source/source_login_page.dart';
 import '../../shared/widgets/network_owned_state.dart';
 
@@ -1538,7 +1539,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   Future<void> _showComicSpeechPanel() async {
     final session = _speech;
     if (session == null) return;
-    await showModalBottomSheet<void>(
+    await showGlassModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,

@@ -1,3 +1,6 @@
+import '../../shared/widgets/native_glass_controls.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -82,7 +85,7 @@ class _FontSettingsPageState extends State<FontSettingsPage> {
   }
 
   Future<void> _remove(UserFont font) async {
-    final remove = await showDialog<bool>(
+    final remove = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除本机字体？'),
@@ -150,7 +153,7 @@ class _FontSettingsPageState extends State<FontSettingsPage> {
                     children: [
                       const Text('A', style: TextStyle(fontSize: 12)),
                       Expanded(
-                        child: Slider(
+                        child: NativeGlassSlider(
                           key: const Key('fonts.scale'),
                           value: settings.textScale.clamp(.7, 1.6),
                           min: .7,

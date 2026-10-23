@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:async';
@@ -116,7 +118,7 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
 
   Future<void> _installOffline({bool selectWhenReady = false}) async {
     if (model.preparing) return;
-    final fromFile = await showDialog<bool>(
+    final fromFile = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('启用本地离线朗读'),
@@ -258,7 +260,7 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
                 slot: 'speech_modes_panel.3',
               ),
               label: const Text('配置在线接口与密钥'),
-              onPressed: () => showDialog<void>(
+              onPressed: () => showGlassDialog<void>(
                 context: context,
                 builder: (_) => const _CloudSettingsDialog(),
               ),
@@ -282,7 +284,7 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
   }
 
   Future<void> _editVoice(String role) async {
-    final value = await showDialog<String>(
+    final value = await showGlassDialog<String>(
       context: context,
       builder: (_) => _SpeechVoiceDialog(
         role: role,

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/theme/frosted_settings.dart';
 import '../../features/shell/dock_liquid_lens.dart';
+import '../../features/shell/dock_native_glass.dart';
+import '../../core/shell/dock_liquid_settings.dart';
 import 'module_glass_scope.dart';
 
 /// Shared material for cards, navigation and overlays; media content stays intact.
@@ -50,8 +52,35 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           style.motion &&
           !MediaQuery.disableAnimationsOf(context) &&
           widget.interactive;
-      final radius = widget.radius * style.value(GlassParameter.radius);
+      final radius =
+          widget.radius *
+          (DockNativeGlass.supported
+              ? settings.native.radiusScale
+              : style.value(GlassParameter.radius));
       final corners = BorderRadius.circular(radius);
+      if (DockNativeGlass.supported) {
+        return ClipRRect(
+          borderRadius: corners,
+          child: Stack(
+            fit: StackFit.passthrough,
+            children: [
+              Positioned.fill(
+                child: DockNativeGlass(
+                  borderRadius: corners,
+                  cornerRadius: radius,
+                  style: settings.native.clear
+                      ? DockNativeGlassStyle.thin
+                      : DockNativeGlassStyle.regular,
+                  tintColor: Color(settings.native.tint),
+                  tintOpacity: settings.native.tintOpacity,
+                  reduceTransparency: MediaQuery.highContrastOf(context),
+                ),
+              ),
+              Material(type: MaterialType.transparency, child: widget.child),
+            ],
+          ),
+        );
+      }
       final base = widget.color ?? LumeTheme.surface;
       final tint = Color.lerp(
         base,

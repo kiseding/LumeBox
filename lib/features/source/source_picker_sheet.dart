@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_picker_card.dart';
 import '../../shared/widgets/source_picker_header.dart';
 
@@ -16,7 +17,7 @@ import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_content_visibility.dart';
 
-import 'dart:ui' as ui;
+import '../../shared/widgets/frosted_glass_widget.dart';
 
 import 'package:flutter/material.dart';
 
@@ -148,7 +149,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   }
 
   Future<void> network(SourceDescriptor source) async {
-    final result = await showDialog<SourceSettingsResult>(
+    final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),
     );
@@ -189,7 +190,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   }
 
   Future<void> deleteSource(SourceDescriptor source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('删除源'),
@@ -227,7 +228,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   Future<void> action(SourceDescriptor source) async {
     if (busy.contains(source.id)) return;
     final prefs = SourcePreferences.read(widget.section, source.id);
-    final selected = await showDialog<SourceQuickAction>(
+    final selected = await showGlassDialog<SourceQuickAction>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: .28),
       builder: (dialogContext) => Dialog(
@@ -235,10 +236,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         backgroundColor: Colors.transparent,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: FrostedGlassWidget(
+            radius: 24,
             child: Material(
-              color: LumeTheme.surface.withValues(alpha: .94),
+              color: Colors.transparent,
               child: SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -308,7 +309,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
             results[source.id] = result;
             busy.remove(source.id);
           });
-          await showDialog<void>(
+          await showGlassDialog<void>(
             context: context,
             builder: (_) =>
                 SourceTestResultDialog(sourceName: source.name, result: result),

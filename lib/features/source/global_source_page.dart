@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../core/web/web_home_sources.dart';
 import '../web/web_home_page.dart';
 
@@ -96,7 +97,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
         ? _visibleSections.toList()
         : targets.map((e) => e.$1).toSet().toList();
     if (sections.isEmpty) return;
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(clearData ? '移除所有站点数据' : '移除已安装站点'),
@@ -261,7 +262,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
   /// 导入：先选目标板块，再走「本地文件 / 订阅链接 / 剪贴板」三条通道之一；
   /// 只写所选板块的库（与板块页共用同一个弹窗与同一套覆盖确认）。
   Future<void> _import({Section? target}) async {
-    final request = await showDialog<SourceImportRequest>(
+    final request = await showGlassDialog<SourceImportRequest>(
       context: context,
       builder: (_) => SourceImportDialog(
         sections: Section.values,
@@ -308,7 +309,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
     final text = backup.encode();
     var copied = false;
-    await showDialog<void>(
+    await showGlassDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('备份源（${backup.totalCount} 个）'),
@@ -365,7 +366,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
   /// 从剪贴板 / 粘贴的备份文本恢复图源。
   Future<void> _restoreBackup() async {
-    final text = await showDialog<String>(
+    final text = await showGlassDialog<String>(
       context: context,
       builder: (_) => const _RestoreDialog(),
     );
@@ -382,7 +383,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
     }
     if (!mounted) return;
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('恢复源'),
@@ -489,7 +490,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('刷新 ${targets.length} 个订阅源？'),
@@ -562,7 +563,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       return;
     }
     // 有失败就给模态弹窗：失败原因是排障要看的信息，SnackBar 几秒就没了。
-    await showDialog<void>(
+    await showGlassDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('订阅刷新结果'),
@@ -619,7 +620,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
 
   /// 删除前二次确认：删除会连同脚本与运行时一起移除，只删所属板块的记录。
   Future<void> _delete(Section section, SourceDescriptor source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除源'),
@@ -886,7 +887,7 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
                       tooltip: '删除网页源',
                       icon: const Icon(Icons.delete_outline),
                       onPressed: () async {
-                        final yes = await showDialog<bool>(
+                        final yes = await showGlassDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
                             title: Text('删除「${web.name}」？'),

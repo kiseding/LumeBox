@@ -534,7 +534,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     Widget Function(StateSetter)? leading,
   }) async {
     if (_autoScrolling) _stopAutoScroll();
-    await showModalBottomSheet<void>(
+    await showGlassModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1944,7 +1944,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
 
   Future<void> _showThumbnails() async {
     if (_autoScrolling) _stopAutoScroll();
-    final selected = await showModalBottomSheet<int>(
+    final selected = await showGlassModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -2078,7 +2078,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     final key = pageNote ? 'page-note:$chapterId:$page' : 'note:$chapterId';
     final data = _annotations();
     final controller = TextEditingController(text: '${data[key] ?? ''}');
-    final note = await showDialog<String>(
+    final note = await showGlassDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(pageNote ? '页面备注' : '章节笔记'),

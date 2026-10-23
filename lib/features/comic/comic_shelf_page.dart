@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -83,7 +85,7 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
   }
 
   Future<void> _confirmRemove(LibraryItem item) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('移出书架'),

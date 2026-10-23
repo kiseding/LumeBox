@@ -1,3 +1,5 @@
+import 'native_glass_surfaces.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -59,7 +61,7 @@ Future<T?> showLumeBottomSheet<T>({
   double? elevation,
 }) {
   final top = DrawerGeometry.top(context);
-  return showModalBottomSheet<T>(
+  return showGlassModalBottomSheet<T>(
     context: context,
     backgroundColor: backgroundColor,
     elevation: elevation,

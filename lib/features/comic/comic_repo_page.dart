@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -94,7 +96,7 @@ class _ComicRepoPageState extends State<ComicRepoPage> {
   Future<void> _add() async {
     final service = _service;
     if (service == null) return;
-    final request = await showDialog<_AddRepoRequest>(
+    final request = await showGlassDialog<_AddRepoRequest>(
       context: context,
       builder: (_) => const _AddRepoDialog(),
     );
@@ -146,7 +148,7 @@ class _ComicRepoPageState extends State<ComicRepoPage> {
   Future<void> _delete(ComicRepo repo) async {
     final service = _service;
     if (service == null) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除仓库'),

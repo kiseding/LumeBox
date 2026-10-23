@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:image/image.dart' as img;
+
 import '../net/lume_http.dart';
 import '../net/source_request_log.dart';
 import '../net/waf.dart';
@@ -22,10 +24,13 @@ import '../util/lume_log.dart';
 /// 因此这里的顺序是：候选地址（源声明的 icon → /favicon.ico → /favicon.png →
 /// /apple-touch-icon.png）→ 全都不行就抓首页解析 `<link rel=icon>` → 逐个取字节
 /// （经全局网络队列，带该源会话）→ 校验**确实是图片**（不认 SVG：Flutter 画不了）
-/// → 缓存结果（含「取不到」）。取不到就老实回退首字母，绝不假装有图标。
+/// → 缓存成功结果。取不到就老实回退首字母，绝不假装有图标。
 class SourceFavicon {
-  SourceFavicon({LumeHttp? http, this.maxEntries = 96, this.fetchHtmlHomepage = true})
-    : _http = http ?? LumeHttp(source: '源图标');
+  SourceFavicon({
+    LumeHttp? http,
+    this.maxEntries = 96,
+    this.fetchHtmlHomepage = true,
+  }) : _http = http ?? LumeHttp(source: '源图标');
 
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
   static final SourceFavicon instance = SourceFavicon();
@@ -46,13 +51,14 @@ class SourceFavicon {
   final bool fetchHtmlHomepage;
 
   final Map<String, Uint8List?> _cache = <String, Uint8List?>{};
-  final Map<String, Future<Uint8List?>> _inflight = <String, Future<Uint8List?>>{};
+  final Map<String, Future<Uint8List?>> _inflight =
+      <String, Future<Uint8List?>>{};
 
   /// 取图标字节；拿不到返回 null（调用方回退首字母占位）。
   ///
   /// [origin] 是站点根（`https://a.com`）；[explicit] 是源自己声明的图标地址，
-  /// 优先级最高。同一个 (origin, explicit) 组合只真正请求一次，结果（含失败）
-  /// 都缓存住——列表滚动、切页签都不会重新打一遍站点。
+  /// 优先级最高。同一个 (origin, explicit) 组合只真正请求一次，成功结果
+  /// 缓存住，失败允许重新获取——列表滚动、切页签都不会重新打一遍站点。
   Future<Uint8List?> load({
     required String origin,
     List<String> explicit = const <String>[],
@@ -66,19 +72,22 @@ class SourceFavicon {
     }
     final running = _inflight[key];
     if (running != null) return running;
-    final task = _resolve(
-      origin: origin,
-      explicit: explicit,
-      section: section,
-      sourceId: sourceId,
-    ).then((bytes) {
-      _remember(key, bytes);
-      return bytes;
-    }).whenComplete(() {
-      // 用块体而不是箭头：箭头写法会把 `Map.remove` 的返回值（就是这条 future
-      // 本身）当成「还要等它」——自我等待，永远不完成。
-      _inflight.remove(key);
-    });
+    final task =
+        _resolve(
+              origin: origin,
+              explicit: explicit,
+              section: section,
+              sourceId: sourceId,
+            )
+            .then((bytes) {
+              _remember(key, bytes);
+              return bytes;
+            })
+            .whenComplete(() {
+              // 用块体而不是箭头：箭头写法会把 `Map.remove` 的返回值（就是这条 future
+              // 本身）当成「还要等它」——自我等待，永远不完成。
+              _inflight.remove(key);
+            });
     _inflight[key] = task;
     return task;
   }
@@ -94,7 +103,7 @@ class SourceFavicon {
     if (_cache.length >= maxEntries && !_cache.containsKey(key)) {
       _cache.remove(_cache.keys.first);
     }
-    _cache[key] = bytes;
+    if (bytes != null) _cache[key] = bytes;
   }
 
   static String _key(String origin, List<String> explicit) {
@@ -150,7 +159,8 @@ class SourceFavicon {
     final out = <String>[];
     for (final url in explicit) {
       final text = url.trim();
-      if (_isUsableUrl(text)) out.add(text);
+      final resolved = _absolute(text, _originOf(origin));
+      if (_isUsableUrl(resolved)) out.add(resolved);
     }
     final site = _originOf(origin);
     if (site.isNotEmpty) {
@@ -170,7 +180,9 @@ class SourceFavicon {
     final uri = Uri.tryParse(siteUrl.trim());
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return '';
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return '';
-    return uri.hasPort ? '${uri.scheme}://${uri.host}:${uri.port}' : '${uri.scheme}://${uri.host}';
+    return uri.hasPort
+        ? '${uri.scheme}://${uri.host}:${uri.port}'
+        : '${uri.scheme}://${uri.host}';
   }
 
   static bool _isUsableUrl(String url) {
@@ -198,7 +210,8 @@ class SourceFavicon {
       final url = _absolute(href, site);
       if (!_isUsableUrl(url)) continue;
       final sizes = _attribute(tag, 'sizes');
-      final side = int.tryParse(RegExp(r'(\d+)').firstMatch(sizes)?.group(1) ?? '') ?? 0;
+      final side =
+          int.tryParse(RegExp(r'(\d+)').firstMatch(sizes)?.group(1) ?? '') ?? 0;
       found.add((url: url, size: side, apple: rel.contains('apple') ? 1 : 0));
     }
     found.sort((a, b) {
@@ -241,7 +254,12 @@ class SourceFavicon {
     try {
       final response = await _http.send(
         url: url,
-        headers: _headers(url, section: section, sourceId: sourceId, referer: referer),
+        headers: _headers(
+          url,
+          section: section,
+          sourceId: sourceId,
+          referer: referer,
+        ),
         timeout: timeout,
         maxBytes: maxBytes,
       );
@@ -269,7 +287,12 @@ class SourceFavicon {
     try {
       final response = await _http.send(
         url: url,
-        headers: _headers(url, section: section, sourceId: sourceId, referer: url),
+        headers: _headers(
+          url,
+          section: section,
+          sourceId: sourceId,
+          referer: url,
+        ),
         timeout: timeout,
         maxBytes: maxBytes,
       );
@@ -308,10 +331,24 @@ class SourceFavicon {
     if (bytes.isEmpty) return null;
     final type = (contentType ?? '').toLowerCase();
     if (type.contains('svg')) return null;
-    if (type.startsWith('text/') || type.contains('html') || type.contains('json')) {
+    if (type.startsWith('text/') ||
+        type.contains('html') ||
+        type.contains('json')) {
       return null;
     }
-    return _looksLikeImage(bytes) ? bytes : null;
+    if (!_looksLikeImage(bytes)) return null;
+    // Flutter's codecs do not decode Windows ICO containers.
+    if (_startsWith(bytes, const [0, 0, 1, 0])) {
+      try {
+        final decoded = img.decodeIco(bytes);
+        return decoded == null
+            ? null
+            : Uint8List.fromList(img.encodePng(decoded));
+      } catch (_) {
+        return null;
+      }
+    }
+    return bytes;
   }
 
   /// 图片魔数：PNG / JPEG / GIF / BMP / WEBP / ICO。

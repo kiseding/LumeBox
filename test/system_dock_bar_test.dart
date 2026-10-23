@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/native_glass_controls.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -148,7 +150,10 @@ void main() {
     final migrated = ShellSettings.fromJson(old);
     expect(migrated.tabs.map((t) => t.id), settings.tabs.map((t) => t.id));
     expect(migrated.appearance, settings.appearance);
-    expect(migrated.nativeNavigation, const NativeNavigationSettings());
+    expect(
+      migrated.nativeNavigation,
+      const NativeNavigationSettings(enabled: false),
+    );
   });
 
   test('损坏数值回退或收敛，窄屏边距不能挤掉导航项', () {
@@ -222,7 +227,13 @@ void main() {
     expect(selected, ['video']);
     await tester.pumpWidget(scene('settings', Brightness.dark, false, false));
     await tester.pumpAndSettle();
-    expect(find.byType(UiKitView), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsNothing,
+    );
     expect(harness.disposed, hasLength(1));
     expect(unavailable, 0);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -283,7 +294,12 @@ void main() {
     expect(tester.element(find.text('page-comic')), same(page));
     expect(harness.created.length, creations);
     expect(ShellDockScope.maybeScopeOf(page)!.dockBottom, 46);
-    final barRect = tester.getRect(find.byType(UiKitView));
+    final barRect = tester.getRect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+    );
     expect(barRect.width, closeTo(358, .1));
     expect(
       (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
@@ -308,10 +324,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DockHandleButton), findsOneWidget);
     expect(find.byTooltip('搜索'), findsNothing);
-    expect(find.byType(UiKitView), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsNothing,
+    );
     await tester.tap(find.byTooltip('展开导航'));
     await tester.pumpAndSettle();
-    expect(find.byType(UiKitView), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsOneWidget,
+    );
     await harness.event('selected', 'search');
     await tester.pumpAndSettle();
     expect(searches, 2);
@@ -326,14 +354,32 @@ void main() {
       'id': 'search',
       'label': '搜索',
     });
-    expect(find.byType(UiKitView), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('detail-open'));
     await tester.pumpAndSettle();
-    expect(find.byType(UiKitView), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsNothing,
+    );
     expect(find.byTooltip('搜索'), findsNothing);
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
-    expect(find.byType(UiKitView), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsOneWidget,
+    );
     expect((harness.updates.last['entries'] as List).last, {
       'id': 'search',
       'label': '搜索',
@@ -341,7 +387,13 @@ void main() {
     keyBottom = 320;
     await tester.pumpWidget(scene());
     await tester.pumpAndSettle();
-    expect(find.byType(UiKitView), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsNothing,
+    );
     expect(find.byTooltip('搜索'), findsNothing);
     keyBottom = 0;
     await tester.pumpWidget(scene());
@@ -385,7 +437,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(ShellDockBar), findsOneWidget);
-    expect(find.byType(UiKitView), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+      ),
+      findsNothing,
+    );
     final capsule = tester.getRect(find.byKey(ShellDockBar.capsuleFilterKey));
     expect(capsule.contains(tester.getCenter(find.text('搜索'))), true);
     final page = tester.element(find.text('fallback-comic'));
@@ -449,7 +507,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('native-navigation-labels')));
     await tester.pumpAndSettle();
     expect(controller.settings.nativeNavigation.showLabels, false);
-    final slider = tester.widget<Slider>(
+    final slider = tester.widget<NativeGlassSlider>(
       find.byKey(const ValueKey('native-navigation-icon-size')),
     );
     slider.onChanged!(29);

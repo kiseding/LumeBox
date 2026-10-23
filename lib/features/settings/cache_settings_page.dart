@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -99,7 +101,7 @@ class _CacheSettingsPageState extends State<CacheSettingsPage> {
   }
 
   Future<void> _clear(SectionCacheStats stats) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('清理${stats.section.label}缓存'),
@@ -366,7 +368,7 @@ class _CacheTile extends StatelessWidget {
 
   /// 打开本板块的策略编辑弹窗。
   Future<void> _openPolicy(BuildContext context) async {
-    final next = await showDialog<SectionCachePolicy>(
+    final next = await showGlassDialog<SectionCachePolicy>(
       context: context,
       builder: (_) =>
           _CachePolicyDialog(section: stats.section, policy: policy),

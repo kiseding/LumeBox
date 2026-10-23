@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:convert';
@@ -83,7 +85,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
     final files = await backup.snapshots();
     if (!mounted) return null;
     if (files.isEmpty) return '暂无自动备份';
-    final selected = await showDialog<File>(
+    final selected = await showGlassDialog<File>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const Text('选择自动备份'),
@@ -102,7 +104,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
 
   Future<String?> restoreText(String text) async {
     if (!mounted) return null;
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('恢复配置备份'),

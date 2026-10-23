@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:lume_box/core/theme/lume_typography.dart';
 
@@ -13,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/reading/comic_image_tools.dart';
+import '../../core/reading/ocr_evaluation.dart';
+import '../../core/translation/text_translation.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../settings/settings_ui.dart';
 
@@ -283,6 +287,14 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                   '设备端：iOS 18 及以上，首次使用按系统提示下载语言包。识别与翻译在设备上完成。\nAI：仅把识别出的文字发送到你填写的接口，费用由服务商决定。',
                 ),
               ),
+              TextButton.icon(
+                onPressed: () async {
+                  await TextTranslationService.shared.clear();
+                  if (mounted) setState(() => status = '已清理标题、简介与设备端译文缓存');
+                },
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('清理本机译文缓存'),
+              ),
               if (settings.ai) ...[
                 TextField(
                   controller: endpoint,
@@ -369,7 +381,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 ),
             ]
           : [
-              SwitchListTile.adaptive(
+              NativeSwitchListTile.adaptive(
                 title: const Text('自动超分'),
                 subtitle: const Text('漫画 / 美图源正文自动处理；失败保留原图，不改写下载文件'),
                 value: settings.automatic,
@@ -440,7 +452,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 title: Text('自动超分的额外范围'),
                 subtitle: Text('以下开关只在「自动超分」开启时生效；阅读器正文始终处理'),
               ),
-              SwitchListTile.adaptive(
+              NativeSwitchListTile.adaptive(
                 title: const Text('漫画 / 猫源封面'),
                 subtitle: const Text('书架、探索、详情页与历史记录的封面'),
                 value: settings.upscaleCovers,
@@ -449,7 +461,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                   save();
                 },
               ),
-              SwitchListTile.adaptive(
+              NativeSwitchListTile.adaptive(
                 title: const Text('视频海报'),
                 subtitle: const Text('视频书架、详情页与搜索结果的海报'),
                 value: settings.upscaleVideoPosters,
@@ -589,9 +601,12 @@ class ComicImageToolsPage extends StatefulWidget {
 }
 
 class _ImageToolsState extends State<ComicImageToolsPage> {
+  final referenceText = TextEditingController();
+  String? quality;
   late final tools = ComicImageTools(imageStyle: widget.imageStyle);
   Uint8List? original, enhanced, colorized;
   List<ComicTextRegion> regions = [];
+  String? measurement;
   double ratio = 1;
   bool busy = true, showOriginal = false;
   String? message;
@@ -636,6 +651,8 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
     final current = ++generation;
     setState(() {
       busy = true;
+      quality = null;
+      measurement = null;
       message = translate ? '正在识别并翻译…' : '正在分块超分…';
     });
     try {
@@ -649,6 +666,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
             message = result.isEmpty
                 ? '未识别到文字，可尝试切换原文语言'
                 : '已翻译 ${result.length} 处文字，可切回原图对照';
+            measurement = tools.lastTranslationReport?.summary;
           });
         }
       } else {
@@ -680,6 +698,45 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
     }
   }
 
+  Future<void> recognizeOnly() async {
+    final bytes = original;
+    if (bytes == null || busy) return;
+    final current = ++generation;
+    final timer = Stopwatch()..start();
+    setState(() {
+      busy = true;
+      quality = null;
+      message = '正在识别文字…';
+      measurement = null;
+    });
+    try {
+      final result = await tools.recognizeRegions(bytes);
+      if (mounted && current == generation) {
+        setState(() {
+          regions = result;
+          enhanced = null;
+          colorized = null;
+          showOriginal = false;
+          message = result.isEmpty
+              ? '未识别到文字，可尝试切换原文语言'
+              : result.map((r) => r.text).join('\n');
+          measurement =
+              '设备端 OCR · ${result.length} 处文字 · ${(timer.elapsedMilliseconds / 1000).toStringAsFixed(2)} 秒；请与原图对照检查识别质量';
+        });
+      }
+    } catch (error) {
+      if (mounted && current == generation) {
+        setState(
+          () => message = error is PlatformException
+              ? error.message
+              : '文字识别失败，原图保留',
+        );
+      }
+    } finally {
+      if (mounted && current == generation) setState(() => busy = false);
+    }
+  }
+
   Future<void> processColorize() async {
     final bytes = original;
     if (bytes == null || busy) return;
@@ -691,6 +748,8 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
     final current = ++generation;
     setState(() {
       busy = true;
+      quality = null;
+      measurement = null;
       message = '正在上传并上色…';
     });
     try {
@@ -730,7 +789,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
           'LumeBox-${colorized != null ? 'color' : 'ai2x'}-'
           '${DateTime.now().millisecondsSinceEpoch}.png';
       final ok = await exportProcessedImage(bytes, name);
-      if (mounted) {
+      if (context.mounted) {
         setState(() => message = ok ? '已保存 / 分享 $name' : '已取消保存');
       }
     } catch (error) {
@@ -744,6 +803,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
   void dispose() {
     generation++;
     tools.dispose();
+    referenceText.dispose();
     super.dispose();
   }
 
@@ -753,67 +813,166 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
     title: 'AI 图片超分 · 上色 · 翻译',
     child: Column(
       children: [
-        Wrap(
-          spacing: 8,
-          children: [
-            FilledButton(
-              onPressed: busy || original == null ? null : () => process(false),
-              child: const Text('AI 超分当前图片'),
-            ),
-            FilledButton.tonal(
-              onPressed: busy || original == null ? null : processColorize,
-              child: const Text('AI 上色当前图片'),
-            ),
-            OutlinedButton.icon(
-              onPressed: (colorized != null || enhanced != null) && !busy
-                  ? exportResult
-                  : null,
-              icon: const LumeIcon(
-                Icons.ios_share,
-                slot: 'comic_image_tools_page.5',
-                size: 18,
-              ),
-              label: const Text('保存 / 分享结果'),
-            ),
-            if (widget.allowApply)
-              OutlinedButton.icon(
-                onPressed: (colorized != null || enhanced != null) && !busy
-                    ? () => Navigator.of(context).pop(colorized ?? enhanced)
-                    : null,
-                icon: const LumeIcon(
-                  Icons.check_circle_outline,
-                  slot: 'comic_image_tools_page.6',
-                  size: 18,
+        Flexible(
+          fit: FlexFit.loose,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilledButton(
+                      onPressed: busy || original == null
+                          ? null
+                          : () => process(false),
+                      child: const Text('AI 超分当前图片'),
+                    ),
+                    FilledButton.tonal(
+                      onPressed: busy || original == null
+                          ? null
+                          : processColorize,
+                      child: const Text('AI 上色当前图片'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed:
+                          (colorized != null || enhanced != null) && !busy
+                          ? exportResult
+                          : null,
+                      icon: const LumeIcon(
+                        Icons.ios_share,
+                        slot: 'comic_image_tools_page.5',
+                        size: 18,
+                      ),
+                      label: const Text('保存 / 分享结果'),
+                    ),
+                    if (widget.allowApply)
+                      OutlinedButton.icon(
+                        onPressed:
+                            (colorized != null || enhanced != null) && !busy
+                            ? () =>
+                                  Navigator.of(context)
+                                      .pop(colorized ?? enhanced)
+                            : null,
+                        icon: const LumeIcon(
+                          Icons.check_circle_outline,
+                          slot: 'comic_image_tools_page.6',
+                          size: 18,
+                        ),
+                        label: const Text('应用到当前页'),
+                      ),
+                    FilledButton(
+                      onPressed: busy || original == null
+                          ? null
+                          : () => process(true),
+                      child: const Text('翻译当前页'),
+                    ),
+                    OutlinedButton(
+                      onPressed: busy || original == null
+                          ? null
+                          : recognizeOnly,
+                      child: const Text('仅识别文字'),
+                    ),
+                    IconButton(
+                      tooltip: '图片处理设置',
+                      icon: const LumeIcon(
+                        Icons.settings_outlined,
+                        slot: 'comic_image_tools_page.7',
+                      ),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ComicImageToolsSettingsPage(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                label: const Text('应用到当前页'),
-              ),
-            FilledButton(
-              onPressed: busy || original == null ? null : () => process(true),
-              child: const Text('翻译当前页'),
-            ),
-            IconButton(
-              tooltip: '图片处理设置',
-              icon: const LumeIcon(
-                Icons.settings_outlined,
-                slot: 'comic_image_tools_page.7',
-              ),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const ComicImageToolsSettingsPage(),
+                SwitchListTile(
+                  title: const Text('显示原图'),
+                  value: showOriginal,
+                  onChanged: (v) => setState(() => showOriginal = v),
                 ),
-              ),
+                if (busy) const LinearProgressIndicator(),
+                if (message != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(message!),
+                  ),
+                if (measurement != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            measurement!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '复制识别与耗时结果',
+                          icon: const Icon(Icons.copy, size: 18),
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(
+                                text:
+                                    '$measurement\n${regions.map((r) => '${r.text}\n${r.translation}').join('\n')}',
+                              ),
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('已复制识别与耗时结果')),
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                if (regions.isNotEmpty)
+                  ExpansionTile(
+                    title: const Text('检查识别质量'),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: TextField(
+                          key: const ValueKey('ocr-reference'),
+                          controller: referenceText,
+                          maxLines: 3,
+                          maxLength: 2000,
+                          decoration: const InputDecoration(
+                            labelText: '人工核对的原文',
+                            helperText: '用于与本页识别结果比较，不会上传',
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          try {
+                            setState(
+                              () => quality = OcrEvaluation.compare(
+                                referenceText.text,
+                                regions.map((r) => r.text).join(),
+                              ).summary,
+                            );
+                          } on FormatException catch (e) {
+                            setState(() => quality = e.message);
+                          }
+                        },
+                        child: const Text('计算字符错误率'),
+                      ),
+                      if (quality != null)
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(quality!),
+                        ),
+                    ],
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
-        SwitchListTile(
-          title: const Text('显示原图'),
-          value: showOriginal,
-          onChanged: (v) => setState(() => showOriginal = v),
-        ),
-        if (busy) const LinearProgressIndicator(),
-        if (message != null)
-          Padding(padding: const EdgeInsets.all(12), child: Text(message!)),
         Expanded(
           child: original == null
               ? const SizedBox.shrink()

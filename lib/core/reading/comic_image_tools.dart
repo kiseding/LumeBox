@@ -10,6 +10,23 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:path_provider/path_provider.dart';
 
+import '../translation/text_translation.dart';
+
+class ComicTranslationReport {
+  const ComicTranslationReport({
+    required this.recognition,
+    required this.translation,
+    required this.regions,
+    required this.characters,
+    required this.deviceTranslation,
+  });
+  final Duration recognition, translation;
+  final int regions, characters;
+  final bool deviceTranslation;
+  String get summary =>
+      '识别 $regions 处 / $characters 字 · OCR ${(recognition.inMilliseconds / 1000).toStringAsFixed(2)} 秒 · 翻译 ${(translation.inMilliseconds / 1000).toStringAsFixed(2)} 秒 · ${deviceTranslation ? '设备端翻译（含缓存）' : '自填 AI 接口'}';
+}
+
 /// 自动超分作用的图片范围。
 enum UpscaleSurface {
   /// 漫画阅读器正文（始终受「自动超分」总开关控制）。
@@ -198,6 +215,7 @@ class ComicImageTools {
   final Set<http.Client> _ownedClients = {};
   static int _sequence = 0;
   bool _disposed = false;
+  ComicTranslationReport? lastTranslationReport;
 
   /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
   // Readers and cover pipelines share one device budget, rather than each
@@ -374,8 +392,21 @@ class ComicImageTools {
   }
 
   Future<List<ComicTextRegion>> translate(Uint8List bytes) async {
+    lastTranslationReport = null;
+    final timer = Stopwatch()..start();
     final regions = await recognizeRegions(bytes);
-    if (regions.isEmpty) return [];
+    final recognition = timer.elapsed;
+    timer.reset();
+    if (regions.isEmpty) {
+      lastTranslationReport = ComicTranslationReport(
+        recognition: recognition,
+        translation: Duration.zero,
+        regions: 0,
+        characters: 0,
+        deviceTranslation: !preferences.ai,
+      );
+      return [];
+    }
     final strings = <String>[];
     // Long-strip OCR can exceed a single native translation session's limits.
     // Keep requests bounded in both count and characters and preserve ordering.
@@ -393,17 +424,31 @@ class ComicImageTools {
       final texts = regions.sublist(start, end).map((r) => r.text).toList();
       final translated = preferences.ai
           ? await _translateAI(texts)
-          : (await _invoke<List<Object?>>('translate', {
-              'texts': texts,
-              'source': preferences.source,
-              'target': preferences.target,
-            }))?.cast<String>();
-      if (translated == null || translated.length != texts.length) {
+          : await TextTranslationService.shared.translate(
+              texts,
+              source: preferences.source,
+              target: preferences.target,
+              using: (pending) async =>
+                  (await _invoke<List<Object?>>('translate', {
+                    'texts': pending,
+                    'source': preferences.source,
+                    'target': preferences.target,
+                  }))?.cast<String>() ??
+                  [],
+            );
+      if (translated.length != texts.length) {
         throw const FormatException('译文数量与识别结果不一致');
       }
       strings.addAll(translated);
       start = end;
     }
+    lastTranslationReport = ComicTranslationReport(
+      recognition: recognition,
+      translation: timer.elapsed,
+      regions: regions.length,
+      characters: regions.fold(0, (n, r) => n + r.text.runes.length),
+      deviceTranslation: !preferences.ai,
+    );
     return [
       for (var i = 0; i < regions.length; i++)
         regions[i].translated(strings[i]),

@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -216,7 +218,7 @@ class _WebHomePageState extends State<WebHomePage> {
   Future<void> _play(HtmlHomePlayback request) async {
     var uri = request.uri;
     if (uri.scheme == 'magnet') {
-      await showDialog<void>(
+      await showGlassDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('磁力链接'),

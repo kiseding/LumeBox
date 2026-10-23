@@ -968,21 +968,20 @@ class _ShellDockBarState extends State<ShellDockBar>
                   )
                 : null;
 
-            final useNativeGlass =
-                _liquid.glassRenderer == DockGlassRenderer.nativeIos &&
-                DockNativeGlass.supported;
+            final useNativeGlass = DockNativeGlass.supported;
             final Widget surface = useNativeGlass
                 ? DockNativeGlass(
+                    key: ShellDockBar.capsuleFilterKey,
                     borderRadius: radius,
                     cornerRadius: widget.capsuleHeight / 2,
-                    style: _liquid.nativeGlassStyle,
-                    reduceTransparency: reduceTransparency,
-                    tintColor: glassColor,
-                    tintOpacity: reduceTransparency
-                        ? math
-                              .max(_amount(DockLiquidParameter.nativeTint), .45)
-                              .clamp(0.0, .75)
-                        : _amount(DockLiquidParameter.nativeTint),
+                    style: FrostedSettings.instance.native.clear
+                        ? DockNativeGlassStyle.thin
+                        : DockNativeGlassStyle.regular,
+                    reduceTransparency:
+                        _platformReduceTransparency ||
+                        MediaQuery.highContrastOf(context),
+                    tintColor: Color(FrostedSettings.instance.native.tint),
+                    tintOpacity: FrostedSettings.instance.native.tintOpacity,
                   )
                 : DockLiquidSurface(
                     borderRadius: radius,

@@ -1,3 +1,6 @@
+import '../../shared/widgets/native_glass_controls.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:flutter/material.dart';
 
 import 'dart:io';
@@ -38,7 +41,7 @@ class _NetworkSettingsPageState extends State<NetworkSettingsPage> {
   Future<void> _editSite() async {
     final domain = TextEditingController();
     final ua = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('按站点设置 UA'),
@@ -411,7 +414,7 @@ class _IntSlider extends StatelessWidget {
             ),
           ],
         ),
-        Slider(
+        NativeGlassSlider(
           value: value.toDouble().clamp(min.toDouble(), max.toDouble()),
           min: min.toDouble(),
           max: max.toDouble(),

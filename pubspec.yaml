@@ -41,6 +41,7 @@ dependencies:
   quickjs_engine:
     path: third_party/quickjs_engine
   sqlite3: ^3.7.0
+  image: ^4.10.1
   http: ^1.6.0
   path_provider: ^2.1.6
   path: ^1.9.1
@@ -76,6 +77,8 @@ dependencies:
     path: third_party/lume_cat_node
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to

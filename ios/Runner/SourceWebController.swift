@@ -403,7 +403,7 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     config.defaultWebpagePreferences.allowsContentJavaScript = true
     config.mediaTypesRequiringUserActionForPlayback = .all
     config.userContentController.addUserScript(WKUserScript(source: Self.helpers,
-      injectionTime: .atDocumentStart, forMainFrameOnly: false))
+      injectionTime: .atDocumentStart, forMainFrameOnly: true))
     if let storage = options["verificationStorage"] as? [String:Any],
        let data = try? JSONSerialization.data(withJSONObject:["origin":Self.origin(url),"storage":storage]),
        let encoded = String(data:data,encoding:.utf8) {
@@ -759,6 +759,10 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
   private func pollVerification() {
     guard applicationActive, verificationResult != nil, !verificationReading, !verificationFinished else { return }
     verificationReading = true
+    if verificationBaseline["kind"] as? String == "cloudflare" {
+      pollCloudflareVerification()
+      return
+    }
     let epoch = verificationEpoch
     readVerification { [weak self] snapshot in
       guard let self=self, self.verificationResult != nil, !self.verificationFinished, self.verificationEpoch == epoch else { return }
@@ -784,6 +788,36 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
           self.verificationFinished = true; self.timeout?.cancel()
           DispatchQueue.main.asyncAfter(deadline:.now()+0.5) { [weak self] in self?.completeVerification(true) }
         } else { self.scheduleVerification() }
+      }
+    }
+  }
+  /// Preserve the 1.0.193 Cloudflare completion contract. A successful page
+  /// does not have to match a source parser's optional business selectors.
+  /// The retained browser is kept alive for the newer request bridge.
+  private func pollCloudflareVerification() {
+    let epoch = verificationEpoch
+    let program = #"""
+    (()=>({ready:document.readyState==='complete',url:location.href,
+      text:(document.body?.innerText||'').trim(),
+      blocked:/just a moment|attention required|checking your browser|正在进行安全验证|正在验证您是否是真人|请稍候/i.test(document.title+'\n'+(document.body?.innerText||''))
+        ||!!document.querySelector('#challenge-running,#challenge-stage,#challenge-form')}))()
+    """#
+    webView.evaluateJavaScript(program) { [weak self] value, _ in
+      guard let self=self, self.verificationResult != nil, self.verificationEpoch == epoch else { return }
+      guard let page=value as? [String:Any], page["ready"] as? Bool == true,
+            page["blocked"] as? Bool != true, (page["text"] as? String ?? "").count > 40,
+            let current=URL(string:page["url"] as? String ?? ""), Self.origin(current)==Self.origin(self.url) else {
+        self.scheduleVerification(); return
+      }
+      self.scopedCookies { [weak self] cookies in
+        guard let self=self, self.verificationResult != nil, self.verificationEpoch == epoch else { return }
+        self.readVerification { [weak self] snapshot in
+          guard let self=self, self.verificationResult != nil, self.verificationEpoch == epoch else { return }
+          self.verifiedSnapshot = ["url":current.absoluteString,"cookies":cookies,
+            "localStorage":snapshot?["localStorage"] ?? [:],"sessionStorage":snapshot?["sessionStorage"] ?? [:]]
+          self.verificationFinished=true; self.timeout?.cancel()
+          DispatchQueue.main.asyncAfter(deadline:.now()+0.8) { [weak self] in self?.completeVerification(true) }
+        }
       }
     }
   }

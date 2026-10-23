@@ -1,3 +1,4 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
 import '../reading/browse_header_motion.dart';
@@ -136,7 +137,7 @@ class _CatPageState extends State<CatPage>
     CatSite site,
     VoidCallback refresh,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: pickerContext,
       builder: (context) => AlertDialog(
         title: const Text('删除源'),
@@ -758,7 +759,7 @@ class _CatPageState extends State<CatPage>
   Future<void> search() async {
     final lib = library;
     if (lib == null) return;
-    final value = await showDialog<String>(
+    final value = await showGlassDialog<String>(
       context: context,
       builder: (_) =>
           SourceSearchDialog(source: source, library: lib, initialQuery: query),

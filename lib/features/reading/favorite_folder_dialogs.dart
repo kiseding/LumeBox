@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -9,7 +11,7 @@ Future<void> showFavoriteFolderManager(
 ) async {
   var typed = '';
   String? error;
-  await showDialog<void>(
+  await showGlassDialog<void>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, update) => AlertDialog(
@@ -72,7 +74,7 @@ Future<bool> chooseFavoriteFolder(
   FavoriteFolders folders,
   String itemId,
 ) async {
-  final chosen = await showDialog<String>(
+  final chosen = await showGlassDialog<String>(
     context: context,
     builder: (context) => SimpleDialog(
       title: const Text('移动到收藏夹'),

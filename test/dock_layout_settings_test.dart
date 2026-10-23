@@ -1,3 +1,5 @@
+import 'package:lume_box/shared/widgets/native_glass_controls.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -94,10 +96,15 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
     final height = find.byKey(const ValueKey('dock-layout-height'));
     await tester.scrollUntilVisible(height, 250);
-    tester.widget<Slider>(height).onChanged!(91);
+    tester.widget<NativeGlassSlider>(height).onChanged!(91);
     await tester.pumpAndSettle();
     expect(controller.appearance.height, 91);
-    tester.widget<Slider>(height).onChangeEnd!(91);
+    expect(
+      controller.settings.nativeNavigation.enabled,
+      false,
+      reason: '调尺寸使用可调布局与原生材质',
+    );
+    tester.widget<NativeGlassSlider>(height).onChangeEnd!(91);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byType(DockAppearancePreview), -250);
     // Preview shares the same configuration as the production ShellDockBar.

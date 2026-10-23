@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_translation.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
 
@@ -469,7 +470,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
+                          SourceText(
                             detail?.title ?? widget.item.title,
                             textAlign: TextAlign.center,
                             style: dark.textTheme.titleLarge?.copyWith(
@@ -532,8 +533,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               padding: EdgeInsets.all(24),
                               child: Center(child: CircularProgressIndicator()),
                             ),
+                          SourceTranslationAction(
+                            texts: [
+                              detail?.title ?? widget.item.title,
+                              if (detail?.description != null)
+                                detail!.description!,
+                              if (tmdb.metadata?.overview != null)
+                                tmdb.metadata!.overview,
+                            ],
+                          ),
                           const SizedBox(height: 24),
-                          Text(
+                          SourceText(
                             tmdb.metadata?.overview.trim().isNotEmpty == true
                                 ? tmdb.metadata!.overview
                                 : (detail?.description?.trim().isNotEmpty ==

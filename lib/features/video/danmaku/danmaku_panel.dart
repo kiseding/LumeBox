@@ -1,3 +1,4 @@
+import '../../../shared/widgets/native_glass_surfaces.dart';
 import '../../../shared/widgets/frosted_glass_widget.dart';
 import '../../../shared/widgets/module_glass_scope.dart';
 
@@ -16,7 +17,7 @@ import '../../../core/theme/lume_theme.dart';
 Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
-}) => showModalBottomSheet<T>(
+}) => showGlassModalBottomSheet<T>(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,

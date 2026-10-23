@@ -77,7 +77,9 @@ void main() {
         const MaterialApp(home: LiquidGlassSettingsPage()),
       );
       await tester.pumpAndSettle();
-      expect(find.text('毛玻璃'), findsOneWidget);
+      expect(find.text('启用系统玻璃'), findsNothing);
+      expect(find.text('减少透明效果'), findsNothing);
+      expect(find.text('材质风格'), findsOneWidget);
       expect(find.text('播放器弹窗使用新毛玻璃'), findsNothing);
       expect(find.text('动态液态玻璃效果'), findsNothing);
       expect(find.text('玻璃效果作用部位与强度'), findsNothing);

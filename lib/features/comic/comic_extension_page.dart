@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -99,7 +101,7 @@ class _ComicExtensionPageState extends State<ComicExtensionPage> {
     RepoExtension extension,
     InstalledExtension installed,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showGlassDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('卸载扩展'),

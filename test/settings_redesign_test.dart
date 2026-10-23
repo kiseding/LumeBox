@@ -34,6 +34,30 @@ void main() {
         );
     directory.deleteSync(recursive: true);
   });
+  test('原生材质参数持久化且收敛无效值', () async {
+    final settings = FrostedSettings.instance;
+    await settings.setNative(
+      const NativeGlassStyle(
+        clear: true,
+        tint: 0xFF147EFB,
+        tintOpacity: .2,
+        radiusScale: 1.2,
+      ),
+    );
+    final restored = FrostedSettings();
+    await restored.boot(directory: directory);
+    expect(restored.native.toJson(), settings.native.toJson());
+    expect(
+      NativeGlassStyle.fromJson({'tintOpacity': double.nan, 'radiusScale': 999})
+          .radiusScale,
+      1.5,
+    );
+    expect(
+      NativeGlassStyle.fromJson({'tintOpacity': double.nan}).tintOpacity,
+      0,
+    );
+    restored.dispose();
+  });
   test('材质继承、模块覆盖、重置与备份文件往返，越界值收敛', () async {
     final c = FrostedSettings.instance;
     await c.setStyle(
@@ -192,7 +216,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('后台播放'), findsNothing);
   });
-  testWidgets('液态管理有真实参数、可切范围、无旧悬浮和导航布局管理', (tester) async {
+  testWidgets('原生管理只展示系统材质参数，修改染色并保存', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
@@ -200,21 +224,25 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('毛玻璃'), findsOneWidget);
+    expect(find.text('启用系统玻璃'), findsNothing);
+    expect(find.text('底栏尺寸与位置'), findsNothing);
+    expect(find.text('材质风格'), findsOneWidget);
+    expect(find.text('调整范围'), findsNothing);
+    expect(find.byKey(const ValueKey('glass-blur')), findsNothing);
     expect(find.text('悬浮模块'), findsNothing);
     expect(find.text('导航栏高度'), findsNothing);
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('glass-blur')),
+      find.byKey(const ValueKey('native-glass-tint')),
       240,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.drag(
-      find.byKey(const ValueKey('glass-blur')),
+      find.byKey(const ValueKey('native-glass-tint')),
       const Offset(40, 0),
     );
     await tester.pumpAndSettle();
     await tester.runAsync(() => FrostedSettings.instance.save());
-    expect(FrostedSettings.instance.hasOverride(GlassModule.all, null), true);
+    expect(FrostedSettings.instance.native.tintOpacity, greaterThan(0));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();

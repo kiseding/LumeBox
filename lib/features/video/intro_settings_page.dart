@@ -1,3 +1,6 @@
+import '../../shared/widgets/native_glass_controls.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:convert';
@@ -204,7 +207,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
           String unit,
         ) => ListTile(
           title: Text('$title  $value$unit'),
-          subtitle: Slider(
+          subtitle: NativeGlassSlider(
             value: value.toDouble(),
             min: min.toDouble(),
             max: max.toDouble(),
@@ -222,7 +225,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
                   Icons.help_outline,
                   slot: 'intro_settings_page.1',
                 ),
-                onPressed: () => showDialog<void>(
+                onPressed: () => showGlassDialog<void>(
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('片头片尾识别'),
@@ -366,7 +369,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
               slider('maxSamples', '采样数量上限', options.maxSamples, 10, 240, ' 帧'),
               ListTile(
                 title: Text('最低接受置信度 ${(options.threshold * 100).round()}%'),
-                subtitle: Slider(
+                subtitle: NativeGlassSlider(
                   value: options.threshold,
                   min: .5,
                   max: 1,

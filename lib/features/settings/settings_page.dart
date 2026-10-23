@@ -1,3 +1,5 @@
+import 'dock_layout_settings_page.dart';
+import '../../core/shell/shell_settings.dart';
 import '../video/player_settings_host.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -155,15 +157,18 @@ class SettingsPage extends StatelessWidget {
       onTap: () => _push(context, const NavigationPreferencesPage()),
     ),
     SettingsEntryCard(
-      icon: Icons.apps_rounded,
-      title: '当前板块图标',
-      subtitle: '设置导航图标的选中与常态外观',
-      onTap: () => _push(context, const NavigationIconsPage()),
+      icon: Icons.space_dashboard_outlined,
+      title: '底栏尺寸与位置',
+      subtitle: '胶囊宽高、边距与位置偏移',
+      onTap: () => _push(
+        context,
+        DockLayoutSettingsPage(controller: ShellSettingsController.instance),
+      ),
     ),
     SettingsEntryCard(
       icon: Icons.water_drop_outlined,
       title: '液态玻璃管理',
-      subtitle: '通用材质 · 模块覆盖 · 底栏液态动效',
+      subtitle: 'UIKit 原生材质 · 风格、染色与圆角',
       onTap: () => _push(context, const LiquidGlassSettingsPage()),
     ),
     SettingsEntryCard(

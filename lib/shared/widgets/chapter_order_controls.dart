@@ -1,3 +1,5 @@
+import 'native_glass_controls.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/chapter_display_order.dart';
@@ -27,7 +29,7 @@ class ChapterAutoOrderSwitch extends StatefulWidget {
 
 class _AutoState extends State<ChapterAutoOrderSwitch> {
   @override
-  Widget build(BuildContext context) => SwitchListTile.adaptive(
+  Widget build(BuildContext context) => NativeSwitchListTile.adaptive(
     title: const Text('章节自动修正排序'),
     subtitle: const Text('按章节号展示；关闭后恢复手动正序 / 倒序，不改源数据'),
     value: widget.order.automatic,

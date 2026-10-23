@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -141,7 +143,7 @@ Future<bool> confirmOverwrite(
   }
   if (hits.isEmpty) return true;
 
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showGlassDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('覆盖已有源？'),
@@ -326,7 +328,7 @@ Future<void> _report(
     );
     return;
   }
-  await showDialog<void>(
+  await showGlassDialog<void>(
     context: context,
     builder: (_) => _ImportResultDialog(
       outcomes: outcomes,

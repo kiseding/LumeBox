@@ -20,7 +20,10 @@ final class LumeGlassBackdropFactory: NSObject, FlutterPlatformViewFactory {
     viewIdentifier viewId: Int64,
     arguments args: Any?
   ) -> FlutterPlatformView {
-    LumeGlassBackdropView(
+    if let params = args as? [String: Any], let control = params["control"] as? String {
+      return LumeNativeControl(frame: frame, viewId: viewId, control: control, params: params, messenger: messenger)
+    }
+    return LumeGlassBackdropView(
       frame: frame,
       viewId: viewId,
       args: args,
@@ -30,6 +33,49 @@ final class LumeGlassBackdropFactory: NSObject, FlutterPlatformViewFactory {
 
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+/// Real UIKit controls inherit the current OS appearance, including iOS 26 glass.
+private final class LumeNativeControl: NSObject, FlutterPlatformView {
+  private let container: UIView
+  private let control: UIControl
+  private let channel: FlutterMethodChannel
+  init(frame: CGRect, viewId: Int64, control kind: String, params: [String: Any], messenger: FlutterBinaryMessenger) {
+    let host = UIView(frame: frame)
+    let widget: UIControl = kind == "switch" ? UISwitch() : UISlider()
+    container = host; control = widget
+    channel = FlutterMethodChannel(name: "lumebox/glass_control_\(viewId)", binaryMessenger: messenger)
+    super.init()
+    host.backgroundColor = .clear
+    host.addSubview(widget); widget.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([widget.centerXAnchor.constraint(equalTo: host.centerXAnchor), widget.centerYAnchor.constraint(equalTo: host.centerYAnchor)])
+    if widget is UISlider { widget.widthAnchor.constraint(equalTo: host.widthAnchor, constant: -4).isActive = true }
+    widget.addTarget(self, action: #selector(changed), for: .valueChanged)
+    widget.addTarget(self, action: #selector(began), for: .touchDown)
+    widget.addTarget(self, action: #selector(ended), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+    update(params)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "update" else { result(FlutterMethodNotImplemented); return }
+      if let params = call.arguments as? [String: Any] { self?.update(params) }
+      result(nil)
+    }
+  }
+  deinit { channel.setMethodCallHandler(nil) }
+  func view() -> UIView { container }
+  private func value() -> Any { (control as? UISwitch).map { $0.isOn as Any } ?? (control as! UISlider).value }
+  @objc private func changed() { channel.invokeMethod("changed", arguments: value()) }
+  @objc private func began() { channel.invokeMethod("began", arguments: value()) }
+  @objc private func ended() { channel.invokeMethod("ended", arguments: value()) }
+  private func update(_ params: [String: Any]) {
+    control.isEnabled = params["enabled"] as? Bool ?? true
+    container.overrideUserInterfaceStyle = params["dark"] as? Bool == true ? .dark : .light
+    if let toggle = control as? UISwitch { toggle.setOn(params["value"] as? Bool ?? false, animated: false) }
+    if let slider = control as? UISlider {
+      slider.minimumValue = (params["min"] as? NSNumber)?.floatValue ?? 0
+      slider.maximumValue = (params["max"] as? NSNumber)?.floatValue ?? 1
+      slider.value = (params["value"] as? NSNumber)?.floatValue ?? 0
+    }
   }
 }
 
@@ -88,7 +134,7 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
   private func update(_ args: Any?) {
     let params = args as? [String: Any] ?? [:]
     let style = params["style"] as? String ?? "regular"
-    let reduced = params["reduceTransparency"] as? Bool ?? false
+    let reduced = (params["reduceTransparency"] as? Bool ?? false) || UIAccessibility.isReduceTransparencyEnabled
     let radius = Self.cornerRadius(from: args)
     container.layer.cornerRadius = radius
     effectView.layer.cornerRadius = radius
@@ -102,19 +148,31 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
       effectView.clipsToBounds = style == "thick" || reduced
     }
     #endif
-    let key = "\(style):\(reduced)"
+    let rgba = (params["tintColor"] as? NSNumber)?.uint32Value ?? 0xFFFFFFFF
+    let rawOpacity = (params["tintOpacity"] as? NSNumber)?.doubleValue ?? 0
+    let opacity = rawOpacity.isFinite ? min(0.5, max(0, rawOpacity)) : 0
+    let tint = opacity > 0 ? UIColor(red: CGFloat((rgba >> 16) & 255) / 255,
+      green: CGFloat((rgba >> 8) & 255) / 255, blue: CGFloat(rgba & 255) / 255,
+      alpha: CGFloat(opacity)) : nil
+    let key = "\(style):\(reduced):\(rgba):\(opacity)"
     if key != materialKey {
       materialKey = key
-      effectView.effect = Self.effect(style: style, reduced: reduced)
+      effectView.effect = Self.effect(style: style, reduced: reduced, tint: tint)
+      effectView.contentView.backgroundColor = nil
+      #if compiler(>=6.2)
+      if #available(iOS 26.0, *), style != "thick", !reduced { return }
+      #endif
+      effectView.contentView.backgroundColor = tint
     }
   }
 
-  private static func effect(style: String, reduced: Bool) -> UIVisualEffect {
+  private static func effect(style: String, reduced: Bool, tint: UIColor?) -> UIVisualEffect {
     // Xcode 26 / Swift 6.2 provides the new SDK symbols. Older toolchains can
     // still compile the project and retain the documented material fallback.
     #if compiler(>=6.2)
     if #available(iOS 26.0, *), style != "thick", !reduced {
       let glass = UIGlassEffect(style: style == "thin" ? .clear : .regular)
+      glass.tintColor = tint
       // Flutter owns hit testing and pressure animation for this backdrop.
       glass.isInteractive = false
       return glass

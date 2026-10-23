@@ -124,10 +124,7 @@ class _LumeBoxAppState extends State<LumeBoxApp> {
           navigatorObservers: <NavigatorObserver>[_dockObserver],
           home: ListenableBuilder(
             listenable: PrivacySettings.instance,
-            builder: (context, _) => AppShell(
-              key: ValueKey(PrivacySettings.instance.showAdult),
-              controller: _dock,
-            ),
+            builder: (context, _) => AppShell(controller: _dock),
           ),
         );
       },

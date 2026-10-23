@@ -1,3 +1,5 @@
+import '../../core/source/source_labels.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
@@ -131,8 +133,9 @@ class _ChoiceSheetState extends State<_ChoiceSheet> {
     ];
     final shown = options
         .where(
-          (item) =>
-              item.title.toLowerCase().contains(query.trim().toLowerCase()),
+          (item) => '${item.title} ${sourceLabel(item.title)}'
+              .toLowerCase()
+              .contains(query.trim().toLowerCase()),
         )
         .toList();
     final media = MediaQuery.of(context);
@@ -223,7 +226,7 @@ class _ChoiceSheetState extends State<_ChoiceSheet> {
                             _Choice(all ? null : option.id),
                           ),
                           child: Text(
-                            option.title,
+                            sourceLabel(option.title),
                             style: TextStyle(
                               color: selected
                                   ? Colors.white
@@ -290,10 +293,12 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                     onSelected: (_) => setPanelState(() => choose(null)),
                   ),
                 for (final option in options.where(
-                  (o) => o.title.toLowerCase().contains(query.toLowerCase()),
+                  (o) => '${o.title} ${sourceLabel(o.title)}'
+                      .toLowerCase()
+                      .contains(query.toLowerCase()),
                 ))
                   _filterChip(
-                    label: option.title,
+                    label: sourceLabel(option.title),
                     selected: selected == option.id,
                     onSelected: (_) => setPanelState(() => choose(option.id)),
                   ),
@@ -378,7 +383,7 @@ Future<({String? category, Map<String, String> filters})?> showBrowseFilters({
                               }),
                             for (final group in groups)
                               choices(
-                                group.title,
+                                sourceLabel(group.title),
                                 group.options
                                     .map(
                                       (o) => SourceCategory(

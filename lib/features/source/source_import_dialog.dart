@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'package:file_selector/file_selector.dart';
@@ -51,7 +53,7 @@ Future<bool> runSourceImport(
   Future<List<({String name, String text})>> Function()? readLocalScripts,
   Future<SourceFetchResult> Function(String url)? fetchSubscription,
 }) async {
-  final request = await showDialog<SourceImportRequest>(
+  final request = await showGlassDialog<SourceImportRequest>(
     context: context,
     builder: (_) => SourceImportDialog(
       section: section,

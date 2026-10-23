@@ -1,3 +1,6 @@
+import '../../../shared/widgets/native_glass_controls.dart';
+import '../../../shared/widgets/native_glass_surfaces.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -253,7 +256,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
     final controller = TextEditingController(
       text: _settings.blockedWords.join('\n'),
     );
-    final result = await showDialog<String>(
+    final result = await showGlassDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('关键词屏蔽'),
@@ -589,7 +592,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             ),
           ],
         ),
-        Slider(
+        NativeGlassSlider(
           value: value.clamp(min, max),
           min: min,
           max: max,

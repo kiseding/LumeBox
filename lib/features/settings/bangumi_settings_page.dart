@@ -1,3 +1,5 @@
+import '../../shared/widgets/native_glass_controls.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -166,7 +168,7 @@ class _BangumiSettingsPageState extends State<BangumiSettingsPage> {
           ),
         ],
         const SizedBox(height: 8),
-        SwitchListTile.adaptive(
+        NativeSwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           title: const Text('播放时自动同步进度'),
           subtitle: const Text('按集数写入 Bangumi；失败不会影响播放'),
