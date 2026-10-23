@@ -40,11 +40,13 @@ void main() {
         body: Column(
           children: [
             NativeSwitchListTile.adaptive(
+              useNative: true,
               value: true,
               title: const Text('开关'),
               onChanged: changes.add,
             ),
             NativeGlassSlider(
+              useNative: true,
               value: value,
               min: 0,
               max: 100,

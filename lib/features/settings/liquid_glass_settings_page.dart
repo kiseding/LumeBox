@@ -121,6 +121,7 @@ class LiquidGlassSettingsPage extends StatelessWidget {
                   ),
                 ),
                 child: const FrostedGlassWidget(
+                  nativeGlass: true,
                   child: Padding(
                     padding: EdgeInsets.all(24),
                     child: Center(child: Text('原生材质预览')),

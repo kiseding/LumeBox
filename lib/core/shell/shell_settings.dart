@@ -548,9 +548,7 @@ class ShellSettings {
           ? DockHandleStyle.currentSection
           : DockHandleStyle.fromId(json['handleStyle']),
       appearance: appearance,
-      nativeNavigation: appearance.hasCustomGeometry
-          ? nativeNavigation.copyWith(enabled: false)
-          : nativeNavigation,
+      nativeNavigation: nativeNavigation,
     );
   }
 

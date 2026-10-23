@@ -20,10 +20,14 @@ class FrostedGlassWidget extends StatefulWidget {
     this.color,
     this.part,
     this.interactive = false,
+    this.nativeGlass = false,
     required this.child,
   });
   final double blur, opacity, radius;
   final bool border, interactive;
+
+  /// Opt in only for a small number of overlay surfaces, never list cards.
+  final bool nativeGlass;
   final Color? color;
   final GlassPart? part;
   final Widget child;
@@ -54,11 +58,21 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           widget.interactive;
       final radius =
           widget.radius *
-          (DockNativeGlass.supported
+          (DockNativeGlass.supported && widget.nativeGlass
               ? settings.native.radiusScale
               : style.value(GlassParameter.radius));
       final corners = BorderRadius.circular(radius);
-      if (DockNativeGlass.supported) {
+      if (DockNativeGlass.supported && !widget.nativeGlass) {
+        // Ordinary scrolling content stays in Flutter's single render tree.
+        // Do not create a platform view, blur pass or optical animation per card.
+        return Material(
+          color: widget.color ?? LumeTheme.surface,
+          borderRadius: corners,
+          clipBehavior: Clip.antiAlias,
+          child: widget.child,
+        );
+      }
+      if (DockNativeGlass.supported && widget.nativeGlass) {
         return ClipRRect(
           borderRadius: corners,
           child: Stack(

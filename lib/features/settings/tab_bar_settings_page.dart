@@ -46,7 +46,7 @@ class DockAppearancePreview extends StatefulWidget {
 }
 
 class DockAppearancePreviewState extends State<DockAppearancePreview> {
-  String _activeId = ShellTab.all.first.id;
+  String _activeId = 'settings';
 
   /// 选中项被用户隐藏后，回落到第一个仍可见的页签。
   String get _resolvedActiveId {

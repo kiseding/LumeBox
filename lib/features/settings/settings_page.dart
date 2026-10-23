@@ -31,7 +31,6 @@ import '../source/global_source_page.dart';
 import 'app_icon_settings_page.dart';
 import 'cache_settings_page.dart';
 import 'display_settings_group.dart';
-import 'liquid_glass_settings_page.dart';
 import 'navigation_settings_page.dart';
 import 'experience_settings_card.dart';
 import 'debug_panel_page.dart';
@@ -164,12 +163,6 @@ class SettingsPage extends StatelessWidget {
         context,
         DockLayoutSettingsPage(controller: ShellSettingsController.instance),
       ),
-    ),
-    SettingsEntryCard(
-      icon: Icons.water_drop_outlined,
-      title: '液态玻璃管理',
-      subtitle: 'UIKit 原生材质 · 风格、染色与圆角',
-      onTap: () => _push(context, const LiquidGlassSettingsPage()),
     ),
     SettingsEntryCard(
       icon: Icons.visibility_outlined,

@@ -116,6 +116,7 @@ class DockHandleButton extends StatelessWidget {
             ),
             child: ClipOval(
               child: FrostedGlassWidget(
+                nativeGlass: true,
                 radius: size / 2,
                 child: DecoratedBox(
                   decoration: fill,

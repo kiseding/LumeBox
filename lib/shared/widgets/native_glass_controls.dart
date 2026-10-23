@@ -128,8 +128,9 @@ class NativeSwitchListTile extends StatelessWidget {
     this.activeColor,
     this.activeTrackColor,
     this.controlAffinity = ListTileControlAffinity.platform,
+    this.useNative = false,
   });
-  final bool value, isThreeLine, selected;
+  final bool value, isThreeLine, selected, useNative;
   final ValueChanged<bool>? onChanged;
   final Widget? title, subtitle, secondary;
   final EdgeInsetsGeometry? contentPadding;
@@ -138,7 +139,7 @@ class NativeSwitchListTile extends StatelessWidget {
   final ListTileControlAffinity controlAffinity;
   @override
   Widget build(BuildContext context) {
-    if (!DockNativeGlass.supported) {
+    if (!useNative || !DockNativeGlass.supported) {
       return SwitchListTile.adaptive(
         value: value,
         onChanged: onChanged,
@@ -191,7 +192,9 @@ class NativeGlassSlider extends StatelessWidget {
     this.inactiveColor,
     this.semanticFormatterCallback,
     this.secondaryTrackValue,
+    this.useNative = false,
   });
+  final bool useNative;
   final double value, min, max;
   final int? divisions;
   final String? label;
@@ -200,7 +203,7 @@ class NativeGlassSlider extends StatelessWidget {
   final SemanticFormatterCallback? semanticFormatterCallback;
   final double? secondaryTrackValue;
   @override
-  Widget build(BuildContext context) => DockNativeGlass.supported
+  Widget build(BuildContext context) => useNative && DockNativeGlass.supported
       ? NativeGlassControl(
           kind: 'slider',
           value: value,

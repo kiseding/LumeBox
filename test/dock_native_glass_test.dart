@@ -6,8 +6,62 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/dock_liquid_settings.dart';
 import 'package:lume_box/features/shell/dock_native_glass.dart';
 import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
+import 'package:lume_box/shared/widgets/native_glass_surfaces.dart';
+import 'package:lume_box/shared/widgets/native_glass_controls.dart';
+import 'package:lume_box/core/theme/lume_theme.dart';
 
 void main() {
+  testWidgets('普通卡片按钮控件不创建平台视图，弹层只有一个原生表面', (tester) async {
+    final messenger = tester.binding.defaultBinaryMessenger;
+    var creations = 0;
+    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (
+      call,
+    ) async {
+      if (call.method == 'create') creations++;
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: Scaffold(
+          body: ListView(
+            children: [
+              for (var i = 0; i < 12; i++)
+                FrostedGlassWidget(child: Text('卡片 $i')),
+              NativeSwitchListTile.adaptive(value: true, onChanged: (_) {}),
+              NativeGlassSlider(value: .5, onChanged: (_) {}),
+              Builder(
+                builder: (context) => FilledButton(
+                  onPressed: () => showGlassDialog<void>(
+                    context: context,
+                    builder: (_) => const AlertDialog(
+                      content: FrostedGlassWidget(child: Text('弹层内容')),
+                    ),
+                  ),
+                  child: const Text('打开弹层'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(creations, 0);
+    expect(find.byType(DockNativeGlass), findsNothing);
+    expect(find.byType(BackdropFilter), findsNothing);
+    await tester.tap(find.text('打开弹层'));
+    await tester.pumpAndSettle();
+    expect(creations, 1);
+    expect(find.byType(DockNativeGlass), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   testWidgets('全局玻璃使用系统底座，键盘变化保持编辑器与平台视图', (tester) async {
     final messenger = tester.binding.defaultBinaryMessenger;
     var creations = 0;
@@ -30,7 +84,7 @@ void main() {
           body: SizedBox(
             width: 300,
             height: 160,
-            child: FrostedGlassWidget(child: TextField()),
+            child: FrostedGlassWidget(nativeGlass: true, child: TextField()),
           ),
         ),
       ),

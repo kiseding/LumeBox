@@ -4,16 +4,6 @@ import 'package:flutter/material.dart' as material;
 import '../../features/shell/dock_native_glass.dart';
 import 'frosted_glass_widget.dart';
 
-/// Background is a real UIGlassEffect platform view; Flutter retains content,
-/// accessibility, focus and actions. This is not a replacement for UIKit controls.
-Widget nativeButtonBackground(
-  BuildContext context,
-  Set<WidgetState> states,
-  Widget? child,
-) => DockNativeGlass.supported
-    ? FrostedGlassWidget(radius: 24, child: child ?? const SizedBox.shrink())
-    : child ?? const SizedBox.shrink();
-
 Widget nativeDialogSurface(BuildContext context, Widget child) {
   if (!DockNativeGlass.supported || child is! AlertDialog) return child;
   final dialog = child;
@@ -25,6 +15,7 @@ Widget nativeDialogSurface(BuildContext context, Widget child) {
         const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
     child: FrostedGlassWidget(
       radius: 28,
+      nativeGlass: true,
       child: AlertDialog(
         title: dialog.title,
         titlePadding: dialog.titlePadding,
@@ -109,7 +100,11 @@ Future<T?> showGlassModalBottomSheet<T>({
 }) => material.showModalBottomSheet<T>(
   context: context,
   builder: (context) => DockNativeGlass.supported
-      ? FrostedGlassWidget(radius: 28, child: builder(context))
+      ? FrostedGlassWidget(
+          nativeGlass: true,
+          radius: 28,
+          child: builder(context),
+        )
       : builder(context),
   backgroundColor: DockNativeGlass.supported
       ? Colors.transparent

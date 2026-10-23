@@ -111,7 +111,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool get _usesSystemNavigation =>
       !(widget.desktopRail ?? _isDesktopPlatform) &&
       _systemNavigationAvailable &&
-      !_shellSettings.appearance.hasCustomGeometry &&
       _shellSettings.settings.nativeNavigation.enabled;
 
   double get _navigationHeight =>

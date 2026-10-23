@@ -150,10 +150,20 @@ void main() {
     final migrated = ShellSettings.fromJson(old);
     expect(migrated.tabs.map((t) => t.id), settings.tabs.map((t) => t.id));
     expect(migrated.appearance, settings.appearance);
-    expect(
-      migrated.nativeNavigation,
-      const NativeNavigationSettings(enabled: false),
+    expect(migrated.nativeNavigation, const NativeNavigationSettings());
+  });
+
+  test('明确开启系统栏后，旧胶囊尺寸不能在重载时关闭它', () async {
+    final controller = ShellSettingsController.instance;
+    await controller.setAppearance(const DockAppearance(height: 70));
+    expect(controller.settings.nativeNavigation.enabled, false);
+    controller.updateNativeNavigation(
+      const NativeNavigationSettings(enabled: true),
     );
+    await controller.saveNativeNavigation();
+    final restored = (await ShellSettingsStore.open()).load();
+    expect(restored.appearance.height, 70);
+    expect(restored.nativeNavigation.enabled, true);
   });
 
   test('损坏数值回退或收敛，窄屏边距不能挤掉导航项', () {

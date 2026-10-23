@@ -729,14 +729,12 @@ void main() {
       expect(find.text('底部导航栏管理'), findsNothing);
       await tester.tap(find.text('导航与首页'));
       await tester.pumpAndSettle();
-      for (final label in ['原生系统导航', '底栏尺寸与位置', '液态玻璃管理', '内容分类显示']) {
+      for (final label in ['原生系统导航', '底栏尺寸与位置', '内容分类显示']) {
         expect(find.text(label), findsOneWidget);
       }
       expect(find.text('当前板块图标'), findsNothing);
       expect(find.text('悬浮模块'), findsNothing);
-      await tester.tap(find.text('液态玻璃管理'));
-      await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, '原生液态玻璃'), findsOneWidget);
+      expect(find.text('液态玻璃管理'), findsNothing);
     });
   });
 

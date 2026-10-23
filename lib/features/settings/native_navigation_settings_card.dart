@@ -10,6 +10,7 @@ import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock_bar.dart';
 import '../shell/system_dock_bar.dart';
 import 'settings_ui.dart';
+import 'tab_bar_settings_page.dart';
 
 class NativeNavigationSettingsPage extends StatelessWidget {
   const NativeNavigationSettingsPage({
@@ -89,10 +90,18 @@ class _NativeNavigationSettingsCardState
           key: const ValueKey('native-navigation-enabled'),
           contentPadding: EdgeInsets.zero,
           title: const Text('使用系统导航栏'),
-          subtitle: const Text('iOS 26 及以上使用系统液态玻璃；其他系统使用自定义 Dock。'),
+          subtitle: const Text('开启使用完整系统栏；调节胶囊尺寸会切换为可调布局，仍保留原生玻璃材质。'),
           value: settings.enabled,
           onChanged: (value) => _change(settings.copyWith(enabled: value)),
         ),
+        if (!settings.enabled) ...[
+          const SettingsFooterNote('当前使用可调胶囊布局，下面展示实际底栏；开启系统栏后使用系统尺寸。'),
+          DockAppearancePreview(
+            appearance: widget.controller.appearance,
+            entries: widget.entries,
+            maxHeight: 200,
+          ),
+        ],
         if (settings.enabled) ...[
           FutureBuilder<SystemTabBarCapabilities>(
             future: _capabilities,
@@ -104,6 +113,8 @@ class _NativeNavigationSettingsCardState
               final height = _previewHeight ?? capabilities!.height;
               final id = widget.entries.any((e) => e.id == _previewId)
                   ? _previewId!
+                  : widget.entries.any((e) => e.id == 'settings')
+                  ? 'settings'
                   : widget.entries.first.id;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -213,7 +224,7 @@ class _NativeNavigationSettingsCardState
           ),
           const SettingsFooterNote(
             '玻璃、选中动效和栏高由系统决定。图标最终尺寸由系统布局适配；'
-            '下方“外观与材质”参数用于自定义 Dock。',
+            '“底栏尺寸与位置”使用可调胶囊布局；两种模式的预览分别与实际底栏使用同一组件。',
             padding: EdgeInsets.zero,
           ),
           TextButton(
