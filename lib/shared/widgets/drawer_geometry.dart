@@ -53,7 +53,7 @@ Future<T?> showLumeBottomSheet<T>({
   required WidgetBuilder builder,
   Color? backgroundColor,
   bool isScrollControlled = true,
-  bool useSafeArea = false,
+  bool useSafeArea = true,
   bool useRootNavigator = false,
   bool? showDragHandle,
   double? elevation,
@@ -63,13 +63,15 @@ Future<T?> showLumeBottomSheet<T>({
     context: context,
     backgroundColor: backgroundColor,
     elevation: elevation,
-    isScrollControlled: true,
-    useSafeArea: false,
+    isScrollControlled: isScrollControlled,
+    useSafeArea: useSafeArea,
     useRootNavigator: useRootNavigator,
     showDragHandle: false,
-    builder: (context) => SizedBox(
+    builder: (context) => ConstrainedBox(
       key: const ValueKey('lume-bottom-drawer-frame'),
-      height: math.max(0, MediaQuery.sizeOf(context).height - top),
+      constraints: BoxConstraints(
+        maxHeight: math.max(0, MediaQuery.sizeOf(context).height - top),
+      ),
       child: builder(context),
     ),
   );

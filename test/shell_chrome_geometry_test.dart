@@ -10,6 +10,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/floating_modules.dart';
+import 'package:lume_box/core/theme/frosted_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/core/player/player_factory.dart';
@@ -51,6 +52,7 @@ void main() {
               ? root.path
               : null,
         );
+    await FrostedSettings.instance.boot(directory: root);
     LumeJsEngine.debugSupportedOverride = true;
     // 外观参数是应用级单例：上一例把高度拉到 90 / 离底改成 -25 后，下一例
     // 若不复位就会带着它跑（横屏、键盘等列都按默认 54/4 断言）。
@@ -585,11 +587,15 @@ void main() {
 
   testWidgets('按压清晰度基于当前磨砂强度动态降低，松手回到设置值', (tester) async {
     await pumpShell(tester);
-    final modules = FloatingModules.instance;
-    addTearDown(() => modules.reset(FloatingModule.dock));
-    modules.set(
-      FloatingModule.dock,
-      modules.style(FloatingModule.dock).copyWith(blur: 3),
+    final materials = FrostedSettings.instance;
+    addTearDown(() => materials.resetStyle(GlassModule.all, GlassPart.dock));
+    await materials.setStyle(
+      GlassModule.all,
+      GlassPart.dock,
+      materials
+          .style(GlassModule.all, GlassPart.dock)
+          .withValue(GlassParameter.blur, 3),
+      persist: false,
     );
     await tester.pump();
 
@@ -737,8 +743,8 @@ void main() {
     expect(capsule.right, closeTo(width - 100, .01));
     expect(
       capsule.bottom,
-      closeTo(height + 16, .01),
-      reason: '离底 -50 = 34pt 安全区 - 50 = -16，胶囊要向屏幕外沉 16pt',
+      closeTo(height, .01),
+      reason: '负离底超出安全区时限制在屏幕下沿，避免导航被裁切',
     );
 
     // 另一端：40pt 的紧凑下限 + 满留白。文案用 FittedBox 兜底，不能 overflow。

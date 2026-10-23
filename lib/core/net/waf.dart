@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../reading/reading.dart';
 import '../session/section.dart';
 import 'source_request_log.dart';
+import 'web_session_lifecycle.dart';
 import '../util/lume_log.dart';
 
 /// Cloudflare / WAF 拦截的识别与会话（Cookie）保存（用户要求）。
@@ -122,7 +123,15 @@ class WafSessionStore {
   }
 
   /// 清掉某图源的会话（网页视图里被拒 / 用户手动重置时用）。
-  void clear(String sourceId) => library.setSetting(keyFor(sourceId), '');
+  void clear(String sourceId) {
+    final last = SourceRequestLog.lastFor(sourceId, quiet: true);
+    final host = last == null ? null : Uri.tryParse(last)?.host;
+    // Old sources may not have a recorded URL: revoke all browser capabilities.
+    WebSessionLifecycle.invalidate(
+      hosts: host == null || host.isEmpty ? null : {host},
+    );
+    library.setSetting(keyFor(sourceId), '');
+  }
 
   /// 网页视图那套请求头里的 UA（键前缀后的 id）。
   ///

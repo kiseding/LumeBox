@@ -65,7 +65,7 @@ final class WafCookieController: NSObject {
         self.reads[id] = task
         task.start()
       case "allCookies":
-        WafCookieController.allCookies(result: result)
+        WafCookieController.allCookies(url: (call.arguments as? [String:Any])?["url"] as? String, result: result)
       case "clearWebsiteDataForHosts":
         let args = call.arguments as? [String: Any] ?? [:]
         WafCookieController.clearWebsiteData(
@@ -83,8 +83,8 @@ final class WafCookieController: NSObject {
 
   /// 枚举默认数据仓里的全部 Cookie；`WKHTTPCookieStore` 是异步回调接口。
   ///
-  /// `url` 参数当前只用于日志（不过滤）：跨子域分享的 Cookie（如
-  /// `.example.com` 域上的 cf_clearance）必须一起带回去，按 url 过滤会漏掉它们。
+  /// A URL limits export to its domain cookies, preserving all paths and
+  /// HttpOnly attributes. CAPTCHA iframe cookies never become business cookies.
   /// Clear only requested station domains. Shared domains still used by another section are retained.
   private static func clearWebsiteData(hosts: [String], protectedHosts: [String], result: @escaping FlutterResult) {
     let targets = hosts.map { $0.lowercased() }.filter { !$0.isEmpty }
@@ -97,6 +97,8 @@ final class WafCookieController: NSObject {
       targets.contains { matches(domain, $0) } && !protected.contains { matches(domain, $0) }
     }
     guard !targets.isEmpty else { result(nil); return }
+    NotificationCenter.default.post(name:Notification.Name("LumeWebSessionsInvalidated"),object:nil,
+      userInfo:["hosts":targets.filter { !protected.contains($0) }])
     let dataStore = WKWebsiteDataStore.default()
     dataStore.httpCookieStore.getAllCookies { cookies in
       let group = DispatchGroup()
@@ -117,16 +119,22 @@ final class WafCookieController: NSObject {
     }
   }
 
-  private static func allCookies(result: @escaping FlutterResult) {
+  private static func allCookies(url: String?, result: @escaping FlutterResult) {
     let store = WKWebsiteDataStore.default().httpCookieStore
     store.getAllCookies { cookies in
-      let list: [[String: Any]] = cookies.map { cookie in
+      let host = url.flatMap { URL(string:$0)?.host }?.lowercased()
+      let list: [[String: Any]] = cookies.filter { cookie in
+        guard let host = host else { return true }
+        let domain = cookie.domain.lowercased().trimmingCharacters(in:CharacterSet(charactersIn:"."))
+        return host == domain || (cookie.domain.hasPrefix(".") && host.hasSuffix("."+domain))
+      }.map { cookie in
         [
           "name": cookie.name,
           "value": cookie.value,
           "domain": cookie.domain,
           "path": cookie.path,
           "secure": cookie.isSecure,
+          "httpOnly": cookie.isHTTPOnly,
           "expires": cookie.expiresDate.map { $0.timeIntervalSince1970 as Any } ?? NSNull(),
         ]
       }
@@ -286,7 +294,11 @@ private final class SourceNetworkPath {
   private var listeners: [UUID:(Bool)->Void]=[:]
   private init() {
     monitor.pathUpdateHandler = { [weak self] path in
-      guard let self=self else { return }; self.available=path.status == .satisfied
+      guard let self=self else { return }
+      if self.available != nil {
+        NotificationCenter.default.post(name:Notification.Name("LumeWebSessionsInvalidated"),object:nil)
+      }
+      self.available=path.status == .satisfied
       for callback in Array(self.listeners.values) { callback(self.available!) }
     }
     monitor.start(queue:.main)

@@ -10,10 +10,9 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
-import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
+import 'package:lume_box/features/settings/liquid_glass_settings_page.dart';
 import 'package:lume_box/features/source/source_section_page.dart';
 import 'package:lume_box/core/source/source.dart';
-import 'package:lume_box/shared/widgets/glass_card.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -70,33 +69,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// 顶栏下沿到首块内容之间的空隙。
-  double topGap(WidgetTester tester) {
-    final barBottom = tester.getRect(find.byType(AppBar)).bottom;
-    final firstCard = tester.getRect(find.byType(GlassCard).first);
-    return firstCard.top - barBottom;
-  }
-
-  /// 允许的区间：16pt 的常规间距，给排版的上下浮动留一点余量。
-  /// 上界 32 远小于一个栏高（59+56=115），因此「被算两遍」必然被抓住。
-  void expectNormalGap(WidgetTester tester, String label) {
-    final gap = topGap(tester);
-    expect(
-      gap,
-      inInclusiveRange(0, 32),
-      reason:
-          '$label 的顶部空隙应当是一档常规间距（约 16pt），'
-          '实测 ${gap}pt——若接近一个栏高（约 115pt），'
-          '说明 SafeArea 与 barInset 各让了一次（漏了 behindBar: true）',
-    );
-  }
-
   testWidgets('设置页：顶部不留整条空白', (tester) async {
     await pump(tester, const SettingsPage(runtimeAvailable: true));
     // 设置页第一个元素是「显示」分组的小标题（卡片在它下面），因此这里量的是
     // 标题到顶栏的距离：判据仍然是「16pt 一档，远小于一个栏高」。
     final barBottom = tester.getRect(find.byType(AppBar)).bottom;
-    final firstTitle = tester.getRect(find.text('个性与界面')).top;
+    final firstTitle = tester.getRect(find.text('让 LumeBox 更像你')).top;
     expect(
       firstTitle - barBottom,
       inInclusiveRange(0, 32),
@@ -129,7 +107,10 @@ void main() {
   });
 
   testWidgets('底部导航栏管理（对照组，本来就传了 behindBar）', (tester) async {
-    await pump(tester, const TabBarSettingsPage());
-    expectNormalGap(tester, '底部导航栏管理');
+    await pump(tester, const LiquidGlassSettingsPage());
+    final gap =
+        tester.getRect(find.text('光感与层次')).top -
+        tester.getRect(find.byType(AppBar)).bottom;
+    expect(gap, inInclusiveRange(0, 32));
   });
 }

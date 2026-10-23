@@ -10,7 +10,6 @@ import 'package:lume_box/core/theme/appearance.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/display_settings_group.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
-import 'package:lume_box/shared/widgets/glass_card.dart';
 
 /// 设置页「显示」分组：外观（跟随系统 / 浅色 / 深色）+ 主题色（11 种）。
 ///
@@ -99,8 +98,6 @@ void main() {
       AppearanceController.instance.settings.background,
       ThemeBackground.grouped,
     );
-    await tester.tap(find.text('页面底色'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('#F5F5F5'));
     await tester.pumpAndSettle();
     expect(
@@ -263,8 +260,8 @@ void main() {
     });
   });
 
-  group('设置页「显示」分组', () {
-    Future<void> pumpSettings(WidgetTester tester) async {
+  group('设置页外观二级页', () {
+    Future<void> open(WidgetTester tester) async {
       await tester.binding.setSurfaceSize(const Size(900, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
@@ -274,100 +271,31 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.byType(DisplaySettingsGroup), findsNothing);
+      await tester.tap(find.text('个性与界面'));
+      await tester.pumpAndSettle();
     }
 
-    testWidgets('「个性与界面」分组里是外观 / 主题色，且排在其余分组之前', (tester) async {
-      await pumpSettings(tester);
-
+    testWidgets('外观收进二级页，短选项直接切换不打开抽屉', (tester) async {
+      await open(tester);
       expect(find.byType(DisplaySettingsGroup), findsOneWidget);
-      // 设置页重排后，这一组归到「个性与界面」。
-      expect(find.text('个性与界面'), findsOneWidget);
-      expect(find.text('外观'), findsOneWidget);
-      expect(find.text('主题色'), findsOneWidget);
-      expect(find.text('字体与字号'), findsNothing);
-
-      // 两行在同一个分组卡片里。
-      expect(
-        find.descendant(
-          of: find.byType(DisplaySettingsGroup),
-          matching: find.byType(GlassCard),
-        ),
-        findsOneWidget,
-        reason: '两项收在一张卡里，不是两张卡',
-      );
-
-      // 分组在最上方（用户要求：其余条目位置顺序保持原样）。
-      final groupY = tester.getTopLeft(find.byType(DisplaySettingsGroup)).dy;
-      final navY = tester.getTopLeft(find.text('底部导航栏管理')).dy;
-      expect(groupY, lessThan(navY));
-    });
-
-    testWidgets('通用分组里不再有独立的外观 / 主题条目', (tester) async {
-      await pumpSettings(tester);
-
-      // 「外观」「主题色」各只出现一次（分组内），不存在第二个同名入口。
-      expect(find.text('外观'), findsOneWidget);
-      expect(find.text('主题色'), findsOneWidget);
-      expect(find.text('主题'), findsNothing, reason: '旧的独立「主题」条目已移除');
-    });
-
-    testWidgets('点「外观」：弹底部 Sheet，选深色后当场生效并落库', (tester) async {
-      AppearanceSettingsStore.resetForTesting();
-      await AppearanceController.instance.boot();
-      await pumpSettings(tester);
-
-      await tester.tap(find.text('外观'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(OptionSheet<ThemeMode>), findsOneWidget);
-      expect(find.text('跟随系统'), findsWidgets);
-      expect(find.text('浅色'), findsOneWidget);
-      expect(find.text('深色'), findsOneWidget);
-
+      expect(find.text('页面底色'), findsOneWidget);
       await tester.tap(find.text('深色'));
       await tester.pumpAndSettle();
-
       expect(AppearanceController.instance.mode, ThemeMode.dark);
-      expect(find.text('深色'), findsOneWidget, reason: '行内当前值跟着变');
+      expect(find.byType(BottomSheet), findsNothing);
     });
-
-    testWidgets('点「主题色」：11 种颜色都在，选中后当场生效并落库', (tester) async {
-      AppearanceSettingsStore.resetForTesting();
-      await AppearanceController.instance.boot();
-      await pumpSettings(tester);
-
+    testWidgets('主题色独立色板页实时应用并保存', (tester) async {
+      await open(tester);
       await tester.tap(find.text('主题色'));
       await tester.pumpAndSettle();
-
-      expect(find.byType(OptionSheet<String>), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
       for (final accent in ThemeAccent.values) {
-        await tester.scrollUntilVisible(
-          find.descendant(
-            of: find.byType(OptionSheet<String>),
-            matching: find.text(accent.label),
-          ),
-          80,
-          scrollable: find.descendant(
-            of: find.byType(OptionSheet<String>),
-            matching: find.byType(Scrollable),
-          ),
-        );
-        expect(
-          find.text(accent.label),
-          findsWidgets,
-          reason: '${accent.label} 在列表里',
-        );
+        expect(find.text(accent.label), findsOneWidget);
       }
-
-      await tester.tap(find.text('森林'));
+      await tester.tap(find.text('薄荷'));
       await tester.pumpAndSettle();
-
-      expect(AppearanceController.instance.accent, ThemeAccent.forest);
-      expect(find.text('森林'), findsOneWidget, reason: '行内当前值跟着变');
-
-      // 落库：重新读盘能读回。
-      final store = await AppearanceSettingsStore.open();
-      expect(store.load().accent, ThemeAccent.forest);
+      expect(AppearanceController.instance.accent, ThemeAccent.mint);
     });
   });
 }

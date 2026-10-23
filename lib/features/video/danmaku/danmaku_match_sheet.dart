@@ -305,6 +305,9 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
             ),
           ),
         Padding(
+          // Preserve the editors and their input connection when the keyboard
+          // removes the preceding header in the compact landscape layout.
+          key: const ValueKey('danmaku-match-search-fields'),
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [

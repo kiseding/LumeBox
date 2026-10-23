@@ -85,6 +85,43 @@ try {
 const bridgePort = spec.bridgePort
 const token = spec.token
 
+// Only the bundled danmaku adapter opts into this transport. Other source
+// bundles retain their own networking implementation.
+globalThis.catNativeDanmakuFetch = (url, options = {}) => new Promise((resolve, reject) => {
+  const signal = options.signal
+  if (signal?.aborted) { reject(new Error('Danmaku request aborted')); return }
+  const body = JSON.stringify({ action: 'danmakuFetch', opt: {
+    id: sourceContext.getStore() || startingId || '', url,
+    method: options.method || 'GET', headers: options.headers || {},
+    body: options.body || '', followRedirects: options.redirect !== 'manual',
+  } })
+  const req = originalHttpRequest({ host: '127.0.0.1', port: bridgePort,
+    path: '/msg', method: 'POST', headers: { [TOKEN_HEADER]: token,
+      'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  }, res => {
+    const chunks = []; let size = 0
+    res.on('data', chunk => {
+      size += chunk.length
+      if (size > 12 * 1024 * 1024) { req.destroy(new Error('Danmaku response too large')); return }
+      chunks.push(chunk)
+    })
+    res.on('error', reject)
+    res.on('end', () => {
+      try {
+        const result = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        if (res.statusCode !== 200 || result.error) throw new Error(result.error || 'Native danmaku request failed')
+        resolve(result)
+      } catch (error) { reject(error) }
+    })
+  })
+  const abort = () => req.destroy(new Error('Danmaku request aborted'))
+  signal?.addEventListener('abort', abort, { once: true })
+  req.on('close', () => signal?.removeEventListener('abort', abort))
+  req.on('error', reject)
+  req.setTimeout(45000, () => req.destroy(new Error('Native danmaku request timeout')))
+  req.end(body)
+})
+
 if (!Number.isInteger(bridgePort) || !token || !spec.sources.length) {
   console.error('[bootstrap] 用法: node bootstrap.js <index.js> <index.config.js> <dataRoot> <bridgePort> <token>')
   console.error('          或: node bootstrap.js <spec.json>')

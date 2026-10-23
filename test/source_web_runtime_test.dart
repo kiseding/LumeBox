@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/js/source_web_runtime.dart';
+import 'package:lume_box/core/net/site_session_pool.dart';
+import 'package:lume_box/core/net/waf_auto_verify.dart';
+import 'package:lume_box/core/session/section.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -11,6 +14,74 @@ void main() {
   tearDown(
     () => messenger.setMockMethodCallHandler(SourceWebRuntime.channel, null),
   );
+
+  test('原生保留的验证页自动交接，成功后同步存储并允许恢复源解析', () async {
+    const url = 'https://retained.example/list';
+    messenger.setMockMethodCallHandler(SourceWebRuntime.channel, (call) async {
+      if (call.method == 'render') {
+        throw PlatformException(code: 'verification');
+      }
+      if (call.method == 'verify') {
+        return {
+          'verified': true,
+          'userAgent': 'browser-test',
+          'verificationSession': {
+            'url': url,
+            'cookies': [
+              {
+                'domain': 'retained.example',
+                'path': '/',
+                'name': '__Host-proof',
+                'value': 'yes',
+                'secure': true,
+                'httpOnly': true,
+              },
+            ],
+            'localStorage': {'proof': 'local'},
+            'sessionStorage': {'proof': 'session'},
+          },
+        };
+      }
+      return null;
+    });
+    final runtime = SourceWebRuntime('video:native');
+    addTearDown(() {
+      runtime.dispose();
+      WafAutoVerify.resetForTesting();
+      SiteSessionPool.shared.clear();
+    });
+    await expectLater(
+      runtime.invoke('render', {'url': url}),
+      throwsA(isA<SourceWebVerificationException>()),
+    );
+    expect(SourceWebRuntime.hasRetained(url), true);
+    WafAutoVerify.install(({
+      required section,
+      required sourceId,
+      required sourceName,
+      required url,
+    }) async {
+      final result = await SourceWebRuntime.verifyRetained(url);
+      return result?['verified'] == true;
+    });
+    expect(
+      await WafAutoVerify.run(
+        section: Section.video,
+        sourceId: 'native',
+        sourceName: '原生验证',
+        url: url,
+      ),
+      true,
+    );
+    expect(SourceWebRuntime.hasRetained(url), false);
+    expect(SiteSessionPool.shared.storageFor(url)['sessionStorage'], {
+      'proof': 'session',
+    });
+    expect(
+      SiteSessionPool.shared.headersFor(url, {})['Cookie'],
+      '__Host-proof=yes',
+    );
+  });
 
   test('动态网页桥保留交互、表单和返回媒体，超时有界', () async {
     late MethodCall sent;
@@ -94,6 +165,7 @@ void main() {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(SourceWebRuntime.channel, (call) async {
       calls.add(call);
+      if (call.method == 'bridge.close') return null;
       if (call.method == 'cancel') {
         pending.complete({'html': 'late'});
         return null;
@@ -106,8 +178,8 @@ void main() {
     final expectation = expectLater(future, throwsStateError);
     runtime.dispose();
     await expectation;
-    expect(calls.map((e) => e.method), ['render', 'cancel']);
-    expect(calls[0].arguments['requestId'], calls[1].arguments['requestId']);
+    expect(calls.map((e) => e.method), ['render', 'bridge.close', 'cancel']);
+    expect(calls[0].arguments['requestId'], calls.last.arguments['requestId']);
     await expectLater(
       runtime.invoke('render', {'url': 'https://fixture.invalid'}),
       throwsStateError,

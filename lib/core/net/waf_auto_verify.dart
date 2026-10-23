@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../js/source_web_runtime.dart';
+
 import '../session/section.dart';
 import '../util/lume_log.dart';
 import 'waf.dart';
@@ -15,20 +17,9 @@ import 'waf.dart';
 /// 请求。校验只在**第一次**失败时做，拿到 Cookie 后**自动重试同一次调用**，后续
 /// 调用就都带着会话正常走了（用户口径 3：不要每次都弹）。
 ///
-/// ## 硬规则：**验证窗只能是用户自己按出来的**
-///
-/// 界面上唯一的入口是错误卡上的【网页视图】（手动流程 `runWafWebViewFlow`）：
-/// 用户按下它，窗才开。自动通道（本类）还需要一张**显式许可**（[arm]）才放行，
-/// 而应用现在**在任何加载链路里都不许可它**——切图源、切页签、板块预热、首页 /
-/// 分类 / 筛选页自拉的那一次，以及错误卡上的【重试】，全都只给错误卡。
-///
-/// 理由（真机反馈，连续两轮点名）：验证窗是对「正在做的事」的打断；只要它不是
-/// 用户按出来的，用户就会觉得「切个源它自己弹窗」。因此把触发时机收紧到「用户
-/// 按【网页视图】」——许可机制留着（[arm]/[disarm] 与那几条闸门都有用例），
-/// 将来若要恢复「点重试就自动过验证」，把许可接回某个显式入口即可。
-///
-/// 其余几条闸门一个都没少：手动窗开着不弹、刚关掉没拿到会话的窗有冷却、同一个源
-/// 并发失败共用同一次校验、已有会话不重复弹（重试本身就会带上那份 Cookie）。
+/// Native WebKit detections resume the retained document automatically. Other
+/// script-only errors still require an explicit user entry/one-shot permission.
+/// Concurrent failures share one verification; a manual window never stacks.
 class WafAutoVerify {
   WafAutoVerify._();
 
@@ -38,7 +29,8 @@ class WafAutoVerify {
     required String sourceId,
     required String sourceName,
     required String url,
-  })? _handler;
+  })?
+  _handler;
 
   /// 正在跑的验证（按板块 + 源去重）：脚本并发发请求时，多个失败共用同一次验证。
   static final Map<String, Future<bool>> _running = <String, Future<bool>>{};
@@ -104,7 +96,11 @@ class WafAutoVerify {
   ///
   /// 没拿到会话时还会给这个源压一小段冷却：刚关掉的窗口马上又弹一个一模一样的小窗，
   /// 用户只会觉得「关不掉」。冷却期内自动路径不弹窗（页面上的【网页视图】按钮照常可用）。
-  static void endManual({Section? section, String? sourceId, bool collected = false}) {
+  static void endManual({
+    Section? section,
+    String? sourceId,
+    bool collected = false,
+  }) {
     _manualOpen = false;
     if (collected || section == null || sourceId == null) return;
     _cooldown[_keyOf(section, sourceId)] = DateTime.now();
@@ -116,7 +112,8 @@ class WafAutoVerify {
       required String sourceId,
       required String sourceName,
       required String url,
-    }) handler,
+    })
+    handler,
   ) {
     _handler = handler;
   }
@@ -152,17 +149,16 @@ class WafAutoVerify {
     // 2) 用户许可：**先消费再判**（一次性）。没有许可就是被动加载——这是一条硬
     //    规则，切图源 / 切页签 / 预热撞上标记时，界面上只出现错误卡。
     final armedAt = _armed.remove(key);
-    if (armedAt == null) {
+    final retained = SourceWebRuntime.hasRetained(url);
+    if (armedAt == null && !retained) {
       LumeLog.info(
         '[waf] 未获用户许可，不弹自动验证窗（界面上唯一入口是错误卡上的'
         '【网页视图】）：$key',
       );
       return Future<bool>.value(false);
     }
-    if (!armIsFresh(armedAt, DateTime.now())) {
-      LumeLog.info(
-        '[waf] 用户那次尝试的许可已过期（超过 ${armTtl.inSeconds} 秒），不弹窗：$key',
-      );
+    if (armedAt != null && !armIsFresh(armedAt, DateTime.now())) {
+      LumeLog.info('[waf] 用户那次尝试的许可已过期（超过 ${armTtl.inSeconds} 秒），不弹窗：$key');
       return Future<bool>.value(false);
     }
 
@@ -186,20 +182,21 @@ class WafAutoVerify {
     // 5) 已经有会话：重试本身就会带上它（宿主网络层每次请求现取，见
     //    source_registry 的 sessionCookies），这时再弹窗只是打扰。会话万一已经
     //    过期，页面上还有【网页视图】那条手动出口。
-    if (WafSessions.countFor(section, sourceId) > 0) {
+    if (!retained && WafSessions.countFor(section, sourceId) > 0) {
       LumeLog.info('[waf] 该源已有会话，重试会带上它，不弹自动验证窗：$key');
       return Future<bool>.value(false);
     }
 
-    final future = handler(
-      section: section,
-      sourceId: sourceId,
-      sourceName: sourceName,
-      url: url,
-    ).catchError((Object error) {
-      LumeLog.warn('[waf] 自动校验失败：$key ($error)');
-      return false;
-    });
+    final future =
+        handler(
+          section: section,
+          sourceId: sourceId,
+          sourceName: sourceName,
+          url: url,
+        ).catchError((Object error) {
+          LumeLog.warn('[waf] 自动校验失败：$key ($error)');
+          return false;
+        });
     _running[key] = future;
     return future.whenComplete(() => _running.remove(key)).then((passed) {
       // 用户显式发起的这一次没拿到会话（窗被关掉 / 过完还是没 Cookie）：压一段

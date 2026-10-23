@@ -1,332 +1,329 @@
-import 'package:lume_box/shared/widgets/lume_icon.dart';
-
-import '../../shared/widgets/drawer_geometry.dart';
-
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/lume_icon.dart';
+
 import '../../core/theme/appearance.dart';
-import 'floating_settings_page.dart';
-import 'custom_accent_picker.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
+import 'custom_accent_picker.dart';
+import 'settings_ui.dart';
 
-/// 设置页的「显示」分组：外观（亮暗模式）+ 主题色。
-///
-/// 为什么合成一个分组（用户要求）：这两项都是「App 长什么样」的偏好，原先散在
-/// 通用列表里，改起来要找两处。分组标题「显示」，组内两行——外观与主题色。
-///
-/// 交互与视觉沿用页面既有的一套：卡片用同一份 [GlassCard]，选择弹窗是底部 Sheet
-/// 一行一项（与图源切换 / 轨道选择同款），不新造交互。
 class DisplaySettingsGroup extends StatelessWidget {
   const DisplaySettingsGroup({
     super.key,
     this.showTitle = true,
-    this.includeFloating = true,
+    this.includeFloating = false,
   });
-
-  /// 是否自带分组标题（嵌进设置页的更大分组时传 false）。
-  final bool showTitle;
-
-  /// 是否把「悬浮模块」收在本卡里。
-  ///
-  /// 主设置页把它单独摆到「底部导航栏管理」之后；独立预览页仍保持四项一组。
-  final bool includeFloating;
-
+  final bool showTitle, includeFloating;
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        if (showTitle)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
-            child: Text(
-              '显示',
-              style: TextStyle(
-                fontSize: LumeTypography.bodySize,
-                fontWeight: FontWeight.w400,
-                height: 1.5,
-                color: LumeTheme.textSecondary,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: AppearanceController.instance,
+    builder: (context, _) {
+      final c = AppearanceController.instance;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showTitle) const SettingsGroupTitle('外观与配色'),
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('外观', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, box) => Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final mode in ThemeMode.values)
+                        ChoiceChip(
+                          showCheckmark: false,
+                          avatar: Icon(switch (mode) {
+                            ThemeMode.system => Icons.brightness_auto_outlined,
+                            ThemeMode.light => Icons.light_mode_outlined,
+                            ThemeMode.dark => Icons.dark_mode_outlined,
+                          }, size: 18),
+                          label: Text(switch (mode) {
+                            ThemeMode.system => '跟随系统',
+                            ThemeMode.light => '浅色',
+                            ThemeMode.dark => '深色',
+                          }),
+                          selected: c.mode == mode,
+                          onSelected: (_) =>
+                              c.apply(c.settings.copyWith(mode: mode)),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _AppearancePreview(
+                  background: LumeTheme.base,
+                  accent: c.settings.accentColorFor(
+                    Theme.of(context).brightness,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SettingsEntryCard(
+            icon: Icons.palette_outlined,
+            title: '主题色',
+            subtitle: '色彩预览 · 预设色板 · 自定义颜色',
+            trailingValue: c.settings.accentLabel,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AppearancePalettePage(),
               ),
             ),
           ),
-        GlassCard(
-          radius: 14,
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: <Widget>[
-              const _AppearanceRow(),
-              Padding(
-                padding: const EdgeInsets.only(left: 50),
-                child: Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: LumeTheme.divider,
-                ),
+          SettingsEntryCard(
+            icon: Icons.format_color_fill_outlined,
+            title: '页面底色',
+            subtitle: '独立控制亮色页面背景',
+            trailingValue: c.settings.background == ThemeBackground.grouped
+                ? '雾白'
+                : '柔灰',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const AppearancePalettePage(backgroundOnly: true),
               ),
-              const _AccentRow(),
-              const _BackgroundRow(),
-              ListenableBuilder(
-                listenable: AppearanceController.instance,
-                builder: (context, _) => SwitchListTile(
-                  key: const Key('appearance.adaptiveColor'),
-                  secondary: LumeIcon(
-                    Icons.auto_awesome_outlined,
-                    slot: 'display_settings_group.1',
-                    color: LumeTheme.textSecondary,
-                  ),
-                  title: const Text('自适应颜色'),
-                  subtitle: const Text('首页配色跟随顶部推荐封面的主色；无可用封面时使用主题色'),
-                  value: AppearanceController.instance.settings.adaptiveColor,
-                  onChanged: (value) => AppearanceController.instance.apply(
-                    AppearanceController.instance.settings.copyWith(
-                      adaptiveColor: value,
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class AdaptiveColorSetting extends StatelessWidget {
+  const AdaptiveColorSetting({super.key});
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: AppearanceController.instance,
+    builder: (context, _) => GlassCard(
+      padding: EdgeInsets.zero,
+      child: SwitchListTile.adaptive(
+        key: const Key('appearance.adaptiveColor'),
+        title: const Text('自适应颜色'),
+        subtitle: const Text('首页配色跟随推荐封面；无封面时使用主题色'),
+        value: AppearanceController.instance.settings.adaptiveColor,
+        onChanged: (v) => AppearanceController.instance.apply(
+          AppearanceController.instance.settings.copyWith(adaptiveColor: v),
+        ),
+      ),
+    ),
+  );
+}
+
+class AppearancePalettePage extends StatelessWidget {
+  const AppearancePalettePage({super.key, this.backgroundOnly = false});
+  final bool backgroundOnly;
+  @override
+  Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.settings,
+    behindBar: true,
+    title: backgroundOnly ? '页面底色' : '主题色',
+    child: ListenableBuilder(
+      listenable: AppearanceController.instance,
+      builder: (context, _) {
+        final c = AppearanceController.instance;
+        final accent = c.settings.accentColorFor(Theme.of(context).brightness);
+        return ListView(
+          padding: GlassScaffold.barInset(context)
+              .add(const EdgeInsets.fromLTRB(20, 20, 20, 32)),
+          children: [
+            SettingsPageIntro(
+              title: backgroundOnly ? '让内容更舒适' : '选择你的色彩',
+              description: backgroundOnly
+                  ? '比较两种底色与卡片的层次，点选后立即生效。深色模式保持独立。'
+                  : '主题色用于选中状态与操作强调，预览会随选择更新。',
+            ),
+            _AppearancePreview(
+              background: backgroundOnly
+                  ? c.settings.background.color
+                  : LumeTheme.base,
+              accent: accent,
+            ),
+            const SizedBox(height: 20),
+            if (backgroundOnly) ...[
+              for (final bg in ThemeBackground.values)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: GlassCard(
+                    onTap: () => c.apply(c.settings.copyWith(background: bg)),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: bg.color,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                          child: const Icon(
+                            Icons.layers_outlined,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                bg == ThemeBackground.grouped ? '雾白' : '柔灰',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text(
+                                bg.label,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          c.settings.background == bg
+                              ? Icons.check_circle
+                              : Icons.circle_outlined,
+                          color: c.settings.background == bg
+                              ? accent
+                              : LumeTheme.muted,
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-              if (includeFloating)
-                _DisplayRow(
-                  icon: Icons.tune,
-                  title: '悬浮模块',
-                  value: '位置 · 透明度',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const FloatingSettingsPage(),
-                    ),
-                  ),
+            ] else ...[
+              LayoutBuilder(
+                builder: (context, box) => GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: box.maxWidth < 360 ? 2 : 3,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.35,
+                  children: [
+                    for (final color in ThemeAccent.values)
+                      GlassCard(
+                        padding: const EdgeInsets.all(12),
+                        onTap: () => c.apply(
+                          c.settings.copyWith(
+                            accent: color,
+                            useCustomAccent: false,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              !c.settings.useCustomAccent && c.accent == color
+                                  ? Icons.check_circle
+                                  : Icons.circle,
+                              color: color.colorFor(
+                                Theme.of(context).brightness,
+                              ),
+                              size: 30,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(color.label),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 12),
+              SettingsEntryCard(
+                icon: Icons.colorize_outlined,
+                title: '自定义颜色',
+                trailingValue: c.settings.useCustomAccent ? '使用中' : null,
+                onTap: () async {
+                  final value = await showCustomAccentPicker(
+                    context,
+                    Color(c.settings.customAccentArgb),
+                  );
+                  if (value != null) {
+                    c.apply(
+                      c.settings.copyWith(
+                        customAccentArgb: value.toARGB32(),
+                        useCustomAccent: true,
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+            const SettingsFooterNote('选择自动保存，无需再次确认。'),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _AppearancePreview extends StatelessWidget {
+  const _AppearancePreview({required this.background, required this.accent});
+  final Color background, accent;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(color: accent.withValues(alpha: .15)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '界面预览',
+          style: TextStyle(
+            color:
+                ThemeData.estimateBrightnessForColor(background) ==
+                    Brightness.dark
+                ? Colors.white
+                : Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .82),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.auto_awesome, color: accent),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text('内容与灵感', style: TextStyle(color: Colors.black87)),
+              ),
+              Icon(Icons.check_circle, color: accent),
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-/// 分组内的一行：图标 + 标题 + 当前值（可带色块）+ 右箭头。
-class _DisplayRow extends StatelessWidget {
-  const _DisplayRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onTap,
-    this.swatch,
-  });
-
-  final IconData icon;
-  final String title;
-
-  /// 右侧当前值（如「跟随系统」「紫水晶」）。
-  final String value;
-
-  final VoidCallback onTap;
-
-  /// 值左侧的色块（主题色那行用）。
-  final Widget? swatch;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: <Widget>[
-            LumeIcon(
-              icon,
-              slot: 'settings.appearance.$title',
-              label: title,
-              group: '设置',
-              size: 22,
-              color: LumeTheme.textSecondary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: LumeTypography.titleSize,
-                  fontWeight: interfaceFontWeight(context, FontWeight.w600),
-                  color: LumeTheme.textPrimary,
-                ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final label in ['推荐', '收藏', '发现'])
+              Chip(
+                label: Text(label, style: TextStyle(color: accent)),
+                backgroundColor: accent.withValues(alpha: .09),
               ),
-            ),
-            if (swatch != null) ...<Widget>[swatch!, const SizedBox(width: 8)],
-            if (value.isNotEmpty)
-              Flexible(
-                child: Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w400,
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.5,
-                    color: LumeTheme.textSecondary,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 4),
-            LumeIcon(
-              Icons.chevron_right,
-              slot: 'display_settings_group.3',
-              size: 20,
-              color: LumeTheme.muted,
-            ),
           ],
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }
 
-/// 「外观」行：跟随系统 / 浅色 / 深色。
-class _AppearanceRow extends StatelessWidget {
-  const _AppearanceRow();
-
-  /// 模式 → 展示名（弹窗与行内当前值共用一份）。
-  static String labelOf(ThemeMode mode) => switch (mode) {
-    ThemeMode.system => '跟随系统',
-    ThemeMode.light => '浅色',
-    ThemeMode.dark => '深色',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = AppearanceController.instance;
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) => _DisplayRow(
-        icon: Icons.brightness_6_outlined,
-        title: '外观',
-        value: labelOf(controller.mode),
-        onTap: () async {
-          final picked = await showLumeBottomSheet<ThemeMode>(
-            context: context,
-            backgroundColor: Colors.transparent,
-            builder: (_) => OptionSheet<ThemeMode>(
-              title: '外观',
-              current: controller.mode,
-              options: const <ThemeMode>[
-                ThemeMode.system,
-                ThemeMode.light,
-                ThemeMode.dark,
-              ],
-              labelOf: labelOf,
-            ),
-          );
-          if (picked == null) return;
-          controller.apply(controller.settings.copyWith(mode: picked));
-        },
-      ),
-    );
-  }
-}
-
-/// 「主题色」行：11 种主色，点击弹出列表（当前项打勾 + 色块）。
-class _AccentRow extends StatelessWidget {
-  const _AccentRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = AppearanceController.instance;
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        // 色块按当前亮度取色（深色主题下主色会提亮，小圆点也要跟着）。
-        final brightness = Theme.of(context).brightness;
-        return _DisplayRow(
-          icon: Icons.palette_outlined,
-          title: '主题色',
-          value: controller.settings.accentLabel,
-          swatch: AccentDot(
-            color: controller.settings.accentColorFor(brightness),
-          ),
-          onTap: () async {
-            final picked = await showLumeBottomSheet<String>(
-              context: context,
-              backgroundColor: Colors.transparent,
-              builder: (_) => OptionSheet<String>(
-                title: '主题色',
-                current: controller.settings.useCustomAccent
-                    ? 'custom'
-                    : controller.accent.id,
-                options: [
-                  ...ThemeAccent.values.map((accent) => accent.id),
-                  'custom',
-                ],
-                labelOf: (id) =>
-                    id == 'custom' ? '自定义颜色' : ThemeAccent.fromId(id).label,
-                swatchOf: (id) => id == 'custom'
-                    ? Color(controller.settings.customAccentArgb)
-                    : ThemeAccent.fromId(id).colorFor(brightness),
-              ),
-            );
-            if (picked == null) return;
-            if (picked == 'custom') {
-              if (!context.mounted) return;
-              final color = await showCustomAccentPicker(
-                context,
-                Color(controller.settings.customAccentArgb),
-              );
-              if (color != null) {
-                controller.apply(
-                  controller.settings.copyWith(
-                    customAccentArgb: color.toARGB32(),
-                    useCustomAccent: true,
-                  ),
-                );
-              }
-            } else {
-              controller.apply(
-                controller.settings.copyWith(
-                  accent: ThemeAccent.fromId(picked),
-                  useCustomAccent: false,
-                ),
-              );
-            }
-          },
-        );
-      },
-    );
-  }
-}
-
-class _BackgroundRow extends StatelessWidget {
-  const _BackgroundRow();
-  @override
-  Widget build(BuildContext context) {
-    final controller = AppearanceController.instance;
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) => _DisplayRow(
-        icon: Icons.format_color_fill_outlined,
-        title: '页面底色',
-        value: controller.settings.background.label,
-        swatch: AccentDot(color: controller.settings.background.color),
-        onTap: () async {
-          final picked = await showLumeBottomSheet<ThemeBackground>(
-            context: context,
-            backgroundColor: Colors.transparent,
-            builder: (_) => OptionSheet<ThemeBackground>(
-              title: '页面底色（亮色模式）',
-              current: controller.settings.background,
-              options: ThemeBackground.values,
-              labelOf: (value) => value.label,
-              swatchOf: (value) => value.color,
-            ),
-          );
-          if (picked != null) {
-            controller.apply(controller.settings.copyWith(background: picked));
-          }
-        },
-      ),
-    );
-  }
-}
-
-/// 主题色小圆点。
 class AccentDot extends StatelessWidget {
   const AccentDot({super.key, required this.color, this.size = 14});
 

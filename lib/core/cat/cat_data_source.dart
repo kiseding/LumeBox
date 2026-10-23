@@ -396,7 +396,15 @@ class CatDataSource
         );
       }
     }
-    final uri = address(catText(data['url']));
+    final uri = address(catText(data['pageUrl'] ?? data['url']));
+    if (data['webPlayer'] == true) {
+      if (uri == null ||
+          !['http', 'https'].contains(uri.scheme) ||
+          uri.userInfo.isNotEmpty) {
+        throw StateError('站点返回了无效的网页播放地址');
+      }
+      throw CatWebParseRequired(uri, requestHeaders, webPlayer: true);
+    }
     if (data['parse'] == 1 || data['parse'] == '1') {
       if (uri == null) throw StateError('站点返回了无效的网页解析地址');
       throw CatWebParseRequired(uri, requestHeaders);

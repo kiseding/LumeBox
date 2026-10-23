@@ -6,11 +6,12 @@ import '../source/data_source.dart';
 /// the real media URL. It extends [SourceException] so background paths
 /// (next-episode preload/auto advance) degrade quietly instead of crashing.
 class CatWebParseRequired extends SourceException {
-  CatWebParseRequired(this.page, this.headers)
+  CatWebParseRequired(this.page, this.headers, {this.webPlayer = false})
     : super(SourceErrorKind.callFailed, '该线路需要网页解析');
 
   final Uri page;
   final Map<String, String> headers;
+  final bool webPlayer;
 
   @override
   String toString() => '该线路是网页解析地址，需要在网页里取回播放地址';

@@ -1,8 +1,23 @@
 'use strict'
 // LumeBox adapter; upstream AGPL-3.0 source and modifications: manifest.json.
 const crypto = require('node:crypto')
+const { AsyncLocalStorage } = require('node:async_hooks')
 module.exports.start = async function start(config) {
   const upstream = require(config.upstreamPath)
+  const networkState = new AsyncLocalStorage()
+  if (config.nativeNetwork && globalThis.catNativeDanmakuFetch) {
+    upstream.setFetch(async (...args) => {
+      const state = networkState.getStore()
+      try {
+        const result = await globalThis.catNativeDanmakuFetch(...args)
+        if (result.status >= 400 && state) state.failed++
+        return result
+      } catch (error) {
+        if (state) state.failed++
+        throw error
+      }
+    })
+  }
   const token = String(config.token || '')
   if (token.length < 32) throw new Error('Local danmaku token missing')
   const env = Object.freeze({
@@ -32,9 +47,23 @@ module.exports.start = async function start(config) {
       res.writeHead(404); res.end(); return
     }
     try {
-      const result = await upstream.handle('http://127.0.0.1' + url.pathname + url.search, env)
+      const state = { failed: 0 }
+      const result = await networkState.run(state, () => upstream.handle('http://127.0.0.1' + url.pathname + url.search, env))
       const bytes = Buffer.from(await result.arrayBuffer())
       if (res.destroyed) return
+      // Upstream sometimes suppresses platform errors and returns success + [].
+      // Do not present a proxy/network failure as a genuine empty catalogue.
+      if (result.status === 200 && state.failed > 0) {
+        let data
+        try { data = JSON.parse(bytes.toString('utf8')) } catch (_) {}
+        const items = data && (route.startsWith('/api/v2/comment/') ? data.comments : data.animes)
+        if (Array.isArray(items) && items.length === 0) {
+          res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ success: false, errorCode: 502,
+            errorMessage: '部分弹幕平台请求失败，未取得结果。请检查 VPN 规则是否将对应平台误送代理后重试。' }))
+          return
+        }
+      }
       res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(bytes)
     } catch (error) {

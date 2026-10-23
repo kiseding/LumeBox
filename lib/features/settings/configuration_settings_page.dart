@@ -128,7 +128,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.settings,
-    title: '配置备份与体验',
+    title: '配置备份',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -203,47 +203,6 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
           onTap: () => run(restoreAutomatic),
         ),
         const SizedBox(height: 24),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Text('使用体验', style: Theme.of(context).textTheme.headlineSmall),
-        ),
-        SwitchListTile(
-          title: const Text('触感反馈'),
-          value: preferences.haptics,
-          onChanged: (value) {
-            setState(() => preferences.haptics = value);
-            preferences.save();
-            preferences.selectionFeedback();
-          },
-        ),
-        ListTile(
-          title: const Text('触感强度'),
-          subtitle: const Text('选择档位即可体验反馈'),
-          trailing: DropdownButton<HapticStrength>(
-            value: preferences.hapticStrength,
-            items: [
-              for (final strength in HapticStrength.values)
-                DropdownMenuItem(value: strength, child: Text(strength.label)),
-            ],
-            onChanged: preferences.haptics
-                ? (value) {
-                    if (value == null) return;
-                    setState(() => preferences.hapticStrength = value);
-                    preferences.save();
-                    preferences.selectionFeedback();
-                  }
-                : null,
-          ),
-        ),
-        SwitchListTile(
-          title: const Text('后台播放'),
-          subtitle: const Text('视频退到后台时继续播放音频'),
-          value: preferences.backgroundPlayback,
-          onChanged: (value) {
-            setState(() => preferences.backgroundPlayback = value);
-            preferences.save();
-          },
-        ),
         if (busy) const LinearProgressIndicator(),
         if (status != null)
           SettingsFooterNote(

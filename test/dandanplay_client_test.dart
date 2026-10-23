@@ -8,6 +8,58 @@ import 'package:lume_box/features/video/danmaku/dandanplay_client.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_models.dart';
 
 void main() {
+  for (final type in ['tv', 'movie']) {
+    test('官方 TMDB $type 反查真实弹幕库，避免选入空映射', () async {
+      final client = DandanplayClient(
+        credentials: const DandanplayCredentials(
+          'app',
+          'secret',
+          baseUrl: DandanplayCredentials.officialBase,
+        ),
+        client: MockClient((r) async {
+          if (r.url.queryParameters.containsKey('tmdbId')) {
+            expect(r.url.queryParameters['tmdbId'], '123');
+            expect(
+              r.url.queryParameters['tmdbIdType'],
+              type == 'tv' ? '0' : '1',
+            );
+            expect(r.url.queryParameters['episode'], '1');
+            expect(r.url.queryParameters.containsKey('anime'), isFalse);
+            return http.Response(
+              jsonEncode({
+                'animes': [
+                  {
+                    'animeTitle': '作品',
+                    'episodes': [
+                      {'episodeId': 42, 'episodeTitle': '第1集'},
+                    ],
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          if (r.url.path.endsWith('/search/episodes')) {
+            return http.Response('{"animes":[]}', 200);
+          }
+          expect(r.url.path, '/api/v2/search/tmdb');
+          return http.Response(
+            jsonEncode({
+              'animes': [
+                {'animeTitle': '作品', 'bangumiId': 'tmdb-$type-123'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      addTearDown(client.close);
+      final results = await client.search('作品', episode: 1);
+      expect(DandanplayClient.exactMatch(results, '作品', episode: 1)?.id, '42');
+    });
+  }
   test('上游把速通合集标成第1集时，不会被当成正片自动关联', () {
     const clip = DandanplayEpisode(
       id: 'clip',
@@ -239,6 +291,9 @@ void main() {
       ),
       client: MockClient((r) async {
         paths.add(r.url.path);
+        if (r.url.queryParameters.containsKey('tmdbId')) {
+          return http.Response('{"animes":[]}', 200);
+        }
         if (r.url.path.endsWith('/search/episodes')) {
           return http.Response(
             '{"success":true,"animes":[{"animeTitle":"不相关动画","episodes":[{"episodeId":1,"episodeTitle":"第1集"}]}]}',
@@ -285,7 +340,7 @@ void main() {
     final found = await client.search('大刑伺候', episode: 1);
     final match = DandanplayClient.exactMatch(found, '大刑伺候', episode: 1);
     expect(match?.id, '9000001');
-    expect(paths.length, 3);
+    expect(paths.length, 4);
     expect(found.any((e) => e.id == '9000002'), false);
   });
 

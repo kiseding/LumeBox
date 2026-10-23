@@ -14,6 +14,7 @@ import 'package:lume_box/core/js/source_script.dart';
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/cat/cat_web_parse.dart';
 
 /// 真实引擎下的桥接验证（用户反馈的 Bug2）：
 ///
@@ -90,6 +91,38 @@ void main() {
       expect(
         page.items.single.id,
         'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    });
+
+    test('源签名钩子只改本次请求的头与正文，网页播放标记不交给解码器', () async {
+      final source = await boot(r'''
+        var LumeSource = {
+          prepareRequest: async function(request) {
+            if (typeof request.bridge.request !== 'function') throw new Error('bridge unavailable');
+            return {headers:{'x-source-sign':'local-signature'},body:'signed-body'};
+          },
+          list: async function() {
+            await LumeSource.http.post('https://api.example.com/search','original',{headers:{'x-original':'keep'}});
+            return {items:[],hasMore:false};
+          },
+          content: async function() { return {webPlayer:true,url:'blob:https://site.example/internal',pageUrl:'https://site.example/play/1',headers:{Referer:'https://site.example/'}}; }
+        };
+      ''');
+      await source.list();
+      expect(http.lastHeaders['x-source-sign'], 'local-signature');
+      expect(http.lastHeaders['x-original'], 'keep');
+      expect(http.lastBody, 'signed-body');
+      await expectLater(
+        source.content(itemId: 'one', chapterId: '1'),
+        throwsA(
+          isA<CatWebParseRequired>()
+              .having((e) => e.webPlayer, 'webPlayer', true)
+              .having(
+                (e) => e.page.toString(),
+                'page',
+                'https://site.example/play/1',
+              ),
+        ),
       );
     });
 
@@ -550,6 +583,8 @@ class _RecordingHttp extends LumeHttp {
   _RecordingHttp() : super();
 
   final List<String> urls = <String>[];
+  Map<String, String> lastHeaders = {};
+  String? lastBody;
 
   @override
   Future<LumeHttpResponse> send({
@@ -562,6 +597,8 @@ class _RecordingHttp extends LumeHttp {
     Duration? timeout,
   }) async {
     urls.add(url);
+    lastHeaders = headers ?? {};
+    lastBody = body;
     return LumeHttpResponse(
       statusCode: 200,
       body: Uint8List.fromList(utf8.encode('列表缓存')),

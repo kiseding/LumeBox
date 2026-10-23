@@ -91,11 +91,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(requests.single.queryParameters['episode'], '1');
       // Both fields stay usable above the software keyboard in either layout.
+      final titleField = find.byKey(const ValueKey('danmaku-match-title'));
+      await tester.tap(titleField);
+      await tester.pump();
+      final editor = tester.state<EditableTextState>(
+        find.descendant(of: titleField, matching: find.byType(EditableText)),
+      );
+      expect(editor.widget.focusNode.hasFocus, isTrue);
       tester.view.viewInsets = FakeViewPadding(
         bottom: (landscape ? 300 : 300) * tester.view.devicePixelRatio,
       );
       addTearDown(tester.view.reset);
       await tester.pumpAndSettle();
+      expect(editor.mounted, isTrue, reason: '切换紧凑布局时必须保留输入框，避免键盘弹出后立刻失焦');
+      expect(editor.widget.focusNode.hasFocus, isTrue);
       final field = tester.getRect(
         find.byKey(const ValueKey('danmaku-match-title')),
       );
@@ -112,6 +121,8 @@ void main() {
       expect(tester.takeException(), isNull);
       tester.view.resetViewInsets();
       await tester.pumpAndSettle();
+      expect(editor.mounted, isTrue, reason: '键盘收起恢复完整布局时也要保留输入连接');
+      expect(editor.widget.focusNode.hasFocus, isTrue);
       expect(find.text('熔城'), findsWidgets);
       expect(find.text('活火熔城'), findsNothing);
       await tester.tap(

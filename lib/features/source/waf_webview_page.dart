@@ -11,6 +11,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/net/waf.dart';
+import '../../core/net/web_verification.dart';
 import '../../core/net/waf_auto_verify.dart';
 import '../../core/net/site_session_pool.dart';
 import '../../core/js/source_web_runtime.dart';
@@ -23,69 +24,12 @@ import '../../core/source/lume_sources.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 
-/// 内置「网页视图」：被 Cloudflare / WAF 拦下时，让用户在 App 内过真人校验
-/// （用户要求的流程，参考 AP 漫画那套）。
-///
-/// 三条要点：
-/// - **真 WebView**（WKWebView）：校验是人机交互，必须是真浏览器环境，请求头伪装没用；
-/// - **取回整套 Cookie**：关闭时同时取 JS 可见的 `document.cookie` 与**原生 Cookie
-///   仓库**（`lumebox/webview` 通道）——`cf_clearance` 是 HttpOnly，只取 JS 那份会漏掉关键的一枚；
-/// - **只存会话，不改脚本**：Cookie 交给宿主网络层附加（用户口径第 4 条）。
-///
-/// ## 页面上要「看得见勾选框」（真机反馈：白屏，没有验证控件）
-///
-/// 三条口径缺一不可，缺任何一条 CF 都会给一张**渲染不出控件的空页**：
-/// 1. **UA 必须是浏览器 UA**：WKWebView 的默认 UA 是 `… Mobile/15E148`（**没有
-///    `Safari/…` 这一段**），CF 会把它当非浏览器；这里统一用 App 请求侧的 UA
-///    （Safari 形态），顺带满足 `cf_clearance` 绑定 IP + UA 的要求（见 [userAgentOverride]）；
-/// 2. **网页内容允许明文 http**：源站正文与挑战页里都有 http 子资源，iOS 的 ATS
-///    默认会把它们拦掉 → 白屏（见 `ios/Runner/Info.plist` 的
-///    `NSAllowsArbitraryLoadsInWebContent`）；
-/// 3. **补齐浏览器请求头**：`Accept-Language` / `Upgrade-Insecure-Requests` 这类
-///    默认头缺了，挑战页的脚本可能直接不渲染控件。
-///
-/// ## UA 必须是**设备自己的** Safari UA（真机反馈：勾选框一闪就跳空白页）
-///
-/// 真机现象：挑战页的勾选框能瞥见一眼，还没点就自己跳成空白页。CF 会做客户端
-/// 一致性检测——UA 里写的系统版本、WebKit 版本与真实环境对不上（或带 WebView
-/// 特征），它就认定这是内置控件，**跳过交互直接把人赶走**。
-/// 因此这里不再用配置里那串硬编码 UA，而是拿 WKWebView 的**默认 UA**（它带着这台
-/// 设备真实的 iOS / WebKit 版本）补上 `Version/… Safari/…` 两段，拼出一个与
-/// 本机 Safari 完全一致的 UA（见 [safariUserAgentFrom]）。
-///
-/// ## 挑战页被跳走时把它拉回来（[._restoreChallengeIfBlanked]）
-///
-/// 即便 UA 对了，CF 也可能在挑战过期 / 网络抖动时跳到一张空白页。用户口径：
-/// 「至少把挑战页保留住，给足时间点勾选框」。这里在页面变成空白且**刚才确实
-/// 是挑战页**时，把挑战页重新打开（最多几次），而不是任由用户面对白屏。
-///
-/// **判定必须是「稳定空白」，不能是一次采样**（真机反馈：勾选框一直不出现）：
-/// CF 的挑战控件是脚本后画出来的（`innerText` 也看不见 `display:none` 的东西），
-/// 页面加载完那一刻正文为空完全正常；这时立刻重开，会把还在路上的
-/// `challenge-platform` 脚本和 `challenges.cloudflare.com` 的 iframe 一起掐掉，
-/// 越修越白。因此：加载完先等一拍再采一次，两次都空、且页面上**现在**没有挑战
-/// 痕迹 / iframe、用户也没在页面上操作过，才允许重开（见
-/// [shouldRestoreChallengePage]）。
-///
-/// ## 什么才算「放过了」（[cookieJarLooksPassed]）
-///
-/// **只有 `cf_clearance` 算放行**。`__cf_bm` 是挑战**之前**就写下的 bot 管理
-/// Cookie：早先把它也当放行信号，自动小窗常常在开出 1~2 秒后就自己关掉——用户
-/// 看到的正是「窗口一闪，勾选框还没出现就没了」。因此 `__cf_bm` 只在「这一页
-/// 从没出现过挑战痕迹」时才当作已经放行。
-///
-/// ## 网页视图实际用的 UA（[wafFallbackUserAgent]）
-///
-/// 读不到 WKWebView 默认 UA 时**不许留空**：不放 UA 就等于用 WKWebView 默认那份
-///（没有 `Safari/…` 段），CF 给一张渲染不出控件的空页。兜底一律给 Safari 形态的
-/// UA，并在页面加载完之后核对 `navigator.userAgent` 里真的带 `Safari/`（见
-/// [webViewUserAgentNeedsRepair]），不带就换兜底 UA 只重开一次。
-///
-/// ## 什么时候才读 Cookie
-///
-/// **只有用户点左上角 ✕ 的那一刻**（手动模式）。中途无论页面跳转多少次都不读
-/// Cookie、不关窗、不重置 WebView——用户没说「好了」，验证流程就还没结束。
-/// 自动模式（[WafWebViewPage.auto]）例外：轮询到真放行信号后自己收尾关窗。
+/// Human verification in the retained WKWebView, with a visible fallback for
+/// legacy request paths. Read-only snapshots run at most every 750 ms; only
+/// recovered business content with corroborating signals completes a challenge.
+/// Native cookies preserve HttpOnly/domain/path/secure, and origin-scoped storage
+/// joins the global session pool before source parsing resumes. No CAPTCHA solving
+/// or source-specific signing is performed.
 class WafWebViewPage extends StatefulWidget {
   const WafWebViewPage({
     super.key,
@@ -95,6 +39,7 @@ class WafWebViewPage extends StatefulWidget {
     this.onUserAgent,
     this.userAgentOverride,
     this.auto = false,
+    this.onVerified,
   });
 
   /// 自动模式（用户口径 2 / 4）：脚本抛 `NEED_WEBVIEW_VERIFY` 时由应用自己调起。
@@ -103,6 +48,7 @@ class WafWebViewPage extends StatefulWidget {
   /// 它**不改变窗口尺寸**：小悬浮窗（320×420，右下角）的外框由调用方
   /// [showWafAutoVerify] 决定，本页只负责里面的内容与流程。
   final bool auto;
+  final VoidCallback? onVerified;
 
   /// 用指定 UA 打开页面（**App 请求侧那一个**：图源覆盖 → 全局设置 → 内置默认）。
   ///
@@ -129,7 +75,10 @@ class WafWebViewPage extends StatefulWidget {
   State<WafWebViewPage> createState() => _WafWebViewPageState();
 }
 
-class _WafWebViewPageState extends State<WafWebViewPage> {
+class _WafWebViewPageState extends State<WafWebViewPage>
+    with WidgetsBindingObserver {
+  bool _foreground = true;
+
   /// 原生 Cookie 仓库通道（iOS 实现；其它平台回落为只取 JS 可见的那份）。
   static const MethodChannel _cookieChannel = MethodChannel('lumebox/webview');
 
@@ -186,17 +135,82 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
 
   /// 自动模式的轮询计时器：定时看 Cloudflare 的放行 Cookie 到了没有。
   Timer? _autoPoll;
+  Timer? _verificationDeadline;
+  bool _pollBusy = false,
+      _confirmedVerification = false,
+      _verificationPassed = false;
+  Map<String, dynamic>? _verificationBaseline;
+  String _baselineCookies = '';
+  DateTime? _verificationStarted;
+  String? _verificationIssue;
+  int _httpStatus = 200;
+  int _verificationEpoch = 0;
+  String _mainUrl = '';
+
+  Future<Map<String, dynamic>?> _verificationSnapshot() async {
+    try {
+      final script = await WebVerification.script(
+        status: _httpStatus,
+        confirmed: _confirmedVerification,
+        elapsedMs: _verificationStarted == null
+            ? 0
+            : DateTime.now().difference(_verificationStarted!).inMilliseconds,
+      );
+      return WebVerification.decode(
+        await _controller?.runJavaScriptReturningResult(script),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Object?>> _nativeCookies() async {
+    try {
+      return await _cookieChannel.invokeMethod<List<Object?>>('allCookies', {
+            'url': widget.url,
+          }) ??
+          [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _verificationProblem(String message) {
+    _verificationEpoch++;
+    _autoPoll?.cancel();
+    _autoPoll = null;
+    _verificationDeadline?.cancel();
+    if (mounted) setState(() => _verificationIssue = message);
+  }
+
+  void _restartVerification() {
+    _verificationEpoch++;
+    _pollBusy = false;
+    _verificationBaseline = null;
+    _verificationStarted = null;
+    _verificationIssue = null;
+    _verificationPassed = false;
+    unawaited(_controller?.reload());
+    _startAutoPoll();
+    setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onProgress: (value) => setState(() => _progress = value),
+          onProgress: (value) {
+            if (mounted) setState(() => _progress = value);
+          },
           onPageStarted: (url) {
+            if (!mounted) return;
             LumeLog.info('[waf] 网页视图开始加载：$url');
+            _mainUrl = url;
+            _httpStatus = 200;
             // 新的一页开始了：上一个失败卡与它的定时器都作废。
             _loadErrorTimer?.cancel();
             setState(() {
@@ -205,6 +219,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
             });
           },
           onPageFinished: (url) async {
+            if (!mounted) return;
             final title = await _controller?.getTitle();
             // UA 与 cf_clearance 绑定：验证用哪个 UA，后续 API 就得用哪个，
             // 因此把网页视图里的真实 UA 记下来（用户口径 2：拿到验证后的请求头）。
@@ -235,13 +250,14 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
             // 真机诊断：CF 挑战页渲染不出来时，日志里要能看出「页面到底有没有内容」
             //（白屏是真机上唯一看不出来的失败）。
             unawaited(_probePage(url));
-            if (widget.auto) _startAutoPoll();
+            _startAutoPoll();
           },
           // 4xx / 5xx 不是加载失败（CF 的挑战页本身就是 403/503），但要留证。
-          onHttpError: (error) => LumeLog.info(
-            '[waf] 网页视图 HTTP ${error.response?.statusCode}：'
-            '${error.request?.uri}',
-          ),
+          onHttpError: (error) {
+            if (error.request?.uri.toString() == _mainUrl) {
+              _httpStatus = error.response?.statusCode ?? 200;
+            }
+          },
           onWebResourceError: (error) {
             LumeLog.info(
               '[waf] 网页视图加载出错（主框架=${error.isForMainFrame}）：'
@@ -288,6 +304,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
           {},
         );
         widget.onCollected(parseJsCookie(headers['Cookie'] ?? ''));
+        widget.onVerified?.call();
         widget.onUserAgent?.call('${retained['userAgent'] ?? ''}');
       }
       if (mounted) {
@@ -397,7 +414,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     if (!probe.blank) return;
 
     await Future<void>.delayed(_blankResampleDelay);
-    if (!mounted || _collecting) return;
+    if (!mounted || _collecting || _verificationBaseline != null) return;
     probe = await _readProbe(url);
     if (!mounted || probe == null) return;
     if (probe.challenge) _challengeSeen = true;
@@ -458,66 +475,84 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     }
   }
 
-  /// 自动模式轮询：Cloudflare 放行后会写 `cf_clearance`，看到它就自动收尾。
-  ///
-  /// 之所以轮询而不是只等「用户点关闭」：用户口径 4 要求**大部分场景后台静默完成**
-  /// ——校验本来就可能是无感的（IP 信誉 / 无需点选），那就自己关掉，别打扰人。
-  ///
-  /// 判定只看 [cookieJarLooksPassed]：`__cf_bm` 在挑战**之前**就写下来了，拿它当
-  /// 放行会让窗口开出 1~2 秒就自己关掉（用户看到的「一闪就没了」）。
+  /// Poll read-only signals while the user operates the same WebView. A cookie
+  /// change needs recovered business content; retry text never ends the wait.
   void _startAutoPoll() {
-    _autoPoll ??= Timer.periodic(const Duration(milliseconds: 1200), (
-      timer,
-    ) async {
-      if (!mounted || _collecting) {
-        timer.cancel();
+    if (_verificationIssue != null) return;
+    _autoPoll ??= Timer.periodic(const Duration(milliseconds: 750), (_) async {
+      if (!mounted || !_foreground || _collecting || _pollBusy) return;
+      _pollBusy = true;
+      final epoch = _verificationEpoch;
+      try {
+        final snapshot = await _verificationSnapshot();
+        if (!mounted || snapshot == null || epoch != _verificationEpoch) return;
+        if (snapshot['heavy'] == true) {
+          _verificationProblem('该站点验证风险较高或没有可操作的入口，建议更换网络或代理');
+          return;
+        }
+        final cookies = await _nativeCookies();
+        if (!mounted || epoch != _verificationEpoch) return;
+        if (_verificationBaseline == null) {
+          if (snapshot['challenge'] != true) return;
+          _verificationBaseline = snapshot;
+          _baselineCookies = WebVerification.cookieFingerprint(
+            cookies,
+            widget.url,
+          );
+          _verificationStarted = DateTime.now();
+          _verificationDeadline = Timer(
+            const Duration(seconds: 120),
+            () => _verificationProblem('验证超时（120 秒），可重试或跳过当前源'),
+          );
+          setState(() => _title = '请在页面完成验证');
+          return;
+        }
+        if (!WebVerification.passed(
+          _verificationBaseline!,
+          snapshot,
+          target: widget.url,
+          cookieChanged:
+              WebVerification.cookieFingerprint(cookies, widget.url) !=
+              _baselineCookies,
+        )) {
+          return;
+        }
+        _autoPoll?.cancel();
         _autoPoll = null;
-        return;
+        _verificationDeadline?.cancel();
+        _verificationPassed = true;
+        SiteSessionPool.shared.importVerification(widget.url, {
+          'url': snapshot['url'],
+          'cookies': cookies,
+          'localStorage': snapshot['localStorage'],
+          'sessionStorage': snapshot['sessionStorage'],
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        if (mounted) await _closeAndCollect();
+      } finally {
+        if (epoch == _verificationEpoch) _pollBusy = false;
       }
-      String cookie = '';
-      try {
-        cookie =
-            '${await _controller?.runJavaScriptReturningResult('document.cookie')}';
-      } catch (_) {
-        return;
-      }
-      final current = await _controller?.currentUrl() ?? widget.url;
-      final probe = await _readProbe(current);
-      if (probe == null ||
-          probe.challenge ||
-          !probe.readyComplete ||
-          probe.blank) {
-        return;
-      }
-      try {
-        final native = await _cookieChannel.invokeMethod<List<Object?>>(
-          'allCookies',
-          {'url': current},
-        );
-        final scoped = webViewCookiesForUrl(native ?? const [], current);
-        cookie =
-            '$cookie; ${scoped.entries.map((e) => '${e.key}=${e.value}').join('; ')}';
-      } catch (_) {}
-      if (!canFinishWafVerification(
-        cookie,
-        probe: probe,
-        challengeSeen: _challengeSeen,
-      )) {
-        return;
-      }
-      timer.cancel();
-      _autoPoll = null;
-      // 再等一拍：放行后站点往往还会写几枚别的 Cookie。
-      await Future<void>.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-      await _closeAndCollect();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _verificationEpoch++;
+    _pollBusy = false;
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _verificationEpoch++;
+    unawaited(
+      _controller?.loadRequest(Uri.parse('about:blank')).catchError((_) {}) ??
+          Future<void>.value(),
+    );
     _autoPoll?.cancel();
     _autoPoll = null;
+    _verificationDeadline?.cancel();
     _loadErrorTimer?.cancel();
     _loadErrorTimer = null;
     super.dispose();
@@ -531,10 +566,12 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       await _controller?.currentUrl() ?? widget.url,
     );
     if (!mounted) return;
-    if (currentProbe == null ||
-        currentProbe.challenge ||
-        !currentProbe.readyComplete ||
-        currentProbe.blank) {
+    if (!_verificationPassed &&
+        (currentProbe == null ||
+            (_verificationBaseline != null && !_verificationPassed) ||
+            (!_verificationPassed && currentProbe.challenge) ||
+            !currentProbe.readyComplete ||
+            currentProbe.blank)) {
       setState(() => _collecting = false);
       if (!widget.auto) {
         await showDialog<void>(
@@ -593,8 +630,9 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     }
 
     if (!mounted) return;
-    if (cookies.isEmpty ||
-        (_challengeSeen && (cookies['cf_clearance'] ?? '').isEmpty)) {
+    if (!_verificationPassed &&
+        (cookies.isEmpty ||
+            (_challengeSeen && (cookies['cf_clearance'] ?? '').isEmpty))) {
       if (widget.auto) {
         // 自动模式下静默退出：由调用方（引擎层）按原来的失败处理并给出口，
         // 不要在这里插一个「未能读取验证会话」的对话框打断正在进行的解析。
@@ -636,6 +674,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     }
     if (!mounted) return;
     widget.onCollected(cookies);
+    widget.onVerified?.call();
     Navigator.of(context).pop();
   }
 
@@ -736,6 +775,31 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
                           _buildLoadError(controller),
                       ],
                     ),
+            ),
+            if (_verificationIssue != null)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(_verificationIssue!),
+              ),
+            Wrap(
+              children: [
+                TextButton(
+                  onPressed: () {
+                    _confirmedVerification = true;
+                    _startAutoPoll();
+                  },
+                  child: const Text('这是验证页'),
+                ),
+                if (_verificationIssue != null)
+                  TextButton(
+                    onPressed: _restartVerification,
+                    child: const Text('重试'),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('跳过当前源'),
+                ),
+              ],
             ),
             if (_collecting) const LinearProgressIndicator(minHeight: 2),
           ],
@@ -1376,6 +1440,7 @@ Future<bool> showWafAutoVerify({
 }) async {
   Map<String, String>? collected;
   String? userAgent;
+  bool verified = false;
   try {
     await Navigator.of(context, rootNavigator: true).push<void>(
       PageRouteBuilder<void>(
@@ -1401,6 +1466,7 @@ Future<bool> showWafAutoVerify({
                     url: url,
                     sourceName: sourceName,
                     auto: true,
+                    onVerified: () => verified = true,
                     userAgentOverride: userAgentOverride,
                     onUserAgent: (value) => userAgent = value,
                     onCollected: (cookies) => collected = cookies,
@@ -1417,9 +1483,11 @@ Future<bool> showWafAutoVerify({
     return false;
   }
   final cookies = collected;
-  if (cookies == null || cookies.isEmpty) return false;
-  WafSessions.save(section, sourceId, cookies);
+  if (!verified && (cookies == null || cookies.isEmpty)) return false;
+  if (cookies != null && cookies.isNotEmpty) {
+    WafSessions.save(section, sourceId, cookies);
+  }
   WafSessions.saveUserAgent(section, sourceId, userAgent);
-  LumeLog.info('[waf] $sourceId 自动校验完成：${cookies.length} 项 Cookie');
+  LumeLog.info('[waf] $sourceId 自动校验完成：${cookies?.length ?? 0} 项 Cookie');
   return true;
 }

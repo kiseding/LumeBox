@@ -119,6 +119,11 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
         );
         await SiteSessionPool.shared.save();
         value = true;
+      } else if ('${request['method']}'.startsWith('web.bridge.')) {
+        value = await _engines[args['sourceId']]!._web.bridge(
+          '${request['method']}'.substring('web.bridge.'.length),
+          payload,
+        );
       } else if (request['method'] == 'web.render' ||
           request['method'] == 'html.extract') {
         final engine = _engines[args['sourceId']]!;

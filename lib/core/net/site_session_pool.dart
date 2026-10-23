@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../reading/reading.dart';
 import '../session/section.dart';
 import 'waf.dart';
+import 'web_session_lifecycle.dart';
 
 /// One application session, scoped by cookie domain/path and exact-host UA.
 /// Secrets remain in WebKit's cookie store; only UA preferences are persisted here.
@@ -20,6 +21,52 @@ class SiteSessionPool {
   final Map<String, String> _referers = {};
   final Map<String, String> _sourcePages = {};
   final Map<String, Map<String, Object?>> _cookies = {};
+  final Map<String, Map<String, Map<String, String>>> _storage = {};
+
+  Map<String, Map<String, String>> storageFor(String url) {
+    final value = _storage[Uri.parse(url).origin];
+    return {
+      for (final area in ['localStorage', 'sessionStorage'])
+        area: Map.of(value?[area] ?? const <String, String>{}),
+    };
+  }
+
+  /// Verification state is scoped to the business origin, never a CAPTCHA iframe.
+  void importVerification(String url, Map snapshot) {
+    final target = Uri.parse(url);
+    final page = Uri.tryParse('${snapshot['url'] ?? ''}');
+    if (page == null ||
+        !['http', 'https'].contains(page.scheme) ||
+        page.host.isEmpty ||
+        page.origin != target.origin) {
+      return;
+    }
+    final cookies = (snapshot['cookies'] as List? ?? [])
+        .where((row) {
+          if (row is! Map) return false;
+          final domain = '${row['domain'] ?? ''}'.toLowerCase();
+          final bare = domain.replaceFirst(RegExp(r'^\.'), '');
+          return bare.isNotEmpty &&
+              (target.host == bare ||
+                  (domain.startsWith('.') && target.host.endsWith('.$bare')));
+        })
+        .cast<Object?>()
+        .toList();
+    importCookies(cookies);
+    _storage[target.origin] = {
+      for (final area in ['localStorage', 'sessionStorage'])
+        area: {
+          if (snapshot[area] is Map)
+            for (final entry in (snapshot[area] as Map).entries)
+              if (entry.key is String && entry.value is String)
+                entry.key as String: entry.value as String,
+        },
+    };
+    while (_storage.length > 128) {
+      _storage.remove(_storage.keys.first);
+    }
+  }
+
   bool inspectable = false;
   ReadingLibrary? _library;
 
@@ -60,6 +107,7 @@ class SiteSessionPool {
       throw const FormatException('UA 无效');
     }
     _changedAgents.add(uri.host);
+    WebSessionLifecycle.invalidate(hosts: {uri.host});
     _verifiedAgents.remove(uri.host);
     _cookies.removeWhere(
       (_, v) =>
@@ -144,6 +192,7 @@ class SiteSessionPool {
             'domain': uri.host,
             'path': c.path ?? defaultPath,
             'secure': c.secure,
+            'httpOnly': c.httpOnly,
             'expires': c.maxAge != null
                 ? DateTime.now().millisecondsSinceEpoch / 1000 + c.maxAge!
                 : c.expires?.millisecondsSinceEpoch == null
@@ -228,8 +277,10 @@ class SiteSessionPool {
   }
 
   void forgetHosts(Set<String> hosts, {Set<String> protectedHosts = const {}}) {
+    WebSessionLifecycle.invalidate(hosts: hosts.difference(protectedHosts));
     bool removable(String host) =>
         hosts.contains(host) && !protectedHosts.contains(host);
+    _storage.removeWhere((origin, _) => removable(Uri.parse(origin).host));
     _cookies.removeWhere((_, v) {
       final d = '${v['domain']}'.replaceFirst(RegExp(r'^\.'), '');
       return hosts.any((h) => h == d || h.endsWith('.$d')) &&
@@ -241,6 +292,8 @@ class SiteSessionPool {
   }
 
   void clear() {
+    WebSessionLifecycle.invalidate();
+    _storage.clear();
     _cookies.clear();
     _referers.clear();
     _sourcePages.clear();

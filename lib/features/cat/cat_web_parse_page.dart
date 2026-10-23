@@ -8,6 +8,8 @@ import '../../core/player/player_experience_store.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/lume_icon.dart';
+import '../video/source_web_player_page.dart';
+import '../../core/net/site_session_pool.dart';
 
 Future<Uri?> showCatWebParsePage(
   BuildContext context,
@@ -94,7 +96,11 @@ class _CatWebParsePageState extends State<CatWebParsePage> {
         },
       ),
     );
-    await _controller.loadRequest(widget.request.page);
+    final headers = await SiteSessionPool.shared.synchronize(
+      widget.request.page.toString(),
+      widget.request.headers,
+    );
+    await _controller.loadRequest(widget.request.page, headers: headers);
     if (!mounted) return;
     setState(() => _ready = true);
     _hintTimer = Timer(const Duration(seconds: 14), () {
@@ -165,6 +171,13 @@ class _CatWebParsePageState extends State<CatWebParsePage> {
       onPressed: () => Navigator.maybePop(context),
     ),
     actions: [
+      TextButton(
+        onPressed: () async {
+          await showSourceWebPlayer(context, widget.request);
+          if (context.mounted) Navigator.of(context).pop();
+        },
+        child: const Text('改用网页播放'),
+      ),
       IconButton(
         tooltip: '刷新',
         icon: const LumeIcon(Icons.refresh, slot: 'cat_web_parse.refresh'),

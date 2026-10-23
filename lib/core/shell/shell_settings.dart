@@ -119,6 +119,11 @@ enum DockHandleStyle {
 class DockAppearance {
   const DockAppearance({
     this.horizontalMargin = 24,
+    this.leftMargin,
+    this.rightMargin,
+    this.preferredWidth = 0,
+    this.horizontalOffset = 0,
+    this.verticalOffset = 0,
     this.height = 54,
     this.safeGap = 4,
     this.borderOpacity = .4,
@@ -136,6 +141,48 @@ class DockAppearance {
   /// 0 = 贴屏幕边缘；大值会把 Dock 收窄。壳层按剩余宽度均分页签，宽度不够时
   /// 文案走省略号、图标自动缩放，不会溢出。
   final double horizontalMargin;
+  final double? leftMargin, rightMargin;
+
+  /// Zero fills the available width; positive values are preferred logical pixels.
+  final double preferredWidth, horizontalOffset, verticalOffset;
+  double get effectiveLeftMargin => leftMargin ?? horizontalMargin;
+  double get effectiveRightMargin => rightMargin ?? horizontalMargin;
+
+  DockHorizontalLayout layoutFor(
+    double availableWidth, {
+    double trailingWidth = 0,
+  }) {
+    final available = (availableWidth - trailingWidth).clamp(
+      0.0,
+      double.infinity,
+    );
+    final minimum = available.clamp(0.0, 120.0);
+    var left = effectiveLeftMargin.clamp(0.0, 100.0);
+    var right = effectiveRightMargin.clamp(0.0, 100.0);
+    final budget = (available - minimum).clamp(0.0, double.infinity);
+    if (left + right > budget && left + right > 0) {
+      final ratio = budget / (left + right);
+      left *= ratio;
+      right *= ratio;
+    }
+    final room = (available - left - right).clamp(0.0, double.infinity);
+    final width = preferredWidth > 0
+        ? preferredWidth.clamp(minimum.clamp(0.0, room), room)
+        : room;
+    final extra = (room - width) / 2;
+    left += extra;
+    right += extra;
+    final shift = horizontalOffset.clamp(-left, right);
+    return DockHorizontalLayout(
+      left + shift,
+      right - shift + trailingWidth,
+      width,
+    );
+  }
+
+  /// Positive vertical offsets move downward, without moving outside the screen.
+  double bottomFor(double safeBottom) =>
+      (safeBottom + safeGap - verticalOffset).clamp(0.0, 200.0);
 
   /// 内容条高度（不含手势条避让）。范围 40–150。
   ///
@@ -144,8 +191,7 @@ class DockAppearance {
 
   /// 胶囊底边与系统安全区之间再留的距离。范围 -50–100。
   ///
-  /// 负值会把胶囊**压进安全区并继续下沉**（-50 在 34pt 的 Home Indicator 机型上
-  /// 会向屏幕外压 16pt）；正值把胶囊抬高。
+  /// 负值会把胶囊压进安全区，实际位置受屏幕下沿限制；正值把胶囊抬高。
   final double safeGap;
 
   /// 玻璃边框（1px 白色高光）的不透明度。范围 0–1。0 = 无边框。
@@ -173,6 +219,11 @@ class DockAppearance {
 
   DockAppearance copyWith({
     double? horizontalMargin,
+    double? leftMargin,
+    double? rightMargin,
+    double? preferredWidth,
+    double? horizontalOffset,
+    double? verticalOffset,
     double? height,
     double? safeGap,
     double? borderOpacity,
@@ -182,6 +233,11 @@ class DockAppearance {
     DockLiquidSettings? liquid,
   }) => DockAppearance(
     horizontalMargin: horizontalMargin ?? this.horizontalMargin,
+    leftMargin: leftMargin ?? this.leftMargin,
+    rightMargin: rightMargin ?? this.rightMargin,
+    preferredWidth: preferredWidth ?? this.preferredWidth,
+    horizontalOffset: horizontalOffset ?? this.horizontalOffset,
+    verticalOffset: verticalOffset ?? this.verticalOffset,
     height: height ?? this.height,
     safeGap: safeGap ?? this.safeGap,
     borderOpacity: borderOpacity ?? this.borderOpacity,
@@ -193,6 +249,11 @@ class DockAppearance {
 
   Map<String, Object?> toJson() => <String, Object?>{
     'horizontalMargin': horizontalMargin,
+    if (leftMargin != null) 'leftMargin': leftMargin,
+    if (rightMargin != null) 'rightMargin': rightMargin,
+    'preferredWidth': preferredWidth,
+    'horizontalOffset': horizontalOffset,
+    'verticalOffset': verticalOffset,
     'height': height,
     'safeGap': safeGap,
     'borderOpacity': borderOpacity,
@@ -215,6 +276,15 @@ class DockAppearance {
     return DockAppearance(
       liquid: DockLiquidSettings.fromJson(json['liquid']),
       horizontalMargin: read('horizontalMargin', 24, 0, 100),
+      leftMargin: json.containsKey('leftMargin')
+          ? read('leftMargin', 24, 0, 100)
+          : null,
+      rightMargin: json.containsKey('rightMargin')
+          ? read('rightMargin', 24, 0, 100)
+          : null,
+      preferredWidth: read('preferredWidth', 0, 0, 1000),
+      horizontalOffset: read('horizontalOffset', 0, -100, 100),
+      verticalOffset: read('verticalOffset', 0, -80, 80),
       height: read('height', 54, 40, 150),
       safeGap: read('safeGap', 4, -50, 100),
       borderOpacity: read('borderOpacity', .4, 0, 1),
@@ -230,6 +300,11 @@ class DockAppearance {
   bool operator ==(Object other) {
     if (other is! DockAppearance) return false;
     return other.horizontalMargin == horizontalMargin &&
+        other.leftMargin == leftMargin &&
+        other.rightMargin == rightMargin &&
+        other.preferredWidth == preferredWidth &&
+        other.horizontalOffset == horizontalOffset &&
+        other.verticalOffset == verticalOffset &&
         other.height == height &&
         other.safeGap == safeGap &&
         other.borderOpacity == borderOpacity &&
@@ -242,6 +317,11 @@ class DockAppearance {
   @override
   int get hashCode => Object.hash(
     horizontalMargin,
+    leftMargin,
+    rightMargin,
+    preferredWidth,
+    horizontalOffset,
+    verticalOffset,
     height,
     safeGap,
     borderOpacity,
@@ -250,6 +330,12 @@ class DockAppearance {
     animationMs,
     liquid,
   );
+}
+
+/// Resolved geometry is shared by the settings preview and the production dock.
+class DockHorizontalLayout {
+  const DockHorizontalLayout(this.left, this.right, this.width);
+  final double left, right, width;
 }
 
 /// 全局壳层设置：底部导航栏的**每个页签是否显示**与**显示顺序**。
@@ -501,7 +587,12 @@ class ShellSettingsStore {
       if (!_file.existsSync()) return ShellSettings.defaults;
       final text = _file.readAsStringSync();
       if (text.trim().isEmpty) return ShellSettings.defaults;
-      return ShellSettings.fromJson(jsonDecode(text));
+      final loaded = ShellSettings.fromJson(jsonDecode(text));
+      // Retired ordering and visibility controls no longer hide navigation.
+      return ShellSettings(
+        nativeNavigation: loaded.nativeNavigation,
+        appearance: loaded.appearance,
+      );
     } catch (error, stackTrace) {
       LumeLog.warn('壳层设置读取失败，回退默认（全部显示）: $error');
       LumeLog.error(error, stackTrace);
@@ -634,7 +725,10 @@ class ShellSettingsController extends ChangeNotifier {
     bool persist = true,
   }) async {
     final next = _settings.withAppearance(appearance);
-    if (next == _settings) return;
+    if (next == _settings) {
+      if (persist) await _persist();
+      return;
+    }
     _settings = next;
     notifyListeners();
     if (persist) await _persist();

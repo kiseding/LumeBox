@@ -90,6 +90,8 @@ dev_dependencies:
 
   # 测试替身用它的类型（假 video_player 平台，验请求头 / 缓冲参数到达平台层）。
   video_player_platform_interface: ^6.9.0
+  # WebView 页面生命周期与退出停止播放的测试替身。
+  webview_flutter_platform_interface: ^2.15.1
 
 # 本地 vendored 副本（路径覆盖）：上游 2.12.0 + 一处补丁
 # （把宿主写入的播放缓冲参数应用到 AVPlayer，见
@@ -113,6 +115,7 @@ flutter:
     - assets/shaders/comic_page_filters.frag
     - assets/shaders/comic_glass.frag
   assets:
+    - assets/reference/
     - assets/js/
     - assets/cat/
     - assets/local_danmaku/

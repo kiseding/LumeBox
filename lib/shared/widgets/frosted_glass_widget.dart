@@ -1,12 +1,14 @@
-import '../../core/theme/lume_theme.dart';
-import '../../core/theme/frosted_settings.dart';
-
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-/// Explicit opt-in static glass; independent of floating module settings.
-class FrostedGlassWidget extends StatelessWidget {
+import '../../core/theme/lume_theme.dart';
+import '../../core/theme/frosted_settings.dart';
+import '../../features/shell/dock_liquid_lens.dart';
+import 'module_glass_scope.dart';
+
+/// Shared material for cards, navigation and overlays; media content stays intact.
+class FrostedGlassWidget extends StatefulWidget {
   const FrostedGlassWidget({
     super.key,
     this.blur = 18,
@@ -14,42 +16,192 @@ class FrostedGlassWidget extends StatelessWidget {
     this.radius = 20,
     this.border = true,
     this.color,
+    this.part,
+    this.interactive = false,
     required this.child,
-  }) : assert(blur >= 0 && blur < double.infinity),
-       assert(opacity >= 0 && opacity <= 1),
-       assert(radius >= 0 && radius < double.infinity);
-
+  });
   final double blur, opacity, radius;
-  final bool border;
+  final bool border, interactive;
   final Color? color;
+  final GlassPart? part;
   final Widget child;
+  @override
+  State<FrostedGlassWidget> createState() => _FrostedGlassWidgetState();
+}
 
+class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: FrostedSettings.instance,
     builder: (context, _) {
-      final enabled = FrostedSettings.instance.frostedEnabled;
-      final corners = BorderRadius.circular(radius);
-      Widget content = ColoredBox(
-        color: enabled
-            ? LumeTheme.readableGlass(
-                (color ?? LumeTheme.surface).withValues(alpha: opacity),
-              )
-            : (color ?? LumeTheme.surface).withValues(alpha: 1),
-        child: child,
+      final settings = FrostedSettings.instance;
+      final style = settings.style(
+        ModuleGlassScope.moduleOf(context),
+        widget.part ?? ModuleGlassScope.partOf(context),
       );
-      if (enabled && blur > 0) {
-        content = BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: content,
-        );
-      }
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: corners,
-          boxShadow: LumeTheme.cardShadow,
+      final enabled =
+          settings.frostedEnabled &&
+          style.enabled &&
+          !settings.reduceTransparency &&
+          !MediaQuery.highContrastOf(context);
+      final motion =
+          enabled &&
+          style.motion &&
+          !MediaQuery.disableAnimationsOf(context) &&
+          widget.interactive;
+      final radius = widget.radius * style.value(GlassParameter.radius);
+      final corners = BorderRadius.circular(radius);
+      final base = widget.color ?? LumeTheme.surface;
+      final tint = Color.lerp(
+        base,
+        LumeTheme.accent,
+        style.value(GlassParameter.tint),
+      )!;
+      final alpha = (widget.opacity * style.value(GlassParameter.opacity) / .68)
+          .clamp(.08, 1.0);
+      final fill = enabled
+          ? tint.withValues(alpha: alpha)
+          : base.withValues(alpha: 1);
+      final saturation = style.value(GlassParameter.saturation);
+      final inv = 1 - saturation;
+      final filter = ui.ImageFilter.compose(
+        outer: ui.ColorFilter.matrix([
+          .213 * inv + saturation,
+          .715 * inv,
+          .072 * inv,
+          0,
+          0,
+          .213 * inv,
+          .715 * inv + saturation,
+          .072 * inv,
+          0,
+          0,
+          .213 * inv,
+          .715 * inv,
+          .072 * inv + saturation,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ]),
+        inner: ui.ImageFilter.blur(
+          sigmaX: style.value(GlassParameter.blur),
+          sigmaY: style.value(GlassParameter.blur),
         ),
-        child: ClipRRect(borderRadius: corners, child: content),
+      );
+      Widget background = ColoredBox(color: fill);
+      if (enabled && widget.blur > 0) {
+        background = BackdropFilter(filter: filter, child: background);
+      }
+      return Listener(
+        onPointerDown: motion ? (_) => setState(() => _pressed = true) : null,
+        onPointerUp: motion ? (_) => setState(() => _pressed = false) : null,
+        onPointerCancel: motion
+            ? (_) => setState(() => _pressed = false)
+            : null,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: motion && _pressed ? 1 : 0),
+          duration: Duration(
+            milliseconds: motion
+                ? style.value(GlassParameter.duration).round()
+                : 0,
+          ),
+          curve: Curves.easeOutCubic,
+          builder: (context, press, _) => Transform.scale(
+            scale: 1 - press * style.value(GlassParameter.pressScale),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: corners,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: enabled
+                          ? style.value(GlassParameter.shadow)
+                          : .035,
+                    ),
+                    blurRadius: style.value(GlassParameter.shadowBlur),
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: corners,
+                child: Stack(
+                  fit: StackFit.passthrough,
+                  children: [
+                    Positioned.fill(child: background),
+                    if (enabled)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: corners,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withValues(
+                                    alpha: style.value(
+                                      GlassParameter.highlight,
+                                    ),
+                                  ),
+                                  Colors.white.withValues(alpha: 0),
+                                ],
+                              ),
+                              border:
+                                  widget.border &&
+                                      style.value(GlassParameter.borderWidth) >
+                                          0
+                                  ? Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: style.value(
+                                          GlassParameter.border,
+                                        ),
+                                      ),
+                                      width: style.value(
+                                        GlassParameter.borderWidth,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (enabled &&
+                        press > .001 &&
+                        style.value(GlassParameter.refraction) > 0)
+                      Positioned.fill(
+                        child: LayoutBuilder(
+                          builder: (context, c) => DockLiquidLens(
+                            path: Path()
+                              ..addRRect(
+                                RRect.fromRectAndRadius(
+                                  Offset.zero & c.biggest,
+                                  Radius.circular(radius),
+                                ),
+                              ),
+                            press: press,
+                            stretch: 0,
+                            highlight: style.value(GlassParameter.highlight),
+                            refraction: style.value(GlassParameter.refraction),
+                            dispersion: style.value(GlassParameter.dispersion),
+                          ),
+                        ),
+                      ),
+                    Material(
+                      type: MaterialType.transparency,
+                      child: widget.child,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       );
     },
   );

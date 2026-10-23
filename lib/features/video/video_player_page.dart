@@ -65,6 +65,8 @@ import 'player_settings_sheet.dart';
 import 'player_source_sheet.dart';
 import 'player_speed_meter.dart';
 import 'source_playback.dart';
+import 'source_web_player_page.dart';
+import '../../core/cat/cat_web_parse.dart';
 import 'video_play_target.dart';
 import 'player_intro_memory.dart';
 import 'video_player_settings.dart';
@@ -1737,6 +1739,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!mounted) return false;
       if (auto) _showToast('已自动播放：${next.title}');
       return true;
+    } on CatWebParseRequired catch (request) {
+      if (request.webPlayer && !auto && mounted) {
+        await _player?.pause();
+        if (mounted) await showSourceWebPlayer(context, request);
+      } else if (request.webPlayer && mounted) {
+        _showToast('下一集需要网页播放，请手动选择');
+      }
+      return false;
     } on SourceException {
       // 连播失败不打扰：用户没主动要求跳集，安静停在当前状态即可。
       return false;

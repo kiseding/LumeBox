@@ -22,7 +22,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('控制栏'), findsOneWidget);
-    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(BackdropFilter), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(
       const MaterialApp(

@@ -97,11 +97,14 @@ void main() {
       final before = await pixels();
       await pump(true);
       final after = await pixels();
-      final filter = tester.widget<BackdropFilter>(
-        find.byKey(const Key('comic.glass.backdrop')),
+      expect(
+        find.descendant(
+          of: find.byType(ComicGlassBackdrop),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsOneWidget,
       );
-      if (ui.ImageFilter.isShaderFilterSupported) {
-        expect(filter.filterConfig!.debugShortDescription, 'comicGlassShader');
+      {
         var changed = 0;
         for (var i = 0; i < before.length; i++) {
           if ((before[i] - after[i]).abs() > 1) changed++;

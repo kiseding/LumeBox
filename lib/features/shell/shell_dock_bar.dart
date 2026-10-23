@@ -1,3 +1,6 @@
+import '../../core/theme/frosted_settings.dart';
+import '../../core/theme/glass_modules.dart';
+
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:math' as math;
@@ -159,7 +162,18 @@ class _ShellDockBarState extends State<ShellDockBar>
   int? _pressedPointer;
   bool _disableAnimations = false;
 
+  LiquidGlassStyle get _glassStyle =>
+      FrostedSettings.instance.style(switch (widget.activeId) {
+        'comic' => GlassModule.comic,
+        'video' => GlassModule.video,
+        'cat' => GlassModule.cat,
+        'settings' => GlassModule.settings,
+        _ => GlassModule.all,
+      }, GlassPart.dock);
   bool get _motionEnabled =>
+      FrostedSettings.instance.frostedEnabled &&
+      _glassStyle.enabled &&
+      _glassStyle.motion &&
       widget.appearance.animateSelection &&
       !IconCustomization.instance.editMode &&
       !_disableAnimations;
@@ -712,14 +726,24 @@ class _ShellDockBarState extends State<ShellDockBar>
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: FloatingModules.instance,
+    listenable: Listenable.merge([
+      FloatingModules.instance,
+      FrostedSettings.instance,
+    ]),
     builder: (context, _) {
-      final style = FloatingModules.instance.style(FloatingModule.dock);
+      final enabled =
+          FrostedSettings.instance.frostedEnabled &&
+          _glassStyle.enabled &&
+          !FrostedSettings.instance.reduceTransparency;
+      final style = FloatingStyle(
+        opacity: enabled ? _glassStyle.value(GlassParameter.opacity) : 1,
+        blur: enabled ? _glassStyle.value(GlassParameter.blur) : 0,
+      );
       final dark = LumeTheme.palette.brightness == Brightness.dark;
       final layoutBottom = math.max(widget.bottomMargin, 0.0);
       final sink = math.max(-widget.bottomMargin, 0.0);
       return Transform.translate(
-        offset: Offset(style.x, style.y),
+        offset: Offset.zero,
         child: IgnorePointer(
           ignoring: !widget.visible,
           child: ExcludeSemantics(
@@ -729,7 +753,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                 final safe = widget.applyViewPadding
                     ? MediaQuery.viewPaddingOf(context)
                     : EdgeInsets.zero;
-                final margin = widget.appearance.marginFor(
+                final layout = widget.appearance.layoutFor(
                   constraints.maxWidth - safe.horizontal,
                   trailingWidth: widget.trailingWidth,
                 );
@@ -741,9 +765,9 @@ class _ShellDockBarState extends State<ShellDockBar>
                   curve: Curves.easeOut,
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
-                      margin + safe.left,
+                      layout.left + safe.left,
                       0,
-                      margin + safe.right + widget.trailingWidth,
+                      layout.right + safe.right,
                       layoutBottom,
                     ),
                     child: Transform.translate(
@@ -787,7 +811,11 @@ class _ShellDockBarState extends State<ShellDockBar>
         return LayoutBuilder(
           builder: (context, constraints) {
             final reduceTransparency =
-                _liquid.reduceTransparency || _platformReduceTransparency;
+                _liquid.reduceTransparency ||
+                _platformReduceTransparency ||
+                FrostedSettings.instance.reduceTransparency ||
+                !FrostedSettings.instance.frostedEnabled ||
+                !_glassStyle.enabled;
             final highContrast =
                 MediaQuery.highContrastOf(context) || _platformIncreaseContrast;
             final geometry = _DockGeometry.compute(
@@ -987,7 +1015,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                   BoxShadow(
                     color: Colors.black.withValues(
                       alpha:
-                          (widget.appearance.shadowOpacity *
+                          (_glassStyle.value(GlassParameter.shadow) *
                                   (1 +
                                       light *
                                           _amount(DockLiquidParameter.shadow) /
@@ -1229,7 +1257,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                       freeDeform: geometry.freeDeform,
                       useBackdrop: !useNativeGlass,
                       shadowOpacity:
-                          (widget.appearance.shadowOpacity *
+                          (_glassStyle.value(GlassParameter.shadow) *
                                   geometry.press *
                                   (_liquid.enabled(DockLiquidEffect.lighting)
                                       ? _amount(DockLiquidParameter.shadow)
@@ -1270,7 +1298,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                     path: dropPath,
                     press: geometry.pressRaw,
                     stretch: geometry.stretch,
-                    highlight: widget.appearance.borderOpacity,
+                    highlight: _glassStyle.value(GlassParameter.border),
                     lean: _dragDirection * geometry.stretch,
                     grip: geometry.grip,
                     refraction: _amount(DockLiquidParameter.refraction),
@@ -1306,8 +1334,8 @@ class _ShellDockBarState extends State<ShellDockBar>
   /// 深色主题下把边框强度按比例柔化：白色 1px 在暗底上比亮底醒目得多。
   double _borderAlpha(bool dark) {
     return dark
-        ? widget.appearance.borderOpacity * 0.44
-        : widget.appearance.borderOpacity;
+        ? _glassStyle.value(GlassParameter.border) * 0.44
+        : _glassStyle.value(GlassParameter.border);
   }
 }
 

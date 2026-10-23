@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 
+import 'sensitive_data.dart';
+
 /// 日志级别。
 enum LogLevel {
   info('info', '信息'),
@@ -65,24 +67,30 @@ class LumeLog {
   static List<LogEntry> get snapshot => List<LogEntry>.unmodifiable(_buffer);
 
   static void info(String message) {
+    message = SensitiveData.redact(message);
     developer.log(message, name: tag);
     _record(LogLevel.info, message);
   }
 
   static void warn(String message) {
+    message = SensitiveData.redact(message);
     developer.log(message, name: tag, level: 900);
     _record(LogLevel.warn, message);
   }
 
   static void error(Object error, [StackTrace? stackTrace]) {
+    final message = SensitiveData.redact('$error');
+    final detail = stackTrace == null
+        ? null
+        : SensitiveData.redact('$stackTrace');
     developer.log(
-      '$error',
+      message,
       name: tag,
-      error: error,
-      stackTrace: stackTrace,
+      error: message,
+      stackTrace: detail == null ? null : StackTrace.fromString(detail),
       level: 1000,
     );
-    _record(LogLevel.error, '$error', detail: stackTrace?.toString());
+    _record(LogLevel.error, message, detail: detail);
   }
 
   /// 清空内存日志（磁盘上没有任何日志文件，清理是即时的）。

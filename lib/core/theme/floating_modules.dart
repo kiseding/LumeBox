@@ -40,7 +40,7 @@ class FloatingStyle {
       module == FloatingModule.dock ? dockDefault : const FloatingStyle();
 
   final double opacity, x, y, blur;
-  Offset get offset => Offset(x, y);
+  Offset get offset => Offset.zero;
   FloatingStyle copyWith({
     double? opacity,
     double? x,
@@ -81,7 +81,7 @@ class FloatingModules extends ChangeNotifier {
   final Map<FloatingModule, FloatingStyle> _styles = {};
   File? _file;
   FloatingStyle style(FloatingModule module) =>
-      _styles[module] ?? FloatingStyle.defaultFor(module);
+      FloatingStyle.defaultFor(module);
   Future<void> boot() async {
     try {
       _styles.clear();

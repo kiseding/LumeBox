@@ -78,7 +78,8 @@ void main() {
         expect(subtitleStyle.color, const Color(0xFF8E8E93));
         expect(subtitleStyle.height, 1.5);
         expect(tester.takeException(), isNull);
-        await tester.scrollUntilVisible(find.text('后台播放'), 180);
+        expect(find.text('后台播放'), findsNothing);
+        await tester.scrollUntilVisible(find.text('自动备份'), 180);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       });

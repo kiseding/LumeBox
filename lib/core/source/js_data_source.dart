@@ -237,17 +237,24 @@ class JsDataSource
       'chapterId': chapterId,
     });
     try {
-      if (value is Map && value['webParse'] == true) {
-        final uri = Uri.tryParse('${value['url'] ?? ''}');
+      if (value is Map &&
+          (value['webParse'] == true ||
+              value['webPlayer'] == true ||
+              '${value['kind']}'.toLowerCase() == 'webplayer')) {
+        final uri = Uri.tryParse('${value['pageUrl'] ?? value['url'] ?? ''}');
         if (uri == null ||
             !['http', 'https'].contains(uri.scheme) ||
-            uri.host.isEmpty) {
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty) {
           throw const FormatException('网页解析地址无效');
         }
         final headers = value['headers'];
         throw CatWebParseRequired(
           uri,
           headers is Map ? headers.map((k, v) => MapEntry('$k', '$v')) : {},
+          webPlayer:
+              value['webPlayer'] == true ||
+              '${value['kind']}'.toLowerCase() == 'webplayer',
         );
       }
       return ChapterContent.parse(value);

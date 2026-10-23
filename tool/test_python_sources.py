@@ -105,6 +105,27 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_source_signature_hook_and_web_player_mode(self):
+        source = FIXTURE + '''
+    def prepareRequest(self, request):
+        assert callable(request['bridge'].request)
+        return {'headers': {'x-source-sign':'local-signature'}, 'body':'signed-body'}
+    def searchContent(self, key, quick, pg='1'):
+        import requests
+        requests.post('https://fixture.invalid/search', data='original')
+        return {'list':[]}
+    def playerContent(self, flag, id, vipFlags):
+        return {'webPlayer':True,'pageUrl':'https://fixture.invalid/play','url':'blob:https://fixture.invalid/internal'}
+'''
+        self.assertTrue(call('signed-web', 'load', script=source)['ok'])
+        self.assertTrue(call('signed-web',method='list',argument={'keyword':'test','page':1})['ok'])
+        outgoing = next(c for c in reversed(CALLS) if c['method'] == 'http')
+        self.assertEqual(outgoing['payload']['headers']['x-source-sign'],'local-signature')
+        self.assertEqual(base64.b64decode(outgoing['payload']['body']),b'signed-body')
+        content = call('signed-web',method='content',argument={'id':'one','chapterId':json.dumps({'id':'one','flag':'line'})})
+        self.assertTrue(content['value']['webPlayer'],content)
+        self.assertEqual(content['value']['pageUrl'],'https://fixture.invalid/play')
+
     def test_empty_home_uses_real_categories_and_default_filters(self):
         source = FIXTURE + '''
     def homeVideoContent(self): return {'list':None}

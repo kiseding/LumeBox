@@ -158,18 +158,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   static double get _dockHeight => _dockAppearance.height;
   static double get _dockMargin => _dockAppearance.horizontalMargin;
-  static double get _dockSafeGap => _dockAppearance.safeGap;
   static const double _dockBottomMargin = 0;
   static const double _dockSpacing = 8;
 
   static double dockMarginFor(double availableWidth) => _dockMargin;
   static double dockContentInset(BuildContext context) => 0;
   static double dockBottomOffset(BuildContext context) =>
-      (MediaQuery.viewPaddingOf(context).bottom + _dockSafeGap)
-          // 负值 = 压进 / 越过系统安全区（-50 在 34pt 手势条机型上为 -16）；
-          // 正值最多抬到 134，给「离底部距离 100」留出完整范围。
-          .clamp(-80, 200)
-          .toDouble() +
+      _dockAppearance.bottomFor(MediaQuery.viewPaddingOf(context).bottom) +
       _dockBottomMargin;
 
   /// 页签目录：标识 + 展示文案 + 两个图标 + 页面构造。

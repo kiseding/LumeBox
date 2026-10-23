@@ -28,6 +28,7 @@ import 'package:flutter/services.dart';
 import '../reading/poster_card.dart';
 import 'bangumi_match_sheet.dart';
 import 'source_playback.dart';
+import 'source_web_player_page.dart';
 import 'video_play_target.dart';
 import '../../core/cat/cat_web_parse.dart';
 import '../cat/cat_web_parse_page.dart';
@@ -175,6 +176,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           );
         } on CatWebParseRequired catch (request) {
           if (!mounted) return;
+          if (request.webPlayer) {
+            await showSourceWebPlayer(context, request);
+            return;
+          }
           final parsed = await showCatWebParsePage(context, request);
           if (parsed == null || !mounted) return;
           content = VideoContent(

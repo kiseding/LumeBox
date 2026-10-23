@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
-import 'package:lume_box/core/theme/floating_modules.dart';
+import 'package:lume_box/core/theme/frosted_settings.dart';
+import 'package:lume_box/core/theme/glass_modules.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/shell/dock_liquid_lens.dart';
@@ -141,11 +142,23 @@ void main() {
   });
 
   testWidgets('按压提亮遵循全白端点，全透端点按压后会先被提亮', (tester) async {
-    final modules = FloatingModules.instance;
-    final original = modules.style(FloatingModule.dock);
-    addTearDown(() => modules.set(FloatingModule.dock, original));
-    for (final opacity in [0.0, 1.0]) {
-      modules.set(FloatingModule.dock, original.copyWith(opacity: opacity));
+    final modules = FrostedSettings.instance;
+    final original = modules.style(GlassModule.all, GlassPart.dock);
+    addTearDown(
+      () => modules.setStyle(
+        GlassModule.all,
+        GlassPart.dock,
+        original,
+        persist: false,
+      ),
+    );
+    for (final opacity in [.08, 1.0]) {
+      await modules.setStyle(
+        GlassModule.all,
+        GlassPart.dock,
+        original.withValue(GlassParameter.opacity, opacity),
+        persist: false,
+      );
       await scene(tester, (_) {});
       Color fill() {
         final surface = tester.widget<DockLiquidSurface>(
@@ -309,8 +322,7 @@ void main() {
       MaterialApp(theme: LumeTheme.build(), home: const TabBarSettingsPage()),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('液态玻璃细调'));
-    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('dock-liquid-preset-softFree')), findsOne);
     await tester.tap(find.byKey(const ValueKey('dock-liquid-preset-softFree')));
     await tester.pumpAndSettle();

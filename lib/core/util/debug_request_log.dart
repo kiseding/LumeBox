@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../util/lume_log.dart';
+import 'sensitive_data.dart';
 
 /// 一条网络请求记录（调试面板用）。
 @immutable
@@ -103,7 +104,21 @@ class DebugRequestLog {
   /// 记一条请求。未开启时直接返回（调用方不必判断开关）。
   static void record(DebugRequestRecord record) {
     if (!_enabled) return;
-    _records.add(record);
+    _records.add(
+      DebugRequestRecord(
+        time: record.time,
+        method: record.method,
+        url: SensitiveData.redact(record.url),
+        source: SensitiveData.redact(record.source),
+        host: record.host,
+        status: record.status,
+        elapsed: record.elapsed,
+        requestHeaders: Map.unmodifiable(redactHeaders(record.requestHeaders)),
+        responseBytes: record.responseBytes,
+        error: SensitiveData.redact(record.error),
+        note: SensitiveData.redact(record.note),
+      ),
+    );
     while (_records.length > limit) {
       _records.removeAt(0);
     }
@@ -130,10 +145,11 @@ class DebugRequestLog {
     };
     final result = <String, String>{};
     headers.forEach((key, value) {
-      if (sensitive.contains(key.toLowerCase())) {
+      if (sensitive.contains(key.toLowerCase()) ||
+          SensitiveData.isSecretKey(key)) {
         result[key] = '（已隐藏，${value.length} 字符）';
       } else {
-        result[key] = value;
+        result[key] = SensitiveData.redact(value);
       }
     });
     return result;

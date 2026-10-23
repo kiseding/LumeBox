@@ -61,7 +61,8 @@ void main() {
         final frame = tester.getRect(
           find.byKey(const ValueKey('lume-bottom-drawer-frame')),
         );
-        expect(frame.top, searchBottom);
+        expect(frame.top, greaterThanOrEqualTo(searchBottom));
+        if (content is Text) expect(frame.height, lessThan(100));
         expect(frame.bottom, screen.height);
         expect(tester.takeException(), isNull);
         Navigator.pop(page);

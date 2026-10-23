@@ -395,6 +395,15 @@ class LumeSourceHost implements SandboxHost {
       await SiteSessionPool.shared.save();
       return true;
     }
+    if (request.method.startsWith('web.bridge.')) {
+      if (request.payload is! Map) {
+        throw const SandboxHostException('请求桥参数必须是对象');
+      }
+      return _webRuntime.bridge(
+        request.method.substring('web.bridge.'.length),
+        Map<String, dynamic>.from(request.payload as Map),
+      );
+    }
     if (request.method == 'web.render' || request.method == 'html.extract') {
       if (request.payload is! Map) {
         throw const SandboxHostException('网页接口入参必须是对象');

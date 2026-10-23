@@ -2,6 +2,9 @@ import 'danmaku/danmaku_panel.dart';
 
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/frosted_glass_widget.dart';
+import '../../shared/widgets/module_glass_scope.dart';
+
 // Compatibility wrapper for existing routes; playback effects have been removed.
 class PlaybackGlass extends StatelessWidget {
   const PlaybackGlass({
@@ -13,7 +16,17 @@ class PlaybackGlass extends StatelessWidget {
   final bool enabled, dark;
   final Widget child;
   @override
-  Widget build(BuildContext context) => child;
+  Widget build(BuildContext context) => enabled
+      ? ModuleGlassScope(
+          module: GlassModule.video,
+          part: GlassPart.panels,
+          child: FrostedGlassWidget(
+            part: GlassPart.panels,
+            color: dark ? const Color(0xFF171721) : null,
+            child: child,
+          ),
+        )
+      : child;
 }
 
 Future<T?> showPlaybackMenu<T>({

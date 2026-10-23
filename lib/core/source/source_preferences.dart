@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../reading/reading_library.dart';
 import '../session/section.dart';
+import '../net/web_session_lifecycle.dart';
 
 /// Per-section display and routing preferences, kept separate from downloaded scripts.
 class SourcePreferences {
@@ -37,6 +38,22 @@ class SourcePreferences {
 
   Future<void> save(Section section, String id) async {
     final library = await ReadingLibrary.open(section);
+    final previous = read(section, id);
+    if (previous.originalOrigin != originalOrigin ||
+        previous.customOrigin != customOrigin) {
+      WebSessionLifecycle.invalidate(
+        hosts: {
+          for (final value in [
+            previous.originalOrigin,
+            previous.customOrigin,
+            originalOrigin,
+            customOrigin,
+          ])
+            if (Uri.tryParse(value)?.host.isNotEmpty == true)
+              Uri.parse(value).host,
+        },
+      );
+    }
     library.setSetting(
       _key(id),
       jsonEncode({

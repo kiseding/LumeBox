@@ -79,20 +79,30 @@ class SettingsEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = GlassCard(
-      radius: 14,
+      radius: 24,
       padding: EdgeInsets.zero,
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: <Widget>[
-            LumeIcon(
-              icon,
-              slot: 'settings.entry.$title',
-              label: title,
-              group: '设置',
-              size: 22,
-              color: iconColor ?? LumeTheme.textSecondary,
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: (iconColor ?? LumeTheme.accent).withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Center(
+                child: LumeIcon(
+                  icon,
+                  slot: 'settings.entry.$title',
+                  label: title,
+                  group: '设置',
+                  size: 22,
+                  color: iconColor ?? LumeTheme.accent,
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -127,14 +137,24 @@ class SettingsEntryCard extends StatelessWidget {
               trailing!
             else ...<Widget>[
               if (trailingValue != null)
-                Text(
-                  trailingValue!,
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w400,
-                    fontSize: LumeTypography.bodySize,
-                    height: 1.5,
-                    color: LumeTheme.textSecondary,
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: (MediaQuery.sizeOf(context).width * .22).clamp(
+                      48,
+                      110,
+                    ),
+                  ),
+                  child: Text(
+                    trailingValue!,
+                    textAlign: TextAlign.end,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w400,
+                      fontSize: LumeTypography.bodySize,
+                      height: 1.5,
+                      color: LumeTheme.textSecondary,
+                    ),
                   ),
                 ),
               if (showChevron) ...<Widget>[
@@ -202,6 +222,144 @@ class SettingsNoteCard extends StatelessWidget {
       radius: 14,
       padding: const EdgeInsets.all(14),
       child: SettingsFooterNote(text, padding: EdgeInsets.zero),
+    );
+  }
+}
+
+class SettingsPageIntro extends StatelessWidget {
+  const SettingsPageIntro({
+    super.key,
+    required this.title,
+    required this.description,
+  });
+  final String title, description;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 6, 4, 22),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.6,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          description,
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: LumeTheme.textSecondary, height: 1.6),
+        ),
+      ],
+    ),
+  );
+}
+
+class SettingsCategory {
+  const SettingsCategory(
+    this.title,
+    this.description,
+    this.icon,
+    this.children, {
+    this.keywords = '',
+  });
+  final String title, description, keywords;
+  final IconData icon;
+  final List<Widget> children;
+}
+
+class SettingsCategoryPage extends StatelessWidget {
+  const SettingsCategoryPage({super.key, required this.category});
+  final SettingsCategory category;
+  @override
+  Widget build(BuildContext context) => GlassScaffold(
+    title: category.title,
+    effectModule: GlassModule.settings,
+    behindBar: true,
+    child: ListView(
+      padding: GlassScaffold.barInset(context)
+          .add(const EdgeInsets.fromLTRB(20, 20, 20, 36)),
+      children: [
+        SettingsPageIntro(
+          title: category.title,
+          description: category.description,
+        ),
+        ...category.children,
+      ],
+    ),
+  );
+}
+
+class SettingsHome extends StatefulWidget {
+  const SettingsHome({super.key, required this.categories});
+  final List<SettingsCategory> categories;
+  @override
+  State<SettingsHome> createState() => _SettingsHomeState();
+}
+
+class _SettingsHomeState extends State<SettingsHome> {
+  String query = '';
+  void open(SettingsCategory category) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => SettingsCategoryPage(category: category),
+    ),
+  );
+  @override
+  Widget build(BuildContext context) {
+    final search = query.trim().toLowerCase();
+    final matches = widget.categories
+        .where(
+          (c) =>
+              ('${c.title} ${c.description} ${c.keywords} ${c.children.whereType<SettingsEntryCard>().map((e) => '${e.title} ${e.subtitle}').join(' ')}')
+                  .toLowerCase()
+                  .contains(search),
+        )
+        .toList();
+    return ListView(
+      padding: GlassScaffold.barInset(context)
+          .add(const EdgeInsets.fromLTRB(20, 20, 20, 36)),
+      children: [
+        const SettingsPageIntro(
+          title: '让 LumeBox 更像你',
+          description: '外观、内容与使用习惯，从这里调整。',
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: TextField(
+            key: const ValueKey('settings-search'),
+            onChanged: (value) => setState(() => query = value),
+            decoration: const InputDecoration(
+              hintText: '搜索设置',
+              prefixIcon: Icon(Icons.search),
+              filled: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(20)),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        for (final category in matches) ...[
+          SettingsEntryCard(
+            icon: category.icon,
+            title: category.title,
+            subtitle: category.description,
+            onTap: () => open(category),
+          ),
+          if (search.isNotEmpty)
+            for (final entry
+                in category.children.whereType<SettingsEntryCard>())
+              if (('${entry.title} ${entry.subtitle}').toLowerCase().contains(
+                search,
+              ))
+                entry,
+        ],
+        if (matches.isEmpty)
+          const SettingsNoteCard('没有找到相关设置，试试“主题”“播放”或“缓存”。'),
+      ],
     );
   }
 }

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/theme/frosted_settings.dart';
 import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
-import 'package:lume_box/features/settings/floating_settings_page.dart';
+import 'package:lume_box/features/settings/liquid_glass_settings_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -34,7 +34,8 @@ void main() {
       await File('${directory.path}/${FrostedSettings.fileName}')
           .readAsString(),
     );
-    expect(saved, {'frostedEnabled': true});
+    expect(saved['frostedEnabled'], true);
+    expect(saved['styles'], isEmpty);
     restored.dispose();
   });
   testWidgets('ordinary blur off retains solid fill, shadows and no border', (
@@ -72,7 +73,10 @@ void main() {
   testWidgets(
     'floating settings keep ordinary controls without the removed player switch',
     (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: FloatingSettingsPage()));
+      await tester.pumpWidget(
+        const MaterialApp(home: LiquidGlassSettingsPage()),
+      );
+      await tester.pumpAndSettle();
       expect(find.text('毛玻璃'), findsOneWidget);
       expect(find.text('播放器弹窗使用新毛玻璃'), findsNothing);
       expect(find.text('动态液态玻璃效果'), findsNothing);

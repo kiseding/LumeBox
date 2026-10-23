@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import '../../core/cat/cat_service.dart';
 import '../../core/theme/lume_theme.dart';
 import '../video/source_playback.dart';
+import '../video/source_web_player_page.dart';
 
 import 'package:flutter/material.dart';
 
@@ -183,6 +184,10 @@ class _CatDetailPageState extends State<CatDetailPage>
         );
       } on CatWebParseRequired catch (request) {
         if (!mounted) return;
+        if (request.webPlayer) {
+          await showSourceWebPlayer(context, request);
+          return;
+        }
         final resolved = await showCatWebParsePage(context, request);
         if (resolved == null || !mounted) return;
         content = VideoContent(

@@ -11,7 +11,7 @@ const token = crypto.randomBytes(32).toString('hex');
 const manifest = JSON.parse(fs.readFileSync('assets/local_danmaku/manifest.json'));
 assert.equal(crypto.createHash('sha256').update(fs.readFileSync('assets/local_danmaku/upstream.cjs')).digest('hex'), manifest.patchedSha256);
 for (const name of ['index.js', 'upstream.cjs']) fs.copyFileSync('assets/local_danmaku/' + name, path.join(root, name));
-fs.writeFileSync(path.join(root, 'config.js'), 'module.exports=' + JSON.stringify({token, upstreamPath: path.join(root, 'upstream.cjs')}));
+fs.writeFileSync(path.join(root, 'config.js'), 'module.exports=' + JSON.stringify({token, nativeNetwork: true, upstreamPath: path.join(root, 'upstream.cjs')}));
 fs.writeFileSync(path.join(root, 'cat.js'), 'module.exports.start=async()=>{catServerFactory((req,res)=>res.end("cat-alive")).listen(0)}');
 fs.writeFileSync(path.join(root, 'cat.config.js'), 'module.exports={}');
 const spec = {id:'builtin', index:path.join(root,'index.js'), config:path.join(root,'config.js'),dataRoot:root};
@@ -19,10 +19,17 @@ const cat = {id:'cat', index:path.join(root,'cat.js'), config:path.join(root,'ca
 try {
   for (const first of [spec, cat]) {
     const messages = [];
+    let failNetwork = false;
     const bridge = http.createServer(async(req,res)=>{
       assert.equal(req.headers['x-catvod-token'], token);
       let body=''; for await(const chunk of req) body+=chunk;
-      messages.push(JSON.parse(body)); res.end('{}');
+      const message = JSON.parse(body)
+      messages.push(message)
+      if (message.action === 'danmakuFetch') {
+        assert.equal(message.opt.id, 'builtin')
+        assert.match(message.opt.url, /^https?:\/\//)
+        res.end(JSON.stringify(failNetwork ? { error: 'simulated VPN routing failure' } : { status: 200, headers: {'content-type':'application/json'}, body: Buffer.from('{}').toString('base64') }))
+      } else res.end('{}');
     });
     await new Promise(r=>bridge.listen(0,'127.0.0.1',r));
     fs.writeFileSync(path.join(root,'spec.json'),JSON.stringify({token,bridgePort:bridge.address().port,sources:[first]}));
@@ -52,6 +59,18 @@ try {
       const result=await get('/'+token+'/api/v2/search/episodes?anime=');
       assert.equal(result.status,400,'real bundled API must validate requests, not return a mock');
       assert.equal((await result.json()).errorCode,400);
+      const search = await get('/'+token+'/api/v2/search/episodes?anime=keyboard&episode=1');
+      assert.equal(search.status,200);
+      await search.json();
+      assert.ok(messages.some(m=>m.action==='danmakuFetch'), 'upstream requests must use the native network bridge');
+      failNetwork = true;
+      const failed = await get('/'+token+'/api/v2/search/episodes?anime=networkfailure&episode=1');
+      assert.equal(failed.status,502,'platform network failure must not become a successful empty search');
+      assert.match((await failed.json()).errorMessage, /VPN/);
+      failNetwork = false;
+      const recovered = await get('/'+token+'/api/v2/search/episodes?anime=networkrecovery&episode=1');
+      assert.equal(recovered.status,200,'network errors must not poison later requests');
+      await recovered.json();
       assert.equal(await(await fetch(catBase)).text(),'cat-alive');
       await ctl('/ctl/stop',{id:'builtin'});
       await ctl('/ctl/source',spec);

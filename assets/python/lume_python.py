@@ -104,6 +104,18 @@ class _HttpAdapter(BaseAdapter):
             body = body.encode("utf-8")
         if not isinstance(body, bytes):
             raise ValueError("Python 源暂不支持流式上传")
+        spider = _active.get().get("spider")
+        prepare = getattr(spider, "prepareRequest", None) or getattr(spider, "prepare_request", None)
+        sign = getattr(spider, "sign", None)
+        if prepare or sign:
+            changed = (prepare or sign)({"url":request.url,"method":request.method,
+                "body":body,"pageHtml":"", "bridge":lume_tools.bridge}) or {}
+            request.headers.update(changed.get("headers", {}) if prepare else changed)
+            if prepare and "body" in changed:
+                body = changed["body"]
+                if isinstance(body, str): body = body.encode("utf-8")
+                if not isinstance(body, bytes): raise ValueError("签名钩子必须返回文本或字节正文")
+                request.headers.pop("Content-Length", None)
         value = _host("http", {
             "url": request.url, "method": request.method,
             "headers": dict(request.headers), "body": base64.b64encode(body).decode(),
@@ -244,6 +256,9 @@ lume_tools.url_decode = lambda text: __import__("urllib.parse", fromlist=["unquo
 lume_tools.inflate = lambda data, raw=False: base64.b64decode(_host("tools", {"operation":"inflate", "data":base64.b64encode(data).decode(), "raw":raw}))
 lume_tools.media = lambda operation, **options: _host("media", dict(options, operation=operation))
 lume_tools.set_user_agent = lambda url, ua: _host("session.configure", {"url":url, "userAgent":ua})
+lume_tools.bridge = types.SimpleNamespace(
+    configure=lambda **options: _host("web.bridge.configure", options),
+    request=lambda **options: _host("web.bridge.request", options))
 sys.modules["lume_tools"] = lume_tools
 
 
@@ -771,11 +786,13 @@ def _dispatch(state, method, arg):
     if method == "content":
         episode = json.loads(arg["chapterId"])
         raw = _decoded(_invoke(spider, "playerContent", (episode.get("flag", ""), episode["id"], []), {"flag": episode.get("flag", ""), "id": episode["id"], "video_id": episode["id"], "vipflags": []}))
-        url = str(raw.get("url", ""))
+        url = str(raw.get("url") or raw.get("pageUrl") or "")
         if not url:
             raise ValueError("源未返回播放地址；请检查站点、外部解析后端或 Android 专属依赖")
         headers = _decoded(raw.get("header", raw.get("headers", {})))
         return {"kind": "video", "url": url, "headers": headers,
+                "webPlayer": raw.get("webPlayer") is True,
+                "pageUrl": str(raw.get("pageUrl") or url),
                 "webParse": str(raw.get("parse", 0)) == "1" or (str(raw.get("jx", 0)) == "1" and not re.search(r"\.(?:mp4|m3u8|mp3|m4a|aac|flac|mkv|webm|mpd)(?:$|[?#])", url, re.I))}
     raise ValueError("Python 源不提供接口：" + method)
 

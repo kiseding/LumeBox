@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/net/network_settings.dart';
+import 'package:lume_box/core/net/web_session_lifecycle.dart';
 import 'package:lume_box/core/reading/reading_library.dart';
 import 'package:lume_box/core/reading/reading_store.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -210,6 +211,21 @@ void main() {
             .save(Section.video, 'same');
         expect(SourcePreferences.read(Section.comic, 'same').pinned, isTrue);
         expect(SourcePreferences.read(Section.video, 'same').pinned, isFalse);
+        final before = WebSessionLifecycle.revision('https://old.example');
+        await const SourcePreferences(
+          originalOrigin: 'https://old.example',
+          customOrigin: 'https://new.example',
+        ).save(Section.video, 'same');
+        expect(
+          WebSessionLifecycle.revision('https://old.example'),
+          isNot(before),
+        );
+        final configured = WebSessionLifecycle.revision('https://new.example');
+        await SourcePreferences.read(
+          Section.video,
+          'same',
+        ).copyWith(pinned: true).save(Section.video, 'same');
+        expect(WebSessionLifecycle.revision('https://new.example'), configured);
         ReadingLibrary.disposeAll();
         ReadingStore.disposeAll();
         await SectionScope.closeAll();

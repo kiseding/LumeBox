@@ -11,6 +11,7 @@ import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/util/lume_log.dart';
+import '../../core/util/sensitive_data.dart';
 import 'log_report.dart';
 
 class DiagnosticBundle {
@@ -22,7 +23,7 @@ class DiagnosticBundle {
 /// Collect metadata only: no source scripts, databases, media, credentials or request bodies.
 class DiagnosticExporter {
   static String redact(String input) {
-    var text = input.replaceAll(
+    var text = SensitiveData.redact(input).replaceAll(
       RegExp(r'data:[^\s]+', caseSensitive: false),
       '[image data omitted]',
     );
@@ -69,10 +70,11 @@ class DiagnosticExporter {
       return value.map(
         (key, item) => MapEntry(
           redact('$key'),
-          RegExp(
-                r'key|token|password|secret|cookie|authorization|credential|session|positions',
-                caseSensitive: false,
-              ).hasMatch('$key')
+          SensitiveData.isSecretKey('$key') ||
+                  RegExp(
+                    r'key|token|password|secret|cookie|authorization|credential|session|positions',
+                    caseSensitive: false,
+                  ).hasMatch('$key')
               ? '[omitted]'
               : sanitize(item),
         ),

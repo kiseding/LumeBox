@@ -34,6 +34,27 @@ String htmlHomeSdk(
       return viewport;
     }
     window.__lumeHomeViewport=publish;
+    function mediaOptions(base,item){
+      base=base||{};item=item||{};
+      var result={};
+      ['format','password','credentials','referer','pic','wallPic'].forEach(function(key){
+        if(base[key]!==undefined)result[key]=base[key];
+        if(item[key]!==undefined)result[key]=item[key];
+      });
+      result.headers=Object.assign({},base.headers||{},item.headers||{});
+      if(item.referer||base.referer)result.headers.Referer=item.referer||base.referer;
+      return result;
+    }
+    function play(url,title,options){
+      if(url&&typeof url==='object'){
+        var item=url;
+        url=item.mediaUrl||item.url;
+        title=title||item.title||item.name||'';
+        options=mediaOptions(item.options,mediaOptions(item,options));
+      }
+      if(typeof url!=='string'||!url.trim())return Promise.reject(new Error('没有可播放的媒体地址'));
+      return rpc('play',{url:url,title:title||'',options:options||{}});
+    }
     var storageWrites=Promise.resolve();
     function persist(method,args){
       storageWrites=storageWrites.then(function(){return rpc(method,args);}).catch(function(){});
@@ -65,17 +86,25 @@ String htmlHomeSdk(
         return endpoint.replace(/rpc\$/, 'resource')+'?url='+encodeURIComponent(url)+
           '&headers='+encodeURIComponent(JSON.stringify((options||{}).headers||{}));
       },
-      play:function(url,title,options){
-        return rpc('play',{url:String(url),title:title||'',options:options||{}});
-      },
+      play:play,
       vodInline:async function(detail){
-        var episodes=detail.episodes||[], episode=episodes.find(function(e){return e.name===detail.mark;})||episodes[0];
+        var episodes=(detail.episodes||[]).map(function(e){
+          return typeof e==='string'?{url:e}:Object.assign({},e);
+        });
+        var episode=episodes.find(function(e){return e.active;})||
+          episodes.find(function(e){return (e.name||e.label||e.title)===detail.mark;})||episodes[0];
         if(!episode)throw new Error('没有可播放的剧集');
-        var resolved=window.__fmWebHomeInlineResolver?
-          await window.__fmWebHomeInlineResolver(episode):episode;
+        // Older WebHome resolvers call String(episode) to inspect a custom
+        // scheme, while newer resolvers read episode.url/pageUrl/headers.
+        var reference=Object.assign({},episode);
+        Object.defineProperty(reference,'toString',{value:function(){return this.url||this.pageUrl||'';}});
+        var resolved=episode.mediaUrl?{url:episode.mediaUrl}:
+          window.__fmWebHomeInlineResolver&&episode.resolve!==false?
+          await window.__fmWebHomeInlineResolver(reference):episode;
         if(typeof resolved==='string')resolved={url:resolved};
-        return rpc('play',{url:resolved.url||episode.url,title:detail.vod_name||episode.name||'',
-          options:{headers:resolved.headers||episode.headers||{},format:resolved.format||episode.format||''}});
+        if(!resolved||!(resolved.mediaUrl||resolved.url))throw new Error('剧集解析未返回媒体地址，请重试或更换线路');
+        return play(resolved.mediaUrl||resolved.url,detail.vod_name||detail.title||episode.name||episode.label||episode.title||'',
+          mediaOptions(mediaOptions(detail,episode),resolved));
       },
       cache:{
         get:function(key,scope){return rpc('cache.get',{key:String(key),scope:scope||''});},

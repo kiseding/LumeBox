@@ -68,6 +68,27 @@ void main() {
   /// 设置页比一屏长（新增分组会把诊断区推到折叠线以下），ListView 是懒构建的，
   /// 不滚过去就「找不到」——这不是功能坏了，是测试没滚。
   Future<void> scrollTo(WidgetTester tester, String label) async {
+    const categories = {
+      '播放器设置': '阅读与播放',
+      '缓存管理': '存储与安全',
+      '运行日志': '诊断与关于',
+      '错误报告': '诊断与关于',
+      '源总管理': '内容与订阅',
+    };
+    final category = categories[label];
+    if (category != null) {
+      final page = find.byType(SettingsPage, skipOffstage: false);
+      Navigator.of(tester.element(page.first))
+          .popUntil((route) => route.isFirst);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text(category),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(category));
+      await tester.pumpAndSettle();
+    }
     await tester.scrollUntilVisible(
       find.text(label),
       260,
@@ -176,18 +197,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final light = LumeTheme.paletteOf(Brightness.light).surface;
     final dark = LumeTheme.paletteOf(Brightness.dark).surface;
-    expect(cardColorOf('外观'), light);
-    expect(cardColorOf('播放器设置'), light);
+    final lightCard = cardColorOf('个性与界面')!;
+    expect(lightCard.computeLuminance(), greaterThan(.5));
 
     // 切深色：整页（含两张内容为 const 的分组卡）当场换成深色卡。
     await tester.pumpWidget(app(ThemeMode.dark));
     await tester.pumpAndSettle();
     expect(LumeTheme.surface, dark, reason: '卡片色板要跟着亮度走');
-    expect(cardColorOf('外观'), dark, reason: '「显示」分组卡要跟着变深（真机上它曾留在白底）');
-    expect(cardColorOf('播放器设置'), dark, reason: '「播放」分组卡要跟着变深（真机同款白底）');
-    expect(cardColorOf('底部导航栏管理'), dark);
+    expect(
+      cardColorOf('个性与界面')!.computeLuminance(),
+      lessThan(lightCard.computeLuminance()),
+    );
+    expect(cardColorOf('阅读与播放')!.computeLuminance(), lessThan(.3));
   });
 
   testWidgets('缓存管理：分板块统计，清理只动所选板块', (tester) async {
@@ -260,7 +282,7 @@ void main() {
 
     expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
     expect(find.text('各模块独立设置'), findsNothing);
-    // 播放器设置（内核 / 倍速 / 字幕）也从板块页迁到了全局设置。
+    await scrollTo(tester, '播放器设置');
     expect(find.text('播放器设置'), findsOneWidget);
     await tester.tap(find.text('播放器设置'));
     await tester.pumpAndSettle();
@@ -275,11 +297,7 @@ void main() {
     LumeLog.error(StateError('错误一条'), StackTrace.current);
 
     await pumpSettings(tester);
-    await tester.scrollUntilVisible(
-      find.text('运行日志'),
-      120,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await scrollTo(tester, '运行日志');
     await tester.ensureVisible(find.text('运行日志'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('运行日志'));
@@ -396,33 +414,16 @@ void main() {
       expect(find.text(group), findsOneWidget, reason: '缺少分组「$group」');
     }
 
-    const items = <String>[
+    for (final item in [
       '外观',
       '主题色',
       '页面底色',
-      'App 图标',
-      '网格标题',
-      '底部导航栏管理',
       '悬浮模块',
+      '底部导航栏管理',
       '播放器设置',
-      'AI 图片超分与上色',
-      '漫画翻译',
-      '总订阅导入导出',
-      '源总管理',
-      '网络设置',
-      'TMDB配置',
-      '搜索',
-      '缓存管理',
-      '隐私（应用锁）',
-      '配置备份',
-      '沙箱设置',
       '运行日志',
-      '错误报告',
-      '调试面板',
-      '关于 LumeBox',
-    ];
-    for (final item in items) {
-      expect(find.text(item), findsOneWidget, reason: '缺少设置项「$item」');
+    ]) {
+      expect(find.text(item), findsNothing, reason: '具体设置不再平铺在首页');
     }
 
     final ys = <double>[

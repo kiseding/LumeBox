@@ -1,3 +1,6 @@
+import '../../../shared/widgets/frosted_glass_widget.dart';
+import '../../../shared/widgets/module_glass_scope.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -56,33 +59,46 @@ class DanmakuPanelFrame extends StatelessWidget {
           key: const ValueKey('danmaku-panel-frame'),
           width: landscape ? math.min(400, media.size.width * .46) : 560,
           height: available * .92,
-          child: Material(
-            color: LumeTheme.base,
-            borderRadius: BorderRadius.circular(20),
-            clipBehavior: Clip.antiAlias,
-            child: MediaQuery.removeViewInsets(
-              context: context,
-              removeBottom: true,
-              child: MediaQuery.removePadding(
-                context: context,
-                removeTop: true,
-                removeBottom: true,
-                child: Theme(
-                  data: Theme.of(context).copyWith(
-                    textTheme: Theme.of(context).textTheme
-                        .apply(bodyColor: textColor, displayColor: textColor),
-                    iconTheme: IconThemeData(color: textColor),
-                    inputDecorationTheme: Theme.of(context).inputDecorationTheme
-                        .copyWith(
-                          labelStyle: TextStyle(color: LumeTheme.textSecondary),
-                          floatingLabelStyle: TextStyle(
-                            color: LumeTheme.accent,
-                          ),
+          child: ModuleGlassScope(
+            module: GlassModule.video,
+            part: GlassPart.panels,
+            child: FrostedGlassWidget(
+              radius: 20,
+              part: GlassPart.panels,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: MediaQuery.removeViewInsets(
+                  context: context,
+                  removeBottom: true,
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    removeBottom: true,
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        textTheme: Theme.of(context).textTheme.apply(
+                          bodyColor: textColor,
+                          displayColor: textColor,
                         ),
-                  ),
-                  child: DefaultTextStyle(
-                    style: TextStyle(color: textColor, fontSize: 14),
-                    child: child,
+                        iconTheme: IconThemeData(color: textColor),
+                        inputDecorationTheme: Theme.of(context)
+                            .inputDecorationTheme
+                            .copyWith(
+                              labelStyle: TextStyle(
+                                color: LumeTheme.textSecondary,
+                              ),
+                              floatingLabelStyle: TextStyle(
+                                color: LumeTheme.accent,
+                              ),
+                            ),
+                      ),
+                      child: DefaultTextStyle(
+                        style: TextStyle(color: textColor, fontSize: 14),
+                        child: child,
+                      ),
+                    ),
                   ),
                 ),
               ),

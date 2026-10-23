@@ -6,6 +6,23 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor func testSourceCancellationReleasesPermitAndRejectsBridge() {
+    let baseline=SourceWebBudget.active
+    let done=expectation(description:"cancelled once")
+    done.assertForOverFulfill=true
+    let task=SourceWebTask(url:URL(string:"https://fixture.invalid/")!,options:["scope":"test:cancel","waitForSelector":"#never"]) { reply in
+      XCTAssertEqual((reply as? FlutterError)?.code,"cancelled")
+      done.fulfill()
+    }
+    task.start(html:"<html><body><article>业务内容</article></body></html>")
+    task.cancel(); task.cancel()
+    wait(for:[done],timeout:2)
+    XCTAssertEqual(SourceWebBudget.active,baseline)
+    task.bridge("bridge.configure",arguments:["origin":"https://fixture.invalid","paths":["/api"]]) { reply in
+      XCTAssertEqual((reply as? FlutterError)?.code,"bridge_unverified")
+    }
+  }
+
   @MainActor func testPipMediaTimebaseAndPlaybackRate() throws {
     let pump = PipFramePump()
     pump.ensureDisplayLayer()
@@ -101,5 +118,23 @@ class RunnerTests: XCTestCase {
     cancel.cancel()
     cancel.cancel()
     XCTAssertEqual(completions, 1)
+  }
+
+  @MainActor func testUnknownVerificationRetainsDocumentAndOrdinaryLoginDoesNot() {
+    let challenge = expectation(description:"unknown verification")
+    let task = SourceWebTask(url:URL(string:"https://fixture.invalid/")!,options:["waitForSelector":"#business"]) { response in
+      XCTAssertEqual((response as? FlutterError)?.code,"verification")
+      challenge.fulfill()
+    }
+    task.start(html:"<html><body><div id='verify-box'>安全验证，请点击完成验证<button>确认</button></div></body></html>")
+    withExtendedLifetime(task) { wait(for:[challenge],timeout:10) }
+    task.destroy()
+    let normal = expectation(description:"ordinary login")
+    let login = SourceWebTask(url:URL(string:"https://fixture.invalid/")!,options:["waitForSelector":"#ready"]) { response in
+      XCTAssertNil(response as? FlutterError)
+      normal.fulfill()
+    }
+    login.start(html:"<html><body><form id='ready'>登录，请稍候<input name='username'><button>登录</button></form></body></html>")
+    withExtendedLifetime(login) { wait(for:[normal],timeout:10) }
   }
 }

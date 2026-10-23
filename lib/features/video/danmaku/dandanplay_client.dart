@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import '../../../core/util/lume_log.dart';
 import 'danmaku_models.dart';
 import 'danmaku_credentials.dart';
+import 'danmaku_http_client.dart';
 
 export 'danmaku_credentials.dart';
 
@@ -59,7 +60,7 @@ class DandanplayClient {
     required this.credentials,
     http.Client? client,
     Future<Uri> Function()? localService,
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? DanmakuHttpClient(),
        _localService =
            localService ?? BuiltinDanmakuService.instance.ensureStarted;
   final DandanplayCredentials credentials;
@@ -229,6 +230,9 @@ class DandanplayClient {
   static String describeError(Object error) => switch (error) {
     DandanplayException() => error.message,
     TimeoutException() => '弹幕服务连接超时，请重试或检查网络',
+    PlatformException(code: 'network') => '弹幕服务网络请求失败，请检查 VPN 规则或网络连接',
+    PlatformException(code: 'api_timeout') => '弹幕服务连接超时，请检查 VPN 规则或网络连接',
+    PlatformException(code: 'response_size') => '弹幕响应过大，无法完整读取',
     PlatformException() || MissingPluginException() => '无法读取或保存本机弹幕凭证，请重试',
     FormatException() => '弹幕服务返回格式不正确，请检查服务地址',
     _ => '弹幕服务连接失败，请检查网络或更换服务',
@@ -273,6 +277,23 @@ class DandanplayClient {
       for (final work in candidates) {
         final id = '${work['bangumiId'] ?? ''}';
         if (!RegExp(r'^tmdb-(?:tv|movie)-[0-9]+$').hasMatch(id)) continue;
+        // Resolve the TMDB record back to real comment libraries. A synthetic
+        // TMDB bangumi can have an episode ID while containing no comments.
+        var mapped = <DandanplayEpisode>[];
+        try {
+          mapped = _parseSearch(
+            await _get('/api/v2/search/episodes', {
+              'tmdbId': id.split('-').last,
+              'tmdbIdType': id.startsWith('tmdb-movie-') ? '1' : '0',
+              if (episode != null) 'episode': '$episode',
+              'v2': 'true',
+            }),
+          );
+        } catch (_) {
+          // Older compatible implementations may not support TMDB lookup.
+        }
+        extra.addAll(mapped);
+        if (mapped.isNotEmpty) continue;
         final detail = await _get(
           '/api/v2/bangumi/${Uri.encodeComponent(id)}',
           {},

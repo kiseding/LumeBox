@@ -64,11 +64,15 @@ class GlassPanel extends StatelessWidget {
     return ListenableBuilder(
       listenable: FloatingModules.instance,
       builder: (context, _) => Transform.translate(
-        offset: module != null
-            ? FloatingModules.instance.style(module!).offset
-            : Offset.zero,
+        offset: Offset.zero,
         child: FrostedGlassWidget(
           radius: radius,
+          part: switch (module) {
+            FloatingModule.navigation => GlassPart.navigation,
+            FloatingModule.home => GlassPart.home,
+            FloatingModule.dock => GlassPart.dock,
+            _ => ModuleGlassScope.partOf(context) ?? GlassPart.panels,
+          },
           blur: module == null
               ? blur
               : FloatingModules.instance.style(module!).blur,
@@ -114,6 +118,8 @@ class GlassCard extends StatelessWidget {
     final border = BorderRadius.circular(radius);
     final surface = FrostedGlassWidget(
       radius: radius,
+      part: GlassPart.cards,
+      interactive: onTap != null,
       blur: 6,
       color: color,
       opacity: (color ?? LumeTheme.glass).a,
@@ -177,9 +183,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     return ListenableBuilder(
       listenable: FloatingModules.instance,
       builder: (context, _) => Transform.translate(
-        offset: FloatingModules.instance
-            .style(FloatingModule.navigation)
-            .offset,
+        offset: Offset.zero,
         child: AppBar(
           title: title,
           // 右上角那排图标：默认 IconButton 是 48×48 + 内边距，四个连排会占掉大半
@@ -410,8 +414,8 @@ class GlassScaffold extends StatelessWidget {
                   ? _buildBar()
                   : _ShiftedAppBar(dy: unusedInset, child: _buildBar())),
         floatingActionButton: floatingActionButton,
-        body: Material(
-          color: LumeTheme.base,
+        body: _SettingsBackplane(
+          gradient: effectModule == GlassModule.settings,
           child: _GlassBarHeight(
             height: merge ? trimmedTopInset(statusInset) : height,
             child: HomeHeaderScope(
@@ -576,4 +580,36 @@ class HomeHeaderScope extends InheritedWidget {
       header != oldWidget.header ||
       builder != oldWidget.builder ||
       actions != oldWidget.actions;
+}
+
+class _SettingsBackplane extends StatelessWidget {
+  const _SettingsBackplane({required this.gradient, required this.child});
+  final bool gradient;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: LumeTheme.base,
+    child: Ink(
+      decoration: BoxDecoration(
+        gradient: gradient
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.alphaBlend(
+                    LumeTheme.accent.withValues(alpha: .055),
+                    LumeTheme.base,
+                  ),
+                  LumeTheme.base,
+                  Color.alphaBlend(
+                    LumeTheme.accent.withValues(alpha: .025),
+                    LumeTheme.base,
+                  ),
+                ],
+              )
+            : null,
+      ),
+      child: child,
+    ),
+  );
 }

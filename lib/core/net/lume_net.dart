@@ -1,4 +1,5 @@
 import 'site_session_pool.dart';
+import 'web_session_lifecycle.dart';
 
 import 'dart:io';
 
@@ -46,6 +47,10 @@ class LumeNet {
 
   /// 应用新设置：立即生效（队列重建，额度按新值计算）。
   static void apply(NetworkSettings settings) {
+    if (settings.proxy != _settings.proxy ||
+        settings.userAgent != _settings.userAgent) {
+      WebSessionLifecycle.invalidate();
+    }
     _settings = settings.clamped();
     _queue = NetworkQueue(settings: _settings, sender: sendDirect);
   }

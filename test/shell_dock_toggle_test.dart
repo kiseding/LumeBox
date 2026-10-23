@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,14 +8,11 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
-import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
-import 'package:lume_box/features/shell/shell_dock_bar.dart';
-import 'package:lume_box/features/shell/dock_liquid_lens.dart';
 
 /// 底部导航栏管理：**每个页签独立开关 + 拖拽排序**。
 ///
@@ -203,11 +199,7 @@ void main() {
 
       await controller.restoreDefaults();
       expect(controller.settings.visibleCount, 3);
-      expect(
-        controller.appearance.height,
-        60,
-        reason: '「恢复默认（全部显示）」不能顺手清掉调好的外观',
-      );
+      expect(controller.appearance.height, 60, reason: '恢复页签默认应保留外观');
     });
   });
 
@@ -328,7 +320,7 @@ void main() {
 
       ShellSettingsStore.resetForTesting();
       final reopened = await ShellSettingsStore.open();
-      expect(reopened.load(), settings);
+      expect(reopened.load(), ShellSettings.defaults);
     });
 
     test('旧格式（上一版的 dockEnabled）：回退默认而不是报错', () {
@@ -411,7 +403,6 @@ void main() {
       // 隐藏漫画、把设置拖到最前。
       await controller.setVisible('comic', false);
       await controller.move(2, 0);
-      final saved = controller.settings;
 
       // 模拟进程重启：丢掉内存态与 store 实例缓存（磁盘文件保留）。
       controller.resetForTesting();
@@ -423,8 +414,12 @@ void main() {
 
       await controller.boot();
 
-      expect(controller.settings, saved, reason: 'boot 必须把落盘的开关与顺序读回来');
-      expect(controller.visibleTabIds, <String>['settings', 'video']);
+      expect(
+        controller.settings,
+        ShellSettings.defaults,
+        reason: '退休的排序与隐藏配置应恢复默认，保留原生导航和液态参数',
+      );
+      expect(controller.visibleTabIds, <String>['comic', 'video', 'settings']);
     });
 
     test('boot() 读不到文件：回默认，不抛异常', () async {
@@ -697,425 +692,26 @@ void main() {
   // 管理页
   // ==========================================================================
 
-  group('管理页', () {
-    Future<void> pumpPage(WidgetTester tester) async {
+  group('导航管理精简', () {
+    testWidgets('旧管理工具仅保留液态动效，删除排序、位移与隐藏开关', (tester) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         MaterialApp(theme: LumeTheme.build(), home: const TabBarSettingsPage()),
       );
       await tester.pumpAndSettle();
-    }
-
-    testWidgets('列出三个可配置页签，搜索固定在预览最右侧', (tester) async {
-      await pumpPage(tester);
-
-      // 只数页签行：外观卡里的「真实 Dock 预览」也带着同一批文案，
-      // 不能用全页 find.text 去数，否则会把预览里的页签算进来。
-      for (final label in <String>['漫画', '视频', '设置']) {
-        expect(
-          find.descendant(
-            of: find.byType(ReorderableListView),
-            matching: find.text(label),
-          ),
-          findsOneWidget,
-        );
+      expect(find.widgetWithText(AppBar, '底栏液态动效'), findsOneWidget);
+      expect(find.byType(ReorderableListView), findsNothing);
+      for (final label in ['导航栏高度', '左右留白', '离底部距离', '收起悬浮球']) {
+        expect(find.text(label), findsNothing);
       }
-      // 页签行里的开关固定 5 个（外观卡里还有一个「点击弹跳动效」开关，
-      // 不能把它算进页签数）。
       expect(
-        find.descendant(
-          of: find.byType(ReorderableListView),
-          matching: find.byType(Switch),
-        ),
-        findsNWidgets(3),
-      );
-      expect(find.textContaining('当前显示 4 项导航'), findsOneWidget);
-    });
-
-    testWidgets('外观卡：材质/尺寸/动效选项齐全，改动写回模型', (tester) async {
-      await pumpPage(tester);
-
-      final title = find.text('外观与材质');
-      await tester.scrollUntilVisible(
-        title,
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-      expect(title, findsOneWidget);
-      for (final label in <String>[
-        '玻璃白度',
-        '磨砂强度',
-        '边缘高光',
-        '阴影浓度',
-        '左右留白',
-        '导航栏高度',
-        '离底部距离',
-        '点击弹跳动效',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: '缺少「$label」选项');
-      }
-
-      // 页面是 behindBar（内容从玻璃顶栏下穿过），ensureVisible 会把目标贴到
-      // 视口顶端、被顶栏盖住；这里统一滚到视口中间再点。
-      Future<void> centerInView(Finder finder) async {
-        await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
-        await tester.pumpAndSettle();
-      }
-
-      // 关闭动效：写回模型并立刻生效（时长滑块随之隐藏）。
-      final animationSwitch = find.descendant(
-        of: find
-            .ancestor(of: find.text('点击弹跳动效'), matching: find.byType(Row))
-            .first,
-        matching: find.byType(Switch),
-      );
-      await centerInView(animationSwitch);
-      await tester.tap(animationSwitch);
-      await tester.pumpAndSettle();
-      expect(
-        ShellSettingsController.instance.appearance.animateSelection,
-        isFalse,
-      );
-      expect(find.text('动效时长'), findsNothing);
-
-      // 高度滑块拖到最右端 → 150pt（上限已放开）。
-      final height = find.byKey(const ValueKey('dock-appearance-height'));
-      await centerInView(height);
-      final rect = tester.getRect(height);
-      await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
-      await tester.pumpAndSettle();
-      expect(ShellSettingsController.instance.appearance.height, 150);
-    });
-
-    testWidgets('透镜接入可调外观：滑块实时更新预览且重启后保留自定义值', (tester) async {
-      await pumpPage(tester);
-      final modules = FloatingModules.instance;
-      await modules.boot();
-      addTearDown(() => modules.reset(FloatingModule.dock));
-      Future<void> slide(String id, double value) async {
-        final finder = find.byKey(ValueKey('dock-appearance-$id'));
-        await tester.scrollUntilVisible(
-          finder,
-          160,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
-        await tester.pumpAndSettle();
-        final slider = tester.widget<Slider>(finder);
-        final bounds = tester.getRect(finder);
-        // Exercise the actual slider gesture; Flutter leaves 24pt for the thumb.
-        final fraction = (value - slider.min) / (slider.max - slider.min);
-        await tester.tapAt(
-          Offset(
-            bounds.left + 24 + (bounds.width - 48) * fraction,
-            bounds.center.dy,
-          ),
-        );
-        await tester.pumpAndSettle();
-      }
-
-      await slide('opacity', .31);
-      await slide('blur', 9);
-      await slide('border', .65);
-      await slide('shadow', .12);
-      await slide('margin', 32);
-      await slide('height', 73);
-      await slide('gap', -7);
-      await slide('duration', 820);
-      final appearance = ShellSettingsController.instance.appearance;
-      final material = modules.style(FloatingModule.dock);
-      expect(material.opacity, closeTo(.31, .02));
-      expect(material.blur, closeTo(9, .6));
-      expect(appearance.borderOpacity, closeTo(.65, .02));
-      expect(appearance.shadowOpacity, closeTo(.12, .02));
-      expect(appearance.horizontalMargin, closeTo(32, 2));
-      expect(appearance.height, closeTo(73, 2));
-      expect(appearance.safeGap, closeTo(-7, 2));
-      expect(appearance.animationMs, closeTo(820, 30));
-      // The preview owns the same production dock and optical overlay.
-      final preview = find.byKey(const ValueKey('dock-appearance-preview'));
-      await Scrollable.ensureVisible(tester.element(preview), alignment: .5);
-      await tester.pumpAndSettle();
-      final dock = tester.widget<ShellDockBar>(
-        find.descendant(of: preview, matching: find.byType(ShellDockBar)),
-      );
-      final lens = tester.widget<DockLiquidLens>(
-        find.descendant(of: preview, matching: find.byType(DockLiquidLens)),
-      );
-      expect(dock.appearance, appearance);
-      expect(lens.highlight, appearance.borderOpacity);
-      expect(
-        tester
-            .getSize(
-              find.descendant(of: preview, matching: find.byType(ShellDockBar)),
-            )
-            .height,
-        closeTo(appearance.height, .01),
-      );
-      await ShellSettingsController.instance.boot();
-      await modules.boot();
-      expect(ShellSettingsController.instance.appearance, appearance);
-      expect(modules.style(FloatingModule.dock).opacity, material.opacity);
-      expect(modules.style(FloatingModule.dock).blur, material.blur);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('液态细调从管理页进入、实时改变预览，并在重新加载后保留', (tester) async {
-      await pumpPage(tester);
-      final entry = find.byKey(const ValueKey('dock-liquid-open'));
-      await Scrollable.ensureVisible(tester.element(entry), alignment: .5);
-      await tester.pumpAndSettle();
-      await tester.tap(entry);
-      await tester.pumpAndSettle();
-      expect(find.text('液态玻璃细调'), findsWidgets);
-      final response = find.byKey(const ValueKey('dock-liquid-pressMs'));
-      await tester.scrollUntilVisible(
-        response,
-        200,
-        scrollable: find.byType(Scrollable).last,
-      );
-      await tester.pumpAndSettle();
-      final rect = tester.getRect(response);
-      await tester.tapAt(Offset(rect.right - 24, rect.center.dy));
-      await tester.pumpAndSettle();
-      final controller = ShellSettingsController.instance;
-      expect(
-        controller.appearance.liquid.value(DockLiquidParameter.pressMs),
-        greaterThan(300),
-      );
-      final effect = find.byKey(const ValueKey('dock-liquid-effect-lift'));
-      await tester.scrollUntilVisible(
-        effect,
-        200,
-        scrollable: find.byType(Scrollable).last,
-      );
-      await tester.tap(
-        find.descendant(of: effect, matching: find.byType(Switch)),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        controller.appearance.liquid.enabled(DockLiquidEffect.lift),
-        isFalse,
-      );
-      final dock = tester.widget<ShellDockBar>(find.byType(ShellDockBar).last);
-      expect(dock.appearance.liquid, controller.appearance.liquid);
-      final saved = controller.appearance;
-      await controller.boot();
-      expect(controller.appearance, saved);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('外观滑块范围：白度/高光/阴影 0–100%，磨砂 0–30，间距 -50–100', (tester) async {
-      await pumpPage(tester);
-      await tester.scrollUntilVisible(
-        find.text('外观与材质'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-
-      Slider slider(String key) =>
-          tester.widget<Slider>(find.byKey(ValueKey<String>(key)));
-
-      expect(slider('dock-appearance-opacity').min, 0);
-      expect(slider('dock-appearance-opacity').max, 1);
-      expect(slider('dock-appearance-blur').min, 0);
-      expect(slider('dock-appearance-blur').max, 30);
-      expect(slider('dock-appearance-border').min, 0);
-      expect(slider('dock-appearance-border').max, 1);
-      expect(slider('dock-appearance-shadow').min, 0);
-      expect(slider('dock-appearance-shadow').max, 1);
-      expect(slider('dock-appearance-margin').min, 0);
-      expect(slider('dock-appearance-margin').max, 100);
-      expect(slider('dock-appearance-height').min, 40);
-      expect(slider('dock-appearance-height').max, 150);
-      expect(slider('dock-appearance-gap').min, -50);
-      expect(slider('dock-appearance-gap').max, 100);
-      expect(slider('dock-appearance-duration').min, 100);
-      expect(slider('dock-appearance-duration').max, 2000);
-    });
-
-    testWidgets('极限外观值：预览与真实 Dock 都不溢出', (tester) async {
-      await pumpPage(tester);
-      await tester.scrollUntilVisible(
-        find.text('外观与材质'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-
-      final modules = FloatingModules.instance;
-      addTearDown(() => modules.reset(FloatingModule.dock));
-      modules.set(
-        FloatingModule.dock,
-        modules.style(FloatingModule.dock).copyWith(opacity: 1, blur: 30),
-      );
-      await ShellSettingsController.instance.setAppearance(
-        const DockAppearance(
-          horizontalMargin: 100,
-          height: 150,
-          safeGap: -50,
-          borderOpacity: 1,
-          shadowOpacity: 1,
-          animationMs: 2000,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      final preview = find.byKey(const ValueKey('dock-appearance-preview'));
-      expect(preview, findsOneWidget);
-      // 预览高度会随「150pt 高」一起长，给胶囊留出完整空间。
-      expect(tester.getSize(preview).height, greaterThan(200));
-      final previewDock = find.descendant(
-        of: preview,
-        matching: find.byType(ShellDockBar),
-      );
-      expect(previewDock, findsOneWidget);
-      expect(tester.getSize(previewDock).height, closeTo(150, .01));
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('四种收起悬浮球可选：点击立即生效', (tester) async {
-      await pumpPage(tester);
-
-      // 外观卡把「收起悬浮球」推到了首屏之外：先滚到它，让 ListView 把它建出来。
-      final arrow = find.byKey(const ValueKey('dock-handle-style-arrow'));
-      await tester.scrollUntilVisible(
-        arrow,
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      // ensureVisible 只改滚动位置，要让下一帧重新布局后组件才真的在屏内。
-      await tester.pumpAndSettle();
-      for (final style in DockHandleStyle.values) {
-        expect(find.text(style.label), findsOneWidget);
-      }
-      await tester.tap(arrow);
-      await tester.pumpAndSettle();
-      expect(
-        ShellSettingsController.instance.handleStyle,
-        DockHandleStyle.arrow,
-      );
-      expect(
-        find.byKey(const ValueKey('dock-handle-style-arrow')),
+        find.byKey(const ValueKey('dock-liquid-preset-softFree')),
         findsOneWidget,
       );
     });
-
-    testWidgets('关掉一个：开关变化、计数更新、立刻写进配置', (tester) async {
-      await pumpPage(tester);
-
-      final comicSwitch = find.descendant(
-        of: find.ancestor(of: find.text('漫画'), matching: find.byType(Row)),
-        matching: find.byType(Switch),
-      );
-      await tester.tap(comicSwitch);
-      await tester.pumpAndSettle();
-
-      expect(
-        ShellSettingsController.instance.settings.isVisible('comic'),
-        isFalse,
-      );
-      expect(find.textContaining('当前显示 3 项导航'), findsOneWidget);
-    });
-
-    testWidgets('只剩 1 个时：最后一颗开关置灰，并说明原因', (tester) async {
-      for (final id in <String>['video', 'settings']) {
-        await ShellSettingsController.instance.setVisible(id, false);
-      }
-      await pumpPage(tester);
-
-      expect(find.textContaining('当前显示 2 项导航'), findsOneWidget);
-      expect(
-        find.textContaining('最后一个显示的页签，不能关掉'),
-        findsOneWidget,
-        reason: '要让用户知道为什么这开关点不动，而不是以为界面坏了',
-      );
-      final disabled = tester
-          .widgetList<Switch>(find.byType(Switch))
-          .where((widget) => widget.onChanged == null)
-          .toList();
-      expect(disabled, hasLength(1), reason: '只有最后一个可见项应当被禁用');
-    });
-
-    testWidgets('隐藏设置后：页面提示说明怎么回去', (tester) async {
-      await ShellSettingsController.instance.setVisible('settings', false);
-      await pumpPage(tester);
-
-      expect(
-        find.textContaining('左下角'),
-        findsWidgets,
-        reason: '要告诉用户「隐藏设置不会把自己锁死」（提示卡与说明卡各一处）',
-      );
-    });
-
-    testWidgets('恢复默认按钮可用', (tester) async {
-      await ShellSettingsController.instance.setVisible('comic', false);
-      await pumpPage(tester);
-
-      // 新增「收起悬浮球」设置后，底部说明卡需要滚动到可视区域。
-      final restore = find.text('恢复默认（全部显示）');
-      await tester.scrollUntilVisible(
-        restore,
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, '恢复默认（全部显示）'));
-      await tester.pumpAndSettle();
-
-      expect(ShellSettingsController.instance.settings.visibleCount, 3);
-      // 滚回顶部确认界面也恢复了。
-      await tester.scrollUntilVisible(
-        find.textContaining('当前显示 4 项导航'),
-        -300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-      expect(find.textContaining('当前显示 4 项导航'), findsOneWidget);
-    });
-
-    testWidgets('拖拽手柄存在（每一行一个）', (tester) async {
-      await pumpPage(tester);
-      expect(find.byIcon(Icons.drag_handle), findsNWidgets(3));
-    });
-
-    testWidgets('真的能拖：把漫画往下拖一格，顺序随之变化并落库', (tester) async {
-      await pumpPage(tester);
-      expect(
-        ShellSettingsController.instance.tabs.map((tab) => tab.id).toList(),
-        <String>['comic', 'video', 'settings'],
-      );
-
-      // 拖第一行的手柄到第三行的位置（真手势，不是调模型方法——
-      // 手柄接线断掉时这条会失败，而只调模型的用例不会）。
-      final handles = find.byIcon(Icons.drag_handle);
-      final start = tester.getCenter(handles.at(0));
-      final target = tester.getCenter(handles.at(2));
-
-      final gesture = await tester.startGesture(start);
-      await tester.pump(kLongPressTimeout);
-      await gesture.moveTo(Offset(start.dx, target.dy));
-      await tester.pump();
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      expect(
-        ShellSettingsController.instance.tabs.map((tab) => tab.id).toList(),
-        <String>['video', 'comic', 'settings'],
-        reason: '拖拽要真的改到顺序（手柄接线是否接通就看这条）',
-      );
-      // 落库：重开 store 读到的是新顺序。
-      ShellSettingsStore.resetForTesting();
-      final store = await ShellSettingsStore.open();
-      expect(store.load().tabs.first.id, 'video');
-    });
-
-    testWidgets('设置页有入口能进本页', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
+    testWidgets('设置二级导航页保留系统导航、板块图标与液态管理入口', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         MaterialApp(
@@ -1124,17 +720,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-
-      expect(find.text('底部导航栏管理'), findsOneWidget);
-      await tester.tap(find.text('底部导航栏管理'));
+      expect(find.text('底部导航栏管理'), findsNothing);
+      await tester.tap(find.text('导航与首页'));
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, '底部导航栏管理'), findsOneWidget);
+      for (final label in ['原生系统导航', '当前板块图标', '液态玻璃管理', '内容分类显示']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      expect(find.text('悬浮模块'), findsNothing);
+      await tester.tap(find.text('液态玻璃管理'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, '液态玻璃管理'), findsOneWidget);
     });
   });
-
-  // ==========================================================================
-  // 桌面端：隐藏页签不能把用户锁死
-  // ==========================================================================
 
   group('桌面端左侧栏', () {
     Future<void> pumpRail(WidgetTester tester) async {

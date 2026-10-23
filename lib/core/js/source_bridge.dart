@@ -133,10 +133,16 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   }
 
   var http = {
-    request: function (options) {
+    request: async function (options) {
       options = options || {};
       var url = String(options.url || '');
       if (!url) return Promise.reject(new Error('LumeSource.http.request 缺少 url'));
+      var prepare=locate(['prepareRequest'],'prepareRequest'), sign=locate(['sign'],'sign');
+      if (options.prepare !== false && (prepare || sign)) {
+        var changed=await (prepare||sign).fn.call(bridge,{url:url,method:options.method||'GET',body:options.body,pageHtml:options.pageHtml||'',bridge:bridge.web.bridge});
+        if (changed) options=Object.assign({},options,{headers:Object.assign({},options.headers||{},prepare?changed.headers||{}:changed)});
+        if (prepare && changed && Object.prototype.hasOwnProperty.call(changed,'body')) options.body=changed.body;
+      }
       return globalThis.fetch(url, {
         method: options.method || 'GET',
         headers: options.headers || {},
@@ -208,7 +214,10 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
       segment:function(url,index,options){return invoke('media',Object.assign({},options,{operation:'segment',url:String(url),index:index}));}
     },
     fs: fs,
-    web: {render: function (options) { return invoke('web.render', options || {}); }},
+    web: {render: function (options) { return invoke('web.render', options || {}); },bridge:{
+      configure:function(options){return invoke('web.bridge.configure',options||{});},
+      request:function(options){return invoke('web.bridge.request',options||{});}
+    }},
     html: {extract: function (html, options) {
       var args = Object.assign({}, options || {}, {html: String(html)});
       return invoke('html.extract', args);

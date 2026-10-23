@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../core/net/ios_verified_webview.dart';
 import '../../core/net/lume_http.dart';
 import '../../core/net/site_session_pool.dart';
+import '../../core/net/web_session_lifecycle.dart';
 import '../../core/net/waf.dart';
 import '../../core/session/section.dart';
 import '../../core/cache/section_memory_cache.dart';
@@ -64,6 +65,21 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
       await controller.setUserAgent(ua);
       await controller.setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (request.isMainFrame &&
+                uri?.host == Uri.parse(widget.url).host &&
+                RegExp(
+                  r'logout|log-out|signout|customer-logout',
+                  caseSensitive: false,
+                ).hasMatch('${uri?.path}?${uri?.query}')) {
+              WebSessionLifecycle.invalidate(
+                hosts: {Uri.parse(widget.url).host},
+              );
+              WafSessions.storeOf(widget.section)?.clear(widget.sourceId);
+            }
+            return NavigationDecision.navigate;
+          },
           onPageFinished: (_) => unawaited(_check()),
           onWebResourceError: (e) {
             if (mounted && e.isForMainFrame == true) {

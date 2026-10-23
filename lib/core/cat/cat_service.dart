@@ -16,6 +16,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../util/lume_log.dart';
+import '../net/lume_net.dart';
+import '../net/network_queue.dart';
 
 String catText(Object? value) => value == null ? '' : '$value';
 Map<String, dynamic> catMap(Object? value) =>
@@ -751,7 +753,7 @@ class CatService extends ChangeNotifier {
         await _stopLocalDanmaku();
       }
     }
-    final directory = Directory('${_root!.path}/builtin-danmaku/b9cd019d5cbc');
+    final directory = Directory('${_root!.path}/builtin-danmaku/2cb7a22b8271');
     await directory.create(recursive: true);
     for (final name in ['index.js', 'upstream.cjs']) {
       final bytes = await rootBundle.load('assets/local_danmaku/$name');
@@ -761,7 +763,7 @@ class CatService extends ChangeNotifier {
       );
       if (name == 'upstream.cjs' &&
           sha256.convert(data).toString() !=
-              'b9cd019d5cbc053cb5db447ff1daaa0abf78a3b93b96e24f8738a70a44de5c02') {
+              '2cb7a22b8271168002740a551ece5439112763f4cf306bc77e91f1cb0fcf4ca8') {
         throw StateError('内置弹幕组件完整性校验失败');
       }
       final file = File('${directory.path}/$name');
@@ -773,7 +775,7 @@ class CatService extends ChangeNotifier {
     }
     final config = File('${directory.path}/index.config.js');
     await config.writeAsString(
-      'module.exports = ${jsonEncode({'token': _token, 'upstreamPath': '${directory.path}/upstream.cjs'})};',
+      'module.exports = ${jsonEncode({'token': _token, 'upstreamPath': '${directory.path}/upstream.cjs', 'nativeNetwork': Platform.isIOS})};',
       flush: true,
     );
     final base = await _launchSource({
@@ -830,6 +832,36 @@ class CatService extends ChangeNotifier {
           ? catText(opt['id'])
           : (request.headers.value('x-lume-cat-source') ?? '');
       Object reply = {};
+      if (action == 'danmakuFetch') {
+        if (id != _localDanmakuId) throw const FormatException('非法弹幕网络来源');
+        final url = Uri.tryParse(catText(opt['url']));
+        if (url == null ||
+            !['http', 'https'].contains(url.scheme) ||
+            url.host.isEmpty ||
+            url.userInfo.isNotEmpty) {
+          throw const FormatException('弹幕上游地址无效');
+        }
+        try {
+          final response = await LumeNet.sendDirect(
+            NetworkRequest(
+              url: url.toString(),
+              method: catText(opt['method']),
+              headers: catMap(opt['headers']).map((k, v) => MapEntry(k, '$v')),
+              bodyBytes: base64Decode(catText(opt['body'])),
+              followRedirects: opt['followRedirects'] != false,
+              timeout: const Duration(seconds: 35),
+              source: '内置弹幕上游',
+            ),
+          );
+          reply = {
+            'status': response.statusCode,
+            'headers': response.headers,
+            'body': base64Encode(response.body),
+          };
+        } catch (_) {
+          reply = {'error': '弹幕上游网络请求失败，请检查 VPN 规则及平台可达性'};
+        }
+      }
       if (action == 'getPlayInfo') reply = playInfo;
       if (['toast', 'openInternalWebview', 'dialog'].contains(action)) {
         messages.add({'action': action, 'sourceId': id, ...opt});
