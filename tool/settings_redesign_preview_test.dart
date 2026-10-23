@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:lume_box/features/settings/dock_layout_settings_page.dart';
+import 'package:lume_box/features/settings/native_navigation_settings_card.dart';
 
 import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
 import 'package:lume_box/features/settings/navigation_settings_page.dart';
@@ -173,19 +173,14 @@ void main() {
         key: UniqueKey(),
         debugShowCheckedModeBanner: false,
         theme: _theme(Brightness.light),
-        home: DockLayoutSettingsPage(
+        home: NativeNavigationSettingsPage(
+          entries: navigationPreviewEntries(),
           controller: ShellSettingsController.instance,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.runAsync(
-      () => precacheImage(
-        const AssetImage('assets/reference/dock_default.png'),
-        tester.element(find.byType(DockLayoutSettingsPage)),
-      ),
-    );
-    await capture('settings_dock_layout');
+    await capture('settings_native_navigation');
 
     await tester.pumpWidget(
       MaterialApp(

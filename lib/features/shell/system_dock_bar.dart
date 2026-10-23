@@ -105,7 +105,7 @@ class SystemDockBar extends StatelessWidget {
             math.max(0, bottomMargin),
           ),
           child: SizedBox(
-            height: height,
+            height: settings.heightFor(height),
             child: _SystemTabBarView(bar: this),
           ),
         );
@@ -137,6 +137,7 @@ class _SystemTabBarViewState extends State<_SystemTabBarView> {
       'brightness': Theme.of(context).brightness.name,
       'showLabels': bar.settings.showLabels,
       'iconSize': bar.settings.iconSize,
+      'barHeight': bar.settings.barHeight,
       'tintColor': bar.settings.followThemeColor
           ? LumeTheme.accent.toARGB32()
           : bar.settings.tintColor,

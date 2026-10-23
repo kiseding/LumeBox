@@ -1,14 +1,8 @@
-import 'package:lume_box/shared/widgets/native_glass_controls.dart';
-
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
-import 'package:lume_box/features/settings/dock_layout_settings_page.dart';
-import 'package:lume_box/features/settings/tab_bar_settings_page.dart';
-import 'package:lume_box/features/shell/shell_dock_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -74,62 +68,5 @@ void main() {
     expect(normal.width, 200);
     expect(normal.left, 85);
     expect(normal.right, 105);
-  });
-  testWidgets('调节进入实际底栏且重置仅影响几何，窄屏大字与横屏可滚动', (tester) async {
-    await controller.setAppearance(const DockAppearance(borderOpacity: .2));
-    tester.view.physicalSize = const Size(320, 700);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MediaQuery(
-          data: const MediaQueryData(
-            size: Size(320, 700),
-            textScaler: TextScaler.linear(2),
-          ),
-          child: DockLayoutSettingsPage(controller: controller),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('默认参照'), 180);
-    expect(find.byType(Image), findsOneWidget);
-    final height = find.byKey(const ValueKey('dock-layout-height'));
-    await tester.scrollUntilVisible(height, 250);
-    tester.widget<NativeGlassSlider>(height).onChanged!(91);
-    await tester.pumpAndSettle();
-    expect(controller.appearance.height, 91);
-    expect(
-      controller.settings.nativeNavigation.enabled,
-      false,
-      reason: '调尺寸使用可调布局与原生材质',
-    );
-    tester.widget<NativeGlassSlider>(height).onChangeEnd!(91);
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.byType(DockAppearancePreview), -250);
-    // Preview shares the same configuration as the production ShellDockBar.
-    expect(
-      tester
-          .widget<DockAppearancePreview>(find.byType(DockAppearancePreview))
-          .appearance
-          .height,
-      91,
-    );
-    expect(
-      tester.widget<ShellDockBar>(find.byType(ShellDockBar)).appearance.height,
-      91,
-    );
-    final reset = find.text('恢复尺寸与位置默认');
-    await tester.scrollUntilVisible(reset, 250);
-    await tester.tap(reset);
-    await tester.pumpAndSettle();
-    expect(controller.appearance.height, 54);
-    expect(controller.appearance.borderOpacity, .2);
-    expect(tester.takeException(), isNull);
-    tester.view.physicalSize = const Size(844, 390);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-    await tester.runAsync(() => controller.saveAppearance());
   });
 }

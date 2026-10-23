@@ -8,6 +8,7 @@ class NativeNavigationSettings {
     this.iconSize = 24,
     this.horizontalMargin = 0,
     this.safeGap = 0,
+    this.barHeight = 0,
   });
 
   final bool enabled;
@@ -18,6 +19,15 @@ class NativeNavigationSettings {
   final double horizontalMargin;
   final double safeGap;
 
+  /// Zero follows UIKit. Otherwise the entire native control is scaled.
+  final double barHeight;
+
+  double heightFor(double systemHeight) =>
+      barHeight > 0 ? barHeight.clamp(40.0, 120.0) : systemHeight;
+
+  double bottomFor(double safeBottom) =>
+      (safeBottom + safeGap).clamp(0.0, 200.0);
+
   NativeNavigationSettings copyWith({
     bool? enabled,
     bool? showLabels,
@@ -26,6 +36,7 @@ class NativeNavigationSettings {
     double? iconSize,
     double? horizontalMargin,
     double? safeGap,
+    double? barHeight,
   }) => NativeNavigationSettings.fromJson({
     ...toJson(),
     'enabled': ?enabled,
@@ -35,6 +46,7 @@ class NativeNavigationSettings {
     'iconSize': ?iconSize,
     'horizontalMargin': ?horizontalMargin,
     'safeGap': ?safeGap,
+    'barHeight': ?barHeight,
   });
 
   Map<String, Object> toJson() => {
@@ -45,6 +57,7 @@ class NativeNavigationSettings {
     'iconSize': iconSize,
     'horizontalMargin': horizontalMargin,
     'safeGap': safeGap,
+    'barHeight': barHeight,
   };
 
   static NativeNavigationSettings fromJson(Object? value) {
@@ -70,7 +83,8 @@ class NativeNavigationSettings {
           : 0xFF7C5CFF,
       iconSize: number('iconSize', 24, 18, 30),
       horizontalMargin: number('horizontalMargin', 0, 0, 40),
-      safeGap: number('safeGap', 0, 0, 32),
+      safeGap: number('safeGap', 0, -100, 100),
+      barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 0, 40, 120),
     );
   }
 
@@ -83,7 +97,8 @@ class NativeNavigationSettings {
       tintColor == other.tintColor &&
       iconSize == other.iconSize &&
       horizontalMargin == other.horizontalMargin &&
-      safeGap == other.safeGap;
+      safeGap == other.safeGap &&
+      barHeight == other.barHeight;
 
   @override
   int get hashCode => Object.hash(
@@ -94,5 +109,6 @@ class NativeNavigationSettings {
     iconSize,
     horizontalMargin,
     safeGap,
+    barHeight,
   );
 }

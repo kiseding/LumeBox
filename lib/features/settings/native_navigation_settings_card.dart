@@ -90,12 +90,12 @@ class _NativeNavigationSettingsCardState
           key: const ValueKey('native-navigation-enabled'),
           contentPadding: EdgeInsets.zero,
           title: const Text('使用系统导航栏'),
-          subtitle: const Text('开启使用完整系统栏；调节胶囊尺寸会切换为可调布局，仍保留原生玻璃材质。'),
+          subtitle: const Text('使用 iOS 26 系统导航栏，下方可调整原生栏的高度和位置。'),
           value: settings.enabled,
           onChanged: (value) => _change(settings.copyWith(enabled: value)),
         ),
         if (!settings.enabled) ...[
-          const SettingsFooterNote('当前使用可调胶囊布局，下面展示实际底栏；开启系统栏后使用系统尺寸。'),
+          const SettingsFooterNote('当前使用兼容布局；开启后可调原生导航栏的高度和位置。'),
           DockAppearancePreview(
             appearance: widget.controller.appearance,
             entries: widget.entries,
@@ -143,7 +143,9 @@ class _NativeNavigationSettingsCardState
                       },
                       settings: settings,
                       height: height,
-                      bottomMargin: 12 + settings.safeGap,
+                      bottomMargin: settings.bottomFor(
+                        MediaQuery.viewPaddingOf(context).bottom,
+                      ),
                       onHeightChanged: (value) {
                         if (mounted && value != _previewHeight) {
                           setState(() => _previewHeight = value);
@@ -198,6 +200,23 @@ class _NativeNavigationSettingsCardState
                   ),
               ],
             ),
+          NativeSwitchListTile.adaptive(
+            key: const ValueKey('native-navigation-auto-height'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('使用系统默认高度'),
+            value: settings.barHeight == 0,
+            onChanged: (value) => _change(
+              settings.copyWith(barHeight: value ? 0 : (_previewHeight ?? 64)),
+            ),
+          ),
+          _slider(
+            'height',
+            '导航栏高度',
+            settings.heightFor(_previewHeight ?? 64),
+            40,
+            120,
+            (value) => settings.copyWith(barHeight: value),
+          ),
           _slider(
             'icon-size',
             '图标大小',
@@ -218,13 +237,13 @@ class _NativeNavigationSettingsCardState
             'safe-gap',
             '安全区上方距离',
             settings.safeGap,
-            0,
-            32,
+            -100,
+            100,
             (value) => settings.copyWith(safeGap: value),
           ),
           const SettingsFooterNote(
-            '玻璃、选中动效和栏高由系统决定。图标最终尺寸由系统布局适配；'
-            '“底栏尺寸与位置”使用可调胶囊布局；两种模式的预览分别与实际底栏使用同一组件。',
+            '高度通过缩放完整原生栏实现，水滴、图标与文字一起变化；'
+            '系统水滴不能单独指定尺寸。负距离向下移动，最低贴近屏幕底部。',
             padding: EdgeInsets.zero,
           ),
           TextButton(

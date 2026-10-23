@@ -1,5 +1,3 @@
-import 'dock_layout_settings_page.dart';
-import '../../core/shell/shell_settings.dart';
 import '../video/player_settings_host.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -154,15 +152,6 @@ class SettingsPage extends StatelessWidget {
       title: '原生系统导航',
       subtitle: '系统栏样式与导航表现',
       onTap: () => _push(context, const NavigationPreferencesPage()),
-    ),
-    SettingsEntryCard(
-      icon: Icons.space_dashboard_outlined,
-      title: '底栏尺寸与位置',
-      subtitle: '胶囊宽高、边距与位置偏移',
-      onTap: () => _push(
-        context,
-        DockLayoutSettingsPage(controller: ShellSettingsController.instance),
-      ),
     ),
     SettingsEntryCard(
       icon: Icons.visibility_outlined,

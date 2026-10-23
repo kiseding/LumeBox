@@ -716,7 +716,7 @@ void main() {
         findsNothing,
       );
     });
-    testWidgets('设置二级导航页保留系统导航、板块图标与液态管理入口', (tester) async {
+    testWidgets('设置二级导航页仅保留原生导航与内容分类入口', (tester) async {
       await tester.binding.setSurfaceSize(const Size(900, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
@@ -729,9 +729,10 @@ void main() {
       expect(find.text('底部导航栏管理'), findsNothing);
       await tester.tap(find.text('导航与首页'));
       await tester.pumpAndSettle();
-      for (final label in ['原生系统导航', '底栏尺寸与位置', '内容分类显示']) {
+      for (final label in ['原生系统导航', '内容分类显示']) {
         expect(find.text(label), findsOneWidget);
       }
+      expect(find.text('底栏尺寸与位置'), findsNothing);
       expect(find.text('当前板块图标'), findsNothing);
       expect(find.text('悬浮模块'), findsNothing);
       expect(find.text('液态玻璃管理'), findsNothing);

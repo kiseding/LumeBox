@@ -44,6 +44,7 @@ private struct LumeSystemTabSpec: Equatable {
 
 private final class LumeSystemTabBarContainer: UIView {
   let bar = UITabBar()
+  var preferredHeight: CGFloat = 0
   var onHeightChanged: ((CGFloat) -> Void)?
   private var lastHeight: CGFloat = 0
 
@@ -70,7 +71,14 @@ private final class LumeSystemTabBarContainer: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     let height = fittingBarHeight
-    bar.frame = CGRect(x: 0, y: max(0, bounds.height - height), width: bounds.width, height: height)
+    let target = preferredHeight > 0 ? preferredHeight : height
+    let scale = target / height
+    // Resize the complete public control, including its system lens and hit
+    // targets. No traversal or modification of UIKit's private glass views.
+    bar.transform = .identity
+    bar.bounds = CGRect(x: 0, y: 0, width: bounds.width / scale, height: height)
+    bar.center = CGPoint(x: bounds.midX, y: bounds.height - target / 2)
+    bar.transform = CGAffineTransform(scaleX: scale, y: scale)
     if lastHeight != height {
       lastHeight = height
       // Deliver after layout, so Flutter can update its content inset safely.
@@ -123,6 +131,9 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
       next.append(LumeSystemTabSpec(id: id, label: label))
     }
     let labels = values["showLabels"] as? Bool ?? true
+    let rawHeight = (values["barHeight"] as? NSNumber)?.doubleValue ?? 0
+    container.preferredHeight = rawHeight.isFinite && rawHeight > 0
+      ? CGFloat(min(max(rawHeight, 40), 120)) : 0
     let rawSize = (values["iconSize"] as? NSNumber)?.doubleValue ?? 24
     let size = CGFloat(rawSize.isFinite ? min(max(rawSize, 18), 30) : 24)
     if specs != next || labels != showLabels || size != iconSize {

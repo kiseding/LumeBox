@@ -190,6 +190,78 @@ void main() {
     );
   });
 
+  test('原生高度和负安全区距离可持久化，旧配置跟随系统', () {
+    const value = NativeNavigationSettings(barHeight: 88, safeGap: -50);
+    expect(NativeNavigationSettings.fromJson(value.toJson()), value);
+    expect(value.heightFor(64), 88);
+    expect(value.bottomFor(34), 0);
+    expect(value.copyWith(safeGap: -12).bottomFor(34), 22);
+    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 64);
+    final bounded = NativeNavigationSettings.fromJson({
+      'barHeight': 999,
+      'safeGap': -999,
+    });
+    expect(bounded.barHeight, 120);
+    expect(bounded.safeGap, -100);
+    expect(
+      NativeNavigationSettings.fromJson({'barHeight': double.nan}).barHeight,
+      0,
+    );
+  });
+
+  testWidgets('原生栏高度和向下位移同步实际视图及内容避让，系统回报不覆盖自定义高度', (tester) async {
+    final harness = NativeHarness(tester)..install();
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final settings = ShellSettingsController.instance;
+    settings.updateNativeNavigation(
+      const NativeNavigationSettings(barHeight: 88, safeGap: -50),
+    );
+    ShellDockScope? scope;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(390, 844),
+            viewPadding: EdgeInsets.only(bottom: 34),
+          ),
+          child: AppShell(
+            desktopRail: false,
+            pageBuilder: (_) => Builder(
+              builder: (context) {
+                scope = ShellDockScope.maybeScopeOf(context);
+                return const Text('native-geometry');
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final view = find.byWidgetPredicate(
+      (widget) =>
+          widget is UiKitView && widget.viewType == SystemDockBar.viewType,
+    );
+    expect(tester.getSize(view).height, 88);
+    expect(tester.getRect(view).bottom, 844);
+    expect(scope!.navigationHeight, 88);
+    expect(scope!.dockBottom, 0);
+    expect(harness.updates.last['barHeight'], 88);
+    await harness.event('metrics', {'height': 80.0});
+    await tester.pumpAndSettle();
+    expect(tester.getSize(view).height, 88);
+    settings.updateNativeNavigation(
+      const NativeNavigationSettings(barHeight: 44, safeGap: -12),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getSize(view).height, 44);
+    expect(tester.getRect(view).bottom, 822);
+    expect(scope!.dockBottom, 22);
+    expect(harness.updates.last['barHeight'], 44);
+    expect(settings.settings.nativeNavigation.enabled, isTrue);
+    await tester.pumpWidget(const SizedBox());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('平台视图创建期间修改配置，创建后只应用最新配置与主题', (tester) async {
     final harness = NativeHarness(tester)..creationGate = Completer<void>();
     harness.install();
@@ -527,6 +599,29 @@ void main() {
     expect(
       (await ShellSettingsStore.open()).load().nativeNavigation.iconSize,
       29,
+    );
+    final height = tester.widget<NativeGlassSlider>(
+      find.byKey(const ValueKey('native-navigation-height')),
+    );
+    height.onChanged!(88);
+    height.onChangeEnd!(88);
+    await tester.pumpAndSettle();
+    final gapFinder = find.byKey(const ValueKey('native-navigation-safe-gap'));
+    await tester.scrollUntilVisible(gapFinder, 200);
+    final gap = tester.widget<NativeGlassSlider>(gapFinder);
+    expect(gap.min, -100);
+    expect(gap.max, 100);
+    gap.onChanged!(-50);
+    gap.onChangeEnd!(-50);
+    await tester.pumpAndSettle();
+    await controller.saveNativeNavigation();
+    final saved = (await ShellSettingsStore.open()).load().nativeNavigation;
+    expect(saved.barHeight, 88);
+    expect(saved.safeGap, -50);
+    expect(saved.enabled, isTrue);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('native-navigation-enabled')),
+      -300,
     );
     final oldAppearance = controller.appearance;
     await tester.tap(find.byKey(const ValueKey('native-navigation-enabled')));

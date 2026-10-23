@@ -186,7 +186,7 @@ void main() {
     expect(inDock('漫画'), findsOneWidget);
   });
 
-  testWidgets('收起悬浮球按设置换样式，向右滑可展开 Dock', (tester) async {
+  testWidgets('旧图标偏好不覆盖当前板块入口，向右滑可展开 Dock', (tester) async {
     ShellSettingsController.instance.apply(
       const ShellSettings(handleStyle: DockHandleStyle.arrow),
     );
@@ -212,7 +212,7 @@ void main() {
     expect(handle, findsOneWidget);
     expect(
       tester.widget<DockHandleButton>(handle).style,
-      DockHandleStyle.arrow,
+      DockHandleStyle.currentSection,
     );
 
     // 向右滑：展开 Dock，而不是点一下突然闪现。

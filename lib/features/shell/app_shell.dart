@@ -113,12 +113,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _systemNavigationAvailable &&
       _shellSettings.settings.nativeNavigation.enabled;
 
-  double get _navigationHeight =>
-      _usesSystemNavigation ? _systemNavigationHeight : _dockHeight;
+  double get _navigationHeight => _usesSystemNavigation
+      ? _shellSettings.settings.nativeNavigation.heightFor(
+          _systemNavigationHeight,
+        )
+      : _dockHeight;
 
   double _navigationBottom(BuildContext context) => _usesSystemNavigation
-      ? MediaQuery.viewPaddingOf(context).bottom +
-            _shellSettings.settings.nativeNavigation.safeGap
+      ? _shellSettings.settings.nativeNavigation.bottomFor(
+          MediaQuery.viewPaddingOf(context).bottom,
+        )
       : dockBottomOffset(context);
 
   Future<void> _loadSystemNavigation() async {
