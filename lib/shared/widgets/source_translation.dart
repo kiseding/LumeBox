@@ -58,7 +58,11 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
         .where((s) => s.trim().isNotEmpty)
         .toSet()
         .toList();
-    if (texts.isEmpty) return;
+    if (texts.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前没有可翻译的内容，请等待加载完成')));
+      return;
+    }
     if (texts.every((s) => service.lookup(s) != null)) {
       service.toggleOriginal();
       return;
@@ -80,6 +84,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
         start = end;
       }
       if (service.displayOriginal) service.toggleOriginal();
+      if (mounted && texts.every((text) => service.lookup(text) == text)) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('当前内容无需替换，已保留原文')));
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -106,10 +114,18 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
     listenable: TextTranslationService.shared,
     builder: (context, _) {
       final service = TextTranslationService.shared;
-      final cached = widget.texts
-          .where((s) => s.trim().isNotEmpty)
-          .every((s) => service.lookup(s) != null);
-      return TextButton.icon(
+      final cached =
+          widget.texts.any((s) => s.trim().isNotEmpty) &&
+          widget.texts
+              .where((s) => s.trim().isNotEmpty)
+              .every((s) => service.lookup(s) != null);
+      return IconButton(
+        tooltip: busy
+            ? '正在翻译…'
+            : cached && !service.displayOriginal
+            ? '显示原文'
+            : '翻译成中文',
+        constraints: const BoxConstraints.tightFor(width: 40, height: 44),
         onPressed: busy ? null : translate,
         icon: busy
             ? const SizedBox(
@@ -118,13 +134,6 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.translate, size: 18),
-        label: Text(
-          busy
-              ? '正在翻译…'
-              : cached && !service.displayOriginal
-              ? '显示原文'
-              : '翻译成中文',
-        ),
       );
     },
   );

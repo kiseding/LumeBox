@@ -318,7 +318,13 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       translationID = id; translationResult = result
       lock.lock(); active.insert(id); lock.unlock()
       let source = args["source"] as? String ?? "auto"
-      if source == target {
+      let targetFamily = target.lowercased().split(separator: "-").first
+      let alreadyTarget = source == "auto" && texts.allSatisfy { text in
+        if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) { return true }
+        guard let detected = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue else { return false }
+        return detected.lowercased().split(separator: "-").first == targetFamily
+      }
+      if source == target || alreadyTarget {
         finishTranslation(texts, error: nil)
         return
       }
@@ -357,38 +363,93 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
 #if canImport(Translation)
 @available(iOS 18.0, *)
 private struct ComicTranslationTaskView: View {
+  struct Group {
+    let language: String
+    var indices: [Int]
+  }
+  let texts: [String]
+  let source: String
+  let target: String
+  let completion: ([String]?, String?) -> Void
+  @State private var groups: [Group] = []
+  @State private var groupIndex = 0
+  @State private var output: [String] = []
+  @State private var prepared = false
+
+  private func family(_ language: String) -> String {
+    language.lowercased().split(separator: "-").first.map(String.init) ?? language
+  }
+  private func prepare() {
+    guard !prepared else { return }
+    output = texts
+    var plan: [Group] = []
+    for (index, text) in texts.enumerated() {
+      guard text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) else { continue }
+      let detected = source == "auto" ? NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue : source
+      // Apple cannot translate a language to itself, including regional variants.
+      // Chinese content already meets the Chinese-display request.
+      if let detected, family(detected) == family(target) { continue }
+      let language = detected ?? "en"
+      if let found = plan.firstIndex(where: { $0.language == language }) {
+        plan[found].indices.append(index)
+      } else {
+        plan.append(Group(language: language, indices: [index]))
+      }
+    }
+    groups = plan
+    prepared = true
+    if plan.isEmpty { completion(output, nil) }
+  }
+  var body: some View {
+    VStack(spacing: 24) {
+      Text("设备端翻译").font(.headline)
+      ProgressView("正在准备语言包并翻译…")
+      Text("首次使用请按系统提示下载语言包").font(.footnote)
+      if prepared && groupIndex < groups.count {
+        let group = groups[groupIndex]
+        ComicTranslationBatchView(texts: group.indices.map { texts[$0] },
+          source: group.language, target: target) { values, error in
+          guard let values, values.count == group.indices.count else {
+            completion(nil, error ?? "翻译结果不完整，请重试")
+            return
+          }
+          for (offset, index) in group.indices.enumerated() { output[index] = values[offset] }
+          if groupIndex + 1 < groups.count { groupIndex += 1 }
+          else { completion(output, nil) }
+        }.id(groupIndex)
+      }
+      Button("取消") { completion(nil, "翻译已取消") }
+    }.padding(24).task { prepare() }
+  }
+}
+
+@available(iOS 18.0, *)
+private struct ComicTranslationBatchView: View {
   let texts: [String]
   let source: String
   let target: String
   let completion: ([String]?, String?) -> Void
   @State private var started = false
   var body: some View {
-    VStack(spacing: 24) {
-      Text("设备端翻译").font(.headline)
-      ProgressView("正在准备语言包并翻译…")
-      Text("首次使用请按系统提示下载语言包").font(.footnote)
-      Button("取消") { completion(nil, "翻译已取消") }
-    }.padding(24)
-      .translationTask(source: source == "auto" ? nil : Locale.Language(identifier: source), target: Locale.Language(identifier: target)) { session in
+    Text("\(source) → \(target)").font(.caption)
+      .translationTask(source: Locale.Language(identifier: source), target: Locale.Language(identifier: target)) { session in
         guard !started else { return }; started = true
         do {
-          if source != "auto" { try await session.prepareTranslation() }
+          let status = await LanguageAvailability().status(from: Locale.Language(identifier: source), to: Locale.Language(identifier: target))
+          if case .unsupported = status {
+            await MainActor.run { completion(nil, "系统不支持 \(source) → \(target) 翻译，可更换原文语言或使用 AI 翻译") }
+            return
+          }
+          try await session.prepareTranslation()
           var translated: [String] = []
           for text in texts {
             try Task.checkCancellation()
-            // Mixed feeds often already contain target-language titles. The
-            // Translation framework rejects identical source/target pairs.
-            if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) ||
-                NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue == target {
-              translated.append(text)
-              continue
-            }
             let response = try await session.translate(text)
             translated.append(response.targetText)
           }
           await MainActor.run { completion(translated, nil) }
         } catch {
-          await MainActor.run { completion(nil, "翻译未完成，请检查语言包、原文语言与系统支持") }
+          await MainActor.run { completion(nil, "\(source) → \(target) 翻译失败：\(error.localizedDescription)") }
         }
       }
   }

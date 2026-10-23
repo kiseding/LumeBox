@@ -533,13 +533,6 @@ class _ExploreViewState extends State<ExploreView>
   Widget _buildInlineFacets() => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      if (_items.isNotEmpty)
-        Align(
-          alignment: Alignment.centerRight,
-          child: SourceTranslationAction(
-            texts: _items.map((item) => item.title).toList(),
-          ),
-        ),
       if (_categories.isEmpty && _filterGroups.isNotEmpty)
         Align(
           alignment: Alignment.centerRight,
@@ -1257,7 +1250,12 @@ class _ExploreViewState extends State<ExploreView>
           manager: _manager,
           onSourcesChanged: _bootstrap,
         ),
-        actions: HomeHeaderScope.actionsOf(context),
+        actions: [
+          ...HomeHeaderScope.actionsOf(context),
+          SourceTranslationAction(
+            texts: _items.map((item) => item.title).toList(),
+          ),
+        ],
         mode: _mode,
         onLayoutChanged: (mode) => unawaited(
           BrowseLayoutSettings.instance.setMode(widget.section, mode),
