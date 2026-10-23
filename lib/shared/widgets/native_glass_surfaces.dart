@@ -48,6 +48,7 @@ Widget nativeDialogSurface(BuildContext context, Widget child) {
 Future<T?> showGlassDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
+  bool nativeGlass = false,
   bool barrierDismissible = true,
   Color? barrierColor,
   String? barrierLabel,
@@ -61,7 +62,9 @@ Future<T?> showGlassDialog<T>({
   AnimationStyle? animationStyle,
 }) => material.showDialog<T>(
   context: context,
-  builder: (context) => nativeDialogSurface(context, builder(context)),
+  builder: (context) => nativeGlass
+      ? nativeDialogSurface(context, builder(context))
+      : builder(context),
   barrierDismissible: barrierDismissible,
   barrierColor: barrierColor,
   barrierLabel: barrierLabel,
@@ -78,6 +81,7 @@ Future<T?> showGlassDialog<T>({
 Future<T?> showGlassModalBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
+  bool nativeGlass = false,
   Color? backgroundColor,
   String? barrierLabel,
   double? elevation,
@@ -99,14 +103,14 @@ Future<T?> showGlassModalBottomSheet<T>({
   bool? requestFocus,
 }) => material.showModalBottomSheet<T>(
   context: context,
-  builder: (context) => DockNativeGlass.supported
+  builder: (context) => nativeGlass && DockNativeGlass.supported
       ? FrostedGlassWidget(
           nativeGlass: true,
           radius: 28,
           child: builder(context),
         )
       : builder(context),
-  backgroundColor: DockNativeGlass.supported
+  backgroundColor: nativeGlass && DockNativeGlass.supported
       ? Colors.transparent
       : backgroundColor,
   barrierLabel: barrierLabel,

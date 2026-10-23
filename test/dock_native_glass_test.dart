@@ -37,8 +37,18 @@ void main() {
               NativeSwitchListTile.adaptive(value: true, onChanged: (_) {}),
               NativeGlassSlider(value: .5, onChanged: (_) {}),
               Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showGlassDialog<void>(
+                    context: context,
+                    builder: (_) => const AlertDialog(content: Text('普通确认')),
+                  ),
+                  child: const Text('普通弹窗'),
+                ),
+              ),
+              Builder(
                 builder: (context) => FilledButton(
                   onPressed: () => showGlassDialog<void>(
+                    nativeGlass: true,
                     context: context,
                     builder: (_) => const AlertDialog(
                       content: FrostedGlassWidget(child: Text('弹层内容')),
@@ -56,6 +66,12 @@ void main() {
     expect(creations, 0);
     expect(find.byType(DockNativeGlass), findsNothing);
     expect(find.byType(BackdropFilter), findsNothing);
+    await tester.tap(find.text('普通弹窗'));
+    await tester.pumpAndSettle();
+    expect(creations, 0);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(tester.binding.hasScheduledFrame, false);
     await tester.tap(find.text('打开弹层'));
     await tester.pumpAndSettle();
     expect(creations, 1);

@@ -237,6 +237,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
           child: FrostedGlassWidget(
+            nativeGlass: true,
             radius: 24,
             child: Material(
               color: Colors.transparent,
