@@ -48,3 +48,27 @@ test('multipart request boundary is preserved; redirects and failures do not lea
   assert.equal(redirect.status, 502);
   assert.equal((await redirect.text()).includes('private'), false);
 });
+
+test('Workers AI translates without an external provider key and returns the app response format', async () => {
+  const input = { messages: [{ role: 'system', content: 'Translate into Chinese' },
+    { role: 'user', content: JSON.stringify(['Hello', 'Good night']) }] };
+  const response = await handle(request('/v1/chat/completions', JSON.stringify(input)), {
+    ACCESS_TOKEN: 'app-secret', AI_BACKEND: 'workers-ai', AI: { run: async (model, options) => {
+      assert.equal(model, '@cf/qwen/qwen3-30b-a3b-fp8');
+      assert.equal(options.stream, false);
+      assert.equal(options.messages.length, 2);
+      assert.ok(options.messages[0].content.includes('Translate into Chinese'));
+      return { choices: [{ message: { content: '<think></think>\n```json\n["你好","晚安"]\n```' } }] };
+    } },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse((await response.json()).choices[0].message.content), ['你好', '晚安']);
+});
+
+test('Workers AI refuses missing or reordered-length output instead of silently accepting it', async () => {
+  const input = { messages: [{ role: 'user', content: '["Hello","Goodbye"]' }] };
+  const response = await handle(request('/v1/chat/completions', JSON.stringify(input)), {
+    ACCESS_TOKEN: 'app-secret', AI_BACKEND: 'workers-ai', AI: { run: async () => ({ response: '["你好"]' }) },
+  });
+  assert.equal(response.status, 502);
+});

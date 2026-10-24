@@ -2,6 +2,12 @@
 
 在「设置 → 阅读与播放 → 漫画阅读器设置 → 漫画翻译」选择翻译方式，也可从阅读页的「翻译 → 翻译语言与引擎」进入。
 
+## 已拿到私人配置文件
+
+把 `LumeBox-翻译配置.json` 发到手机，在漫画翻译设置顶部点击「导入翻译配置文件」并选择它。App 自动填写地址、模型、目标语言及密钥，切换到 AI 翻译；返回漫画即可选择当前页、本章、本系列或圈选翻译。密钥保存在系统钥匙串，不进入 App 备份。
+
+导入入口需要包含该功能的新版 App。配置文件包含你个人的访问密钥，应仅自己保存和使用。
+
 ## 直接使用 AI 接口
 
 1. 选择「自填 AI 接口」。
@@ -22,7 +28,7 @@
 
 ## 部署 Cloudflare 网关
 
-仓库提供 `deploy/translation-worker`，将 App 请求转发到固定的 AI 或图片翻译后端。网关不运行 OCR、擦字或图片模型，不能代替图片翻译服务器。此设计依据 [Workers 运行限制](https://developers.cloudflare.com/workers/platform/limits/)。
+仓库提供 `deploy/translation-worker`，默认直接使用 Cloudflare Workers AI 的 Qwen3 多语言模型，无需另申请 AI 服务商密钥。也可改为转发到自己的 AI 或图片翻译后端。网关不运行 OCR、擦字或图片模型，不能代替图片翻译服务器。模型通过 [Workers AI binding](https://developers.cloudflare.com/workers-ai/configuration/bindings/) 调用。
 
 在仓库根目录打开 PowerShell：
 
@@ -30,10 +36,8 @@
 Set-Location deploy/translation-worker
 node --test worker.test.mjs
 npx wrangler login
-npx wrangler secret put ACCESS_TOKEN
-npx wrangler secret put AI_UPSTREAM
-npx wrangler secret put AI_UPSTREAM_KEY
 npx wrangler deploy
+npx wrangler secret put ACCESS_TOKEN
 ```
 
 按提示输入值：
@@ -41,10 +45,20 @@ npx wrangler deploy
 | 名称 | 填写内容 |
 | --- | --- |
 | `ACCESS_TOKEN` | 自己生成的随机访问密钥，稍后填进 App 的 API Key |
-| `AI_UPSTREAM` | 服务商的完整 HTTPS Chat Completions 接口地址 |
-| `AI_UPSTREAM_KEY` | 服务商分配的 API Key，仅保存在 Worker Secrets 中 |
 
-部署成功后，App 的 AI 接口填「部署输出的 Worker HTTPS 地址 + `/v1/chat/completions`」，模型名仍填上游模型名，App 的 API Key 填 `ACCESS_TOKEN`。
+部署成功后，App 的 AI 接口填「部署输出的 Worker HTTPS 地址 + `/v1/chat/completions`」，模型名填 `lumebox-translation`，App 的 API Key 填 `ACCESS_TOKEN`。也可以将这些值整理为私人连接配置文件，通过 App 导入。
+
+Cloudflare 提供每日免费额度，额度由同一账号下的 Workers AI 共享；Free 套餐超过额度后请求失败，不会自动升级付费套餐。Paid 套餐超出免费额度会按用量计费，详见[官方价格](https://developers.cloudflare.com/workers-ai/platform/pricing/)。
+
+如需第三方 AI 接口，将 `wrangler.jsonc` 中的 `AI_BACKEND` 改为 `proxy`，设置下列 Secrets 后重新部署：
+
+```powershell
+npx wrangler secret put AI_UPSTREAM
+npx wrangler secret put AI_UPSTREAM_KEY
+npx wrangler deploy
+```
+
+`AI_UPSTREAM` 填服务商完整 HTTPS Chat Completions 地址，`AI_UPSTREAM_KEY` 填服务商密钥，App 模型名改为该服务商的模型名称。
 
 图片翻译转发可单独配置，也可以与 AI 转发使用同一个 Worker：
 

@@ -68,6 +68,7 @@ class MangaTranslationClient {
     }
     final request = http.MultipartRequest('POST', endpoint(url))
       ..followRedirects = false
+      ..headers['User-Agent'] = 'Mozilla/5.0 (compatible; LumeBox/1.0)'
       ..fields['config'] = jsonEncode({
         'ocr': {'ocr': ocr},
         'translator': {'translator': translator, 'target_lang': language},

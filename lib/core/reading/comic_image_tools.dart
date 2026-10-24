@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+
+import 'translation_http_client.dart';
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -541,7 +544,12 @@ class ComicImageTools {
   Future<Uint8List> translateImageOnServer(Uint8List bytes) async {
     if (_disposed) throw StateError('图片处理已取消');
     final owned = client == null;
-    final transport = client ?? http.Client();
+    final transport =
+        client ??
+        TranslationHttpClient(
+          timeout: const Duration(minutes: 4),
+          maxBytes: 30 * 1024 * 1024,
+        );
     if (owned) _ownedClients.add(transport);
     try {
       String serverKey = '';
@@ -701,7 +709,7 @@ class ComicImageTools {
     final key = await channel.invokeMethod<String>('getKey') ?? '';
     if (key.isEmpty) throw const FormatException('请先保存 AI API Key');
     final owned = client == null;
-    final transport = client ?? http.Client();
+    final transport = client ?? TranslationHttpClient();
     if (_disposed) {
       if (owned) transport.close();
       throw StateError('图片处理已取消');
@@ -712,6 +720,7 @@ class ComicImageTools {
       request.headers.addAll({
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $key',
+        'User-Agent': 'Mozilla/5.0 (compatible; LumeBox/1.0)',
       });
       request.body = jsonEncode({
         'model': preferences.model.trim(),
