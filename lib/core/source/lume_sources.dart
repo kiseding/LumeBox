@@ -1,3 +1,5 @@
+import 'source_media_hints.dart';
+
 import 'dart:convert';
 
 import '../net/network_cancellation.dart';
@@ -441,6 +443,7 @@ class LumeSources {
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
     id: record.id,
     runtimeKind: SourcePackage.kindOf(record.script).name,
+    mediaKind: SourceMediaHints.fromScript(record.script),
     // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
     name: SourceDisplayNames.of(record.id, record.name),
     version: record.version,
