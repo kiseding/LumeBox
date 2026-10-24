@@ -772,13 +772,13 @@ void main() {
         final first = _SearchSource(
           section: section,
           name: '甲源',
-          items: const [SourceItem(id: 'a', title: '甲结果')],
+          items: const [SourceItem(id: 'a', title: '甲作品结果')],
         );
         final second = _SearchSource(
           section: section,
           id: 'source-b',
           name: '乙源',
-          items: const [SourceItem(id: 'b', title: '乙结果')],
+          items: const [SourceItem(id: 'b', title: '乙作品结果')],
         );
         final disabled = _SearchSource(
           section: section,
@@ -844,8 +844,8 @@ void main() {
         expect(first.keywords, ['作品']);
         expect(second.keywords, isEmpty);
         expect(disabled.keywords, isEmpty);
-        expect(find.text('甲结果'), findsOneWidget);
-        expect(find.text('乙结果'), findsNothing);
+        expect(find.text('甲作品结果'), findsOneWidget);
+        expect(find.text('乙作品结果'), findsNothing);
 
         await tester.tap(find.widgetWithIcon(TextButton, Icons.checklist));
         await tester.pumpAndSettle();
@@ -863,8 +863,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(first.keywords, ['作品']);
         expect(second.keywords, ['作品']);
-        expect(find.text('甲结果'), findsNothing);
-        expect(find.text('乙结果'), findsOneWidget);
+        expect(find.text('甲作品结果'), findsNothing);
+        expect(find.text('乙作品结果'), findsOneWidget);
         final store = SearchSourceSelectionStore(ReadingLibrary.find(section)!);
         expect(store.load(), {'source-b'});
 

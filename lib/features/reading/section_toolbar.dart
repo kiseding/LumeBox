@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/session/privacy_settings.dart';
+import '../../core/search/search_settings.dart';
 import '../../core/net/network_cancellation.dart';
 
 import '../../core/reading/browse_layout.dart';
@@ -148,6 +149,7 @@ class AggregateSearch {
     final enabled = sources
         .where(
           (source) =>
+              keyword.trim().isNotEmpty &&
               source.enabled &&
               PrivacySettings.instance.allowsSource(source.id, source.name) &&
               (sourceIds == null || sourceIds.contains(source.id)),
@@ -209,6 +211,12 @@ class AggregateSearch {
             results[index] = [
               for (final item
                   in list.items
+                      .where(
+                        (item) => SearchSettings.instance.acceptsAggregate(
+                          item.title,
+                          keyword,
+                        ),
+                      )
                       .where((item) => seen.add(item.id))
                       .take(limitPerSource))
                 SearchHit(

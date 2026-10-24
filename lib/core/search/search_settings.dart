@@ -77,4 +77,34 @@ class SearchSettings extends ChangeNotifier {
       !exact ||
       query.trim().isEmpty ||
       prepare(title).toLowerCase() == prepare(query).toLowerCase();
+
+  /// Some sites return their homepage/recommendations when search has no hits.
+  /// Aggregate results must have title evidence even with exact mode disabled.
+  bool acceptsAggregate(String title, String query) {
+    String normalize(String value) {
+      final width = String.fromCharCodes(
+        prepare(value).runes.map(
+          (rune) => rune >= 0xFF01 && rune <= 0xFF5E ? rune - 0xFEE0 : rune,
+        ),
+      );
+      return width
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+          .trim();
+    }
+
+    final needle = normalize(query);
+    final candidate = normalize(title);
+    if (needle.isEmpty || candidate.isEmpty) return false;
+    if (exact) return candidate == needle;
+    final compact = candidate.replaceAll(' ', '');
+    return needle.split(' ').every((term) {
+      // Short Latin words must not match the middle of unrelated words.
+      if (RegExp(r'^[a-z0-9]+$').hasMatch(term)) {
+        return RegExp('(^|[^a-z0-9])${RegExp.escape(term)}(?=\$|[^a-z0-9])')
+            .hasMatch(candidate);
+      }
+      return compact.contains(term);
+    });
+  }
 }

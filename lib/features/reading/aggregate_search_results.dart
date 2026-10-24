@@ -45,6 +45,18 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   bool _cards = true;
   String? _selected;
 
+  List<SourceDescriptor> get _visibleSites {
+    final matching = widget.hits.map((hit) => hit.sourceId).toSet();
+    return widget.sites
+        .where(
+          (site) =>
+              matching.contains(site.id) ||
+              (!widget.completed.contains(site.id) &&
+                  !widget.failed.contains(site.id)),
+        )
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -67,7 +79,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   void didUpdateWidget(covariant AggregateSearchResults oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_selected != null &&
-        !widget.sites.any((site) => site.id == _selected)) {
+        !_visibleSites.any((site) => site.id == _selected)) {
       _selected = null;
     }
   }
@@ -162,7 +174,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   }) {
     final entries = <({String? id, String name, String detail})>[
       (id: null, name: '全部', detail: '${widget.hits.length} 条'),
-      for (final site in widget.sites)
+      for (final site in _visibleSites)
         (
           id: site.id,
           name: site.name,
@@ -392,10 +404,10 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   }
 
   Widget _grouped(Map<String, List<SearchHit>> groups) {
-    if (widget.sites.isEmpty) return _empty();
+    if (_visibleSites.isEmpty) return _empty();
     final sites = [
-      ...widget.sites.where((site) => groups[site.id]?.isNotEmpty == true),
-      ...widget.sites.where((site) => groups[site.id]?.isNotEmpty != true),
+      ..._visibleSites.where((site) => groups[site.id]?.isNotEmpty == true),
+      ..._visibleSites.where((site) => groups[site.id]?.isNotEmpty != true),
     ];
     return ListView.builder(
       key: const ValueKey('search-groups'),
