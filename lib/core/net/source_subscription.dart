@@ -392,7 +392,10 @@ class SourceSubscription {
   /// 是不是图源脚本：认头部元信息声明，也认脚本里的 `LumeSource` 全局对象。
   static bool looksLikeScript(String text) =>
       SourceMetadataHeader.hasHeader(text) ||
-      text.contains('LumeSource') ||
+      RegExp(
+        r'^\s*(?:(?:var|let|const)\s+)?LumeSource\s*=',
+        multiLine: true,
+      ).hasMatch(text) ||
       SourcePackage.looksLikeScript(text);
 
   static bool isHttpUrl(String value) {

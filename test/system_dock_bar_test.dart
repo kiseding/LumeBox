@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/features/reading/compact_browse_header.dart';
 import 'package:lume_box/features/settings/native_navigation_settings_card.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
@@ -607,6 +608,29 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final top = tester.widget<NativeGlassSlider>(
+      find.byKey(const ValueKey('top-navigation-transparency')),
+    );
+    final bottom = tester.widget<NativeGlassSlider>(
+      find.byKey(const ValueKey('bottom-navigation-transparency')),
+    );
+    final oldBottom = controller.settings.nativeNavigation.materialOpacity;
+    top.onChanged!(.25);
+    await tester.pump();
+    expect(FloatingModules.instance.style(FloatingModule.home).opacity, .75);
+    expect(
+      FloatingModules.instance.style(FloatingModule.navigation).opacity,
+      .75,
+    );
+    expect(controller.settings.nativeNavigation.materialOpacity, oldBottom);
+    bottom.onChanged!(.6);
+    bottom.onChangeEnd!(.6);
+    await tester.pumpAndSettle();
+    expect(
+      controller.settings.nativeNavigation.materialOpacity,
+      closeTo(.4, .001),
+    );
+    expect(FloatingModules.instance.style(FloatingModule.home).opacity, .75);
     await tester.tap(find.byKey(const ValueKey('native-navigation-labels')));
     await tester.pumpAndSettle();
     expect(controller.settings.nativeNavigation.showLabels, false);

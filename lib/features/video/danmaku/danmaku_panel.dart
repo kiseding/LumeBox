@@ -1,5 +1,4 @@
 import '../../../shared/widgets/native_glass_surfaces.dart';
-import '../../../shared/widgets/frosted_glass_widget.dart';
 import '../../../shared/widgets/module_glass_scope.dart';
 
 import 'dart:math' as math;
@@ -38,7 +37,7 @@ class DanmakuPanelFrame extends StatelessWidget {
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(
-      220.0,
+      0.0,
       media.size.height -
           media.viewPadding.top -
           media.viewPadding.bottom -
@@ -63,42 +62,36 @@ class DanmakuPanelFrame extends StatelessWidget {
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
-            child: FrostedGlassWidget(
-              radius: 20,
-              part: GlassPart.panels,
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(20),
-                clipBehavior: Clip.antiAlias,
-                child: MediaQuery.removeViewInsets(
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              clipBehavior: Clip.antiAlias,
+              child: MediaQuery.removeViewInsets(
+                context: context,
+                removeBottom: true,
+                child: MediaQuery.removePadding(
                   context: context,
+                  removeTop: true,
                   removeBottom: true,
-                  child: MediaQuery.removePadding(
-                    context: context,
-                    removeTop: true,
-                    removeBottom: true,
-                    child: Theme(
-                      data: Theme.of(context).copyWith(
-                        textTheme: Theme.of(context).textTheme.apply(
-                          bodyColor: textColor,
-                          displayColor: textColor,
-                        ),
-                        iconTheme: IconThemeData(color: textColor),
-                        inputDecorationTheme: Theme.of(context)
-                            .inputDecorationTheme
-                            .copyWith(
-                              labelStyle: TextStyle(
-                                color: LumeTheme.textSecondary,
-                              ),
-                              floatingLabelStyle: TextStyle(
-                                color: LumeTheme.accent,
-                              ),
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      textTheme: Theme.of(context).textTheme
+                          .apply(bodyColor: textColor, displayColor: textColor),
+                      iconTheme: IconThemeData(color: textColor),
+                      inputDecorationTheme: Theme.of(context)
+                          .inputDecorationTheme
+                          .copyWith(
+                            labelStyle: TextStyle(
+                              color: LumeTheme.textSecondary,
                             ),
-                      ),
-                      child: DefaultTextStyle(
-                        style: TextStyle(color: textColor, fontSize: 14),
-                        child: child,
-                      ),
+                            floatingLabelStyle: TextStyle(
+                              color: LumeTheme.accent,
+                            ),
+                          ),
+                    ),
+                    child: DefaultTextStyle(
+                      style: TextStyle(color: textColor, fontSize: 14),
+                      child: child,
                     ),
                   ),
                 ),

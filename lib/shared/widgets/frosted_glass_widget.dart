@@ -72,7 +72,11 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
         // Ordinary scrolling content stays in Flutter's single render tree.
         // Do not create a platform view, blur pass or optical animation per card.
         return Material(
-          color: widget.color ?? LumeTheme.surface,
+          color: widget.neutralTint
+              ? (widget.color ?? LumeTheme.surface).withValues(
+                  alpha: (widget.opacity * widget.materialOpacity).clamp(0, 1),
+                )
+              : widget.color ?? LumeTheme.surface,
           borderRadius: corners,
           clipBehavior: Clip.antiAlias,
           child: widget.child,

@@ -58,6 +58,50 @@ void main() {
     expect(legacyReads, 0);
   });
 
+  test('移除旧弹1至弹14并保留CF服务，播放器不回到已删除的预设', () async {
+    const cf = 'https://danmaku.example.workers.dev/access-prefix';
+    stored = {
+      'profilesJson': jsonEncode([
+        {
+          'id': 'preset-1',
+          'name': '弹1',
+          'type': 'logvar',
+          'url': 'https://dm.999.team/87654321',
+        },
+        {'id': 'cf', 'name': '外置CF服务器', 'type': 'logvar', 'url': cf},
+      ]),
+      'activeId': 'preset-1',
+    };
+    final config = await DandanplayCredentials.load();
+    expect(config.baseUrl, cf);
+    expect(stored['activeId'], 'cf');
+    expect(DanmakuSourcesStore.profiles(stored), hasLength(1));
+    expect((await DandanplayCredentials.load()).baseUrl, cf);
+  });
+
+  testWidgets('全局添加的CF服务在管理页直接显示，不再显示十四个预设', (tester) async {
+    stored = {
+      'profilesJson': jsonEncode([
+        {
+          'id': 'cf',
+          'name': '外置CF服务器',
+          'type': 'logvar',
+          'url': 'https://danmaku.example.workers.dev/path',
+        },
+      ]),
+      'activeId': 'cf',
+    };
+    await tester.pumpWidget(const MaterialApp(home: DanmakuSourcesPage()));
+    await tester.pumpAndSettle();
+    expect(find.text('外置CF服务器'), findsOneWidget);
+    expect(find.textContaining('弹1 ·'), findsNothing);
+    expect(find.textContaining('兼容服务 · 点击选择'), findsNothing);
+    expect(
+      (await DandanplayCredentials.load()).baseUrl,
+      'https://danmaku.example.workers.dev/path',
+    );
+  });
+
   test('旧 iOS 单服务凭证可读，保存后进入统一存储', () async {
     old = {
       'appId': 'app',

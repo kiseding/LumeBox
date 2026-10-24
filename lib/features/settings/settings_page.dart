@@ -153,7 +153,7 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.navigation_outlined,
       title: '原生系统导航',
-      subtitle: '胶囊与圆圈透明度、系统栏高度与样式',
+      subtitle: '顶部与底部透明度、胶囊高度与图标样式',
       onTap: () => _push(context, const NavigationPreferencesPage()),
     ),
     SettingsEntryCard(

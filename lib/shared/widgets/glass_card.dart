@@ -67,6 +67,10 @@ class GlassPanel extends StatelessWidget {
         offset: Offset.zero,
         child: FrostedGlassWidget(
           radius: radius,
+          neutralTint:
+              module == null ||
+              module == FloatingModule.home ||
+              module == FloatingModule.navigation,
           part: switch (module) {
             FloatingModule.navigation => GlassPart.navigation,
             FloatingModule.home => GlassPart.home,

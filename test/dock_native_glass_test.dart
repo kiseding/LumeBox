@@ -3,14 +3,66 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lume_box/core/shell/dock_liquid_settings.dart';
 import 'package:lume_box/features/shell/dock_native_glass.dart';
 import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
 import 'package:lume_box/shared/widgets/native_glass_surfaces.dart';
 import 'package:lume_box/shared/widgets/native_glass_controls.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
+import 'package:lume_box/core/shell/shell_settings.dart';
+import 'package:lume_box/shared/widgets/glass_card.dart';
+import 'package:lume_box/shared/widgets/dock_handle_button.dart';
 
 void main() {
+  testWidgets('顶部透明度作用于实际材质，收起圆圈无主题色边框且不重复衰减', (tester) async {
+    FloatingModules.instance.set(
+      FloatingModule.home,
+      const FloatingStyle(opacity: .35),
+    );
+    addTearDown(() => FloatingModules.instance.reset(FloatingModule.home));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              GlassPanel(module: FloatingModule.home, child: Text('顶部')),
+              DockHandleButton(
+                style: DockHandleStyle.currentSection,
+                size: 86,
+                materialOpacity: .4,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final top = tester.widget<Material>(
+      find
+          .descendant(
+            of: find.byType(GlassPanel),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(top.color!.a, closeTo(.35, .005));
+    final handle = find.byType(DockHandleButton);
+    expect(tester.getSize(handle), const Size(86, 86));
+    final surface = tester.widget<Material>(
+      find.descendant(of: handle, matching: find.byType(Material)).first,
+    );
+    expect(surface.color!.a, closeTo(.4, .005));
+    expect(surface.color!.r, 1);
+    expect(surface.color!.g, 1);
+    expect(surface.color!.b, 1);
+    expect(find.byType(DockNativeGlass), findsNothing);
+    final glass = tester.widget<FrostedGlassWidget>(
+      find.descendant(of: handle, matching: find.byType(FrostedGlassWidget)),
+    );
+    expect(glass.border, isFalse);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('普通卡片按钮控件不创建平台视图，弹层只有一个原生表面', (tester) async {
     final messenger = tester.binding.defaultBinaryMessenger;
     var creations = 0;
@@ -174,6 +226,7 @@ void main() {
       'reduceTransparency': true,
       'tintColor': Colors.white.toARGB32(),
       'tintOpacity': .06,
+      'materialOpacity': 1.0,
     });
     final count = updates.length;
     await tester.pumpWidget(scene(24, Brightness.dark, true));

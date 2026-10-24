@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
 import 'danmaku_connection_test.dart';
-import 'danmaku_presets.dart';
 
 export 'danmaku_credentials.dart' show DanmakuSourcesStore;
 
@@ -41,13 +40,18 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       if (!data.containsKey('profilesJson') &&
           _sources.isEmpty &&
           (data['baseUrl'] ?? '').isNotEmpty) {
-        _active = 'legacy';
+        _active = data['baseUrl'] == DandanplayCredentials.builtinBase
+            ? 'builtin-local'
+            : 'legacy';
         _sources = [
           {
             'id': _active,
             'name': '现有弹幕服务',
-            'type':
-                DandanplayCredentials.isOfficial(Uri.tryParse(data['baseUrl']!))
+            'type': data['baseUrl'] == DandanplayCredentials.builtinBase
+                ? 'builtin'
+                : DandanplayCredentials.isOfficial(
+                    Uri.tryParse(data['baseUrl']!),
+                  )
                 ? 'official'
                 : 'logvar',
             'url': data['baseUrl']!,
@@ -153,13 +157,6 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                 title: Text(choice.value),
                 onTap: () => Navigator.pop(context, choice.key),
               ),
-            for (var i = 0; i < DanmakuPresets.urls.length; i++)
-              ListTile(
-                title: Text(
-                  '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
-                ),
-                onTap: () => Navigator.pop(context, 'preset:$i'),
-              ),
           ],
         ),
       ),
@@ -181,19 +178,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       );
       return;
     }
-    if (type.startsWith('preset:')) {
-      final index = int.parse(type.substring(7));
-      await _edit(
-        existing: {
-          'id': 'preset-${index + 1}',
-          'type': 'logvar',
-          'name': '弹${index + 1}',
-          'url': DanmakuPresets.urls[index],
-        },
-      );
-    } else {
-      await _edit(type: type);
-    }
+    await _edit(type: type);
   }
 
   Future<void> _edit({String? type, Map<String, String>? existing}) async {
@@ -404,9 +389,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
         : ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              for (final source in _sources.where(
-                (source) => !DanmakuPresets.urls.contains(source['url']),
-              ))
+              for (final source in _sources)
                 Card(
                   child: ListTile(
                     title: Text(source['name'] ?? ''),
@@ -476,71 +459,6 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                               }
                             },
                           ),
-                  ),
-                ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('兼容服务 · 点击选择，右侧测试连接'),
-              ),
-              for (var i = 0; i < DanmakuPresets.urls.length; i++)
-                Card(
-                  child: ExpansionTile(
-                    title: Text(
-                      '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
-                    ),
-                    leading: IconButton(
-                      tooltip: '使用弹${i + 1}',
-                      icon: Icon(
-                        _sources.any(
-                              (source) =>
-                                  source['id'] == _active &&
-                                  source['url'] == DanmakuPresets.urls[i],
-                            )
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                      ),
-                      onPressed: () async {
-                        final id = 'preset-${i + 1}';
-                        final sources = [
-                          ..._sources.where((source) => source['id'] != id),
-                          {
-                            'id': id,
-                            'type': 'logvar',
-                            'name': '弹${i + 1}',
-                            'url': DanmakuPresets.urls[i],
-                            'appId': '',
-                            'appSecret': '',
-                          },
-                        ];
-                        try {
-                          await DanmakuSourcesStore.save(sources, id);
-                          if (mounted) {
-                            setState(() {
-                              _sources = sources;
-                              _active = id;
-                            });
-                          }
-                        } catch (_) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(content: Text('保存失败，请重试')),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: DanmakuConnectionTest(
-                          credentials: () => DandanplayCredentials(
-                            '',
-                            '',
-                            baseUrl: DanmakuPresets.urls[i],
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               const Padding(

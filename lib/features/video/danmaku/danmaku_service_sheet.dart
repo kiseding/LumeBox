@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
 import 'danmaku_connection_test.dart';
-import 'danmaku_presets.dart';
 
 /// Accepts a full service prefix, including deployment tokens in its path.
 class DanmakuServiceSheet extends StatefulWidget {
@@ -140,9 +139,7 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
               ),
             DropdownButtonFormField<String>(
               key: ValueKey(_url.text),
-              initialValue: DanmakuPresets.urls.contains(_url.text)
-                  ? _url.text
-                  : _url.text == DandanplayCredentials.builtinBase
+              initialValue: _url.text == DandanplayCredentials.builtinBase
                   ? _url.text
                   : _url.text == DandanplayCredentials.officialBase
                   ? _url.text
@@ -154,13 +151,6 @@ class _DanmakuServiceSheetState extends State<DanmakuServiceSheet> {
                   value: DandanplayCredentials.builtinBase,
                   child: Text('内置本机服务（无需地址）'),
                 ),
-                for (var i = 0; i < DanmakuPresets.urls.length; i++)
-                  DropdownMenuItem(
-                    value: DanmakuPresets.urls[i],
-                    child: Text(
-                      '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
-                    ),
-                  ),
                 const DropdownMenuItem(
                   value: DandanplayCredentials.officialBase,
                   child: Text('弹弹play 官方（需应用凭据）'),

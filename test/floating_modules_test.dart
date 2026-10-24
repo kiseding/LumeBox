@@ -7,7 +7,7 @@ import 'package:lume_box/core/theme/floating_modules.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('旧悬浮模块数据仍可读取，已移除的位移和材质不再覆盖当前界面', () async {
+  test('透明度保存重启仍生效，旧位移和模糊参数不恢复', () async {
     final root = Directory.systemTemp.createTempSync('floating-modules');
     addTearDown(() => root.deleteSync(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -28,9 +28,10 @@ void main() {
     controller.save();
     controller.reset(FloatingModule.home);
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .72);
+    expect(controller.style(FloatingModule.home).opacity, .1);
     expect(controller.style(FloatingModule.home).offset, Offset.zero);
-    expect(controller.style(FloatingModule.dock), FloatingStyle.dockDefault);
+    expect(controller.style(FloatingModule.dock).opacity, .3);
+    expect(controller.style(FloatingModule.dock).offset, Offset.zero);
     final clamped = FloatingStyle.fromJson({
       'opacity': -1,
       'x': 400,
@@ -47,15 +48,15 @@ void main() {
       }),
     );
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .72);
+    expect(controller.style(FloatingModule.home).opacity, .9);
     expect(controller.style(FloatingModule.home).offset.dx, 0);
     expect(controller.style(FloatingModule.home).offset.dy, 0);
     expect(controller.style(FloatingModule.home).blur, 6);
-    // 已移除的旧模块覆盖值不会重新进入页面材质。
+    // 迁移只执行一次，之后保存的新透明度必须生效。
     controller.set(FloatingModule.home, const FloatingStyle(opacity: .4));
     controller.save();
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .72);
+    expect(controller.style(FloatingModule.home).opacity, .4);
   });
 
   test('旧底栏材质数据不改变当前默认样式', () async {
@@ -91,7 +92,7 @@ void main() {
     );
     controller.save();
     await controller.boot();
-    expect(controller.style(FloatingModule.dock).opacity, .45);
+    expect(controller.style(FloatingModule.dock).opacity, .4);
     expect(controller.style(FloatingModule.dock).blur, 15);
   });
 }

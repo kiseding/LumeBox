@@ -49,7 +49,7 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'danmaku/danmaku_models.dart';
 import 'danmaku/dandanplay_client.dart';
-import 'danmaku/danmaku_service_sheet.dart';
+import 'danmaku/danmaku_sources_page.dart';
 import 'danmaku/danmaku_overlay.dart';
 import 'danmaku/danmaku_settings.dart';
 import 'danmaku/danmaku_settings_sheet.dart';
@@ -2022,11 +2022,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _configureDanmakuService() async {
     try {
-      final config = await DandanplayCredentials.load();
       if (!mounted) return;
-      await showDanmakuPanel<DandanplayCredentials>(
-        context: context,
-        builder: (_) => DanmakuServiceSheet(initial: config),
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const DanmakuSourcesPage()),
       );
     } catch (error) {
       if (mounted) _showToast(DandanplayClient.describeError(error));
