@@ -8,6 +8,19 @@ import 'package:lume_box/features/video/source_playback.dart';
 /// 关键约束：**纯 id 不能被当成本地文件**——否则脚本缺方法会被误报成
 /// 「文件不存在」，用户就更不知道自己该改哪里了。
 void main() {
+  test('扩展名不明确的作品页必须经过详情与章节解析', () {
+    for (final url in [
+      'https://fixture.test/bangumi/123',
+      'https://fixture.test/v/123',
+      'https://fixture.test/album/9',
+    ]) {
+      expect(SourcePlayback.itemAddress(url), isNull);
+    }
+    expect(
+      SourcePlayback.itemAddress('https://cdn.test/stream?mime=video%2Fmp4'),
+      isNotNull,
+    );
+  });
   group('条目地址判定', () {
     test('网络与流媒体协议按原样收下（http 升 https，见 ATS 那条）', () {
       for (final url in <String>[
@@ -87,9 +100,7 @@ void main() {
     });
   });
 
-  group('章节内容地址判定', () {
-
-  });
+  group('章节内容地址判定', () {});
 
   group('站内路径不能被当成本地文件（真机 -17913 的根因）', () {
     test('图源条目 id 的形状：/watch?v=、/9434719.html、/album/1、/book/1248', () {

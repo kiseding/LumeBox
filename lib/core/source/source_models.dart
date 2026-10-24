@@ -367,6 +367,7 @@ class SourceDetail {
     this.coverHeaders = const {},
     this.subtitle,
     this.description,
+    this.chapters = const [],
   });
 
   final String id;
@@ -375,6 +376,7 @@ class SourceDetail {
   final Map<String, String> coverHeaders;
   final String? subtitle;
   final String? description;
+  final List<SourceChapter> chapters;
 
   static SourceDetail? parse(Object? json) {
     if (json is! Map) return null;
@@ -388,6 +390,7 @@ class SourceDetail {
       coverHeaders: _stringMap(json['coverHeaders']),
       subtitle: _text(json['subtitle']),
       description: _text(json['description']),
+      chapters: parseChapters(json['chapters'] ?? json['episodes']),
     );
   }
 }
@@ -398,10 +401,16 @@ class SourceChapter {
     required this.id,
     required this.title,
     this.publishedAt,
+    this.line = '',
+    this.cover,
+    this.coverHeaders = const {},
   });
 
   final String id;
   final String title;
+  final String line;
+  final String? cover;
+  final Map<String, String> coverHeaders;
 
   /// 章节发布时间（可选能力）：追剧日历据此把「更新」归到某一天。
   ///
@@ -417,6 +426,13 @@ class SourceChapter {
     return SourceChapter(
       id: id,
       title: title.isEmpty ? id : title,
+      line:
+          _text(
+            json['line'] ?? json['route'] ?? json['flag'] ?? json['road'],
+          ) ??
+          '',
+      cover: _text(json['cover'] ?? json['thumbnail']),
+      coverHeaders: _stringMap(json['coverHeaders']),
       publishedAt: _parseTime(
         json['publishedAt'] ??
             json['published'] ??

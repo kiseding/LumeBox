@@ -37,14 +37,15 @@ class VideoPlayTarget {
   bool isSameEpisode(VideoPlayTarget other) =>
       sourceId == other.sourceId &&
       itemId == other.itemId &&
+      chapterId == other.chapterId &&
       chapterIndex == other.chapterIndex;
 
   /// 播放器标题：作品 + 剧集（单集作品不重复显示）。
-  String get mediaTitle =>
-      chapterTitle.isEmpty || chapterTitle == title
-          ? title
-          : '$title · $chapterTitle';
+  String get mediaTitle => chapterTitle.isEmpty || chapterTitle == title
+      ? title
+      : '$title · $chapterTitle';
 
   @override
-  String toString() => 'VideoPlayTarget($sourceId, $itemId, 第${chapterIndex + 1}集)';
+  String toString() =>
+      'VideoPlayTarget($sourceId, $itemId, 第${chapterIndex + 1}集)';
 }

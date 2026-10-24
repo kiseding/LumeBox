@@ -46,7 +46,8 @@ import '../reading/browse_choice_access.dart';
 import '../comic/comic_detail_page.dart';
 import '../shell/shell_dock.dart';
 import 'cat_subscription_page.dart';
-import 'cat_detail_page.dart';
+import '../video/video_detail_page.dart';
+import '../video/video_player_page.dart';
 import 'cat_web_page.dart';
 import 'cat_preloader.dart';
 
@@ -811,10 +812,33 @@ class _CatPageState extends State<CatPage>
               target: target,
               runtimeAvailable: true,
             )
-          : CatDetailPage(
+          : VideoDetailPage(
               source: CatDataSource(service, selected),
               item: item,
               library: lib,
+              manager: manager,
+              onPlay: (media, target, qualities, prelaunch) async {
+                service.playInfo = {
+                  'name': target.title,
+                  'title': target.title,
+                  'episode': target.chapterTitle,
+                  'epName': target.chapterTitle,
+                  'url': media.uri.toString(),
+                };
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VideoPlayerPage(
+                      media: media,
+                      target: target,
+                      sourceId: target.sourceId,
+                      library: lib,
+                      sourceManager: manager,
+                      qualities: qualities,
+                      prelaunch: prelaunch,
+                    ),
+                  ),
+                );
+              },
             );
       await Navigator.push(
         context,

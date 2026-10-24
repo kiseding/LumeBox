@@ -15,6 +15,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
@@ -64,6 +65,23 @@ class DetailSource extends FakeReadingDataSource {
       headers: const {'Referer': 'https://source.test/watch'},
     );
   }
+}
+
+class MultiLineDetailSource extends DetailSource {
+  @override
+  Future<List<SourceChapter>> chapters(String id) async => const [
+    SourceChapter(id: 'a1', title: '第1集', line: '线路A'),
+    SourceChapter(id: 'a2', title: '第2集', line: '线路A'),
+    SourceChapter(id: 'b1', title: '线路B · 第1集'),
+    SourceChapter(id: 'b2', title: '线路B · 第2集'),
+  ];
+}
+
+class LongDetailSource extends DetailSource {
+  @override
+  Future<List<SourceChapter>> chapters(String id) async => [
+    for (var i = 1; i <= 230; i++) SourceChapter(id: 'e$i', title: '第$i集'),
+  ];
 }
 
 class RoutePlayer extends AbstractPlayer {
@@ -143,6 +161,86 @@ void main() {
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
   });
+  testWidgets('线路切换不预解析，数字选集只播放所选线路并保持索引', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = MultiLineDetailSource();
+    VideoPlayTarget? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, target, _, _) async => opened = target,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('播放线路'), findsOneWidget);
+    expect(find.text('线路A · 2 集'), findsOneWidget);
+    expect(source.parses, 0);
+    await tester.ensureVisible(find.text('线路A · 2 集'));
+    await tester.tap(find.text('线路A · 2 集'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('线路B · 2 集').last);
+    await tester.pumpAndSettle();
+    expect(source.parses, 0);
+    final second = find.byKey(const ValueKey('video-detail-episode-1'));
+    await tester.ensureVisible(second);
+    await tester.runAsync(() async {
+      await tester.tap(second);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(opened?.chapterId, 'b2');
+    expect(opened?.chapterIndex, 1);
+    expect(opened?.chapterTitle, '第2集');
+    expect(source.parses, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏大字长剧集分页显示，选集弹层不一次构建全部按钮', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: VideoDetailPage(
+          source: LongDetailSource(),
+          item: const SourceItem(id: 'long', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(OutlinedButton).evaluate().length, lessThan(55));
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-49')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-50')), findsNothing);
+    final picker = find.byKey(const Key('video-detail-select-episodes'));
+    await Scrollable.ensureVisible(tester.element(picker), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-50')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('列表先详情，点击选集直接创建一个全屏实例，旋转复用，返回详情', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -246,7 +344,7 @@ void main() {
     expect(find.byKey(const Key('video-detail-gradient')), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xff805b7a),
+      const Color(0xfff7f7fa),
     );
     expect(find.byTooltip('更多'), findsOneWidget);
     expect(source.parses, 0);

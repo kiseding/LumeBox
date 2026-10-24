@@ -1,3 +1,4 @@
+import 'video_episode_catalog.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 import 'danmaku/danmaku_panel.dart';
 import 'danmaku/danmaku_match_sheet.dart';
@@ -1691,7 +1692,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final List<SourceChapter>? chapters;
       try {
         chapters = prepared == null
-            ? await source.chapters(target.itemId)
+            ? VideoEpisodeCatalog.forChapter(
+                await VideoEpisodeCatalog.load(source, target.itemId),
+                target.chapterId,
+              )
             : null;
       } on SourceException {
         return false;
@@ -4259,7 +4263,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             : () async {
                 final source = await _openSource();
                 if (source == null) throw StateError('图源不可用，请稍后重试');
-                return source.chapters(target.itemId);
+                return VideoEpisodeCatalog.forChapter(
+                  await VideoEpisodeCatalog.load(source, target.itemId),
+                  target.chapterId,
+                );
               },
         currentChapterId: target?.chapterId,
         onSelectEpisode: (index) async {

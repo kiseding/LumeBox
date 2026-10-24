@@ -1,0 +1,69 @@
+import 'dart:convert';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/features/video/video_episode_catalog.dart';
+import 'package:lume_box/features/video/direct_video_source.dart';
+
+void main() {
+  test('兼容明确线路、Kazumi标题前缀和猫源flag，并保留原始章节ID', () {
+    final chapters = [
+      const SourceChapter(id: 'a1', title: '第1集', line: '线路A'),
+      const SourceChapter(id: 'a2', title: '第2集', line: '线路A'),
+      const SourceChapter(id: 'b1', title: '线路B · 第1集'),
+      const SourceChapter(id: 'b2', title: '线路B · 第2集'),
+      SourceChapter(
+        id: jsonEncode({'flag': '线路C', 'url': 'original'}),
+        title: '线路C · 正片',
+      ),
+    ];
+    expect(VideoEpisodeCatalog.group(chapters).keys, ['线路A', '线路B', '线路C']);
+    expect(VideoEpisodeCatalog.forChapter(chapters, 'b1').map((e) => e.id), [
+      'b1',
+      'b2',
+    ]);
+    expect(VideoEpisodeCatalog.labelOf(chapters[2]), '第1集');
+    expect(VideoEpisodeCatalog.labelOf(chapters.last), '正片');
+  });
+
+  test('解析详情中的分集线路与真实缩略图，缺少线路时只给默认线路', () {
+    final detail = SourceDetail.parse({
+      'id': 'm',
+      'title': '影片',
+      'episodes': [
+        {
+          'id': 'e',
+          'title': '正片',
+          'route': '高清',
+          'thumbnail': 'https://fixture.test/frame.jpg',
+        },
+      ],
+    })!;
+    expect(detail.chapters.single.line, '高清');
+    expect(detail.chapters.single.cover, 'https://fixture.test/frame.jpg');
+    expect(
+      VideoEpisodeCatalog.group([
+        const SourceChapter(id: 'single', title: '正片'),
+      ]).keys,
+      ['默认线路'],
+    );
+  });
+
+  test('网页捕获保留防盗链请求头且只暴露一集正片', () async {
+    final source = DirectVideoSource(
+      id: 'web',
+      name: '网页',
+      title: '影片',
+      uri: Uri.parse('https://fixture.test/movie.m3u8'),
+      headers: {'Referer': 'https://fixture.test/page'},
+    );
+    final chapters = await source.chapters('capture');
+    expect(chapters, hasLength(1));
+    expect(chapters.single.title, '正片');
+    final content = await source.content(
+      itemId: 'capture',
+      chapterId: chapters.single.id,
+    ) as VideoContent;
+    expect(content.headers['Referer'], 'https://fixture.test/page');
+  });
+}

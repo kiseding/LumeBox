@@ -1,3 +1,5 @@
+import 'video_episode_catalog.dart';
+
 import 'dart:io' show Platform;
 
 import '../../core/net/ios_verified_webview.dart';
@@ -48,7 +50,10 @@ class NextEpisodeBuffer {
     try {
       final source = await openSource();
       if (source == null || stale()) return;
-      final chapters = await source.chapters(target.itemId);
+      final chapters = VideoEpisodeCatalog.forChapter(
+        await VideoEpisodeCatalog.load(source, target.itemId),
+        target.chapterId,
+      );
       final index = target.chapterIndex + 1;
       if (index >= chapters.length || stale()) return;
       final chapter = chapters[index];
