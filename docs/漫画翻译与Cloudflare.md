@@ -1,0 +1,65 @@
+# 漫画翻译配置与部署
+
+在「设置 → 阅读与播放 → 漫画阅读器设置 → 漫画翻译」选择翻译方式，也可从阅读页的「翻译 → 翻译语言与引擎」进入。
+
+## 直接使用 AI 接口
+
+1. 选择「自填 AI 接口」。
+2. 填写服务商提供的完整 HTTPS Chat Completions 接口地址，通常以 `/v1/chat/completions` 结尾；模型名称按服务商文档填写。
+3. 填写 API Key，点击「保存并测试 AI 翻译」。看到 `Hello → 译文` 后返回阅读页翻译。
+
+无需自建服务器。文字先由本机 OCR 识别，只将文字发送到接口；模型须返回与输入顺序、数量一致的 JSON 字符串数组。连接测试会发送一条测试文字，可能产生服务商费用。
+
+## 使用漫画图片翻译服务器
+
+需准备兼容 [manga-image-translator](https://github.com/zyddnys/manga-image-translator) 的图片翻译服务。服务端安装模型、配置翻译器密钥，并提供同步 PNG 接口 `/translate/with-form/image`。
+
+1. 选择「漫画翻译服务器」，填写服务的根地址或完整接口地址。
+2. 若服务要求 Bearer Token，填写「服务器访问密钥」。密钥与 AI Key 分开保存。
+3. 选择服务端已安装的 OCR 和翻译器；点击「保存并测试图片翻译」。测试会上传一张写有 Hello 的小图片，验证返回值为 PNG。
+
+完整翻译会上传漫画图片，服务端完成识别、翻译、擦字及排版。模型部署方法以所用后端版本的官方文档为准。
+
+## 部署 Cloudflare 网关
+
+仓库提供 `deploy/translation-worker`，将 App 请求转发到固定的 AI 或图片翻译后端。网关不运行 OCR、擦字或图片模型，不能代替图片翻译服务器。此设计依据 [Workers 运行限制](https://developers.cloudflare.com/workers/platform/limits/)。
+
+在仓库根目录打开 PowerShell：
+
+```powershell
+Set-Location deploy/translation-worker
+node --test worker.test.mjs
+npx wrangler login
+npx wrangler secret put ACCESS_TOKEN
+npx wrangler secret put AI_UPSTREAM
+npx wrangler secret put AI_UPSTREAM_KEY
+npx wrangler deploy
+```
+
+按提示输入值：
+
+| 名称 | 填写内容 |
+| --- | --- |
+| `ACCESS_TOKEN` | 自己生成的随机访问密钥，稍后填进 App 的 API Key |
+| `AI_UPSTREAM` | 服务商的完整 HTTPS Chat Completions 接口地址 |
+| `AI_UPSTREAM_KEY` | 服务商分配的 API Key，仅保存在 Worker Secrets 中 |
+
+部署成功后，App 的 AI 接口填「部署输出的 Worker HTTPS 地址 + `/v1/chat/completions`」，模型名仍填上游模型名，App 的 API Key 填 `ACCESS_TOKEN`。
+
+图片翻译转发可单独配置，也可以与 AI 转发使用同一个 Worker：
+
+```powershell
+npx wrangler secret put MANGA_UPSTREAM
+# 仅当图片后端要求访问密钥时执行下一行：
+npx wrangler secret put MANGA_UPSTREAM_TOKEN
+```
+
+`MANGA_UPSTREAM` 填图片后端完整 HTTPS `/translate/with-form/image` 地址。App 选择「漫画翻译服务器」，地址填 Worker HTTPS 根地址，服务器访问密钥填 `ACCESS_TOKEN`。图片后端自己的密钥填 `MANGA_UPSTREAM_TOKEN`。
+
+只使用图片后端时，不需要设置 `AI_UPSTREAM` 和 `AI_UPSTREAM_KEY`。没有后端地址的接口返回「上游未配置」，不会转发到用户请求指定的网址。不能通过浏览器打开首页来判断翻译是否成功，应使用 App 内的连接测试。
+
+## 圈选翻译
+
+阅读页打开「翻译 → 翻译选定区域」，手指圈出对白或拖动选择区域，点击「翻译选区」。可切换「缩放浏览」移动、缩放长图，再切回圈选。译文预览满意后点击「应用到当前页」。
+
+开启「圈选翻译」后，长按图片直接进入选区工具；关闭后恢复图片操作菜单。设备端与 AI 模式将圈内文字合并为一个对话框翻译；服务器模式仅上传裁剪后的选区，返回图片再合成回当前页。应用仅作用于本次阅读，不改写原图或下载文件。

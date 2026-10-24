@@ -16,11 +16,13 @@ class SourceSearchDialog extends StatefulWidget {
     required this.library,
     required this.initialQuery,
     this.title,
+    this.candidateTitles = const [],
   });
   final DataSource? source;
   final ReadingLibrary library;
   final String initialQuery;
   final String? title;
+  final List<String> candidateTitles;
   @override
   State<SourceSearchDialog> createState() => _SourceSearchDialogState();
 }
@@ -38,7 +40,16 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
   @override
   void initState() {
     super.initState();
-    suggestions = input.text.isEmpty ? history.load() : [];
+    suggestions = SearchSuggestions(
+      source: widget.source,
+      history: history.load(),
+      candidates: widget.candidateTitles,
+    ).localForKeyword(input.text);
+    if (input.text.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) changed(input.text);
+      });
+    }
   }
 
   @override
@@ -58,6 +69,7 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
       () => suggestions = SearchSuggestions(
         source: widget.source,
         history: history.load(),
+        candidates: widget.candidateTitles,
       ).localForKeyword(query),
     );
     if (query.isEmpty || widget.source is! SuggestCapable) return;
@@ -69,6 +81,7 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
           () => SearchSuggestions(
             source: widget.source,
             history: history.load(),
+            candidates: widget.candidateTitles,
           ).forKeyword(query),
         );
       } on NetworkCancelled {
@@ -114,52 +127,54 @@ class _SourceSearchDialogState extends State<SourceSearchDialog>
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title ?? '搜索 · ${widget.source?.name ?? '当前站点'}'),
-    content: SizedBox(
-      width: 320,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: input,
-            autofocus: true,
-            textInputAction: TextInputAction.search,
-            onChanged: changed,
-            onSubmitted: submit,
-            onTapOutside: (_) {
-              timer?.cancel();
-              networkRequests.cancelAll();
-              revision++;
-              setState(() => suggestions = []);
-              FocusScope.of(context).unfocus();
-            },
-          ),
-          if (input.text.trim().isEmpty && suggestions.isNotEmpty)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () {
-                  history.clear();
-                  setState(() => suggestions = []);
-                },
-                child: const Text('清空全部历史'),
-              ),
+    content: TextFieldTapRegion(
+      child: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: input,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              onChanged: changed,
+              onSubmitted: submit,
+              onTapOutside: (_) {
+                timer?.cancel();
+                networkRequests.cancelAll();
+                revision++;
+                setState(() => suggestions = []);
+                FocusScope.of(context).unfocus();
+              },
             ),
-          if (suggestions.isNotEmpty)
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final title in suggestions)
-                    ListTile(
-                      dense: true,
-                      title: Text.rich(highlighted(title)),
-                      onTap: () => submit(title),
-                    ),
-                ],
+            if (input.text.trim().isEmpty && suggestions.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    history.clear();
+                    setState(() => suggestions = []);
+                  },
+                  child: const Text('清空全部历史'),
+                ),
               ),
-            ),
-        ],
+            if (suggestions.isNotEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final title in suggestions)
+                      ListTile(
+                        dense: true,
+                        title: Text.rich(highlighted(title)),
+                        onTap: () => submit(title),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     ),
     actions: [

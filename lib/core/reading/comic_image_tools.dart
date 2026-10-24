@@ -496,6 +496,47 @@ class ComicImageTools {
     ];
   }
 
+  /// A hand-selected speech bubble is translated as one paragraph.
+  Future<List<ComicTextRegion>> translateSelectedRegion(Uint8List bytes) async {
+    final regions = await recognizeRegions(bytes);
+    final text = regions
+        .map((r) => r.text.trim())
+        .where((s) => s.isNotEmpty)
+        .join('\n');
+    if (text.isEmpty) return const [];
+    if (text.runes.length > 40000) {
+      throw const FormatException('选区文字过多，请缩小范围后重试');
+    }
+    final translated = preferences.ai
+        ? await _translateAI([text])
+        : await TextTranslationService.shared.translate(
+            [text],
+            source: preferences.source,
+            target: preferences.target,
+            using: (pending) async =>
+                (await _invoke<List<Object?>>('translate', {
+                  'texts': pending,
+                  'source': preferences.source,
+                  'target': preferences.target,
+                }))?.cast<String>() ??
+                [],
+          );
+    if (translated.isEmpty || translated.first.trim().isEmpty) return const [];
+    return [
+      ComicTextRegion(
+        text: text,
+        translation: translated.first,
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+      ),
+    ];
+  }
+
+  Future<String> testAITranslation() async =>
+      (await _translateAI(['Hello'])).first;
+
   /// Explicit whole-page server translation. Originals and downloads stay intact.
   Future<Uint8List> translateImageOnServer(Uint8List bytes) async {
     if (_disposed) throw StateError('图片处理已取消');
@@ -503,6 +544,16 @@ class ComicImageTools {
     final transport = client ?? http.Client();
     if (owned) _ownedClients.add(transport);
     try {
+      String serverKey = '';
+      try {
+        serverKey =
+            await channel.invokeMethod<String>('getKey', {
+              'slot': 'imageServer',
+            }) ??
+            '';
+      } on MissingPluginException {
+        /* Anonymous servers also work without native key storage. */
+      }
       final result = await MangaTranslationClient.translate(
         transport,
         bytes,
@@ -510,6 +561,7 @@ class ComicImageTools {
         target: preferences.target,
         ocr: preferences.serverOcr,
         translator: preferences.serverTranslator,
+        bearerToken: serverKey,
       );
       if (_disposed) throw StateError('图片处理已取消');
       return result;

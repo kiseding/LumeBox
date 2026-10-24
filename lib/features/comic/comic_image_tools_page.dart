@@ -78,6 +78,8 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     text: settings.colorizePrompt,
   );
   final keyInput = TextEditingController();
+  final serverKeyInput = TextEditingController();
+  ComicImageTools? probe;
   bool busy = false;
   String? status;
   @override
@@ -89,6 +91,8 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     colorizeModel.dispose();
     colorizePrompt.dispose();
     keyInput.dispose();
+    serverKeyInput.dispose();
+    probe?.dispose();
     super.dispose();
   }
 
@@ -100,6 +104,82 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('配置保存失败，请重试')));
       }
+    }
+  }
+
+  Future<void> saveServer() async {
+    MangaTranslationClient.endpoint(imageServer.text);
+    if (serverKeyInput.text.trim().isNotEmpty) {
+      if (!imageServer.text.trim().startsWith('https://')) {
+        throw const FormatException('带密钥的服务器必须使用 HTTPS');
+      }
+      await ComicImageTools.channel.invokeMethod<void>('setKey', {
+        'key': serverKeyInput.text.trim(),
+        'slot': 'imageServer',
+      });
+      serverKeyInput.clear();
+    }
+    settings.imageTranslationEndpoint = imageServer.text.trim();
+    await settings.save();
+  }
+
+  Future<void> testTranslation(bool server) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      status = server ? '正在发送测试图片…' : '正在发送测试文字…';
+    });
+    final tools = probe = ComicImageTools();
+    try {
+      if (server) {
+        await saveServer();
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder)..drawColor(Colors.white, BlendMode.src);
+        final text = TextPainter(
+          text: const TextSpan(
+            text: 'Hello',
+            style: TextStyle(color: Colors.black, fontSize: 28),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        text.paint(canvas, const Offset(16, 16));
+        text.dispose();
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(160, 80);
+        picture.dispose();
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+        await tools.translateImageOnServer(bytes!.buffer.asUint8List());
+        if (mounted) setState(() => status = '测试成功：服务器返回了翻译图片');
+      } else {
+        ComicImageTools.validateEndpoint(endpoint.text);
+        if (model.text.trim().isEmpty) throw const FormatException('请填写模型名称');
+        if (keyInput.text.trim().isNotEmpty) {
+          await ComicImageTools.channel.invokeMethod<void>('setKey', {
+            'key': keyInput.text.trim(),
+          });
+          keyInput.clear();
+        }
+        settings.endpoint = endpoint.text.trim();
+        settings.model = model.text.trim();
+        await settings.save();
+        final translated = await tools.testAITranslation();
+        if (mounted) setState(() => status = '测试成功：Hello → $translated');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => status = error is FormatException
+              ? error.message
+              : error is StateError
+              ? error.message.toString()
+              : '测试失败，请检查地址、密钥、模型及网络',
+        );
+      }
+    } finally {
+      tools.dispose();
+      probe = null;
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -304,7 +384,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                     '设备端：使用 Apple 翻译与系统语言包，不能导入第三方语言包。语言识别不准时，可把“原文语言”改成漫画实际语言。\n\n'
                     '自填 AI 接口：不必自己部署服务器。填写服务商提供的完整 HTTPS Chat Completions 地址（通常以 /v1/chat/completions 结尾）、准确的模型名称和 API Key，保存后返回阅读器开启翻译。此方式先在本机识字，只上传文字；请使用支持结构化 JSON 译文的模型。\n\n'
                     '漫画翻译服务器：需先部署兼容 manga-image-translator 的后端，或使用已有服务。填写 HTTPS 根地址，App 会调用 /translate/with-form/image；后端需先配置 OCR、翻译器密钥、擦字与排版模型。此方式上传整张漫画，返回处理好的图片。\n\n'
-                    'Cloudflare：普通 Workers 可做接口网关，转发到 AI 或漫画翻译后端；完整漫画图片处理服务不能直接作为普通 Worker 运行，需要另外的计算服务器。Workers AI 的文字翻译模型也需要转换为本 App 支持的接口格式。\n\n'
+                    'Cloudflare：项目 deploy/translation-worker 提供可部署网关。配置 ACCESS_TOKEN、AI_UPSTREAM 和 AI_UPSTREAM_KEY 后部署；App 地址填 Worker 地址加 /v1/chat/completions，API Key 填 ACCESS_TOKEN。图片模式配置 MANGA_UPSTREAM，App 填 Worker 根地址与服务器访问密钥。完整步骤见项目 docs/漫画翻译与Cloudflare.md。网关只转发，图片模型仍需独立后端。\n\n'
                     '圈选翻译：在阅读页圈出一个对话框或区域，只识别并翻译选中部分，适合自动识别遗漏或误识别时补译。',
                   ),
                 ],
@@ -344,6 +424,18 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                     hintText: 'https://服务器地址 或完整 /translate/with-form/image 接口',
                   ),
                 ),
+                TextField(
+                  controller: serverKeyInput,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    labelText: '服务器访问密钥（可选，留空保留）',
+                    helperText:
+                        '用于 Cloudflare 网关或要求 Bearer Token 的服务器，与 AI Key 分开保存',
+                    helperMaxLines: 3,
+                  ),
+                ),
                 choice('服务器识别模型', settings.serverOcr, {
                   '48px': '通用漫画 OCR',
                   'mocr': '日文漫画（manga-ocr）',
@@ -356,18 +448,37 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                   'sakura': 'Sakura',
                 }, (v) => settings.serverTranslator = v),
                 FilledButton(
-                  onPressed: () async {
-                    try {
-                      MangaTranslationClient.endpoint(imageServer.text);
-                      settings.imageTranslationEndpoint = imageServer.text
-                          .trim();
-                      await settings.save();
-                      if (mounted) setState(() => status = '图片翻译服务器配置已保存');
-                    } catch (error) {
-                      if (mounted) setState(() => status = '$error');
-                    }
-                  },
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          try {
+                            await saveServer();
+                            if (mounted) {
+                              setState(() => status = '图片翻译服务器配置已保存');
+                            }
+                          } catch (error) {
+                            if (mounted) setState(() => status = '$error');
+                          }
+                        },
                   child: const Text('保存图片翻译服务器'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : () => testTranslation(true),
+                  icon: const Icon(Icons.wifi_tethering),
+                  label: const Text('保存并测试图片翻译'),
+                ),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          await ComicImageTools.channel.invokeMethod<void>(
+                            'setKey',
+                            {'key': '', 'slot': 'imageServer'},
+                          );
+                          serverKeyInput.clear();
+                          if (mounted) setState(() => status = '已清除服务器访问密钥');
+                        },
+                  child: const Text('清除服务器访问密钥'),
                 ),
               ],
               const Padding(
@@ -461,6 +572,11 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                           }
                         },
                   child: const Text('清除已保存的密钥'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : () => testTranslation(false),
+                  icon: const Icon(Icons.wifi_tethering),
+                  label: const Text('保存并测试 AI 翻译'),
                 ),
               ],
               if (status != null)

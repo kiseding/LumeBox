@@ -28,6 +28,7 @@ class ComicReaderPreferences {
   bool volumeKeys = false;
   bool autoLandscapeDouble = false;
   bool autoNextChapter = true;
+  bool circleTranslation = false;
   List<String> toolbar = ['auto', 'slider', 'thumbnails'];
 
   static ComicReaderPreferences load(ReadingLibrary library) {
@@ -88,6 +89,7 @@ class ComicReaderPreferences {
       result.volumeKeys = json['volumeKeys'] == true;
       result.autoLandscapeDouble = json['autoLandscapeDouble'] == true;
       result.autoNextChapter = json['autoNextChapter'] != false;
+      result.circleTranslation = json['circleTranslation'] == true;
       result.grayscale = json['grayscale'] == true;
       result.inverted = json['inverted'] == true;
       if (json['toolbar'] is List) {
@@ -131,6 +133,7 @@ class ComicReaderPreferences {
       'volumeKeys': volumeKeys,
       'autoLandscapeDouble': autoLandscapeDouble,
       'autoNextChapter': autoNextChapter,
+      'circleTranslation': circleTranslation,
       'toolbar': toolbar,
     }),
   );

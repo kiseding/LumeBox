@@ -1045,6 +1045,7 @@ class _ExploreViewState extends State<ExploreView>
       () => _suggestions = SearchSuggestions(
         source: _source,
         history: _historyStore?.load() ?? const <String>[],
+        candidates: _items.map((item) => item.title).toList(),
       ).localForKeyword(keyword),
     );
     if (_source is! SuggestCapable) return;
@@ -1063,6 +1064,7 @@ class _ExploreViewState extends State<ExploreView>
         () => SearchSuggestions(
           source: _source,
           history: _historyStore?.load() ?? const <String>[],
+          candidates: _items.map((item) => item.title).toList(),
         ).forKeyword(keyword),
       );
     } on NetworkCancelled {

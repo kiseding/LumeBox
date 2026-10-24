@@ -326,6 +326,14 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
                     ),
                   ),
                 ),
+                if (prefs != null)
+                  SwitchListTile(
+                    title: const Text('长按圈选翻译'),
+                    subtitle: const Text('开启后长按图片进入区域翻译；关闭后恢复图片操作菜单'),
+                    value: prefs.circleTranslation,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.circleTranslation = v),
+                  ),
               ],
             ),
           ),

@@ -232,11 +232,22 @@ class _SearchResultsPageState extends State<SearchResultsPage>
 
   Future<void> _editKeyword() async {
     final library = await ReadingLibrary.open(widget.section);
+    DataSource? suggestionSource;
+    try {
+      final id =
+          widget.sourceId ??
+          _resolvedSourceId ??
+          (await _manager.current())?.id;
+      if (id != null) suggestionSource = await _manager.open(id);
+    } catch (_) {
+      // Cached titles and history remain available if the source cannot open.
+    }
     if (!mounted) return;
     final query = await showDialog<String>(
       context: context,
       builder: (_) => SourceSearchDialog(
-        source: null,
+        source: suggestionSource,
+        candidateTitles: [for (final row in _rows) row.item.title],
         library: library,
         initialQuery: _keyword,
         title: widget.mode.label,

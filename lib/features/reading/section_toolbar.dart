@@ -340,13 +340,18 @@ class SearchScopeSelection {
 
 /// 联想词来源：优先图源的 `suggest`，没实现就用本地搜索历史。
 class SearchSuggestions {
-  const SearchSuggestions({required this.source, required this.history});
+  const SearchSuggestions({
+    required this.source,
+    required this.history,
+    this.candidates = const [],
+  });
 
   /// 当前源（可能没有 suggest 能力）。
   final DataSource? source;
 
   /// 本地搜索历史。
   final List<String> history;
+  final List<String> candidates;
 
   /// 最多给几条（用户点名 8–10 条）。
   static const int maxEntries = 10;
@@ -361,7 +366,9 @@ class SearchSuggestions {
     final source = this.source;
     if (source is SuggestCapable) {
       try {
-        final remote = await (source as SuggestCapable).suggest(text);
+        final remote = await (source as SuggestCapable)
+            .suggest(text)
+            .timeout(const Duration(seconds: 3));
         final cleaned = _dedupe(remote, text);
         if (cleaned.isNotEmpty) return cleaned.take(maxEntries).toList();
       } catch (error) {
@@ -374,7 +381,10 @@ class SearchSuggestions {
 
   List<String> localForKeyword(String keyword) => keyword.trim().isEmpty
       ? history.take(maxEntries).toList()
-      : _dedupe(history, keyword.trim()).take(maxEntries).toList();
+      : _dedupe([
+          ...history,
+          ...candidates,
+        ], keyword.trim()).take(maxEntries).toList();
 
   /// 去重 + 只留包含关键词的 + 去掉与关键词本身相同的那条。
   static List<String> _dedupe(List<String> values, String keyword) {
@@ -383,8 +393,10 @@ class SearchSuggestions {
     for (final value in values) {
       final text = value.trim();
       if (text.isEmpty) continue;
-      if (!text.toLowerCase().contains(keyword.toLowerCase())) continue;
-      if (!seen.add(text)) continue;
+      final normalized = SearchSettings.instance.prepare(text).toLowerCase();
+      final query = SearchSettings.instance.prepare(keyword).toLowerCase();
+      if (!normalized.contains(query)) continue;
+      if (!seen.add(normalized)) continue;
       out.add(text);
     }
     return out;

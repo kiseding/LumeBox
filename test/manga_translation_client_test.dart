@@ -60,4 +60,33 @@ void main() {
       client.close();
     }
   });
+
+  test(
+    'authenticated servers receive their own token and reject plain HTTP',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer server-only-token');
+        expect(request.followRedirects, isFalse);
+        return http.Response.bytes(png, 200);
+      });
+      addTearDown(client.close);
+      await MangaTranslationClient.translate(
+        client,
+        png,
+        url: 'https://worker.test',
+        target: 'zh-Hans',
+        bearerToken: 'server-only-token',
+      );
+      await expectLater(
+        MangaTranslationClient.translate(
+          client,
+          png,
+          url: 'http://worker.test',
+          target: 'zh-Hans',
+          bearerToken: 'server-only-token',
+        ),
+        throwsFormatException,
+      );
+    },
+  );
 }

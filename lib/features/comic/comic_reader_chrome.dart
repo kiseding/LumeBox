@@ -1109,6 +1109,25 @@ extension _ComicReaderChrome on _ComicReaderPageState {
               ),
             ),
           ),
+          _entry(
+            Icons.gesture,
+            '翻译选定区域',
+            _images.isEmpty ? null : () => close(_translateSelectedRegion),
+            detail: '将圈出的内容作为一个对话框翻译',
+          ),
+          _entry(
+            Icons.touch_app_outlined,
+            '圈选翻译',
+            () => change(() {
+              _preferences.circleTranslation = !_preferences.circleTranslation;
+              _saveExperience();
+            }),
+            detail: _preferences.circleTranslation
+                ? '开启 · 长按图片进入圈选'
+                : '关闭 · 长按图片仍显示操作菜单',
+            selected: _preferences.circleTranslation,
+            arrow: false,
+          ),
         ];
       default:
         return [
@@ -2246,7 +2265,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                    warning,
+              warning,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),

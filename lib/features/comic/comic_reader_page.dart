@@ -49,6 +49,7 @@ import '../../shared/widgets/state_view.dart';
 import 'comic_bookmarks.dart';
 import '../../core/session/section_module_settings.dart';
 import 'comic_reader_settings_page.dart';
+import 'comic_region_translation_page.dart';
 import 'comic_settings.dart';
 import 'comic_reader_preferences.dart';
 import 'reader_volume_keys.dart';
@@ -1171,6 +1172,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   /// 用户粘到任意 App 都能用。
   Future<void> _onImageLongPress(int index) async {
     if (index < 0 || index >= _images.length) return;
+    if (_preferences.circleTranslation) {
+      await _translateSelectedRegion(index);
+      return;
+    }
     final action = await showLumeBottomSheet<_ImageAction>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1190,6 +1195,43 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           ),
         );
     }
+  }
+
+  Future<void> _translateSelectedRegion([int? index]) async {
+    if (_images.isEmpty) return;
+    _stopAutoScroll();
+    _translationGeneration++;
+    _translationBusy = false;
+    final url = _images[(index ?? _page).clamp(0, _images.length - 1)];
+    final result = await Navigator.of(context)
+        .push<ComicRegionTranslationResult>(
+          MaterialPageRoute(
+            builder: (_) => ComicRegionTranslationPage(
+              loadImage: () async {
+                final bytes =
+                    _pageOverrides[url] ??
+                    await widget.pageBytes?.call(url) ??
+                    await _pipeline.bytes(url);
+                if (bytes == null) throw StateError('原图加载失败');
+                return bytes;
+              },
+            ),
+          ),
+        );
+    if (!mounted || result == null) return;
+    setState(() {
+      _pageOverrides[url] = result.bytes;
+      _translations[url] = [
+        for (final region in _translations[url] ?? const <ComicTextRegion>[])
+          if (!Rect.fromLTWH(
+            region.x,
+            region.y,
+            region.width,
+            region.height,
+          ).overlaps(result.selection))
+            region,
+      ];
+    });
   }
 
   /// 长按保存当前图片：取原始字节写入本板块的导出目录（不经相册权限）。

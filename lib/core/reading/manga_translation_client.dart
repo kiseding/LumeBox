@@ -47,19 +47,27 @@ class MangaTranslationClient {
     required String target,
     String ocr = '48px',
     String translator = 'chatgpt',
+    String bearerToken = '',
   }) async {
     final language = targets[target];
     if (language == null) throw const FormatException('图片翻译服务器不支持此目标语言');
     if (!['48px', 'mocr'].contains(ocr)) {
       throw const FormatException('图片识别模型无效');
     }
-    if (!['chatgpt', 'deepl', 'youdao', 'baidu', 'sakura'].contains(translator)) {
+    if (![
+      'chatgpt',
+      'deepl',
+      'youdao',
+      'baidu',
+      'sakura',
+    ].contains(translator)) {
       throw const FormatException('服务器翻译器无效');
     }
     if (image.isEmpty || image.length > maxInput) {
       throw const FormatException('图片为空或超过 20MB');
     }
     final request = http.MultipartRequest('POST', endpoint(url))
+      ..followRedirects = false
       ..fields['config'] = jsonEncode({
         'ocr': {'ocr': ocr},
         'translator': {'translator': translator, 'target_lang': language},
@@ -67,6 +75,12 @@ class MangaTranslationClient {
       ..files.add(
         http.MultipartFile.fromBytes('image', image, filename: 'page.png'),
       );
+    if (bearerToken.trim().isNotEmpty) {
+      if (request.url.scheme != 'https') {
+        throw const FormatException('带密钥的服务器必须使用 HTTPS');
+      }
+      request.headers['Authorization'] = 'Bearer ${bearerToken.trim()}';
+    }
     return (() async {
       final response = await client.send(request);
       if (response.statusCode != 200) {
@@ -74,7 +88,8 @@ class MangaTranslationClient {
           '图片翻译服务器返回 HTTP ${response.statusCode}，请检查服务端模型、翻译器与密钥配置',
         );
       }
-      if (response.contentLength != null && response.contentLength! > maxOutput) {
+      if (response.contentLength != null &&
+          response.contentLength! > maxOutput) {
         throw const FormatException('服务器图片超过 30MB');
       }
       final bytes = BytesBuilder(copy: false);

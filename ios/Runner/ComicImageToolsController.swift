@@ -110,7 +110,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       result(nil); return
     }
     if call.method == "getKey" || call.method == "setKey" {
-      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "lumebox.comicTranslation", kSecAttrAccount as String: "apiKey"]
+      let keySlot = args["slot"] as? String == "imageServer" ? "imageServer" : "apiKey"
+      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "lumebox.comicTranslation", kSecAttrAccount as String: keySlot]
       if call.method == "getKey" {
         var read = query; read[kSecReturnData as String] = true
         var value: CFTypeRef?

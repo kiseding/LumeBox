@@ -86,6 +86,44 @@ void main() {
     tools.dispose();
   });
 
+  test(
+    'selected bubble combines OCR lines into one translation request',
+    () async {
+      messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+        if (call.method == 'recognize')
+          return [
+            {
+              'text': 'selected-bubble-line-one',
+              'x': .1,
+              'y': .1,
+              'width': .7,
+              'height': .2,
+            },
+            {
+              'text': 'selected-bubble-line-two',
+              'x': .1,
+              'y': .4,
+              'width': .7,
+              'height': .2,
+            },
+          ];
+        if (call.method == 'translate') {
+          expect((call.arguments as Map)['texts'], [
+            'selected-bubble-line-one\nselected-bubble-line-two',
+          ]);
+          return ['一整句对白'];
+        }
+        return null;
+      });
+      final tools = ComicImageTools();
+      tools.preferences.ai = false;
+      addTearDown(tools.dispose);
+      final regions = await tools.translateSelectedRegion(bytes);
+      expect(regions.single.translation, '一整句对白');
+      expect(regions.single.width, 1);
+    },
+  );
+
   test('部分翻译失败仍返回成功区域，失败对白保留原图并给出简短提示', () async {
     messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
       if (call.method == 'recognize')
