@@ -17,16 +17,16 @@ abstract final class AggregateSearchLayout {
   static const titleSize = 12.5;
   static const titleLineHeight = 1.25;
   static const dividerSlotWidth = 1.0;
-  static const siteRowMinHeight = 38.0;
+  static const siteRowMinHeight = 46.0;
   static const siteRowRadius = 8.0;
   static const selectedSiteOpacity = .065;
   static const selectedIndicatorWidth = 2.0;
-  static const selectedIndicatorHeight = 18.0;
+  static const selectedIndicatorHeight = 22.0;
   static const dividerOpacity = .08;
   static const siteSeparatorOpacity = .07;
 
-  // A compact source rail leaves more room for results on phones; cap it on tablets.
-  static double sidebarWidth(double width) => (width * .215).clamp(72.0, 110.0);
+  // Keep the source rail at the requested proportion across screen sizes.
+  static double sidebarWidth(double width) => width * .26;
   static double cellWidth(double width) =>
       (width - 2 * gridPadding - (columns - 1) * columnGap) / columns;
   static double itemExtent(double width, double textScale) =>

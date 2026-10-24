@@ -70,7 +70,7 @@ void main() {
             for (var i = 0; i < 4; i++)
               tester.getRect(find.byKey(ValueKey('search-cover-s${i % 3}-$i'))),
           ];
-          expect(rail.width, inInclusiveRange(72, 110));
+          expect(rail.width, closeTo(width * .26, .01));
           expect(covers[0].top, closeTo(covers[1].top, .01));
           expect(covers[0].top, closeTo(covers[2].top, .01));
           expect(covers[3].top, greaterThan(covers[0].bottom));

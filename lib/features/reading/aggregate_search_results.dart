@@ -237,7 +237,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                                     .scale(1)
                                     .clamp(1.0, 2.0),
                           ),
-                          padding: const EdgeInsets.fromLTRB(8, 4, 7, 4),
+                          padding: const EdgeInsets.fromLTRB(8, 6, 7, 6),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.center,
