@@ -292,7 +292,7 @@ class SourceSubscriptionSync {
         record.checkedAt = _clock();
         try {
           final resolver = SourceSubscription(
-            maxScripts: 200,
+            maxScripts: SourceSubscription.defaultMaxScripts,
             strictManifest: true,
             fetch:
                 fetch ??

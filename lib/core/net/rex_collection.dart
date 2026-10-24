@@ -2,6 +2,7 @@ import 'dart:convert';
 
 /// Rex/Forward collection manifests. Module URLs can be extensionless.
 class RexCollection {
+  static const maxEntries = 2000;
   RexCollection(this.entries);
   final List<RexCollectionEntry> entries;
 
@@ -22,7 +23,9 @@ class RexCollection {
     }
     final entries = <RexCollectionEntry>[];
     final widgets = value['widgets'] as List;
-    if (widgets.length > 512) throw const FormatException('Rex 集合超过 512 个条目');
+    if (widgets.length > maxEntries) {
+      throw const FormatException('Rex 集合超过 2000 个条目');
+    }
     for (var i = 0; i < widgets.length; i++) {
       final entry = widgets[i];
       if (entry is! Map || entry['url'] is! String) {

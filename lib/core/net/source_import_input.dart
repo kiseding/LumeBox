@@ -75,7 +75,7 @@ class SourceImportInput {
   static SourceImportInput classify(
     String raw, {
     String name = '',
-    int urlLimit = 20,
+    int urlLimit = SourceSubscription.defaultMaxScripts,
   }) {
     final text = stripBomText(raw).trim();
     if (text.isEmpty) {

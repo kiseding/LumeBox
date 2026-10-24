@@ -61,6 +61,15 @@ class SourceBundle {
 
   static SourceBundle fromZip(List<int> bytes) {
     var files = _unzip(bytes);
+    if (files.containsKey('rex-manifest.json')) {
+      final manifest = jsonDecode(utf8.decode(files['rex-manifest.json']!));
+      if (manifest is Map &&
+          manifest['format'] == 'video.fika.rex.home-package') {
+        throw const FormatException(
+          '这是 Rex 首页布局包，不是独立模块源。请导入作者的模块集合地址，或单独导入 rex-scripts 里的脚本；首页布局暂不支持，REXENC 加密脚本还需要可用的密钥加载协议或作者提供的明文版本。',
+        );
+      }
+    }
     var manifests = files.keys
         .where((name) => name == 'lume.json' || name.endsWith('/lume.json'))
         .toList();

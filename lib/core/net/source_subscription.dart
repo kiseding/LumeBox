@@ -36,9 +36,10 @@ class SourceFetchResult {
 /// 这一层刻意从 UI 里抽出来：导入弹窗与「更新订阅源」共用同一套解析，两处的
 /// 行为不会走偏（更新时同样会校验 MD5）。
 class SourceSubscription {
+  static const defaultMaxScripts = 2000;
   SourceSubscription({
     required this.fetch,
-    this.maxScripts = 20,
+    this.maxScripts = defaultMaxScripts,
     this.onSkip,
     this.strictManifest = false,
   });
@@ -63,14 +64,14 @@ class SourceSubscription {
 
   /// 默认实现：走宿主网络层（统一队列 / UA / 代理 / 重试）。
   factory SourceSubscription.viaHttp({
-    int maxScripts = 20,
+    int maxScripts = defaultMaxScripts,
     void Function(String url, Object error)? onSkip,
   }) {
-    final http = LumeHttp(source: '订阅拉取');
     return SourceSubscription(
       maxScripts: maxScripts,
       onSkip: onSkip,
       fetch: (url) async {
+        final http = LumeHttp(source: '订阅拉取');
         try {
           final response = await http.send(url: url);
           if (response.statusCode < 200 || response.statusCode >= 300) {
