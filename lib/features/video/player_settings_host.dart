@@ -43,6 +43,7 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
 
   @override
   void dispose() {
+    _library?.settingsRevision.removeListener(_sharedSettingsChanged);
     super.dispose();
   }
 
@@ -60,6 +61,7 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
         _library = library;
         _danmaku = DanmakuSettingsStore(library).load();
       });
+      library.settingsRevision.addListener(_sharedSettingsChanged);
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
@@ -77,6 +79,17 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
     setState(() => _danmaku = next);
     final library = _library;
     if (library != null) DanmakuSettingsStore(library).save(next);
+  }
+
+  void _sharedSettingsChanged() {
+    final library = _library;
+    if (!mounted ||
+        library == null ||
+        library.lastSettingKey != DanmakuSettings.settingKey) {
+      return;
+    }
+    final next = DanmakuSettingsStore(library).load();
+    if (next != _danmaku) setState(() => _danmaku = next);
   }
 
   @override

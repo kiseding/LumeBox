@@ -30,6 +30,7 @@ import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
 import 'source_section_page.dart';
 import 'source_maintenance.dart';
+import '../settings/subscription_sync_page.dart';
 import '../../shared/widgets/source_swipe_tile.dart';
 
 enum _VideoImportAction { kazumi }
@@ -917,6 +918,17 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
               child: Column(
                 children: [
                   SourcePickerHeader(
+                    onSync: () async {
+                      await Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SubscriptionSyncPage(
+                            section: Section.video,
+                          ),
+                        ),
+                      );
+                      if (mounted) await load();
+                    },
                     title: '选择视频源',
                     onManage: () async {
                       await Navigator.push(

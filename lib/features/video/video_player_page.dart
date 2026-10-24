@@ -722,6 +722,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   void dispose() {
     _rebuildSeq++;
+    _library?.settingsRevision.removeListener(_onSharedSettingsChanged);
     DanmakuSourcesStore.revision.removeListener(_danmakuServiceChanged);
     _introGeneration++;
     _intro?.dispose();
@@ -1038,6 +1039,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     try {
       final library = await libraryFuture;
       if (!mounted) return;
+      library.settingsRevision.addListener(_onSharedSettingsChanged);
       final store = DanmakuSettingsStore(library);
       // 用户在库就绪前改过弹幕设置：以他改的那一份为准，并把待写值补落库
       //（读盘结果只用于**没人动过**的情况，见 [_danmakuSettingsDirty]）。
@@ -1088,7 +1090,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 亮度探测**不挡在创建内核前面**：它是两次平台通道往返，与「建播放器」
     // 毫无依赖（结果只服务亮度手势）。此前串行等待等于让起播白等两个往返。
     unawaited(_probeBrightness());
-    await _rebuildPlayer();
+    // Initial media is loaded by _startPlayback after quality selection and
+    // target identity are ready. Loading it here too resets the surface twice.
+    await _rebuildPlayer(loadCurrentMedia: false);
     // 内核就绪后再把媒体交出去（有媒体、且播放器真的在手上时）。
     //
     // 播放器起不来时**不**走这一步：失败态已经有带出口的说明卡，再弹一条
@@ -1139,7 +1143,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   ///    要么拿着一个播放器，要么拿着一条带出口的失败说明——不会停在「转圈」上；
   /// 2. **实例不泄漏**：任何路径下建出来但没被采用的播放器都要 dispose；
   /// 3. **落库失败不拖垮播放**：写设置库失败只记日志并提示。
-  Future<void> _rebuildPlayer() async {
+  Future<void> _rebuildPlayer({bool loadCurrentMedia = true}) async {
     _nextEpisodeBuffer.discard();
     final seq = ++_rebuildSeq;
     if (_session?.state == PipState.active ||
@@ -1259,7 +1263,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       await player.applySettings(_settings);
       if (!mounted || !identical(player, _player)) return;
       final media = _media;
-      if (media != null) await _loadMedia(media);
+      if (media != null && loadCurrentMedia) await _loadMedia(media);
       if (!mounted || !identical(player, _player)) return;
       if (resume != null && !resume.isAtStart) {
         await player.seek(resume.position);
@@ -2968,6 +2972,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       return;
     }
     DanmakuSettingsStore(library).save(next);
+  }
+
+  void _onSharedSettingsChanged() {
+    final library = _library;
+    if (!mounted ||
+        library == null ||
+        library.lastSettingKey != DanmakuSettings.settingKey) {
+      return;
+    }
+    final next = DanmakuSettingsStore(library).load();
+    if (next == _danmakuSettings) return;
+    setState(() => _danmakuSettings = next);
+    _notifyDanmakuSheet();
   }
 
   /// 不支持的项：统一提示（用户点名的口径）。

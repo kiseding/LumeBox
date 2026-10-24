@@ -231,6 +231,66 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               _group(
+                '账号登录与会话',
+                '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
+                <Widget>[
+                  if (widget.source.siteUrl.isNotEmpty)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.login),
+                      label: const Text('打开站点网页登录 / 检查状态'),
+                      onPressed: () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SourceLoginPage(
+                            section: widget.source.section ?? Section.comic,
+                            sourceId: widget.source.id,
+                            name: widget.source.name,
+                            url:
+                                widget
+                                    .source
+                                    .siteConfig
+                                    .domainOverride
+                                    .isNotEmpty
+                                ? widget.source.siteConfig.domainOverride
+                                : widget.source.siteUrl,
+                            userAgent: widget.source.network.userAgent,
+                          ),
+                        ),
+                      ),
+                    ),
+                  TextField(
+                    controller: _account,
+                    decoration: const InputDecoration(
+                      labelText: '账号',
+                      hintText: '手机号 / 邮箱 / 用户名',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _password,
+                    obscureText: !_showPassword,
+                    decoration: InputDecoration(
+                      labelText: '密码',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: _showPassword ? '隐藏' : '显示',
+                        icon: LumeIcon(
+                          _showPassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          slot: 'source_action_dialogs.2',
+                          variant: true,
+                        ),
+                        onPressed: () =>
+                            setState(() => _showPassword = !_showPassword),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _group(
                 '网络配置',
                 '留空即继承「设置 → 网络设置」里的全局值。这里的配置只作用于本源，'
                     'Cookie 不与其他源共享。',
@@ -343,65 +403,6 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                 ),
               ]),
               const SizedBox(height: 12),
-              _group(
-                '账号登入',
-                '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
-                <Widget>[
-                  if (widget.source.siteUrl.isNotEmpty)
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.login),
-                      label: const Text('打开站点网页登录 / 检查状态'),
-                      onPressed: () => Navigator.push<void>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SourceLoginPage(
-                            section: widget.source.section ?? Section.comic,
-                            sourceId: widget.source.id,
-                            name: widget.source.name,
-                            url:
-                                widget
-                                    .source
-                                    .siteConfig
-                                    .domainOverride
-                                    .isNotEmpty
-                                ? widget.source.siteConfig.domainOverride
-                                : widget.source.siteUrl,
-                            userAgent: widget.source.network.userAgent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  TextField(
-                    controller: _account,
-                    decoration: const InputDecoration(
-                      labelText: '账号',
-                      hintText: '手机号 / 邮箱 / 用户名',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _password,
-                    obscureText: !_showPassword,
-                    decoration: InputDecoration(
-                      labelText: '密码',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        tooltip: _showPassword ? '隐藏' : '显示',
-                        icon: LumeIcon(
-                          _showPassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          slot: 'source_action_dialogs.2',
-                          variant: true,
-                        ),
-                        onPressed: () =>
-                            setState(() => _showPassword = !_showPassword),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),

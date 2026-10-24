@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoThemeData;
 
 import '../../shared/widgets/lume_icon.dart';
 
@@ -447,6 +448,10 @@ class LumeTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
+      cupertinoOverrideTheme: CupertinoThemeData(
+        primaryColor: accentColor,
+        applyThemeToAll: true,
+      ),
       scaffoldBackgroundColor: base,
       canvasColor: surface,
       dividerColor: divider,

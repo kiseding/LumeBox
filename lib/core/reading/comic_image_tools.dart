@@ -238,6 +238,7 @@ class ComicImageTools {
   static int _sequence = 0;
   bool _disposed = false;
   ComicTranslationReport? lastTranslationReport;
+  String? lastTranslationWarning;
 
   /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
   // Readers and cover pipelines share one device budget, rather than each
@@ -415,6 +416,7 @@ class ComicImageTools {
 
   Future<List<ComicTextRegion>> translate(Uint8List bytes) async {
     lastTranslationReport = null;
+    lastTranslationWarning = null;
     final timer = Stopwatch()..start();
     final regions = await recognizeRegions(bytes);
     final recognition = timer.elapsed;
@@ -444,20 +446,37 @@ class ComicImageTools {
         end++;
       }
       final texts = regions.sublist(start, end).map((r) => r.text).toList();
-      final translated = preferences.ai
-          ? await _translateAI(texts)
-          : await TextTranslationService.shared.translate(
-              texts,
-              source: preferences.source,
-              target: preferences.target,
-              using: (pending) async =>
-                  (await _invoke<List<Object?>>('translate', {
-                    'texts': pending,
-                    'source': preferences.source,
-                    'target': preferences.target,
-                  }))?.cast<String>() ??
-                  [],
-            );
+      late final List<String> translated;
+      try {
+        translated = preferences.ai
+            ? await _translateAI(texts)
+            : await TextTranslationService.shared.translate(
+                texts,
+                source: preferences.source,
+                target: preferences.target,
+                using: (pending) async =>
+                    (await _invoke<List<Object?>>('translate', {
+                      'texts': pending,
+                      'source': preferences.source,
+                      'target': preferences.target,
+                    }))?.cast<String>() ??
+                    [],
+              );
+      } on PlatformException catch (error) {
+        if (error.code != 'translation_partial') rethrow;
+        translated = texts
+            .map(
+              (text) =>
+                  TextTranslationService.shared.lookup(
+                    text,
+                    source: preferences.source,
+                    target: preferences.target,
+                  ) ??
+                  '',
+            )
+            .toList();
+        lastTranslationWarning = '部分文字未翻译，成功译文与原图已保留。请手选原文语言，或切换 AI 翻译。';
+      }
       if (translated.length != texts.length) {
         throw const FormatException('译文数量与识别结果不一致');
       }
@@ -473,7 +492,7 @@ class ComicImageTools {
     );
     return [
       for (var i = 0; i < regions.length; i++)
-        regions[i].translated(strings[i]),
+        if (strings[i].trim().isNotEmpty) regions[i].translated(strings[i]),
     ];
   }
 

@@ -23,6 +23,7 @@ class DockHandleButton extends StatelessWidget {
     this.tooltip = '展开导航',
     this.sectionIcon = Icons.auto_stories_rounded,
     this.sectionId = 'comic',
+    this.materialOpacity = .6,
   });
 
   final DockHandleStyle style;
@@ -34,19 +35,14 @@ class DockHandleButton extends StatelessWidget {
   final String tooltip;
   final IconData sectionIcon;
   final String sectionId;
+  final double materialOpacity;
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final currentSection = style == DockHandleStyle.currentSection;
     final accent = LumeTheme.accent;
-    final glass = (dark ? LumeTheme.surface : Colors.white).withValues(
-      alpha: dark ? .52 : .64,
-    );
     final border = Border.all(
-      color: dark
-          ? Colors.white.withValues(alpha: .18)
-          : Colors.white.withValues(alpha: currentSection ? .28 : .82),
+      color: Colors.white.withValues(alpha: .28 * materialOpacity),
     );
     final content = switch (style) {
       DockHandleStyle.currentSection => LumeIcon(
@@ -59,7 +55,7 @@ class DockHandleButton extends StatelessWidget {
         Icons.chevron_right_rounded,
         slot: 'dock_handle_button.1',
         size: size * .58,
-        color: LumeTheme.onAccent,
+        color: accent,
       ),
       DockHandleStyle.grid => LumeIcon(
         Icons.grid_view,
@@ -80,30 +76,7 @@ class DockHandleButton extends StatelessWidget {
         fallback: _RoundedLines(color: accent),
       ),
     };
-    final fill = switch (style) {
-      DockHandleStyle.arrow => BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: .96),
-            accent.withValues(alpha: .68),
-          ],
-        ),
-      ),
-      DockHandleStyle.currentSection => const BoxDecoration(
-        shape: BoxShape.circle,
-      ),
-      DockHandleStyle.grid => BoxDecoration(
-        color: glass,
-        shape: BoxShape.circle,
-      ),
-      DockHandleStyle.lines => BoxDecoration(
-        color: glass.withValues(alpha: glass.a * .88),
-        shape: BoxShape.circle,
-      ),
-    };
+    const fill = BoxDecoration(shape: BoxShape.circle);
 
     return Opacity(
       opacity: opacity,
@@ -116,11 +89,19 @@ class DockHandleButton extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: border,
-              boxShadow: LumeTheme.floatShadow,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .08 * materialOpacity),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: ClipOval(
               child: FrostedGlassWidget(
                 nativeGlass: true,
+                neutralTint: true,
+                materialOpacity: materialOpacity,
                 nativeStyle: currentSection ? DockNativeGlassStyle.thin : null,
                 opacity: currentSection ? .18 : .72,
                 border: !currentSection,

@@ -15,6 +15,7 @@ import 'package:lume_box/core/speech/speech_session.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
+import 'package:lume_box/features/comic/comic_reader_preferences.dart';
 import 'package:lume_box/features/comic/comic_settings.dart';
 import 'package:lume_box/shared/widgets/chapter_tile.dart';
 import 'package:lume_box/shared/widgets/notice_card.dart';
@@ -266,15 +267,53 @@ void main() {
     await pumpReader(tester);
     expect(find.byType(Slider), findsOneWidget, reason: '主工具栏只保留页码滑块');
     await openSettings(tester);
-    await tester.tap(find.byType(Switch).first);
+    await tester.scrollUntilVisible(find.text('双击放大'), 250);
+    await tester.tap(find.widgetWithText(SwitchListTile, '双击放大'));
     await tester.pumpAndSettle();
     expect(ComicReaderSettings.load(library).doubleTapZoom, isTrue);
+    await tester.scrollUntilVisible(find.text('从右往左'), -250);
     await tester.tap(find.text('从右往左'));
     await tester.pumpAndSettle();
     expect(
       ComicReaderSettings.load(library).direction,
       ComicReadingDirection.rightToLeft,
     );
+  });
+
+  testWidgets(
+    'advanced settings keep consecutive changes when the reader reloads preferences',
+    (tester) async {
+      await pumpReader(tester);
+      await openSettings(tester);
+      for (final title in ['横屏自动双页', '音量键翻页', '章末自动续读']) {
+        await tester.scrollUntilVisible(find.text(title), 200);
+        await tester.tap(find.widgetWithText(SwitchListTile, title));
+        await tester.pumpAndSettle();
+      }
+      final prefs = ComicReaderPreferences.load(library);
+      expect(prefs.autoLandscapeDouble, isTrue);
+      expect(prefs.volumeKeys, isTrue);
+      expect(prefs.autoNextChapter, isFalse);
+    },
+  );
+
+  testWidgets('global reader changes immediately update an open reader', (
+    tester,
+  ) async {
+    await pumpReader(tester);
+    ComicReaderSettings.load(library)
+        .copyWith(
+          mode: ComicReadingMode.single,
+          background: ComicReaderBackground.white,
+        )
+        .save(library);
+    await tester.pumpAndSettle();
+    expect(find.byType(PageView), findsOneWidget);
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xFFFFFFFF),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('阅读背景：切到纯白后落库，页面底色立即跟着换', (tester) async {
@@ -315,6 +354,7 @@ void main() {
     // 用户口径（第十一次反馈）：「点击行为」也搬到了【阅读设置】二级页。
     await openSettings(tester);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('点击翻页'), 250);
     await tester.tap(find.text('点击翻页'));
     await tester.pumpAndSettle();
     expect(

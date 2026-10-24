@@ -182,6 +182,13 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   /// 弹幕设置（面板自己持一份，改一项立即回调宿主）。
   late DanmakuSettings? _danmaku = widget.danmaku;
 
+  @override
+  void didUpdateWidget(covariant PlayerSettingsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings != widget.settings) _settings = widget.settings;
+    if (oldWidget.danmaku != widget.danmaku) _danmaku = widget.danmaku;
+  }
+
   void _updateDanmaku(DanmakuSettings next) {
     setState(() => _danmaku = next);
     widget.onDanmakuChanged?.call(next);

@@ -42,8 +42,14 @@ private struct LumeSystemTabSpec: Equatable {
   let label: String
 }
 
+private final class LumeContentTabBar: UITabBar {
+  // Flutter already positions this control above the home indicator.
+  override var safeAreaInsets: UIEdgeInsets { .zero }
+}
+
 private final class LumeSystemTabBarContainer: UIView {
-  let bar = UITabBar()
+  let bar = LumeContentTabBar()
+  let material = UIVisualEffectView()
   var preferredHeight: CGFloat = 0
   var onHeightChanged: ((CGFloat) -> Void)?
   private var lastHeight: CGFloat = 0
@@ -51,15 +57,28 @@ private final class LumeSystemTabBarContainer: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     backgroundColor = .clear
+    #if compiler(>=6.2)
+    if #available(iOS 26.0, *) { material.effect = UIGlassEffect(style: .clear) }
+    else { material.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
+    #else
+    material.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+    #endif
+    material.isUserInteractionEnabled = false
+    material.clipsToBounds = true
+    addSubview(material)
+    let appearance = UITabBarAppearance()
+    appearance.configureWithTransparentBackground()
+    bar.standardAppearance = appearance
+    bar.scrollEdgeAppearance = appearance
     addSubview(bar)
-    // Do not replace the system material with a custom UITabBarAppearance.
-    // UIKit owns the platter, selected lens, gestures and accessibility.
+    // The backdrop has its own opacity; labels, hit targets and selection
+    // remain fully visible and continue to use the real system control.
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   static func fittingHeight(width: CGFloat) -> CGFloat {
-    let size = UITabBar().sizeThatFits(CGSize(width: max(width, 1), height: 1000))
+    let size = LumeContentTabBar().sizeThatFits(CGSize(width: max(width, 1), height: 1000))
     return min(max(ceil(size.height), 49), 100)
   }
 
@@ -72,6 +91,8 @@ private final class LumeSystemTabBarContainer: UIView {
     super.layoutSubviews()
     let height = fittingBarHeight
     let target = preferredHeight > 0 ? preferredHeight : height
+    material.frame = CGRect(x: 0, y: bounds.height - target, width: bounds.width, height: target)
+    material.layer.cornerRadius = target / 2
     let scale = target / height
     // Resize the complete public control, including its system lens and hit
     // targets. No traversal or modification of UIKit's private glass views.
@@ -165,6 +186,8 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
     let index = specs.firstIndex(where: { $0.id == activeId })
     container.bar.selectedItem = index.flatMap { container.bar.items?[$0] }
     container.overrideUserInterfaceStyle = values["brightness"] as? String == "dark" ? .dark : .light
+    let opacity = (values["materialOpacity"] as? NSNumber)?.doubleValue ?? 0.6
+    container.material.alpha = CGFloat(opacity.isFinite ? min(1, max(0, opacity)) : 0.6)
     if let tint = values["tintColor"] as? NSNumber {
       let argb = tint.uint32Value
       container.bar.tintColor = UIColor(

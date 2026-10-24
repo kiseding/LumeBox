@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_settings.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_overlay.dart';
 
 import 'package:lume_box/core/player/abstract_player.dart';
 import 'package:lume_box/core/player/brightness.dart';
@@ -106,6 +108,29 @@ void main() {
       await tester.pumpAndSettle();
       return created;
     }
+
+    testWidgets('首次起播只装载媒体一次，不重复重置视频画面', (tester) async {
+      final players = await pumpVideo(tester, available: {PlayerKernel.mpv});
+      expect(players.single.calls.where((c) => c == 'load').length, 1);
+      expect(players.single.media?.uri.toString(), 'https://example.com/a.mp4');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('全局弹幕设置写库后，正在播放的弹幕立即采用新样式', (tester) async {
+      await pumpVideo(tester, available: {PlayerKernel.mpv});
+      final library = ReadingLibrary.find(Section.video)!;
+      final next = DanmakuSettingsStore(library)
+          .load()
+          .copyWith(opacity: .42, fontScale: 1.3);
+      DanmakuSettingsStore(library).save(next);
+      await tester.pump();
+      final overlay = tester.widget<DanmakuOverlay>(
+        find.byType(DanmakuOverlay),
+      );
+      expect(overlay.settings.opacity, .42);
+      expect(overlay.settings.fontScale, 1.3);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
 
     testWidgets('后台连接中断后返回：保留中断进度、原播放状态和全屏', (tester) async {
       final pip = _FakePipBackend();

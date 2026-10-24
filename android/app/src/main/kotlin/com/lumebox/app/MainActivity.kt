@@ -1,6 +1,7 @@
 package com.lumebox.app
 
 import android.app.Activity
+import android.view.KeyEvent
 import android.content.Intent
 import android.content.ComponentName
 import android.content.pm.PackageManager
@@ -9,9 +10,30 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
+    private var readerKeysEnabled = false
+    private var readerKeys: MethodChannel? = null
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (readerKeysEnabled && (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP)) {
+            readerKeys?.invokeMethod("turn", if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) 1 else -1)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (readerKeysEnabled && (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP)) return true
+        return super.onKeyUp(keyCode, event)
+    }
     private var exportResult: MethodChannel.Result? = null
     private var exportBytes: ByteArray? = null
     override fun configureFlutterEngine(engine: FlutterEngine) {
+        readerKeys = MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/reader_keys").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method == "configure") {
+                    readerKeysEnabled = call.argument<Boolean>("enabled") == true
+                    result.success(null)
+                } else result.notImplemented()
+            }
+        }
         DanmakuCredentials.register(this, engine.dartExecutor.binaryMessenger)
         super.configureFlutterEngine(engine)
         IntroRecognition(this, engine.dartExecutor.binaryMessenger)

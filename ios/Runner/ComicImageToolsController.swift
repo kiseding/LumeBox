@@ -299,7 +299,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     let supported: [String]
     if #available(iOS 15.0, *) { supported = try request.supportedRecognitionLanguages() }
     else { supported = try VNRecognizeTextRequest.supportedRecognitionLanguages(for: .accurate, revision: request.revision) }
-    let preferred = source == "auto" ? ["ja-JP", "en-US", "zh-Hans", "zh-Hant", "ko-KR"] : [source]
+    let preferred = source == "auto" ? ["ja-JP", "en-US", "zh-Hans", "zh-Hant", "ko-KR", "es", "fr", "de", "it", "pt"] : [source]
     let matching = preferred.compactMap { candidate in supported.first { $0 == candidate || $0.hasPrefix(candidate + "-") } }
     if !matching.isEmpty { request.recognitionLanguages = matching }
     try VNImageRequestHandler(cgImage: image).perform([request])
@@ -501,12 +501,22 @@ private struct ComicTranslationTaskView: View {
     let context = NLLanguageRecognizer()
     context.processString(String(texts.joined(separator: "\n").prefix(12000)))
     let contextLanguage = context.dominantLanguage
+    let contextConfidence = contextLanguage.flatMap { context.languageHypotheses(withMaximum: 1)[$0] } ?? 0
     for (index, text) in texts.enumerated() {
       guard text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) else { continue }
       let recognizer = NLLanguageRecognizer()
       recognizer.processString(text)
       let hypotheses = recognizer.languageHypotheses(withMaximum: 10)
       var detected = source == "auto" ? recognizer.dominantLanguage?.rawValue : source
+      let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+      let latin = !letters.isEmpty && letters.allSatisfy { $0.value <= 0x024F || (0x1E00...0x1EFF).contains($0.value) }
+      let latinLanguages: Set<String> = ["en", "es", "fr", "de", "it", "pt", "nl", "nb", "no", "ca", "ro", "da", "sv", "pl", "cs", "fi", "tr"]
+      // All-caps speech bubbles are often individually guessed as Norwegian,
+      // Catalan or Romanian. Prefer a confident page-level Latin language.
+      if source == "auto", latin, text.count <= 160, let candidate = contextLanguage,
+         latinLanguages.contains(candidate.rawValue), contextConfidence >= 0.65 {
+        detected = candidate.rawValue
+      }
       if source == "auto", text.count <= 80, let candidate = contextLanguage,
          (context.languageHypotheses(withMaximum: 1)[candidate] ?? 0) >= 0.8,
          (hypotheses[recognizer.dominantLanguage ?? .undetermined] ?? 0) < 0.8,

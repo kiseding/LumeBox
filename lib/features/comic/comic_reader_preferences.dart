@@ -24,6 +24,10 @@ class ComicReaderPreferences {
   bool grayscale = false;
   bool inverted = false;
   double autoSpeed = 36;
+  static const double maxAutoSpeed = 2400;
+  bool volumeKeys = false;
+  bool autoLandscapeDouble = false;
+  bool autoNextChapter = true;
   List<String> toolbar = ['auto', 'slider', 'thumbnails'];
 
   static ComicReaderPreferences load(ReadingLibrary library) {
@@ -80,7 +84,10 @@ class ComicReaderPreferences {
       result.gamma = number('gamma', 1, .5, 2);
       result.sharpness = number('sharpness', 0, 0, 2);
       result.denoise = json['denoise'] == true;
-      result.autoSpeed = number('autoSpeed', 36, 10, 120);
+      result.autoSpeed = number('autoSpeed', 36, 10, maxAutoSpeed);
+      result.volumeKeys = json['volumeKeys'] == true;
+      result.autoLandscapeDouble = json['autoLandscapeDouble'] == true;
+      result.autoNextChapter = json['autoNextChapter'] != false;
       result.grayscale = json['grayscale'] == true;
       result.inverted = json['inverted'] == true;
       if (json['toolbar'] is List) {
@@ -121,6 +128,9 @@ class ComicReaderPreferences {
       'grayscale': grayscale,
       'inverted': inverted,
       'autoSpeed': autoSpeed,
+      'volumeKeys': volumeKeys,
+      'autoLandscapeDouble': autoLandscapeDouble,
+      'autoNextChapter': autoNextChapter,
       'toolbar': toolbar,
     }),
   );

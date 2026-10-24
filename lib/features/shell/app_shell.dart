@@ -725,6 +725,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                             .firstWhere((tab) => tab.id == _activeId)
                             .selectedIcon,
                         size: _navigationHeight,
+                        materialOpacity: _shellSettings
+                            .settings
+                            .nativeNavigation
+                            .materialOpacity,
                         opacity: 1,
                         onPressed: () =>
                             setState(() => _scrollCollapsed = false),
@@ -774,6 +778,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
                   appearance: _dockAppearance,
+                  materialOpacity:
+                      _shellSettings.settings.nativeNavigation.materialOpacity,
                   contentInset: contentInset,
                   bottomMargin: dockBottomOffset(context),
                 ),

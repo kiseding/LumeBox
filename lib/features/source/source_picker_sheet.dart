@@ -34,6 +34,7 @@ import 'source_section_page.dart';
 import 'source_maintenance.dart';
 import 'add_source_button.dart';
 import 'source_drawer_actions.dart';
+import '../settings/subscription_sync_page.dart';
 
 enum SourceQuickAction { pin, preferences, browse, test, update }
 
@@ -240,10 +241,13 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
           child: FrostedGlassWidget(
-            nativeGlass: true,
+            nativeGlass: false,
+            neutralTint: true,
+            color: LumeTheme.surface,
+            opacity: .96,
             radius: 24,
             child: Material(
-              color: Colors.transparent,
+              color: LumeTheme.surface,
               child: SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -660,6 +664,16 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
             children: [
               SourcePickerHeader(
                 title: '选择${widget.section.label}源',
+                onSync: () async {
+                  await Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          SubscriptionSyncPage(section: widget.section),
+                    ),
+                  );
+                  if (mounted) await reload();
+                },
                 onManage: manageSources,
                 addAction: AddSourceButton(
                   section: widget.section,

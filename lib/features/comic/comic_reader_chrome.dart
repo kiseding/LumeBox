@@ -249,7 +249,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
   List<(int, int)> get _displayPages => [
     for (var index = 0; index < _images.length; index++)
       if (_preferences.splitWide &&
-          _settings.mode == ComicReadingMode.single &&
+          _readingMode == ComicReadingMode.single &&
           (_ratios[index] ?? 2) < 1) ...[
         (index, _settings.isRightToLeft ? 1 : -1),
         (index, _settings.isRightToLeft ? -1 : 1),
@@ -1281,7 +1281,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
 
   void _stepPage(int delta) {
     if (_images.isEmpty || _loading) return;
-    if (_settings.mode == ComicReadingMode.waterfall) {
+    if (_readingMode == ComicReadingMode.waterfall) {
       final controller = _scrollController;
       if (controller == null || !controller.hasClients) return;
       controller.animateTo(
@@ -1680,13 +1680,19 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     '自动滚动',
     (update) => ListView(
       children: [
-        _adjustSlider('滚动速度', Icons.speed, _preferences.autoSpeed, 10, 120, (
-          v,
-        ) {
-          _refresh(() => _preferences.autoSpeed = v);
-          _saveExperience();
-          update(() {});
-        }, display: '${_preferences.autoSpeed.round()} 像素 / 秒'),
+        _adjustSlider(
+          '滚动速度',
+          Icons.speed,
+          _preferences.autoSpeed,
+          10,
+          ComicReaderPreferences.maxAutoSpeed,
+          (v) {
+            _refresh(() => _preferences.autoSpeed = v);
+            _saveExperience();
+            update(() {});
+          },
+          display: '${_preferences.autoSpeed.round()} 像素 / 秒',
+        ),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 22),
           child: Text(
@@ -2127,7 +2133,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     final index = _page;
     final url = _images[index];
     final override = _pageOverrides[url];
-    final half = _settings.mode == ComicReadingMode.single ? _wideHalf : 0;
+    final half = _readingMode == ComicReadingMode.single ? _wideHalf : 0;
     final crop = _preferences.cropRatio;
     final matrix = List<double>.of(_preferences.colorMatrix);
     final brightness = _preferences.brightness;
@@ -2136,10 +2142,10 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     final translations = List<ComicTextRegion>.of(_translations[url] ?? []);
     final scaler = MediaQuery.textScalerOf(context);
     final fontFamily = Theme.of(context).textTheme.bodyMedium?.fontFamily;
-    final width = _settings.mode == ComicReadingMode.doublePage
+    final width = _readingMode == ComicReadingMode.doublePage
         ? math.max(1.0, (_innerWidth - _settings.pageGap) / 2)
         : _innerWidth;
-    final maxHeight = _settings.mode == ComicReadingMode.waterfall
+    final maxHeight = _readingMode == ComicReadingMode.waterfall
         ? double.infinity
         : _viewport.height;
     final decodeWidth = _decodeWidth;
@@ -2219,6 +2225,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     final generation = ++_translationGeneration;
     final urls = List<String>.of(_images);
     final current = _page;
+    String? warning;
     _refresh(() => _translationBusy = true);
     try {
       for (final index
@@ -2231,13 +2238,36 @@ extension _ComicReaderChrome on _ComicReaderPageState {
         if (!mounted || generation != _translationGeneration) break;
         if (bytes == null) throw StateError('第 ${index + 1} 页未能加载');
         final regions = await _imageTools.translate(bytes);
+        warning ??= _imageTools.lastTranslationWarning;
         if (!mounted || generation != _translationGeneration) break;
         _refresh(() => _translations[url] = regions);
       }
+      if (mounted && generation == _translationGeneration && warning != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                    warning,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      }
     } catch (error) {
       if (mounted && generation == _translationGeneration) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('翻译失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is PlatformException
+                  ? error.message ?? '翻译未完成，请检查语言和翻译设置'
+                  : error is FormatException
+                  ? error.message
+                  : '翻译未完成，请检查语言、网络和翻译设置',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted && generation == _translationGeneration) {
@@ -2404,8 +2434,8 @@ extension _ComicReaderChrome on _ComicReaderPageState {
   );
 
   void _stopAutoScroll() {
-    _autoTimer?.cancel();
-    _autoTimer = null;
+    _autoTicker?.stop();
+    _autoLastFrame = null;
     _refresh(() => _autoScrolling = false);
   }
 
@@ -2416,53 +2446,64 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     }
     if (_images.isEmpty || _loading) return;
     _refresh(() => _autoScrolling = true);
-    var last = DateTime.now();
-    double pageElapsed = 0;
-    _autoTimer = Timer.periodic(const Duration(milliseconds: 32), (timer) {
-      if (!mounted) {
-        timer.cancel();
+    _autoLastFrame = null;
+    _autoPageElapsed = 0;
+    _autoTicker ??= createTicker(_autoScrollFrame);
+    _autoTicker!.start();
+  }
+
+  void _autoScrollFrame(Duration elapsed) {
+    if (!mounted || !_autoScrolling) return;
+    final previous = _autoLastFrame;
+    _autoLastFrame = elapsed;
+    if (previous == null) return;
+    final seconds = ((elapsed - previous).inMicroseconds / 1000000).clamp(
+      0.0,
+      .05,
+    );
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    if (_loading) return;
+    final ScrollController? controller =
+        _readingMode == ComicReadingMode.waterfall
+        ? _scrollController
+        : _readingMode == ComicReadingMode.single &&
+              ['vertical', 'horizontal'].contains(_preferences.flow)
+        ? _pageController
+        : null;
+    if (controller != null && controller.hasClients) {
+      if (controller.position.isScrollingNotifier.value) return;
+      _autoPageElapsed += seconds;
+      if (controller.position.maxScrollExtent <= 0 && _autoPageElapsed < 3) {
         return;
       }
-      final now = DateTime.now();
-      final seconds = now.difference(last).inMicroseconds / 1000000;
-      last = now;
-      final lifecycle = WidgetsBinding.instance.lifecycleState;
-      if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
-      if (_loading) return;
-      final ScrollController? controller =
-          _settings.mode == ComicReadingMode.waterfall
-          ? _scrollController
-          : _settings.mode == ComicReadingMode.single &&
-                ['vertical', 'horizontal'].contains(_preferences.flow)
-          ? _pageController
-          : null;
-      if (controller != null && controller.hasClients) {
-        final next = controller.offset + _preferences.autoSpeed * seconds;
-        if (next >= controller.position.maxScrollExtent) {
-          if (_chapterIndex + 1 < _chapters.length) {
-            _openChapter(_chapterIndex + 1);
-          } else {
-            _stopAutoScroll();
-          }
-        } else {
-          controller.jumpTo(next);
-        }
-      } else {
-        pageElapsed += seconds;
-        if (pageElapsed < 240 / _preferences.autoSpeed) return;
-        pageElapsed = 0;
-        final count = _settings.mode == ComicReadingMode.doublePage
-            ? _settings.spreadCount(_images.length)
-            : _displayPages.length;
-        final current = (_pageController?.page ?? 0).round();
-        if (current + 1 < count) {
-          _turnPage(1);
-        } else if (_chapterIndex + 1 < _chapters.length) {
+      final next = controller.offset + _preferences.autoSpeed * seconds;
+      if (next >= controller.position.maxScrollExtent) {
+        if (_preferences.autoNextChapter &&
+            _chapterIndex + 1 < _chapters.length) {
           _openChapter(_chapterIndex + 1);
         } else {
           _stopAutoScroll();
         }
+      } else {
+        controller.jumpTo(next);
       }
-    });
+    } else {
+      _autoPageElapsed += seconds;
+      if (_autoPageElapsed < math.max(.4, 240 / _preferences.autoSpeed)) return;
+      _autoPageElapsed = 0;
+      final count = _readingMode == ComicReadingMode.doublePage
+          ? _settings.spreadCount(_images.length)
+          : _displayPages.length;
+      final current = (_pageController?.page ?? 0).round();
+      if (current + 1 < count) {
+        _turnPage(1);
+      } else if (_preferences.autoNextChapter &&
+          _chapterIndex + 1 < _chapters.length) {
+        _openChapter(_chapterIndex + 1);
+      } else {
+        _stopAutoScroll();
+      }
+    }
   }
 }

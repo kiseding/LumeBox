@@ -70,6 +70,14 @@ private final class LumeNativeControl: NSObject, FlutterPlatformView {
   private func update(_ params: [String: Any]) {
     control.isEnabled = params["enabled"] as? Bool ?? true
     container.overrideUserInterfaceStyle = params["dark"] as? Bool == true ? .dark : .light
+    if let number = params["tintColor"] as? NSNumber {
+      let rgb = number.uint32Value
+      let tint = UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+        green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: 1)
+      control.tintColor = tint
+      (control as? UISwitch)?.onTintColor = tint
+      (control as? UISlider)?.minimumTrackTintColor = tint
+    }
     if let toggle = control as? UISwitch { toggle.setOn(params["value"] as? Bool ?? false, animated: false) }
     if let slider = control as? UISlider {
       slider.minimumValue = (params["min"] as? NSNumber)?.floatValue ?? 0
@@ -150,6 +158,8 @@ final class LumeGlassBackdropView: NSObject, FlutterPlatformView {
     #endif
     let rgba = (params["tintColor"] as? NSNumber)?.uint32Value ?? 0xFFFFFFFF
     let rawOpacity = (params["tintOpacity"] as? NSNumber)?.doubleValue ?? 0
+    let materialOpacity = (params["materialOpacity"] as? NSNumber)?.doubleValue ?? 1
+    effectView.alpha = CGFloat(materialOpacity.isFinite ? min(1, max(0, materialOpacity)) : 1)
     let opacity = rawOpacity.isFinite ? min(0.5, max(0, rawOpacity)) : 0
     let tint = opacity > 0 ? UIColor(red: CGFloat((rgba >> 16) & 255) / 255,
       green: CGFloat((rgba >> 8) & 255) / 255, blue: CGFloat(rgba & 255) / 255,

@@ -1,10 +1,10 @@
-import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock.dart';
 import 'comic_settings.dart';
+import 'comic_reader_preferences.dart';
 import 'comic_image_tools_page.dart';
 import '../../core/reading/chapter_display_order.dart';
 import '../../shared/widgets/chapter_order_controls.dart';
@@ -32,9 +32,13 @@ class ComicReaderSettingsPage extends StatefulWidget {
     this.onOpenBookmarks,
     this.onImageTools,
     this.chapterOrder,
+    this.preferences,
+    this.onPreferencesChanged,
   });
 
   final ComicReaderSettings settings;
+  final ComicReaderPreferences? preferences;
+  final VoidCallback? onPreferencesChanged;
   final ChapterDisplayOrder? chapterOrder;
   final Future<void> Function()? onImageTools;
   final ValueChanged<ComicReaderSettings> onChanged;
@@ -65,7 +69,52 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
   }
 
   @override
+  void didUpdateWidget(ComicReaderSettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _settings = widget.settings;
+  }
+
+  void _changePreferences(VoidCallback change) {
+    setState(change);
+    widget.onPreferencesChanged?.call();
+  }
+
+  Widget _section(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
+    child: Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium
+          ?.copyWith(fontWeight: FontWeight.w700),
+    ),
+  );
+
+  Widget _slider(
+    String title,
+    double value,
+    double min,
+    double max,
+    ValueChanged<double> change, {
+    String? detail,
+  }) => ListTile(
+    title: Text(title),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (detail != null) Text(detail),
+        Slider(
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          onChanged: change,
+        ),
+      ],
+    ),
+    trailing: Text(value.round().toString()),
+  );
+
+  @override
   Widget build(BuildContext context) {
+    final prefs = widget.preferences;
     return GlassScaffold(
       effectModule: GlassModule.comic,
       behindBar: true,
@@ -79,229 +128,234 @@ class _ComicReaderSettingsPageState extends State<ComicReaderSettingsPage> {
             24 + ShellDockScope.bottomInset(context),
           ),
         ),
-        children: <Widget>[
-          _OptionCard<ComicReaderBackground>(
-            title: '背景',
-            hint: '图片之外的留白底色，只改底色、不动图片本身。',
-            values: ComicReaderBackground.values,
-            value: _settings.background,
-            labelOf: (background) => background.label,
-            onChanged: (value) =>
-                _update(_settings.copyWith(background: value)),
+        children: [
+          const Text('与阅读页共用同一份设置，修改后立即生效。'),
+          _section('阅读布局'),
+          _OptionCard<ComicReadingMode>(
+            title: '阅读模式',
+            hint: '条漫连续滚动、单页翻页或双页跨页。',
+            values: ComicReadingMode.values,
+            value: _settings.mode,
+            labelOf: (v) => v.label,
+            onChanged: (v) => _update(_settings.copyWith(mode: v)),
           ),
-          const SizedBox(height: 12),
-          _OptionCard<ComicTapAction>(
-            title: '点击行为',
-            hint:
-                '「点击翻页」只在单页 / 双页模式生效：左 1/3 上一页、右 1/3 下一页；'
-                '瀑布流没有「页」可翻，仍是呼出工具栏。',
-            values: ComicTapAction.values,
-            value: _settings.tapAction,
-            labelOf: (action) => action.label,
-            onChanged: (value) => _update(_settings.copyWith(tapAction: value)),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _OptionCard<ComicReadingDirection>(
             title: '翻页方向',
-            hint:
-                '日漫 / 港漫从右往左读；方向反了每一页的顺序都是反的'
-                '（双页跨页尤其明显）。',
+            hint: '按作品阅读顺序选择。',
             values: ComicReadingDirection.values,
             value: _settings.direction,
-            labelOf: (direction) => direction.label,
-            onChanged: (value) => _update(_settings.copyWith(direction: value)),
+            labelOf: (v) => v.label,
+            onChanged: (v) => _update(_settings.copyWith(direction: v)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _OptionCard<ComicSpreadMode>(
             title: '跨页配对',
-            hint: '只在「双页跨页」模式下生效。',
+            hint: '双页模式下选择封面是否单独显示。',
             values: ComicSpreadMode.values,
             value: _settings.spreadMode,
-            labelOf: (mode) => mode.label,
-            onChanged: (value) =>
-                _update(_settings.copyWith(spreadMode: value)),
+            labelOf: (v) => v.label,
+            onChanged: (v) => _update(_settings.copyWith(spreadMode: v)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          _OptionCard<ComicReaderBackground>(
+            title: '背景',
+            hint: '只改变图片之外的留白底色。',
+            values: ComicReaderBackground.values,
+            value: _settings.background,
+            labelOf: (v) => v.label,
+            onChanged: (v) => _update(_settings.copyWith(background: v)),
+          ),
           GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '双击放大',
-                        style: TextStyle(
-                          fontSize: LumeTypography.titleSize,
-                          fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '双击画面放大到该点，再双击还原。'
-                        '（与「点击行为」无关：开着才会响应双击。）',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: LumeTypography.descriptionSize,
-                          color: LumeTheme.descriptionColor,
-                        ),
-                      ),
-                    ],
-                  ),
+            child: Column(
+              children: [
+                _slider(
+                  '侧边距',
+                  _settings.marginRatio * 100,
+                  0,
+                  ComicReaderSettings.maxMarginRatio * 100,
+                  (v) => _update(_settings.copyWith(marginRatio: v / 100)),
+                  detail: '占屏幕宽度的百分比',
                 ),
-                Switch(
+                _slider(
+                  '页间距',
+                  _settings.pageGap,
+                  0,
+                  ComicReaderSettings.maxPageGap,
+                  (v) => _update(_settings.copyWith(pageGap: v)),
+                ),
+                if (prefs != null)
+                  SwitchListTile(
+                    title: const Text('横屏自动双页'),
+                    subtitle: const Text('横屏并排显示，回到竖屏恢复原阅读模式'),
+                    value: prefs.autoLandscapeDouble,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.autoLandscapeDouble = v),
+                  ),
+              ],
+            ),
+          ),
+          _section('操作与显示'),
+          _OptionCard<ComicTapAction>(
+            title: '点击行为',
+            hint: '翻页模式可分区点击；条漫点击呼出工具栏。',
+            values: ComicTapAction.values,
+            value: _settings.tapAction,
+            labelOf: (v) => v.label,
+            onChanged: (v) => _update(_settings.copyWith(tapAction: v)),
+          ),
+          GlassCard(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('双击放大'),
+                  subtitle: const Text('双击放大到该点，再双击还原'),
                   value: _settings.doubleTapZoom,
-                  onChanged: (value) =>
-                      _update(_settings.copyWith(doubleTapZoom: value)),
+                  onChanged: (v) =>
+                      _update(_settings.copyWith(doubleTapZoom: v)),
                 ),
+                if (prefs != null) ...[
+                  SwitchListTile(
+                    title: const Text('音量键翻页'),
+                    subtitle: const Text('音量减下一页，音量加上一页；iOS 可能仍显示系统音量提示'),
+                    value: prefs.volumeKeys,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.volumeKeys = v),
+                  ),
+                  SwitchListTile(
+                    title: const Text('灰度阅读'),
+                    value: prefs.grayscale,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.grayscale = v),
+                  ),
+                  SwitchListTile(
+                    title: const Text('反色阅读'),
+                    value: prefs.inverted,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.inverted = v),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          _section('自动阅读与预加载'),
           GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '保存本页',
-                        style: TextStyle(
-                          fontSize: LumeTypography.titleSize,
-                          fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '把当前这一页的原图存进本板块的导出目录（不经相册权限）。'
-                        '阅读时也可以直接长按图片保存。',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: LumeTypography.descriptionSize,
-                          color: LumeTheme.descriptionColor,
-                        ),
-                      ),
-                    ],
-                  ),
+            child: Column(
+              children: [
+                _slider(
+                  '预加载半径',
+                  _settings.preloadRadius.toDouble(),
+                  1,
+                  ComicReaderSettings.maxPreloadRadius.toDouble(),
+                  (v) => _update(_settings.copyWith(preloadRadius: v.round())),
+                  detail: '前后预加载图片数量，较大值会增加内存与流量',
                 ),
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: widget.canSavePage && widget.onSavePage != null
-                      ? () => widget.onSavePage!()
-                      : null,
-                  icon: const LumeIcon(
-                    Icons.download,
-                    slot: 'comic_reader_settings_page.1',
-                    size: 18,
+                if (prefs != null) ...[
+                  _slider(
+                    '自动滚动速度',
+                    prefs.autoSpeed,
+                    10,
+                    ComicReaderPreferences.maxAutoSpeed,
+                    (v) => _changePreferences(() => prefs.autoSpeed = v),
+                    detail: '像素 / 秒，跟随屏幕帧率平滑滚动',
                   ),
-                  label: const Text('保存'),
-                ),
+                  SwitchListTile(
+                    title: const Text('章末自动续读'),
+                    subtitle: const Text('自动阅读到章末时继续下一章，关闭后在章末停止'),
+                    value: prefs.autoNextChapter,
+                    onChanged: (v) =>
+                        _changePreferences(() => prefs.autoNextChapter = v),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '书签列表',
-                        style: TextStyle(
-                          fontSize: LumeTypography.titleSize,
-                          fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.bookmarkCount == 0
-                            ? '还没有书签：阅读时点顶栏的书签图标就能加。'
-                            : '共 ${widget.bookmarkCount} 个书签，点进去可跳页或删除。',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: LumeTypography.descriptionSize,
-                          color: LumeTheme.descriptionColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: widget.onOpenBookmarks == null
-                      ? null
-                      : () => widget.onOpenBookmarks!(),
-                  icon: const LumeIcon(
-                    Icons.bookmarks_outlined,
-                    slot: 'comic_reader_settings_page.2',
-                    size: 18,
-                  ),
-                  label: const Text('查看'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
           if (widget.chapterOrder != null)
             ChapterAutoOrderSwitch(order: widget.chapterOrder!),
-          // 说明面板与这里的分工，避免用户回到面板找不到刚改过的东西。
-          ListTile(
-            leading: const LumeIcon(
-              Icons.auto_fix_high_outlined,
-              slot: 'comic_reader_settings_page.3',
-            ),
-            title: const Text('当前页 AI 超分 / 上色 / 翻译'),
-            subtitle: const Text('处理当前页，保留原图对照；结果可保存 / 分享'),
-            onTap: widget.onImageTools,
-          ),
-          ListTile(
-            leading: const LumeIcon(
-              Icons.hd_outlined,
-              slot: 'comic_reader_settings_page.4',
-            ),
-            title: const Text('AI 图片超分与上色'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => const ComicImageToolsSettingsPage(),
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const LumeIcon(
-              Icons.translate,
-              slot: 'comic_reader_settings_page.5',
-            ),
-            title: const Text('漫画翻译'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    const ComicImageToolsSettingsPage(translation: true),
-              ),
-            ),
-          ),
+          _section('图片与翻译'),
           GlassCard(
-            padding: const EdgeInsets.all(14),
-            child: Text(
-              '阅读模式、侧边距、页间距仍在底部面板（阅读时点一下画面即可呼出）——'
-              '那三项是边看边调的；这一页装的都是「设定一次就不动」的项。',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: LumeTypography.descriptionSize,
-                height: 1.5,
-                color: LumeTheme.descriptionColor,
-              ),
+            child: Column(
+              children: [
+                if (widget.onImageTools != null)
+                  ListTile(
+                    leading: const Icon(Icons.auto_fix_high),
+                    title: const Text('当前页 AI 超分 / 上色 / 翻译'),
+                    subtitle: const Text('保留原图对照，可保存或分享结果'),
+                    onTap: widget.onImageTools,
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.hd_outlined),
+                  title: const Text('AI 图片超分与上色'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ComicImageToolsSettingsPage(),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.translate),
+                  title: const Text('漫画翻译'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          const ComicImageToolsSettingsPage(translation: true),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.gesture),
+                  title: const Text('圈选翻译是什么'),
+                  subtitle: const Text('圈出一个对话框，合并区域文字后翻译'),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: const Text('圈选翻译'),
+                      content: const Text(
+                        '开启圈选后，在漫画上拖出区域，只识别并翻译圈内的文字。适合自动识别漏掉的对白、多行对话或只想翻译一句话时使用。翻译选定区域会把圈内文字合并成一个对话框翻译；它不是整页重绘。',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(c),
+                          child: const Text('知道了'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+          if (widget.onSavePage != null || widget.onOpenBookmarks != null) ...[
+            _section('本书工具'),
+            GlassCard(
+              child: Column(
+                children: [
+                  if (widget.onSavePage != null)
+                    ListTile(
+                      leading: const Icon(Icons.download),
+                      title: const Text('保存本页'),
+                      trailing: FilledButton.tonal(
+                        onPressed: widget.canSavePage
+                            ? widget.onSavePage
+                            : null,
+                        child: const Text('保存'),
+                      ),
+                    ),
+                  if (widget.onOpenBookmarks != null)
+                    ListTile(
+                      leading: const Icon(Icons.bookmarks_outlined),
+                      title: const Text('书签列表'),
+                      subtitle: Text('共 ${widget.bookmarkCount} 个书签'),
+                      onTap: widget.onOpenBookmarks,
+                    ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

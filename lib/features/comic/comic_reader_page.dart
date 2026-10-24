@@ -15,6 +15,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart'
@@ -24,7 +25,8 @@ import 'package:flutter/services.dart'
         SystemChrome,
         SystemUiMode,
         DeviceOrientation,
-        MethodChannel;
+        MethodChannel,
+        PlatformException;
 import 'package:path/path.dart' as p;
 
 import '../../core/reading/reading.dart';
@@ -49,6 +51,7 @@ import '../../core/session/section_module_settings.dart';
 import 'comic_reader_settings_page.dart';
 import 'comic_settings.dart';
 import 'comic_reader_preferences.dart';
+import 'reader_volume_keys.dart';
 import 'comic_page_filters.dart';
 import 'comic_speech_text.dart';
 import 'comic_reader_status.dart';
@@ -133,7 +136,10 @@ class ComicReaderPage extends StatefulWidget {
 }
 
 class _ComicReaderPageState extends State<ComicReaderPage>
-    with WidgetsBindingObserver, NetworkOwnedState<ComicReaderPage> {
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver,
+        NetworkOwnedState<ComicReaderPage> {
   late final SectionImagePipeline _pipeline;
   late final ComicImageTools _imageTools;
   late final Future<void> _imageModelReady;
@@ -257,7 +263,9 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   bool _toolbar = true;
   late ComicReaderPreferences _preferences;
-  Timer? _autoTimer;
+  Ticker? _autoTicker;
+  Duration? _autoLastFrame;
+  double _autoPageElapsed = 0;
   Timer? _sleepTimer;
   Timer? _zoneHintTimer;
   bool _zoneHintShown = false;
@@ -277,7 +285,42 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     if (mounted) setState(change);
   }
 
-  void _saveExperience() => _preferences.save(widget.library);
+  late final ReaderVolumeKeys _volumeKeys;
+  void _configureVolumeKeys() => unawaited(
+    _volumeKeys.configure(
+      _preferences.volumeKeys && (ModalRoute.of(context)?.isCurrent ?? true),
+    ),
+  );
+
+  void _saveExperience() {
+    _preferences.save(widget.library);
+    _configureVolumeKeys();
+  }
+
+  void _volumeTurn(int direction) {
+    if (!mounted ||
+        !_preferences.volumeKeys ||
+        _loading ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    if (_autoScrolling) _stopAutoScroll();
+    final scroll = _scrollController;
+    if (_readingMode == ComicReadingMode.waterfall &&
+        scroll != null &&
+        scroll.hasClients) {
+      final next =
+          (scroll.offset + direction * scroll.position.viewportDimension * .85)
+              .clamp(0.0, scroll.position.maxScrollExtent);
+      scroll.animateTo(
+        next,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _turnPage(direction);
+    }
+  }
 
   bool _saving = false;
 
@@ -292,6 +335,39 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   /// 视口尺寸与按屏宽解码的目标宽度。在 [didChangeDependencies] 里缓存，
   /// 图片键、瀑布流占位高度与解码分辨率都以它为准（旋屏后自动更新）。
   Size _viewport = const Size(400, 800);
+  ComicReadingMode get _readingMode =>
+      _preferences.autoLandscapeDouble && _viewport.width > _viewport.height
+      ? ComicReadingMode.doublePage
+      : _settings.mode;
+  bool _settingsReloadScheduled = false;
+
+  void _sharedReaderSettingsChanged() {
+    final key = widget.library.lastSettingKey ?? '';
+    if (!key.startsWith('comic.reader.') || _settingsReloadScheduled) return;
+    _settingsReloadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _settingsReloadScheduled = false;
+      if (!mounted) return;
+      final next = ComicReaderSettings.load(widget.library);
+      final prefs = ComicReaderPreferences.load(widget.library);
+      final layoutChanged =
+          next.mode != _settings.mode ||
+          next.direction != _settings.direction ||
+          next.spreadMode != _settings.spreadMode ||
+          prefs.flow != _preferences.flow ||
+          prefs.autoLandscapeDouble != _preferences.autoLandscapeDouble;
+      setState(() {
+        _settings = next;
+        _preferences = prefs;
+      });
+      if (layoutChanged) _rebuildControllers();
+      _configureVolumeKeys();
+      _primeWindow();
+      if (_runtimeAvailable) unawaited(_applyOrientation());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   int _decodeWidthPx = 800;
   bool _bootstrapped = false;
 
@@ -322,13 +398,16 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     )..bindSession(widget.dataSource.section, widget.dataSource.id);
     _settings = ComicReaderSettings.load(widget.library);
     _preferences = ComicReaderPreferences.load(widget.library);
+    _volumeKeys = ReaderVolumeKeys(_volumeTurn);
+    unawaited(_volumeKeys.configure(_preferences.volumeKeys));
+    widget.library.settingsRevision.addListener(_sharedReaderSettingsChanged);
     _translationScope = _annotations()['translation.scope'] == 'series'
         ? 'series'
         : 'off';
     if (widget.library.setting(ComicReaderPreferences.key) == null) {
-      _preferences.flow = _settings.mode == ComicReadingMode.waterfall
+      _preferences.flow = _readingMode == ComicReadingMode.waterfall
           ? 'webtoon'
-          : _settings.mode == ComicReadingMode.doublePage
+          : _readingMode == ComicReadingMode.doublePage
           ? 'spread'
           : _settings.isRightToLeft
           ? 'rtl'
@@ -375,6 +454,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _configureVolumeKeys();
     final previous = _viewport;
     _viewport = MediaQuery.sizeOf(context);
     final ratio = MediaQuery.devicePixelRatioOf(context);
@@ -411,7 +491,11 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   @override
   void dispose() {
-    _autoTimer?.cancel();
+    _volumeKeys.dispose();
+    widget.library.settingsRevision.removeListener(
+      _sharedReaderSettingsChanged,
+    );
+    _autoTicker?.dispose();
     _sleepTimer?.cancel();
     _zoneHintTimer?.cancel();
     _toolbarTimer?.cancel();
@@ -540,7 +624,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final oldScroll = _scrollController;
     _pageController = null;
     _scrollController = null;
-    switch (_settings.mode) {
+    switch (_readingMode) {
       case ComicReadingMode.waterfall:
         final target = _waterfallOffsetFor(_page);
         _scrollController = ScrollController(initialScrollOffset: target);
@@ -719,7 +803,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final previouslyWide = (_ratios[index] ?? 2) < 1;
     setState(() => _ratios[index] = ratio);
     if (_preferences.splitWide &&
-        _settings.mode == ComicReadingMode.single &&
+        _readingMode == ComicReadingMode.single &&
         previouslyWide != (ratio < 1)) {
       _rebuildControllers();
     }
@@ -758,45 +842,63 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   /// 页面与阅读器共用同一份 `ComicReaderSettings`：那里改完立刻写回，
   /// 返回阅读页即生效（不需要额外的「保存」按钮）。
   Future<void> _openReaderSettings() async {
+    _stopAutoScroll();
+    unawaited(_volumeKeys.configure(false));
     await _imageModelReady;
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ComicReaderSettingsPage(
-          chapterOrder: ChapterDisplayOrder(
-            widget.library,
-            widget.target.sourceId,
-          ),
-          settings: _settings,
-          onChanged: _updateSettings,
-          canSavePage: _images.isNotEmpty && !_saving,
-          onSavePage: () => _saveImage(_page),
-          onImageTools: _images.isEmpty
-              ? null
-              : () async {
-                  final url = _images[_page.clamp(0, _images.length - 1)];
-                  final applied = await Navigator.of(context).push<Uint8List>(
-                    MaterialPageRoute<Uint8List>(
-                      builder: (_) => ComicImageToolsPage(
-                        imageStyle: _imageTools.imageStyle,
-                        loadOriginal: () => _pipeline.bytes(url),
-                        allowApply: true,
-                      ),
-                    ),
-                  );
-                  if (applied == null || !mounted) return;
-                  setState(() => _pageOverrides[url] = applied);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已应用到当前页（仅本次阅读，原图不被覆盖）')),
-                  );
-                },
-          // 顶栏撤掉了「书签列表」按钮，但这个功能不能变成看得见摸不着——
-          // 挪到这个二级页（这也是「不常用项」的正确去处）。
-          bookmarkCount: _bookmarks.length,
-          onOpenBookmarks: _showBookmarkSheet,
+        builder: (_) => ListenableBuilder(
+          listenable: widget.library.settingsRevision,
+          builder: (_, _) {
+            final readerPreferences = ComicReaderPreferences.load(
+              widget.library,
+            );
+            return ComicReaderSettingsPage(
+              chapterOrder: ChapterDisplayOrder(
+                widget.library,
+                widget.target.sourceId,
+              ),
+              settings: ComicReaderSettings.load(widget.library),
+              preferences: readerPreferences,
+              onPreferencesChanged: () {
+                _preferences = readerPreferences;
+                _saveExperience();
+                setState(() {});
+              },
+              onChanged: _updateSettings,
+              canSavePage: _images.isNotEmpty && !_saving,
+              onSavePage: () => _saveImage(_page),
+              onImageTools: _images.isEmpty
+                  ? null
+                  : () async {
+                      final url = _images[_page.clamp(0, _images.length - 1)];
+                      final applied = await Navigator.of(context)
+                          .push<Uint8List>(
+                            MaterialPageRoute<Uint8List>(
+                              builder: (_) => ComicImageToolsPage(
+                                imageStyle: _imageTools.imageStyle,
+                                loadOriginal: () => _pipeline.bytes(url),
+                                allowApply: true,
+                              ),
+                            ),
+                          );
+                      if (applied == null || !mounted) return;
+                      setState(() => _pageOverrides[url] = applied);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已应用到当前页（仅本次阅读，原图不被覆盖）')),
+                      );
+                    },
+              // 顶栏撤掉了「书签列表」按钮，但这个功能不能变成看得见摸不着——
+              // 挪到这个二级页（这也是「不常用项」的正确去处）。
+              bookmarkCount: _bookmarks.length,
+              onOpenBookmarks: _showBookmarkSheet,
+            );
+          },
         ),
       ),
     );
+    if (mounted) await _volumeKeys.configure(_preferences.volumeKeys);
   }
 
   /// 点按分区：默认呼出 / 收起工具栏；设置成「点击翻页」后，左 1/3 上一页、
@@ -857,11 +959,11 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   void _turnPage(int delta) {
     final controller = _pageController;
     if (controller == null || !controller.hasClients) return;
-    final fallback = _settings.mode == ComicReadingMode.doublePage
+    final fallback = _readingMode == ComicReadingMode.doublePage
         ? _settings.spreadIndexOf(_page)
         : _displayIndexOf(_page);
     final current = (controller.page ?? fallback.toDouble()).round();
-    final pageCount = _settings.mode == ComicReadingMode.doublePage
+    final pageCount = _readingMode == ComicReadingMode.doublePage
         ? _settings.spreadCount(_images.length)
         : _displayPages.length;
     final target = current + delta;
@@ -890,17 +992,17 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   void _onPageChanged(int page) {
     if (page < 0 ||
-        (_settings.mode != ComicReadingMode.doublePage &&
+        (_readingMode != ComicReadingMode.doublePage &&
             page >= _displayPages.length)) {
       return;
     }
     // 双页模式下 PageView 的下标是「屏」，换算成图序号；首页单独配对时
     // 第 1 屏就是第 1 张图，因此用配对规则反查而不是简单乘 2。
-    final next = _settings.mode == ComicReadingMode.doublePage
+    final next = _readingMode == ComicReadingMode.doublePage
         ? _settings.imagesOfSpread(page, _images.length).$1
         : _displayPages[page].$1;
     if (next < 0) return;
-    final half = _settings.mode == ComicReadingMode.doublePage
+    final half = _readingMode == ComicReadingMode.doublePage
         ? 0
         : _displayPages[page].$2;
     if (next == _page && half == _wideHalf) return;
@@ -1021,6 +1123,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     // 就已经改掉了，第二次通知会拿新章的边界再判一次，可能一路连跳好几章。
     if (_loading) return;
     _translationGeneration++;
+    _autoPageElapsed = 0;
+    _autoLastFrame = null;
     _translationBusy = false;
     _translations.clear();
     if (_translationScope != 'series') _translationScope = 'off';
@@ -1216,7 +1320,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         detail: '本章暂无图片内容',
       );
     }
-    return switch (_settings.mode) {
+    return switch (_readingMode) {
       ComicReadingMode.waterfall => _buildWaterfall(),
       ComicReadingMode.single =>
         ['horizontal', 'vertical'].contains(_preferences.flow)

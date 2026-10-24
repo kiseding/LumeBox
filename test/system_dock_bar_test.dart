@@ -191,7 +191,11 @@ void main() {
   });
 
   test('原生高度和负安全区距离可持久化，旧配置跟随系统', () {
-    const value = NativeNavigationSettings(barHeight: 88, safeGap: -50);
+    const value = NativeNavigationSettings(
+      barHeight: 88,
+      safeGap: -50,
+      materialOpacity: .25,
+    );
     expect(NativeNavigationSettings.fromJson(value.toJson()), value);
     expect(value.heightFor(64), 88);
     expect(value.bottomFor(34), 0);
@@ -203,6 +207,15 @@ void main() {
     });
     expect(bounded.barHeight, 120);
     expect(bounded.safeGap, -100);
+    expect(
+      NativeNavigationSettings.fromJson({'materialOpacity': -1})
+          .materialOpacity,
+      0,
+    );
+    expect(
+      NativeNavigationSettings.fromJson({'materialOpacity': 2}).materialOpacity,
+      1,
+    );
     expect(
       NativeNavigationSettings.fromJson({'barHeight': double.nan}).barHeight,
       0,

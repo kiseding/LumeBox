@@ -9,6 +9,7 @@ class NativeNavigationSettings {
     this.horizontalMargin = 0,
     this.safeGap = 0,
     this.barHeight = 0,
+    this.materialOpacity = .6,
   });
 
   final bool enabled;
@@ -21,6 +22,7 @@ class NativeNavigationSettings {
 
   /// Zero follows UIKit. Otherwise the entire native control is scaled.
   final double barHeight;
+  final double materialOpacity;
 
   double heightFor(double systemHeight) =>
       barHeight > 0 ? barHeight.clamp(40.0, 120.0) : systemHeight;
@@ -37,6 +39,7 @@ class NativeNavigationSettings {
     double? horizontalMargin,
     double? safeGap,
     double? barHeight,
+    double? materialOpacity,
   }) => NativeNavigationSettings.fromJson({
     ...toJson(),
     'enabled': ?enabled,
@@ -47,6 +50,7 @@ class NativeNavigationSettings {
     'horizontalMargin': ?horizontalMargin,
     'safeGap': ?safeGap,
     'barHeight': ?barHeight,
+    'materialOpacity': ?materialOpacity,
   });
 
   Map<String, Object> toJson() => {
@@ -58,6 +62,7 @@ class NativeNavigationSettings {
     'horizontalMargin': horizontalMargin,
     'safeGap': safeGap,
     'barHeight': barHeight,
+    'materialOpacity': materialOpacity,
   };
 
   static NativeNavigationSettings fromJson(Object? value) {
@@ -85,6 +90,7 @@ class NativeNavigationSettings {
       horizontalMargin: number('horizontalMargin', 0, 0, 40),
       safeGap: number('safeGap', 0, -100, 100),
       barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 0, 40, 120),
+      materialOpacity: number('materialOpacity', .6, 0, 1),
     );
   }
 
@@ -98,7 +104,8 @@ class NativeNavigationSettings {
       iconSize == other.iconSize &&
       horizontalMargin == other.horizontalMargin &&
       safeGap == other.safeGap &&
-      barHeight == other.barHeight;
+      barHeight == other.barHeight &&
+      materialOpacity == other.materialOpacity;
 
   @override
   int get hashCode => Object.hash(
@@ -110,5 +117,6 @@ class NativeNavigationSettings {
     horizontalMargin,
     safeGap,
     barHeight,
+    materialOpacity,
   );
 }

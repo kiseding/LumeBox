@@ -1,4 +1,5 @@
 import '../video/player_settings_host.dart';
+import '../comic/comic_reader_settings_host.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -7,6 +8,7 @@ import 'configuration_settings_page.dart';
 import 'privacy_settings_page.dart';
 import '../comic/comic_image_tools_page.dart';
 import 'total_subscription_page.dart';
+import 'subscription_sync_page.dart';
 import 'tmdb_settings_page.dart';
 import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
@@ -151,7 +153,7 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.navigation_outlined,
       title: '原生系统导航',
-      subtitle: '系统栏样式与导航表现',
+      subtitle: '胶囊与圆圈透明度、系统栏高度与样式',
       onTap: () => _push(context, const NavigationPreferencesPage()),
     ),
     SettingsEntryCard(
@@ -164,6 +166,12 @@ class SettingsPage extends StatelessWidget {
     const SettingsGroupTitle('阅读与播放'),
     const ExperienceSettingsCard(),
     const SizedBox(height: 12),
+    SettingsEntryCard(
+      icon: Icons.auto_stories_outlined,
+      title: '漫画阅读器设置',
+      subtitle: '布局、音量键翻页、自动阅读与图片翻译 · 与阅读页同步',
+      onTap: () => _push(context, const ComicReaderSettingsHost()),
+    ),
     SettingsEntryCard(
       icon: Icons.play_circle_outline,
       title: '播放器设置',
@@ -197,6 +205,12 @@ class SettingsPage extends StatelessWidget {
     ),
 
     const SettingsGroupTitle('内容与订阅'),
+    SettingsEntryCard(
+      icon: Icons.sync,
+      title: '一键同步全部订阅',
+      subtitle: '立即更新漫画、视频和猫源订阅 · 查看逐项结果',
+      onTap: () => _push(context, const SubscriptionSyncPage()),
+    ),
     SettingsEntryCard(
       icon: Icons.subscriptions_outlined,
       title: '总订阅导入导出',

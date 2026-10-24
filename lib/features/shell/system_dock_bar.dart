@@ -138,6 +138,7 @@ class _SystemTabBarViewState extends State<_SystemTabBarView> {
       'showLabels': bar.settings.showLabels,
       'iconSize': bar.settings.iconSize,
       'barHeight': bar.settings.barHeight,
+      'materialOpacity': bar.settings.materialOpacity,
       'tintColor': bar.settings.followThemeColor
           ? LumeTheme.accent.toARGB32()
           : bar.settings.tintColor,

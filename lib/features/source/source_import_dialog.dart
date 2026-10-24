@@ -104,7 +104,7 @@ class SourceImportDialog extends StatefulWidget {
     this.initialSection,
     this.readLocalScripts,
     this.fetchSubscription,
-    this.maxScripts = 20,
+    this.maxScripts = 200,
     this.maxLocalFiles = 50,
     this.initialSubscription,
     this.title,

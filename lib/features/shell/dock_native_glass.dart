@@ -21,6 +21,7 @@ class DockNativeGlass extends StatefulWidget {
     this.tintColor = Colors.white,
     this.tintOpacity = .06,
     this.reduceTransparency = false,
+    this.materialOpacity = 1,
   });
 
   static const String viewType = 'lumebox/glass_backdrop';
@@ -36,6 +37,7 @@ class DockNativeGlass extends StatefulWidget {
   final Color tintColor;
   final double tintOpacity;
   final bool reduceTransparency;
+  final double materialOpacity;
 
   @override
   State<DockNativeGlass> createState() => _DockNativeGlassState();
@@ -52,6 +54,7 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
     'reduceTransparency': widget.reduceTransparency,
     'tintColor': widget.tintColor.toARGB32(),
     'tintOpacity': widget.tintOpacity,
+    'materialOpacity': widget.materialOpacity,
   };
 
   @override

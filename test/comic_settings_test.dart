@@ -7,6 +7,7 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/features/comic/comic_settings.dart';
+import 'package:lume_box/features/comic/comic_reader_preferences.dart';
 
 /// 漫画进阶设置的验证：跨页配对（首页单独 / 直接配对）、翻页方向、页间距、
 /// 预加载半径的持久化。
@@ -23,11 +24,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_comic_settings');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     library = await ReadingLibrary.open(Section.comic);
   });
 
@@ -37,6 +38,23 @@ void main() {
     await SectionScope.closeAll();
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
+
+  test(
+    'advanced reader preferences retain maximum speed and opt-in controls',
+    () {
+      final preferences = ComicReaderPreferences()
+        ..autoSpeed = 2400
+        ..volumeKeys = true
+        ..autoLandscapeDouble = true
+        ..autoNextChapter = false;
+      preferences.save(library);
+      final loaded = ComicReaderPreferences.load(library);
+      expect(loaded.autoSpeed, 2400);
+      expect(loaded.volumeKeys, isTrue);
+      expect(loaded.autoLandscapeDouble, isTrue);
+      expect(loaded.autoNextChapter, isFalse);
+    },
+  );
 
   group('跨页配对：首页单独（纸质漫画排法）', () {
     const settings = ComicReaderSettings();
@@ -122,18 +140,14 @@ void main() {
 
   group('翻页方向', () {
     test('默认从左往右；从右往左由 id 正确解析', () {
-      expect(
-        const ComicReaderSettings().isRightToLeft,
-        isFalse,
-      );
+      expect(const ComicReaderSettings().isRightToLeft, isFalse);
       expect(
         ComicReadingDirection.fromId('rtl'),
         ComicReadingDirection.rightToLeft,
       );
       expect(
-        ComicReaderSettings(
-          direction: ComicReadingDirection.rightToLeft,
-        ).isRightToLeft,
+        ComicReaderSettings(direction: ComicReadingDirection.rightToLeft)
+            .isRightToLeft,
         isTrue,
       );
       expect(
@@ -156,12 +170,12 @@ void main() {
       final colors = <Color>[
         for (final background in ComicReaderBackground.values) background.color,
       ];
-      expect(colors.toSet().length, ComicReaderBackground.values.length,
-          reason: '预设之间颜色不能重复');
       expect(
-        ComicReaderBackground.fromId('彩虹色'),
-        ComicReaderBackground.black,
+        colors.toSet().length,
+        ComicReaderBackground.values.length,
+        reason: '预设之间颜色不能重复',
       );
+      expect(ComicReaderBackground.fromId('彩虹色'), ComicReaderBackground.black);
       expect(ComicTapAction.fromId('乱写'), ComicTapAction.toolbar);
     });
   });
@@ -227,7 +241,9 @@ void main() {
     });
 
     test('页间距落库时按比例存（上限变化也不会读出越界值）', () {
-      const settings = ComicReaderSettings(pageGap: ComicReaderSettings.maxPageGap);
+      const settings = ComicReaderSettings(
+        pageGap: ComicReaderSettings.maxPageGap,
+      );
       settings.save(library);
       expect(
         ComicReaderSettings.load(library).pageGap,

@@ -28,6 +28,8 @@ class ReadingLibrary {
   /// 历史抽屉正在打开时监听它并重建：播放页退出后记录落库，不必切一次 Tab
   /// 才看见（用户口径：打开就应该是新的）。
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  final ValueNotifier<int> settingsRevision = ValueNotifier<int>(0);
+  String? lastSettingKey;
 
   void _touch() {
     if (!_disposed) revision.value++;
@@ -308,7 +310,12 @@ class ReadingLibrary {
 
   Map<String, String> exportSettings() => _store.exportSettings();
 
-  void setSetting(String key, String value) => _store.setSetting(key, value);
+  void setSetting(String key, String value) {
+    if (_store.setting(key) == value) return;
+    _store.setSetting(key, value);
+    lastSettingKey = key;
+    if (!_disposed) settingsRevision.value++;
+  }
 
   void clearStationSettings() => _store.clearStationSettings();
 
@@ -345,6 +352,7 @@ class ReadingLibrary {
     _disposed = true;
     _opened.removeWhere((_, value) => identical(value, this));
     revision.dispose();
+    settingsRevision.dispose();
     _store.dispose();
   }
 

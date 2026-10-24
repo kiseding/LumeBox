@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import AVFoundation
 
 /// 屏幕亮度的原生实现（iOS）：`UIScreen.main.brightness`。
 ///
@@ -39,6 +40,30 @@ final class BrightnessController: NSObject {
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+}
+
+/// iOS reserves the physical volume buttons. Observe their public audio-session
+/// changes while the reader opts in; never consume them outside that route.
+final class ReaderVolumeKeysController {
+  private var observation: NSKeyValueObservation?
+  func register(with messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: "lumebox/reader_keys", binaryMessenger: messenger)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "configure" else { result(FlutterMethodNotImplemented); return }
+      self?.observation = nil
+      if (call.arguments as? [String:Any])?["enabled"] as? Bool == true {
+        let session = AVAudioSession.sharedInstance()
+        self?.observation = session.observe(\.outputVolume, options: [.old, .new]) { _, change in
+          guard let old = change.oldValue, let next = change.newValue, abs(next - old) > 0.001 else { return }
+          DispatchQueue.main.async {
+            guard UIApplication.shared.applicationState == .active else { return }
+            channel.invokeMethod("turn", arguments: next > old ? -1 : 1)
+          }
+        }
+      }
+      result(nil)
     }
   }
 }

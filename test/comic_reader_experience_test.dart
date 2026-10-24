@@ -563,10 +563,10 @@ void main() {
         .controller!;
     expect(controller.offset, 0);
     await tester.tap(find.byTooltip('自动滚动'));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(seconds: 1)),
-    );
-    await tester.pump(const Duration(seconds: 1));
+    // Advance real display frames: long wall-clock gaps must not cause jumps.
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
     expect(controller.offset, greaterThan(50));
     expect(controller.offset, lessThan(200));
     final position = controller.offset;

@@ -36,6 +36,7 @@ class _NativeGlassControlState extends State<NativeGlassControl> {
     'min': widget.min,
     'max': widget.max,
     'dark': Theme.of(context).brightness == Brightness.dark,
+    'tintColor': Theme.of(context).colorScheme.primary.toARGB32(),
   };
   Future<void> update() async {
     try {
@@ -150,7 +151,10 @@ class NativeSwitchListTile extends StatelessWidget {
         dense: dense,
         isThreeLine: isThreeLine,
         selected: selected,
-        activeTrackColor: activeTrackColor ?? activeColor,
+        activeTrackColor:
+            activeTrackColor ??
+            activeColor ??
+            Theme.of(context).colorScheme.primary,
         controlAffinity: controlAffinity,
       );
     }

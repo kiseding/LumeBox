@@ -82,6 +82,7 @@ class ShellDockBar extends StatefulWidget {
     this.visible = true,
     this.applyViewPadding = true,
     this.trailingWidth = 0,
+    this.materialOpacity = 1,
   });
 
   /// 水滴（选中底座）的定位键（测试与截图预览按它量位置 / 宽度）。
@@ -108,6 +109,7 @@ class ShellDockBar extends StatefulWidget {
   /// 胶囊**内部**给系统手势条让出的高度：外框照样画到底，只是里面的
   /// 图标与文字往上缩这一段。
   final double contentInset;
+  final double materialOpacity;
 
   /// 胶囊外框离屏幕底边的距离：0 = 外框直接画到屏幕底边。
   final double bottomMargin;
@@ -969,7 +971,7 @@ class _ShellDockBarState extends State<ShellDockBar>
                 : null;
 
             final useNativeGlass = DockNativeGlass.supported;
-            final Widget surface = useNativeGlass
+            final Widget rawSurface = useNativeGlass
                 ? DockNativeGlass(
                     key: ShellDockBar.capsuleFilterKey,
                     borderRadius: radius,
@@ -1006,6 +1008,10 @@ class _ShellDockBarState extends State<ShellDockBar>
                     clipPath: waistPath,
                     filterKey: ShellDockBar.capsuleFilterKey,
                   );
+            final surface = Opacity(
+              opacity: widget.materialOpacity.clamp(0.0, 1.0),
+              child: rawSurface,
+            );
 
             final base = DecoratedBox(
               decoration: BoxDecoration(

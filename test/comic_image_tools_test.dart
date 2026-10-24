@@ -86,6 +86,41 @@ void main() {
     tools.dispose();
   });
 
+  test('部分翻译失败仍返回成功区域，失败对白保留原图并给出简短提示', () async {
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method == 'recognize')
+        return [
+          {
+            'text': 'partial-regression-one',
+            'x': .1,
+            'y': .1,
+            'width': .3,
+            'height': .1,
+          },
+          {
+            'text': 'partial-regression-two',
+            'x': .1,
+            'y': .4,
+            'width': .3,
+            'height': .1,
+          },
+        ];
+      if (call.method == 'translate')
+        throw PlatformException(
+          code: 'translation_partial',
+          message: 'unsupported pair',
+          details: ['成功译文', ''],
+        );
+      return null;
+    });
+    final tools = ComicImageTools();
+    addTearDown(tools.dispose);
+    final regions = await tools.translate(bytes);
+    expect(regions.length, 1);
+    expect(regions.single.translation, '成功译文');
+    expect(tools.lastTranslationWarning, contains('成功译文与原图已保留'));
+  });
+
   test('长图多于 250 个文字区域分批翻译，保留文字与全图坐标对应', () async {
     final batches = <List<String>>[];
     messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {

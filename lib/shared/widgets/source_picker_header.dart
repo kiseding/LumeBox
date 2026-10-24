@@ -9,6 +9,7 @@ class SourcePickerHeader extends StatelessWidget {
     required this.onManage,
     required this.addAction,
     required this.onQueryChanged,
+    this.onSync,
     this.extraActions = const [],
   });
 
@@ -16,6 +17,7 @@ class SourcePickerHeader extends StatelessWidget {
   final VoidCallback onManage;
   final Widget addAction;
   final ValueChanged<String> onQueryChanged;
+  final VoidCallback? onSync;
   final List<Widget> extraActions;
 
   @override
@@ -55,9 +57,19 @@ class SourcePickerHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
         child: TextField(
           onChanged: onQueryChanged,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: '搜索源名称或订阅包',
-            prefixIcon: LumeIcon(Icons.search, slot: 'source_picker.search'),
+            prefixIcon: const LumeIcon(
+              Icons.search,
+              slot: 'source_picker.search',
+            ),
+            suffixIcon: onSync == null
+                ? null
+                : IconButton(
+                    tooltip: '同步本板块订阅',
+                    icon: const Icon(Icons.sync),
+                    onPressed: onSync,
+                  ),
           ),
         ),
       ),

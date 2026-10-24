@@ -22,6 +22,8 @@ class FrostedGlassWidget extends StatefulWidget {
     this.interactive = false,
     this.nativeGlass = false,
     this.nativeStyle,
+    this.neutralTint = false,
+    this.materialOpacity = 1,
     required this.child,
   });
   final double blur, opacity, radius;
@@ -30,6 +32,8 @@ class FrostedGlassWidget extends StatefulWidget {
   /// Opt in only for a small number of overlay surfaces, never list cards.
   final bool nativeGlass;
   final DockNativeGlassStyle? nativeStyle;
+  final bool neutralTint;
+  final double materialOpacity;
   final Color? color;
   final GlassPart? part;
   final Widget child;
@@ -89,8 +93,13 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                       (settings.native.clear
                           ? DockNativeGlassStyle.thin
                           : DockNativeGlassStyle.regular),
-                  tintColor: Color(settings.native.tint),
-                  tintOpacity: settings.native.tintOpacity,
+                  tintColor: widget.neutralTint
+                      ? Colors.white
+                      : Color(settings.native.tint),
+                  tintOpacity: widget.neutralTint
+                      ? 0
+                      : settings.native.tintOpacity,
+                  materialOpacity: widget.materialOpacity,
                   reduceTransparency: MediaQuery.highContrastOf(context),
                 ),
               ),
@@ -103,14 +112,20 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
       final tint = Color.lerp(
         base,
         LumeTheme.accent,
-        style.value(GlassParameter.tint),
+        widget.neutralTint ? 0 : style.value(GlassParameter.tint),
       )!;
-      final alpha = (widget.opacity * style.value(GlassParameter.opacity) / .68)
-          .clamp(.08, 1.0);
+      final alpha =
+          (widget.opacity *
+                  style.value(GlassParameter.opacity) /
+                  .68 *
+                  widget.materialOpacity)
+              .clamp(0.0, 1.0);
       final fill = enabled
           ? tint.withValues(alpha: alpha)
           : base.withValues(alpha: 1);
-      final saturation = style.value(GlassParameter.saturation);
+      final materialAlpha = widget.materialOpacity.clamp(0.0, 1.0);
+      final saturation =
+          1 + (style.value(GlassParameter.saturation) - 1) * materialAlpha;
       final inv = 1 - saturation;
       final filter = ui.ImageFilter.compose(
         outer: ui.ColorFilter.matrix([
@@ -136,8 +151,8 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           0,
         ]),
         inner: ui.ImageFilter.blur(
-          sigmaX: style.value(GlassParameter.blur),
-          sigmaY: style.value(GlassParameter.blur),
+          sigmaX: style.value(GlassParameter.blur) * materialAlpha,
+          sigmaY: style.value(GlassParameter.blur) * materialAlpha,
         ),
       );
       Widget background = ColoredBox(color: fill);
@@ -167,7 +182,7 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                   BoxShadow(
                     color: Colors.black.withValues(
                       alpha: enabled
-                          ? style.value(GlassParameter.shadow)
+                          ? style.value(GlassParameter.shadow) * materialAlpha
                           : .035,
                     ),
                     blurRadius: style.value(GlassParameter.shadowBlur),
@@ -192,9 +207,9 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                                 end: Alignment.bottomRight,
                                 colors: [
                                   Colors.white.withValues(
-                                    alpha: style.value(
-                                      GlassParameter.highlight,
-                                    ),
+                                    alpha:
+                                        style.value(GlassParameter.highlight) *
+                                        materialAlpha,
                                   ),
                                   Colors.white.withValues(alpha: 0),
                                 ],
@@ -205,9 +220,9 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                                           0
                                   ? Border.all(
                                       color: Colors.white.withValues(
-                                        alpha: style.value(
-                                          GlassParameter.border,
-                                        ),
+                                        alpha:
+                                            style.value(GlassParameter.border) *
+                                            materialAlpha,
                                       ),
                                       width: style.value(
                                         GlassParameter.borderWidth,
@@ -233,9 +248,15 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                               ),
                             press: press,
                             stretch: 0,
-                            highlight: style.value(GlassParameter.highlight),
-                            refraction: style.value(GlassParameter.refraction),
-                            dispersion: style.value(GlassParameter.dispersion),
+                            highlight:
+                                style.value(GlassParameter.highlight) *
+                                materialAlpha,
+                            refraction:
+                                style.value(GlassParameter.refraction) *
+                                materialAlpha,
+                            dispersion:
+                                style.value(GlassParameter.dispersion) *
+                                materialAlpha,
                           ),
                         ),
                       ),

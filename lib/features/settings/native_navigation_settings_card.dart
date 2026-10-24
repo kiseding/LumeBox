@@ -102,6 +102,24 @@ class _NativeNavigationSettingsCardState
             maxHeight: 200,
           ),
         ],
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('胶囊透明度'),
+          subtitle: const Text('同时调节底部导航胶囊与收缩圆圈，图标保持清晰'),
+          trailing: Text('${((1 - settings.materialOpacity) * 100).round()}%'),
+        ),
+        NativeGlassSlider(
+          value: 1 - settings.materialOpacity,
+          min: 0,
+          max: 1,
+          divisions: 100,
+          onChanged: (value) => _change(
+            settings.copyWith(materialOpacity: 1 - value),
+            save: false,
+          ),
+          onChangeEnd: (_) =>
+              unawaited(widget.controller.saveNativeNavigation()),
+        ),
         if (settings.enabled) ...[
           FutureBuilder<SystemTabBarCapabilities>(
             future: _capabilities,
