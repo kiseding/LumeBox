@@ -30,7 +30,10 @@ class SourceFavicon {
     LumeHttp? http,
     this.maxEntries = 96,
     this.fetchHtmlHomepage = true,
-  }) : _http = http ?? LumeHttp(source: '源图标');
+    this.failureRetryAfter = const Duration(minutes: 2),
+    DateTime Function()? now,
+  }) : _http = http ?? LumeHttp(source: '源图标'),
+       _now = now ?? DateTime.now;
 
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
   static final SourceFavicon instance = SourceFavicon();
@@ -49,6 +52,9 @@ class SourceFavicon {
 
   /// 候选全挂时要不要再抓一次首页解析图标地址。
   final bool fetchHtmlHomepage;
+  final Duration failureRetryAfter;
+  final DateTime Function() _now;
+  final Map<String, DateTime> _failedUntil = {};
 
   final Map<String, Uint8List?> _cache = <String, Uint8List?>{};
   final Map<String, Future<Uint8List?>> _inflight =
@@ -58,7 +64,7 @@ class SourceFavicon {
   ///
   /// [origin] 是站点根（`https://a.com`）；[explicit] 是源自己声明的图标地址，
   /// 优先级最高。同一个 (origin, explicit) 组合只真正请求一次，成功结果
-  /// 缓存住，失败允许重新获取——列表滚动、切页签都不会重新打一遍站点。
+  /// 缓存住，失败短暂冷却后允许重新获取，避免列表重建反复请求离线站点。
   Future<Uint8List?> load({
     required String origin,
     List<String> explicit = const <String>[],
@@ -70,6 +76,11 @@ class SourceFavicon {
     if (_cache.containsKey(key)) {
       return Future<Uint8List?>.value(_cache[key]);
     }
+    final failedUntil = _failedUntil[key];
+    if (failedUntil != null && _now().isBefore(failedUntil)) {
+      return Future<Uint8List?>.value();
+    }
+    _failedUntil.remove(key);
     final running = _inflight[key];
     if (running != null) return running;
     final task =
@@ -96,6 +107,7 @@ class SourceFavicon {
   @visibleForTesting
   void clearCache() {
     _cache.clear();
+    _failedUntil.clear();
     _inflight.clear();
   }
 
@@ -103,7 +115,15 @@ class SourceFavicon {
     if (_cache.length >= maxEntries && !_cache.containsKey(key)) {
       _cache.remove(_cache.keys.first);
     }
-    if (bytes != null) _cache[key] = bytes;
+    if (bytes != null) {
+      _cache[key] = bytes;
+      _failedUntil.remove(key);
+    } else {
+      if (_failedUntil.length >= maxEntries) {
+        _failedUntil.remove(_failedUntil.keys.first);
+      }
+      _failedUntil[key] = _now().add(failureRetryAfter);
+    }
   }
 
   static String _key(String origin, List<String> explicit) {

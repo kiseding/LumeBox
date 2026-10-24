@@ -39,6 +39,7 @@ import 'log_viewer_page.dart';
 import 'sandbox_settings_page.dart';
 import 'bangumi_settings_page.dart';
 import 'settings_ui.dart';
+import 'translation_languages_page.dart';
 
 import 'section_cache.dart';
 import 'usage_guide_page.dart';
@@ -180,6 +181,12 @@ class SettingsPage extends StatelessWidget {
       title: 'AI 图片超分与上色',
       subtitle: '漫画 / 美图 AI 超分 · AI 上色 · waifu2x 模型管理',
       onTap: () => _push(context, const ComicImageToolsSettingsPage()),
+    ),
+    SettingsEntryCard(
+      icon: Icons.translate,
+      title: '翻译语言包',
+      subtitle: '一次下载所有可用语言包 · 各个源共用',
+      onTap: () => _push(context, const TranslationLanguagesPage()),
     ),
     SettingsEntryCard(
       icon: Icons.translate,

@@ -1,5 +1,12 @@
 import '../media/media_library.dart';
 
+class AudioBookFailure implements Exception {
+  const AudioBookFailure(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
 class ResolvedAudio {
   const ResolvedAudio(this.url, {this.headers = const {}});
   final Uri url;

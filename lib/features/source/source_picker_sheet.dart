@@ -1,6 +1,7 @@
 import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_picker_card.dart';
 import '../../shared/widgets/source_picker_header.dart';
+import '../../shared/widgets/source_picker_scroll_list.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -96,6 +97,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
             _ => false,
           });
   String query = '';
+  final _currentSourceKey = GlobalKey();
+  bool _locateCurrent = true;
   final busy = <String>{};
   final results = <String, SourceTestResult>{};
 
@@ -344,13 +347,16 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     // 猫源走**单独的**极简卡片：没有左侧图标、没有右侧三点，文字单行居中。
     // 高度 / 圆角 / 描边与其它三个板块共用 SourceCardMetrics。
     if (widget.section == Section.cat) {
-      return CatSiteTile(
-        key: ValueKey('picker-source-${source.id}'),
-        height: CatSiteTile.compactHeight,
-        label: source.name,
-        selected: selected,
-        busy: busyNow,
-        onTap: busyNow ? null : () => Navigator.pop(context, source.id),
+      return KeyedSubtree(
+        key: selected ? _currentSourceKey : null,
+        child: CatSiteTile(
+          key: ValueKey('picker-source-${source.id}'),
+          height: CatSiteTile.compactHeight,
+          label: source.name,
+          selected: selected,
+          busy: busyNow,
+          onTap: busyNow ? null : () => Navigator.pop(context, source.id),
+        ),
       );
     }
 
@@ -358,6 +364,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     final adult = SourceContentRating.isAdult(source.id, source.name);
     final accent = Theme.of(context).colorScheme.primary;
     return SourcePickerCard(
+      key: selected ? _currentSourceKey : null,
       surfaceKey: ValueKey('picker-card-${source.id}'),
       tapKey: ValueKey('picker-source-${source.id}'),
       moreKey: ValueKey('picker-more-${source.id}'),
@@ -550,11 +557,47 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
       grouped[SourcePickerGroups.groupFor(widget.section, source)]!.add(source);
     }
     final groupDefinitions = SourcePickerGroups.forSection(widget.section);
+    final current = visible
+        .where((source) => source.id == widget.currentId)
+        .firstOrNull;
+    final currentGroup = current == null
+        ? null
+        : SourcePickerGroups.groupFor(widget.section, current);
+    final currentIndex = currentGroup == null
+        ? 0
+        : grouped[currentGroup]!.indexWhere(
+            (source) => source.id == current!.id,
+          );
+    final focusKey = _locateCurrent && current != null
+        ? _currentSourceKey
+        : null;
+    final rowHeight = widget.section == Section.cat
+        ? CatSiteTile.compactHeight + 6
+        : SourceCardMetrics.height + 6;
+    final initialOffset = currentGroup == null
+        ? 0.0
+        : (groupDefinitions
+                  .takeWhile((group) => group.$1 != currentGroup)
+                  .fold<double>(
+                    0,
+                    (offset, group) =>
+                        offset +
+                        ((widget.section == Section.cat && columns)
+                                ? (grouped[group.$1]!.length + 1) ~/ 2
+                                : grouped[group.$1]!.length) *
+                            rowHeight +
+                        60,
+                  ) +
+              ((widget.section == Section.cat && columns)
+                      ? currentIndex ~/ 2
+                      : currentIndex) *
+                  rowHeight);
     final singleList = visible.isEmpty
         ? Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'))
-        : ListView(
+        : SourcePickerScrollList(
             key: const ValueKey('picker-grouped-list'),
-            physics: const BouncingScrollPhysics(),
+            focusKey: focusKey,
+            estimatedOffset: initialOffset,
             padding: const EdgeInsets.only(bottom: 16),
             children: [
               for (final group in groupDefinitions)
@@ -579,6 +622,9 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     final groupedList = columns && widget.section != Section.cat
         ? SourceCategoryColumns(
             key: ValueKey('picker-columns-${widget.section.id}'),
+            focusKey: focusKey,
+            initialSectionId: currentGroup,
+            initialChildIndex: currentIndex,
             sections: [
               for (final group in groupDefinitions)
                 SourceColumnSection(
@@ -623,8 +669,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                     reload();
                   },
                 ),
-                onQueryChanged: (value) =>
-                    setState(() => query = value.trim().toLowerCase()),
+                onQueryChanged: (value) => setState(() {
+                  _locateCurrent = false;
+                  query = value.trim().toLowerCase();
+                }),
                 extraActions: [
                   ...widget.extraActions,
                   if (widget.section == Section.cat)
@@ -638,7 +686,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                         variant: true,
                       ),
                       onPressed: () async {
-                        setState(() => columns = !columns);
+                        setState(() {
+                          _locateCurrent = false;
+                          columns = !columns;
+                        });
                         final library = await ReadingLibrary.open(
                           widget.section,
                         );

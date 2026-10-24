@@ -89,6 +89,9 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
             .showSnackBar(const SnackBar(content: Text('当前内容无需替换，已保留原文')));
       }
     } catch (error) {
+      if (service.displayOriginal && texts.any((text) => service.lookup(text) != null)) {
+        service.toggleOriginal();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

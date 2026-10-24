@@ -8,6 +8,72 @@ import SwiftUI
 import NaturalLanguage
 #if canImport(Translation)
 import Translation
+@available(iOS 18.0, *)
+private struct TranslationLanguagePreparationView: View {
+  let languages: [String]
+  let target: String
+  let completion: ([String]?, String?) -> Void
+  @State private var index = 0
+  @State private var installed: [String] = []
+  @State private var failures: [String] = []
+
+  var body: some View {
+    VStack(spacing: 24) {
+      Text("下载翻译语言包").font(.headline)
+      ProgressView(value: Double(index), total: Double(max(1, languages.count)))
+      Text("\(min(index + 1, languages.count)) / \(languages.count)")
+      Text("语言包供所有源共用。请按 iOS 提示确认下载，保持此页面打开。")
+        .font(.footnote)
+      if index < languages.count {
+        let source = languages[index]
+        TranslationLanguagePreparationStep(source: source, target: target) { error in
+          if let error = error { failures.append(error) }
+          else { installed.append(source) }
+          if index + 1 < languages.count { index += 1 }
+          else {
+            completion(installed, failures.isEmpty ? nil : "部分语言包未就绪：" + failures.joined(separator: "；"))
+          }
+        }.id(index)
+      }
+      Button("取消下载") { completion(nil, "语言包下载已取消，已安装的语言包会保留") }
+    }.padding(24)
+  }
+}
+
+@available(iOS 18.0, *)
+private struct TranslationLanguagePreparationStep: View {
+  let source: String
+  let target: String
+  let completion: (String?) -> Void
+  @State private var started = false
+
+  var body: some View {
+    Text(Locale(identifier: "zh-Hans").localizedString(forIdentifier: source) ?? source)
+      .translationTask(source: Locale.Language(identifier: source), target: Locale.Language(identifier: target)) { session in
+        guard !started else { return }; started = true
+        do {
+          let availability = LanguageAvailability()
+          let from = Locale.Language(identifier: source)
+          let to = Locale.Language(identifier: target)
+          let status = await availability.status(from: from, to: to)
+          if case .unsupported = status {
+            await MainActor.run { completion("\(source)：系统不支持此语言组合") }
+            return
+          }
+          if case .supported = status { try await session.prepareTranslation() }
+          try Task.checkCancellation()
+          let ready = await availability.status(from: from, to: to)
+          await MainActor.run {
+            completion(ready == .installed ? nil : "\(source)：下载尚未完成，请稍后刷新")
+          }
+        } catch {
+          if !Task.isCancelled {
+            await MainActor.run { completion("\(source)：\(error.localizedDescription)") }
+          }
+        }
+      }
+  }
+}
 #endif
 
 /// Reader-owned jobs; originals never leave the device on this channel.
@@ -68,6 +134,13 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         result(nil)
       }
       return
+    }
+    if call.method == "translationLanguages" { translationLanguages(result: result); return }
+    if call.method == "prepareTranslationLanguages" {
+      var preparation = args
+      preparation["texts"] = args["languages"]
+      preparation["prepareOnly"] = true
+      startTranslation(preparation, id: id, result: result); return
     }
     if call.method == "translate" { startTranslation(args, id: id, result: result); return }
     guard ["recognize", "superResolve", "prepareModel", "clearModels", "importModel"].contains(call.method) else { result(FlutterMethodNotImplemented); return }
@@ -306,6 +379,38 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     return data
   }
 
+  private func translationLanguages(result: @escaping FlutterResult) {
+    #if canImport(Translation)
+    if #available(iOS 18.0, *) {
+      Task {
+        let availability = LanguageAvailability()
+        let target = Locale.Language(identifier: "zh-Hans")
+        let languages = await availability.supportedLanguages
+        var rows: [[String: String]] = []
+        for language in languages {
+          let code = language.minimalIdentifier
+          if code.lowercased().split(separator: "-").first == "zh" { continue }
+          let status = await availability.status(from: language, to: target)
+          let state: String
+          switch status {
+          case .installed: state = "installed"
+          case .supported: state = "supported"
+          case .unsupported: continue
+          @unknown default: continue
+          }
+          rows.append(["code": code,
+            "name": Locale(identifier: "zh-Hans").localizedString(forIdentifier: code) ?? code,
+            "status": state])
+        }
+        let sorted = rows.sorted { ($0["name"] ?? "") < ($1["name"] ?? "") }
+        await MainActor.run { result(sorted) }
+      }
+      return
+    }
+    #endif
+    result(FlutterError(code: "unsupported", message: "系统翻译语言包需要 iOS 18 或以上", details: nil))
+  }
+
   private func startTranslation(_ args: [String: Any], id: String, result: @escaping FlutterResult) {
     #if canImport(Translation)
     if #available(iOS 18.0, *) {
@@ -318,20 +423,24 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       translationID = id; translationResult = result
       lock.lock(); active.insert(id); lock.unlock()
       let source = args["source"] as? String ?? "auto"
+      let preparing = args["prepareOnly"] as? Bool == true
       let targetFamily = target.lowercased().split(separator: "-").first
       let alreadyTarget = source == "auto" && texts.allSatisfy { text in
         if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) { return true }
         guard let detected = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue else { return false }
         return detected.lowercased().split(separator: "-").first == targetFamily
       }
-      if source == target || alreadyTarget {
+      if !preparing && (source == target || alreadyTarget) {
         finishTranslation(texts, error: nil)
         return
       }
-      let view = ComicTranslationTaskView(texts: texts, source: source, target: target, completion: { [weak self] strings, error in
+      let completion: ([String]?, String?) -> Void = { [weak self] strings, error in
         guard self?.translationID == id else { return }
         self?.finishTranslation(strings, error: error)
-      })
+      }
+      let view = preparing
+        ? AnyView(TranslationLanguagePreparationView(languages: texts, target: target, completion: completion))
+        : AnyView(ComicTranslationTaskView(texts: texts, source: source, target: target, completion: completion))
       let host = UIHostingController(rootView: view)
       translationHost = host
       host.presentationController?.delegate = self
@@ -350,7 +459,10 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     // Complete only after dismissal; the next queued batch must not present
     // its controller on top of a sheet still being dismissed.
     let complete = {
-      if let strings = strings { result(strings) }
+      if let strings = strings, let error = error {
+        result(FlutterError(code: "translation_partial", message: error, details: strings))
+      }
+      else if let strings = strings { result(strings) }
       else { result(FlutterError(code: "translation", message: error ?? "翻译失败", details: nil)) }
     }
     if let host = host, host.presentingViewController != nil {
@@ -375,6 +487,7 @@ private struct ComicTranslationTaskView: View {
   @State private var groupIndex = 0
   @State private var output: [String] = []
   @State private var prepared = false
+  @State private var failures: [String] = []
 
   private func family(_ language: String) -> String {
     language.lowercased().split(separator: "-").first.map(String.init) ?? language
@@ -383,9 +496,23 @@ private struct ComicTranslationTaskView: View {
     guard !prepared else { return }
     output = texts
     var plan: [Group] = []
+    // Short titles are ambiguous in isolation. Only use the page's language
+    // when it is also a plausible candidate for this individual title.
+    let context = NLLanguageRecognizer()
+    context.processString(String(texts.joined(separator: "\n").prefix(12000)))
+    let contextLanguage = context.dominantLanguage
     for (index, text) in texts.enumerated() {
       guard text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) else { continue }
-      let detected = source == "auto" ? NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue : source
+      let recognizer = NLLanguageRecognizer()
+      recognizer.processString(text)
+      let hypotheses = recognizer.languageHypotheses(withMaximum: 10)
+      var detected = source == "auto" ? recognizer.dominantLanguage?.rawValue : source
+      if source == "auto", text.count <= 80, let candidate = contextLanguage,
+         (context.languageHypotheses(withMaximum: 1)[candidate] ?? 0) >= 0.8,
+         (hypotheses[recognizer.dominantLanguage ?? .undetermined] ?? 0) < 0.8,
+         (hypotheses[candidate] ?? 0) >= 0.05 {
+        detected = candidate.rawValue
+      }
       // Apple cannot translate a language to itself, including regional variants.
       // Chinese content already meets the Chinese-display request.
       if let detected, family(detected) == family(target) { continue }
@@ -403,23 +530,31 @@ private struct ComicTranslationTaskView: View {
   var body: some View {
     VStack(spacing: 24) {
       Text("设备端翻译").font(.headline)
-      ProgressView("正在准备语言包并翻译…")
-      Text("首次使用请按系统提示下载语言包").font(.footnote)
+      ProgressView("正在翻译…")
       if prepared && groupIndex < groups.count {
         let group = groups[groupIndex]
         ComicTranslationBatchView(texts: group.indices.map { texts[$0] },
           source: group.language, target: target) { values, error in
           guard let values, values.count == group.indices.count else {
-            completion(nil, error ?? "翻译结果不完整，请重试")
+            // Empty slots identify failures; Dart caches only successful slots.
+            // Continue other languages instead of discarding the whole page.
+            for index in group.indices { output[index] = "" }
+            failures.append(error ?? "翻译结果不完整，请重试")
+            advance()
             return
           }
           for (offset, index) in group.indices.enumerated() { output[index] = values[offset] }
-          if groupIndex + 1 < groups.count { groupIndex += 1 }
-          else { completion(output, nil) }
+          advance()
         }.id(groupIndex)
       }
       Button("取消") { completion(nil, "翻译已取消") }
     }.padding(24).task { prepare() }
+  }
+  private func advance() {
+    if groupIndex + 1 < groups.count { groupIndex += 1 }
+    else {
+      completion(output, failures.isEmpty ? nil : "部分内容未翻译，成功译文已保留。" + failures.joined(separator: "；"))
+    }
   }
 }
 
@@ -440,7 +575,7 @@ private struct ComicTranslationBatchView: View {
             await MainActor.run { completion(nil, "系统不支持 \(source) → \(target) 翻译，可更换原文语言或使用 AI 翻译") }
             return
           }
-          try await session.prepareTranslation()
+          if case .supported = status { try await session.prepareTranslation() }
           var translated: [String] = []
           for text in texts {
             try Task.checkCancellation()

@@ -16,6 +16,7 @@ import '../net/lume_net.dart';
 import '../net/network_queue.dart';
 import '../net/network_settings.dart';
 import '../net/source_request_log.dart';
+import '../net/site_session_pool.dart';
 import '../net/waf.dart';
 import '../session/section.dart';
 import '../source/data_source.dart';
@@ -810,11 +811,22 @@ class SectionImagePipeline {
           outgoingHeaders[refKey] = prefs.rewrite(outgoingHeaders[refKey]!);
         }
       }
+      // Image hosts can require a normal domain cookie issued by the HTML page
+      // (JComic's jcomic_access), even before any interactive verification.
+      // Use the same domain/path/expiry rules and WebKit store as source HTTP.
+      final sessionHeaders = await SiteSessionPool.shared.synchronize(
+        target,
+        outgoingHeaders,
+        forceCookies: target == url && hasExplicitCookie,
+      );
+      if (!withReferer) {
+        sessionHeaders.removeWhere((key, _) => key.toLowerCase() == 'referer');
+      }
       final response = await (requestSender ?? LumeNet.queue.send)(
         NetworkRequest(
           url: target,
           cancellation: _requestLifetime,
-          headers: outgoingHeaders,
+          headers: sessionHeaders,
           source: sourceLabel,
           timeout: timeout,
           reuseVerifiedSession: verifiedUa.isNotEmpty || target != url,

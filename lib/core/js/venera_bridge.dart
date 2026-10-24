@@ -426,6 +426,10 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
 
   function request(method, url, headers, body) {
     var options = { method: method, headers: headersOf(headers) };
+    var cookies = Network.getCookies(url);
+    if (cookies.length && !Object.keys(options.headers).some(function (key) { return key.toLowerCase() === 'cookie'; })) {
+      options.headers.Cookie = cookies.map(function (cookie) { return cookie.name + '=' + cookie.value; }).join('; ');
+    }
     if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
       return globalThis.LumeBridge.invoke('http.fetch', {method: method, url: String(url), headers: options.headers, bodyBase64: Convert.encodeBase64(body)});
     }
@@ -433,10 +437,43 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     return globalThis.fetch(String(url), options).then(function (response) {
       // Venera 的 Network 返回 { status, headers, body }，body 是字符串；
       // 我们的 fetch 已经是这个形状（多给了 text()/json()，Venera 源用不到）。
+      var instance = instanceOrThrow();
+      // WNACG refreshes its official domains on startup but leaves its default
+      // selection on the old host. Only recover that uncustomized default.
+      if (method === 'GET' && instance.key === 'wnacg' && response.status === 403 &&
+          instance.loadSetting('domain0') === 'wnacg.com' && Number(instance.loadSetting('domainSelection')) === 0) {
+        var origin = /^https?:\/\/[^/]+/i.exec(String(url));
+        var domains = instance.constructor.domains || [];
+        function tryMirror(index) {
+          if (!origin || index >= domains.length) return response;
+          var host = String(domains[index]);
+          if (!/^[a-z0-9.-]+$/i.test(host)) return tryMirror(index + 1);
+          var next = 'https://' + host + String(url).slice(origin[0].length);
+          var mirrorHeaders = {};
+          Object.keys(options.headers).forEach(function (key) {
+            if (!/^(cookie|authorization|proxy-authorization|host)$/i.test(key)) mirrorHeaders[key] = options.headers[key];
+          });
+          return globalThis.fetch(next, Object.assign({}, options, {headers:mirrorHeaders})).then(function (candidate) {
+            // Release pages are also listed there; do not mistake them for the
+            // comic site simply because they return HTTP 200.
+            if (candidate.status === 200 && /(?:title_sort|gallary_wrap)/.test(candidate.body || '')) {
+              settingsOf(instance).domainSelection = String(index + 1);
+              return candidate;
+            }
+            return tryMirror(index + 1);
+          }, function () { return tryMirror(index + 1); });
+        }
+        return tryMirror(0);
+      }
       return response;
     });
   }
 
+  function cookieTarget(url) {
+    var match = /^(https?):\/\/([^\/?#:]+)(?::\d+)?([^?#]*)/i.exec(String(url));
+    if (!match) throw new Error('Cookie 仅支持 HTTP(S) 站点');
+    return {hostname:match[2].toLowerCase(), protocol:match[1].toLowerCase() + ':', pathname:match[3] || '/'};
+  }
   var Network = {
     get: function (url, headers) { return request('GET', url, headers); },
     post: function (url, headers, body) { return request('POST', url, headers, body); },
@@ -455,10 +492,40 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
         return { status: reply.status, headers: reply.headers, body: base64Decode(reply.bodyBase64 || '') };
       });
     },
-    // Cookie 是宿主网络层的事（全局 UA / 单源覆盖在那边配），脚本侧不单独持有。
-    setCookies: function () { throw unsupported('Network.setCookies'); },
-    getCookies: function () { throw unsupported('Network.getCookies'); },
-    deleteCookies: function () { throw unsupported('Network.deleteCookies'); }
+    // Script cookies are source-local; outgoing requests still pass through the
+    // host's WebKit session. Never broaden a supplied cookie to unrelated hosts.
+    setCookies: function (url, cookies) {
+      var target = cookieTarget(url);
+      var instance = instanceOrThrow();
+      var jar = instance.__lumeCookies || (instance.__lumeCookies = []);
+      (cookies || []).forEach(function (raw) {
+        var domain = String(raw.domain || target.hostname).toLowerCase().replace(/^\./, '');
+        if (target.hostname !== domain && !target.hostname.endsWith('.' + domain)) throw new Error('Cookie 域名与站点不匹配');
+        var cookie = Object.assign({}, raw, {domain:domain, path:raw.path || '/', hostOnly:!raw.domain});
+        if (!cookie.name || /[;\r\n]/.test(String(cookie.name) + String(cookie.value))) throw new Error('Cookie 格式无效');
+        var key = domain + '|' + cookie.path + '|' + cookie.name;
+        jar = jar.filter(function (entry) { return entry.domain + '|' + entry.path + '|' + entry.name !== key; });
+        jar.push(cookie);
+      });
+      instance.__lumeCookies = jar;
+    },
+    getCookies: function (url) {
+      var target = cookieTarget(url);
+      return (instanceOrThrow().__lumeCookies || []).filter(function (cookie) {
+        var path = target.pathname || '/';
+        return (target.hostname === cookie.domain || (!cookie.hostOnly && target.hostname.endsWith('.' + cookie.domain))) &&
+          (path === cookie.path || path.indexOf(cookie.path.endsWith('/') ? cookie.path : cookie.path + '/') === 0) &&
+          (!cookie.secure || target.protocol === 'https:') &&
+          (cookie.expires == null || new Date(cookie.expires).getTime() > Date.now());
+      }).map(function (cookie) { return Object.assign({}, cookie); });
+    },
+    deleteCookies: function (url) {
+      var selected = Network.getCookies(url);
+      var instance = instanceOrThrow();
+      instance.__lumeCookies = (instance.__lumeCookies || []).filter(function (cookie) {
+        return !selected.some(function (entry) { return entry.name === cookie.name && entry.domain === cookie.domain && entry.path === cookie.path; });
+      });
+    }
   };
 
   // ---------------------------------------------------------------------- UI
@@ -551,7 +618,9 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       var value = matched[3] !== undefined ? matched[3]
         : (matched[4] !== undefined ? matched[4]
         : (matched[5] !== undefined ? matched[5] : ''));
-      attributes[name] = value;
+      // HTML parsers keep the first duplicate attribute. WNACG emits e.g.
+      // class="title_sort" class="cc"; last-wins loses every home section.
+      if (!Object.prototype.hasOwnProperty.call(attributes, name)) attributes[name] = value;
     }
     return attributes;
   }
@@ -840,17 +909,30 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
 
   // 数据存取：落在按图源隔离的沙盒存储（与 LumeSource.fs 同一张表）。
   ComicSource.prototype.loadData = function (key) {
-    return store('store.read', key).then(function (reply) {
-      var value = reply ? reply.value : null;
-      return value === null || value === undefined ? null : String(value);
-    });
+    var values = this.__lumeData || {};
+    return Object.prototype.hasOwnProperty.call(values, String(key)) ? values[String(key)] : null;
   };
   ComicSource.prototype.saveData = function (key, value) {
-    return store('store.write', key, value);
+    if (!this.__lumeData) this.__lumeData = Object.create(null);
+    this.__lumeData[String(key)] = value;
+    return store('store.write', key, JSON.stringify({__lumeVeneraData:1, value:value}));
   };
   ComicSource.prototype.deleteData = function (key) {
+    if (this.__lumeData) delete this.__lumeData[String(key)];
     return store('store.remove', key);
   };
+  function hydrateData(instance) {
+    instance.__lumeData = Object.create(null);
+    return store('store.keys', '').then(function (reply) {
+      return Promise.all((reply && reply.keys || []).filter(function (key) { return key.indexOf('setting:') !== 0; }).map(function (key) {
+        return store('store.read', key).then(function (saved) {
+          var value = saved && saved.value;
+          try { var parsed = JSON.parse(value); if (parsed && parsed.__lumeVeneraData === 1) value = parsed.value; } catch (_) {}
+          instance.__lumeData[key] = value;
+        });
+      }));
+    });
+  }
   ComicSource.prototype.init = function () {};
   ComicSource.prototype.dispose = function () {};
 
@@ -965,14 +1047,19 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
 
   // -------------------------------------------------------------- 契约适配
   function listEnvelope(value) {
-    // Venera 的列表返回 { comics: [...], maxPage }（explore/category 可能是
-    // { comics, next }）。这里只认 maxPage 分页：没有 maxPage 就当作没有下一页。
+    // Venera lists use page counts or next-page tokens. Old multipart homepages
+    // also return a title-to-comics dictionary instead of a section array.
     var comics = [];
     var maxPage = null;
     if (value && typeof value === 'object') {
       if (Array.isArray(value.comics)) comics = value.comics;
       else if (Array.isArray(value)) comics = value;
       else if (Array.isArray(value.data)) comics = value.data;
+      else {
+        Object.keys(value).forEach(function (key) {
+          if (Array.isArray(value[key])) comics = comics.concat(value[key]);
+        });
+      }
       var flattened = [];
       comics.forEach(function (entry) {
         if (Array.isArray(entry)) flattened = flattened.concat(entry);
@@ -984,7 +1071,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     } else if (Array.isArray(value)) {
       comics = value;
     }
-    return { comics: comics, maxPage: maxPage };
+    return { comics: comics, maxPage: maxPage, next: value && value.next };
   }
 
   function toItem(raw) {
@@ -1064,26 +1151,69 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
         options: (group.options || []).map(optionValue) };
     });
   }
+  function multipart(page) {
+    return page.type === 'multiPartPage' || page.type === 'singlePageWithMultiPart';
+  }
+  // Cursor sources expose loadNext rather than page numbers. Keep tokens per
+  // query, replaying only missing preceding pages after a context rebuild.
+  var cursorPages = {};
+  function loadPage(loader, key, page, args, type) {
+    if (typeof loader.load === 'function') {
+      return loader.load.apply(loader, args.concat([multipart({type:type}) ? null : type === 'mixed' ? page - 1 : page]));
+    }
+    if (typeof loader.loadNext !== 'function') return Promise.reject(new Error('Venera 列表没有 load/loadNext'));
+    if (page === 1 || !cursorPages[key]) cursorPages[key] = {tokens: {1: null}};
+    var state = cursorPages[key];
+    while (Object.keys(cursorPages).length > 64) delete cursorPages[Object.keys(cursorPages)[0]];
+    function read(number) {
+      if (!Object.prototype.hasOwnProperty.call(state.tokens, number)) {
+        return read(number - 1).then(function () { return read(number); });
+      }
+      if (number > 1 && state.tokens[number] == null) return Promise.resolve({comics:[], next:null});
+      return Promise.resolve(loader.loadNext.apply(loader, args.concat([state.tokens[number]]))).then(function (result) {
+        state.tokens[number + 1] = result && result.next != null ? result.next : null;
+        return result;
+      });
+    }
+    return read(page);
+  }
+  function moreTarget(value, fallback) {
+    if (typeof value === 'string' && /^(category|search):/.test(value)) {
+      return 'venera-jump:' + encodeURIComponent(JSON.stringify(value));
+    }
+    if (value && typeof value === 'object') return 'venera-jump:' + encodeURIComponent(JSON.stringify(value));
+    return fallback;
+  }
   function home() {
     var instance = instanceOrThrow();
     var pages = instance.explore || [];
+    var failures = [];
     return Promise.all(pages.map(function (page, index) {
-      if (typeof page.load !== 'function') return [];
-      var argument = page.type === 'multiPartPage' ? null : page.type === 'mixed' ? 0 : 1;
-      return Promise.resolve(page.load(argument)).then(function (result) {
-        var blocks = page.type === 'multiPartPage' ? result : page.type === 'mixed' ? result.data : null;
+      if (typeof page.load !== 'function' && typeof page.loadNext !== 'function') return [];
+      return Promise.resolve().then(function () { return loadPage(page, 'explore:' + index, 1, [], page.type); }).then(function (result) {
+        var blocks = multipart(page) ? result : page.type === 'mixed' ? result.data : null;
+        if (blocks && !Array.isArray(blocks) && typeof blocks === 'object') {
+          blocks = Object.keys(blocks).filter(function (key) { return Array.isArray(blocks[key]); }).map(function (key) {
+            return {title:key, comics:blocks[key]};
+          });
+        }
         if (Array.isArray(blocks)) {
           return blocks.map(function (block) {
             var comics = Array.isArray(block) ? block : block.comics || [];
             return { title: block.title || page.title, items: comics.map(toItem).filter(Boolean),
-              moreUrl: 'explore:' + index };
+              moreUrl: moreTarget(block.viewMore, 'explore:' + index) };
           });
         }
         return [{ title: page.title, items: listEnvelope(result).comics.map(toItem).filter(Boolean),
           moreUrl: 'explore:' + index }];
+      }).catch(function (error) {
+        failures.push(error);
+        console.warn('[venera] 首页模块 ' + page.title + ' 加载失败：' + error);
+        return [];
       });
     })).then(function (groups) {
       var boards = [].concat.apply([], groups);
+      if (!boards.some(function (board) { return board.items.length > 0; }) && failures.length) throw failures[0];
       return Promise.all(boards.map(function (board) { return thumbnailItems(board.items).then(function (items) { board.items = items; return board; }); }))
         .then(function (ready) { return { boards: ready }; });
     });
@@ -1098,10 +1228,25 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     var pending;
 
     if (keyword) {
-      if (!instance.search || typeof instance.search.load !== 'function') {
+      if (!instance.search || (typeof instance.search.load !== 'function' && typeof instance.search.loadNext !== 'function')) {
         return Promise.reject(new Error('该 Venera 源没有提供 search，无法搜索'));
       }
-      pending = instance.search.load(keyword, filterOptions(instance.search.optionList, options.filters), page);
+      var searchOptions = filterOptions(instance.search.optionList, options.filters);
+      pending = loadPage(instance.search, 'search:' + JSON.stringify([keyword, searchOptions]), page, [keyword, searchOptions]);
+    } else if (categoryId.indexOf('venera-jump:') === 0) {
+      var jump = JSON.parse(decodeURIComponent(categoryId.slice(12)));
+      if (jump && jump.attributes) jump = Object.assign({page:jump.page}, jump.attributes);
+      if (typeof jump === 'string') {
+        var at = jump.indexOf(':');
+        var text = jump.slice(at + 1);
+        if (jump.slice(0, at) === 'search') return list({keyword:text, page:page, filters:options.filters});
+        var split = text.indexOf('@');
+        jump = {category:split < 0 ? text : text.slice(0, split), param:split < 0 ? null : text.slice(split + 1)};
+      }
+      if (jump.keyword != null || jump.search != null) return list({keyword:jump.keyword || jump.search, page:page, filters:options.filters});
+      if (!instance.categoryComics) return Promise.reject(new Error('该 Venera 源没有提供 categoryComics'));
+      pending = loadPage(instance.categoryComics, categoryId, page, [jump.category || jump.title || '', jump.param == null ? null : jump.param,
+        filterOptions(instance.categoryComics.optionList, options.filters)]);
     } else if (categoryId.indexOf('category:') === 0) {
       var parts = categoryId.split(':');
       var partIndex = Number(parts[1]);
@@ -1125,17 +1270,18 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     } else if (categoryId.indexOf('explore:') === 0) {
       var index = Number(categoryId.split(':')[1]);
       var page_ = instance.explore && instance.explore[index];
-      if (!page_ || typeof page_.load !== 'function') {
+      if (!page_ || (typeof page_.load !== 'function' && typeof page_.loadNext !== 'function')) {
         return Promise.reject(new Error('该 Venera 源没有这个探索页：' + categoryId));
       }
-      pending = page_.load(page_.type === 'multiPartPage' ? null : page_.type === 'mixed' ? page - 1 : page);
+      pending = loadPage(page_, categoryId, page, [], page_.type);
     } else {
       // 没有指定范围：优先第一个探索页（等价于 Venera 首页），否则搜索空串。
       var first = instance.explore && instance.explore[0];
-      if (first && typeof first.load === 'function') {
-        pending = first.load(first.type === 'multiPartPage' ? null : first.type === 'mixed' ? page - 1 : page);
-      } else if (instance.search && typeof instance.search.load === 'function') {
-        pending = instance.search.load('', filterOptions(instance.search.optionList, options.filters), page);
+      if (first && (typeof first.load === 'function' || typeof first.loadNext === 'function')) {
+        pending = loadPage(first, 'explore:0', page, [], first.type);
+      } else if (instance.search && (typeof instance.search.load === 'function' || typeof instance.search.loadNext === 'function')) {
+        var defaults = filterOptions(instance.search.optionList, options.filters);
+        pending = loadPage(instance.search, 'search:' + JSON.stringify(['', defaults]), page, ['', defaults]);
       } else {
         return Promise.reject(new Error('该 Venera 源既没有 explore 也没有 search，无法出列表'));
       }
@@ -1149,7 +1295,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
         if (item) items.push(item);
       }
       return thumbnailItems(items).then(function (ready) {
-        return { items: ready, hasMore: envelope.maxPage !== null && page < envelope.maxPage };
+        return { items: ready, hasMore: envelope.maxPage !== null ? page < envelope.maxPage : envelope.next != null && envelope.next !== '' };
       });
     });
   }
@@ -1184,9 +1330,9 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
       if (info.cover) result.cover = String(info.cover);
       var subtitle = info.subTitle != null ? info.subTitle : info.subtitle;
       if (!subtitle && info.tags && typeof info.tags === 'object') {
-        var names = Object.keys(info.tags);
-        if (names.length > 0 && Array.isArray(info.tags[names[0]])) {
-          subtitle = info.tags[names[0]].join(' · ');
+        var tags = info.tags instanceof Map ? Array.from(info.tags.values()) : Object.keys(info.tags).map(function (key) { return info.tags[key]; });
+        if (tags.length > 0 && Array.isArray(tags[0])) {
+          subtitle = tags[0].join(' · ');
         }
       }
       if (subtitle) result.subtitle = String(subtitle);
@@ -1205,30 +1351,26 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     return Promise.resolve(comic.loadInfo(id)).then(function (info) {
       var raw = info && info.chapters;
       var result = [];
-      if (!raw) return result;
+      if (!raw) return info && typeof comic.loadEp === 'function'
+        ? [{id:'__lume_venera_single__', title:'正文'}] : result;
       if (Array.isArray(raw)) {
         // 也接受 [{id, title}] 这种直给形状（少数源这么写）。
         for (var i = 0; i < raw.length; i++) {
           var entry = raw[i];
-          if (+entry && entry.id != null) {
+          if (entry && entry.id != null) {
             result.push({ id: String(entry.id), title: String(entry.title || entry.id) });
           }
         }
         return result;
       }
-      var names = Object.keys(raw);
-      for (var n = 0; n < names.length; n++) {
-        var value = raw[names[n]];
-        if (value && typeof value === 'object') {
-          // 分组章节：{ 分组名: { 章节id: 标题 } }
-          var inner = Object.keys(value);
-          for (var k = 0; k < inner.length; k++) {
-            result.push({ id: String(inner[k]), title: String(value[inner[k]]) });
-          }
-        } else {
-          result.push({ id: String(names[n]), title: String(value) });
-        }
+      function appendChapters(table) {
+        var entries = table instanceof Map ? Array.from(table.entries()) : Object.keys(table).map(function (key) { return [key, table[key]]; });
+        entries.forEach(function (entry) {
+          if (entry[1] && typeof entry[1] === 'object') appendChapters(entry[1]);
+          else result.push({id:String(entry[0]), title:String(entry[1])});
+        });
       }
+      appendChapters(raw);
       return result;
     });
   }
@@ -1237,6 +1379,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     var instance = instanceOrThrow();
     var id = argument && argument.id ? String(argument.id) : '';
     var chapterId = argument && argument.chapterId ? String(argument.chapterId) : '';
+    if (chapterId === '__lume_venera_single__') chapterId = null;
     var comic = typeof instance.loadEp === 'function' ? instance : (instance.comic || {});
     if (typeof comic.loadEp !== 'function') {
       return Promise.reject(new Error('该 Venera 源没有提供 loadEp，无法取图片'));
@@ -1348,7 +1491,7 @@ class VeneraComicSourcePolyfill implements SandboxPolyfill {
     }
 
     // 设置项就位后再跑 init（脚本可能在 init 里读设置）。
-    return hydrateSettings(instance).then(function () {
+    return Promise.all([hydrateSettings(instance), hydrateData(instance)]).then(function () {
       var initialization = instance.init ? instance.init() : null;
       return Promise.resolve(initialization);
     }).then(function () { return true; });
@@ -1410,8 +1553,34 @@ class VeneraScriptSource {
         buffer.write(' ');
         continue;
       }
+      // Quotes and comment-like text inside regex literals are not JS string
+      // delimiters. IKMMH's validator-cookie regex otherwise hides its class.
+      if (char == '/' &&
+          RegExp(r'(^|[=(:,\[!&|?{};]|=>|\breturn|\bcase|\bthrow)\s*$')
+              .hasMatch(buffer.toString())) {
+        index++;
+        var characterClass = false;
+        while (index < script.length) {
+          final current = script[index++];
+          if (current == r'\') {
+            index++;
+          } else if (current == '[') {
+            characterClass = true;
+          } else if (current == ']') {
+            characterClass = false;
+          } else if (current == '/' && !characterClass) {
+            while (index < script.length &&
+                RegExp(r'[a-zA-Z]').hasMatch(script[index])) {
+              index++;
+            }
+            break;
+          }
+        }
+        buffer.write(' 0 ');
+        continue;
+      }
       if (char == '"' || char == "'" || char == '`') {
-        buffer.write(' ');
+        buffer.write(' 0 ');
         index++;
         while (index < script.length) {
           if (script[index] == r'\') {

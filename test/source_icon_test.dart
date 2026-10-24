@@ -37,21 +37,29 @@ void main() {
 
   test('失败的图标不永久缓存，网络恢复后能再次获取', () async {
     var ready = false;
+    var now = DateTime(2026, 10, 24);
+    var calls = 0;
     final data = img.encodePng(img.Image(width: 2, height: 2));
     final resolver = SourceFavicon(
+      now: () => now,
       http: LumeHttp(
         source: 'retry',
-        client: MockClient(
-          (_) async => http.Response.bytes(
+        client: MockClient((_) async {
+          calls++;
+          return http.Response.bytes(
             ready ? data : [],
             ready ? 200 : 403,
             headers: {'content-type': 'image/png'},
-          ),
-        ),
+          );
+        }),
       ),
     );
     expect(await resolver.load(origin: 'https://retry.example'), isNull);
+    final failedCalls = calls;
     ready = true;
+    expect(await resolver.load(origin: 'https://retry.example'), isNull);
+    expect(calls, failedCalls);
+    now = now.add(const Duration(minutes: 2));
     expect(await resolver.load(origin: 'https://retry.example'), isNotNull);
   });
 

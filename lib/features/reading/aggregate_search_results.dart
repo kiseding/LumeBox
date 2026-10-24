@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
-import '../../core/theme/lume_theme.dart';
 import 'poster_card.dart';
 import 'section_toolbar.dart';
+import 'aggregate_search_poster.dart';
 
 enum _SiteLayout { grouped, top, left }
 
@@ -40,7 +40,8 @@ class AggregateSearchResults extends StatefulWidget {
 class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   static const _layoutKey = 'search.results.siteLayout';
   static const _cardsKey = 'search.results.cards';
-  _SiteLayout _layout = _SiteLayout.grouped;
+  static const _referenceVersionKey = 'search.results.threeColumnVersion';
+  _SiteLayout _layout = _SiteLayout.left;
   bool _cards = true;
   String? _selected;
 
@@ -48,10 +49,16 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   void initState() {
     super.initState();
     final library = ReadingLibrary.find(widget.section);
+    // Adopt the requested reference once, then keep subsequent layout choices.
+    if (library != null && library.setting(_referenceVersionKey) != '1') {
+      library.setSetting(_layoutKey, 'left');
+      library.setSetting(_cardsKey, 'true');
+      library.setSetting(_referenceVersionKey, '1');
+    }
     final saved = library?.setting(_layoutKey);
     _layout = _SiteLayout.values.firstWhere(
       (value) => value.name == saved,
-      orElse: () => _SiteLayout.grouped,
+      orElse: () => _SiteLayout.left,
     );
     _cards = library?.setting(_cardsKey) != 'false';
   }
@@ -99,11 +106,11 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   }
 
   Widget _tile(SearchHit hit) => _cards
-      ? PosterTile(
+      ? AggregateSearchPoster(
           key: ValueKey('search-hit-${hit.sourceId}-${hit.item.id}'),
-          item: hit.item,
+          hit: hit,
           pipeline: widget.pipeline,
-          meta: _meta(hit),
+          metadata: _meta(hit),
           onTap: () => widget.onOpen(hit),
         )
       : CompactSourceItemTile(
@@ -165,13 +172,122 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
     return ListView.separated(
       key: ValueKey(vertical ? 'search-sites-left' : 'search-sites-top'),
       scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
-      padding: const EdgeInsets.all(8),
+      padding: vertical
+          ? const EdgeInsets.symmetric(vertical: 8)
+          : const EdgeInsets.all(8),
       itemCount: entries.length,
-      separatorBuilder: (_, _) =>
-          SizedBox(width: vertical ? 0 : 6, height: vertical ? 4 : 0),
+      separatorBuilder: (context, _) => vertical
+          ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Divider(
+                height: 1,
+                thickness: 1 / MediaQuery.devicePixelRatioOf(context),
+                color: Theme.of(context).colorScheme.onSurface.withValues(
+                  alpha: AggregateSearchLayout.siteSeparatorOpacity,
+                ),
+              ),
+            )
+          : const SizedBox(width: 6),
       itemBuilder: (context, index) {
         final entry = entries[index];
         final selected = entry.id == _selected;
+        if (vertical) {
+          final accent = Theme.of(context).colorScheme.primary;
+          return Semantics(
+            selected: selected,
+            button: true,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Tooltip(
+                message: entry.name,
+                child: Material(
+                  borderRadius: BorderRadius.circular(
+                    AggregateSearchLayout.siteRowRadius,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  color: selected
+                      ? accent.withValues(
+                          alpha: AggregateSearchLayout.selectedSiteOpacity,
+                        )
+                      : Colors.transparent,
+                  child: InkWell(
+                    key: ValueKey('search-filter-${entry.id ?? 'all'}'),
+                    onTap: () => setState(() => _selected = entry.id),
+                    child: Stack(
+                      children: [
+                        Container(
+                          constraints: BoxConstraints(
+                            minHeight:
+                                AggregateSearchLayout.siteRowMinHeight *
+                                MediaQuery.textScalerOf(context)
+                                    .scale(1)
+                                    .clamp(1.0, 2.0),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                entry.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.2,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? accent
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                entry.detail,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.2,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (selected)
+                          Positioned(
+                            right: 2,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(
+                              child: Container(
+                                key: const ValueKey(
+                                  'search-selected-site-indicator',
+                                ),
+                                width: AggregateSearchLayout
+                                    .selectedIndicatorWidth,
+                                height: AggregateSearchLayout
+                                    .selectedIndicatorHeight,
+                                decoration: BoxDecoration(
+                                  color: accent,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
         return Semantics(
           selected: selected,
           button: true,
@@ -247,24 +363,26 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
         itemBuilder: (_, index) => _tile(hits[index]),
       );
     }
+    return _grid(hits, key: ValueKey('search-grid-${_selected ?? 'all'}'));
+  }
+
+  Widget _grid(List<SearchHit> hits, {Key? key, bool embedded = false}) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-        final minWidth = scale > 1.4 ? 140 : 110;
-        final columns = ((constraints.maxWidth - 24) / minWidth).floor().clamp(
-          1,
-          5,
-        );
-        final width =
-            (constraints.maxWidth - 24 - (columns - 1) * 10) / columns;
         return GridView.builder(
-          key: ValueKey('search-grid-${_selected ?? 'all'}'),
-          padding: const EdgeInsets.all(12),
+          key: key,
+          shrinkWrap: embedded,
+          physics: embedded ? const NeverScrollableScrollPhysics() : null,
+          padding: const EdgeInsets.all(AggregateSearchLayout.gridPadding),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisExtent: width * 1.4 + 74 * scale,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 12,
+            crossAxisCount: AggregateSearchLayout.columns,
+            mainAxisExtent: AggregateSearchLayout.itemExtent(
+              constraints.maxWidth,
+              scale,
+            ),
+            crossAxisSpacing: AggregateSearchLayout.columnGap,
+            mainAxisSpacing: AggregateSearchLayout.rowGap,
           ),
           itemCount: hits.length,
           itemBuilder: (_, index) => _tile(hits[index]),
@@ -306,21 +424,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                     : () => setState(() => _selected = site.id),
               ),
               if (hits.isNotEmpty && _cards)
-                SizedBox(
-                  height:
-                      190 +
-                      74 *
-                          MediaQuery.textScalerOf(context)
-                              .scale(1)
-                              .clamp(1.0, 2.0),
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: hits.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 12),
-                    itemBuilder: (_, index) =>
-                        SizedBox(width: 128, child: _tile(hits[index])),
-                  ),
-                )
+                _grid(hits, embedded: true)
               else if (hits.isNotEmpty) ...[
                 for (final hit in hits.take(3)) _tile(hit),
                 if (hits.length > 3)
@@ -397,10 +501,20 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                   builder: (context, constraints) => Row(
                     children: [
                       SizedBox(
-                        width: constraints.maxWidth < 360 ? 108 : 132,
+                        width: AggregateSearchLayout.sidebarWidth(
+                          constraints.maxWidth,
+                        ),
                         child: _sitePicker(groups, vertical: true),
                       ),
-                      VerticalDivider(width: 1, color: LumeTheme.hairline),
+                      VerticalDivider(
+                        key: const ValueKey('search-sites-divider'),
+                        width: AggregateSearchLayout.dividerSlotWidth,
+                        thickness: 1 / MediaQuery.devicePixelRatioOf(context),
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(
+                              alpha: AggregateSearchLayout.dividerOpacity,
+                            ),
+                      ),
                       Expanded(child: _flat(filtered)),
                     ],
                   ),

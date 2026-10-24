@@ -721,7 +721,7 @@ void main() {
 
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('search-groups')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-sites-left')), findsOneWidget);
       await layout('左侧站点分类');
       expect(find.byKey(const ValueKey('search-sites-left')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('search-filter-layout-b')));

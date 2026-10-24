@@ -25,6 +25,206 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
+  test('旧版分区首页字典、两种更多跳转与列表展开', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-home-shapes',
+      section: Section.comic,
+      script: r'''
+class HomeShapes extends ComicSource {
+ key='home-shapes'; name='Home'; version='1';
+ explore=[
+  {title:'旧首页',type:'singlePageWithMultiPart',load:async page=>{
+    if(page!==null) throw Error('wrong page');
+    return {'最新':[{id:'1',title:'作品'}], '热门':[{id:'2',title:'作品2'}]};
+  }},
+  {title:'新首页',type:'multiPartPage',load:async()=>[
+   {title:'分类',comics:[{id:'3',title:'作品3'}],viewMore:'category:汉化@/albums-index-cate-1.html'},
+   {title:'分类2',comics:[{id:'4',title:'作品4'}],viewMore:{page:'category',attributes:{category:'全彩',param:'color'}}}
+  ]}
+ ];
+ categoryComics={load:async(category,param,options,page)=>({comics:[{id:'more',title:category+'|'+param+'|'+page}],maxPage:3})};
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final home = await engine.callResult('home');
+    expect(home.isOk, true, reason: home.error?.message);
+    final boards = (home.value as Map)['boards'] as List;
+    expect(boards.map((b) => b['title']), ['最新', '热门', '分类', '分类2']);
+    for (var i = 2; i < 4; i++) {
+      final more = await engine.callResult('list', {
+        'categoryId': boards[i]['moreUrl'],
+        'page': 2,
+      });
+      expect(more.isOk, true, reason: more.error?.message);
+      expect(
+        ((more.value as Map)['items'] as List).single['title'],
+        i == 2 ? '汉化|/albums-index-cate-1.html|2' : '全彩|color|2',
+      );
+    }
+    final list = await engine.callResult('list', {'categoryId': 'explore:0'});
+    expect(((list.value as Map)['items'] as List).length, 2);
+  }, skip: skip);
+
+  test('loadNext 首页和搜索游标按查询隔离，缺失页可重放且末页停止', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-cursors',
+      section: Section.comic,
+      script: r'''
+class Cursors extends ComicSource {
+ key='cursors';name='Cursors';version='1';
+ explore=[{title:'最新',type:'multiPageComicList',loadNext:async next=>({comics:[{id:next||'first',title:next||'first'}],next:next?null:'second'})}];
+ search={loadNext:async(keyword,options,next)=>({comics:[{id:keyword,title:keyword+':'+(next||'first')}],next:next?null:keyword+'-next'})};
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final home = await engine.callResult('home');
+    expect(((home.value as Map)['boards'] as List).length, 1);
+    for (final keyword in ['A', 'B']) {
+      final result = await engine.callResult('list', {
+        'keyword': keyword,
+        'page': 2,
+      });
+      expect(result.isOk, true, reason: result.error?.message);
+      expect(
+        ((result.value as Map)['items'] as List).single['title'],
+        '$keyword:$keyword-next',
+      );
+      expect((result.value as Map)['hasMore'], false);
+    }
+    final last = await engine.callResult('list', {
+      'categoryId': 'explore:0',
+      'page': 2,
+    });
+    expect(((last.value as Map)['items'] as List).single['id'], 'second');
+    final exhausted = await engine.callResult('list', {
+      'categoryId': 'explore:0',
+      'page': 3,
+    });
+    expect((exhausted.value as Map)['items'], isEmpty);
+  }, skip: skip);
+
+  test('同步结构化缓存和脚本 Cookie 初始化兼容，Cookie 不越域或越路径', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-sync-data',
+      section: Section.comic,
+      script: r'''
+class DataFixture extends ComicSource {
+ key='sync-data';name='Data';version='1';
+ init(){
+  if(this.loadData('missing')!==null) throw Error('missing');
+  this.saveData('cache',{titles:['一','二'],page:2});
+  Network.setCookies('https://www.example.test/',[
+   new Cookie({name:'locale',value:'zh',domain:'example.test',path:'/comic',secure:true}),
+   new Cookie({name:'hostOnly',value:'1'})
+  ]);
+ }
+ probe(){return {cache:this.loadData('cache'),sync:!(this.loadData('cache') instanceof Promise),
+  own:Network.getCookies('https://www.example.test/comic/1').map(c=>c.name),
+  sibling:Network.getCookies('https://m.example.test/comic/1').map(c=>c.name),
+  other:Network.getCookies('https://other.test/comic/1'),
+  path:Network.getCookies('https://m.example.test/comics/1'),
+  insecure:Network.getCookies('http://m.example.test/comic/1')};}
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final result = await engine.callResult('probe');
+    expect(result.isOk, true, reason: result.error?.message);
+    final value = result.value as Map;
+    expect(value['cache'], {
+      'titles': ['一', '二'],
+      'page': 2,
+    });
+    expect(value['sync'], true);
+    expect(value['own'], ['locale', 'hostOnly']);
+    expect(value['sibling'], ['locale']);
+    for (final key in ['other', 'path', 'insecure']) {
+      expect(value[key], isEmpty);
+    }
+  }, skip: skip);
+
+  test('绅士漫画默认旧域名受阻时用发布页的可用镜像，跳过发布页自身', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-wnacg-mirrors',
+      section: Section.comic,
+      script: r'''
+globalThis.fetch=async url=>({status:url.includes('wnacg.com')?403:200,body:url.includes('release.test')?'release':'<div class="gallary_wrap">ready</div>'});
+class WnacgFixture extends ComicSource {
+ key='wnacg';name='WNACG';version='1';
+ static domains=['release.test','mirror.test'];
+ settings={domain0:{default:'wnacg.com'},domainSelection:{default:'0'}};
+ get baseUrl(){return 'https://'+(Number(this.loadSetting('domainSelection'))===0?this.loadSetting('domain0'):WnacgFixture.domains[Number(this.loadSetting('domainSelection'))-1]);}
+ async probe(){const result=await Network.get(this.baseUrl,{});return {status:result.status,base:this.baseUrl};}
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final result = await engine.callResult('probe');
+    expect(result.isOk, true, reason: result.error?.message);
+    expect(result.value, {'status': 200, 'base': 'https://mirror.test'});
+  }, skip: skip);
+
+  test('HTML 重复属性取首值，Map 和数组目录与单本正文保持阅读入口', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-reader-shapes',
+      section: Section.comic,
+      script: r'''
+class ReaderShapes extends ComicSource {
+ key='reader-shapes';name='Reader';version='1';
+ comic={
+  loadInfo:async id=>({title:'作品',chapters:id==='single'?null:id==='array'?[{id:'a',title:'数组话'}]:new Map([['第一卷',new Map([['2','第二话'],['1','第一话']])]])}),
+  loadEp:async(id,ep)=>{if(id==='single'&&ep!==null)throw Error('single ep must be null');return {images:['https://img.test/page.jpg']};}
+ };
+ probe(){const doc=new HtmlDocument('<div class="title_sort" class="cc"><div class="bodywrap" CLASS="other">内容</div></div>');return {titles:doc.querySelectorAll('div.title_sort').length,bodies:doc.querySelectorAll('div.bodywrap').length};}
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final html = await engine.callResult('probe');
+    expect(html.value, {'titles': 1, 'bodies': 1});
+    final map = await engine.callResult('chapters', {'id': 'map'});
+    expect(map.value, [
+      {'id': '2', 'title': '第二话'},
+      {'id': '1', 'title': '第一话'},
+    ]);
+    final array = await engine.callResult('chapters', {'id': 'array'});
+    expect(array.value, [
+      {'id': 'a', 'title': '数组话'},
+    ]);
+    final single = await engine.callResult('chapters', {'id': 'single'});
+    final chapter = (single.value as List).single as Map;
+    final content = await engine.callResult('content', {
+      'id': 'single',
+      'chapterId': chapter['id'],
+    });
+    expect(content.isOk, true, reason: content.error?.message);
+    expect((content.value as Map)['images'], ['https://img.test/page.jpg']);
+  }, skip: skip);
+
+  test('部分首页模块失败保留成功内容，全部失败保留真实错误', () async {
+    final engine = await openEngine(
+      sourceId: 'venera-partial-home',
+      section: Section.comic,
+      script: r'''
+class PartialHome extends ComicSource {
+ key='partial';name='Partial';version='1';
+ explore=[{title:'失败',load(){throw Error('site unavailable');}},{title:'可用',load:async()=>({comics:[{id:'1',title:'作品'}]})}];
+ failAll(){this.explore.pop();}
+}
+''',
+    );
+    addTearDown(engine.dispose);
+    final home = await engine.callResult('home');
+    expect(home.isOk, true, reason: home.error?.message);
+    expect(((home.value as Map)['boards'] as List).single['title'], '可用');
+    await engine.callResult('failAll');
+    final failed = await engine.callResult('home');
+    expect(failed.isOk, false);
+    expect(failed.error?.message, contains('site unavailable'));
+  }, skip: skip);
+
   test('官方二进制编码与同步摘要、HMAC 使用标准向量', () async {
     final engine = await openEngine(
       sourceId: 'venera-crypto',

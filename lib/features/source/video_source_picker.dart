@@ -1,6 +1,7 @@
 import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_picker_card.dart';
 import '../../shared/widgets/source_picker_header.dart';
+import '../../shared/widgets/source_picker_scroll_list.dart';
 
 import 'dart:async';
 
@@ -102,6 +103,51 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   WebHomeStore? _webStore;
   List<WebHomeSource> webHomes = const [];
   bool _importingHtml = false;
+  final _currentSourceKey = GlobalKey();
+  bool _locateCurrent = true, _initialTypeChosen = false;
+
+  bool _ordinarySelected(String id) =>
+      !widget.showingCat && widget.currentWebId == null && currentId == id;
+
+  void _chooseInitialType() {
+    if (_initialTypeChosen) return;
+    _initialTypeChosen = true;
+    if (!_locateCurrent) return;
+    if (widget.currentWebId != null) {
+      if (webHomes.any((home) => home.id == widget.currentWebId)) {
+        type = VideoSourceType.web;
+      }
+    } else if (widget.showingCat) {
+      if (service.subscriptions
+          .where((record) => record.enabled)
+          .any(
+            (record) => record.sites.any(
+              (site) =>
+                  site.id == widget.currentCatId &&
+                  PrivacySettings.instance.allowsSource(site.id, site.name),
+            ),
+          )) {
+        type = VideoSourceType.cat;
+      }
+    } else {
+      final current = sources
+          .where(
+            (source) =>
+                source.id == currentId &&
+                source.enabled &&
+                SourceContentVisibility.instance.allows(Section.video, source),
+          )
+          .firstOrNull;
+      if (current != null) {
+        type = switch (current.runtimeKind) {
+          'python' => VideoSourceType.python,
+          'module' => VideoSourceType.module,
+          'javascript' => VideoSourceType.ordinary,
+          _ => VideoSourceType.all,
+        };
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -147,6 +193,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         sources = rows;
         currentId = current?.id;
         webHomes = webStore.items;
+        _chooseInitialType();
         loading = false;
         error = null;
       });
@@ -573,6 +620,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         ),
       ],
       child: SourcePickerCard(
+        key: selected ? _currentSourceKey : null,
         tapKey: ValueKey('video-picker-source-$id'),
         title: name,
         subtitle: Row(
@@ -705,6 +753,46 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     ].contains(type);
     final showCat = type == VideoSourceType.all || type == VideoSourceType.cat;
     final showWeb = type == VideoSourceType.all || type == VideoSourceType.web;
+    var initialOffset = 0.0;
+    bool hasFocus = false;
+    if (type == VideoSourceType.cat && widget.showingCat) {
+      initialOffset = 44;
+      for (final (_, sites) in groups) {
+        final index = sites.indexWhere(
+          (site) => site.id == widget.currentCatId,
+        );
+        if (index >= 0) {
+          initialOffset +=
+              72 +
+              (index ~/ 2) *
+                  (SourceCardMetrics.height + SourceCardMetrics.rowGap);
+          hasFocus = true;
+          break;
+        }
+        initialOffset +=
+            72 +
+            ((sites.length + 1) ~/ 2) *
+                (SourceCardMetrics.height + SourceCardMetrics.rowGap);
+      }
+    } else if (type == VideoSourceType.web) {
+      final index = filteredWeb.indexWhere(
+        (home) => home.id == widget.currentWebId,
+      );
+      hasFocus = index >= 0;
+      initialOffset =
+          72 +
+          (index < 0 ? 0 : index ~/ 2) *
+              (SourceCardMetrics.height + SourceCardMetrics.rowGap);
+    } else {
+      final index = ordinary.indexWhere(
+        (source) => _ordinarySelected(source.id),
+      );
+      hasFocus = index >= 0;
+      initialOffset =
+          44 +
+          (index < 0 ? 0 : index ~/ 2) *
+              (SourceCardMetrics.height + SourceCardMetrics.rowGap);
+    }
     final empty =
         (!showOrdinary || ordinary.isEmpty) &&
         (!showCat || groups.isEmpty) &&
@@ -749,7 +837,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 child: card(
                   id: s.id,
                   name: s.name,
-                  subtitle: !widget.showingCat && currentId == s.id
+                  subtitle: _ordinarySelected(s.id)
                       ? '当前使用'
                       : '${s.runtimeKind == 'python'
                             ? 'PY'
@@ -757,7 +845,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                             ? '模块'
                             : 'JS'} · ${s.version}',
                   descriptor: s,
-                  selected: !widget.showingCat && currentId == s.id,
+                  selected: _ordinarySelected(s.id),
                   onTap: () =>
                       Navigator.pop(context, VideoSourceChoice.ordinary(s.id)),
                   onDelete: () => _deleteOrdinary(s),
@@ -811,8 +899,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                         slot: 'video_source_picker.add_button',
                       ),
                     ),
-                    onQueryChanged: (value) =>
-                        setState(() => query = value.trim().toLowerCase()),
+                    onQueryChanged: (value) => setState(() {
+                      _locateCurrent = false;
+                      query = value.trim().toLowerCase();
+                    }),
                   ),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -827,7 +917,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                               label: Text(item.label),
                               selected: type == item,
                               showCheckmark: false,
-                              onSelected: (_) => setState(() => type = item),
+                              onSelected: (_) => setState(() {
+                                _locateCurrent = false;
+                                type = item;
+                              }),
                             ),
                           ),
                       ],
@@ -853,7 +946,14 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                 ],
                               ),
                             )
-                          : ListView(
+                          : SourcePickerScrollList(
+                              key: ValueKey(
+                                'video-picker-list-${type.name}-$query',
+                              ),
+                              focusKey: _locateCurrent && hasFocus
+                                  ? _currentSourceKey
+                                  : null,
+                              estimatedOffset: initialOffset,
                               padding: const EdgeInsets.fromLTRB(
                                 SourceCardMetrics.horizontalPadding,
                                 0,

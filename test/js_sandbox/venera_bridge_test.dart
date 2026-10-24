@@ -74,6 +74,21 @@ void main() {
   });
 
   group('脚本识别（纯 Dart）', () {
+    test('正则中的引号和伪类声明不影响真实源识别', () {
+      const script = r'''
+const cookieRegex = /document\.cookie\s*=\s*(["'])([\s\S]*?)\1/;
+const fakeClass = /class Wrong extends ComicSource/;
+const quotient = 'test'.length / 2;
+class ActualSource extends ComicSource {}
+''';
+      expect(VeneraScriptSource.classNameOf(script), 'ActualSource');
+      expect(
+        VeneraScriptSource.looksVenera(
+          r'const fake = /class Fake extends ComicSource/;',
+        ),
+        false,
+      );
+    });
     test('读出 `class X extends ComicSource` 的类名', () {
       final script = fixture('venera_demo_json.js');
       expect(VeneraScriptSource.looksVenera(script), isTrue);

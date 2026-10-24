@@ -97,16 +97,31 @@ class TextTranslationService extends ChangeNotifier {
               .where((t) => lookup(t, source: source, target: target) == null)
               .toList();
           if (pending.isNotEmpty) {
-            final values =
-                await (using ??
+            PlatformException? partial;
+            late final List<String> values;
+            try {
+              values = await (using ??
                     translator ??
                     (values) => _native(values, source, target))(pending);
+            } on PlatformException catch (error) {
+              final details = error.details;
+              if (error.code != 'translation_partial' ||
+                  details is! List ||
+                  details.length != pending.length ||
+                  details.any((v) => v is! String || v.length > 100000)) {
+                rethrow;
+              }
+              values = details.cast<String>();
+              partial = error;
+            }
             if (revision != _revision) throw StateError('译文缓存已清理，请重试');
             if (values.length != pending.length ||
-                values.any((v) => v.trim().isEmpty || v.length > 100000)) {
+                values.any((v) =>
+                    (partial == null && v.trim().isEmpty) || v.length > 100000)) {
               throw const FormatException('翻译结果不完整，请重试');
             }
             for (var i = 0; i < pending.length; i++) {
+              if (values[i].trim().isEmpty) continue;
               final key = _key(pending[i], source, target);
               _cache.remove(key);
               _cache[key] = values[i];
@@ -116,6 +131,7 @@ class TextTranslationService extends ChangeNotifier {
             }
             notifyListeners();
             unawaited(_save());
+            if (partial != null) throw partial;
           }
           result.complete(
             texts

@@ -21,6 +21,7 @@ class FrostedGlassWidget extends StatefulWidget {
     this.part,
     this.interactive = false,
     this.nativeGlass = false,
+    this.nativeStyle,
     required this.child,
   });
   final double blur, opacity, radius;
@@ -28,6 +29,7 @@ class FrostedGlassWidget extends StatefulWidget {
 
   /// Opt in only for a small number of overlay surfaces, never list cards.
   final bool nativeGlass;
+  final DockNativeGlassStyle? nativeStyle;
   final Color? color;
   final GlassPart? part;
   final Widget child;
@@ -82,9 +84,11 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                 child: DockNativeGlass(
                   borderRadius: corners,
                   cornerRadius: radius,
-                  style: settings.native.clear
-                      ? DockNativeGlassStyle.thin
-                      : DockNativeGlassStyle.regular,
+                  style:
+                      widget.nativeStyle ??
+                      (settings.native.clear
+                          ? DockNativeGlassStyle.thin
+                          : DockNativeGlassStyle.regular),
                   tintColor: Color(settings.native.tint),
                   tintOpacity: settings.native.tintOpacity,
                   reduceTransparency: MediaQuery.highContrastOf(context),

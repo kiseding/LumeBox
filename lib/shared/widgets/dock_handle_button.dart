@@ -38,6 +38,7 @@ class DockHandleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final currentSection = style == DockHandleStyle.currentSection;
     final accent = LumeTheme.accent;
     final glass = (dark ? LumeTheme.surface : Colors.white).withValues(
       alpha: dark ? .52 : .64,
@@ -45,7 +46,7 @@ class DockHandleButton extends StatelessWidget {
     final border = Border.all(
       color: dark
           ? Colors.white.withValues(alpha: .18)
-          : Colors.white.withValues(alpha: .82),
+          : Colors.white.withValues(alpha: currentSection ? .28 : .82),
     );
     final content = switch (style) {
       DockHandleStyle.currentSection => LumeIcon(
@@ -91,7 +92,10 @@ class DockHandleButton extends StatelessWidget {
           ],
         ),
       ),
-      DockHandleStyle.grid || DockHandleStyle.currentSection => BoxDecoration(
+      DockHandleStyle.currentSection => const BoxDecoration(
+        shape: BoxShape.circle,
+      ),
+      DockHandleStyle.grid => BoxDecoration(
         color: glass,
         shape: BoxShape.circle,
       ),
@@ -117,6 +121,9 @@ class DockHandleButton extends StatelessWidget {
             child: ClipOval(
               child: FrostedGlassWidget(
                 nativeGlass: true,
+                nativeStyle: currentSection ? DockNativeGlassStyle.thin : null,
+                opacity: currentSection ? .18 : .72,
+                border: !currentSection,
                 radius: size / 2,
                 child: DecoratedBox(
                   decoration: fill,

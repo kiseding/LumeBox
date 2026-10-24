@@ -97,6 +97,17 @@ class SourcePickerCard extends StatelessWidget {
                                         ),
                                       ),
                                       ?titleTrailing,
+                                      if (selected)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            left: 3,
+                                          ),
+                                          child: Icon(
+                                            Icons.check_circle,
+                                            size: 14,
+                                            color: accent,
+                                          ),
+                                        ),
                                     ],
                                   ),
                                   const SizedBox(height: 3),

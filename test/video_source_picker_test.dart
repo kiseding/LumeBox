@@ -17,6 +17,8 @@ import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
 import 'package:lume_box/features/source/video_source_scope.dart';
 import 'package:lume_box/core/web/web_home_sources.dart';
+import 'package:lume_box/shared/widgets/source_picker_scroll_list.dart';
+import 'package:lume_box/shared/widgets/source_picker_card.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -91,6 +93,10 @@ void main() {
     double width = 390,
     double scale = 1,
     Brightness brightness = Brightness.light,
+    bool keepInitialType = false,
+    bool showingCat = false,
+    String? currentCatId,
+    String? currentWebId,
   }) async {
     tester.view.physicalSize = Size(width, 844);
     tester.view.devicePixelRatio = 1;
@@ -106,7 +112,13 @@ void main() {
           child: Scaffold(
             body: RepaintBoundary(
               key: const ValueKey('capture'),
-              child: VideoSourcePicker(manager: manager, service: service),
+              child: VideoSourcePicker(
+                manager: manager,
+                service: service,
+                showingCat: showingCat,
+                currentCatId: currentCatId,
+                currentWebId: currentWebId,
+              ),
             ),
           ),
         ),
@@ -119,7 +131,200 @@ void main() {
       await tester.pump();
     }
     await tester.pumpAndSettle();
+    if (!keepInitialType) {
+      await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
+      await tester.pumpAndSettle();
+    }
   }
+
+  for (final runtime in ['javascript', 'python', 'module']) {
+    testWidgets(
+      'reopen locates the last $runtime source without changing source order',
+      (tester) async {
+        manager.sources.addAll([
+          for (var i = 0; i < 100; i++)
+            SourceDescriptor(
+              id: '$runtime-$i',
+              name: '源$i',
+              version: '1',
+              enabled: true,
+              runtimeKind: runtime,
+            ),
+        ]);
+        manager.selected = '$runtime-99';
+        final order = manager.sources.map((source) => source.id).toList();
+        await pump(tester, keepInitialType: true);
+        final kind = runtime == 'javascript' ? 'ordinary' : runtime;
+        expect(
+          tester
+              .widget<ChoiceChip>(
+                find.byKey(ValueKey('video-source-type-$kind')),
+              )
+              .selected,
+          true,
+        );
+        final card = find.byKey(ValueKey('video-picker-source-$runtime-99'));
+        expect(card, findsOneWidget);
+        expect(
+          tester.getTopLeft(card).dy,
+          closeTo(tester.getTopLeft(find.byType(SourcePickerScrollList)).dy, 1),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget is SourcePickerCard && widget.selected,
+          ),
+          findsOneWidget,
+        );
+        expect(manager.sources.map((source) => source.id).toList(), order);
+        expect(manager.selectedIds, isEmpty);
+        await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
+        await tester.pumpAndSettle();
+        final scrollable = tester.state<ScrollableState>(
+          find.descendant(
+            of: find.byType(SourcePickerScrollList),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        expect(scrollable.position.pixels, 0);
+        await tester.enterText(find.byType(TextField), '普通视频长名称测试');
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('video-picker-source-ordinary')),
+          findsOneWidget,
+        );
+        expect(manager.selected, '$runtime-99');
+      },
+    );
+  }
+
+  testWidgets('cat drawer locates the active site in a later subscription', (
+    tester,
+  ) async {
+    for (var group = 0; group < 8; group++) {
+      service.subscriptions.add(
+        CatSubscription(
+          id: 'pack-$group',
+          name: '订阅$group',
+          url: 'https://example.test/$group',
+          sites: [
+            for (var i = 0; i < 14; i++)
+              CatSite(
+                subscriptionId: 'pack-$group',
+                key: '$i',
+                name: '站点$group-$i',
+                api: '/$i',
+              ),
+          ],
+        ),
+      );
+    }
+    final selected = service.subscriptions.last.sites.last;
+    await pump(
+      tester,
+      keepInitialType: true,
+      showingCat: true,
+      currentCatId: selected.id,
+      scale: 2,
+    );
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('video-source-type-cat')),
+          )
+          .selected,
+      true,
+    );
+    final card = find.byKey(ValueKey('video-picker-source-${selected.id}'));
+    expect(card, findsOneWidget);
+    expect(
+      tester.getTopLeft(card).dy,
+      closeTo(tester.getTopLeft(find.byType(SourcePickerScrollList)).dy, 1),
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is SourcePickerCard && widget.selected,
+      ),
+      findsOneWidget,
+    );
+    expect(manager.selectedIds, isEmpty);
+  });
+
+  testWidgets(
+    'web drawer restores the last home and does not also select the ordinary source',
+    (tester) async {
+      final store = await WebHomeStore.open();
+      for (var i = 0; i < 60; i++) {
+        store.upsert(
+          WebHomeSource(
+            id: 'home-$i',
+            name: '网页$i',
+            url: 'https://example.test/$i',
+          ),
+        );
+      }
+      await pump(tester, keepInitialType: true, currentWebId: 'home-59');
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('video-source-type-web')),
+            )
+            .selected,
+        true,
+      );
+      final card = find.byKey(const ValueKey('video-picker-source-home-59'));
+      expect(
+        tester.getTopLeft(card).dy,
+        closeTo(tester.getTopLeft(find.byType(SourcePickerScrollList)).dy, 1),
+      );
+      await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
+      await tester.pumpAndSettle();
+      final ordinary = tester.widget<SourcePickerCard>(
+        find.ancestor(
+          of: find.byKey(const ValueKey('video-picker-source-ordinary')),
+          matching: find.byType(SourcePickerCard),
+        ),
+      );
+      expect(ordinary.selected, false);
+    },
+  );
+
+  testWidgets(
+    'a removed active site leaves the drawer at the top with all source types available',
+    (tester) async {
+      await pump(
+        tester,
+        keepInitialType: true,
+        showingCat: true,
+        currentCatId: 'removed',
+      );
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('video-source-type-all')),
+            )
+            .selected,
+        true,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is SourcePickerCard && widget.selected,
+        ),
+        findsNothing,
+      );
+      expect(
+        tester
+            .state<ScrollableState>(
+              find.descendant(
+                of: find.byType(SourcePickerScrollList),
+                matching: find.byType(Scrollable),
+              ),
+            )
+            .position
+            .pixels,
+        0,
+      );
+    },
+  );
 
   testWidgets('本地 HTML 可批量导入、跳过重复、改名及删除，不改变普通源', (tester) async {
     final valid = File('${root.path}/fixture.html')
@@ -433,6 +638,8 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 100));
     }
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('video-source-type-cat')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('猫源测试长名称站点'));
     await tester.pumpAndSettle();

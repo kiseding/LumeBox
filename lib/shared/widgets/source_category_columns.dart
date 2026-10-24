@@ -1,4 +1,5 @@
 import 'source_card_metrics.dart';
+import 'source_picker_scroll_list.dart';
 
 import 'package:flutter/material.dart';
 
@@ -19,9 +20,15 @@ class SourceCategoryColumns extends StatelessWidget {
     super.key,
     required this.sections,
     this.keyPrefix = 'picker',
+    this.initialSectionId,
+    this.initialChildIndex = 0,
+    this.focusKey,
   });
   final List<SourceColumnSection> sections;
   final String keyPrefix;
+  final String? initialSectionId;
+  final int initialChildIndex;
+  final GlobalKey? focusKey;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +36,20 @@ class SourceCategoryColumns extends StatelessWidget {
       final groups = [
         for (var i = index; i < sections.length; i += 2) sections[i],
       ];
+      final targetGroup = groups.indexWhere(
+        (group) => group.id == initialSectionId,
+      );
+      final offset = targetGroup < 0
+          ? 0.0
+          : (groups
+                            .take(targetGroup)
+                            .fold<int>(
+                              0,
+                              (count, group) => count + group.children.length,
+                            ) +
+                        initialChildIndex) *
+                    (SourceCardMetrics.height + SourceCardMetrics.rowGap) +
+                (groups.length == 1 ? 0 : (targetGroup + 1) * 44.0);
       Widget header(SourceColumnSection group) => Semantics(
         header: true,
         child: Padding(
@@ -45,10 +66,10 @@ class SourceCategoryColumns extends StatelessWidget {
         children: [
           if (groups.length == 1) header(groups.single),
           Expanded(
-            child: ListView(
+            child: SourcePickerScrollList(
               key: PageStorageKey('$keyPrefix-column-$index'),
-              primary: false,
-              physics: const BouncingScrollPhysics(),
+              focusKey: targetGroup < 0 ? null : focusKey,
+              estimatedOffset: offset,
               padding: const EdgeInsets.only(bottom: 16),
               children: [
                 for (final group in groups) ...[

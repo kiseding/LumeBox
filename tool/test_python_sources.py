@@ -470,6 +470,45 @@ def getPlayerContent(flag, id): return {'url':'https://fixture.invalid/video.mp4
         script = FIXTURE + "\nfrom Crypto.PublicKey import RSA\nfrom Crypto.Cipher import PKCS1_v1_5, PKCS1_OAEP\nkey = RSA.importKey(" + repr(public_pem) + ")\n"
         self.assertTrue(call("rsa-spider", "load", script=script)["ok"])
 
+    @unittest.skipUnless(importlib.util.find_spec("cryptography"), "ECC tests require cryptography")
+    def test_ecc_import_export_and_dss_interoperability(self):
+        from Crypto.PublicKey import ECC
+        from Crypto.Signature import DSS
+        from Crypto.Hash import SHA256
+        from cryptography.hazmat.primitives.asymmetric import ec, utils
+        from cryptography.hazmat.primitives import hashes, serialization
+        message = b"LumeBox ECC compatibility"
+        for curve in ('P-256', 'P-384', 'P-521'):
+            key = ECC.construct(curve=curve, d=7)
+            public = key.public_key()
+            for form in ('PEM', 'DER'):
+                restored = ECC.import_key(key.export_key(format=form))
+                self.assertEqual(restored.d, 7)
+                self.assertEqual(restored.pointQ.x, key.pointQ.x)
+            for compressed in (False, True):
+                raw = public.export_key(format='SEC1', compress=compressed)
+                restored = ECC.import_key(raw, curve_name=curve)
+                self.assertEqual(restored.pointQ.y, public.pointQ.y)
+            for mode in ('fips-186-3', 'deterministic-rfc6979'):
+                for encoding in ('binary', 'der'):
+                    signer = DSS.new(key, mode, encoding=encoding)
+                    signature = signer.sign(SHA256.new(message))
+                    if mode == 'deterministic-rfc6979':
+                        self.assertEqual(signature, signer.sign(SHA256.new(message)))
+                    verifier = DSS.new(public, mode, encoding=encoding)
+                    verifier.verify(SHA256.new(message), signature)
+                    with self.assertRaises(ValueError):
+                        verifier.verify(SHA256.new(b'changed'), signature)
+                    if encoding == 'binary':
+                        size = len(signature) // 2
+                        der = utils.encode_dss_signature(int.from_bytes(signature[:size], 'big'), int.from_bytes(signature[size:], 'big'))
+                    else:
+                        der = signature
+                    backend = serialization.load_pem_public_key(public.export_key(format='PEM').encode())
+                    backend.verify(der, message, ec.ECDSA(hashes.SHA256()))
+        script = FIXTURE + "\nfrom Crypto.PublicKey import ECC\nfrom Crypto.Signature import DSS\nkey = ECC.construct(curve='P-256', d=7)\n"
+        self.assertTrue(call('ecc-spider', 'load', script=script)['ok'])
+
     def test_user_scripts_load_dependencies_and_categories(self):
         for index, path in enumerate(USER_SCRIPTS):
             with self.subTest(script=path.name):

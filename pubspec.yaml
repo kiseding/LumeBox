@@ -75,6 +75,7 @@ dependencies:
   xml: ^7.1.0
   lume_cat_node:
     path: third_party/lume_cat_node
+  cupertino_http: 3.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

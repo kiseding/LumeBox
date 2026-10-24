@@ -1,12 +1,53 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/translation/text_translation.dart';
 import 'package:lume_box/core/source/source_labels.dart';
 import 'package:lume_box/core/source/source_models.dart';
 
 void main() {
+  test('某语种失败仍保存其它译文，重试只处理失败项并跨启动复用', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'lume-partial-translations',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/cache.json');
+    var retry = false;
+    final service = TextTranslationService(
+      file: file,
+      translator: (texts) async {
+        if (!retry) {
+          throw PlatformException(
+            code: 'translation_partial',
+            message: '某语种不支持',
+            details: ['你好', '', '世界'],
+          );
+        }
+        expect(texts, ['short-title']);
+        return ['短标题'];
+      },
+    );
+    final original = ['Hello', 'short-title', 'World'];
+    await expectLater(
+      service.translate(original),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(service.lookup('Hello'), '你好');
+    expect(service.lookup('World'), '世界');
+    expect(service.lookup('short-title'), isNull);
+    retry = true;
+    expect(await service.translate(original), ['你好', '短标题', '世界']);
+    await service.flush();
+    final restarted = TextTranslationService(
+      file: file,
+      translator: (_) async => throw StateError('不应重复翻译'),
+    );
+    expect(await restarted.translate(original), ['你好', '短标题', '世界']);
+    await restarted.flush();
+  });
   test('译文跨启动缓存，按原文、源语言和目标语言隔离', () async {
     final dir = await Directory.systemTemp.createTemp('lume-translations');
     addTearDown(() => dir.delete(recursive: true));

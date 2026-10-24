@@ -445,6 +445,8 @@ def _crypto_module():
         sys.modules[module.__name__] = module
     import lume_rsa
     lume_rsa.install(crypto, cipher)
+    import lume_ecc
+    lume_ecc.install(crypto)
 
 
 _crypto_module()

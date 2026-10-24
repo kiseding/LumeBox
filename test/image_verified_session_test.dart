@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/net/network_queue.dart';
 import 'package:lume_box/core/net/source_request_log.dart';
+import 'package:lume_box/core/net/site_session_pool.dart';
 import 'package:lume_box/core/net/waf.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -44,6 +45,7 @@ void main() {
       ReadingLibrary.disposeAll();
       ReadingStore.disposeAll();
       WafSessions.resetForTesting();
+      SiteSessionPool.shared.clear();
       await SectionScope.closeAll();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
@@ -98,6 +100,33 @@ void main() {
     await pipeline.bytes('https://images.example/a.jpg');
     expect(sent!.headers['User-Agent'], 'verified-device-UA');
     expect(sent!.reuseVerifiedSession, true);
+    expect(sent!.headers.containsKey('Cookie'), false);
+    // The main page issues this Domain cookie without a CAPTCHA. Covers and
+    // chapter images must receive it; unrelated and host-only cookies must not.
+    SiteSessionPool.shared.importCookies([
+      {
+        'name': 'jcomic_access',
+        'value': 'server-issued',
+        'domain': '.jcomic.net',
+        'path': '/',
+        'secure': true,
+      },
+      {
+        'name': 'main_only',
+        'value': 'private',
+        'domain': 'jcomic.net',
+        'path': '/',
+      },
+      {
+        'name': 'foreign',
+        'value': 'private',
+        'domain': '.other.test',
+        'path': '/',
+      },
+    ]);
+    await pipeline.bytes('https://images.jcomic.net/new-cover.jpg');
+    expect(sent!.headers['Cookie'], 'jcomic_access=server-issued');
+    await pipeline.bytes('https://unrelated.test/new-cover.jpg');
     expect(sent!.headers.containsKey('Cookie'), false);
   });
 }

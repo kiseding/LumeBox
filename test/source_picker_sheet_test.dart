@@ -94,7 +94,109 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final columns in [false, true]) {
+    testWidgets('猫源${columns ? '双列' : '单列'}定位末尾当前源', (tester) async {
+      final manager = FakeSourceManager(
+        sources: [
+          for (var i = 0; i < 80; i++)
+            SourceDescriptor(
+              id: 'cat-$i',
+              name: '猫站$i',
+              version: '1',
+              enabled: true,
+            ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SourcePickerSheet(
+              section: Section.cat,
+              sources: manager.sources,
+              manager: manager,
+              currentId: 'cat-79',
+              initialColumns: columns,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final selected = find.byKey(const ValueKey('picker-source-cat-79'));
+      final list = find.byKey(const ValueKey('picker-grouped-list'));
+      expect(selected, findsOneWidget);
+      expect(
+        tester.getTopLeft(selected).dy,
+        closeTo(tester.getTopLeft(list).dy, 1),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final section in [Section.comic, Section.video]) {
+    testWidgets('${section.label} 自动定位右列末尾当前源，搜索后不重新定位', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final groups = SourcePickerGroups.forSection(section);
+      final manager = FakeSourceManager(
+        sources: [
+          for (var i = 0; i < 40; i++)
+            SourceDescriptor(
+              id: 'a$i',
+              name: '甲$i',
+              version: '1',
+              enabled: true,
+              group: groups.first.$2,
+            ),
+          for (var i = 0; i < 40; i++)
+            SourceDescriptor(
+              id: 'b$i',
+              name: '乙$i',
+              version: '1',
+              enabled: true,
+              group: groups.last.$2,
+            ),
+        ],
+      );
+      final order = manager.sources.map((source) => source.id).toList();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SourcePickerSheet(
+              section: section,
+              manager: manager,
+              sources: manager.sources,
+              currentId: 'b39',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final right = find.byKey(const PageStorageKey('picker-column-1'));
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('picker-card-b39'))).dy,
+        closeTo(tester.getTopLeft(right).dy, 1),
+      );
+      ScrollPosition position(int lane) => tester
+          .state<ScrollableState>(
+            find.descendant(
+              of: find.byKey(PageStorageKey('picker-column-$lane')),
+              matching: find.byType(Scrollable),
+            ),
+          )
+          .position;
+      expect(position(0).pixels, 0);
+      expect(manager.sources.map((source) => source.id).toList(), order);
+      expect(manager.selectedIds, isEmpty);
+      await tester.enterText(find.byType(TextField), '甲0');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('picker-source-a0')), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pumpAndSettle();
+      expect(position(1).pixels, 0);
+      expect(manager.selectedIds, isEmpty);
+    });
+
     testWidgets('${section.label} 抽屉两列、独立操作菜单，浏览只选择目标源', (tester) async {
       ReadingLibrary.find(section)!
           .setSetting('source.picker.columns', 'false');
@@ -438,6 +540,18 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     expect(find.byType(SourcePickerSheet), findsOneWidget);
+    // Opening now locates the active second source. Return to the first row
+    // before checking the dimensions of both cards and the pinned indicator.
+    tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byKey(const PageStorageKey('picker-column-0')),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
     for (final id in ['plain', 'adult']) {
       expect(
         tester.getSize(find.byKey(ValueKey('picker-source-$id'))).height,

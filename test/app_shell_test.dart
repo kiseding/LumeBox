@@ -241,6 +241,9 @@ void main() {
       final pageContext = tester.element(
         find.byKey(ValueKey<String>('${entry.$1}·${LumeTheme.themeId}')),
       );
+      final capsule = tester.getRect(
+        find.byKey(ShellDockBar.capsuleSurfaceKey),
+      );
       UserScrollNotification(
         metrics: FixedScrollMetrics(
           minScrollExtent: 0,
@@ -253,7 +256,15 @@ void main() {
         context: pageContext,
         direction: ScrollDirection.reverse,
       ).dispatch(pageContext);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      final during = tester.getRect(find.byType(DockHandleButton));
       await tester.pumpAndSettle();
+      final settled = tester.getRect(find.byType(DockHandleButton));
+      expect(settled.width, closeTo(capsule.height, .01));
+      expect(settled.height, closeTo(capsule.height, .01));
+      expect(during.bottom, closeTo(settled.bottom, .01));
+      expect(settled.bottom, closeTo(capsule.bottom, .01));
       final handle = tester.widget<DockHandleButton>(
         find.byType(DockHandleButton),
       );

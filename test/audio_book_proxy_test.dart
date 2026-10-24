@@ -8,6 +8,36 @@ import 'package:lume_box/core/audio_book/audio_book_track.dart';
 import 'package:lume_box/core/media/media_library.dart';
 
 void main() {
+  test('audio server refusal is recorded and reset for a new queue', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      request.response.statusCode = 403;
+      await request.response.close();
+    });
+    final proxy = AudioBookProxy();
+    final client = http.Client();
+    try {
+      final urls = await proxy.prepare([
+        AudioBookTrack(
+          id: 'blocked',
+          album: '书',
+          episode: ResourceEpisode(
+            id: 'blocked',
+            title: '第一集',
+            url: Uri.parse('http://127.0.0.1:${server.port}/audio.mp3'),
+          ),
+        ),
+      ]);
+      expect((await client.get(urls.single)).statusCode, 502);
+      expect(proxy.lastError, contains('HTTP 403'));
+      await proxy.prepare([]);
+      expect(proxy.lastError, isNull);
+    } finally {
+      client.close();
+      await proxy.close();
+      await server.close(force: true);
+    }
+  });
   test(
     'audio relay preserves exact original bytes, file ranges and suffix seeks',
     () async {

@@ -403,8 +403,16 @@ void main() {
       context: page,
       direction: ScrollDirection.reverse,
     ).dispatch(page);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    final handleDuring = tester.getRect(find.byType(DockHandleButton));
     await tester.pumpAndSettle();
     expect(find.byType(DockHandleButton), findsOneWidget);
+    final handleRect = tester.getRect(find.byType(DockHandleButton));
+    expect(handleRect.height, closeTo(barRect.height, .1));
+    expect(handleRect.width, closeTo(barRect.height, .1));
+    expect(handleRect.bottom, closeTo(barRect.bottom, .1));
+    expect(handleDuring.bottom, closeTo(handleRect.bottom, .1));
     expect(find.byTooltip('搜索'), findsNothing);
     expect(
       find.byWidgetPredicate(

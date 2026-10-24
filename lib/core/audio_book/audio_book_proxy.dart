@@ -7,11 +7,19 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'audio_book_track.dart';
+import 'audio_book_http_client.dart';
+import '../util/lume_log.dart';
 
 /// Loopback-only, authenticated-by-random-path byte relay. It lazily resolves
 /// source chapters and preserves Range requests, including audio HLS playlists.
 /// The bytes are never decoded or synthesized by this layer.
 class AudioBookProxy {
+  AudioBookProxy({http.Client Function()? clientFactory})
+    : _clientFactory = clientFactory ?? AudioBookHttpClient.new;
+
+  final http.Client Function() _clientFactory;
+
+  String? lastError;
   HttpServer? _server;
   final _tracks = <String, AudioBookTrack>{};
   final _clients = <http.Client>{};
@@ -44,6 +52,7 @@ class AudioBookProxy {
   }
 
   void reset() {
+    lastError = null;
     _generation++;
     for (final client in _clients.toList()) {
       client.close();
@@ -134,7 +143,7 @@ class AudioBookProxy {
       headers['Accept-Encoding'] = 'identity';
       final range = request.headers.value(HttpHeaders.rangeHeader);
       if (range != null) headers[HttpHeaders.rangeHeader] = range;
-      client = http.Client();
+      client = _clientFactory();
       _clients.add(client);
       http.StreamedResponse? response;
       for (var redirect = 0; redirect <= 5; redirect++) {
@@ -164,7 +173,11 @@ class AudioBookProxy {
         break;
       }
       if (response == null || ![200, 206].contains(response.statusCode)) {
-        throw const HttpException('音频服务器请求失败');
+        final status = response?.statusCode;
+        lastError = status == 401 || status == 403
+            ? '音频服务器拒绝访问（HTTP $status），请在源网页确认能否播放'
+            : '音频服务器请求失败（HTTP $status），请稍后重试或更换源';
+        throw HttpException('音频服务器请求失败: HTTP ${response?.statusCode}');
       }
       final type =
           response.headers['content-type'] ?? 'application/octet-stream';
@@ -225,7 +238,8 @@ class AudioBookProxy {
         }
       }
       await request.response.close();
-    } catch (_) {
+    } catch (error, stack) {
+      LumeLog.error('[audioBook] 音频转发失败: $error', stack);
       try {
         request.response.statusCode = 502;
         await request.response.close();

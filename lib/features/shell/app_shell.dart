@@ -679,6 +679,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           duration: const Duration(milliseconds: 240),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
+          // Keep both states on the same bottom baseline, including when the
+          // outgoing native bar is removed at the end of the transition.
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: Alignment.bottomLeft,
+            children: [...previousChildren, ?currentChild],
+          ),
           // 从左侧滑出/收回，而不是点一下突然闪现。
           transitionBuilder: (child, animation) => SlideTransition(
             position: Tween<Offset>(
@@ -718,8 +724,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         sectionIcon: _pageCatalog
                             .firstWhere((tab) => tab.id == _activeId)
                             .selectedIcon,
-                        size: (_navigationHeight * .82).clamp(40.0, 150.0),
-                        opacity: .86,
+                        size: _navigationHeight,
+                        opacity: 1,
                         onPressed: () =>
                             setState(() => _scrollCollapsed = false),
                       ),

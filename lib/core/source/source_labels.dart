@@ -83,4 +83,7 @@ const _labels = <String, String>{
   'long': '长片',
   'vr': '虚拟现实',
   '3d': '三维动画',
+  'behind the scenes': '幕后花絮',
+  'caption': '字幕',
+  'captions': '字幕',
 };

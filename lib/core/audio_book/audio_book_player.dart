@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../media/media_library.dart';
 import '../media/playback_focus.dart';
+import '../util/lume_log.dart';
 import 'audio_book_track.dart';
 import 'audio_book_proxy.dart';
 
@@ -122,7 +123,10 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   @override
   Stream<int?> get index => _player.currentIndexStream;
   @override
-  Stream<String> get errors => _player.errorStream.map((_) => '音频播放失败，请检查源和网络');
+  Stream<String> get errors => _player.errorStream.map((error) {
+    LumeLog.warn('[audioBook] 播放器错误: $error');
+    return _proxy.lastError ?? '音频播放失败，请检查源和网络';
+  });
   @override
   Future<void> load(
     List<AudioBookTrack> sources, {
@@ -132,24 +136,30 @@ class JustAudioBookPlayer implements AudioBookPlayer {
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.speech());
     final urls = await _proxy.prepare(sources);
-    await _player.setAudioSources(
-      [
-        for (var i = 0; i < sources.length; i++)
-          ja.AudioSource.uri(
-            urls[i],
-            tag: MediaItem(
-              id: sources[i].id,
-              title: sources[i].episode.title,
-              album: sources[i].album,
-              artUri: sources[i].cover == null
-                  ? null
-                  : Uri.tryParse(sources[i].cover!),
+    try {
+      await _player.setAudioSources(
+        [
+          for (var i = 0; i < sources.length; i++)
+            ja.AudioSource.uri(
+              urls[i],
+              tag: MediaItem(
+                id: sources[i].id,
+                title: sources[i].episode.title,
+                album: sources[i].album,
+                artUri: sources[i].cover == null
+                    ? null
+                    : Uri.tryParse(sources[i].cover!),
+              ),
             ),
-          ),
-      ],
-      initialIndex: index,
-      initialPosition: position,
-    );
+        ],
+        initialIndex: index,
+        initialPosition: position,
+      );
+    } catch (_) {
+      final message = _proxy.lastError;
+      if (message != null) throw AudioBookFailure(message);
+      rethrow;
+    }
   }
 
   @override
@@ -290,8 +300,13 @@ class AudioBookSession extends ChangeNotifier {
       await _player!.speed(settings.speed);
       _ready = true;
       setSleep(settings.sleepMinutes);
-    } catch (_) {
-      if (generation == _generation) error = '音频加载失败，请检查地址、权限和网络';
+    } catch (failure, stack) {
+      LumeLog.error('[audioBook] 加载失败: $failure', stack);
+      if (generation == _generation) {
+        error = failure is AudioBookFailure
+            ? failure.message
+            : '音频加载失败，请检查地址、权限和网络';
+      }
     } finally {
       if (generation == _generation) {
         loading = false;
