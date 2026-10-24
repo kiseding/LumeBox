@@ -198,8 +198,8 @@ class SettingsPage extends StatelessWidget {
     ),
     SettingsEntryCard(
       icon: Icons.translate,
-      title: '漫画翻译',
-      subtitle: '设备端免费翻译 · 自填 AI 接口 · 目标语言',
+      title: '全局翻译',
+      subtitle: '标题、搜索与漫画共用 · 系统 / AI / 自动补译',
       onTap: () =>
           _push(context, const ComicImageToolsSettingsPage(translation: true)),
     ),

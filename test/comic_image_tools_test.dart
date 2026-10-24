@@ -1,3 +1,5 @@
+import 'package:lume_box/core/translation/text_translation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -374,6 +376,7 @@ void main() {
   );
 
   test('malformed AI response cannot overwrite translation', () async {
+    await TextTranslationService.shared.clear();
     final settings = ComicImageToolsSettings()
       ..ai = true
       ..endpoint = 'https://translation.example/v1/chat/completions'

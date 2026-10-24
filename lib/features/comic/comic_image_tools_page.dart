@@ -135,7 +135,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       await ComicImageTools.channel.invokeMethod<void>('setKey', {
         'key': config.apiKey,
       });
-      settings.ai = true;
+      settings.translationMode = TextTranslationMode.ai;
       settings.serverTranslation = false;
       settings.endpoint = config.endpoint;
       settings.model = config.model;
@@ -145,7 +145,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       endpoint.text = config.endpoint;
       model.text = config.model;
       keyInput.clear();
-      setState(() => status = '翻译配置已导入，可以返回漫画使用 AI 翻译；也可点击下方测试按钮检查手机网络');
+      setState(() => status = '全局 AI 翻译配置已导入，标题、搜索结果和漫画共用；可点击下方测试按钮检查手机网络');
     } catch (error) {
       if (mounted) {
         setState(
@@ -421,7 +421,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.comic,
-    title: widget.translation ? '漫画翻译' : 'AI 图片超分与上色',
+    title: widget.translation ? '全局翻译' : 'AI 图片超分与上色',
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: widget.translation
@@ -452,22 +452,28 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 ComicImageToolsSettings.languages,
                 (v) => settings.target = v,
               ),
-              if (!settings.serverTranslation)
-                choice('原文语言', settings.source, {
-                  'auto': '自动识别',
-                  ...ComicImageToolsSettings.languages,
-                }, (v) => settings.source = v),
-              choice(
-                '翻译方式',
-                settings.serverTranslation
-                    ? 'server'
-                    : settings.ai
-                    ? 'ai'
-                    : 'device',
-                {'device': '设备端（免费）', 'ai': '自填 AI 接口', 'server': '漫画翻译服务器'},
-                (v) {
-                  settings.serverTranslation = v == 'server';
-                  settings.ai = v == 'ai';
+              choice('原文语言', settings.source, {
+                'auto': '自动识别',
+                ...ComicImageToolsSettings.languages,
+              }, (v) => settings.source = v),
+              const SettingsFooterNote(
+                '首页标题、搜索结果、漫画对白与圈选文字共用此设置。AI 配置和目标语言只需填写一次。',
+              ),
+              choice('全局翻译方式', settings.translationMode, {
+                TextTranslationMode.system: '系统翻译（本地）',
+                TextTranslationMode.ai: 'AI 翻译（联网）',
+                TextTranslationMode.fallback: '系统失败后用 AI 补译',
+              }, (v) => settings.translationMode = v),
+              const SettingsFooterNote(
+                '补译模式会把系统失败或不支持的文字发送给已配置的 AI 接口；成功译文保留。AI 不可用时保留原文。',
+              ),
+              NativeSwitchListTile.adaptive(
+                title: const Text('漫画使用整图翻译服务器'),
+                subtitle: const Text('仅影响漫画图片；关闭时，漫画文字跟随全局翻译方式'),
+                value: settings.serverTranslation,
+                onChanged: (v) {
+                  setState(() => settings.serverTranslation = v);
+                  save();
                 },
               ),
               if (settings.serverTranslation) ...[
@@ -547,12 +553,12 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               TextButton.icon(
                 onPressed: () async {
                   await TextTranslationService.shared.clear();
-                  if (mounted) setState(() => status = '已清理标题、简介与设备端译文缓存');
+                  if (mounted) setState(() => status = '已清理标题、简介与漫画的本机译文缓存');
                 },
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('清理本机译文缓存'),
               ),
-              if (settings.ai && !settings.serverTranslation) ...[
+              if (settings.ai || settings.aiFallback) ...[
                 TextField(
                   controller: endpoint,
                   decoration: const InputDecoration(
