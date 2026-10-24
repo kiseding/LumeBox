@@ -52,6 +52,9 @@ Future<bool> runSourceImport(
   required SourceManager manager,
   Future<List<({String name, String text})>> Function()? readLocalScripts,
   Future<SourceFetchResult> Function(String url)? fetchSubscription,
+  String? initialSubscription,
+  String? title,
+  String? helpText,
 }) async {
   final request = await showGlassDialog<SourceImportRequest>(
     context: context,
@@ -59,6 +62,9 @@ Future<bool> runSourceImport(
       section: section,
       readLocalScripts: readLocalScripts,
       fetchSubscription: fetchSubscription,
+      initialSubscription: initialSubscription,
+      title: title,
+      helpText: helpText,
     ),
   );
   if (request == null || !context.mounted) return false;
@@ -100,6 +106,9 @@ class SourceImportDialog extends StatefulWidget {
     this.fetchSubscription,
     this.maxScripts = 20,
     this.maxLocalFiles = 50,
+    this.initialSubscription,
+    this.title,
+    this.helpText,
   });
 
   /// 固定目标板块（板块页 / 板块入口用）。
@@ -122,6 +131,9 @@ class SourceImportDialog extends StatefulWidget {
 
   /// 单次最多接收的本地文件数（防误选一整个目录把导入变成不可控的批量）。
   final int maxLocalFiles;
+  final String? initialSubscription;
+  final String? title;
+  final String? helpText;
 
   @override
   State<SourceImportDialog> createState() => _SourceImportDialogState();
@@ -179,6 +191,15 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       widget.sections != null && widget.sections!.length > 1;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialSubscription?.isNotEmpty == true) {
+      _url.text = widget.initialSubscription!;
+      _mode = _ImportMode.subscription;
+    }
+  }
+
+  @override
   void dispose() {
     _script.dispose();
     _url.dispose();
@@ -188,7 +209,9 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(_hasSectionPicker ? '导入源' : '添加源 · ${_section.label}'),
+      title: Text(
+        widget.title ?? (_hasSectionPicker ? '导入源' : '添加源 · ${_section.label}'),
+      ),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(
@@ -198,7 +221,10 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
             children: <Widget>[
               if (_hasSectionPicker) ..._buildSectionPicker(),
               Text(
-                _hasSectionPicker ? '源只写入所选板块，不会跨板块共用。' : '源只写入当前板块，不会跨板块共用。',
+                widget.helpText ??
+                    (_hasSectionPicker
+                        ? '源只写入所选板块，不会跨板块共用。'
+                        : '源只写入当前板块，不会跨板块共用。'),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.descriptionSize,
@@ -718,7 +744,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
             skipped.add(
               SourceImportSkip(
                 label: '订阅条目',
-                message: '$name 拉不到（$error），已跳过；其余源照常导入',
+                message:
+                    '$name 无法导入：${error is FormatException ? error.message : error}；已跳过，其余源继续导入',
               ),
             );
           },

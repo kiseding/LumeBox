@@ -12,6 +12,7 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/source/kazumi_rule.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
@@ -453,6 +454,22 @@ void main() {
         findsNothing,
       );
     }
+  });
+
+  testWidgets('Kazumi 独立入口预填官方订阅，取消不写入任何源', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byTooltip('添加视频源'));
+    await tester.pumpAndSettle();
+    expect(find.text('Kazumi 源'), findsOneWidget);
+    await tester.tap(find.text('Kazumi 源'));
+    await tester.pumpAndSettle();
+    expect(find.text('导入 Kazumi 源'), findsOneWidget);
+    expect(find.text(KazumiRule.officialIndex), findsOneWidget);
+    expect(find.textContaining('部分规则没有首页推荐'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(manager.sources.length, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('左滑先露出删除，取消保留，确认才删除且相邻卡片保留', (tester) async {

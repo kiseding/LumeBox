@@ -13,6 +13,7 @@ import '../../core/reading/reading_library.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
+import '../../core/source/kazumi_rule.dart';
 import '../../core/source/source_content_visibility.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
@@ -30,6 +31,8 @@ import 'source_preferences_page.dart';
 import 'source_section_page.dart';
 import 'source_maintenance.dart';
 import '../../shared/widgets/source_swipe_tile.dart';
+
+enum _VideoImportAction { kazumi }
 
 enum VideoSourceType {
   all('全部'),
@@ -232,56 +235,92 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   }
 
   Future<void> add() async {
-    final target = await showGlassModalBottomSheet<VideoSourceType>(
+    final target = await showGlassModalBottomSheet<Object>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(
-              title: Text(
-                '添加视频源',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            for (final row in [
-              (VideoSourceType.ordinary, Icons.code, '普通视频源', '导入 JS 文件或订阅链接'),
-              (VideoSourceType.cat, Icons.pets_outlined, '猫源订阅', '管理订阅包与包内站点'),
-              (
-                VideoSourceType.python,
-                Icons.terminal,
-                'Python 源',
-                '导入 Spider 脚本、ZIP 源包或订阅链接',
-              ),
-              (
-                VideoSourceType.module,
-                Icons.extension_outlined,
-                '模块源',
-                '导入 ESM / CommonJS、ZIP 源包或远程 Spider',
-              ),
-              (
-                VideoSourceType.web,
-                Icons.language,
-                '网页主页',
-                '添加网页地址或导入 HTML 文件',
-              ),
-            ])
-              ListTile(
-                leading: LumeIcon(
-                  row.$2,
-                  slot: 'video_source_picker.add',
-                  variant: true,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text(
+                  '添加视频源',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-                title: Text(row.$3),
-                subtitle: Text(row.$4),
-                onTap: () => Navigator.pop(context, row.$1),
               ),
-          ],
+              ListTile(
+                leading: const LumeIcon(
+                  Icons.live_tv,
+                  slot: 'video_source_picker.add_kazumi',
+                ),
+                title: const Text('Kazumi 源'),
+                subtitle: const Text('导入规则 JSON 或订阅，已填入官方源地址'),
+                onTap: () => Navigator.pop(context, _VideoImportAction.kazumi),
+              ),
+              for (final row in [
+                (
+                  VideoSourceType.ordinary,
+                  Icons.code,
+                  '普通视频源',
+                  '导入 JS 文件或订阅链接',
+                ),
+                (
+                  VideoSourceType.cat,
+                  Icons.pets_outlined,
+                  '猫源订阅',
+                  '管理订阅包与包内站点',
+                ),
+                (
+                  VideoSourceType.python,
+                  Icons.terminal,
+                  'Python 源',
+                  '导入 Spider 脚本、ZIP 源包或订阅链接',
+                ),
+                (
+                  VideoSourceType.module,
+                  Icons.extension_outlined,
+                  '模块源',
+                  '导入 ESM / CommonJS、ZIP 源包或远程 Spider',
+                ),
+                (
+                  VideoSourceType.web,
+                  Icons.language,
+                  '网页主页',
+                  '添加网页地址或导入 HTML 文件',
+                ),
+              ])
+                ListTile(
+                  leading: LumeIcon(
+                    row.$2,
+                    slot: 'video_source_picker.add',
+                    variant: true,
+                  ),
+                  title: Text(row.$3),
+                  subtitle: Text(row.$4),
+                  onTap: () => Navigator.pop(context, row.$1),
+                ),
+            ],
+          ),
         ),
       ),
     );
     if (!mounted || target == null) return;
+    if (target == _VideoImportAction.kazumi) {
+      await runSourceImport(
+        context,
+        section: Section.video,
+        manager: widget.manager,
+        initialSubscription: KazumiRule.officialIndex,
+        title: '导入 Kazumi 源',
+        helpText: '支持规则 JSON 和索引订阅。导入后可搜索作品、选择剧集播放，部分规则没有首页推荐。',
+      );
+      if (!mounted) return;
+      setState(() => type = VideoSourceType.ordinary);
+      await load();
+      return;
+    }
+    if (target is! VideoSourceType) return;
     if ([
       VideoSourceType.ordinary,
       VideoSourceType.python,

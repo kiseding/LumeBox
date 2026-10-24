@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,6 +31,186 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final available = installBridge();
   if (available) enableEngineOnThisPlatform();
+  for (final version in ['6', '7', '8', '9']) {
+    test('API $version 的 XPath 规则保持原有搜索与目录契约', () {
+      final script = KazumiRule.convert(
+        jsonEncode({
+          ...rule,
+          'api': version,
+          'searchMode': 'xpath',
+          'chapterMode': 'xpath',
+        }),
+      );
+      expect(SourceMetadata.parseHeader(script)!.category, 'video');
+    });
+  }
+
+  test('API9 搜索 JSON POST、模板编码与嵌套目录经过真实 JS 和 HTTP 桥接', () async {
+    final overrides = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = overrides);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    final received = <({Uri uri, String method, String body})>[];
+    server.listen((request) async {
+      final body = await utf8.decoder.bind(request).join();
+      received.add((uri: request.uri, method: request.method, body: body));
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode(
+          request.uri.path == '/search'
+              ? {
+                  'data': {
+                    'records': [
+                      {'title': '测试作品', 'id': 'book / 一'},
+                    ],
+                  },
+                }
+              : {
+                  'slug': '编号 / 一',
+                  'roads': [
+                    {
+                      'name': '线路甲',
+                      'episodes': [
+                        {'name': '第一集', 'id': 'ep/1'},
+                      ],
+                    },
+                    {
+                      'name': '线路乙',
+                      'episodes': [
+                        {'name': '第二集', 'id': 2},
+                      ],
+                    },
+                  ],
+                },
+        ),
+      );
+      await request.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final config = {
+      'api': '9',
+      'name': 'API9',
+      'baseURL': '$base/',
+      'searchMode': 'api',
+      'chapterMode': 'api',
+      'searchApiConfig': {
+        'request': {
+          'method': 'POST',
+          'url': '$base/search',
+          'headers': {'X-Fixture': 'test'},
+          'bodyType': 'json',
+          'body': {'keyword': '@keyword', 'enabled': true, 'limit': 24},
+        },
+        'listPath': r'$.data.records[*]',
+        'namePath': r'$.title',
+        'sourcePath': r'$.id',
+      },
+      'chapterApiConfig': {
+        'request': {
+          'url': '$base/chapter',
+          'query': {'source': '@source'},
+        },
+        'format': 'nested',
+        'variables': {'slug': r'$.slug'},
+        'roadsPath': r'$.roads[*]',
+        'roadNamePath': r'$.name',
+        'episodesPath': r'$.episodes[*]',
+        'episodeNamePath': r'$.name',
+        'episodeUrlPath': r'$.id',
+        'episodePage': {
+          'url': '$base/anime/@slug/play/@episodeUrl',
+          'query': {'road': '@roadNumber', 'ep': '@episodeNumber'},
+        },
+      },
+    };
+    final engine = await openEngine(
+      sourceId: 'kazumi-api9-native',
+      script: KazumiRule.convert(jsonEncode(config)),
+    );
+    addTearDown(engine.dispose);
+    final result = await engine.callResult('list', {'keyword': '中文 & query'});
+    expect(result.isOk, true, reason: result.error?.message);
+    final item = ((result.value as Map)['items'] as List).single as Map;
+    expect(item['id'], 'book / 一');
+    expect(item['title'], '测试作品');
+    expect(received.first.method, 'POST');
+    expect(jsonDecode(received.first.body), {
+      'keyword': '中文 & query',
+      'enabled': true,
+      'limit': 24,
+    });
+    final chapters = await engine.call('chapters', {'id': item['id']}) as List;
+    expect(chapters.length, 2);
+    expect(received.last.uri.queryParameters['source'], 'book / 一');
+    expect(chapters[0]['title'], '线路甲 · 第一集');
+    final url = Uri.parse(chapters[0]['id'] as String);
+    expect(url.pathSegments, ['anime', '编号 / 一', 'play', 'ep/1']);
+    expect(url.queryParameters, {'road': '1', 'ep': '1'});
+    final detail = await engine.call('detail', {'id': item['id']}) as Map;
+    expect(detail['title'], '测试作品');
+  }, skip: available ? false : '本机没有 QuickJS 原生桥');
+
+  test('API9 分隔目录保留线路顺序和含分隔字符的地址，直链交给原生播放器', () async {
+    final overrides = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = overrides);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'info': {
+            'from': r'线路甲$$$线路乙',
+            'urls': r'第一集$https://cdn.test/1.m3u8?token=a$b#第二集$/play/2$$$第一集$https://cdn.test/alt.mp4',
+          },
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final config = {
+      ...rule,
+      'api': '9',
+      'chapterMode': 'api',
+      'useNativePlayer': true,
+      'baseURL': '$base/',
+      'chapterApiConfig': {
+        'request': {
+          'url': '$base/detail',
+          'query': {'id': '@source'},
+        },
+        'format': 'delimited',
+        'roadNamesPath': r'$.info.from',
+        'roadEpisodesPath': r'$.info.urls',
+        'roadSeparator': r'$$$',
+        'episodeSeparator': '#',
+        'fieldSeparator': r'$',
+      },
+    };
+    final engine = await openEngine(
+      sourceId: 'kazumi-delimited-native',
+      script: KazumiRule.convert(jsonEncode(config)),
+    );
+    addTearDown(engine.dispose);
+    final result = await engine.callResult('chapters', {'id': 'book'});
+    expect(result.isOk, true, reason: result.error?.message);
+    final chapters = result.value as List;
+    expect(chapters.map((c) => c['title']), [
+      '线路甲 · 第一集',
+      '线路甲 · 第二集',
+      '线路乙 · 第一集',
+    ]);
+    expect(chapters[0]['id'], r'https://cdn.test/1.m3u8?token=a$b');
+    expect(chapters[1]['id'], '$base/play/2');
+    final content = await engine.call('content', {
+      'id': 'book',
+      'chapterId': chapters[0]['id'],
+    }) as Map;
+    expect(content['kind'], 'video');
+    expect(content['url'], chapters[0]['id']);
+  }, skip: available ? false : '本机没有 QuickJS 原生桥');
   test('JSON 文件与粘贴识别为视频源，更新沿用规则地址身份', () {
     final json = jsonEncode(rule);
     expect(SourceImportInput.classify(json).isScript, true);
