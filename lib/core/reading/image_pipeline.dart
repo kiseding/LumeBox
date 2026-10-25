@@ -11,6 +11,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:pointycastle/export.dart' show AESEngine, ECBBlockCipher, KeyParameter;
 
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
@@ -541,8 +542,51 @@ class SectionImagePipeline {
     return 'https://${url.substring('http://'.length)}';
   }
 
-  /// 解析内联 `data:` 图片地址，非内联或格式不对返回 null。
+  /// `lume-enc://aes-ecb/<base64url(key)>/<原始地址>` → 下载密文 → 原生 AES 解密。
   ///
+  /// 源里把「加密的封面」写成这种 URI 即可：key 随 URI 带过来（不进 App 代码），
+  /// 解密用 pointycastle 的原生实现。明文若是 `data:image/…;base64,xxx` 就取出 xxx 解码，
+  /// 否则当作图片字节直接用。前缀不匹配或任一步失败返回 null（调用方会回退到普通下载）。
+  Future<Uint8List?> _loadEncrypted(String rawUrl) async {
+    const prefix = 'lume-enc://aes-ecb/';
+    if (!rawUrl.startsWith(prefix)) return null;
+    final rest = rawUrl.substring(prefix.length);
+    final slash = rest.indexOf('/');
+    if (slash <= 0) return null;
+    final keyText = rest.substring(0, slash);
+    final target = rest.substring(slash + 1);
+    Uint8List key;
+    try {
+      key = base64Url.decode(base64Url.normalize(keyText));
+    } catch (_) {
+      return null;
+    }
+    if (key.isEmpty) return null;
+    final cipherBytes = await _download(
+      upgradeToHttps(normalizeTransform(target)),
+    );
+    if (cipherBytes == null || cipherBytes.isEmpty) return null;
+    try {
+      final cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
+      final plain = cipher.process(cipherBytes);
+      if (plain.isEmpty) return null;
+      final pad = plain[plain.length - 1];
+      final body = (pad > 0 && pad <= 16 && pad <= plain.length)
+          ? Uint8List.sublistView(plain, 0, plain.length - pad)
+          : plain;
+      final text = utf8.decode(body, allowMalformed: true);
+      if (text.startsWith('data:')) {
+        final decoded = decodeDataUri(text);
+        if (decoded != null) return decoded;
+      }
+      return Uint8List.fromList(body);
+    } catch (error) {
+      LumeLog.warn('[$sourceLabel] 加密封面解密失败: $rawUrl ($error)');
+      return null;
+    }
+  }
+
+  /// 解析内联 `data:` 图片地址，非内联或格式不对返回 null。  ///
   /// 图源里有些封面是**加密后内联**的：源脚本（纯 JS）把它解出来就成了一整条
   /// `data:image/jpeg;base64,xxxx`，此时没有任何可请求的主机，只能就地解码。
   /// 支持 `;base64` 与无参数的 `data:image/png,`（后者按百分号编码解）。
@@ -563,10 +607,15 @@ class SectionImagePipeline {
   }
 
   Future<Uint8List?> _loadBytes(String rawUrl) async {
+    // 源声明的「加密封面」：`lume-enc://aes-ecb/<base64url(key)>/<原始地址>`
+    // 这类站把封面 AES 加密后直接扔在 CDN 上（好妻网的 .ceb/.geb 就是 AES-256-ECB 加密的
+    // `data:image/...` 文本）。解密放这里用原生 AES 做，比在 JS 沙箱里纯 JS 解快一个数量级
+    // （实测 275KB：纯 JS 2.7s，这里 ~20ms）；key 由源提供，不写进 App。
+    final enc = await _loadEncrypted(rawUrl);
+    if (enc != null) return enc;
     // 内联 data URI：`data:image/jpeg;base64,…` 这类地址没有主机、没有路径，
     // 走网络层只会得到 0 字节（或者把 `data:…` 当成磁盘文件名）。
-    // 有的源把封面加密后以内联形式给出（好妻网的 .ceb、9sex 的 AES 密文等），
-    // 源脚本解密后就是一条 data URI —— 在这里直接解成字节，不进磁盘缓存。
+    // 有的源把封面加密后以内联形式给出（9sex 的 AES 密文等），源脚本解密后就是一条 data URI。
     final inline = decodeDataUri(rawUrl);
     if (inline != null) return inline;
     // 明文地址在这里一次性升级：内存缓存键、磁盘文件名、实际请求三者保持一致，
