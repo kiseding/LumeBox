@@ -10,6 +10,7 @@ class NativeNavigationSettings {
     this.safeGap = 0,
     this.barHeight = 0,
     this.materialOpacity = .6,
+    this.opaqueBackground = false,
   });
 
   final bool enabled;
@@ -23,6 +24,7 @@ class NativeNavigationSettings {
   /// Zero follows UIKit. Otherwise the entire native control is scaled.
   final double barHeight;
   final double materialOpacity;
+  final bool opaqueBackground;
 
   double heightFor(double systemHeight) =>
       barHeight > 0 ? barHeight.clamp(40.0, 120.0) : systemHeight;
@@ -40,6 +42,7 @@ class NativeNavigationSettings {
     double? safeGap,
     double? barHeight,
     double? materialOpacity,
+    bool? opaqueBackground,
   }) => NativeNavigationSettings.fromJson({
     ...toJson(),
     'enabled': ?enabled,
@@ -51,6 +54,7 @@ class NativeNavigationSettings {
     'safeGap': ?safeGap,
     'barHeight': ?barHeight,
     'materialOpacity': ?materialOpacity,
+    'opaqueBackground': ?opaqueBackground,
   });
 
   Map<String, Object> toJson() => {
@@ -63,6 +67,7 @@ class NativeNavigationSettings {
     'safeGap': safeGap,
     'barHeight': barHeight,
     'materialOpacity': materialOpacity,
+    'opaqueBackground': opaqueBackground,
   };
 
   static NativeNavigationSettings fromJson(Object? value) {
@@ -91,6 +96,7 @@ class NativeNavigationSettings {
       safeGap: number('safeGap', 0, -100, 100),
       barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 0, 40, 120),
       materialOpacity: number('materialOpacity', .6, 0, 1),
+      opaqueBackground: value['opaqueBackground'] == true,
     );
   }
 
@@ -105,7 +111,8 @@ class NativeNavigationSettings {
       horizontalMargin == other.horizontalMargin &&
       safeGap == other.safeGap &&
       barHeight == other.barHeight &&
-      materialOpacity == other.materialOpacity;
+      materialOpacity == other.materialOpacity &&
+      opaqueBackground == other.opaqueBackground;
 
   @override
   int get hashCode => Object.hash(
@@ -118,5 +125,6 @@ class NativeNavigationSettings {
     safeGap,
     barHeight,
     materialOpacity,
+    opaqueBackground,
   );
 }

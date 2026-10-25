@@ -1614,6 +1614,24 @@ class _ExploreViewState extends State<ExploreView>
       return const SourceStateView(state: SourceStateKind.loading);
     }
     if (_items.isEmpty && !_loadingMore) {
+      if (_current?.isKazumi == true) {
+        return SourceStateView(
+          state: SourceStateKind.empty,
+          title: '搜索这站的动漫',
+          detail: '此 Kazumi 规则未提供首页分类，也未提取到首页封面。点击下方按钮，按作品名在当前站点搜索。',
+          onRetry: _retry,
+          action: FilledButton.icon(
+            onPressed: () => setState(() {
+              _searchMode = SearchMode.single;
+              _searching = true;
+              _headerHidden = false;
+              _suggestions = _historyStore?.load() ?? const <String>[];
+            }),
+            icon: const Icon(Icons.search_rounded),
+            label: const Text('搜索动漫'),
+          ),
+        );
+      }
       return SourceStateView(
         state: SourceStateKind.empty,
         detail: '换个分类或关键词试试',

@@ -136,7 +136,7 @@ class _NativeNavigationSettingsCardState
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('底部透明度'),
-          subtitle: const Text('同时调节底部导航胶囊与收缩圆圈，图标保持清晰'),
+          subtitle: const Text('0% 遮挡底下内容，100% 保留系统玻璃。收起后只显示图标，无圆形底色。'),
           trailing: Text('${((1 - settings.materialOpacity) * 100).round()}%'),
         ),
         NativeGlassSlider(
@@ -145,13 +145,24 @@ class _NativeNavigationSettingsCardState
           min: 0,
           max: 1,
           divisions: 100,
-          onChanged: (value) => _change(
-            settings.copyWith(materialOpacity: 1 - value),
-            save: false,
-          ),
+          onChanged: settings.enabled && settings.opaqueBackground
+              ? null
+              : (value) => _change(
+                  settings.copyWith(materialOpacity: 1 - value),
+                  save: false,
+                ),
           onChangeEnd: (_) =>
               unawaited(widget.controller.saveNativeNavigation()),
         ),
+        if (settings.enabled)
+          NativeSwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('底部使用纯色背景'),
+            subtitle: const Text('开启后完全遮挡内容，无需调透明度；关闭后恢复系统液态玻璃。'),
+            value: settings.opaqueBackground,
+            onChanged: (value) =>
+                _change(settings.copyWith(opaqueBackground: value)),
+          ),
         if (settings.enabled) ...[
           FutureBuilder<SystemTabBarCapabilities>(
             future: _capabilities,

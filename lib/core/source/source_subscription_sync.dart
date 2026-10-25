@@ -314,19 +314,11 @@ class SourceSubscriptionSync {
             onSkip: (url, error) => result.errors.add('$url: $error'),
             fetch:
                 fetch ??
-                (url) async {
-                  final response = await http.send(
-                    url: url,
-                    headers: force ? const {'Cache-Control': 'no-cache'} : null,
-                  );
-                  if (response.statusCode < 200 || response.statusCode >= 300) {
-                    throw StateError('HTTP ${response.statusCode}');
-                  }
-                  return SourceFetchResult(
-                    bytes: response.body,
-                    text: response.text,
-                  );
-                },
+                (url) => SourceSubscription.fetchSubscription(
+                  http,
+                  url,
+                  force: force,
+                ),
           );
           final refs = await resolver.resolveRefs([record.url]);
           final before = {for (final s in await manager.list()) s.id: s};

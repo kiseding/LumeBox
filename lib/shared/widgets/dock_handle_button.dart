@@ -1,7 +1,5 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import 'frosted_glass_widget.dart';
-
 import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
@@ -67,8 +65,6 @@ class DockHandleButton extends StatelessWidget {
         fallback: _RoundedLines(color: accent),
       ),
     };
-    const fill = BoxDecoration(shape: BoxShape.circle);
-
     return Opacity(
       opacity: opacity,
       child: Tooltip(
@@ -76,33 +72,16 @@ class DockHandleButton extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(shape: BoxShape.circle),
-            child: ClipOval(
-              child: FrostedGlassWidget(
-                nativeGlass: false,
-                neutralTint: true,
-                opacity: 1,
-                materialOpacity: materialOpacity,
-                border: false,
-                color: Colors.white,
-                radius: size / 2,
-                child: DecoratedBox(
-                  decoration: fill,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      splashColor: Colors.transparent,
-                      highlightColor: Colors.transparent,
-                      hoverColor: Colors.transparent,
-                      focusColor: Colors.transparent,
-                      customBorder: const CircleBorder(),
-                      onTap: onPressed,
-                      child: Center(child: content),
-                    ),
-                  ),
-                ),
-              ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              focusColor: Colors.transparent,
+              customBorder: const CircleBorder(),
+              onTap: onPressed,
+              child: Center(child: content),
             ),
           ),
         ),

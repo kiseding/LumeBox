@@ -31,6 +31,65 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final available = installBridge();
   if (available) enableEngineOnThisPlatform();
+  test('旧版已导入 Kazumi 适配自动更新，保留 ID、版本和用户脚本', () {
+    final script = KazumiRule.convert(
+      jsonEncode(rule),
+      originUrl: 'https://rules.test/example.json',
+    );
+    final header = script.split('\n').first;
+    final old =
+        '$header\nconst kazumiRule = ${jsonEncode(rule)};\nLumeSource = {list: async () => ({items:[]})};';
+    final upgraded = KazumiRule.upgradeAdapter(old);
+    expect(upgraded, startsWith('$header\n'));
+    expect(upgraded, contains("kazumiExtract('home')"));
+    expect(KazumiRule.upgradeAdapter(upgraded), upgraded);
+    expect(
+      KazumiRule.upgradeAdapter('const userSource = {};'),
+      'const userSource = {};',
+    );
+  });
+  test('首页列表实际请求站点首页，第二页停止，搜索仍使用搜索接口', () async {
+    final requests = <Map>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('lumebox/source_web'),
+      (call) async {
+        final args = call.arguments as Map;
+        requests.add(args);
+        return {
+          'url': args['url'],
+          'html': '<html></html>',
+          'result': [
+            {
+              'id': 'https://example.test/detail/1',
+              'title': '真实首页作品',
+              'cover': 'https://example.test/cover.jpg',
+            },
+          ],
+          'media': [],
+        };
+      },
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(
+        const MethodChannel('lumebox/source_web'),
+        null,
+      ),
+    );
+    final engine = await openEngine(
+      sourceId: 'kazumi-home',
+      script: KazumiRule.convert(jsonEncode(rule)),
+    );
+    addTearDown(engine.dispose);
+    final home = await engine.call('list', {'page': 1}) as Map;
+    expect((home['items'] as List).single['title'], '真实首页作品');
+    expect(requests.single['url'], rule['baseURL']);
+    expect(requests.single['script'], contains("mode = \"home\""));
+    final next = await engine.call('list', {'page': 2}) as Map;
+    expect(next['items'], isEmpty);
+    expect(requests, hasLength(1));
+  }, skip: available ? false : '本机没有 QuickJS 原生桥');
   for (final version in ['6', '7', '8', '9']) {
     test('API $version 的 XPath 规则保持原有搜索与目录契约', () {
       final script = KazumiRule.convert(

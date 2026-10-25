@@ -77,20 +77,71 @@ class SourceSubscription {
       fetch: (url) async {
         final http = LumeHttp(source: '订阅拉取');
         try {
-          final response = await http.send(url: url);
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            throw StateError('HTTP ${response.statusCode}');
-          }
-          return SourceFetchResult(
-            bytes: response.body,
-            text: stripBomText(response.text),
-          );
+          return await fetchSubscription(http, url);
         } finally {
           // 每次拉取用完即关：订阅拉取是低频操作，不需要长期持有连接池。
           http.dispose();
         }
       },
     );
+  }
+
+  /// Preserve the saved/origin URL. Only public raw GitHub downloads get a CDN
+  /// retry after transport failure or server overload; a real 404 stays a 404.
+  static Future<SourceFetchResult> fetchSubscription(
+    LumeHttp http,
+    String url, {
+    bool force = false,
+  }) async {
+    final headers = force ? const {'Cache-Control': 'no-cache'} : null;
+    LumeHttpResponse response;
+    try {
+      response = await http.send(url: url, headers: headers);
+      if (response.statusCode == 429 || response.statusCode >= 500) {
+        throw LumeHttpException('HTTP ${response.statusCode}');
+      }
+    } on LumeHttpException {
+      final alternate = githubCdnUrl(url);
+      if (alternate == null) rethrow;
+      LumeLog.info('[订阅] GitHub 原始地址暂不可达，尝试 CDN：$url');
+      response = await http.send(url: alternate, headers: headers);
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('HTTP ${response.statusCode}（$url）');
+    }
+    return SourceFetchResult(
+      bytes: response.body,
+      text: stripBomText(response.text),
+    );
+  }
+
+  static String? githubCdnUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'raw.githubusercontent.com' ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    final parts = uri.pathSegments.toList();
+    if (parts.length < 4) return null;
+    if (parts.length >= 6 &&
+        parts[2] == 'refs' &&
+        (parts[3] == 'heads' || parts[3] == 'tags')) {
+      parts.removeRange(2, 4);
+    }
+    return Uri(
+      scheme: 'https',
+      host: 'cdn.jsdelivr.net',
+      pathSegments: [
+        'gh',
+        parts[0],
+        '${parts[1]}@${parts[2]}',
+        ...parts.skip(3),
+      ],
+    ).toString();
   }
 
   /// 地址清单 → 脚本清单。

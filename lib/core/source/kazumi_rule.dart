@@ -5,6 +5,31 @@ import 'package:crypto/crypto.dart';
 /// Adapts Kazumi XPath and JSON API rules to source HTTP and bounded WebKit.
 /// No additional browser, interpreter or background polling is introduced.
 class KazumiRule {
+  /// Refresh our generated adapter for already imported rules, preserving IDs.
+  /// Raw user JavaScript is never rewritten.
+  static String upgradeAdapter(String script) {
+    final headerEnd = script.indexOf('\n');
+    if (headerEnd < 0 ||
+        !script.startsWith('// LumeSource: ') ||
+        !script.substring(0, headerEnd).contains('"id":"kazumi_')) {
+      return script;
+    }
+    final lines = const LineSplitter().convert(script);
+    if (lines.length < 2 ||
+        !lines.first.startsWith('// LumeSource: ') ||
+        !lines.first.contains('"id":"kazumi_') ||
+        !lines[1].startsWith('const kazumiRule = ') ||
+        !lines[1].endsWith(';')) {
+      return script;
+    }
+    final raw = lines[1].substring(
+      'const kazumiRule = '.length,
+      lines[1].length - 1,
+    );
+    if (!matches(raw)) return script;
+    return '${lines.first}\nconst kazumiRule = $raw;\n$_runtime';
+  }
+
   static const officialIndex =
       'https://raw.githubusercontent.com/Predidit/KazumiRules/main/index.json';
   static List<String>? indexUrls(String text, String origin) {
@@ -194,6 +219,29 @@ function kazumiExtract(mode) {
       if (!node) return '';
       try { const u = new URL(node.getAttribute('href') || '', location.href); return /^https?:$/.test(u.protocol) ? u.href : ''; } catch (_) { return ''; }
     }
+    if (mode === 'home') {
+      const seen = new Set(), items = [];
+      // Kazumi has no home selectors. Use only real same-site poster links;
+      // do not manufacture recommendations from an empty search query.
+      for (const a of document.querySelectorAll('a[href]')) {
+        const img = a.querySelector('img');
+        if (!img || a.closest('header,footer,nav')) continue;
+        const url = href(a);
+        if (!url || seen.has(url)) continue;
+        const target = new URL(url);
+        if (target.origin !== location.origin || target.pathname === '/' ||
+            /^(search|vodsearch|tag|type|vodtype|play|vodplay|login|register)$/i.test((target.pathname.split('/')[1] || '').split(/[-.]/)[0])) continue;
+        const card = a.closest('li,article,.module-item,.public-list-box,.video-item,.stui-vodlist__box,.hl-list-item,.myui-vodlist__box') || a;
+        const heading = card.querySelector('h2,h3,h4,.module-poster-item-title,.title');
+        const title = (a.getAttribute('title') || img.getAttribute('alt') || (heading && heading.textContent) || a.textContent || '').trim();
+        let cover = img.getAttribute('data-original') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('src') || '';
+        try { cover = new URL(cover, location.href).href; } catch (_) { continue; }
+        if (!title || !/^https?:/i.test(cover) || /^(?:logo|广告|首页)$/i.test(title)) continue;
+        seen.add(url); items.push({id:url, title, cover});
+        if (items.length >= 120) break;
+      }
+      return items;
+    }
     if (mode === 'search') {
       const seen = new Set();
       return nodes(rule.searchList).map(row => {
@@ -356,8 +404,12 @@ async function kazumiApiDetail(id) {
 }
 LumeSource = {
   categories: async () => [],
-  // Kazumi's contract supplies search, not a home-feed selector.
-  list: async p => p.keyword ? LumeSource.search(p) : ({items: [], hasMore: false}),
+  list: async p => {
+    if (p.keyword) return LumeSource.search(p);
+    if ((p.page || 1) > 1) return {items: [], hasMore: false};
+    const response = await kazumiPage(kazumiRule.baseURL, kazumiExtract('home'));
+    return {items: Array.isArray(response.result) ? response.result : [], hasMore: false};
+  },
   search: async p => {
     if ((p.page || 1) > 1) return {items: [], hasMore: false};
     if (kazumiRule.searchMode === 'api') return kazumiApiSearch(p);

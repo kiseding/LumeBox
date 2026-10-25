@@ -1,7 +1,7 @@
 import Flutter
 import UIKit
 
-/// Native UIKit glass navigation, embedded only in the bottom bar's area.
+/// A real system navigation control, embedded only in the bottom bar's area.
 /// The existing Flutter controller continues to own pages, routes and playback.
 final class LumeSystemTabBarFactory: NSObject, FlutterPlatformViewFactory {
   private let messenger: FlutterBinaryMessenger
@@ -42,162 +42,170 @@ private struct LumeSystemTabSpec: Equatable {
   let label: String
 }
 
+private final class LumeContentTabBar: UITabBar {
+  // Flutter already positions this control above the home indicator.
+  override var safeAreaInsets: UIEdgeInsets { .zero }
+}
 
-/// One native glass surface with public UIKit controls. A system UITabBar draws
-/// its own floating platter; putting another material beneath it creates the
-/// second white capsule and makes the visible height differ from Flutter's.
 private final class LumeSystemTabBarContainer: UIView {
-  let material = UIVisualEffectView()
-  private var buttons: [UIButton] = []
-  private var selectionViews: [UIView] = []
-  private var specs: [LumeSystemTabSpec] = []
-  var onSelect: ((String) -> Void)?
-  var activeId: String?
-  var materialOpacity: CGFloat = 0.6
-  var showLabels = true
-  var iconSize: CGFloat = 24
-  var accent = UIColor.systemPurple
+  let bar = LumeContentTabBar()
+  var preferredHeight: CGFloat = 0
+  var onHeightChanged: ((CGFloat) -> Void)?
+  private var lastHeight: CGFloat = 0
 
   override init(frame: CGRect) {
     super.init(frame: frame)
     backgroundColor = .clear
-    #if compiler(>=6.2)
-    if #available(iOS 26.0, *) {
-      let glass = UIGlassEffect(style: .clear)
-      glass.tintColor = nil
-      material.effect = glass
-    } else { material.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
-    #else
-    material.effect = UIBlurEffect(style: .systemUltraThinMaterial)
-    #endif
-    material.isUserInteractionEnabled = false
-    material.clipsToBounds = true
-    addSubview(material)
+    bar.backgroundColor = .clear
+    addSubview(bar)
+    // UIKit alone owns the glass platter and moving selection lens. Never add
+    // a second glass/material view underneath it or fade the whole control.
   }
+
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-  static func fittingHeight(width: CGFloat) -> CGFloat { 64 }
 
-  func configure(_ next: [LumeSystemTabSpec]) {
-    if specs != next {
-      buttons.forEach { $0.removeFromSuperview() }
-      selectionViews.forEach { $0.removeFromSuperview() }
-      buttons = []; selectionViews = []; specs = next
-      for (index, spec) in specs.enumerated() {
-        let selected = UIView()
-        selected.isUserInteractionEnabled = false
-        addSubview(selected); selectionViews.append(selected)
-        let button = UIButton(type: .custom)
-        button.tag = index
-        button.accessibilityLabel = spec.label
-        button.accessibilityIdentifier = "shell.tab.\(spec.id)"
-        button.addTarget(self, action: #selector(activate(_:)), for: .touchUpInside)
-        addSubview(button); buttons.append(button)
-      }
-    }
-    material.alpha = materialOpacity
-    for (index, spec) in specs.enumerated() {
-      let selected = spec.id == activeId
-      let symbol: String
-      switch spec.id {
-      case "comic": symbol = "book"
-      case "video": symbol = "play.circle"
-      case "search": symbol = "magnifyingglass"
-      default: symbol = "gearshape"
-      }
-      let imageName = selected && spec.id != "search" ? symbol + ".fill" : symbol
-      var config = UIButton.Configuration.plain()
-      config.image = UIImage(systemName: imageName, withConfiguration:
-        UIImage.SymbolConfiguration(pointSize: iconSize, weight: .regular))
-      config.baseForegroundColor = selected ? accent : .label
-      config.imagePlacement = .top
-      config.imagePadding = 2
-      config.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
-      if showLabels {
-        var title = AttributedString(spec.label)
-        title.font = UIFont.systemFont(ofSize: 10, weight: selected ? .semibold : .regular)
-        config.attributedTitle = title
-      }
-      buttons[index].configuration = config
-      buttons[index].accessibilityTraits = selected ? [.button, .selected] : [.button]
-      selectionViews[index].backgroundColor = selected ? accent.withAlphaComponent(0.10 * materialOpacity) : .clear
-    }
-    setNeedsLayout()
+  static func fittingHeight(width: CGFloat) -> CGFloat {
+    let size = LumeContentTabBar().sizeThatFits(CGSize(width: max(width, 1), height: 1000))
+    return min(max(ceil(size.height), 49), 100)
   }
 
-  @objc private func activate(_ button: UIButton) {
-    guard button.tag >= 0 && button.tag < specs.count else { return }
-    let id = specs[button.tag].id
-    if id != "search" { activeId = id; configure(specs) }
-    onSelect?(id)
+  var fittingBarHeight: CGFloat {
+    let size = bar.sizeThatFits(CGSize(width: max(bounds.width, 1), height: 1000))
+    return min(max(ceil(size.height), 49), 100)
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    material.frame = bounds
-    material.layer.cornerRadius = bounds.height / 2
-    #if compiler(>=6.2)
-    if #available(iOS 26.0, *) {
-      material.cornerConfiguration = .corners(radius: .fixed(Double(bounds.height / 2)))
-    }
-    #endif
-    let inset: CGFloat = 4
-    let width = max(0, bounds.width - inset * 2) / CGFloat(max(1, specs.count))
-    for i in buttons.indices {
-      let frame = CGRect(x: inset + CGFloat(i) * width, y: inset,
-        width: width, height: max(0, bounds.height - inset * 2))
-      buttons[i].frame = frame
-      selectionViews[i].frame = frame
-      selectionViews[i].layer.cornerRadius = frame.height / 2
+    let height = fittingBarHeight
+    let target = preferredHeight > 0 ? preferredHeight : height
+    let scale = target / height
+    // Resize the complete public control, including its system lens and hit
+    // targets. No traversal or modification of UIKit's private glass views.
+    bar.transform = .identity
+    bar.bounds = CGRect(x: 0, y: 0, width: bounds.width / scale, height: height)
+    bar.center = CGPoint(x: bounds.midX, y: bounds.height - target / 2)
+    bar.transform = CGAffineTransform(scaleX: scale, y: scale)
+    if lastHeight != height {
+      lastHeight = height
+      // Deliver after layout, so Flutter can update its content inset safely.
+      DispatchQueue.main.async { [weak self] in self?.onHeightChanged?(height) }
     }
   }
 }
 
-private final class LumeSystemTabBarView: NSObject, FlutterPlatformView {
+private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBarDelegate {
   private let container: LumeSystemTabBarContainer
   private let channel: FlutterMethodChannel
+  private var specs: [LumeSystemTabSpec] = []
+  private var showLabels = true
+  private var iconSize: CGFloat = 24
+  private var selectedContentId: String?
 
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     container = LumeSystemTabBarContainer(frame: frame)
     channel = FlutterMethodChannel(name: "lumebox/system_tab_bar_\(viewId)", binaryMessenger: messenger)
     super.init()
-    container.onSelect = { [weak self] id in self?.channel.invokeMethod("selected", arguments: id) }
+    container.bar.delegate = self
+    container.onHeightChanged = { [weak self] height in
+      self?.channel.invokeMethod("metrics", arguments: ["height": height])
+    }
     _ = update(args)
     channel.setMethodCallHandler { [weak self] call, result in
       guard call.method == "update" else { result(FlutterMethodNotImplemented); return }
       guard let self = self else { result(nil); return }
       guard self.update(call.arguments) else {
-        result(FlutterError(code: "configuration", message: "Invalid native navigation configuration", details: nil)); return
+        result(FlutterError(code: "configuration", message: "Invalid system tab bar configuration", details: nil))
+        return
       }
-      result(["height": LumeSystemTabBarContainer.fittingHeight(width: self.container.bounds.width)])
+      result(["height": self.container.fittingBarHeight])
     }
   }
+
   deinit { channel.setMethodCallHandler(nil) }
+
   func view() -> UIView { container }
 
   private func update(_ arguments: Any?) -> Bool {
     guard let values = arguments as? [String: Any],
-      let entries = values["entries"] as? [[String: Any]],
-      !entries.isEmpty, entries.count <= 5 else { return false }
+          let entries = values["entries"] as? [[String: Any]],
+          !entries.isEmpty, entries.count <= 5 else { return false }
     var next: [LumeSystemTabSpec] = []
     for entry in entries {
       guard let id = entry["id"] as? String, ["comic", "video", "settings", "search"].contains(id),
-        let label = entry["label"] as? String, !label.isEmpty,
-        !next.contains(where: { $0.id == id }) else { return false }
+            let label = entry["label"] as? String, !label.isEmpty,
+            !next.contains(where: { $0.id == id }) else { return false }
       next.append(LumeSystemTabSpec(id: id, label: label))
     }
-    container.showLabels = values["showLabels"] as? Bool ?? true
+    let labels = values["showLabels"] as? Bool ?? true
+    let rawHeight = (values["barHeight"] as? NSNumber)?.doubleValue ?? 0
+    container.preferredHeight = rawHeight.isFinite && rawHeight > 0
+      ? CGFloat(min(max(rawHeight, 40), 120)) : 0
     let rawSize = (values["iconSize"] as? NSNumber)?.doubleValue ?? 24
-    container.iconSize = CGFloat(rawSize.isFinite ? min(max(rawSize, 18), 30) : 24)
-    container.activeId = values["activeId"] as? String
+    let size = CGFloat(rawSize.isFinite ? min(max(rawSize, 18), 30) : 24)
+    if specs != next || labels != showLabels || size != iconSize {
+      specs = next
+      showLabels = labels
+      iconSize = size
+      let configuration = UIImage.SymbolConfiguration(pointSize: size, weight: .regular)
+      let items = specs.map { spec -> UITabBarItem in
+        let symbol: String
+        switch spec.id {
+        case "comic": symbol = "book"
+        case "video": symbol = "play.circle"
+        case "search": symbol = "magnifyingglass"
+        default: symbol = "gearshape"
+        }
+        let item = UITabBarItem(
+          title: labels ? spec.label : nil,
+          image: UIImage(systemName: symbol, withConfiguration: configuration),
+          selectedImage: UIImage(systemName: spec.id == "search" ? symbol : symbol + ".fill", withConfiguration: configuration)
+        )
+        item.accessibilityLabel = spec.label
+        item.accessibilityIdentifier = "shell.tab.\(spec.id)"
+        return item
+      }
+      container.bar.setItems(items, animated: false)
+    }
+    let activeId = values["activeId"] as? String
+    selectedContentId = activeId
+    let index = specs.firstIndex(where: { $0.id == activeId })
+    container.bar.selectedItem = index.flatMap { container.bar.items?[$0] }
     container.overrideUserInterfaceStyle = values["brightness"] as? String == "dark" ? .dark : .light
-    let rawOpacity = (values["materialOpacity"] as? NSNumber)?.doubleValue ?? 0.6
-    container.materialOpacity = CGFloat(rawOpacity.isFinite ? min(1, max(0, rawOpacity)) : 0.6)
+    let opacity = (values["materialOpacity"] as? NSNumber)?.doubleValue ?? 0.6
+    let density = CGFloat(opacity.isFinite ? min(1, max(0, opacity)) : 0.6)
+    let appearance = UITabBarAppearance()
+    if values["opaqueBackground"] as? Bool == true {
+      appearance.configureWithOpaqueBackground()
+      appearance.backgroundColor = .systemBackground
+    } else {
+      appearance.configureWithDefaultBackground()
+      // Adjust the public appearance's neutral fill, not private UIKit views
+      // or the alpha of labels/the system selection effect.
+      appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(density)
+    }
+    appearance.shadowColor = .clear
+    container.bar.standardAppearance = appearance
+    container.bar.scrollEdgeAppearance = appearance
     if let tint = values["tintColor"] as? NSNumber {
       let argb = tint.uint32Value
-      container.accent = UIColor(red: CGFloat((argb >> 16) & 255) / 255,
-        green: CGFloat((argb >> 8) & 255) / 255, blue: CGFloat(argb & 255) / 255, alpha: 1)
+      container.bar.tintColor = UIColor(
+        red: CGFloat((argb >> 16) & 255) / 255,
+        green: CGFloat((argb >> 8) & 255) / 255,
+        blue: CGFloat(argb & 255) / 255, alpha: 1
+      )
     }
-    container.configure(next)
+    container.setNeedsLayout()
     return true
+  }
+
+  func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+    guard let index = tabBar.items?.firstIndex(where: { $0 === item }), index < specs.count else { return }
+    if specs[index].id == "search" {
+      let previous = specs.firstIndex(where: { $0.id == selectedContentId })
+      tabBar.selectedItem = previous.flatMap { tabBar.items?[$0] }
+    } else {
+      selectedContentId = specs[index].id
+    }
+    channel.invokeMethod("selected", arguments: specs[index].id)
   }
 }

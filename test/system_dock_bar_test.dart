@@ -196,6 +196,7 @@ void main() {
       barHeight: 88,
       safeGap: -50,
       materialOpacity: .25,
+      opaqueBackground: true,
     );
     expect(NativeNavigationSettings.fromJson(value.toJson()), value);
     expect(value.heightFor(64), 88);
