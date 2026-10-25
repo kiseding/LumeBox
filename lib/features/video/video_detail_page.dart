@@ -561,7 +561,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (tmdb.loading) return 'TMDB 正在匹配资料…';
     final data = tmdb.metadata;
     if (data != null) {
-      return 'TMDB 已匹配 · 演员 ${data.cast.length} · 推荐 ${data.recommendations.length}';
+      return 'TMDB 已匹配 · 演员 ${data.cast.length}';
     }
     return tmdb.status ?? 'TMDB 尚未匹配到资料';
   }
@@ -923,84 +923,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     );
   }
 
-  Widget recommendationsSection() {
-    final items = tmdb.metadata?.recommendations ?? [];
-    if (items.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      key: const Key('video-detail-recommendations'),
-      padding: EdgeInsets.only(top: originalStyle ? 24 : 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            '相似影片 · 全站找片',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '点击影片，全站查找播放源',
-            style: TextStyle(
-              fontSize: 11,
-              color: originalStyle
-                  ? Colors.white60
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, bounds) {
-              final width = (bounds.maxWidth - 20) / 3;
-              return SizedBox(
-                height:
-                    width * 1.5 +
-                    8 +
-                    MediaQuery.textScalerOf(context).scale(12) * 2.6,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: items.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (_, index) {
-                    final item = items[index];
-                    return SizedBox(
-                      width: width,
-                      child: InkWell(
-                        onTap: () => searchCurrentVideo(item.title),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: SizedBox(
-                                height: width * 1.5,
-                                child: PosterCover(
-                                  pipeline: pipeline,
-                                  url: item.poster,
-                                  title: item.title,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, height: 1.3),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget castSection() {
     final metadata = tmdb.metadata;
     if (metadata == null || metadata.cast.isEmpty) {
@@ -1017,20 +939,18 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 110 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
+            height: 68 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: metadata.cast.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (_, i) => SizedBox(
-                width: 76,
+                width: 68,
                 child: Column(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        width: 76,
-                        height: 104,
+                    ClipOval(
+                      child: SizedBox.square(
+                        dimension: 60,
                         child:
                             i < metadata.profiles.length &&
                                 metadata.profiles[i].isNotEmpty
@@ -1038,16 +958,18 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                 pipeline: pipeline,
                                 url: metadata.profiles[i],
                                 title: metadata.cast[i],
+                                width: 180,
+                                borderRadius: BorderRadius.zero,
                               )
                             : const ColoredBox(
                                 color: Color(0x22666666),
                                 child: Center(
-                                  child: Icon(Icons.person_outline, size: 32),
+                                  child: Icon(Icons.person_outline, size: 28),
                                 ),
                               ),
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     Text(
                       metadata.cast[i],
                       maxLines: 1,
@@ -1784,7 +1706,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         const SizedBox(height: 8),
                         episodeSection(),
                         castSection(),
-                        recommendationsSection(),
                       ],
                     ),
                   ),
@@ -1985,7 +1906,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           const SizedBox(height: 10),
                           episodeSection(immersive: true),
                           castSection(),
-                          recommendationsSection(),
                         ],
                       ),
                     ),

@@ -247,8 +247,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('video-detail-tmdb-status')), findsOneWidget);
     expect(find.text('示例演员'), findsOneWidget);
-    expect(find.text('相似影片 · 全站找片'), findsOneWidget);
-    expect(find.text('推荐示例'), findsOneWidget);
+    expect(find.text('相似影片 · 全站找片'), findsNothing);
+    expect(find.text('推荐示例'), findsNothing);
     expect(source.parses, 0);
     final second = find.byKey(const ValueKey('video-detail-episode-1'));
     await tester.ensureVisible(second);
