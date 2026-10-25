@@ -485,6 +485,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   List<Widget> detailActions() => [
     IconButton(
+      key: const Key('video-detail-search'),
+      tooltip: '其他源找这部',
+      onPressed: _source == null ? null : () => searchCurrentVideo(),
+      icon: const Icon(Icons.search),
+    ),
+    IconButton(
       key: const Key('video-detail-favorite'),
       tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
       onPressed: _source == null || !widget.recordHistory ? null : favorite,
@@ -499,8 +505,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       tooltip: '更多',
       onSelected: (action) {
         switch (action) {
-          case 'search':
-            searchCurrentVideo();
           case 'bangumi':
             openBangumi();
           case 'original':
@@ -516,11 +520,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         }
       },
       itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'search',
-          enabled: _source != null,
-          child: const Text('其他源找这部'),
-        ),
         const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
         const PopupMenuDivider(),
         CheckedPopupMenuItem(
@@ -1648,7 +1647,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           Text(error!),
                           TextButton(onPressed: load, child: const Text('重试')),
                         ],
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 4),
                         linePicker(),
                         const SizedBox(height: 10),
                         episodeSection(),
@@ -1848,7 +1847,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               child: const Text('重试'),
                             ),
                           ],
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 4),
                           linePicker(),
                           const SizedBox(height: 10),
                           episodeSection(immersive: true),
