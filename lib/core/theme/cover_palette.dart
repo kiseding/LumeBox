@@ -32,3 +32,12 @@ Color? dominantCoverColor(Uint8List rgba) {
     (best[3] / best[0]).round(),
   );
 }
+
+/// Keep the displayed artwork's hue instead of blending every poster into grey-purple.
+Color immersiveCoverSurface(Color artwork) {
+  final hsv = HSVColor.fromColor(artwork);
+  return hsv
+      .withSaturation(hsv.saturation.clamp(.22, .55))
+      .withValue(hsv.value.clamp(.28, .52))
+      .toColor();
+}

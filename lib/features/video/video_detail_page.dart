@@ -404,11 +404,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Color? _coverColor;
+  String? _displayedPoster;
+  int _paletteRevision = 0;
+  void _artworkDisplayed(String? url) {
+    if (_displayedPoster == url) return;
+    _displayedPoster = url;
+    unawaited(updatePalette());
+  }
+
   Color get _pageColor {
     if (originalStyle) {
       return _coverColor == null
           ? const Color(0xff55516e)
-          : Color.lerp(_coverColor, const Color(0xff686183), .55)!;
+          : immersiveCoverSurface(_coverColor!);
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = dark ? const Color(0xff11131a) : const Color(0xfff7f7fa);
@@ -416,11 +424,60 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     return Color.lerp(base, _coverColor, dark ? .12 : .045)!;
   }
 
-  Future<void> updatePalette() async {
-    final cover = sourceCover;
-    if (cover == null || cover.isEmpty) return;
+  Future<ui.Image?> _displayedPosterSample(String url) async {
+    // The gallery has already decoded this NetworkImage. Reuse Flutter's image
+    // cache rather than downloading the same poster again through the source.
+    final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
+    final ready = Completer<ui.Image?>();
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        if (!ready.isCompleted) ready.complete(info.image.clone());
+      },
+      onError: (Object _, StackTrace? _) {
+        if (!ready.isCompleted) ready.complete(null);
+      },
+    );
+    stream.addListener(listener);
+    ui.Image? original;
     try {
-      final sample = await pipeline.colorSample(cover);
+      original = await ready.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+      if (original == null) return null;
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawImageRect(
+        original,
+        Rect.fromLTWH(
+          0,
+          0,
+          original.width.toDouble(),
+          original.height.toDouble(),
+        ),
+        const Rect.fromLTWH(0, 0, 48, 48),
+        Paint(),
+      );
+      final picture = recorder.endRecording();
+      try {
+        return await picture.toImage(48, 48);
+      } finally {
+        picture.dispose();
+      }
+    } finally {
+      stream.removeListener(listener);
+      original?.dispose();
+    }
+  }
+
+  Future<void> updatePalette() async {
+    final cover = _displayedPoster ?? sourceCover;
+    if (cover == null || cover.isEmpty) return;
+    final revision = ++_paletteRevision;
+    try {
+      final sample = _displayedPoster == cover
+          ? await _displayedPosterSample(cover)
+          : await pipeline.colorSample(cover);
       if (sample == null) return;
       Color? color;
       try {
@@ -433,7 +490,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       } finally {
         sample.dispose();
       }
-      if (color == null || cover != sourceCover) return;
+      if (color == null || revision != _paletteRevision) return;
       if (mounted) {
         setState(() => _coverColor = color);
       }
@@ -1608,6 +1665,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   title: title,
                                 )
                               : TmdbPosterGallery(
+                                  onArtworkDisplayed: _artworkDisplayed,
                                   controller: tmdb,
                                   fit: BoxFit.cover,
                                   fallback: PosterCover(
@@ -1782,6 +1840,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         height: artworkHeight,
                         child: IgnorePointer(
                           child: TmdbPosterGallery(
+                            onArtworkDisplayed: _artworkDisplayed,
                             controller: tmdb,
                             fit: BoxFit.cover,
                             fallback: PosterCover(

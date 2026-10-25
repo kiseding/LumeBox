@@ -106,10 +106,12 @@ class TmdbPosterGallery extends StatefulWidget {
     required this.controller,
     required this.fallback,
     this.fit = BoxFit.cover,
+    this.onArtworkDisplayed,
   });
   final TmdbDetailController controller;
   final Widget fallback;
   final BoxFit fit;
+  final ValueChanged<String?>? onArtworkDisplayed;
   @override
   State<TmdbPosterGallery> createState() => _TmdbPosterGalleryState();
 }
@@ -122,10 +124,38 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
     super.dispose();
   }
 
+  String? _reportedArtwork;
+  bool _hasReported = false;
+  void reportArtwork(String? url) {
+    if (_hasReported && _reportedArtwork == url) return;
+    _hasReported = true;
+    _reportedArtwork = url;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _reportedArtwork == url) {
+        widget.onArtworkDisplayed?.call(url);
+      }
+    });
+  }
+
+  bool isCurrent(String url) {
+    final urls = widget.controller.metadata?.posters ?? const <String>[];
+    return urls.isNotEmpty &&
+        urls[widget.controller.index.clamp(0, urls.length - 1)] == url;
+  }
+
   Widget poster(String url) => Image.network(
     url,
     fit: widget.fit,
-    errorBuilder: (_, _, _) => widget.fallback,
+    frameBuilder: (_, child, frame, synchronouslyLoaded) {
+      if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
+        reportArtwork(url);
+      }
+      return child;
+    },
+    errorBuilder: (_, _, _) {
+      if (isCurrent(url)) reportArtwork(null);
+      return widget.fallback;
+    },
   );
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -133,7 +163,10 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
     builder: (context, _) {
       final state = widget.controller;
       final urls = state.metadata?.posters ?? const <String>[];
-      if (!state.settings.enabled || urls.isEmpty) return widget.fallback;
+      if (!state.settings.enabled || urls.isEmpty) {
+        reportArtwork(null);
+        return widget.fallback;
+      }
       if (state.settings.posterStyle != TmdbPosterStyle.carousel ||
           urls.length < 2) {
         return poster(urls[state.index.clamp(0, urls.length - 1)]);
