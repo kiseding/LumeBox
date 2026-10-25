@@ -75,6 +75,9 @@ class SourceSubscriptionSync {
   static final Set<Section> _forcedRunning = {};
   static final Map<Section, Future<SubscriptionSyncResult>> _pendingForced = {};
   static final Map<Section, ValueNotifier<int>> _revisions = {};
+  static final _progress = <Section, ValueNotifier<String>>{};
+  static ValueNotifier<String> progress(Section section) =>
+      _progress.putIfAbsent(section, () => ValueNotifier(''));
   static final Map<Section, ValueNotifier<int>> _changeCounts = {};
   static final Map<Section, File> _noticeFiles = {};
   static final Map<Section, Map<String, Map<String, String>>> _changes = {};
@@ -285,6 +288,7 @@ class SourceSubscriptionSync {
 
   Future<SubscriptionSyncResult> sync({bool force = false}) async {
     final result = SubscriptionSyncResult();
+    var downloaded = 0;
     if (!manager.runtimeAvailable) {
       return result..errors.add('当前平台无法运行 JS 源，订阅未同步');
     }
@@ -293,6 +297,10 @@ class SourceSubscriptionSync {
       return result..message = '没有已启用的订阅，请先添加订阅地址';
     }
     final http = LumeHttp(source: '${section.label}订阅自动同步');
+    final fetcher =
+        fetch ??
+        (String url) =>
+            SourceSubscription.fetchSubscription(http, url, force: force);
     try {
       for (final record in subscriptions.where((s) => s.enabled)) {
         final interval = record.error.isEmpty
@@ -312,13 +320,14 @@ class SourceSubscriptionSync {
             maxScripts: SourceSubscription.defaultMaxScripts,
             strictManifest: true,
             onSkip: (url, error) => result.errors.add('$url: $error'),
-            fetch:
-                fetch ??
-                (url) => SourceSubscription.fetchSubscription(
-                  http,
-                  url,
-                  force: force,
-                ),
+            fetch: (url) async {
+              progress(section).value =
+                  '正在下载 · 已完成 $downloaded 个文件 · ${Uri.tryParse(url)?.pathSegments.lastOrNull ?? "订阅"}';
+              final value = await fetcher(url);
+              downloaded++;
+              progress(section).value = '已下载 $downloaded 个文件';
+              return value;
+            },
           );
           final refs = await resolver.resolveRefs([record.url]);
           final before = {for (final s in await manager.list()) s.id: s};
@@ -328,7 +337,15 @@ class SourceSubscriptionSync {
                 entry.key: entry.value,
           };
           var complete = resolver.complete;
+          var processed = 0;
           for (final ref in refs) {
+            processed++;
+            final declaredName =
+                SourceMetadata.parseHeader(ref.script)?.name ?? '源脚本';
+            progress(section).value =
+                '正在校验 $processed/${refs.length} · $declaredName';
+            // Yield to Flutter between scripts so the progress can be painted.
+            await Future<void>.delayed(Duration.zero);
             final declaredId = SourceMetadata.parseHeader(ref.script)?.id;
             if (record.excludedIds.contains(declaredId) ||
                 record.members.entries.any(
@@ -395,6 +412,7 @@ class SourceSubscriptionSync {
       }
     } finally {
       http.dispose();
+      progress(section).value = '';
     }
     if (result.changed) {
       revision(section).value++;

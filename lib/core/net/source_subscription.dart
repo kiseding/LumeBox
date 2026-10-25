@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -36,6 +38,66 @@ class SourceFetchResult {
 /// 这一层刻意从 UI 里抽出来：导入弹窗与「更新订阅源」共用同一套解析，两处的
 /// 行为不会走偏（更新时同样会校验 MD5）。
 class SourceSubscription {
+  final _downloads =
+      <
+        String,
+        Future<({SourceFetchResult? value, Object? error, StackTrace? stack})>
+      >{};
+  final _downloadWaiters = Queue<Completer<void>>();
+  int _activeDownloads = 0;
+
+  Future<({SourceFetchResult? value, Object? error, StackTrace? stack})>
+  _startDownload(String url) async {
+    if (_activeDownloads >= 4) {
+      final ready = Completer<void>();
+      _downloadWaiters.add(ready);
+      await ready.future;
+    } else {
+      _activeDownloads++;
+    }
+    try {
+      return (value: await fetch(url), error: null, stack: null);
+    } catch (error, stack) {
+      // Capture errors immediately: a prefetched sibling may be consumed later.
+      return (value: null, error: error, stack: stack);
+    } finally {
+      if (_downloadWaiters.isEmpty) {
+        _activeDownloads--;
+      } else {
+        _downloadWaiters.removeFirst().complete();
+      }
+    }
+  }
+
+  Future<SourceFetchResult> _download(String url) async {
+    final pending = _downloads.remove(url) ?? _startDownload(url);
+    final result = await pending;
+    if (result.error != null) {
+      Error.throwWithStackTrace(result.error!, result.stack!);
+    }
+    return result.value!;
+  }
+
+  Iterable<String> _siblings(
+    List<String> urls,
+    Set<String> visited,
+    int budget,
+  ) sync* {
+    for (var i = 0; i < urls.length; i++) {
+      // Tiny/custom import limits preserve strictly lazy expansion. Normal
+      // subscriptions prefetch only a four-entry window; parsing stays ordered.
+      if (maxScripts >= defaultMaxScripts) {
+        for (var j = i; j < urls.length && j < i + 4 && j < budget; j++) {
+          final url = urls[j];
+          if (!visited.contains(url)) {
+            _downloads.putIfAbsent(url, () => _startDownload(url));
+          }
+        }
+      }
+      yield urls[i];
+    }
+  }
+
   static const defaultMaxScripts = 2000;
   SourceSubscription({
     required this.fetch,
@@ -159,16 +221,24 @@ class SourceSubscription {
     complete = true;
     final refs = <SourceScriptRef>[];
     final visited = <String>{};
-    for (final url in urls) {
-      if (refs.length >= maxScripts) {
-        complete = false;
-        break;
+    try {
+      for (final url in urls) {
+        if (refs.length >= maxScripts) {
+          complete = false;
+          break;
+        }
+        refs.addAll(
+          await scriptRefsAt(url, visited, remaining: maxScripts - refs.length),
+        );
       }
-      refs.addAll(
-        await scriptRefsAt(url, visited, remaining: maxScripts - refs.length),
-      );
+      return refs;
+    } finally {
+      // Finish the small prefetch window before the caller closes its client.
+      // Captured errors remain per-entry failures, never unhandled futures.
+      final pending = _downloads.values.toList();
+      _downloads.clear();
+      await Future.wait(pending);
     }
-    return refs;
   }
 
   /// 单个订阅地址 → 脚本清单（0..n 条）。
@@ -198,7 +268,7 @@ class SourceSubscription {
       complete = false;
       return const <SourceScriptRef>[];
     }
-    final download = await fetch(url);
+    final download = await _download(url);
     final total = _totalUrls(download.text);
     if (total != null) {
       final refs = <SourceScriptRef>[];
@@ -225,7 +295,7 @@ class SourceSubscription {
     final kazumiIndex = KazumiRule.indexUrls(download.text, url);
     if (kazumiIndex != null) {
       final refs = <SourceScriptRef>[];
-      for (final item in kazumiIndex) {
+      for (final item in _siblings(kazumiIndex, visited, budget)) {
         if (refs.length >= budget) {
           complete = false;
           break;
@@ -316,7 +386,7 @@ class SourceSubscription {
     }
     final nested = urlsIn(download.text, limit: maxScripts + 1);
     if (nested.length > maxScripts) complete = false;
-    for (final item in nested) {
+    for (final item in _siblings(nested, visited, budget)) {
       if (refs.length >= budget) {
         complete = false;
         break;

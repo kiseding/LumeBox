@@ -94,6 +94,17 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         const SizedBox(height: 16),
         Text(current),
         if (busy)
+          for (final section in [Section.comic, Section.video])
+            ValueListenableBuilder<String>(
+              valueListenable: SourceSubscriptionSync.progress(section),
+              builder: (_, text, child) => text.isEmpty
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text('${section.label}：$text'),
+                    ),
+            ),
+        if (busy)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: LinearProgressIndicator(),

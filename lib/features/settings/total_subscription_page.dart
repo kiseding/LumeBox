@@ -1,3 +1,5 @@
+import '../../core/source/source_subscription_sync.dart';
+import '../../core/session/section.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -127,6 +129,17 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (busy)
+          for (final section in [Section.comic, Section.video])
+            ValueListenableBuilder<String>(
+              valueListenable: SourceSubscriptionSync.progress(section),
+              builder: (_, text, child) => text.isEmpty
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('${section.label}：$text'),
+                    ),
+            ),
         const SettingsFooterNote(
           '一次导入漫画、视频订阅，自动分配到对应版块。美图归漫画，影视归视频；猫源订阅仍在猫源配置中心管理。',
           padding: EdgeInsets.zero,
