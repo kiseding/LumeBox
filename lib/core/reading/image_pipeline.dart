@@ -11,7 +11,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:pointycastle/export.dart' show AESEngine, ECBBlockCipher, KeyParameter;
+import 'package:pointycastle/export.dart'
+    show
+        AESEngine,
+        BlockCipher,
+        CBCBlockCipher,
+        ECBBlockCipher,
+        KeyParameter,
+        ParametersWithIV;
 
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
@@ -548,26 +555,43 @@ class SectionImagePipeline {
   /// 解密用 pointycastle 的原生实现。明文若是 `data:image/…;base64,xxx` 就取出 xxx 解码，
   /// 否则当作图片字节直接用。前缀不匹配或任一步失败返回 null（调用方会回退到普通下载）。
   Future<Uint8List?> _loadEncrypted(String rawUrl) async {
-    const prefix = 'lume-enc://aes-ecb/';
-    if (!rawUrl.startsWith(prefix)) return null;
+    const ecbPrefix = 'lume-enc://aes-ecb/';
+    const cbcPrefix = 'lume-enc://aes-cbc/';
+    final isCbc = rawUrl.startsWith(cbcPrefix);
+    if (!isCbc && !rawUrl.startsWith(ecbPrefix)) return null;
+    final prefix = isCbc ? cbcPrefix : ecbPrefix;
     final rest = rawUrl.substring(prefix.length);
-    final slash = rest.indexOf('/');
-    if (slash <= 0) return null;
-    final keyText = rest.substring(0, slash);
-    final target = rest.substring(slash + 1);
+    final parts = rest.split('/');
+    // aes-ecb/<key>/<url>            ← 二进制密文
+    // aes-cbc/<key>/<iv>/<url>       ← Base64 文本密文（站点 JS 直接喂 CryptoJS 的形态）
+    final need = isCbc ? 3 : 2;
+    if (parts.length < need) return null;
     Uint8List key;
+    Uint8List? iv;
     try {
-      key = base64Url.decode(base64Url.normalize(keyText));
+      key = base64Url.decode(base64Url.normalize(parts[0]));
+      if (isCbc) iv = base64Url.decode(base64Url.normalize(parts[1]));
     } catch (_) {
       return null;
     }
-    if (key.isEmpty) return null;
-    final cipherBytes = await _download(
-      upgradeToHttps(normalizeTransform(target)),
-    );
-    if (cipherBytes == null || cipherBytes.isEmpty) return null;
+    if (key.isEmpty || (isCbc && (iv == null || iv.isEmpty))) return null;
+    final target = parts.sublist(isCbc ? 2 : 1).join('/');
+    final raw = await _download(upgradeToHttps(normalizeTransform(target)));
+    if (raw == null || raw.isEmpty) return null;
     try {
-      final cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
+      Uint8List cipherBytes = raw;
+      if (isCbc) {
+        // 站点给的是 Base64 文本密文，先解成字节
+        final text = utf8.decode(raw, allowMalformed: true).trim();
+        cipherBytes = Uint8List.fromList(base64Decode(base64.normalize(text)));
+      }
+      final BlockCipher cipher;
+      if (isCbc) {
+        cipher = CBCBlockCipher(AESEngine())
+          ..init(false, ParametersWithIV(KeyParameter(key), iv!));
+      } else {
+        cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
+      }
       final plain = cipher.process(cipherBytes);
       if (plain.isEmpty) return null;
       final pad = plain[plain.length - 1];
