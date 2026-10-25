@@ -122,7 +122,7 @@ extension _OriginalIntro on _VideoPlayerPageState {
       return;
     }
     _cancelAutoHide();
-    await _playbackMenu<void>(
+    await showPlayerSettingsPanel<void>(
       context: context,
       builder: (_) => IntroEpisodeSheet(
         controller: controller,

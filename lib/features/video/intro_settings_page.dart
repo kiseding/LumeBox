@@ -1,7 +1,6 @@
+import 'player_settings_panel.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
-
-import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'dart:convert';
 import 'dart:io';
@@ -41,7 +40,8 @@ const introMethodHelp = <String, String>{
 };
 
 class IntroSettingsPage extends StatefulWidget {
-  const IntroSettingsPage({super.key});
+  const IntroSettingsPage({super.key, this.store});
+  final IntroStore? store;
   @override
   State<IntroSettingsPage> createState() => _IntroSettingsPageState();
 }
@@ -50,6 +50,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
   IntroStore? _store;
   String? _error;
   bool _installing = false;
+  int _tab = 0;
   @override
   void initState() {
     super.initState();
@@ -58,7 +59,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
 
   Future<void> _open() async {
     try {
-      final store = await IntroStore.open();
+      final store = widget.store ?? await IntroStore.open();
       if (mounted) setState(() => _store = store);
     } catch (_) {
       if (mounted) setState(() => _error = '无法打开识别数据库');
@@ -174,8 +175,8 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
   Widget build(BuildContext context) {
     final store = _store;
     if (store == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('片头片尾识别')),
+      return PlayerSettingsScaffold(
+        title: '片头片尾识别',
         body: Center(
           child: _error == null
               ? const CircularProgressIndicator()
@@ -186,7 +187,6 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
     return ValueListenableBuilder<IntroOptions>(
       valueListenable: store,
       builder: (context, options, _) {
-        final order = options.order;
         Widget toggle(
           String key,
           String title, {
@@ -205,202 +205,330 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
           int min,
           int max,
           String unit,
-        ) => ListTile(
-          title: Text('$title  $value$unit'),
-          subtitle: NativeGlassSlider(
-            value: value.toDouble(),
-            min: min.toDouble(),
-            max: max.toDouble(),
-            divisions: max - min,
-            onChanged: (v) => store.update({key: v.round()}),
-          ),
-        );
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('片头片尾识别'),
-            actions: [
-              IconButton(
-                tooltip: '使用说明',
-                icon: const LumeIcon(
-                  Icons.help_outline,
-                  slot: 'intro_settings_page.1',
-                ),
-                onPressed: () => showGlassDialog<void>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('片头片尾识别'),
-                    content: const Text(
-                      '先在播放页记住片头结束或片尾开始的位置，同一作品后续集数会沿用。识别结果可手动确认；自动跳过前可以取消。',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('知道了'),
-                      ),
-                    ],
+        ) => Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(title, style: const TextStyle(fontSize: 14)),
                   ),
-                ),
+                  Text(
+                    '$value$unit',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              NativeGlassSlider(
+                value: value.toDouble(),
+                min: min.toDouble(),
+                max: max.toDouble(),
+                divisions: max - min,
+                onChanged: (v) => store.update({
+                  key: key == 'threshold' ? v / 100 : v.round(),
+                }),
               ),
             ],
           ),
-          body: ListView(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.paddingOf(context).bottom + 24,
-            ),
-            children: [
-              toggle('active', '启用识别', value: options.active),
-              toggle(
-                'autoSkip',
-                '倒计时自动跳过',
-                value: options.autoSkip,
-                subtitle: '每次跳过前提供取消按钮；关闭后仅显示手动跳过',
-              ),
-              slider('countdown', '提示倒计时', options.countdown, 3, 15, ' 秒'),
-              const ListTile(
-                title: Text('识别优先级'),
-                subtitle: Text('长按拖动排序；某层有可靠结果后停止后续识别。手动标记可移到首位。'),
-              ),
-              ReorderableListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: order.length,
-                onReorderItem: (old, next) {
-                  final sorted = [...order];
-                  final stage = sorted.removeAt(old);
-                  sorted.insert(next, stage);
-                  store.update({'order': sorted.map((s) => s.name).toList()});
-                },
-                itemBuilder: (context, i) => ListTile(
-                  key: ValueKey(order[i]),
-                  title: Text('${i + 1}. ${order[i].label}'),
-                  trailing: const LumeIcon(
-                    Icons.drag_handle,
-                    slot: 'intro_settings_page.2',
-                  ),
+        );
+        final content = <Widget>[];
+        if (_tab == 0) {
+          content.addAll([
+            PlayerSettingsSection(
+              title: '跳过方式',
+              children: [
+                toggle('active', '启用识别', value: options.active),
+                toggle(
+                  'autoSkip',
+                  '倒计时自动跳过',
+                  value: options.autoSkip,
+                  subtitle: '跳过前可取消；关闭后仅显示手动跳过',
                 ),
-              ),
-              for (final group in <String, List<String>>{
-                '社区库': ['theIntroDB', 'introDB'],
-                '内置元数据': ['chapters', 'mkvTags', 'subtitles', 'filename'],
-                '低算力启发式': ['black', 'silence', 'sceneCuts', 'ocr'],
-                '本地指纹自学习': ['phash', 'dhash', 'mfcc', 'joint'],
-                '本地 AI': ['videoAI', 'audioAI'],
-                '手动兜底': ['manual'],
-              }.entries) ...[
-                ListTile(
-                  title: Text(
-                    group.key,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                for (final key in group.value)
-                  toggle(
-                    key,
-                    IntroOptions.switches[key]!,
-                    subtitle: introMethodHelp[key],
-                  ),
+                slider('countdown', '提示倒计时', options.countdown, 3, 15, ' 秒'),
               ],
-              toggle(
-                'reuseManualSeason',
-                '同剧记忆：记一次，后续各集沿用',
-                subtitle: '无需作品 ID。片头记结束点，片尾按剩余时长适配后续集；可重新记忆或清除。',
-              ),
-              toggle('skiprecap', '允许跳过前情回顾'),
-              toggle('skippreview', '允许跳过下集预告'),
-              const ListTile(
-                title: Text('模型管理'),
-                subtitle: Text(
-                  '内置 MobileCLIP-S0（Core ML，iOS）与 YAMNet（单线程 TFLite）。视频采用零样本语义与连续片段判断，分数未经 OP／ED 专项校准。可替换为四类专用模型。',
+            ),
+            PlayerSettingsSection(
+              title: '同剧与特殊片段',
+              children: [
+                toggle(
+                  'reuseManualSeason',
+                  '同剧记忆',
+                  subtitle: '记住片头结束或片尾开始，后续集数沿用',
                 ),
-              ),
-              ListTile(
-                title: Text(_installing ? '正在准备模型…' : '准备／恢复内置模型'),
-                trailing: _installing
-                    ? const CircularProgressIndicator()
-                    : const LumeIcon(
-                        Icons.download,
-                        slot: 'intro_settings_page.3',
+                toggle('skiprecap', '允许跳过前情回顾'),
+                toggle('skippreview', '允许跳过下集预告'),
+              ],
+            ),
+          ]);
+        }
+        if (_tab == 1) {
+          final order = options.order;
+          content.addAll([
+            PlayerSettingsSection(
+              title: '识别优先级',
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    '拖动右侧把手排序；得到可靠结果后停止后续识别。',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  itemCount: order.length,
+                  onReorderItem: (old, next) {
+                    final sorted = [...order];
+                    final stage = sorted.removeAt(old);
+                    sorted.insert(next, stage);
+                    store.update({'order': sorted.map((s) => s.name).toList()});
+                  },
+                  itemBuilder: (context, i) => ListTile(
+                    key: ValueKey(order[i]),
+                    title: Text(order[i].label),
+                    leading: CircleAvatar(
+                      radius: 13,
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(fontSize: 11),
                       ),
-                onTap: _installing ? null : _models,
-              ),
-              ListTile(
-                title: const Text('更换视频模型'),
-                subtitle: Text(
-                  options.values['videoModelRoot'] == null
-                      ? '当前：内置 MobileCLIP-S0'
-                      : '当前：自定义 Core ML',
+                    ),
+                    trailing: ReorderableDragStartListener(
+                      index: i,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.drag_handle_rounded, size: 21),
+                      ),
+                    ),
+                  ),
                 ),
-                onTap: _installing ? null : () => _models(type: 'video'),
+              ],
+            ),
+            for (final group in <String, List<String>>{
+              '社区库': ['theIntroDB', 'introDB'],
+              '内置元数据': ['chapters', 'mkvTags', 'subtitles', 'filename'],
+              '低算力启发式': ['black', 'silence', 'sceneCuts', 'ocr'],
+              '本地指纹自学习': ['phash', 'dhash', 'mfcc', 'joint'],
+              '本地 AI': ['videoAI', 'audioAI'],
+              '手动兜底': ['manual'],
+            }.entries)
+              PlayerSettingsSection(
+                children: [
+                  ExpansionTile(
+                    key: PageStorageKey('intro-group-${group.key}'),
+                    title: Text(
+                      group.key,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      '已开启 ${group.value.where(options.enabled).length} / ${group.value.length}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    shape: const Border(),
+                    collapsedShape: const Border(),
+                    children: [
+                      for (final key in group.value)
+                        toggle(
+                          key,
+                          IntroOptions.switches[key]!,
+                          subtitle: introMethodHelp[key],
+                        ),
+                    ],
+                  ),
+                ],
               ),
-              ListTile(
-                title: const Text('更换音频模型'),
-                subtitle: Text(
-                  options.values['audioModelPath'] == null
-                      ? '当前：内置 YAMNet'
-                      : '当前：自定义 YAMNet 兼容模型',
+          ]);
+        }
+        if (_tab == 2) {
+          content.addAll([
+            PlayerSettingsSection(
+              title: '识别模型',
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    '内置 MobileCLIP-S0 与 YAMNet。识别为实验性辅助结果，可替换兼容模型。',
+                    style: TextStyle(fontSize: 12, height: 1.4),
+                  ),
                 ),
-                onTap: _installing ? null : () => _models(type: 'audio'),
-              ),
-              const ListTile(title: Text('资源与置信度')),
-              toggle(
-                'idleOnly',
-                '仅空闲时预扫描',
-                value: options.idleOnly,
-                subtitle: '默认播放／后台立即停止重计算；暂停且回到前台后继续。iOS 后台不保证执行。',
-              ),
-              toggle('wifiOnly', '网络媒体预扫描仅用 Wi-Fi', value: options.wifiOnly),
-              toggle('chargingOnly', '仅充电时预扫描', value: options.chargingOnly),
-              slider(
-                'scanSeconds',
-                '每轮计算时间上限',
-                options.scanSeconds,
-                5,
-                120,
-                ' 秒',
-              ),
-              slider(
-                'sampleEverySeconds',
-                '采样间隔',
-                options.sampleEverySeconds,
-                1,
-                10,
-                ' 秒',
-              ),
-              slider('maxSamples', '采样数量上限', options.maxSamples, 10, 240, ' 帧'),
-              ListTile(
-                title: Text('最低接受置信度 ${(options.threshold * 100).round()}%'),
-                subtitle: NativeGlassSlider(
-                  value: options.threshold,
-                  min: .5,
-                  max: 1,
-                  divisions: 50,
-                  onChanged: (v) => store.update({'threshold': v}),
+                ListTile(
+                  title: Text(_installing ? '正在准备模型…' : '准备／恢复内置模型'),
+                  trailing: _installing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined, size: 20),
+                  onTap: _installing ? null : _models,
+                ),
+                ListTile(
+                  title: const Text('更换视频模型'),
+                  subtitle: Text(
+                    options.values['videoModelRoot'] == null
+                        ? '当前：内置 MobileCLIP-S0'
+                        : '当前：自定义 Core ML',
+                  ),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: _installing ? null : () => _models(type: 'video'),
+                ),
+                ListTile(
+                  title: const Text('更换音频模型'),
+                  subtitle: Text(
+                    options.values['audioModelPath'] == null
+                        ? '当前：内置 YAMNet'
+                        : '当前：自定义 YAMNet 兼容模型',
+                  ),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: _installing ? null : () => _models(type: 'audio'),
+                ),
+              ],
+            ),
+            PlayerSettingsSection(
+              title: '计算与网络',
+              children: [
+                toggle(
+                  'idleOnly',
+                  '仅空闲时预扫描',
+                  value: options.idleOnly,
+                  subtitle: '播放或进入后台时停止；暂停且在前台时继续',
+                ),
+                toggle('wifiOnly', '网络媒体预扫描仅用 Wi-Fi', value: options.wifiOnly),
+                toggle('chargingOnly', '仅充电时预扫描', value: options.chargingOnly),
+                slider(
+                  'scanSeconds',
+                  '每轮计算时间上限',
+                  options.scanSeconds,
+                  5,
+                  120,
+                  ' 秒',
+                ),
+                slider(
+                  'sampleEverySeconds',
+                  '采样间隔',
+                  options.sampleEverySeconds,
+                  1,
+                  10,
+                  ' 秒',
+                ),
+                slider(
+                  'maxSamples',
+                  '采样数量上限',
+                  options.maxSamples,
+                  10,
+                  240,
+                  ' 帧',
+                ),
+                slider(
+                  'threshold',
+                  '最低接受置信度',
+                  (options.threshold * 100).round(),
+                  50,
+                  100,
+                  '%',
+                ),
+              ],
+            ),
+            const Text(
+              '低电量、严重温控或内存不足时会停止。模型准备、编译耗时单独计入日志。',
+              style: TextStyle(fontSize: 12, height: 1.4),
+            ),
+          ]);
+        }
+        if (_tab == 3) {
+          content.add(
+            PlayerSettingsSection(
+              title: '诊断记录',
+              children: [
+                toggle('logs', '记录来源、结果与置信度', value: options.logs),
+                ListTile(
+                  title: const Text('查看识别日志'),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => IntroLogPage(store: store),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('导出识别日志'),
+                  leading: const Icon(Icons.ios_share_rounded, size: 20),
+                  onTap: _export,
+                ),
+                ListTile(
+                  title: const Text('清空日志'),
+                  leading: const Icon(Icons.delete_outline_rounded, size: 20),
+                  onTap: () {
+                    store.clearLogs();
+                    _message('已清空识别日志');
+                  },
+                ),
+              ],
+            ),
+          );
+        }
+        return PlayerSettingsScaffold(
+          title: '片头片尾识别',
+          actions: [
+            IconButton(
+              tooltip: '使用说明',
+              icon: const Icon(Icons.help_outline_rounded, size: 21),
+              onPressed: () => showGlassDialog<void>(
+                context: context,
+                useRootNavigator: false,
+                builder: (context) => AlertDialog(
+                  title: const Text('片头片尾识别'),
+                  content: const SingleChildScrollView(
+                    child: Text(
+                      '在播放页记住片头结束或片尾开始的位置，同一作品后续集数会沿用。\n\n识别结果可手动确认，自动跳过前可以取消。识别策略、模型和日志在上方分类中调整。',
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('知道了'),
+                    ),
+                  ],
                 ),
               ),
-              const ListTile(
-                subtitle: Text(
-                  '串行解码、32×32 指纹、稀疏 OCR、单线程音频推理；低电量、严重温控或内存不足时停止。首次准备／编译模型的耗时单独计入日志，不承诺固定 CPU 百分比。',
+            ),
+          ],
+          body: Column(
+            children: [
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < 4; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 7),
+                        child: ChoiceChip(
+                          label: Text(const ['基础', '识别策略', '模型与资源', '记录'][i]),
+                          selected: _tab == i,
+                          showCheckmark: false,
+                          onSelected: (_) => setState(() => _tab = i),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              toggle('logs', '记录来源、结果与置信度', value: options.logs),
-              ListTile(
-                title: const Text('查看识别日志'),
-                trailing: const LumeIcon(
-                  Icons.chevron_right,
-                  slot: 'intro_settings_page.4',
+              Expanded(
+                child: ListView(
+                  key: ValueKey('intro-tab-$_tab'),
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 24),
+                  children: content,
                 ),
-                onTap: () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(builder: (_) => IntroLogPage(store: store)),
-                ),
-              ),
-              ListTile(title: const Text('导出识别日志'), onTap: _export),
-              ListTile(
-                title: const Text('清空日志'),
-                onTap: () {
-                  store.clearLogs();
-                  _message('已清空识别日志');
-                },
               ),
             ],
           ),
@@ -416,8 +544,8 @@ class IntroLogPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final logs = store.recentLogs();
-    return Scaffold(
-      appBar: AppBar(title: const Text('识别日志')),
+    return PlayerSettingsScaffold(
+      title: '识别日志',
       body: logs.isEmpty
           ? const Center(child: Text('暂无记录，先播放或空闲预扫描一集'))
           : ListView.builder(

@@ -21,8 +21,20 @@ Future<T?> showDanmakuPanel<T>({
   isScrollControlled: true,
   useSafeArea: true,
   backgroundColor: Colors.transparent,
+  constraints: const BoxConstraints(maxWidth: double.infinity),
   barrierColor: Colors.black.withValues(alpha: .22),
-  builder: (context) => DanmakuPanelFrame(child: builder(context)),
+  builder: (context) => Stack(
+    children: [
+      Positioned.fill(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).pop(),
+          child: const SizedBox.expand(),
+        ),
+      ),
+      DanmakuPanelFrame(child: builder(context)),
+    ],
+  ),
 );
 
 class DanmakuPanelFrame extends StatelessWidget {
@@ -57,8 +69,8 @@ class DanmakuPanelFrame extends StatelessWidget {
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
         child: SizedBox(
           key: const ValueKey('danmaku-panel-frame'),
-          width: landscape ? math.min(400, media.size.width * .46) : 560,
-          height: available * .92,
+          width: landscape ? math.min(480, media.size.width * .48) : 560,
+          height: landscape ? available : available * .92,
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,

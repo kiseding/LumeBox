@@ -1,4 +1,5 @@
 import 'video_episode_catalog.dart';
+import 'player_settings_panel.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 import 'danmaku/danmaku_panel.dart';
 import 'danmaku/danmaku_match_sheet.dart';
@@ -2024,12 +2025,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (mounted) unawaited(_loadDanmaku(_target, force: true));
   }
 
-  Future<void> _configureDanmakuService() async {
+  Future<void> _configureDanmakuService([BuildContext? panelContext]) async {
     try {
       if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const DanmakuSourcesPage()),
-      );
+      if (panelContext != null) {
+        await Navigator.of(panelContext).push(
+          MaterialPageRoute<void>(builder: (_) => const DanmakuSourcesPage()),
+        );
+      } else {
+        await showPlayerSettingsPanel<void>(
+          context: context,
+          builder: (_) => const DanmakuSourcesPage(),
+        );
+      }
     } catch (error) {
       if (mounted) _showToast(DandanplayClient.describeError(error));
     }
@@ -2152,11 +2160,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 打开弹幕设置面板。
   Future<void> _openDanmakuSettings() async {
     _cancelAutoHide();
-    await showDanmakuPanel<void>(
+    await showPlayerSettingsPanel<void>(
       context: context,
       builder: (_) => ValueListenableBuilder<int>(
         valueListenable: _danmakuRevision,
-        builder: (_, revision, child) => DanmakuSettingsSheet(
+        builder: (panelContext, revision, child) => DanmakuSettingsSheet(
           settings: _danmakuSettings,
           danmakuCount: _danmaku.length,
           status: _publicDanmakuStatus,
@@ -2169,7 +2177,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           matchLabel: _publicDanmakuMatchLabel,
           onClearMatch: _clearDanmakuMatch,
           onMatch: _matchPublicDanmaku,
-          onConfigureService: _configureDanmakuService,
+          onConfigureService: () => _configureDanmakuService(panelContext),
           onReload: () => _loadDanmaku(_target, force: true),
           onChanged: _applyDanmakuSettings,
         ),

@@ -57,7 +57,7 @@ class PlayerSettingsPage extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.comment_outlined),
             title: const Text('弹幕服务'),
-            subtitle: const Text('14 个兼容服务 · 弹弹play 官方 · 自定义 danmu'),
+            subtitle: const Text('内置本机服务 · 弹弹play 开放平台 · 自定义服务器'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push<void>(
               context,
