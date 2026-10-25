@@ -209,26 +209,23 @@ void main() {
       tester.getSize(find.byKey(const Key('video-detail-play'))).width,
       closeTo((440 - 32) * .72, 2),
     );
-    expect(
-      tester.getTopLeft(find.byKey(const Key('video-detail-quick-actions'))).dy,
-      greaterThanOrEqualTo(
-        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
-      ),
-    );
-    expect(find.byKey(const Key('video-detail-recommendations')), findsNothing);
+    expect(find.byKey(const Key('video-detail-quick-actions')), findsNothing);
+    expect(find.byKey(const Key('video-detail-favorite')), findsOneWidget);
+    expect(find.text('展开'), findsNothing);
+    expect(find.text('全站找片'), findsNothing);
     expect(source.parses, 0);
     await tester.ensureVisible(find.text('线路A · 2 集'));
     await tester.tap(find.text('线路A · 2 集'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('线路B · 2 集').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('video-detail-style')));
+    await tester.tap(find.byKey(const Key('video-detail-more')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('紧凑版（当前版）'));
     await tester.tap(
       find.ancestor(
         of: find.text('紧凑版（当前版）'),
-        matching: find.byType(CheckedPopupMenuItem<bool>),
+        matching: find.byType(CheckedPopupMenuItem<String>),
       ),
     );
     await tester.pumpAndSettle();
@@ -439,13 +436,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('video-detail-style')));
+    await tester.tap(find.byKey(const Key('video-detail-more')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('紧凑版（当前版）'));
     await tester.tap(
       find.ancestor(
         of: find.text('紧凑版（当前版）'),
-        matching: find.byType(CheckedPopupMenuItem<bool>),
+        matching: find.byType(CheckedPopupMenuItem<String>),
       ),
     );
     await tester.pumpAndSettle();

@@ -1,4 +1,3 @@
-import '../../core/bangumi/bangumi_sync.dart';
 import 'video_episode_catalog.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/lume_icon.dart';
@@ -91,7 +90,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   bool descriptionExpanded = false, reversed = false, collapsedHeader = false;
   int episodePage = 0;
   static const styleSetting = 'video.detail.originalStyle';
-  bool originalStyle = true, bangumiReady = false, playbackFailed = false;
+  bool originalStyle = true, playbackFailed = false;
   VideoProgress? lineResume;
   final _episodesKey = GlobalKey();
   final _scroll = ScrollController();
@@ -109,7 +108,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   void initState() {
     super.initState();
     originalStyle = widget.library.setting(styleSetting) != 'false';
-    unawaited(loadBangumiStatus());
     _scroll.addListener(() {
       final collapsed = _scroll.offset > 170;
       if (collapsed != collapsedHeader && mounted) {
@@ -479,28 +477,82 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Widget build(BuildContext context) =>
       originalStyle ? _buildOriginal(context) : _buildCompact(context);
 
-  Widget styleMenu() => PopupMenuButton<bool>(
-    key: const Key('video-detail-style'),
-    tooltip: '详情页样式',
-    icon: const Icon(Icons.view_carousel_outlined),
-    onSelected: (value) {
-      widget.library.setSetting(styleSetting, '$value');
-      setState(() => originalStyle = value);
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    },
-    itemBuilder: (_) => [
-      CheckedPopupMenuItem(
-        value: true,
-        checked: originalStyle,
-        child: const Text('大封面版（旧版）'),
+  void setDetailStyle(bool original) {
+    widget.library.setSetting(styleSetting, '$original');
+    setState(() => originalStyle = original);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+  }
+
+  List<Widget> detailActions() => [
+    IconButton(
+      key: const Key('video-detail-favorite'),
+      tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
+      onPressed: _source == null || !widget.recordHistory ? null : favorite,
+      icon: Icon(
+        widget.library.onShelf(widget.item.id)
+            ? Icons.favorite
+            : Icons.favorite_border,
       ),
-      CheckedPopupMenuItem(
-        value: false,
-        checked: !originalStyle,
-        child: const Text('紧凑版（当前版）'),
-      ),
-    ],
-  );
+    ),
+    PopupMenuButton<String>(
+      key: const Key('video-detail-more'),
+      tooltip: '更多',
+      onSelected: (action) {
+        switch (action) {
+          case 'search':
+            searchCurrentVideo();
+          case 'bangumi':
+            openBangumi();
+          case 'original':
+            setDetailStyle(true);
+          case 'compact':
+            setDetailStyle(false);
+          case 'tmdb':
+            tmdb.rematch();
+          case 'settings':
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
+            );
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'search',
+          enabled: _source != null,
+          child: const Text('其他源找这部'),
+        ),
+        const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
+        const PopupMenuDivider(),
+        CheckedPopupMenuItem(
+          value: 'original',
+          checked: originalStyle,
+          child: const Text('大封面版（旧版）'),
+        ),
+        CheckedPopupMenuItem(
+          value: 'compact',
+          checked: !originalStyle,
+          child: const Text('紧凑版（当前版）'),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'tmdb',
+          enabled: tmdb.settings.configured && !tmdb.loading,
+          child: const Text('重新匹配TMDB'),
+        ),
+        const PopupMenuItem(value: 'settings', child: Text('TMDB 设置与测试')),
+        if (tmdb.status != null)
+          PopupMenuItem(
+            enabled: false,
+            child: Text(
+              tmdb.status!,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+    ),
+    const SizedBox(width: 8),
+  ];
 
   Widget metadataRow(String subtitle, String title) => Row(
     key: const Key('video-detail-metadata-row'),
@@ -567,24 +619,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           ),
         ),
       ),
-      if (text != '暂无简介')
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton(
-            onPressed: () =>
-                setState(() => descriptionExpanded = !descriptionExpanded),
-            style: TextButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: originalStyle ? Colors.white70 : null,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              minimumSize: const Size(48, 30),
-            ),
-            child: Text(
-              descriptionExpanded ? '收起' : '展开',
-              style: const TextStyle(fontSize: 11),
-            ),
-          ),
-        ),
     ],
   );
 
@@ -769,15 +803,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     },
   );
 
-  Future<void> loadBangumiStatus() async {
-    final settings = BangumiSettings.instance;
-    await settings.load();
-    final token = await settings.token();
-    if (mounted) {
-      setState(() => bangumiReady = settings.userId > 0 && token.isNotEmpty);
-    }
-  }
-
   Future<void> openBangumi() async {
     await showBangumiMatchSheet(
       context: context,
@@ -785,7 +810,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       item: widget.item,
       initialTitle: detail?.title ?? widget.item.title,
     );
-    await loadBangumiStatus();
   }
 
   VideoProgress? episodeProgress(int index) {
@@ -844,54 +868,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       backgroundColor: originalStyle
           ? Colors.white24
           : Theme.of(context).colorScheme.surfaceContainerHighest,
-    );
-  }
-
-  Widget quickActions() {
-    final color = originalStyle
-        ? Colors.white
-        : Theme.of(context).colorScheme.onSurfaceVariant;
-    final saved = widget.library.onShelf(widget.item.id);
-    Widget action(String label, IconData icon, VoidCallback? onPressed) =>
-        SizedBox(
-          width: 88,
-          child: TextButton(
-            onPressed: onPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: color,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 22),
-                const SizedBox(height: 4),
-                Text(label, style: const TextStyle(fontSize: 11)),
-              ],
-            ),
-          ),
-        );
-    return Padding(
-      key: const Key('video-detail-quick-actions'),
-      padding: const EdgeInsets.only(top: 6),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 8,
-        children: [
-          action(
-            '全站找片',
-            Icons.search,
-            _source == null ? null : () => searchCurrentVideo(),
-          ),
-          action(
-            saved ? '已收藏' : '收藏',
-            saved ? Icons.favorite : Icons.favorite_border,
-            _source == null || !widget.recordHistory ? null : favorite,
-          ),
-          if (bangumiReady)
-            action('Bangumi 追番', Icons.live_tv_outlined, openBangumi),
-        ],
-      ),
     );
   }
 
@@ -1528,54 +1504,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   style: const TextStyle(fontSize: 16),
                 )
               : null,
-          actions: [
-            styleMenu(),
-            PopupMenuButton<String>(
-              tooltip: '更多',
-              onSelected: (action) {
-                if (action == 'search') searchCurrentVideo();
-                if (action == 'tmdb') tmdb.rematch();
-                if (action == 'settings') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const TmdbSettingsPage(),
-                    ),
-                  );
-                }
-                if (action == 'bangumi') openBangumi();
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'search',
-                  enabled: widget.recordHistory,
-                  child: const Text('搜索同名视频'),
-                ),
-                const PopupMenuItem(
-                  value: 'bangumi',
-                  child: Text('Bangumi 追番'),
-                ),
-                PopupMenuItem(
-                  value: 'tmdb',
-                  enabled: tmdb.settings.configured && !tmdb.loading,
-                  child: const Text('重新匹配TMDB'),
-                ),
-                const PopupMenuItem(
-                  value: 'settings',
-                  child: Text('TMDB 设置与测试'),
-                ),
-                if (tmdb.status != null)
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Text(
-                      tmdb.status!,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 8),
-          ],
+          actions: detailActions(),
         ),
         body: LayoutBuilder(
           builder: (context, bounds) {
@@ -1636,7 +1565,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     padding: EdgeInsets.fromLTRB(
                       16,
                       hasArtwork
-                          ? heroHeight * .66
+                          ? heroHeight * .66 + 24
                           : MediaQuery.paddingOf(context).top +
                                 kToolbarHeight +
                                 24,
@@ -1697,12 +1626,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           ),
                         ),
                         resumeHint(),
-                        quickActions(),
                         if (playbackFailed && lines.length > 1)
                           OutlinedButton.icon(
                             onPressed: switchLineAfterFailure,
                             icon: const Icon(Icons.alt_route),
                             label: const Text('换线路继续看'),
+                          ),
+                        if (playbackFailed)
+                          TextButton.icon(
+                            onPressed: () => searchCurrentVideo(),
+                            icon: const Icon(Icons.search),
+                            label: const Text('其他源找这部'),
                           ),
                         if (loading)
                           const Padding(
@@ -1714,7 +1648,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           Text(error!),
                           TextButton(onPressed: load, child: const Text('重试')),
                         ],
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 12),
                         linePicker(),
                         const SizedBox(height: 10),
                         episodeSection(),
@@ -1757,41 +1691,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             elevation: 0,
             foregroundColor: Colors.white,
             systemOverlayStyle: SystemUiOverlayStyle.light,
-            actions: [
-              styleMenu(),
-              PopupMenuButton<String>(
-                tooltip: '更多',
-                onSelected: (v) {
-                  if (v == 'bangumi') {
-                    openBangumi();
-                  } else if (v == 'retry') {
-                    tmdb.rematch();
-                  } else {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const TmdbSettingsPage(),
-                      ),
-                    );
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'bangumi',
-                    child: Text('Bangumi 追番'),
-                  ),
-                  PopupMenuItem(
-                    value: 'retry',
-                    enabled: tmdb.settings.configured && !tmdb.loading,
-                    child: const Text('重新匹配TMDB'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'settings',
-                    child: Text('TMDB 设置与测试'),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 8),
-            ],
+            actions: detailActions(),
           ),
           body: LayoutBuilder(
             builder: (context, constraints) {
@@ -1854,7 +1754,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     Padding(
                       padding: EdgeInsets.fromLTRB(
                         16,
-                        artworkHeight * .61,
+                        artworkHeight * .61 + 24,
                         16,
                         24 + MediaQuery.paddingOf(context).bottom,
                       ),
@@ -1923,12 +1823,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             ),
                           ),
                           resumeHint(),
-                          quickActions(),
                           if (playbackFailed && lines.length > 1)
                             OutlinedButton.icon(
                               onPressed: switchLineAfterFailure,
                               icon: const Icon(Icons.alt_route),
                               label: const Text('换线路继续看'),
+                            ),
+                          if (playbackFailed)
+                            TextButton.icon(
+                              onPressed: () => searchCurrentVideo(),
+                              icon: const Icon(Icons.search),
+                              label: const Text('其他源找这部'),
                             ),
                           if (loading)
                             const Padding(
@@ -1943,7 +1848,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               child: const Text('重试'),
                             ),
                           ],
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 12),
                           linePicker(),
                           const SizedBox(height: 10),
                           episodeSection(immersive: true),
