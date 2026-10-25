@@ -3,6 +3,7 @@ import '../source/source_preferences.dart';
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -540,7 +541,34 @@ class SectionImagePipeline {
     return 'https://${url.substring('http://'.length)}';
   }
 
+  /// 解析内联 `data:` 图片地址，非内联或格式不对返回 null。
+  ///
+  /// 图源里有些封面是**加密后内联**的：源脚本（纯 JS）把它解出来就成了一整条
+  /// `data:image/jpeg;base64,xxxx`，此时没有任何可请求的主机，只能就地解码。
+  /// 支持 `;base64` 与无参数的 `data:image/png,`（后者按百分号编码解）。
+  static Uint8List? decodeDataUri(String url) {
+    final text = url.trim();
+    if (!text.startsWith('data:')) return null;
+    final comma = text.indexOf(',');
+    if (comma <= 0) return null;
+    final meta = text.substring(5, comma).toLowerCase();
+    if (!meta.startsWith('image/')) return null;
+    final payload = text.substring(comma + 1);
+    try {
+      if (meta.contains('base64')) return base64Decode(payload);
+      return Uint8List.fromList(Uri.decodeComponent(payload).codeUnits);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<Uint8List?> _loadBytes(String rawUrl) async {
+    // 内联 data URI：`data:image/jpeg;base64,…` 这类地址没有主机、没有路径，
+    // 走网络层只会得到 0 字节（或者把 `data:…` 当成磁盘文件名）。
+    // 有的源把封面加密后以内联形式给出（好妻网的 .ceb、9sex 的 AES 密文等），
+    // 源脚本解密后就是一条 data URI —— 在这里直接解成字节，不进磁盘缓存。
+    final inline = decodeDataUri(rawUrl);
+    if (inline != null) return inline;
     // 明文地址在这里一次性升级：内存缓存键、磁盘文件名、实际请求三者保持一致，
     // 不会同一张图存两份。
     final url = upgradeToHttps(normalizeTransform(rawUrl));
