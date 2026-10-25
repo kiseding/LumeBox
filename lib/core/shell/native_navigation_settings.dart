@@ -6,9 +6,9 @@ class NativeNavigationSettings {
     this.followThemeColor = true,
     this.tintColor = 0xFF7C5CFF,
     this.iconSize = 24,
-    this.horizontalMargin = 0,
-    this.safeGap = 0,
-    this.barHeight = 0,
+    this.horizontalMargin = 10,
+    this.safeGap = -31,
+    this.barHeight = 90,
     this.materialOpacity = .6,
     this.opaqueBackground = false,
   });
@@ -92,9 +92,9 @@ class NativeNavigationSettings {
           ? tint | 0xFF000000
           : 0xFF7C5CFF,
       iconSize: number('iconSize', 24, 18, 30),
-      horizontalMargin: number('horizontalMargin', 0, 0, 40),
-      safeGap: number('safeGap', 0, -100, 100),
-      barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 0, 40, 120),
+      horizontalMargin: number('horizontalMargin', 10, 0, 40),
+      safeGap: number('safeGap', -31, -100, 100),
+      barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 90, 40, 120),
       materialOpacity: number('materialOpacity', .6, 0, 1),
       opaqueBackground: value['opaqueBackground'] == true,
     );

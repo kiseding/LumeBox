@@ -126,6 +126,26 @@ void main() {
     directory.deleteSync(recursive: true);
   });
 
+  test('导航默认值采用用户截图参数，明确保存的系统高度和零留白仍保留', () {
+    const defaults = NativeNavigationSettings();
+    expect(defaults.barHeight, 90);
+    expect(defaults.iconSize, 24);
+    expect(defaults.horizontalMargin, 10);
+    expect(defaults.safeGap, -31);
+    expect(defaults.materialOpacity, .6);
+    expect(defaults.opaqueBackground, isFalse);
+    expect(defaults.showLabels && defaults.followThemeColor, isTrue);
+    expect(NativeNavigationSettings.fromJson({}), defaults);
+    final saved = NativeNavigationSettings.fromJson({
+      'barHeight': 0,
+      'safeGap': 0,
+      'horizontalMargin': 0,
+    });
+    expect(saved.heightFor(64), 64);
+    expect(saved.safeGap, 0);
+    expect(saved.horizontalMargin, 0);
+  });
+
   test('原生参数单独保存，隐藏排序及修改自定义外观不会覆盖它', () {
     const native = NativeNavigationSettings(
       enabled: false,
@@ -176,7 +196,7 @@ void main() {
       'showLabels': 'bad',
     });
     expect(parsed.iconSize, 24);
-    expect(parsed.safeGap, 0);
+    expect(parsed.safeGap, -31);
     expect(parsed.horizontalMargin, 40);
     expect(parsed.tintColor, 0xFF7C5CFF);
     expect(parsed.showLabels, isTrue);
@@ -202,7 +222,7 @@ void main() {
     expect(value.heightFor(64), 88);
     expect(value.bottomFor(34), 0);
     expect(value.copyWith(safeGap: -12).bottomFor(34), 22);
-    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 64);
+    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 90);
     final bounded = NativeNavigationSettings.fromJson({
       'barHeight': 999,
       'safeGap': -999,
@@ -220,7 +240,7 @@ void main() {
     );
     expect(
       NativeNavigationSettings.fromJson({'barHeight': double.nan}).barHeight,
-      0,
+      90,
     );
   });
 
@@ -380,9 +400,9 @@ void main() {
     expect(find.byType(SystemDockBar), findsOneWidget);
     final page = tester.element(find.text('page-comic'));
     final scope = ShellDockScope.maybeScopeOf(page)!;
-    expect(scope.navigationHeight, 64);
-    expect(scope.dockBottom, 34);
-    expect(scope.dockInset, 106);
+    expect(scope.navigationHeight, 90);
+    expect(scope.dockBottom, 3);
+    expect(scope.dockInset, 101);
     final creations = harness.created.length;
     ShellSettingsController.instance.updateNativeNavigation(
       const NativeNavigationSettings(safeGap: 12, horizontalMargin: 16),

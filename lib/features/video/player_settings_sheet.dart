@@ -2,7 +2,7 @@ import '../../shared/widgets/native_glass_controls.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import '../../shared/widgets/drawer_geometry.dart';
+import 'danmaku/danmaku_panel.dart';
 import 'playback_glass.dart';
 
 import 'package:flutter/material.dart';
@@ -39,10 +39,8 @@ Future<void> showPlayerSettingsSheet({
   Widget? extraControls,
 }) {
   final glass = ValueNotifier(settings.playbackGlass);
-  return showLumeBottomSheet<void>(
+  return showDanmakuPanel<void>(
     context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
     builder: (_) => ValueListenableBuilder<bool>(
       valueListenable: glass,
       builder: (context, enabled, _) => PlaybackGlass(

@@ -81,17 +81,20 @@ void main() {
   testWidgets('横屏设置保持右侧有限宽面板，三级日志返回上一级，旋转不丢配置', (tester) async {
     await open(tester, IntroSettingsPage(store: store));
     final frame = find.byKey(const ValueKey('danmaku-panel-frame'));
-    expect(tester.getSize(frame).width, lessThanOrEqualTo(480));
-    expect(tester.getTopLeft(frame).dx, greaterThan(400));
+    expect(tester.getSize(frame).width, closeTo(956 / 3, .01));
+    expect(tester.getTopLeft(frame).dx, greaterThan(600));
+    expect(tester.getSize(frame).height, closeTo(440 * .85, .01));
+    expect(tester.getTopLeft(frame).dy, greaterThan(0));
     await tester.tap(find.widgetWithText(SwitchListTile, '启用识别'));
     await tester.pumpAndSettle();
     expect(store.value.active, isFalse);
+    await tester.ensureVisible(find.text('记录'));
     await tester.tap(find.text('记录'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('查看识别日志'));
     await tester.pumpAndSettle();
     expect(find.text('识别日志'), findsOneWidget);
-    expect(tester.getSize(frame).width, lessThanOrEqualTo(480));
+    expect(tester.getSize(frame).width, closeTo(956 / 3, .01));
     await tester.tap(find.byTooltip('返回上一级'));
     await tester.pumpAndSettle();
     expect(find.text('片头片尾识别'), findsOneWidget);
