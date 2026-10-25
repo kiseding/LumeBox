@@ -1,4 +1,7 @@
 import 'video_episode_catalog.dart';
+import '../../core/theme/lume_theme.dart';
+import '../../shared/widgets/lume_icon.dart';
+import '../settings/tmdb_settings_page.dart';
 
 import 'dart:ui' as ui;
 
@@ -86,6 +89,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   String currentLine = '';
   bool descriptionExpanded = false, reversed = false, collapsedHeader = false;
   int episodePage = 0;
+  bool originalStyle = true;
   final _episodesKey = GlobalKey();
   final _scroll = ScrollController();
 
@@ -153,6 +157,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         });
       }
       setState(() => detail = metadata);
+      tmdb.updateTitles([
+        metadata?.title ?? widget.item.title,
+        widget.item.title,
+      ]);
       unawaited(updatePalette());
       List<SourceChapter> episodes;
       if (direct != null) {
@@ -350,6 +358,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Color? _coverColor;
   Color get _pageColor {
+    if (originalStyle) {
+      return _coverColor == null
+          ? const Color(0xff55516e)
+          : Color.lerp(_coverColor, const Color(0xff686183), .55)!;
+    }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = dark ? const Color(0xff11131a) : const Color(0xfff7f7fa);
     if (_coverColor == null) return base;
@@ -382,7 +395,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     }
   }
 
-  Future<void> searchCurrentVideo() async {
+  Future<void> searchCurrentVideo([String? keyword]) async {
     final source = _source;
     if (source == null) return;
     await Navigator.push(
@@ -390,7 +403,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       MaterialPageRoute<void>(
         builder: (_) => SearchResultsPage(
           section: widget.library.section,
-          keyword: detail?.title ?? widget.item.title,
+          keyword: keyword ?? detail?.title ?? widget.item.title,
           mode: SearchMode.aggregate,
           manager: widget.manager,
           onOpenItem: (ExploreSelection selection) async {
@@ -413,6 +426,453 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             );
           },
         ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      originalStyle ? _buildOriginal(context) : _buildCompact(context);
+
+  Widget styleMenu() => PopupMenuButton<bool>(
+    key: const Key('video-detail-style'),
+    tooltip: '详情页样式',
+    icon: const Icon(Icons.view_carousel_outlined),
+    onSelected: (value) {
+      setState(() => originalStyle = value);
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+    },
+    itemBuilder: (_) => [
+      CheckedPopupMenuItem(
+        value: true,
+        checked: originalStyle,
+        child: const Text('大封面版（旧版）'),
+      ),
+      CheckedPopupMenuItem(
+        value: false,
+        checked: !originalStyle,
+        child: const Text('紧凑版（当前版）'),
+      ),
+    ],
+  );
+
+  Widget metadataRow(String subtitle, String title) => Row(
+    key: const Key('video-detail-metadata-row'),
+    children: [
+      Expanded(
+        child: Text(
+          subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: originalStyle ? TextAlign.center : TextAlign.left,
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.4,
+            color: originalStyle
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      if (tmdb.metadata != null)
+        IconButton(
+          key: const Key('video-detail-tmdb-status'),
+          tooltip:
+              'TMDB 已匹配${tmdb.metadata!.cast.isEmpty ? '' : ' · ${tmdb.metadata!.cast.length} 位演员'}',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
+          ),
+          icon: Icon(
+            Icons.verified_outlined,
+            size: 18,
+            color: originalStyle ? Colors.white70 : null,
+          ),
+        ),
+      SourceTranslationAction(texts: [title, synopsis]),
+    ],
+  );
+
+  String get synopsis => tmdb.metadata?.overview.trim().isNotEmpty == true
+      ? tmdb.metadata!.overview
+      : detail?.description?.trim().isNotEmpty == true
+      ? detail!.description!
+      : '暂无简介';
+
+  Widget summaryBlock(String title, String text) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      InkWell(
+        key: const Key('video-detail-summary'),
+        onTap: () => setState(() => descriptionExpanded = !descriptionExpanded),
+        child: SourceText(
+          text,
+          maxLines: descriptionExpanded ? null : 2,
+          overflow: descriptionExpanded ? null : TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 14,
+            height: 1.6,
+            color: originalStyle
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    ],
+  );
+
+  Widget linePicker() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        '播放线路',
+        style: TextStyle(
+          fontSize: 14,
+          color: originalStyle
+              ? Colors.white70
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('video-detail-line-$currentLine'),
+              initialValue: lines.isEmpty ? null : currentLine,
+              isExpanded: true,
+              dropdownColor: _pageColor,
+              style: TextStyle(
+                color: originalStyle
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurface,
+                fontSize: 14,
+              ),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: originalStyle
+                    ? Colors.white.withValues(alpha: .09)
+                    : Colors.black.withValues(alpha: .04),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              items: [
+                for (final e in lines.entries)
+                  DropdownMenuItem(
+                    value: e.key,
+                    child: Text(
+                      '${e.key} · ${e.value.length} 集',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: resolving || lines.length < 2
+                  ? null
+                  : (v) {
+                      if (v != null) changeLine(v);
+                    },
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 1,
+            child: OutlinedButton.icon(
+              // Keep the secondary entry usable with large accessibility text.
+              key: const Key('video-detail-select-episodes'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                foregroundColor: originalStyle ? Colors.white : null,
+                side: BorderSide(
+                  color: originalStyle ? Colors.white24 : Colors.black12,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+              onPressed: chapters.isEmpty ? null : showEpisodes,
+              icon: const Icon(Icons.grid_view, size: 17),
+              label: const Text('选集'),
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget episodeStrip(List<int> visible) => LayoutBuilder(
+    builder: (context, bounds) {
+      final width = (bounds.maxWidth - 20) / 3;
+      final height = width * 9 / 16;
+      return SizedBox(
+        height: height + 12 + MediaQuery.textScalerOf(context).scale(13) * 1.5,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: visible.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 10),
+          itemBuilder: (_, i) {
+            final index = visible[i], chapter = chapters[index];
+            final cover = chapter.cover?.trim().isNotEmpty == true
+                ? chapter.cover
+                : sourceCover;
+            return SizedBox(
+              width: width,
+              child: InkWell(
+                key: ValueKey('video-detail-episode-$index'),
+                onTap: resolving ? null : () => chooseEpisode(index),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        height: height,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            PosterCover(
+                              pipeline: pipeline,
+                              url: cover,
+                              title: chapter.title,
+                              headers: chapter.coverHeaders.isEmpty
+                                  ? detail?.coverHeaders ??
+                                        widget.item.coverHeaders
+                                  : chapter.coverHeaders,
+                            ),
+                            if (selected == index)
+                              const Center(
+                                child: Icon(
+                                  Icons.play_circle_fill,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      VideoEpisodeCatalog.labelOf(chapter),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
+
+  Widget quickActions() {
+    final color = originalStyle
+        ? Colors.white
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+    final saved = widget.library.onShelf(widget.item.id);
+    Widget action(String label, IconData icon, VoidCallback? onPressed) =>
+        SizedBox(
+          width: 88,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: color,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22),
+                const SizedBox(height: 4),
+                Text(label, style: const TextStyle(fontSize: 11)),
+              ],
+            ),
+          ),
+        );
+    return Padding(
+      key: const Key('video-detail-quick-actions'),
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        children: [
+          action(
+            '全站找片',
+            Icons.search,
+            _source == null ? null : () => searchCurrentVideo(),
+          ),
+          action(
+            saved ? '已收藏' : '收藏',
+            saved ? Icons.favorite : Icons.favorite_border,
+            _source == null || !widget.recordHistory ? null : favorite,
+          ),
+          action(
+            '追番',
+            Icons.live_tv_outlined,
+            () => showBangumiMatchSheet(
+              context: context,
+              library: widget.library,
+              item: widget.item,
+              initialTitle: detail?.title ?? widget.item.title,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget recommendationsSection() {
+    final items = tmdb.metadata?.recommendations ?? [];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      key: const Key('video-detail-recommendations'),
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '相似影片',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '点击影片，全站查找播放源',
+            style: TextStyle(
+              fontSize: 11,
+              color: originalStyle
+                  ? Colors.white60
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, bounds) {
+              final width = (bounds.maxWidth - 20) / 3;
+              return SizedBox(
+                height:
+                    width * 1.5 +
+                    8 +
+                    MediaQuery.textScalerOf(context).scale(12) * 2.6,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (_, index) {
+                    final item = items[index];
+                    return SizedBox(
+                      width: width,
+                      child: InkWell(
+                        onTap: () => searchCurrentVideo(item.title),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: SizedBox(
+                                height: width * 1.5,
+                                child: PosterCover(
+                                  pipeline: pipeline,
+                                  url: item.poster,
+                                  title: item.title,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, height: 1.3),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget castSection() {
+    final metadata = tmdb.metadata;
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '演员',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          if (metadata == null || metadata.cast.isEmpty)
+            Text(
+              tmdb.loading ? '正在获取演员资料…' : '匹配到演员资料后显示头像与姓名',
+              style: TextStyle(
+                fontSize: 12,
+                color: originalStyle
+                    ? Colors.white60
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            SizedBox(
+              height: 110 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: metadata.cast.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => SizedBox(
+                  width: 76,
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 76,
+                          height: 104,
+                          child:
+                              i < metadata.profiles.length &&
+                                  metadata.profiles[i].isNotEmpty
+                              ? PosterCover(
+                                  pipeline: pipeline,
+                                  url: metadata.profiles[i],
+                                  title: metadata.cast[i],
+                                )
+                              : const ColoredBox(
+                                  color: Color(0x22666666),
+                                  child: Center(
+                                    child: Icon(Icons.person_outline, size: 32),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        metadata.cast[i],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -528,71 +988,163 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Future<void> showEpisodes() async {
     if (chapters.isEmpty) return;
-    var page = (reversed ? chapters.length - 1 - selected : selected) ~/ 50;
-    final order = [
-      for (var i = 0; i < chapters.length; i++)
-        reversed ? chapters.length - 1 - i : i,
-    ];
+    var page = selected ~/ 50, query = '';
+    var listMode = chapters.any(
+      (e) => VideoEpisodeCatalog.labelOf(e).length > 18,
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, refresh) => SafeArea(
-          top: false,
-          child: FractionallySizedBox(
-            heightFactor: .75,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '$currentLine · 共 ${chapters.length} 集',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                if (chapters.length > 50)
-                  DropdownButtonFormField<int>(
-                    initialValue: page,
-                    isExpanded: true,
-                    items: [
-                      for (var i = 0; i < (chapters.length / 50).ceil(); i++)
-                        DropdownMenuItem(
-                          value: i,
-                          child: Text(
-                            '${i * 50 + 1}—${((i + 1) * 50).clamp(0, chapters.length)} 集',
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, refresh) {
+          final order = [
+            for (var i = 0; i < chapters.length; i++)
+              reversed ? chapters.length - 1 - i : i,
+          ];
+          final filtered = order
+              .where(
+                (i) =>
+                    VideoEpisodeCatalog.labelOf(chapters[i])
+                        .toLowerCase()
+                        .contains(query.toLowerCase()),
+              )
+              .toList();
+          final pages = (filtered.length / 50).ceil().clamp(1, 999999);
+          page = page.clamp(0, pages - 1);
+          final visible = filtered.skip(page * 50).take(50).toList();
+          return SafeArea(
+            top: false,
+            child: FractionallySizedBox(
+              heightFactor: .78,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '选集 · $currentLine · ${chapters.length} 集',
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: '倒序排列',
+                        onPressed: () {
+                          setState(() => reversed = !reversed);
+                          refresh(() => page = 0);
+                        },
+                        icon: const Icon(Icons.swap_vert),
+                      ),
+                      IconButton(
+                        tooltip: listMode ? '网格显示' : '列表显示',
+                        onPressed: () => refresh(() => listMode = !listMode),
+                        icon: Icon(
+                          listMode ? Icons.grid_view : Icons.view_list,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '关闭选集',
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close),
+                      ),
                     ],
-                    onChanged: (value) {
-                      if (value != null) refresh(() => page = value);
-                    },
                   ),
-                const SizedBox(height: 12),
-                episodeGrid(
-                  order.skip(page * 50).take(50).toList(),
-                  modal: true,
-                ),
-              ],
+                  if (lines.length > 1)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final line in lines.keys)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(line),
+                                selected: line == currentLine,
+                                onSelected: resolving
+                                    ? null
+                                    : (_) {
+                                        changeLine(line);
+                                        refresh(() => page = 0);
+                                      },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: '搜索剧集名称',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (v) => refresh(() {
+                      query = v;
+                      page = 0;
+                    }),
+                  ),
+                  if (pages > 1)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey('video-episode-picker-range-$page'),
+                        initialValue: page,
+                        isExpanded: true,
+                        items: [
+                          for (var i = 0; i < pages; i++)
+                            DropdownMenuItem(
+                              value: i,
+                              child: Text(
+                                '${i * 50 + 1}—${((i + 1) * 50).clamp(0, filtered.length)} 集',
+                              ),
+                            ),
+                        ],
+                        onChanged: (v) {
+                          if (v != null) refresh(() => page = v);
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  if (filtered.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('没有匹配的剧集'),
+                    )
+                  else if (listMode) ...[
+                    for (final i in visible)
+                      ListTile(
+                        key: ValueKey('video-detail-picker-episode-$i'),
+                        selected: i == selected,
+                        leading: Text('${i + 1}'),
+                        title: Text(
+                          VideoEpisodeCatalog.labelOf(chapters[i]),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.play_circle_outline),
+                        onTap: resolving
+                            ? null
+                            : () {
+                                Navigator.pop(sheetContext);
+                                chooseEpisode(i);
+                              },
+                      ),
+                  ] else
+                    episodeGrid(visible, modal: true),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget episodeSection() {
+  Widget episodeSection({bool immersive = false}) {
     final order = [
       for (var i = 0; i < chapters.length; i++)
         reversed ? chapters.length - 1 - i : i,
@@ -602,7 +1154,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       ((chapters.length - 1) ~/ 50).clamp(0, 999999),
     );
     final visible = order.skip(page * 50).take(50).toList();
-    final artwork = chapters.any((e) => e.cover?.trim().isNotEmpty == true);
+    final artwork =
+        immersive ||
+        sourceCover?.trim().isNotEmpty == true ||
+        chapters.any((e) => e.cover?.trim().isNotEmpty == true);
     return Column(
       key: _episodesKey,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -663,66 +1218,20 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             child: Text('暂无可用剧集'),
           )
         else if (artwork)
-          SizedBox(
-            height: 124,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: visible.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (_, i) {
-                final index = visible[i], chapter = chapters[index];
-                return SizedBox(
-                  width: 160,
-                  child: InkWell(
-                    key: ValueKey('video-detail-episode-$index'),
-                    onTap: resolving ? null : () => chooseEpisode(index),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            height: 90,
-                            child: chapter.cover?.trim().isNotEmpty == true
-                                ? PosterCover(
-                                    pipeline: pipeline,
-                                    url: chapter.cover,
-                                    title: chapter.title,
-                                    headers: chapter.coverHeaders,
-                                  )
-                                : Center(child: Text('${index + 1}')),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          VideoEpisodeCatalog.labelOf(chapter),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          )
+          episodeStrip(visible)
         else
           episodeGrid(visible),
       ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget _buildCompact(BuildContext context) => ListenableBuilder(
     listenable: tmdb,
     builder: (context, _) {
       final baseTheme = Theme.of(context);
       final colors = baseTheme.colorScheme;
       final title = detail?.title ?? widget.item.title;
-      final description = detail?.description?.trim().isNotEmpty == true
-          ? detail!.description!
-          : tmdb.metadata?.overview ?? '暂无简介';
+      final description = synopsis;
       final subtitle = (detail?.subtitle ?? widget.item.subtitle ?? '')
           .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
           .replaceAll(RegExp(r'集\s*集'), '集');
@@ -770,22 +1279,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 )
               : null,
           actions: [
-            IconButton(
-              tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
-              onPressed: _source == null || !widget.recordHistory
-                  ? null
-                  : favorite,
-              icon: Icon(
-                widget.library.onShelf(widget.item.id)
-                    ? Icons.favorite
-                    : Icons.favorite_border,
-              ),
-            ),
+            styleMenu(),
             PopupMenuButton<String>(
               tooltip: '更多',
               onSelected: (action) {
                 if (action == 'search') searchCurrentVideo();
                 if (action == 'tmdb') tmdb.rematch();
+                if (action == 'settings') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const TmdbSettingsPage(),
+                    ),
+                  );
+                }
                 if (action == 'bangumi') {
                   showBangumiMatchSheet(
                     context: context,
@@ -810,6 +1316,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   enabled: tmdb.settings.configured && !tmdb.loading,
                   child: const Text('重新匹配TMDB'),
                 ),
+                const PopupMenuItem(
+                  value: 'settings',
+                  child: Text('TMDB 设置与测试'),
+                ),
+                if (tmdb.status != null)
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(
+                      tmdb.status!,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
               ],
             ),
             const SizedBox(width: 8),
@@ -896,86 +1415,49 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          [
-                            if (subtitle.isNotEmpty) subtitle,
-                            if (_source != null) _source!.name,
-                          ].join(' · '),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.4,
-                            color: colors.onSurfaceVariant,
+                        metadataRow(subtitle, title),
+                        summaryBlock(title, description),
+                        const SizedBox(height: 18),
+                        Center(
+                          child: FractionallySizedBox(
+                            widthFactor: .72,
+                            child: FilledButton.icon(
+                              key: const Key('video-detail-play'),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(50),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              onPressed:
+                                  loading || resolving || chapters.isEmpty
+                                  ? null
+                                  : play,
+                              icon: resolving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.play_arrow),
+                              label: Text(
+                                resolving
+                                    ? '正在解析'
+                                    : !canResume
+                                    ? '立即播放'
+                                    : '继续播放 · ${chapters.isEmpty ? '' : VideoEpisodeCatalog.labelOf(chapters[selected])}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: FilledButton.icon(
-                                key: const Key('video-detail-play'),
-                                style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(48),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                onPressed:
-                                    loading || resolving || chapters.isEmpty
-                                    ? null
-                                    : play,
-                                icon: resolving
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.play_arrow),
-                                label: Text(
-                                  resolving
-                                      ? '正在解析'
-                                      : !canResume
-                                      ? '立即播放'
-                                      : '继续播放 · ${chapters.isEmpty ? '' : VideoEpisodeCatalog.labelOf(chapters[selected])}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                key: const Key('video-detail-select-episodes'),
-                                style: OutlinedButton.styleFrom(
-                                  side: BorderSide(
-                                    color: colors.onSurface.withValues(
-                                      alpha: .22,
-                                    ),
-                                  ),
-                                  minimumSize: const Size.fromHeight(48),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                onPressed: chapters.isEmpty
-                                    ? null
-                                    : showEpisodes,
-                                icon: const Icon(Icons.grid_view, size: 18),
-                                label: const Text('选集'),
-                              ),
-                            ),
-                          ],
-                        ),
+                        quickActions(),
                         if (canResume &&
                             progress != null &&
                             progress.position > Duration.zero) ...[
@@ -1007,145 +1489,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           Text(error!),
                           TextButton(onPressed: load, child: const Text('重试')),
                         ],
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                '简介',
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            SourceTranslationAction(
-                              texts: [title, description],
-                            ),
-                          ],
-                        ),
-                        SourceText(
-                          description,
-                          maxLines: descriptionExpanded ? null : 3,
-                          overflow: descriptionExpanded
-                              ? null
-                              : TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            height: 1.5,
-                            color: colors.onSurfaceVariant,
-                          ),
-                        ),
-                        if (description.length > 70)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton(
-                              onPressed: () => setState(
-                                () =>
-                                    descriptionExpanded = !descriptionExpanded,
-                              ),
-                              child: Text(
-                                descriptionExpanded ? '收起简介' : '展开简介',
-                              ),
-                            ),
-                          ),
                         const SizedBox(height: 24),
-                        const Text(
-                          '播放线路',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        linePicker(),
                         const SizedBox(height: 10),
-                        if (lines.isNotEmpty)
-                          DropdownButtonFormField<String>(
-                            key: ValueKey('video-detail-line-$currentLine'),
-                            initialValue: currentLine,
-                            isExpanded: true,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                              filled: true,
-                              fillColor: colors.onSurface.withValues(
-                                alpha: .04,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                            items: [
-                              for (final entry in lines.entries)
-                                DropdownMenuItem(
-                                  value: entry.key,
-                                  child: Text(
-                                    '${entry.key} · ${entry.value.length} 集',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                            ],
-                            onChanged: resolving || lines.length < 2
-                                ? null
-                                : (value) {
-                                    if (value != null) changeLine(value);
-                                  },
-                          )
-                        else
-                          const Text('暂无可用线路'),
-                        const SizedBox(height: 14),
                         episodeSection(),
-                        if (tmdb.metadata?.cast.isNotEmpty == true) ...[
-                          const SizedBox(height: 24),
-                          const Text(
-                            '演职人员',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 102,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: tmdb.metadata!.cast.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(width: 12),
-                              itemBuilder: (_, i) => SizedBox(
-                                width: 64,
-                                child: Column(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 27,
-                                      foregroundImage:
-                                          i < tmdb.metadata!.profiles.length &&
-                                              tmdb
-                                                  .metadata!
-                                                  .profiles[i]
-                                                  .isNotEmpty
-                                          ? NetworkImage(
-                                              tmdb.metadata!.profiles[i],
-                                            )
-                                          : null,
-                                      child: const Icon(Icons.person_outline),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      tmdb.metadata!.cast[i],
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        castSection(),
+                        recommendationsSection(),
                         if ((tmdb.metadata?.rating ?? 0) > 0)
                           Padding(
                             padding: const EdgeInsets.only(top: 16),
@@ -1164,6 +1513,230 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               ),
             );
           },
+        ),
+      );
+    },
+  );
+  Widget _buildOriginal(BuildContext context) => ListenableBuilder(
+    listenable: tmdb,
+    builder: (context, _) {
+      final dark = ThemeData.dark(useMaterial3: true).copyWith(
+        scaffoldBackgroundColor: _pageColor,
+        textTheme: LumeTheme.readableTextTheme(
+          Brightness.dark,
+        ).apply(fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xffb5b9df),
+          brightness: Brightness.dark,
+          surface: _pageColor,
+        ),
+      );
+      return Theme(
+        data: dark,
+        child: Scaffold(
+          backgroundColor: _pageColor,
+          extendBodyBehindAppBar: true,
+          appBar: AppBar(
+            flexibleSpace: const SizedBox.expand(),
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            foregroundColor: Colors.white,
+            systemOverlayStyle: SystemUiOverlayStyle.light,
+            actions: [
+              styleMenu(),
+              PopupMenuButton<String>(
+                tooltip: '更多',
+                onSelected: (v) {
+                  if (v == 'retry') {
+                    tmdb.rematch();
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const TmdbSettingsPage(),
+                      ),
+                    );
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'retry',
+                    enabled: tmdb.settings.configured && !tmdb.loading,
+                    child: const Text('重新匹配TMDB'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'settings',
+                    child: Text('TMDB 设置与测试'),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final artworkHeight = (constraints.maxWidth * 1.48).clamp(
+                460.0,
+                760.0,
+              );
+              return SingleChildScrollView(
+                controller: _scroll,
+                key: const Key('video-detail-scroll'),
+                child: Stack(
+                  key: const Key('video-detail-immersive'),
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: artworkHeight,
+                      child: IgnorePointer(
+                        child: TmdbPosterGallery(
+                          controller: tmdb,
+                          fit: BoxFit.cover,
+                          fallback: PosterCover(
+                            pipeline: pipeline,
+                            url: sourceCover,
+                            title: widget.item.title,
+                            headers:
+                                detail?.coverHeaders ??
+                                widget.item.coverHeaders,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: artworkHeight + 2,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          key: const Key('video-detail-gradient'),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              stops: [0, .32, .55, .76, .92, 1],
+                              colors: [
+                                Color(0x55151820),
+                                Color(0x00151820),
+                                Color(0x33151820),
+                                _pageColor.withValues(alpha: .65),
+                                _pageColor.withValues(alpha: .95),
+                                _pageColor,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        artworkHeight * .61,
+                        16,
+                        24 + MediaQuery.paddingOf(context).bottom,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SourceText(
+                            detail?.title ?? widget.item.title,
+                            textAlign: TextAlign.center,
+                            style: dark.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: const [
+                                Shadow(color: Colors.black54, blurRadius: 12),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          metadataRow(
+                            (detail?.subtitle ?? widget.item.subtitle ?? '')
+                                .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
+                                .replaceAll(RegExp(r'集\s*集'), '集'),
+                            detail?.title ?? widget.item.title,
+                          ),
+                          summaryBlock(
+                            detail?.title ?? widget.item.title,
+                            synopsis,
+                          ),
+                          const SizedBox(height: 12),
+                          Center(
+                            child: FractionallySizedBox(
+                              widthFactor: .72,
+                              child: FilledButton.icon(
+                                key: const Key('video-detail-play'),
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(50),
+                                  backgroundColor: Colors.white.withValues(
+                                    alpha: .35,
+                                  ),
+                                  foregroundColor: Colors.white,
+                                  shape: const StadiumBorder(),
+                                  elevation: 4,
+                                ),
+                                onPressed:
+                                    loading || resolving || chapters.isEmpty
+                                    ? null
+                                    : play,
+                                icon: resolving
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const LumeIcon(
+                                        Icons.play_arrow,
+                                        slot: 'video_detail_page.4',
+                                      ),
+                                label: Text(
+                                  resolving
+                                      ? '正在解析'
+                                      : widget.library.videoProgress(
+                                              widget.item.id,
+                                            ) ==
+                                            null
+                                      ? '播放'
+                                      : '继续播放 · ${chapters.isEmpty ? '' : chapters[selected].title}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ),
+                          quickActions(),
+                          if (loading)
+                            const Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                          if (error != null) ...[
+                            const SizedBox(height: 12),
+                            Text(error!),
+                            TextButton(
+                              onPressed: load,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          linePicker(),
+                          const SizedBox(height: 10),
+                          episodeSection(immersive: true),
+                          castSection(),
+                          recommendationsSection(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       );
     },

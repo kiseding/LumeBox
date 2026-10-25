@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:lume_box/shared/widgets/source_translation.dart';
+import 'package:lume_box/core/tmdb/tmdb.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
@@ -178,13 +180,71 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('播放线路'), findsOneWidget);
+    expect(
+      tester
+          .widget<SourceText>(
+            find.descendant(
+              of: find.byKey(const Key('video-detail-summary')),
+              matching: find.byType(SourceText),
+            ),
+          )
+          .maxLines,
+      2,
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('video-detail-summary'))).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('video-detail-play'))).dy,
+      ),
+    );
     expect(find.text('线路A · 2 集'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('video-detail-play'))).width,
+      closeTo((440 - 32) * .72, 2),
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('video-detail-quick-actions'))).dy,
+      greaterThanOrEqualTo(
+        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
+      ),
+    );
+    expect(find.byKey(const Key('video-detail-recommendations')), findsNothing);
     expect(source.parses, 0);
     await tester.ensureVisible(find.text('线路A · 2 集'));
     await tester.tap(find.text('线路A · 2 集'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('线路B · 2 集').last);
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('video-detail-style')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('紧凑版（当前版）'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('紧凑版（当前版）'),
+        matching: find.byType(CheckedPopupMenuItem<bool>),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('线路B · 2 集'), findsOneWidget, reason: '两版共享线路选择');
+    expect(
+      find.byKey(const Key('video-detail-tmdb-status')),
+      findsNothing,
+      reason: '未匹配时不显示资料图标',
+    );
+    expect(find.byKey(const Key('video-detail-metadata-row')), findsOneWidget);
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.tmdb.metadata = const TmdbMetadata(
+      overview: '',
+      posters: [],
+      cast: ['示例演员'],
+      recommendations: [TmdbRecommendation(title: '推荐示例', poster: '')],
+    );
+    state.tmdb.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('video-detail-tmdb-status')), findsOneWidget);
+    expect(find.text('示例演员'), findsOneWidget);
+    expect(find.text('相似影片'), findsOneWidget);
+    expect(find.text('推荐示例'), findsOneWidget);
     expect(source.parses, 0);
     final second = find.byKey(const ValueKey('video-detail-episode-1'));
     await tester.ensureVisible(second);
@@ -216,6 +276,16 @@ void main() {
           library: library,
           onPlay: (_, _, _, _) async {},
         ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('video-detail-style')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('紧凑版（当前版）'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('紧凑版（当前版）'),
+        matching: find.byType(CheckedPopupMenuItem<bool>),
       ),
     );
     await tester.pumpAndSettle();
@@ -344,7 +414,7 @@ void main() {
     expect(find.byKey(const Key('video-detail-gradient')), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xfff7f7fa),
+      const Color(0xff55516e),
     );
     expect(find.byTooltip('更多'), findsOneWidget);
     expect(source.parses, 0);

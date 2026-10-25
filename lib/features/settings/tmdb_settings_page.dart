@@ -54,8 +54,10 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
         frame.image.dispose();
         codec.dispose();
       }
-    } catch (_) {
-      message = '测试失败：请检查启用状态、Key、代理地址和网络连接。';
+    } catch (error) {
+      message = error is StateError
+          ? '测试失败：${error.message}'
+          : '测试失败：请检查启用状态、Key、代理地址和网络连接。';
     } finally {
       client.dispose();
       if (mounted) setState(() => testing = false);
@@ -164,6 +166,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
             onChanged: (_) => save(),
             decoration: InputDecoration(
               labelText: 'API Key',
+              helperText: '支持 v3 API Key 或 v4 Read Access Token',
               suffixIcon: IconButton(
                 tooltip: '清除 API Key',
                 icon: const LumeIcon(

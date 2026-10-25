@@ -95,7 +95,7 @@ class TmdbSettings extends ChangeNotifier {
   bool _cacheLoaded = false;
   Future<void> _cacheWrites = Future.value();
   String cacheKey(String title) => jsonEncode([
-    'cast-profile-order-v2',
+    'recommendations-v3',
     apiProxy.trim(),
     imageProxy.trim(),
     TmdbClient.normalized(title),
@@ -159,6 +159,13 @@ class TmdbSettings extends ChangeNotifier {
   }
 
   bool get configured => enabled && apiKey.trim().isNotEmpty;
+  String get credential => apiKey.trim().replaceFirst(
+    RegExp(r'^Bearer\s+', caseSensitive: false),
+    '',
+  );
+  bool get usesBearer =>
+      apiKey.trim().toLowerCase().startsWith('bearer ') ||
+      (credential.startsWith('eyJ') && credential.split('.').length == 3);
   static Uri address(String raw, String fallback) {
     var value = raw.trim();
     if (value.isEmpty) value = fallback;
@@ -185,7 +192,7 @@ class TmdbSettings extends ChangeNotifier {
       queryParameters: {
         ...root.queryParameters,
         ...query,
-        'api_key': apiKey.trim(),
+        if (!usesBearer) 'api_key': credential,
       },
     );
   }
@@ -202,6 +209,17 @@ class TmdbSettings extends ChangeNotifier {
   }
 }
 
+class TmdbRecommendation {
+  const TmdbRecommendation({required this.title, required this.poster});
+  final String title, poster;
+  Map<String, dynamic> toJson() => {'title': title, 'poster': poster};
+  factory TmdbRecommendation.fromJson(Map<String, dynamic> data) =>
+      TmdbRecommendation(
+        title: data['title'] as String? ?? '',
+        poster: data['poster'] as String? ?? '',
+      );
+}
+
 class TmdbMetadata {
   const TmdbMetadata({
     required this.overview,
@@ -211,11 +229,13 @@ class TmdbMetadata {
     this.profiles = const [],
     this.videoCovers = const [],
     this.cast = const [],
+    this.recommendations = const [],
     this.rating = 0,
     this.voteCount = 0,
   });
   final String overview;
   final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
+  final List<TmdbRecommendation> recommendations;
   final double rating;
   final int voteCount;
   Map<String, dynamic> toJson() => {
@@ -226,10 +246,18 @@ class TmdbMetadata {
     'profiles': profiles,
     'videoCovers': videoCovers,
     'cast': cast,
+    'recommendations': recommendations.map((item) => item.toJson()).toList(),
     'rating': rating,
     'voteCount': voteCount,
   };
   factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
+    recommendations: (data['recommendations'] as List? ?? [])
+        .whereType<Map>()
+        .map(
+          (row) => TmdbRecommendation.fromJson(Map<String, dynamic>.from(row)),
+        )
+        .where((item) => item.title.trim().isNotEmpty)
+        .toList(),
     overview: data['overview'] as String? ?? '',
     posters: (data['posters'] as List? ?? []).whereType<String>().toList(),
     backdrops: (data['backdrops'] as List? ?? []).whereType<String>().toList(),
@@ -272,6 +300,9 @@ class TmdbClient {
     try {
       final request = http.Request(head ? 'HEAD' : 'GET', uri)
         ..followRedirects = !head;
+      if (!head && settings.usesBearer) {
+        request.headers['Authorization'] = 'Bearer ${settings.credential}';
+      }
       final stream = await client
           .send(request)
           .timeout(const Duration(seconds: 12));
@@ -435,7 +466,8 @@ class TmdbClient {
             base,
             query: {
               'language': 'zh-CN',
-              'append_to_response': 'credits,alternative_titles,translations',
+              'append_to_response':
+                  'credits,alternative_titles,translations,recommendations',
             },
           );
           final alternatives = details['alternative_titles'] as Map? ?? {};
@@ -476,7 +508,8 @@ class TmdbClient {
             base,
             query: {
               'language': 'zh-CN',
-              'append_to_response': 'credits,alternative_titles,translations',
+              'append_to_response':
+                  'credits,alternative_titles,translations,recommendations',
             },
           );
       Map<String, dynamic> images = {};
@@ -501,7 +534,29 @@ class TmdbClient {
       }
 
       if (!settings.configured || settings.revision != revision) return null;
+      final seenRecommendations = <String>{};
       final result = TmdbMetadata(
+        recommendations:
+            ((details['recommendations'] as Map?)?['results'] as List? ?? [])
+                .whereType<Map>()
+                .where((row) => row['adult'] != true && row['id'] != id)
+                .map(
+                  (row) => TmdbRecommendation(
+                    title: '${row['title'] ?? row['name'] ?? ''}'.trim(),
+                    poster:
+                        row['poster_path'] is String &&
+                            (row['poster_path'] as String).startsWith('/')
+                        ? settings.imageUrl(row['poster_path'] as String)
+                        : '',
+                  ),
+                )
+                .where(
+                  (item) =>
+                      item.title.isNotEmpty &&
+                      seenRecommendations.add(normalized(item.title)),
+                )
+                .take(12)
+                .toList(),
         overview: (details['overview'] as String?)?.trim().isNotEmpty == true
             ? details['overview'] as String
             : match['overview'] as String? ?? '',

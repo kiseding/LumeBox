@@ -11,6 +11,88 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('TMDB v4 Token 放在 Bearer 请求头，v3 Key 仍使用 api_key', () async {
+    for (final credential in [
+      'eyJfixture.payload.signature',
+      'Bearer eyJfixture.payload.signature',
+      'fixture-v3-key',
+    ]) {
+      final settings = TmdbSettings()
+        ..enabled = true
+        ..apiKey = credential;
+      final client = TmdbClient(
+        settings,
+        client: MockClient((request) async {
+          if (settings.usesBearer) {
+            expect(
+              request.headers['Authorization'],
+              'Bearer eyJfixture.payload.signature',
+            );
+            expect(request.url.queryParameters.containsKey('api_key'), false);
+          } else {
+            expect(request.headers.containsKey('Authorization'), false);
+            expect(request.url.queryParameters['api_key'], 'fixture-v3-key');
+          }
+          return http.Response('{"images":{}}', 200);
+        }),
+      );
+      await client.testApi();
+      client.dispose();
+    }
+  });
+  test('推荐使用匹配影片类型，过滤自身和重复条目并保留缓存', () async {
+    final settings = TmdbSettings()
+      ..enabled = true
+      ..apiKey = 'fixture-key';
+    final client = TmdbClient(
+      settings,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/search/multi')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {'id': 7, 'media_type': 'tv', 'name': '测试剧'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path.endsWith('/tv/7')) {
+          expect(
+            request.url.queryParameters['append_to_response'],
+            contains('recommendations'),
+          );
+          return http.Response(
+            jsonEncode({
+              'recommendations': {
+                'results': [
+                  {'id': 7, 'name': '测试剧'},
+                  {'id': 8, 'name': '相似剧', 'poster_path': '/similar.jpg'},
+                  {'id': 8, 'name': '相似剧'},
+                  {'id': 9, 'name': ''},
+                  {'id': 10, 'name': '成人条目', 'adult': true},
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    final result = (await client.lookup('测试剧'))!;
+    expect(result.recommendations.length, 1);
+    expect(result.recommendations.single.title, '相似剧');
+    expect(result.recommendations.single.poster, contains('/w500/similar.jpg'));
+    expect(
+      TmdbMetadata.fromJson(result.toJson()).recommendations.single.title,
+      '相似剧',
+    );
+    expect((await client.lookup('测试剧'))!.recommendations.single.title, '相似剧');
+    client.dispose();
+  });
   test('缺省关闭且不内置 Key，关闭和空 Key 时不产生请求', () async {
     final settings = TmdbSettings();
     var calls = 0;
