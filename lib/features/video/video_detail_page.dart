@@ -621,22 +621,30 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           ),
         ),
       ),
-      const SizedBox(width: 4),
-      SourceTranslationAction(texts: [title, text]),
     ],
   );
 
   Widget linePicker() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Text(
-        '播放线路',
-        style: TextStyle(
-          fontSize: 14,
-          color: originalStyle
-              ? Colors.white70
-              : Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+      Row(
+        key: const Key('video-detail-line-heading'),
+        children: [
+          Expanded(
+            child: Text(
+              '播放线路',
+              style: TextStyle(
+                fontSize: 14,
+                color: originalStyle
+                    ? Colors.white70
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          SourceTranslationAction(
+            texts: [detail?.title ?? widget.item.title, synopsis],
+          ),
+        ],
       ),
       const SizedBox(height: 8),
       Row(
