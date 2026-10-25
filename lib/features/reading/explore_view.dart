@@ -1212,7 +1212,7 @@ class _ExploreViewState extends State<ExploreView>
                       _measureFloatingHeader();
                       return ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxHeight: MediaQuery.sizeOf(context).height * .75,
+                          maxHeight: MediaQuery.sizeOf(context).height * .5,
                         ),
                         child: GlassPanel(
                           module: null,
