@@ -27,6 +27,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
 
   Future<void> run() async {
     if (busy) return;
+    var failures = 0;
     setState(() {
       busy = true;
       results.clear();
@@ -43,6 +44,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         );
         results.add('${section.label}：${result.summary}');
         results.addAll(result.errors);
+        failures += result.errors.length;
         if (mounted) setState(() {});
       }
       if (widget.section == null) {
@@ -57,6 +59,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
               setState(() => results.add('猫源 ${subscription.name}：已同步'));
             }
           } catch (error) {
+            failures++;
             if (mounted) {
               setState(
                 () => results.add('猫源 ${subscription.name}：同步失败，保留原包。$error'),
@@ -66,12 +69,13 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         }
       }
     } catch (error) {
+      failures++;
       if (mounted) setState(() => results.add('同步未完成：$error'));
     } finally {
       if (mounted) {
         setState(() {
           busy = false;
-          current = '同步完成';
+          current = failures == 0 ? '订阅检查完成' : '部分订阅未同步成功，请查看下方原因';
         });
       }
     }

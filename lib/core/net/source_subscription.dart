@@ -42,6 +42,7 @@ class SourceSubscription {
     this.maxScripts = defaultMaxScripts,
     this.onSkip,
     this.strictManifest = false,
+    this.section,
   });
 
   /// 拉取动作（URL → 字节 + 文本）。默认走宿主网络层。
@@ -50,6 +51,9 @@ class SourceSubscription {
   /// 单次订阅最多收多少份脚本（防止清单无限展开）。
   final int maxScripts;
   final bool strictManifest;
+
+  /// A total subscription is expanded only for its importing section.
+  final String? section;
   bool complete = true;
 
   /// 清单里的**某一条**拉不到时的回调（地址 + 原因）。
@@ -144,6 +148,29 @@ class SourceSubscription {
       return const <SourceScriptRef>[];
     }
     final download = await fetch(url);
+    final total = _totalUrls(download.text);
+    if (total != null) {
+      final refs = <SourceScriptRef>[];
+      for (final nested in total) {
+        if (refs.length >= budget) {
+          complete = false;
+          break;
+        }
+        try {
+          refs.addAll(
+            await scriptRefsAt(
+              nested,
+              visited,
+              remaining: budget - refs.length,
+            ),
+          );
+        } catch (error) {
+          complete = false;
+          onSkip?.call(nested, error);
+        }
+      }
+      return refs;
+    }
     final kazumiIndex = KazumiRule.indexUrls(download.text, url);
     if (kazumiIndex != null) {
       final refs = <SourceScriptRef>[];
@@ -260,6 +287,54 @@ class SourceSubscription {
   Future<List<SourceScriptRef>> resolveCollectionText(String text) {
     complete = true;
     return _collection(RexCollection.parse(text), <String>{}, maxScripts);
+  }
+
+  List<String>? _totalUrls(String text) {
+    final clean = stripBomText(text).trim();
+    if (!clean.startsWith('{')) return null;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(clean);
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! Map || decoded['format'] != 'lume.total-subscription') {
+      return null;
+    }
+    final sections = decoded['sections'];
+    if (decoded['version'] != 1 || sections is! Map || sections.isEmpty) {
+      throw const FormatException('总订阅格式错误，保留现有源');
+    }
+    final urls = <String>{};
+    for (final entry in sections.entries) {
+      if (entry.key == 'novel') continue;
+      if (!['comic', 'video'].contains(entry.key)) {
+        throw const FormatException('总订阅包含未知板块，保留现有源');
+      }
+      if (section != null && entry.key != section) continue;
+      if (entry.value is! List || (entry.value as List).length > 100) {
+        throw const FormatException('总订阅板块地址格式错误，保留现有源');
+      }
+      for (final raw in entry.value as List) {
+        if (raw is Map && raw['enabled'] != null && raw['enabled'] is! bool) {
+          throw const FormatException('总订阅启用状态格式错误，保留现有源');
+        }
+        if (raw is Map && raw['enabled'] == false) continue;
+        final url = raw is String
+            ? raw
+            : raw is Map
+            ? raw['url']
+            : null;
+        if (url is! String ||
+            !isHttpUrl(url) ||
+            Uri.tryParse(url)?.host.isEmpty != false ||
+            Uri.parse(url).userInfo.isNotEmpty) {
+          throw const FormatException('总订阅包含无效地址，保留现有源');
+        }
+        urls.add(url);
+      }
+    }
+    return urls.toList();
   }
 
   Future<List<SourceScriptRef>> _collection(

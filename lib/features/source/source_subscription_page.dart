@@ -30,6 +30,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   bool _busy = false;
   String? _error;
   String? _syncStatus;
+  List<String> _syncErrors = [];
   @override
   void initState() {
     super.initState();
@@ -76,7 +77,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   }
 
   Future<void> _sync() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+      _syncErrors = [];
+    });
     try {
       final result = await SourceSubscriptionSync.refresh(
         widget.section,
@@ -85,7 +90,10 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
         fetch: widget.fetchSubscription,
       );
       if (!mounted) return;
-      setState(() => _syncStatus = result.summary);
+      setState(() {
+        _syncStatus = result.summary;
+        _syncErrors = List.of(result.errors);
+      });
       await _load();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -157,6 +165,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(_syncStatus!),
+            ),
+          for (final failure in _syncErrors)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: SelectableText(failure),
             ),
           FilledButton.icon(
             onPressed: _busy ? null : _sync,

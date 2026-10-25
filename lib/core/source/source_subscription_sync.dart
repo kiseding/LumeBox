@@ -42,10 +42,17 @@ class SavedSourceSubscription {
 
 class SubscriptionSyncResult {
   int added = 0, updated = 0, removed = 0;
+  int checked = 0, unchanged = 0, skipped = 0;
+  String message = '';
   final List<String> errors = [];
   bool get changed => added + updated + removed > 0;
-  String get summary =>
-      '新增 $added · 更新 $updated · 移除 $removed${errors.isEmpty ? '' : ' · 失败 ${errors.length}'}';
+  String get summary => message.isNotEmpty
+      ? message
+      : '${checked > 0 ? '已检查 $checked 个订阅 · ' : ''}'
+            '新增 $added · 更新 $updated · 移除 $removed'
+            '${unchanged > 0 ? ' · 无变化 $unchanged' : ''}'
+            '${skipped > 0 ? ' · 未到检查时间 $skipped' : ''}'
+            '${errors.isEmpty ? '' : ' · 失败 ${errors.length}'}';
 }
 
 /// 地址与清单成员按板块落盘。网络/校验/导入不完整时禁止执行移除。
@@ -65,6 +72,8 @@ class SourceSubscriptionSync {
   final List<SavedSourceSubscription> subscriptions = [];
   bool _migrated = false;
   static final Map<Section, Future<SubscriptionSyncResult>> _running = {};
+  static final Set<Section> _forcedRunning = {};
+  static final Map<Section, Future<SubscriptionSyncResult>> _pendingForced = {};
   static final Map<Section, ValueNotifier<int>> _revisions = {};
   static final Map<Section, ValueNotifier<int>> _changeCounts = {};
   static final Map<Section, File> _noticeFiles = {};
@@ -276,8 +285,13 @@ class SourceSubscriptionSync {
 
   Future<SubscriptionSyncResult> sync({bool force = false}) async {
     final result = SubscriptionSyncResult();
-    if (!manager.runtimeAvailable) return result;
+    if (!manager.runtimeAvailable) {
+      return result..errors.add('当前平台无法运行 JS 源，订阅未同步');
+    }
     await _migrate();
+    if (!subscriptions.any((s) => s.enabled)) {
+      return result..message = '没有已启用的订阅，请先添加订阅地址';
+    }
     final http = LumeHttp(source: '${section.label}订阅自动同步');
     try {
       for (final record in subscriptions.where((s) => s.enabled)) {
@@ -287,17 +301,24 @@ class SourceSubscriptionSync {
         if (!force &&
             record.checkedAt != null &&
             _clock().difference(record.checkedAt!) < interval) {
+          result.skipped++;
           continue;
         }
+        result.checked++;
         record.checkedAt = _clock();
         try {
           final resolver = SourceSubscription(
+            section: section.id,
             maxScripts: SourceSubscription.defaultMaxScripts,
             strictManifest: true,
+            onSkip: (url, error) => result.errors.add('$url: $error'),
             fetch:
                 fetch ??
                 (url) async {
-                  final response = await http.send(url: url);
+                  final response = await http.send(
+                    url: url,
+                    headers: force ? const {'Cache-Control': 'no-cache'} : null,
+                  );
                   if (response.statusCode < 200 || response.statusCode >= 300) {
                     throw StateError('HTTP ${response.statusCode}');
                   }
@@ -331,6 +352,7 @@ class SourceSubscriptionSync {
             if (old != null &&
                 await manager.exportScript(old.id) == ref.script) {
               next[old.id] = ref.url;
+              result.unchanged++;
               continue;
             }
             final imported = manager is SubscriptionImportManager
@@ -401,18 +423,37 @@ class SourceSubscriptionSync {
     if (!Platform.isIOS &&
         !Platform.isAndroid &&
         (manager == null || fetch == null)) {
-      return Future.value(SubscriptionSyncResult());
+      return Future.value(
+        SubscriptionSyncResult()
+          ..message = force ? '当前桌面平台无法运行 JS 源，订阅未同步' : '',
+      );
     }
     SectionScope.registerShutdownHook('subscription-sync', () async {
-      await Future.wait(_running.values.toList());
+      await Future.wait({..._running.values, ..._pendingForced.values});
       for (final section in Section.values) {
         LumeSources.manager(section).close();
       }
     });
-    return _running.putIfAbsent(
-      section,
-      () => _refresh(section, force, manager, fetch),
-    );
+    final active = _running[section];
+    if (active != null) {
+      if (!force || _forcedRunning.contains(section)) return active;
+      // A manual refresh must not inherit a background task's cooldown skip.
+      return _pendingForced.putIfAbsent(section, () async {
+        try {
+          await active;
+          return await refresh(
+            section,
+            force: true,
+            manager: manager,
+            fetch: fetch,
+          );
+        } finally {
+          _pendingForced.remove(section);
+        }
+      });
+    }
+    if (force) _forcedRunning.add(section);
+    return _running[section] = _refresh(section, force, manager, fetch);
   }
 
   static Future<SubscriptionSyncResult> _refresh(
@@ -439,6 +480,7 @@ class SourceSubscriptionSync {
       return result;
     } finally {
       _running.remove(section);
+      _forcedRunning.remove(section);
     }
   }
 
@@ -447,7 +489,7 @@ class SourceSubscriptionSync {
     Iterable<String> urls, {
     SourceManager? manager,
   }) async {
-    await _running[section];
+    await waitForIdle(section);
     await (await open(section, manager: manager)).register(urls);
   }
 
@@ -492,6 +534,8 @@ class SourceSubscriptionSync {
   }
 
   static Future<void> waitForIdle(Section section) async {
-    await _running[section];
+    while (_running[section] != null || _pendingForced[section] != null) {
+      await (_pendingForced[section] ?? _running[section]);
+    }
   }
 }

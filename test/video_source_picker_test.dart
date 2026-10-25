@@ -13,6 +13,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/kazumi_rule.dart';
+import 'package:lume_box/core/source/source_subscription_catalog.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
@@ -586,6 +587,22 @@ void main() {
         findsNothing,
       );
     }
+  });
+
+  testWidgets('有声小说独立导入入口预填听书订阅，取消不写入源', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byTooltip('添加视频源'));
+    await tester.pumpAndSettle();
+    final entry = find.text('有声小说源');
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.text('导入有声小说源'), findsOneWidget);
+    expect(find.text(SubscriptionCatalog.audiobooksUrl), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(manager.sources.length, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Kazumi 独立入口预填官方订阅，取消不写入任何源', (tester) async {

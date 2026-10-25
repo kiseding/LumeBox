@@ -18,6 +18,7 @@ import '../../core/source/kazumi_rule.dart';
 import '../../core/source/source_content_visibility.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
+import '../../core/source/source_subscription_catalog.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/web/web_home_sources.dart';
 import '../../core/web/html_home_import.dart';
@@ -318,6 +319,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   '导入 Spider 脚本、ZIP 源包或订阅链接',
                 ),
                 (
+                  VideoSourceType.audio,
+                  Icons.headphones,
+                  '有声小说源',
+                  '导入听书源，已填入有声小说订阅地址',
+                ),
+                (
                   VideoSourceType.module,
                   Icons.extension_outlined,
                   '模块源',
@@ -356,7 +363,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         helpText: '支持规则 JSON 和索引订阅。导入后可搜索作品、选择剧集播放，部分规则没有首页推荐。',
       );
       if (!mounted) return;
-      setState(() => type = VideoSourceType.ordinary);
+      setState(() => type = VideoSourceType.kazumi);
       await load();
       return;
     }
@@ -365,11 +372,19 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       VideoSourceType.ordinary,
       VideoSourceType.python,
       VideoSourceType.module,
+      VideoSourceType.audio,
     ].contains(target)) {
       await runSourceImport(
         context,
         section: Section.video,
         manager: widget.manager,
+        initialSubscription: target == VideoSourceType.audio
+            ? SubscriptionCatalog.audiobooksUrl
+            : null,
+        title: target == VideoSourceType.audio ? '导入有声小说源' : null,
+        helpText: target == VideoSourceType.audio
+            ? '支持听书 JS、音频源包和订阅链接，导入后显示在有声小说标签。'
+            : null,
       );
       if (mounted) setState(() => type = target);
     } else if (target == VideoSourceType.cat) {

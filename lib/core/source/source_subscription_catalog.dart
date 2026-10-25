@@ -4,6 +4,7 @@ class SubscriptionCatalog {
   static const base =
       'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/';
   static const totalUrl = '${base}all';
+  static const audiobooksUrl = '${base}audiobooks';
   static const sections = [Section.comic, Section.video];
   static const names = {Section.comic: 'comics', Section.video: 'videos'};
   static String canonical(String url, Section section) {

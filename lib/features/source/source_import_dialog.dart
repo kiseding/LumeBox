@@ -75,8 +75,7 @@ Future<bool> runSourceImport(
     skipped: request.skipped,
     notes: request.notes,
   );
-  if (imported &&
-      request.subscriptionUrls.isNotEmpty &&
+  if (request.subscriptionUrls.isNotEmpty &&
       manager is SubscriptionImportManager) {
     await SourceSubscriptionSync.remember(
       request.section,
@@ -714,6 +713,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           break;
         }
         final refs = await SourceSubscription(
+          section: _section.id,
           maxScripts: (widget.maxScripts - items.length).clamp(
             0,
             widget.maxScripts,
@@ -817,6 +817,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     var fetches = 0;
     final fetch = widget.fetchSubscription ?? _fetchSubscriptionText;
     return SourceSubscription(
+      section: _section.id,
       maxScripts: maxScripts ?? widget.maxScripts,
       onSkip: onSkip,
       fetch: (url) async {
