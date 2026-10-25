@@ -418,7 +418,8 @@ class LumeSources {
   /// 管理界面默认用它；注入替身的场景（测试）不经过本方法。
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
-  static String _siteUrl(String script) {
+  /// Resolve the actual website, including generated Kazumi metadata mirrors.
+  static String siteUrlFromScript(String script) {
     // 站点根有两种写法：单值（`BASE_URL = 'https://a.com'` / `H.base="https://a.com"`）
     // 与主机列表（`var HOSTS = ['https://a.com', 'https://a.net']`，多域名备用）。
     // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
@@ -426,7 +427,10 @@ class LumeSources {
     final single = RegExp(
       r'''(?:BASE_URL|BASE|H\.base)\s*=\s*['"](https?://[^'"]+)''',
     ).firstMatch(script);
-    final host = single?.group(1) ?? _firstHost(script);
+    final host =
+        single?.group(1) ??
+        _firstHost(script) ??
+        SourceMetadata.parseHeader(script)?.mirrors.firstOrNull;
     final uri = Uri.tryParse(host ?? '');
     return uri != null && uri.host.isNotEmpty && uri.userInfo.isEmpty
         ? uri.origin
@@ -451,7 +455,7 @@ class LumeSources {
     network: record.network,
     siteConfig: record.siteConfig,
     originUrl: record.originUrl,
-    siteUrl: _siteUrl(record.script),
+    siteUrl: siteUrlFromScript(record.script),
     iconUrl: _iconUrl(record.script),
     section: Section.values.where((s) => s.id == record.section).firstOrNull,
     group: record.group,

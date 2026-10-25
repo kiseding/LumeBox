@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -28,7 +33,8 @@ import '../util/lume_log.dart';
 class SourceFavicon {
   SourceFavicon({
     LumeHttp? http,
-    this.maxEntries = 96,
+    this.maxEntries = 512,
+    this.cacheDirectory,
     this.fetchHtmlHomepage = true,
     this.failureRetryAfter = const Duration(minutes: 2),
     DateTime Function()? now,
@@ -36,7 +42,12 @@ class SourceFavicon {
        _now = now ?? DateTime.now;
 
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
-  static final SourceFavicon instance = SourceFavicon();
+  static final SourceFavicon instance = SourceFavicon(
+    cacheDirectory: () async => Directory(
+      '${(await getApplicationSupportDirectory()).path}/source-icons-v2',
+    ),
+  );
+  final Future<Directory> Function()? cacheDirectory;
 
   /// 单张图标的读取上限（图标不该超过这个量级）。
   static const int maxBytes = 256 * 1024;
@@ -47,7 +58,7 @@ class SourceFavicon {
 
   final LumeHttp _http;
 
-  /// 缓存条目上限（按源去重，96 个源足够覆盖当前全部源）。
+  /// 内存缓存上限；成功图标另存磁盘，避免重启后逐站重新抓取。
   final int maxEntries;
 
   /// 候选全挂时要不要再抓一次首页解析图标地址。
@@ -84,7 +95,8 @@ class SourceFavicon {
     final running = _inflight[key];
     if (running != null) return running;
     final task =
-        _resolve(
+        _loadCachedOrResolve(
+              key,
               origin: origin,
               explicit: explicit,
               section: section,
@@ -101,6 +113,53 @@ class SourceFavicon {
             });
     _inflight[key] = task;
     return task;
+  }
+
+  Uint8List? cached({
+    required String origin,
+    List<String> explicit = const [],
+  }) => _cache[_key(origin, explicit)];
+
+  Future<Uint8List?> _loadCachedOrResolve(
+    String key, {
+    required String origin,
+    required List<String> explicit,
+    Section? section,
+    String? sourceId,
+  }) async {
+    File? file;
+    try {
+      final directory = await cacheDirectory?.call();
+      if (directory != null) {
+        file = File(
+          '${directory.path}/${sha256.convert(utf8.encode(key))}.png',
+        );
+        if (await file.exists() &&
+            _now().difference(await file.lastModified()) <
+                const Duration(days: 14) &&
+            await file.length() <= maxBytes) {
+          final bytes = _asImage(await file.readAsBytes(), null);
+          if (bytes != null) return bytes;
+        }
+      }
+    } catch (_) {
+      /* Cache failure must not prevent network resolution. */
+    }
+    final bytes = await _resolve(
+      origin: origin,
+      explicit: explicit,
+      section: section,
+      sourceId: sourceId,
+    );
+    if (bytes != null && file != null) {
+      try {
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(bytes, flush: true);
+      } catch (_) {
+        /* Optional cache. */
+      }
+    }
+    return bytes;
   }
 
   /// 测试用：清掉缓存与在飞表。
@@ -360,10 +419,23 @@ class SourceFavicon {
     // Flutter's codecs do not decode Windows ICO containers.
     if (_startsWith(bytes, const [0, 0, 1, 0])) {
       try {
-        final decoded = img.decodeIco(bytes);
+        // ICO entries are alternative sizes, not animation frames. Encoding
+        // decodeIco's full frame list as PNG produces APNG and a pulsing icon.
+        final decoded = img.IcoDecoder().decodeImageLargest(bytes);
         return decoded == null
             ? null
-            : Uint8List.fromList(img.encodePng(decoded));
+            : Uint8List.fromList(img.encodePng(decoded, singleFrame: true));
+      } catch (_) {
+        return null;
+      }
+    }
+    // Site logos should stay still even when the original is GIF/APNG/WebP.
+    final decoder = img.findDecoderForData(bytes);
+    final info = decoder?.startDecode(bytes);
+    if (info != null && info.numFrames > 1) {
+      try {
+        final frame = decoder!.decodeFrame(0);
+        return frame == null ? null : img.encodePng(frame, singleFrame: true);
       } catch (_) {
         return null;
       }
