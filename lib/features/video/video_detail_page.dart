@@ -1,3 +1,4 @@
+import 'detail_artwork_motion.dart';
 import 'video_episode_catalog.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/lume_icon.dart';
@@ -1583,6 +1584,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             return SingleChildScrollView(
               controller: _scroll,
               key: const Key('video-detail-scroll'),
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
               child: Stack(
                 key: const Key('video-detail-immersive'),
                 children: [
@@ -1593,25 +1597,29 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       right: 0,
                       key: const Key('video-detail-compact-banner'),
                       height: heroHeight,
-                      child: IgnorePointer(
-                        child: tmdb.metadata?.backdrops.isNotEmpty == true
-                            ? PosterCover(
-                                pipeline: pipeline,
-                                url: tmdb.metadata!.backdrops.first,
-                                title: title,
-                              )
-                            : TmdbPosterGallery(
-                                controller: tmdb,
-                                fit: BoxFit.cover,
-                                fallback: PosterCover(
+                      child: DetailArtworkMotion(
+                        scroll: _scroll,
+                        height: heroHeight,
+                        child: IgnorePointer(
+                          child: tmdb.metadata?.backdrops.isNotEmpty == true
+                              ? PosterCover(
                                   pipeline: pipeline,
-                                  url: sourceCover,
-                                  title: widget.item.title,
-                                  headers:
-                                      detail?.coverHeaders ??
-                                      widget.item.coverHeaders,
+                                  url: tmdb.metadata!.backdrops.first,
+                                  title: title,
+                                )
+                              : TmdbPosterGallery(
+                                  controller: tmdb,
+                                  fit: BoxFit.cover,
+                                  fallback: PosterCover(
+                                    pipeline: pipeline,
+                                    url: sourceCover,
+                                    title: widget.item.title,
+                                    headers:
+                                        detail?.coverHeaders ??
+                                        widget.item.coverHeaders,
+                                  ),
                                 ),
-                              ),
+                        ),
                       ),
                     ),
                   if (hasArtwork)
@@ -1620,21 +1628,25 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       left: 0,
                       right: 0,
                       height: heroHeight + 2,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          key: const Key('video-detail-gradient'),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              stops: const [0, .4, .72, .9, 1],
-                              colors: [
-                                Colors.black.withValues(alpha: .38),
-                                Colors.transparent,
-                                _pageColor.withValues(alpha: .4),
-                                _pageColor.withValues(alpha: .94),
-                                _pageColor,
-                              ],
+                      child: DetailArtworkMotion(
+                        scroll: _scroll,
+                        height: heroHeight,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            key: const Key('video-detail-gradient'),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                stops: const [0, .4, .72, .9, 1],
+                                colors: [
+                                  Colors.black.withValues(alpha: .38),
+                                  Colors.transparent,
+                                  _pageColor.withValues(alpha: .4),
+                                  _pageColor.withValues(alpha: .94),
+                                  _pageColor,
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -1754,6 +1766,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               return SingleChildScrollView(
                 controller: _scroll,
                 key: const Key('video-detail-scroll'),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
                 child: Stack(
                   key: const Key('video-detail-immersive'),
                   children: [
@@ -1762,17 +1777,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       left: 0,
                       right: 0,
                       height: artworkHeight,
-                      child: IgnorePointer(
-                        child: TmdbPosterGallery(
-                          controller: tmdb,
-                          fit: BoxFit.cover,
-                          fallback: PosterCover(
-                            pipeline: pipeline,
-                            url: sourceCover,
-                            title: widget.item.title,
-                            headers:
-                                detail?.coverHeaders ??
-                                widget.item.coverHeaders,
+                      child: DetailArtworkMotion(
+                        scroll: _scroll,
+                        height: artworkHeight,
+                        child: IgnorePointer(
+                          child: TmdbPosterGallery(
+                            controller: tmdb,
+                            fit: BoxFit.cover,
+                            fallback: PosterCover(
+                              pipeline: pipeline,
+                              url: sourceCover,
+                              title: widget.item.title,
+                              headers:
+                                  detail?.coverHeaders ??
+                                  widget.item.coverHeaders,
+                            ),
                           ),
                         ),
                       ),
@@ -1782,22 +1801,26 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       left: 0,
                       right: 0,
                       height: artworkHeight + 2,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          key: const Key('video-detail-gradient'),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              stops: [0, .32, .55, .76, .92, 1],
-                              colors: [
-                                Color(0x55151820),
-                                Color(0x00151820),
-                                Color(0x33151820),
-                                _pageColor.withValues(alpha: .65),
-                                _pageColor.withValues(alpha: .95),
-                                _pageColor,
-                              ],
+                      child: DetailArtworkMotion(
+                        scroll: _scroll,
+                        height: artworkHeight,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            key: const Key('video-detail-gradient'),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                stops: [0, .32, .55, .76, .92, 1],
+                                colors: [
+                                  Color(0x55151820),
+                                  Color(0x00151820),
+                                  Color(0x33151820),
+                                  _pageColor.withValues(alpha: .65),
+                                  _pageColor.withValues(alpha: .95),
+                                  _pageColor,
+                                ],
+                              ),
                             ),
                           ),
                         ),
