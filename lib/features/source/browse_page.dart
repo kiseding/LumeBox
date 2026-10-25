@@ -325,7 +325,10 @@ class _BrowseViewState extends State<BrowseView> {
         Align(
           alignment: Alignment.centerRight,
           child: SourceTranslationAction(
-            texts: _items.map((item) => item.title).toList(),
+            texts: [
+              ..._items.map((item) => item.title),
+              ..._categories.map((category) => category.title),
+            ],
           ),
         ),
         _buildCategories(),
@@ -372,7 +375,12 @@ class _BrowseViewState extends State<BrowseView> {
       SizedBox(
         width: 56,
         height: 76,
-        child: PosterCover(pipeline: pipeline, url: cover, width: 160),
+        child: PosterCover(
+          pipeline: pipeline,
+          url: cover,
+          width: 160,
+          headers: item.coverHeaders,
+        ),
       ),
       const SizedBox(width: 12),
     ];
@@ -528,7 +536,7 @@ class _CategoryChip extends StatelessWidget {
         radius: 14,
         onTap: onTap,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        child: Text(
+        child: SourceText(
           label,
           style: TextStyle(
             fontSize: LumeTypography.bodySize,

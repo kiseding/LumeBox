@@ -425,7 +425,7 @@ class LumeSources {
     // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
     // 认不出来这些源就只能永远显示首字母。
     final single = RegExp(
-      r'''(?:BASE_URL|BASE|H\.base)\s*=\s*['"](https?://[^'"]+)''',
+      r'''(?:BASE_URL|BASE|HOST|baseURL|baseUrl|H\.base)\s*=\s*['"](https?://[^'"]+)''',
     ).firstMatch(script);
     final host =
         single?.group(1) ??

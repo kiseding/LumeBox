@@ -1,3 +1,7 @@
+import 'dart:collection';
+
+import '../net/lume_net.dart';
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -38,7 +42,9 @@ class SourceFavicon {
     this.fetchHtmlHomepage = true,
     this.failureRetryAfter = const Duration(minutes: 2),
     DateTime Function()? now,
-  }) : _http = http ?? LumeHttp(source: '源图标'),
+    // Public parameter keeps the existing test/client injection API.
+    // ignore: prefer_initializing_formals
+  }) : _http = http,
        _now = now ?? DateTime.now;
 
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
@@ -56,7 +62,60 @@ class SourceFavicon {
   /// 真连不上的站点最多也就耗一个 5 秒 × 重试次数，不会长时间占着后台）。
   static const Duration timeout = Duration(seconds: 5);
 
-  final LumeHttp _http;
+  final LumeHttp? _http;
+  Future<LumeHttpResponse> _request({
+    required String url,
+    required Map<String, String> headers,
+    Duration? timeout,
+    int? maxBytes,
+  }) async {
+    final client = _http ?? LumeHttp(settings: LumeNet.settings, source: '源图标');
+    try {
+      return await client.send(
+        url: url,
+        headers: headers,
+        timeout: timeout,
+        maxBytes: maxBytes,
+      );
+    } finally {
+      if (_http == null) client.dispose();
+    }
+  }
+
+  int _activeResolutions = 0;
+  final _waitingResolutions = Queue<Completer<void>>();
+
+  Future<Uint8List?> _resolveBounded({
+    required String origin,
+    required List<String> explicit,
+    Section? section,
+    String? sourceId,
+  }) async {
+    if (_activeResolutions >= 2) {
+      final ready = Completer<void>();
+      _waitingResolutions.add(ready);
+      await ready.future;
+    } else {
+      _activeResolutions++;
+    }
+    try {
+      return await _resolve(
+        origin: origin,
+        explicit: explicit,
+        section: section,
+        sourceId: sourceId,
+      );
+    } finally {
+      if (_waitingResolutions.isNotEmpty) {
+        _waitingResolutions.removeFirst().complete();
+      } else {
+        _activeResolutions--;
+      }
+    }
+  }
+
+  static Uint8List? _decodeIcon(({Uint8List bytes, String? type}) input) =>
+      _asImage(input.bytes, input.type);
 
   /// 内存缓存上限；成功图标另存磁盘，避免重启后逐站重新抓取。
   final int maxEntries;
@@ -145,7 +204,7 @@ class SourceFavicon {
     } catch (_) {
       /* Cache failure must not prevent network resolution. */
     }
-    final bytes = await _resolve(
+    final bytes = await _resolveBounded(
       origin: origin,
       explicit: explicit,
       section: section,
@@ -331,7 +390,7 @@ class SourceFavicon {
     String referer = '',
   }) async {
     try {
-      final response = await _http.send(
+      final response = await _request(
         url: url,
         headers: _headers(
           url,
@@ -346,7 +405,10 @@ class SourceFavicon {
         return (bytes: null, reachable: true);
       }
       return (
-        bytes: _asImage(response.body, response.headers['content-type']),
+        bytes: await compute(_decodeIcon, (
+          bytes: response.body,
+          type: response.headers['content-type'],
+        )),
         reachable: true,
       );
     } on Object catch (error) {
@@ -364,7 +426,7 @@ class SourceFavicon {
     String? sourceId,
   }) async {
     try {
-      final response = await _http.send(
+      final response = await _request(
         url: url,
         headers: _headers(
           url,

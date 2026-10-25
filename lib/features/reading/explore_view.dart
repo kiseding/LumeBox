@@ -152,6 +152,7 @@ class _ExploreViewState extends State<ExploreView>
 
   String? _categoryId;
   String? _homeBrowseMode;
+  List<String> _homeTranslationTexts = const [];
   List<SourceCategory> _categories = const [];
   List<SourceFilterGroup> _filterGroups = const [];
   final SourceFilterCache _inlineFilterCache = SourceFilterCache();
@@ -378,6 +379,7 @@ class _ExploreViewState extends State<ExploreView>
         _current = current;
         if (!identical(_source, source)) {
           _categories = const [];
+          _homeTranslationTexts = const [];
           _filterGroups = const [];
           _categoryId = null;
           _homeBrowseMode = null;
@@ -606,7 +608,7 @@ class _ExploreViewState extends State<ExploreView>
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Text(
+              child: SourceText(
                 sourceLabel(group.title),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
@@ -714,7 +716,7 @@ class _ExploreViewState extends State<ExploreView>
         shape: const StadiumBorder(),
       ),
       onPressed: onTap,
-      child: Text(
+      child: SourceText(
         title,
         style: TextStyle(
           fontSize: LumeTypography.bodySize,
@@ -1280,7 +1282,15 @@ class _ExploreViewState extends State<ExploreView>
         actions: [
           ...HomeHeaderScope.actionsOf(context),
           SourceTranslationAction(
-            texts: _items.map((item) => item.title).toList(),
+            texts: [
+              ..._categories.map((category) => category.title),
+              for (final group in _filterGroups) ...[
+                group.title,
+                ...group.options.map((option) => option.title),
+              ],
+              ..._homeTranslationTexts,
+              ..._items.map((item) => item.title),
+            ],
           ),
         ],
         mode: _mode,
@@ -1532,6 +1542,9 @@ class _ExploreViewState extends State<ExploreView>
         topInset: _contentTop,
         bottomInset: ShellDockScope.bottomInset(context),
         onRefreshMetadata: _loadCategories,
+        onTranslationTexts: (texts) {
+          if (mounted) setState(() => _homeTranslationTexts = texts);
+        },
         onHomeLoaded: () {
           if (_categories.isEmpty || _filterGroups.isEmpty) {
             unawaited(_loadCategories());

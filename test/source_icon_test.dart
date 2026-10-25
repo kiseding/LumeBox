@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -32,7 +33,49 @@ void main() {
       'https://current.example',
     );
     expect(LumeSources.siteUrlFromScript('var LumeSource = {};'), '');
+    expect(
+      LumeSources.siteUrlFromScript("var HOST = 'https://fixture.test';"),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "const baseURL = 'https://fixture.test/path';",
+      ),
+      'https://fixture.test',
+    );
   });
+  test('图标后台解析最多同时两站，避免抽屉占满业务请求队列', () async {
+    final gate = Completer<void>();
+    final started = Completer<void>();
+    var calls = 0, active = 0, peak = 0;
+    final png = img.encodePng(img.Image(width: 2, height: 2));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        client: MockClient((request) async {
+          calls++;
+          active++;
+          if (active > peak) peak = active;
+          if (calls == 2) started.complete();
+          await gate.future;
+          active--;
+          return http.Response.bytes(
+            png,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      ),
+    );
+    final loads = [
+      for (var i = 0; i < 6; i++) resolver.load(origin: 'https://icon$i.test'),
+    ];
+    await started.future;
+    expect(calls, 2);
+    gate.complete();
+    expect(await Future.wait(loads), everyElement(isNotNull));
+    expect(peak, 2);
+  });
+
   test('多尺寸 ICO 只输出最大尺寸的静态 PNG，不把图标尺寸轮播为动画', () async {
     final image = img.Image(width: 16, height: 16)
       ..addFrame(img.Image(width: 48, height: 48));
@@ -345,6 +388,8 @@ void main() {
     expect(find.text('禁'), findsOneWidget, reason: '取不到时回退首字母');
     expect(find.byType(Image), findsNothing);
 
+    final loadedResolver = resolver(png);
+    await tester.runAsync(() => loadedResolver.load(origin: 'https://a.com'));
     await tester.pumpWidget(
       MaterialApp(
         home: Column(
@@ -352,7 +397,7 @@ void main() {
             SourceIcon(
               name: '禁漫天堂',
               siteUrl: 'https://a.com',
-              favicon: resolver(png),
+              favicon: loadedResolver,
             ),
           ],
         ),

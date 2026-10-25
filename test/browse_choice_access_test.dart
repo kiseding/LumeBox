@@ -49,7 +49,15 @@ void main() {
           await tester.ensureVisible(finder);
           final idle = tester.widget<ChoiceChip>(finder);
           expect(idle.labelStyle!.color, const Color(0xFF333333));
-          expect((idle.label as Text).style!.color, const Color(0xFF333333));
+          expect(
+            tester
+                .widget<Text>(
+                  find.descendant(of: finder, matching: find.text(label)),
+                )
+                .style!
+                .color,
+            const Color(0xFF333333),
+          );
           expect(idle.backgroundColor, const Color(0xFFF2F2F7));
           await tester.tap(finder);
           await tester.pumpAndSettle();
