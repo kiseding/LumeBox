@@ -663,16 +663,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 fontSize: 14,
               ),
               decoration: InputDecoration(
+                isDense: !originalStyle,
                 filled: true,
                 fillColor: originalStyle
                     ? Colors.white.withValues(alpha: .09)
                     : Colors.black.withValues(alpha: .04),
-                contentPadding: const EdgeInsets.symmetric(
+                contentPadding: EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 12,
+                  vertical: originalStyle ? 12 : 10,
                 ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(originalStyle ? 14 : 12),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -701,7 +702,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               // Keep the secondary entry usable with large accessibility text.
               key: const Key('video-detail-select-episodes'),
               style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                minimumSize: Size.fromHeight(originalStyle ? 48 : 44),
+                tapTargetSize: originalStyle
+                    ? null
+                    : MaterialTapTargetSize.shrinkWrap,
+                shape: originalStyle
+                    ? null
+                    : RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                 foregroundColor: originalStyle ? Colors.white : null,
                 side: BorderSide(
                   color: originalStyle ? Colors.white24 : Colors.black12,
@@ -888,7 +897,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       key: const Key('video-detail-recommendations'),
-      padding: const EdgeInsets.only(top: 24),
+      padding: EdgeInsets.only(top: originalStyle ? 24 : 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -967,7 +976,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       return const SizedBox.shrink();
     }
     return Padding(
-      padding: const EdgeInsets.only(top: 24),
+      padding: EdgeInsets.only(top: originalStyle ? 24 : 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1466,6 +1475,80 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     );
   }
 
+  Widget compactPlaybackControls() => LayoutBuilder(
+    key: const Key('video-detail-compact-playback'),
+    builder: (context, bounds) {
+      final progress = chapters.isEmpty ? null : episodeProgress(selected);
+      final hasProgress = progress != null && progress.position > Duration.zero;
+      final button = FilledButton.icon(
+        key: const Key('video-detail-play'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(44),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        onPressed: loading || resolving || chapters.isEmpty ? null : play,
+        icon: resolving
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.play_arrow, size: 20),
+        label: Text(
+          playLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14),
+        ),
+      );
+      final progressLabel = hasProgress
+          ? Text(
+              progress.isFinished ? '本集已看完' : '看到 ${progress.timeLabel}',
+              key: const Key('video-detail-compact-progress'),
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.4,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            )
+          : null;
+      final stacked =
+          bounds.maxWidth < 340 ||
+          MediaQuery.textScalerOf(context).scale(1) > 1.3;
+      if (stacked) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            button,
+            if (progressLabel != null) ...[
+              const SizedBox(height: 8),
+              progressLabel,
+            ],
+          ],
+        );
+      }
+      return Row(
+        children: [
+          Expanded(flex: 3, child: button),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: progressLabel,
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
   Widget _buildCompact(BuildContext context) => ListenableBuilder(
     listenable: tmdb,
     builder: (context, _) {
@@ -1475,19 +1558,24 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       final subtitle = (detail?.subtitle ?? widget.item.subtitle ?? '')
           .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
           .replaceAll(RegExp(r'集\s*集'), '集');
+      final hasArtwork =
+          sourceCover?.trim().isNotEmpty == true ||
+          tmdb.metadata?.posters.isNotEmpty == true ||
+          tmdb.metadata?.backdrops.isNotEmpty == true;
+      final overlayHeader = hasArtwork && !collapsedHeader;
       return Scaffold(
         backgroundColor: _pageColor,
         extendBodyBehindAppBar: true,
         appBar: AppBar(
-          backgroundColor: collapsedHeader ? _pageColor : Colors.transparent,
+          backgroundColor: overlayHeader ? Colors.transparent : _pageColor,
           surfaceTintColor: Colors.transparent,
           elevation: 0,
-          foregroundColor: collapsedHeader ? colors.onSurface : Colors.white,
+          foregroundColor: overlayHeader ? Colors.white : colors.onSurface,
           actionsIconTheme: IconThemeData(
-            color: collapsedHeader ? colors.onSurface : Colors.white,
+            color: overlayHeader ? Colors.white : colors.onSurface,
           ),
           systemOverlayStyle:
-              collapsedHeader && baseTheme.brightness == Brightness.light
+              !overlayHeader && baseTheme.brightness == Brightness.light
               ? SystemUiOverlayStyle.dark
               : SystemUiOverlayStyle.light,
           leading: Padding(
@@ -1495,10 +1583,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             child: IconButton.filledTonal(
               tooltip: '返回',
               style: IconButton.styleFrom(
-                backgroundColor: collapsedHeader
+                backgroundColor: !overlayHeader
                     ? colors.onSurface.withValues(alpha: .06)
                     : Colors.black.withValues(alpha: .22),
-                foregroundColor: collapsedHeader
+                foregroundColor: !overlayHeader
                     ? colors.onSurface
                     : Colors.white,
                 padding: EdgeInsets.zero,
@@ -1519,67 +1607,75 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         ),
         body: LayoutBuilder(
           builder: (context, bounds) {
-            final heroHeight = (bounds.maxWidth * .82).clamp(300.0, 420.0);
-            final hasArtwork =
-                sourceCover?.trim().isNotEmpty == true || tmdb.metadata != null;
+            final heroHeight = (bounds.maxWidth * .54).clamp(220.0, 240.0);
             return SingleChildScrollView(
               controller: _scroll,
               key: const Key('video-detail-scroll'),
               child: Stack(
                 key: const Key('video-detail-immersive'),
                 children: [
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: heroHeight,
-                    child: IgnorePointer(
-                      child: TmdbPosterGallery(
-                        controller: tmdb,
-                        fit: BoxFit.cover,
-                        fallback: PosterCover(
-                          pipeline: pipeline,
-                          url: sourceCover,
-                          title: widget.item.title,
-                          headers:
-                              detail?.coverHeaders ?? widget.item.coverHeaders,
-                        ),
+                  if (hasArtwork)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      key: const Key('video-detail-compact-banner'),
+                      height: heroHeight,
+                      child: IgnorePointer(
+                        child: tmdb.metadata?.backdrops.isNotEmpty == true
+                            ? PosterCover(
+                                pipeline: pipeline,
+                                url: tmdb.metadata!.backdrops.first,
+                                title: title,
+                              )
+                            : TmdbPosterGallery(
+                                controller: tmdb,
+                                fit: BoxFit.cover,
+                                fallback: PosterCover(
+                                  pipeline: pipeline,
+                                  url: sourceCover,
+                                  title: widget.item.title,
+                                  headers:
+                                      detail?.coverHeaders ??
+                                      widget.item.coverHeaders,
+                                ),
+                              ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: heroHeight + 2,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        key: const Key('video-detail-gradient'),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: const [0, .3, .52, .72, 1],
-                            colors: [
-                              Colors.black.withValues(alpha: .38),
-                              Colors.transparent,
-                              _pageColor.withValues(alpha: .4),
-                              _pageColor.withValues(alpha: .94),
-                              _pageColor,
-                            ],
+                  if (hasArtwork)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: heroHeight + 2,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          key: const Key('video-detail-gradient'),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              stops: const [0, .4, .72, .9, 1],
+                              colors: [
+                                Colors.black.withValues(alpha: .38),
+                                Colors.transparent,
+                                _pageColor.withValues(alpha: .4),
+                                _pageColor.withValues(alpha: .94),
+                                _pageColor,
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                   Padding(
                     padding: EdgeInsets.fromLTRB(
                       16,
                       hasArtwork
-                          ? heroHeight * .66 + 24
+                          ? heroHeight + 12
                           : MediaQuery.paddingOf(context).top +
                                 kToolbarHeight +
-                                24,
+                                16,
                       16,
                       24 + MediaQuery.paddingOf(context).bottom,
                     ),
@@ -1599,44 +1695,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         ),
                         const SizedBox(height: 8),
                         metadataRow(subtitle, title),
-                        resumeHint(),
-                        const SizedBox(height: 18),
-                        Center(
-                          child: FractionallySizedBox(
-                            widthFactor: .72,
-                            child: FilledButton.icon(
-                              key: const Key('video-detail-play'),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(50),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              onPressed:
-                                  loading || resolving || chapters.isEmpty
-                                  ? null
-                                  : play,
-                              icon: resolving
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.play_arrow),
-                              label: Text(
-                                playLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 20),
+                        compactPlaybackControls(),
+                        const SizedBox(height: 20),
                         summaryBlock(
                           detail?.title ?? widget.item.title,
                           synopsis,
@@ -1663,9 +1724,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           Text(error!),
                           TextButton(onPressed: load, child: const Text('重试')),
                         ],
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 20),
+                        Divider(
+                          height: 1,
+                          color: colors.outlineVariant.withValues(alpha: .5),
+                        ),
+                        const SizedBox(height: 8),
                         linePicker(),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         episodeSection(),
                         castSection(),
                         recommendationsSection(),

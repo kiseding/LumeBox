@@ -264,6 +264,70 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('紧凑版横幅与播放进度并排，首屏可看到三张剧集封面', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    library.setSetting('video.detail.originalStyle', 'false');
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'movie',
+        chapterIndex: 1,
+        chapterId: 'e2',
+        chapterTitle: '第2集',
+        updatedAt: DateTime.now(),
+        position: const Duration(minutes: 12, seconds: 36),
+        duration: const Duration(minutes: 40),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: LongDetailSource(),
+          item: const SourceItem(
+            id: 'movie',
+            title: '详情测试片',
+            cover: 'https://fixture.test/poster.jpg',
+          ),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getSize(find.byKey(const Key('video-detail-compact-banner')))
+          .height,
+      closeTo(237.6, .1),
+    );
+    final play = find.byKey(const Key('video-detail-play'));
+    final progress = find.byKey(const Key('video-detail-compact-progress'));
+    expect(tester.getSize(play).height, 44);
+    expect(
+      tester.getTopLeft(progress).dx,
+      greaterThan(tester.getBottomRight(play).dx),
+    );
+    expect(
+      tester.getCenter(progress).dy,
+      closeTo(tester.getCenter(play).dy, 1),
+    );
+    expect(
+      tester
+          .getBottomRight(find.byKey(const ValueKey('video-detail-episode-2')))
+          .dy,
+      lessThan(900),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(320, 900));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(progress).dy,
+      greaterThan(tester.getBottomRight(play).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('隐藏空演员和重复入口，保留布局与逐集续播，缺集不自动换线', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
