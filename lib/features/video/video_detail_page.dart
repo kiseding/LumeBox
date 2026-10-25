@@ -485,7 +485,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           format: ui.ImageByteFormat.rawRgba,
         );
         if (pixels != null) {
-          color = dominantCoverColor(pixels.buffer.asUint8List());
+          color = immersiveArtworkColor(
+            pixels.buffer.asUint8List(),
+            width: sample.width,
+            height: sample.height,
+          );
         }
       } finally {
         sample.dispose();
