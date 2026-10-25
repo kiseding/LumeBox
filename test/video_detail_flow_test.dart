@@ -318,6 +318,25 @@ void main() {
           .dy,
       lessThan(900),
     );
+    expect(
+      find.byKey(const Key('video-detail-compact-episode-grid')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-5')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-6')), findsNothing);
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-3')))
+          .dy,
+      greaterThan(
+        tester
+            .getBottomLeft(find.byKey(const ValueKey('video-detail-episode-0')))
+            .dy,
+      ),
+    );
     expect(tester.takeException(), isNull);
     await tester.binding.setSurfaceSize(const Size(320, 900));
     await tester.pumpAndSettle();
@@ -512,10 +531,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(OutlinedButton).evaluate().length, lessThan(55));
     expect(
-      find.byKey(const ValueKey('video-detail-episode-49')),
+      find.byKey(const ValueKey('video-detail-episode-5')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('video-detail-episode-50')), findsNothing);
+    expect(find.byKey(const ValueKey('video-detail-episode-6')), findsNothing);
     final picker = find.byKey(const Key('video-detail-select-episodes'));
     await Scrollable.ensureVisible(tester.element(picker), alignment: .5);
     await tester.pumpAndSettle();

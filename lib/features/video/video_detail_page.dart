@@ -88,7 +88,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Map<String, List<SourceChapter>> lines = {};
   String currentLine = '';
   bool descriptionExpanded = false, reversed = false, collapsedHeader = false;
-  int episodePage = 0;
+  int episodePage = 0, compactEpisodeStart = 0;
   static const styleSetting = 'video.detail.originalStyle';
   bool originalStyle = true, playbackFailed = false;
   VideoProgress? lineResume;
@@ -199,6 +199,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         chapters = activeEpisodes;
         selected = index;
         episodePage = index ~/ 50;
+        compactEpisodeStart = index ~/ 6 * 6;
         loading = false;
       });
       tmdb.updateTitles([
@@ -359,6 +360,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               chapters = entry.value;
               selected = index;
               episodePage = index ~/ 50;
+              compactEpisodeStart =
+                  (reversed ? chapters.length - 1 - index : index) ~/ 6 * 6;
             });
             break;
           }
@@ -539,19 +542,29 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           child: const Text('重新匹配TMDB'),
         ),
         const PopupMenuItem(value: 'settings', child: Text('TMDB 设置与测试')),
-        if (tmdb.status != null)
-          PopupMenuItem(
-            enabled: false,
-            child: Text(
-              tmdb.status!,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
+        PopupMenuItem(
+          enabled: false,
+          child: Text(
+            tmdbStatusLabel,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
+        ),
       ],
     ),
     const SizedBox(width: 8),
   ];
+
+  String get tmdbStatusLabel {
+    if (!tmdb.settings.enabled) return 'TMDB 未开启';
+    if (!tmdb.settings.configured) return 'TMDB 未填写 API Key 或 Token';
+    if (tmdb.loading) return 'TMDB 正在匹配资料…';
+    final data = tmdb.metadata;
+    if (data != null) {
+      return 'TMDB 已匹配 · 演员 ${data.cast.length} · 推荐 ${data.recommendations.length}';
+    }
+    return tmdb.status ?? 'TMDB 尚未匹配到资料';
+  }
 
   Widget metadataRow(String subtitle, String title) => Row(
     key: const Key('video-detail-metadata-row'),
@@ -727,98 +740,116 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     ],
   );
 
-  Widget episodeStrip(List<int> visible) => LayoutBuilder(
+  Widget episodeStrip(List<int> visible, {bool grid = false}) => LayoutBuilder(
     builder: (context, bounds) {
       final width = (bounds.maxWidth - 20) / 3;
       final height = width * 9 / 16;
+      final extent =
+          height + 12 + MediaQuery.textScalerOf(context).scale(13) * 1.5;
+      Widget tile(int i) {
+        final index = visible[i], chapter = chapters[index];
+        final cover = chapter.cover?.trim().isNotEmpty == true
+            ? chapter.cover
+            : sourceCover;
+        return SizedBox(
+          width: width,
+          child: InkWell(
+            key: ValueKey('video-detail-episode-$index'),
+            onTap: resolving ? null : () => chooseEpisode(index),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    height: height,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        PosterCover(
+                          pipeline: pipeline,
+                          url: cover,
+                          title: chapter.title,
+                          headers: chapter.coverHeaders.isEmpty
+                              ? detail?.coverHeaders ?? widget.item.coverHeaders
+                              : chapter.coverHeaders,
+                        ),
+                        if (episodeProgress(index)?.position != null &&
+                            episodeProgress(index)!.position > Duration.zero)
+                          Positioned(
+                            left: 4,
+                            top: 4,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 2,
+                                ),
+                                child: Text(
+                                  episodeProgress(index)!.isFinished
+                                      ? '已看完'
+                                      : '观看中',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (selected == index)
+                          const Center(
+                            child: Icon(
+                              Icons.play_circle_fill,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                episodeProgressBar(index),
+                const SizedBox(height: 6),
+                Text(
+                  VideoEpisodeCatalog.displayLabel(chapter, index),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      if (grid) {
+        return GridView.builder(
+          key: const Key('video-detail-compact-episode-grid'),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 12,
+            mainAxisExtent: extent,
+          ),
+          itemCount: visible.length,
+          itemBuilder: (_, i) => tile(i),
+        );
+      }
       return SizedBox(
-        height: height + 12 + MediaQuery.textScalerOf(context).scale(13) * 1.5,
+        height: extent,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: visible.length,
           separatorBuilder: (_, _) => const SizedBox(width: 10),
-          itemBuilder: (_, i) {
-            final index = visible[i], chapter = chapters[index];
-            final cover = chapter.cover?.trim().isNotEmpty == true
-                ? chapter.cover
-                : sourceCover;
-            return SizedBox(
-              width: width,
-              child: InkWell(
-                key: ValueKey('video-detail-episode-$index'),
-                onTap: resolving ? null : () => chooseEpisode(index),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        height: height,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            PosterCover(
-                              pipeline: pipeline,
-                              url: cover,
-                              title: chapter.title,
-                              headers: chapter.coverHeaders.isEmpty
-                                  ? detail?.coverHeaders ??
-                                        widget.item.coverHeaders
-                                  : chapter.coverHeaders,
-                            ),
-                            if (episodeProgress(index)?.position != null &&
-                                episodeProgress(index)!.position >
-                                    Duration.zero)
-                              Positioned(
-                                left: 4,
-                                top: 4,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                      vertical: 2,
-                                    ),
-                                    child: Text(
-                                      episodeProgress(index)!.isFinished
-                                          ? '已看完'
-                                          : '观看中',
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (selected == index)
-                              const Center(
-                                child: Icon(
-                                  Icons.play_circle_fill,
-                                  color: Colors.white,
-                                  size: 26,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    episodeProgressBar(index),
-                    const SizedBox(height: 6),
-                    Text(
-                      VideoEpisodeCatalog.displayLabel(chapter, index),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+          itemBuilder: (_, i) => tile(i),
         ),
       );
     },
@@ -1059,6 +1090,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       chapters = nextChapters;
       selected = matched >= 0 ? matched : 0;
       episodePage = selected ~/ 50;
+      compactEpisodeStart =
+          (reversed ? chapters.length - 1 - selected : selected) ~/ 6 * 6;
     });
     return true;
   }
@@ -1093,6 +1126,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     setState(() {
       if (index != selected) lineResume = null;
       selected = index;
+      compactEpisodeStart =
+          (reversed ? chapters.length - 1 - selected : selected) ~/ 6 * 6;
     });
     if (PlayerExperienceStore.current.selectEpisodeOnly) {
       ScaffoldMessenger.of(context)
@@ -1103,10 +1138,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   void locateEpisodes() {
-    setState(
-      () => episodePage =
-          (reversed ? chapters.length - 1 - selected : selected) ~/ 50,
-    );
+    setState(() {
+      final position = reversed ? chapters.length - 1 - selected : selected;
+      episodePage = position ~/ 50;
+      compactEpisodeStart = position ~/ 6 * 6;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = _episodesKey.currentContext;
       if (context != null) {
@@ -1169,7 +1205,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Widget episodeGrid(List<int> indexes, {bool modal = false}) => LayoutBuilder(
     builder: (context, bounds) {
-      final count = bounds.maxWidth < 340 ? 4 : 5;
+      final count = !modal && !originalStyle
+          ? 3
+          : bounds.maxWidth < 340
+          ? 4
+          : 5;
       final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
       return GridView.builder(
         shrinkWrap: true,
@@ -1407,7 +1447,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       0,
       ((chapters.length - 1) ~/ 50).clamp(0, 999999),
     );
-    final visible = order.skip(page * 50).take(50).toList();
+    final visible = originalStyle
+        ? order.skip(page * 50).take(50).toList()
+        : order
+              .skip(
+                compactEpisodeStart.clamp(
+                  0,
+                  (order.length - 1).clamp(0, 999999),
+                ),
+              )
+              .take(6)
+              .toList();
     final artwork =
         immersive ||
         sourceCover?.trim().isNotEmpty == true ||
@@ -1441,7 +1491,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ),
           ],
         ),
-        if (chapters.length > 50)
+        if (originalStyle && chapters.length > 50)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: DropdownButtonFormField<int>(
@@ -1468,7 +1518,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             child: Text('暂无可用剧集'),
           )
         else if (artwork)
-          episodeStrip(visible)
+          episodeStrip(visible, grid: !originalStyle)
         else
           episodeGrid(visible),
       ],
