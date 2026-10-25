@@ -6,6 +6,34 @@ import 'package:lume_box/features/video/video_episode_catalog.dart';
 import 'package:lume_box/features/video/direct_video_source.dart';
 
 void main() {
+  test('跨线路只匹配明确同集，兼容文件名但不混淆季数和重复集数', () {
+    const current = SourceChapter(id: 'a', title: '第2集');
+    const file = SourceChapter(
+      id: 'b',
+      title: 'Drama.S01E02.2160p.WEB-DL.mkv [1GB]',
+    );
+    expect(VideoEpisodeCatalog.matchingIndex(current, [file]), 0);
+    expect(VideoEpisodeCatalog.displayLabel(file, 8), '第 02 集');
+    expect(
+      VideoEpisodeCatalog.matchingIndex(current, [
+        const SourceChapter(id: 'c', title: 'S02E02'),
+      ]),
+      -1,
+    );
+    expect(
+      VideoEpisodeCatalog.matchingIndex(current, [
+        file,
+        const SourceChapter(id: 'd', title: 'E02'),
+      ]),
+      -1,
+    );
+    expect(
+      VideoEpisodeCatalog.matchingIndex(current, [
+        const SourceChapter(id: 'd', title: '第3集'),
+      ]),
+      -1,
+    );
+  });
   test('兼容明确线路、Kazumi标题前缀和猫源flag，并保留原始章节ID', () {
     final chapters = [
       const SourceChapter(id: 'a1', title: '第1集', line: '线路A'),

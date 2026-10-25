@@ -19,10 +19,12 @@ class PlayerSourceSheet extends StatefulWidget {
     this.loadEpisodes,
     this.currentChapterId,
     this.onSelectEpisode,
+    this.onSwitchLine,
   });
 
   /// 当前播放地址（为空表示还没装载任何媒体）。
   final String address;
+  final VoidCallback? onSwitchLine;
 
   /// 候选线路（图源给多条时才有）；单条 / 空时不出「线路」一栏。
   final List<VideoQuality> qualities;
@@ -234,6 +236,15 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                   ),
                 ],
               ),
+              if (widget.onSwitchLine != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: widget.onSwitchLine,
+                    icon: const Icon(Icons.alt_route),
+                    label: const Text('换线路继续看'),
+                  ),
+                ),
               if (widget.qualities.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 SizedBox(

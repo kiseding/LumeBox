@@ -36,6 +36,42 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test('视频逐集保存、升级回填最近一集，清除历史同时清除逐集记录', () async {
+    var library = await ReadingLibrary.open(Section.video);
+    VideoProgress progress(String chapter, int index, int position) =>
+        VideoProgress(
+          section: Section.video,
+          itemId: 'movie',
+          chapterIndex: index,
+          chapterId: chapter,
+          chapterTitle: '第${index + 1}集',
+          updatedAt: DateTime.now(),
+          position: Duration(seconds: position),
+          duration: const Duration(seconds: 100),
+        );
+    library.saveProgress(progress('a1', 0, 98));
+    library.saveProgress(progress('a2', 1, 35));
+    expect(library.videoProgress('movie')!.chapterId, 'a2');
+    expect(library.videoEpisodeProgress('movie', 'a1')!.isFinished, true);
+    expect(library.videoEpisodeProgresses('movie').length, 2);
+    ReadingLibrary.close(Section.video);
+    library = await ReadingLibrary.open(Section.video);
+    expect(library.videoEpisodeProgress('movie', 'a2')!.position.inSeconds, 35);
+    final scope = await SectionScope.open(Section.video);
+    ReadingLibrary.close(Section.video);
+    final db = sqlite3.open(scope.resolve('reading.db'));
+    db.execute('DROP TABLE video_episode_progress');
+    db.execute('PRAGMA user_version = 3');
+    db.close();
+    library = await ReadingLibrary.open(Section.video);
+    expect(library.videoEpisodeProgresses('movie').keys, ['a2']);
+    library.removeHistory('movie');
+    expect(library.videoEpisodeProgresses('movie'), isEmpty);
+    library.setSetting('history.incognito', 'true');
+    library.saveProgress(progress('a3', 2, 20));
+    expect(library.videoEpisodeProgresses('movie'), isEmpty);
+  });
+
   test('并发打开同一板块共用句柄，关闭后可重新打开', () async {
     final libraries = await Future.wait(
       List.generate(8, (_) => ReadingLibrary.open(Section.video)),

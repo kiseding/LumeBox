@@ -1,3 +1,4 @@
+import '../../core/bangumi/bangumi_sync.dart';
 import 'video_episode_catalog.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/lume_icon.dart';
@@ -89,7 +90,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   String currentLine = '';
   bool descriptionExpanded = false, reversed = false, collapsedHeader = false;
   int episodePage = 0;
-  bool originalStyle = true;
+  static const styleSetting = 'video.detail.originalStyle';
+  bool originalStyle = true, bangumiReady = false, playbackFailed = false;
+  VideoProgress? lineResume;
   final _episodesKey = GlobalKey();
   final _scroll = ScrollController();
 
@@ -105,6 +108,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   @override
   void initState() {
     super.initState();
+    originalStyle = widget.library.setting(styleSetting) != 'false';
+    unawaited(loadBangumiStatus());
     _scroll.addListener(() {
       final collapsed = _scroll.offset > 170;
       if (collapsed != collapsedHeader && mounted) {
@@ -189,6 +194,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       var index = activeEpisodes.indexWhere((e) => e.id == saved?.chapterId);
       if (index < 0) index = 0;
       setState(() {
+        lineResume = null;
         detail = metadata;
         lines = grouped;
         currentLine = line;
@@ -231,7 +237,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Future<void> play() async {
     if (resolving || chapters.isEmpty) return;
-    setState(() => resolving = true);
+    setState(() {
+      resolving = true;
+      playbackFailed = false;
+    });
     PlayerPrelaunch? prepared;
     try {
       final chapter = chapters[selected];
@@ -270,6 +279,22 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           direct ??
           MediaResourceService.address(content);
       if (address == null) throw StateError('源未返回有效的播放地址');
+      if (lineResume != null && widget.recordHistory) {
+        final saved = lineResume!;
+        widget.library.saveProgress(
+          VideoProgress(
+            section: widget.library.section,
+            itemId: widget.item.id,
+            chapterIndex: selected,
+            chapterId: chapter.id,
+            chapterTitle: chapter.title,
+            updatedAt: DateTime.now(),
+            position: saved.position,
+            duration: saved.duration,
+          ),
+        );
+        lineResume = null;
+      }
       final tracks = saved?.manual == true
           ? const MediaTrackInfo()
           : await const MediaTrackProbe().inspect(
@@ -326,15 +351,35 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       widget.library.refresh();
       if (mounted) {
         final last = widget.library.videoProgress(widget.item.id);
-        final index = chapters.indexWhere(
-          (entry) => entry.id == last?.chapterId,
-        );
-        if (index >= 0) setState(() => selected = index);
+        for (final entry in lines.entries) {
+          final index = entry.value.indexWhere(
+            (chapter) => chapter.id == last?.chapterId,
+          );
+          if (index >= 0) {
+            setState(() {
+              currentLine = entry.key;
+              chapters = entry.value;
+              selected = index;
+              episodePage = index ~/ 50;
+            });
+            break;
+          }
+        }
       }
     } catch (failure) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('解析失败：$failure')));
+        setState(() => playbackFailed = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('解析失败：$failure'),
+            action: lines.length > 1
+                ? SnackBarAction(
+                    label: '换线路',
+                    onPressed: switchLineAfterFailure,
+                  )
+                : null,
+          ),
+        );
       }
     } finally {
       if (prepared != null) unawaited(prepared.discard());
@@ -439,6 +484,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     tooltip: '详情页样式',
     icon: const Icon(Icons.view_carousel_outlined),
     onSelected: (value) {
+      widget.library.setSetting(styleSetting, '$value');
       setState(() => originalStyle = value);
       if (_scroll.hasClients) _scroll.jumpTo(0);
     },
@@ -461,7 +507,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     children: [
       Expanded(
         child: Text(
-          subtitle,
+          [
+            if (subtitle.trim().isNotEmpty) subtitle,
+            if ((tmdb.metadata?.rating ?? 0) > 0)
+              '★ ${tmdb.metadata!.rating.toStringAsFixed(1)}',
+          ].join(' · '),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           textAlign: originalStyle ? TextAlign.center : TextAlign.left,
@@ -517,6 +567,24 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           ),
         ),
       ),
+      if (text != '暂无简介')
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () =>
+                setState(() => descriptionExpanded = !descriptionExpanded),
+            style: TextButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: originalStyle ? Colors.white70 : null,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: const Size(48, 30),
+            ),
+            child: Text(
+              descriptionExpanded ? '收起' : '展开',
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
+        ),
     ],
   );
 
@@ -643,6 +711,34 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                         widget.item.coverHeaders
                                   : chapter.coverHeaders,
                             ),
+                            if (episodeProgress(index)?.position != null &&
+                                episodeProgress(index)!.position >
+                                    Duration.zero)
+                              Positioned(
+                                left: 4,
+                                top: 4,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    child: Text(
+                                      episodeProgress(index)!.isFinished
+                                          ? '已看完'
+                                          : '观看中',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             if (selected == index)
                               const Center(
                                 child: Icon(
@@ -655,9 +751,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         ),
                       ),
                     ),
+                    episodeProgressBar(index),
                     const SizedBox(height: 6),
                     Text(
-                      VideoEpisodeCatalog.labelOf(chapter),
+                      VideoEpisodeCatalog.displayLabel(chapter, index),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
@@ -671,6 +768,84 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       );
     },
   );
+
+  Future<void> loadBangumiStatus() async {
+    final settings = BangumiSettings.instance;
+    await settings.load();
+    final token = await settings.token();
+    if (mounted) {
+      setState(() => bangumiReady = settings.userId > 0 && token.isNotEmpty);
+    }
+  }
+
+  Future<void> openBangumi() async {
+    await showBangumiMatchSheet(
+      context: context,
+      library: widget.library,
+      item: widget.item,
+      initialTitle: detail?.title ?? widget.item.title,
+    );
+    await loadBangumiStatus();
+  }
+
+  VideoProgress? episodeProgress(int index) {
+    final chapter = chapters[index];
+    return widget.library.videoEpisodeProgress(widget.item.id, chapter.id) ??
+        (index == selected ? lineResume : null);
+  }
+
+  String get playLabel {
+    if (resolving) return '正在解析';
+    if (chapters.isEmpty) return '暂无可播放剧集';
+    final progress = episodeProgress(selected);
+    final label = VideoEpisodeCatalog.displayLabel(
+      chapters[selected],
+      selected,
+    );
+    return '${progress?.isFinished == true
+        ? '重播'
+        : progress != null && progress.position > Duration.zero
+        ? '继续看'
+        : '播放'} · $label';
+  }
+
+  Widget resumeHint() {
+    final progress = chapters.isEmpty ? null : episodeProgress(selected);
+    if (progress == null || progress.position <= Duration.zero) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        progress.isFinished ? '本集已看完' : '看到 ${progress.timeLabel}',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 11,
+          color: originalStyle
+              ? Colors.white70
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  Widget episodeProgressBar(int index) {
+    final progress = episodeProgress(index);
+    if (progress == null || progress.position <= Duration.zero) {
+      return const SizedBox.shrink();
+    }
+    return LinearProgressIndicator(
+      key: ValueKey('video-episode-progress-$index'),
+      value: progress.duration > Duration.zero ? progress.ratio : 0,
+      minHeight: 3,
+      color: originalStyle
+          ? Colors.white
+          : Theme.of(context).colorScheme.primary,
+      backgroundColor: originalStyle
+          ? Colors.white24
+          : Theme.of(context).colorScheme.surfaceContainerHighest,
+    );
+  }
 
   Widget quickActions() {
     final color = originalStyle
@@ -713,16 +888,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             saved ? Icons.favorite : Icons.favorite_border,
             _source == null || !widget.recordHistory ? null : favorite,
           ),
-          action(
-            '追番',
-            Icons.live_tv_outlined,
-            () => showBangumiMatchSheet(
-              context: context,
-              library: widget.library,
-              item: widget.item,
-              initialTitle: detail?.title ?? widget.item.title,
-            ),
-          ),
+          if (bangumiReady)
+            action('Bangumi 追番', Icons.live_tv_outlined, openBangumi),
         ],
       ),
     );
@@ -738,7 +905,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            '相似影片',
+            '相似影片 · 全站找片',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
@@ -808,6 +975,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Widget castSection() {
     final metadata = tmdb.metadata;
+    if (metadata == null || metadata.cast.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.only(top: 24),
       child: Column(
@@ -818,87 +988,115 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
-          if (metadata == null || metadata.cast.isEmpty)
-            Text(
-              tmdb.loading ? '正在获取演员资料…' : '匹配到演员资料后显示头像与姓名',
-              style: TextStyle(
-                fontSize: 12,
-                color: originalStyle
-                    ? Colors.white60
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            )
-          else
-            SizedBox(
-              height: 110 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: metadata.cast.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
-                itemBuilder: (_, i) => SizedBox(
-                  width: 76,
-                  child: Column(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: 76,
-                          height: 104,
-                          child:
-                              i < metadata.profiles.length &&
-                                  metadata.profiles[i].isNotEmpty
-                              ? PosterCover(
-                                  pipeline: pipeline,
-                                  url: metadata.profiles[i],
-                                  title: metadata.cast[i],
-                                )
-                              : const ColoredBox(
-                                  color: Color(0x22666666),
-                                  child: Center(
-                                    child: Icon(Icons.person_outline, size: 32),
-                                  ),
+          SizedBox(
+            height: 110 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: metadata.cast.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) => SizedBox(
+                width: 76,
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 76,
+                        height: 104,
+                        child:
+                            i < metadata.profiles.length &&
+                                metadata.profiles[i].isNotEmpty
+                            ? PosterCover(
+                                pipeline: pipeline,
+                                url: metadata.profiles[i],
+                                title: metadata.cast[i],
+                              )
+                            : const ColoredBox(
+                                color: Color(0x22666666),
+                                child: Center(
+                                  child: Icon(Icons.person_outline, size: 32),
                                 ),
-                        ),
+                              ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        metadata.cast[i],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      metadata.cast[i],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
   }
 
-  void changeLine(String next) {
-    if (next == currentLine || resolving || !lines.containsKey(next)) return;
-    final label = chapters.isEmpty
-        ? ''
-        : VideoEpisodeCatalog.labelOf(chapters[selected]);
+  bool changeLine(String next, {bool allowMissing = false}) {
+    if (next == currentLine) return true;
+    if (resolving || !lines.containsKey(next) || lines[next]!.isEmpty) {
+      return false;
+    }
+    final previous = chapters.isEmpty ? null : chapters[selected];
     final nextChapters = lines[next]!;
-    final matched = nextChapters.indexWhere(
-      (e) => VideoEpisodeCatalog.labelOf(e) == label,
-    );
+    final matched = previous == null
+        ? -1
+        : VideoEpisodeCatalog.matchingIndex(previous, nextChapters);
+    if (matched < 0 && !allowMissing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('该线路没有对应集，请在选集里手动选择'),
+          action: SnackBarAction(label: '选集', onPressed: showEpisodes),
+        ),
+      );
+      return false;
+    }
+    final progress = matched >= 0 ? episodeProgress(selected) : null;
     setState(() {
+      lineResume = progress;
       currentLine = next;
       chapters = nextChapters;
-      selected = matched >= 0
-          ? matched
-          : selected.clamp(0, (chapters.length - 1).clamp(0, 999999));
+      selected = matched >= 0 ? matched : 0;
       episodePage = selected ~/ 50;
     });
+    return true;
+  }
+
+  Future<void> switchLineAfterFailure() async {
+    final next = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('换线路继续看'),
+              subtitle: Text('保留当前集数；有观看记录时继续上次位置'),
+            ),
+            for (final line in lines.keys.where((line) => line != currentLine))
+              ListTile(
+                title: Text(line),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, line),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (next != null && mounted && changeLine(next)) await play();
   }
 
   Future<void> chooseEpisode(int index) async {
     if (resolving || index < 0 || index >= chapters.length) return;
-    setState(() => selected = index);
+    setState(() {
+      if (index != selected) lineResume = null;
+      selected = index;
+    });
     if (PlayerExperienceStore.current.selectEpisodeOnly) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('已选中剧集，点击上方播放按钮开始')));
@@ -953,15 +1151,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               if (modal) Navigator.pop(context);
               chooseEpisode(index);
             },
-      child: Text(
-        VideoEpisodeCatalog.labelOf(chapter),
-        maxLines: 2,
-        textAlign: TextAlign.center,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            VideoEpisodeCatalog.displayLabel(chapter, index),
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+          episodeProgressBar(index),
+        ],
       ),
     );
   }
@@ -989,6 +1193,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Future<void> showEpisodes() async {
     if (chapters.isEmpty) return;
     var page = selected ~/ 50, query = '';
+    int? jumpIndex;
+    var searchRevision = 0;
     var listMode = chapters.any(
       (e) => VideoEpisodeCatalog.labelOf(e).length > 18,
     );
@@ -1005,10 +1211,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           ];
           final filtered = order
               .where(
-                (i) =>
-                    VideoEpisodeCatalog.labelOf(chapters[i])
-                        .toLowerCase()
-                        .contains(query.toLowerCase()),
+                (i) => (jumpIndex == null
+                    ? VideoEpisodeCatalog.labelOf(chapters[i])
+                          .toLowerCase()
+                          .contains(query.toLowerCase())
+                    : i == jumpIndex),
               )
               .toList();
           final pages = (filtered.length / 50).ceil().clamp(1, 999999);
@@ -1068,8 +1275,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                 onSelected: resolving
                                     ? null
                                     : (_) {
-                                        changeLine(line);
-                                        refresh(() => page = 0);
+                                        changeLine(line, allowMissing: true);
+                                        refresh(() {
+                                          page = 0;
+                                          jumpIndex = null;
+                                        });
                                       },
                               ),
                             ),
@@ -1078,15 +1288,53 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     ),
                   const SizedBox(height: 12),
                   TextField(
+                    key: ValueKey('episode-search-$searchRevision'),
                     decoration: const InputDecoration(
                       hintText: '搜索剧集名称',
                       prefixIcon: Icon(Icons.search),
                     ),
                     onChanged: (v) => refresh(() {
                       query = v;
+                      jumpIndex = null;
                       page = 0;
                     }),
                   ),
+                  TextField(
+                    key: const Key('video-episode-jump'),
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '跳转到第几集',
+                      prefixIcon: Icon(Icons.numbers),
+                    ),
+                    onSubmitted: (value) {
+                      final number = int.tryParse(value);
+                      if (number == null ||
+                          number < 1 ||
+                          number > chapters.length) {
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
+                          const SnackBar(content: Text('请输入有效集数')),
+                        );
+                        return;
+                      }
+                      refresh(() {
+                        jumpIndex = number - 1;
+                        query = '';
+                        searchRevision++;
+                        page = 0;
+                      });
+                      FocusScope.of(context).unfocus();
+                    },
+                  ),
+                  if (jumpIndex != null)
+                    TextButton(
+                      onPressed: () => refresh(() {
+                        jumpIndex = null;
+                        query = '';
+                        searchRevision++;
+                        page = 0;
+                      }),
+                      child: const Text('显示全部剧集'),
+                    ),
                   if (pages > 1)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1121,10 +1369,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         selected: i == selected,
                         leading: Text('${i + 1}'),
                         title: Text(
-                          VideoEpisodeCatalog.labelOf(chapters[i]),
-                          maxLines: 3,
+                          VideoEpisodeCatalog.displayLabel(chapters[i], i),
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        subtitle:
+                            VideoEpisodeCatalog.displayLabel(chapters[i], i) !=
+                                VideoEpisodeCatalog.labelOf(chapters[i])
+                            ? Text(
+                                VideoEpisodeCatalog.labelOf(chapters[i]),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            : null,
                         trailing: const Icon(Icons.play_circle_outline),
                         onTap: resolving
                             ? null
@@ -1185,10 +1442,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               onPressed: chapters.isEmpty ? null : locateEpisodes,
               icon: const Icon(Icons.my_location_outlined, size: 19),
             ),
-            TextButton(
-              onPressed: chapters.isEmpty ? null : showEpisodes,
-              child: const Text('全部'),
-            ),
           ],
         ),
         if (chapters.length > 50)
@@ -1235,9 +1488,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       final subtitle = (detail?.subtitle ?? widget.item.subtitle ?? '')
           .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
           .replaceAll(RegExp(r'集\s*集'), '集');
-      final progress = widget.library.videoProgress(widget.item.id);
-      final canResume =
-          chapters.isNotEmpty && progress?.chapterId == chapters[selected].id;
       return Scaffold(
         backgroundColor: _pageColor,
         extendBodyBehindAppBar: true,
@@ -1292,14 +1542,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     ),
                   );
                 }
-                if (action == 'bangumi') {
-                  showBangumiMatchSheet(
-                    context: context,
-                    library: widget.library,
-                    item: widget.item,
-                    initialTitle: title,
-                  );
-                }
+                if (action == 'bangumi') openBangumi();
               },
               itemBuilder: (_) => [
                 PopupMenuItem(
@@ -1446,39 +1689,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     )
                                   : const Icon(Icons.play_arrow),
                               label: Text(
-                                resolving
-                                    ? '正在解析'
-                                    : !canResume
-                                    ? '立即播放'
-                                    : '继续播放 · ${chapters.isEmpty ? '' : VideoEpisodeCatalog.labelOf(chapters[selected])}',
+                                playLabel,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
                         ),
+                        resumeHint(),
                         quickActions(),
-                        if (canResume &&
-                            progress != null &&
-                            progress.position > Duration.zero) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            '上次看到 ${progress.position.inMinutes}:${progress.position.inSeconds.remainder(60).toString().padLeft(2, '0')}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: colors.onSurfaceVariant,
-                            ),
+                        if (playbackFailed && lines.length > 1)
+                          OutlinedButton.icon(
+                            onPressed: switchLineAfterFailure,
+                            icon: const Icon(Icons.alt_route),
+                            label: const Text('换线路继续看'),
                           ),
-                          if (progress.duration > Duration.zero)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: LinearProgressIndicator(
-                                value: progress.ratio,
-                                minHeight: 3,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                        ],
                         if (loading)
                           const Padding(
                             padding: EdgeInsets.all(20),
@@ -1495,17 +1720,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         episodeSection(),
                         castSection(),
                         recommendationsSection(),
-                        if ((tmdb.metadata?.rating ?? 0) > 0)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: Text(
-                              'TMDB ${tmdb.metadata!.rating.toStringAsFixed(1)} / 10',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -1548,7 +1762,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               PopupMenuButton<String>(
                 tooltip: '更多',
                 onSelected: (v) {
-                  if (v == 'retry') {
+                  if (v == 'bangumi') {
+                    openBangumi();
+                  } else if (v == 'retry') {
                     tmdb.rematch();
                   } else {
                     Navigator.of(context).push(
@@ -1559,6 +1775,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   }
                 },
                 itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'bangumi',
+                    child: Text('Bangumi 追番'),
+                  ),
                   PopupMenuItem(
                     value: 'retry',
                     enabled: tmdb.settings.configured && !tmdb.loading,
@@ -1695,21 +1915,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                         slot: 'video_detail_page.4',
                                       ),
                                 label: Text(
-                                  resolving
-                                      ? '正在解析'
-                                      : widget.library.videoProgress(
-                                              widget.item.id,
-                                            ) ==
-                                            null
-                                      ? '播放'
-                                      : '继续播放 · ${chapters.isEmpty ? '' : chapters[selected].title}',
+                                  playLabel,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ),
                           ),
+                          resumeHint(),
                           quickActions(),
+                          if (playbackFailed && lines.length > 1)
+                            OutlinedButton.icon(
+                              onPressed: switchLineAfterFailure,
+                              icon: const Icon(Icons.alt_route),
+                              label: const Text('换线路继续看'),
+                            ),
                           if (loading)
                             const Padding(
                               padding: EdgeInsets.all(24),

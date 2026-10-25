@@ -239,6 +239,11 @@ class ReadingLibrary {
     return saved is VideoProgress ? saved : null;
   }
 
+  Map<String, VideoProgress> videoEpisodeProgresses(String itemId) =>
+      _store.videoEpisodes(itemId);
+  VideoProgress? videoEpisodeProgress(String itemId, String chapterId) =>
+      _store.videoEpisode(itemId, chapterId);
+
   /// 「继续观看」列表：有播放记录的作品，按最近播放倒序。
   ///
   /// 只取有进度的条目——没有播放记录的作品不该出现在继续观看里。

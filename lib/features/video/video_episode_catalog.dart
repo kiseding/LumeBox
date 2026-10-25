@@ -40,6 +40,59 @@ abstract final class VideoEpisodeCatalog {
     return chapter.title.replaceFirst(prefix, '').trim();
   }
 
+  /// Only explicit episode numbers are comparable; a missing episode never falls back by index.
+  static String? episodeKey(SourceChapter chapter) {
+    final label = labelOf(chapter);
+    final season = RegExp(
+      r's(\d{1,3})[ ._-]*e(\d{1,4})',
+      caseSensitive: false,
+    ).firstMatch(label);
+    if (season != null) {
+      return '${int.parse(season[1]!)}:${int.parse(season[2]!)}';
+    }
+    final number =
+        RegExp(r'第\s*(\d{1,4})\s*[集话話期]').firstMatch(label) ??
+        RegExp(
+          r'(?:^|[ ._\]-])(?:ep?|episode)[ ._-]*(\d{1,4})(?!\d)',
+          caseSensitive: false,
+        ).firstMatch(label) ??
+        RegExp(r'^(\d{1,4})(?:集|话|話)?$').firstMatch(label);
+    return number == null ? null : '1:${int.parse(number[1]!)}';
+  }
+
+  static int matchingIndex(
+    SourceChapter current,
+    List<SourceChapter> candidates,
+  ) {
+    final exact = [
+      for (var i = 0; i < candidates.length; i++)
+        if (labelOf(candidates[i]) == labelOf(current)) i,
+    ];
+    if (exact.isNotEmpty) return exact.length == 1 ? exact.single : -1;
+    final key = episodeKey(current);
+    if (key == null) return -1;
+    final matches = [
+      for (var i = 0; i < candidates.length; i++)
+        if (episodeKey(candidates[i]) == key) i,
+    ];
+    return matches.length == 1 ? matches.single : -1;
+  }
+
+  static String displayLabel(SourceChapter chapter, int index) {
+    final label = labelOf(chapter);
+    if (RegExp(
+          r'\.(mkv|mp4|avi|mov|m4v|ts)(?:\b|$)',
+          caseSensitive: false,
+        ).hasMatch(label) ||
+        label.length > 35 ||
+        RegExp(r'^\d+$').hasMatch(label)) {
+      final key = episodeKey(chapter);
+      final number = key == null ? index + 1 : int.parse(key.split(':').last);
+      return '第 ${number.toString().padLeft(2, '0')} 集';
+    }
+    return label.isEmpty ? '第 ${index + 1} 集' : label;
+  }
+
   static Map<String, List<SourceChapter>> group(List<SourceChapter> chapters) {
     final lines = <String, List<SourceChapter>>{};
     for (final chapter in chapters) {

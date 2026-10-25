@@ -1547,6 +1547,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     PlayerMedia media, {
     VideoPlayTarget? target,
     AbstractPlayer? preparedPlayer,
+    Duration? resumePosition,
   }) async {
     if (_player == null) {
       _showToast(_anyKernelAvailable ? '播放器还在准备，请稍后再试' : '本平台不提供播放内核');
@@ -1591,7 +1592,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     try {
       await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
       if (!mounted || !identical(media, _media)) return;
-      await _restoreProgress();
+      if (resumePosition != null && resumePosition > Duration.zero) {
+        await _player?.seek(resumePosition);
+      } else {
+        await _restoreProgress();
+      }
     } finally {
       _suppressProgressSave = false;
     }
@@ -2193,8 +2198,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final library = _library;
     if (target == null || player == null || library == null) return;
 
-    final saved = library.videoProgress(target.itemId);
-    if (saved == null || saved.chapterIndex != target.chapterIndex) return;
+    final saved = library.videoEpisodeProgress(target.itemId, target.chapterId);
+    if (saved == null) return;
     if (saved.position <= Duration.zero) return;
     // 已播完的不自动跳回结尾（用户重看时从头开始更自然）。
     if (saved.isFinished) return;
@@ -3976,7 +3981,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             onPressed: _openPlaybackVerification,
             child: const Text('播放网页验证'),
           ),
-        OutlinedButton(onPressed: _openSourceSheet, child: const Text('更换线路')),
+        OutlinedButton(
+          onPressed: _offerAlternativeLines,
+          child: const Text('换线路继续看'),
+        ),
       ],
     );
   }
@@ -4256,6 +4264,136 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 与「清晰度」按钮共用同一个切线路回调（[_selectQuality]），两条入口的行为
   /// 因此永远一致。**手动贴地址的入口已按用户口径删除**：播放页只播图源 /
   /// 作品给的地址，不再提供「贴一条链接起播」的通道。
+  Future<void> _offerAlternativeLines() async {
+    if (_advancing) return;
+    final target = _target;
+    if (target == null) {
+      await _openSourceSheet();
+      return;
+    }
+    try {
+      final source = await _openSource();
+      if (source == null || !mounted) return;
+      final all = await VideoEpisodeCatalog.load(source, target.itemId);
+      if (!mounted || _target?.isSameEpisode(target) != true) return;
+      final current = all
+          .where((entry) => entry.id == target.chapterId)
+          .firstOrNull;
+      if (current == null) {
+        _showToast('当前剧集已变更，请重新选集');
+        return;
+      }
+      final grouped = VideoEpisodeCatalog.group(all);
+      final alternatives = grouped.keys
+          .where((line) => line != VideoEpisodeCatalog.lineOf(current))
+          .toList();
+      if (alternatives.isEmpty) {
+        _showToast('没有其他剧集线路，可在播放源中切换清晰度');
+        await _openSourceSheet();
+        return;
+      }
+      ModalRoute<String>? pickerRoute;
+      final next = await _playbackMenu<String>(
+        context: context,
+        builder: (context) {
+          pickerRoute = ModalRoute.of<String>(context);
+          return SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const ListTile(
+                  title: Text('换线路继续看'),
+                  subtitle: Text('仅切换到对应集，保留当前播放位置'),
+                ),
+                for (final line in alternatives)
+                  ListTile(
+                    title: Text(line),
+                    subtitle: Text(
+                      VideoEpisodeCatalog.matchingIndex(
+                                current,
+                                grouped[line]!,
+                              ) <
+                              0
+                          ? '没有对应集，请返回详情页手动选集'
+                          : VideoEpisodeCatalog.displayLabel(
+                              current,
+                              target.chapterIndex,
+                            ),
+                    ),
+                    enabled:
+                        VideoEpisodeCatalog.matchingIndex(
+                          current,
+                          grouped[line]!,
+                        ) >=
+                        0,
+                    onTap: () => Navigator.pop(context, line),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+      await pickerRoute?.completed;
+      if (next == null || !mounted || _target?.isSameEpisode(target) != true) {
+        return;
+      }
+      final index = VideoEpisodeCatalog.matchingIndex(current, grouped[next]!);
+      if (index < 0) return;
+      _advancing = true;
+      final chapter = grouped[next]![index];
+      final snapshot = _player?.snapshot.value;
+      final previous = _library?.videoEpisodeProgress(
+        target.itemId,
+        target.chapterId,
+      );
+      final position = snapshot != null && snapshot.position > Duration.zero
+          ? snapshot.position
+          : previous?.position ?? Duration.zero;
+      final content = await source.content(
+        itemId: target.itemId,
+        chapterId: chapter.id,
+      );
+      final qualities = SourcePlayback.contentQualities(
+        content,
+        source: source,
+      );
+      final chosen = PlaybackQualityPreference.select(qualities, _settings);
+      final address = chosen?.url ?? SourcePlayback.contentAddress(content);
+      if (address == null) throw StateError('该线路未返回可播放地址');
+      if (!mounted || _target?.isSameEpisode(target) != true) return;
+      setState(() {
+        _qualities = qualities;
+        _qualityIndex = 0;
+      });
+      await _startPlayback(
+        PlayerMedia(
+          uri: address,
+          title: '${target.title} · ${chapter.title}',
+          headers:
+              chosen?.headers ??
+              SourcePlayback.contentHeaders(content, source: source),
+        ),
+        target: VideoPlayTarget(
+          sourceId: target.sourceId,
+          itemId: target.itemId,
+          title: target.title,
+          cover: target.cover,
+          chapterIndex: index,
+          chapterId: chapter.id,
+          chapterTitle: chapter.title,
+        ),
+        resumePosition: position,
+      );
+      if (_player?.snapshot.value.error != null) throw StateError('线路播放失败');
+      _saveProgress(force: true);
+      if (mounted) _showToast('已切换到 $next，继续当前集');
+    } catch (_) {
+      if (mounted) _showToast('切换失败，请重试或返回详情页选择其他线路');
+    } finally {
+      _advancing = false;
+    }
+  }
+
   Future<void> _openSourceSheet() async {
     if (!mounted) return;
     _cancelAutoHide();
@@ -4265,7 +4403,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => PlayerSourceSheet(
+      builder: (sheetContext) => PlayerSourceSheet(
+        onSwitchLine: target == null
+            ? null
+            : () {
+                Navigator.pop(sheetContext);
+                unawaited(_offerAlternativeLines());
+              },
         loadEpisodes: target == null
             ? null
             : () async {
