@@ -8,7 +8,6 @@ import '../../shared/widgets/network_owned_state.dart';
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
-import '../../core/source/source_preferences.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -91,6 +90,9 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   bool _onShelf = false;
   static const _layoutKey = 'comic.detail.compactLayout';
   bool _compact = true, _descriptionExpanded = false, _isGallery = false;
+  static const _originalColumnsKey = 'comic.detail.originalColumns';
+  int? _originalColumns;
+  bool _originalSearchVisible = false;
   String _chapterQuery = '';
   int? _locatedIndex;
   final _chapterSearch = TextEditingController();
@@ -111,10 +113,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   void initState() {
     super.initState();
     _compact = widget.library.setting(_layoutKey) != 'false';
-    _descending = SourcePreferences.read(
-      widget.library.section,
+    _originalColumns = int.tryParse(
+      widget.library.setting(_originalColumnsKey) ?? '',
+    );
+    _descending = ChapterDisplayOrder(
+      widget.library,
       widget.target.sourceId,
-    ).newestFirst;
+    ).descending;
     _load();
   }
 
@@ -448,7 +453,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     }
   }
 
-  List<int> get _compactChapterIndexes {
+  List<int> get _visibleChapterIndexes {
     final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
     final indexes = order.automatic
         ? ChapterDisplayOrder.correctedIndexes(_chapters)
@@ -674,6 +679,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                 ),
                 icon: Icon(_onShelf ? Icons.bookmark : Icons.bookmark_border),
               ),
+              const SizedBox(width: 4),
+              SourceTranslationAction(
+                texts: [
+                  detail?.title ?? widget.target.title,
+                  if (detail?.description != null) detail!.description!,
+                ],
+              ),
             ],
           ),
           if (_progress != null)
@@ -717,9 +729,6 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                     color: colors.onSurface,
                   ),
                 ),
-              ),
-              SourceTranslationAction(
-                texts: [_detail?.title ?? widget.target.title, description],
               ),
             ],
           ),
@@ -1022,7 +1031,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         onRetry: _load,
       );
     }
-    final indexes = _compactChapterIndexes;
+    final indexes = _visibleChapterIndexes;
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.5);
     final columns = ((MediaQuery.sizeOf(context).width - 32) / (84 * scale))
         .floor()
@@ -1114,8 +1123,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   }
 
   Widget _buildBody() {
-    final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
-    final corrected = order.automatic ? order.indexes(_chapters) : null;
+    final indexes = _visibleChapterIndexes;
     if (_loading) return const SourceStateView(state: SourceStateKind.loading);
     final failure = _failure;
     if (failure != null && _detail == null && _chapters.isEmpty) {
@@ -1156,21 +1164,37 @@ class _ComicDetailPageState extends State<ComicDetailPage>
               ),
             ),
           )
+        else if (indexes.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(padding: EdgeInsets.all(24), child: Text('没有匹配的章节')),
+          )
         else
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            sliver: SliverList.builder(
-              itemCount: _chapters.length,
-              itemBuilder: (context, position) {
-                var index = _descending
-                    ? _chapters.length - 1 - position
-                    : position;
-                if (corrected != null) index = corrected[position];
-                return ChapterTile(
-                  title: _chapters[index].title,
-                  read: _isRead(index),
-                  current: _progress?.chapterIndex == index,
-                  onTap: () => _openReader(index),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+                final columns = constraints.crossAxisExtent < 300 || scale > 1.8
+                    ? 1
+                    : _effectiveOriginalColumns;
+                if (columns == 1) {
+                  return SliverList.separated(
+                    itemCount: indexes.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (_, position) =>
+                        _originalChapter(indexes[position]),
+                  );
+                }
+                return SliverGrid.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    mainAxisExtent: 52 * scale.clamp(1.0, 1.8),
+                  ),
+                  itemCount: indexes.length,
+                  itemBuilder: (_, position) =>
+                      _originalChapter(indexes[position]),
                 );
               },
             ),
@@ -1274,12 +1298,6 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                   ),
                 ],
               ),
-              SourceTranslationAction(
-                texts: [
-                  detail?.title ?? widget.target.title,
-                  if (detail?.description != null) detail!.description!,
-                ],
-              ),
               const SizedBox(height: 14),
               Row(
                 children: <Widget>[
@@ -1298,6 +1316,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                   OutlinedButton(
                     onPressed: _onShelf ? _unshelve : _shelve,
                     child: Text(_onShelf ? '移出书架' : '加入书架'),
+                  ),
+                  const SizedBox(width: 4),
+                  SourceTranslationAction(
+                    texts: [
+                      detail?.title ?? widget.target.title,
+                      if (detail?.description != null) detail!.description!,
+                    ],
                   ),
                 ],
               ),
@@ -1347,67 +1372,211 @@ class _ComicDetailPageState extends State<ComicDetailPage>
 
   Widget _buildDescription() {
     final description = _detail?.description;
-    if (description == null) return const SizedBox(height: 4);
+    if (description == null || description.trim().isEmpty) {
+      return const SizedBox(height: 4);
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
       child: GlassCard(
         radius: 14,
         padding: const EdgeInsets.all(14),
-        child: SourceText(
-          description,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: LumeTypography.bodySize,
-            height: 1.6,
-            color: LumeTheme.textSecondary,
-          ),
+        onTap: () =>
+            setState(() => _descriptionExpanded = !_descriptionExpanded),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('简介', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            SourceText(
+              description,
+              maxLines: _descriptionExpanded ? null : 2,
+              overflow: _descriptionExpanded
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: LumeTypography.bodySize,
+                height: 1.6,
+                color: LumeTheme.textSecondary,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// 章节区标题 + 批量下载入口 + 正序 / 倒序切换。
+  int get _effectiveOriginalColumns =>
+      _originalColumns == 1 || _originalColumns == 2
+      ? _originalColumns!
+      : _chapters.any((chapter) => chapter.title.length > 18)
+      ? 1
+      : 2;
+
+  Widget _originalChapter(int index) {
+    final current = _progress?.chapterId == _chapters[index].id;
+    return GlassCard(
+      key: ValueKey('comic-detail-original-chapter-$index'),
+      radius: 12,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      color: current ? LumeTheme.accent.withValues(alpha: .10) : null,
+      onTap: () => _openReader(index),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 42),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _chapters[index].title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.3,
+                  fontWeight: FontWeight.w600,
+                  color: current
+                      ? LumeTheme.accent
+                      : _isRead(index)
+                      ? LumeTheme.textSecondary
+                      : LumeTheme.textPrimary,
+                ),
+              ),
+            ),
+            if (current || _isRead(index)) ...[
+              const SizedBox(width: 4),
+              Icon(
+                current ? Icons.bookmark : Icons.done,
+                size: 14,
+                color: current ? LumeTheme.accent : LumeTheme.textSecondary,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildChapterHeader() {
     final running = _downloader?.progress.running ?? false;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 8, 6),
-      child: Row(
-        children: <Widget>[
-          Text(
-            _chaptersLoading ? '章节加载中…' : '章节（${_chapters.length}）',
-            style: TextStyle(
-              fontSize: LumeTypography.titleSize,
-              fontWeight: FontWeight.w600,
-              color: LumeTheme.textPrimary,
+    final controls = Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        IconButton(
+          tooltip: '搜索章节',
+          onPressed: () => setState(() {
+            _originalSearchVisible = !_originalSearchVisible;
+          }),
+          icon: const Icon(Icons.search, size: 20),
+        ),
+        IconButton(
+          tooltip: '定位在读',
+          onPressed: _progress == null ? null : _locateReading,
+          icon: const Icon(Icons.my_location, size: 20),
+        ),
+        PopupMenuButton<int>(
+          tooltip: '章节列数',
+          icon: const Icon(Icons.view_column_outlined, size: 20),
+          onSelected: (value) {
+            widget.library.setSetting(_originalColumnsKey, '$value');
+            setState(() => _originalColumns = value);
+          },
+          itemBuilder: (_) => [
+            for (final value in [1, 2])
+              CheckedPopupMenuItem(
+                value: value,
+                checked: _effectiveOriginalColumns == value,
+                child: Text(value == 1 ? '一列' : '两列'),
+              ),
+          ],
+        ),
+        TextButton(
+          onPressed: () {
+            setState(() => _descending = !_descending);
+            ChapterDisplayOrder(
+              widget.library,
+              widget.target.sourceId,
+            ).descending = _descending;
+          },
+          child: Text(_descending ? '倒序' : '正序'),
+        ),
+        PopupMenuButton<String>(
+          tooltip: '更多章节操作',
+          onSelected: (_) => _startBatchDownload(),
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              value: 'download',
+              enabled: _chapters.isNotEmpty && !running,
+              child: Text(running ? '下载中' : '批量下载'),
             ),
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: running ? '下载中' : '批量下载',
-            visualDensity: VisualDensity.compact,
-            onPressed: _chapters.isEmpty ? null : _startBatchDownload,
-            icon: running
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+          ],
+        ),
+      ],
+    );
+    final heading = Text(
+      _chaptersLoading ? '章节加载中…' : '章节（${_chapters.length}）',
+      style: TextStyle(
+        fontSize: LumeTypography.titleSize,
+        fontWeight: FontWeight.w600,
+        color: LumeTheme.textPrimary,
+      ),
+    );
+    return Padding(
+      key: _compactChapterAnchor,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (_, constraints) =>
+                constraints.maxWidth < 390 ||
+                    MediaQuery.textScalerOf(context).scale(16) > 20
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [heading, controls],
                   )
-                : const LumeIcon(
-                    Icons.download_for_offline_outlined,
-                    slot: 'comic_detail_page.2',
-                    size: 20,
+                : Row(
+                    children: [
+                      Expanded(child: heading),
+                      controls,
+                    ],
                   ),
           ),
-          TextButton.icon(
-            onPressed: () => setState(() => _descending = !_descending),
-            icon: LumeIcon(
-              _descending ? Icons.arrow_downward : Icons.arrow_upward,
-              slot: 'comic_detail_page.3',
-              variant: true,
-              size: 16,
+          if (_originalSearchVisible ||
+              _chapterQuery.isNotEmpty ||
+              _locatedIndex != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: TextField(
+                controller: _chapterSearch,
+                onChanged: (value) => setState(() {
+                  _chapterQuery = value.trim();
+                  _locatedIndex = null;
+                }),
+                decoration: InputDecoration(
+                  hintText: '搜索章节名称',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    tooltip: '显示全部章节',
+                    onPressed: () {
+                      _chapterSearch.clear();
+                      setState(() {
+                        _chapterQuery = '';
+                        _locatedIndex = null;
+                      });
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
-            label: Text(_descending ? '倒序' : '正序'),
-          ),
+          if (_locatedIndex != null)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text('已定位在读章节 · 清除后显示全部'),
+            ),
         ],
       ),
     );

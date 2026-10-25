@@ -322,8 +322,9 @@ void main() {
   testWidgets('详情页：批量下载入口与范围面板', (tester) async {
     await pumpPage(tester);
 
-    expect(find.byIcon(Icons.download_for_offline_outlined), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.download_for_offline_outlined));
+    await tester.tap(find.byTooltip('更多章节操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('批量下载'));
     await tester.pumpAndSettle();
 
     expect(find.text('批量下载'), findsOneWidget);
@@ -338,7 +339,9 @@ void main() {
   testWidgets('详情页：不可达图床下跑完整批，结果卡片给出失败汇总与路径', (tester) async {
     await pumpPage(tester);
 
-    await tester.tap(find.byIcon(Icons.download_for_offline_outlined));
+    await tester.tap(find.byTooltip('更多章节操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('批量下载'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('仅当前章'));
     // 逐帧推进到下载结束：网络请求在真实异步里完成，pumpAndSettle 等不到它。
