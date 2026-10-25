@@ -82,6 +82,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     final first = painter(tester);
     final fill = first.entries.first.fill;
+    final picture = first.entries.first.picture;
+    expect(picture, isNotNull);
     final initialPosition = first.position as Duration;
     expect(fill.text.style.shadows, isNull);
     expect(
@@ -93,6 +95,11 @@ void main() {
     expect(next.position, greaterThan(initialPosition));
     expect(identical(first, next), isTrue, reason: '帧动画仅重绘，不重建整个弹幕组件');
     expect(identical(fill, next.entries.first.fill), true);
+    expect(
+      identical(picture, next.entries.first.picture),
+      true,
+      reason: '滚动帧复用录制的文字与描边，而不是每帧重新提交两个段落',
+    );
     // A slightly late engine report must not clear already visible comments.
     await tester.pumpWidget(view(position: const Duration(milliseconds: 60)));
     expect(painter(tester).entries.length, 1);
@@ -153,6 +160,38 @@ void main() {
       expect(step, inInclusiveRange(14000, 19000), reason: '第$frame帧');
       previous = current;
     }
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('两万条同秒拥挤弹幕不会积压到后续秒，下一秒仍按时投放', (tester) async {
+    final dense = DanmakuTrack.parse([
+      for (var i = 0; i < 20000; i++) {'time': 0, 'text': '突发弹幕 $i'},
+      {'time': 1000, 'text': '下一秒'},
+    ]);
+    Widget scene(Duration position) => MaterialApp(
+      home: SizedBox(
+        width: 400,
+        height: 240,
+        child: DanmakuOverlay(
+          position: position,
+          playing: true,
+          track: dense,
+          settings: const DanmakuSettings(
+            rows: 1,
+            maxOnScreen: 1,
+            showTop: true,
+            blockedWords: ['突发弹幕'],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(scene(Duration.zero));
+    expect(painter(tester).entries, isEmpty);
+    await tester.pumpWidget(scene(const Duration(seconds: 1)));
+    expect(painter(tester).entries.length, 1);
+    expect(painter(tester).entries.first.item.text, '下一秒');
+    await tester.pumpWidget(scene(const Duration(seconds: 9)));
+    expect(painter(tester).entries, isEmpty, reason: '丢弃的弹幕不能延后补播');
     await tester.pumpWidget(const SizedBox());
   });
 }
