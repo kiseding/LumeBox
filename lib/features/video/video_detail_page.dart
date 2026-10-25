@@ -42,6 +42,25 @@ import 'video_play_target.dart';
 import '../../core/cat/cat_web_parse.dart';
 import '../cat/cat_web_parse_page.dart';
 
+// Increase weight without changing font sizes or accessibility scaling.
+TextTheme _bolderTextTheme(TextTheme base) => base.copyWith(
+  displayLarge: base.displayLarge?.apply(fontWeightDelta: 1),
+  displayMedium: base.displayMedium?.apply(fontWeightDelta: 1),
+  displaySmall: base.displaySmall?.apply(fontWeightDelta: 1),
+  headlineLarge: base.headlineLarge?.apply(fontWeightDelta: 1),
+  headlineMedium: base.headlineMedium?.apply(fontWeightDelta: 1),
+  headlineSmall: base.headlineSmall?.apply(fontWeightDelta: 1),
+  titleLarge: base.titleLarge?.apply(fontWeightDelta: 1),
+  titleMedium: base.titleMedium?.apply(fontWeightDelta: 1),
+  titleSmall: base.titleSmall?.apply(fontWeightDelta: 1),
+  bodyLarge: base.bodyLarge?.apply(fontWeightDelta: 1),
+  bodyMedium: base.bodyMedium?.apply(fontWeightDelta: 1),
+  bodySmall: base.bodySmall?.apply(fontWeightDelta: 1),
+  labelLarge: base.labelLarge?.apply(fontWeightDelta: 1),
+  labelMedium: base.labelMedium?.apply(fontWeightDelta: 1),
+  labelSmall: base.labelSmall?.apply(fontWeightDelta: 1),
+);
+
 typedef OpenVideoPlayer = Future<void> Function(
   PlayerMedia media,
   VideoPlayTarget target,
@@ -540,8 +559,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   @override
-  Widget build(BuildContext context) =>
-      originalStyle ? _buildOriginal(context) : _buildCompact(context);
+  Widget build(BuildContext context) => Theme(
+    data: Theme.of(context)
+        .copyWith(textTheme: _bolderTextTheme(Theme.of(context).textTheme)),
+    child: Builder(
+      builder: (context) =>
+          originalStyle ? _buildOriginal(context) : _buildCompact(context),
+    ),
+  );
 
   void setDetailStyle(bool original) {
     widget.library.setSetting(styleSetting, '$original');
@@ -635,7 +660,25 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       Expanded(
         child: Text(
           [
-            if (subtitle.trim().isNotEmpty) subtitle,
+            if (subtitle.trim().isNotEmpty)
+              subtitle
+                  .split(' · ')
+                  .where(
+                    (part) =>
+                        !originalStyle ||
+                        !(tmdb.metadata?.genres.contains(part.trim()) ?? false),
+                  )
+                  .join(' · '),
+            if ((tmdb.metadata?.episodeCount ?? 0) > 0 &&
+                !subtitle.contains('集'))
+              '共 ${tmdb.metadata!.episodeCount} 集',
+            if (tmdb.metadata?.year.isNotEmpty == true &&
+                !subtitle.contains(tmdb.metadata!.year))
+              tmdb.metadata!.year,
+            if (!originalStyle &&
+                tmdb.metadata?.genres.isNotEmpty == true &&
+                !tmdb.metadata!.genres.any(subtitle.contains))
+              tmdb.metadata!.genres.join(' · '),
             if ((tmdb.metadata?.rating ?? 0) > 0)
               '★ ${tmdb.metadata!.rating.toStringAsFixed(1)}',
           ].join(' · '),
@@ -644,6 +687,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           textAlign: originalStyle ? TextAlign.center : TextAlign.left,
           style: TextStyle(
             fontSize: 13,
+            fontWeight: FontWeight.w500,
             height: 1.4,
             color: originalStyle
                 ? Colors.white
@@ -710,6 +754,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         '线路',
         style: TextStyle(
           fontSize: 14,
+          fontWeight: FontWeight.w500,
           color: originalStyle
               ? Colors.white70
               : Theme.of(context).colorScheme.onSurfaceVariant,
@@ -728,6 +773,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 ? Colors.white
                 : Theme.of(context).colorScheme.onSurface,
             fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
           decoration: InputDecoration(
             isDense: !originalStyle,
@@ -847,6 +893,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                       : '观看中',
                                   style: const TextStyle(
                                     fontSize: 10,
+                                    fontWeight: FontWeight.w500,
                                     color: Colors.white,
                                   ),
                                 ),
@@ -949,6 +996,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 11,
+          fontWeight: FontWeight.w500,
           color: originalStyle
               ? Colors.white70
               : Theme.of(context).colorScheme.onSurfaceVariant,
@@ -987,7 +1035,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         children: [
           const Text(
             '演员',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -1168,7 +1216,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
           episodeProgressBar(index),
@@ -1246,7 +1294,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           '选集 · $currentLine · ${chapters.length} 集',
                           style: const TextStyle(
                             fontSize: 17,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -1447,7 +1495,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 '选集 · 共 ${chapters.length} 集',
                 style: const TextStyle(
                   fontSize: 17,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1539,6 +1587,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               key: const Key('video-detail-compact-progress'),
               style: TextStyle(
                 fontSize: 11,
+                fontWeight: FontWeight.w500,
                 height: 1.4,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -1729,7 +1778,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           style: TextStyle(
                             fontSize: 24,
                             height: 1.2,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                             color: colors.onSurface,
                           ),
                         ),
@@ -1790,9 +1839,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     builder: (context, _) {
       final dark = ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: _pageColor,
-        textTheme: LumeTheme.readableTextTheme(
-          Brightness.dark,
-        ).apply(fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily),
+        textTheme: _bolderTextTheme(
+          LumeTheme.readableTextTheme(Brightness.dark).apply(
+            fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+          ),
+        ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xffb5b9df),
           brightness: Brightness.dark,
@@ -1885,7 +1936,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             detail?.title ?? widget.item.title,
                             textAlign: TextAlign.center,
                             style: dark.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w800,
                               color: Colors.white,
                               shadows: const [
                                 Shadow(color: Colors.black54, blurRadius: 12),
@@ -1899,6 +1950,22 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                 .replaceAll(RegExp(r'集\s*集'), '集'),
                             detail?.title ?? widget.item.title,
                           ),
+                          if (tmdb.metadata?.genres.isNotEmpty == true)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                tmdb.metadata!.genres.join(' · '),
+                                key: const Key('video-detail-genres'),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
                           resumeHint(),
                           const SizedBox(height: 4),
                           Center(

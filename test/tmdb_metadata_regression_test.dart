@@ -49,6 +49,10 @@ http.Response response(Uri uri, {bool alias = false}) {
     'overview': '官方剧情',
     'vote_average': 8.6,
     'vote_count': 128,
+    'release_date': '2026-10-25',
+    'genres': [
+      {'id': 18, 'name': '剧情'},
+    ],
     'credits': {
       'cast': [
         {'name': '演员甲', 'profile_path': '/actor.jpg'},
@@ -90,6 +94,13 @@ void main() {
     expect(data!.rating, 8.6);
     expect(data.cast, ['演员甲', '演员乙']);
     expect(data.overview, '官方剧情');
+    expect(data.year, '2026');
+    expect(data.genres, ['剧情']);
+    expect(data.episodeCount, 0, reason: '电影不虚构集数');
+    final restored = TmdbMetadata.fromJson(data.toJson());
+    expect(restored.year, '2026');
+    expect(restored.genres, ['剧情']);
+    expect(TmdbMetadata.fromJson({}).year, isEmpty);
     expect(data.backdrops, ['https://images.test/t/p/w1280/background.jpg']);
     expect(data.logos, ['https://images.test/t/p/w500/logo.png']);
     expect(data.profiles, ['https://images.test/t/p/w185/actor.jpg', '']);

@@ -97,7 +97,7 @@ class TmdbSettings extends ChangeNotifier {
   bool _cacheLoaded = false;
   Future<void> _cacheWrites = Future.value();
   String cacheKey(String title) => jsonEncode([
-    'recommendations-v3',
+    'detail-facts-v4',
     apiProxy.trim(),
     imageProxy.trim(),
     TmdbClient.normalized(title),
@@ -234,12 +234,18 @@ class TmdbMetadata {
     this.recommendations = const [],
     this.rating = 0,
     this.voteCount = 0,
+    this.year = '',
+    this.genres = const [],
+    this.episodeCount = 0,
   });
   final String overview;
   final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
   final List<TmdbRecommendation> recommendations;
   final double rating;
   final int voteCount;
+  final String year;
+  final List<String> genres;
+  final int episodeCount;
   Map<String, dynamic> toJson() => {
     'overview': overview,
     'posters': posters,
@@ -251,6 +257,9 @@ class TmdbMetadata {
     'recommendations': recommendations.map((item) => item.toJson()).toList(),
     'rating': rating,
     'voteCount': voteCount,
+    'year': year,
+    'genres': genres,
+    'episodeCount': episodeCount,
   };
   factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
     recommendations: (data['recommendations'] as List? ?? [])
@@ -271,6 +280,9 @@ class TmdbMetadata {
         .toList(),
     rating: (data['rating'] as num?)?.toDouble() ?? 0,
     voteCount: (data['voteCount'] as num?)?.toInt() ?? 0,
+    year: data['year'] as String? ?? '',
+    genres: (data['genres'] as List? ?? []).whereType<String>().toList(),
+    episodeCount: (data['episodeCount'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -612,6 +624,18 @@ class TmdbClient {
         voteCount:
             ((details['vote_count'] ?? match['vote_count']) as num?)?.toInt() ??
             0,
+        year:
+            RegExp(r'^\d{4}').stringMatch(
+              '${details['first_air_date'] ?? details['release_date'] ?? match['first_air_date'] ?? match['release_date'] ?? ''}',
+            ) ??
+            '',
+        genres: (details['genres'] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => '${row['name'] ?? ''}'.trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList(),
+        episodeCount: (details['number_of_episodes'] as num?)?.toInt() ?? 0,
         cast: ((details['credits'] as Map?)?['cast'] as List? ?? [])
             .whereType<Map>()
             .map((row) => row['name'])
