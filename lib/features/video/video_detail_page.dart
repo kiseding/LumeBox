@@ -600,74 +600,117 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
-  List<Widget> detailActions() => [
-    IconButton(
-      key: const Key('video-detail-search'),
-      tooltip: '其他源找这部',
-      onPressed: _source == null ? null : () => searchCurrentVideo(),
-      icon: const Icon(Icons.search),
-    ),
-    IconButton(
-      key: const Key('video-detail-favorite'),
-      tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
-      onPressed: _source == null || !widget.recordHistory ? null : favorite,
-      icon: Icon(
-        widget.library.onShelf(widget.item.id)
-            ? Icons.favorite
-            : Icons.favorite_border,
+  List<Widget> detailActions() {
+    final inherited = Theme.of(context);
+    // The same white tint as the play capsule, composited onto the poster tone.
+    // An opaque menu surface keeps busy artwork from reducing text contrast.
+    final menuBackground = originalStyle
+        ? Color.alphaBlend(Colors.white.withValues(alpha: .35), _pageColor)
+        : inherited.colorScheme.surface;
+    final menuForeground = menuBackground.computeLuminance() > .179
+        ? Colors.black
+        : Colors.white;
+    return [
+      IconButton(
+        key: const Key('video-detail-search'),
+        tooltip: '其他源找这部',
+        onPressed: _source == null ? null : () => searchCurrentVideo(),
+        icon: const Icon(Icons.search),
       ),
-    ),
-    PopupMenuButton<String>(
-      key: const Key('video-detail-more'),
-      tooltip: '更多',
-      onSelected: (action) {
-        switch (action) {
-          case 'bangumi':
-            openBangumi();
-          case 'original':
-            setDetailStyle(true);
-          case 'compact':
-            setDetailStyle(false);
-          case 'tmdb':
-            tmdb.rematch();
-          case 'settings':
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
-            );
-        }
-      },
-      itemBuilder: (_) => [
-        const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
-        const PopupMenuDivider(),
-        CheckedPopupMenuItem(
-          value: 'original',
-          checked: originalStyle,
-          child: const Text('大封面版（旧版）'),
+      IconButton(
+        key: const Key('video-detail-favorite'),
+        tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
+        onPressed: _source == null || !widget.recordHistory ? null : favorite,
+        icon: Icon(
+          widget.library.onShelf(widget.item.id)
+              ? Icons.favorite
+              : Icons.favorite_border,
         ),
-        CheckedPopupMenuItem(
-          value: 'compact',
-          checked: !originalStyle,
-          child: const Text('紧凑版（当前版）'),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'tmdb',
-          enabled: tmdb.settings.configured && !tmdb.loading,
-          child: const Text('重新匹配TMDB'),
-        ),
-        const PopupMenuItem(value: 'settings', child: Text('TMDB 设置与测试')),
-        PopupMenuItem(
-          enabled: false,
-          child: Text(
-            tmdbStatusLabel,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
+      ),
+      Theme(
+        data: inherited.copyWith(
+          dividerColor: menuForeground.withValues(alpha: .16),
+          colorScheme: inherited.colorScheme.copyWith(
+            onSurface: menuForeground,
+            primary: menuForeground,
+          ),
+          iconTheme: IconThemeData(color: menuForeground),
+          popupMenuTheme: PopupMenuThemeData(
+            color: menuBackground,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            textStyle: TextStyle(
+              color: menuForeground,
+              fontWeight: FontWeight.w600,
+            ),
+            labelTextStyle: WidgetStatePropertyAll(
+              TextStyle(color: menuForeground, fontWeight: FontWeight.w600),
+            ),
           ),
         ),
-      ],
-    ),
-    const SizedBox(width: 8),
-  ];
+        child: PopupMenuButton<String>(
+          key: const Key('video-detail-more'),
+          icon: Icon(
+            Icons.more_horiz,
+            color: originalStyle
+                ? Colors.white
+                : inherited.colorScheme.onSurface,
+          ),
+          tooltip: '更多',
+          onSelected: (action) {
+            switch (action) {
+              case 'bangumi':
+                openBangumi();
+              case 'original':
+                setDetailStyle(true);
+              case 'compact':
+                setDetailStyle(false);
+              case 'tmdb':
+                tmdb.rematch();
+              case 'settings':
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TmdbSettingsPage(),
+                  ),
+                );
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
+            const PopupMenuDivider(),
+            CheckedPopupMenuItem(
+              value: 'original',
+              checked: originalStyle,
+              child: const Text('大封面版（旧版）'),
+            ),
+            CheckedPopupMenuItem(
+              value: 'compact',
+              checked: !originalStyle,
+              child: const Text('紧凑版（当前版）'),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'tmdb',
+              enabled: tmdb.settings.configured && !tmdb.loading,
+              child: const Text('重新匹配TMDB'),
+            ),
+            const PopupMenuItem(value: 'settings', child: Text('TMDB 设置与测试')),
+            PopupMenuItem(
+              enabled: false,
+              child: Text(
+                tmdbStatusLabel,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(width: 8),
+    ];
+  }
 
   String get tmdbStatusLabel {
     if (!tmdb.settings.enabled) return 'TMDB 未开启';
