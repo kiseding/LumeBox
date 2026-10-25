@@ -654,7 +654,7 @@ void main() {
     expect(find.byKey(const Key('video-detail-gradient')), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xff55516e),
+      Colors.black,
     );
     expect(find.byTooltip('更多'), findsOneWidget);
     expect(source.parses, 0);

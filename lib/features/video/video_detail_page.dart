@@ -6,7 +6,9 @@ import '../settings/tmdb_settings_page.dart';
 
 import 'dart:ui' as ui;
 
-import '../../core/theme/cover_palette.dart';
+import 'package:palette_generator/palette_generator.dart';
+
+import '../../shared/widgets/poster_gradient_scaffold.dart';
 import '../../shared/widgets/source_translation.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
@@ -414,9 +416,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Color get _pageColor {
     if (originalStyle) {
-      return _coverColor == null
-          ? const Color(0xff55516e)
-          : immersiveCoverSurface(_coverColor!);
+      return _coverColor ?? Colors.black;
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = dark ? const Color(0xff11131a) : const Color(0xfff7f7fa);
@@ -475,26 +475,27 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (cover == null || cover.isEmpty) return;
     final revision = ++_paletteRevision;
     try {
-      final sample = _displayedPoster == cover
-          ? await _displayedPosterSample(cover)
-          : await pipeline.colorSample(cover);
-      if (sample == null) return;
-      Color? color;
-      try {
-        final pixels = await sample.toByteData(
-          format: ui.ImageByteFormat.rawRgba,
-        );
-        if (pixels != null) {
-          color = immersiveArtworkColor(
-            pixels.buffer.asUint8List(),
-            width: sample.width,
-            height: sample.height,
-          );
-        }
-      } finally {
-        sample.dispose();
-      }
-      if (color == null || revision != _paletteRevision) return;
+      final color = await PosterPaletteCache.resolve(
+        ('video-detail-dark-muted', cover),
+        () async {
+          final sample = _displayedPoster == cover
+              ? await _displayedPosterSample(cover)
+              : await pipeline.colorSample(cover);
+          if (sample == null) throw StateError('Poster unavailable');
+          try {
+            // Reuse the decoded, downsampled poster and its existing session.
+            final palette = await PaletteGenerator.fromImage(
+              sample,
+              maximumColorCount: 24,
+              filters: const [],
+            );
+            return palette.darkMutedColor?.color;
+          } finally {
+            sample.dispose();
+          }
+        },
+      );
+      if (revision != _paletteRevision) return;
       if (mounted) {
         setState(() => _coverColor = color);
       }
@@ -1871,19 +1872,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           child: DecoratedBox(
                             key: const Key('video-detail-gradient'),
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                stops: [0, .32, .55, .76, .92, 1],
-                                colors: [
-                                  Color(0x55151820),
-                                  Color(0x00151820),
-                                  Color(0x33151820),
-                                  _pageColor.withValues(alpha: .65),
-                                  _pageColor.withValues(alpha: .95),
-                                  _pageColor,
-                                ],
-                              ),
+                              gradient: posterOverlayGradient(_pageColor),
                             ),
                           ),
                         ),
