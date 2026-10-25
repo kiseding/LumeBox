@@ -28,6 +28,7 @@ class TmdbSettings extends ChangeNotifier {
   TmdbSettings();
   static final instance = TmdbSettings();
   bool enabled = false;
+  bool detailBackdropEnabled = true;
   TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
@@ -56,6 +57,7 @@ class TmdbSettings extends ChangeNotifier {
               : kind.defaultSize;
         }
         enabled = data['enabled'] == true;
+        detailBackdropEnabled = data['detailBackdropEnabled'] != false;
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
         imageProxy = data['imageProxy'] as String? ?? '';
@@ -75,6 +77,7 @@ class TmdbSettings extends ChangeNotifier {
     notifyListeners();
     final snapshot = jsonEncode({
       'enabled': enabled,
+      'detailBackdropEnabled': detailBackdropEnabled,
       'apiKey': apiKey,
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,

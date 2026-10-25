@@ -1,3 +1,4 @@
+import 'detail_poster_background.dart';
 import 'detail_artwork_motion.dart';
 import 'video_episode_catalog.dart';
 import '../../core/theme/lume_theme.dart';
@@ -435,7 +436,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Color get _pageColor {
     if (originalStyle) {
-      return _coverColor ?? Colors.black;
+      return tmdb.settings.detailBackdropEnabled
+          ? (_coverColor ?? Colors.black)
+          : const Color(0xff11131a);
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = dark ? const Color(0xff11131a) : const Color(0xfff7f7fa);
@@ -446,7 +449,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Future<ui.Image?> _displayedPosterSample(String url) async {
     // The gallery has already decoded this NetworkImage. Reuse Flutter's image
     // cache rather than downloading the same poster again through the source.
-    final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
+    final ImageProvider provider = url == tmdb.metadata?.backdrops.firstOrNull
+        ? ResizeImage.resizeIfNeeded(384, null, NetworkImage(url))
+        : NetworkImage(url);
+    final stream = provider.resolve(ImageConfiguration.empty);
     final ready = Completer<ui.Image?>();
     late final ImageStreamListener listener;
     listener = ImageStreamListener(
@@ -490,14 +496,18 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Future<void> updatePalette() async {
-    final cover = _displayedPoster ?? sourceCover;
+    final backdrop =
+        tmdb.settings.enabled && tmdb.settings.detailBackdropEnabled
+        ? tmdb.metadata?.backdrops.firstOrNull
+        : null;
+    final cover = backdrop ?? _displayedPoster ?? sourceCover;
     if (cover == null || cover.isEmpty) return;
     final revision = ++_paletteRevision;
     try {
       final color = await PosterPaletteCache.resolve(
-        ('video-detail-dark-muted', cover),
+        ('video-detail-backdrop-v2', cover),
         () async {
-          final sample = _displayedPoster == cover
+          final sample = backdrop == cover || _displayedPoster == cover
               ? await _displayedPosterSample(cover)
               : await pipeline.colorSample(cover);
           if (sample == null) throw StateError('Poster unavailable');
@@ -508,7 +518,23 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               maximumColorCount: 24,
               filters: const [],
             );
-            return palette.darkMutedColor?.color;
+            // Very dark neutral swatches usually describe clothes, not the
+            // poster's atmosphere. Prefer a coloured swatch in that case.
+            final muted = palette.darkMutedColor?.color;
+            final hsl = muted == null ? null : HSLColor.fromColor(muted);
+            final swatches = palette.paletteColors.where((swatch) {
+              final value = HSLColor.fromColor(swatch.color);
+              return value.saturation > .22 && value.lightness > .12;
+            }).toList()..sort((a, b) => b.population.compareTo(a.population));
+            final chosen =
+                hsl != null && hsl.lightness > .13 && hsl.saturation > .2
+                ? muted
+                : swatches.firstOrNull?.color ??
+                      muted ??
+                      palette.dominantColor?.color;
+            if (chosen == null) return null;
+            final tone = HSLColor.fromColor(chosen);
+            return tone.withLightness(tone.lightness.clamp(.18, .30)).toColor();
           } finally {
             sample.dispose();
           }
@@ -1870,182 +1896,220 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 460.0,
                 760.0,
               );
-              return SingleChildScrollView(
-                controller: _scroll,
-                key: const Key('video-detail-scroll'),
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                child: Stack(
-                  key: const Key('video-detail-immersive'),
-                  children: [
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: artworkHeight,
-                      child: DetailArtworkMotion(
-                        scroll: _scroll,
-                        height: artworkHeight,
-                        child: IgnorePointer(
-                          child: TmdbPosterGallery(
-                            onArtworkDisplayed: _artworkDisplayed,
-                            controller: tmdb,
-                            fit: BoxFit.cover,
-                            fallback: PosterCover(
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (tmdb.settings.detailBackdropEnabled)
+                    DetailPosterBackground(
+                      key: const Key('video-detail-blurred-background'),
+                      backdrop: tmdb.settings.enabled
+                          ? tmdb.metadata?.backdrops.firstOrNull
+                          : null,
+                      tint: _pageColor,
+                      fallback: sourceCover == null
+                          ? ColoredBox(color: _pageColor)
+                          : PosterCover(
                               pipeline: pipeline,
                               url: sourceCover,
-                              title: widget.item.title,
+                              width: 320,
+                              borderRadius: null,
                               headers:
                                   detail?.coverHeaders ??
                                   widget.item.coverHeaders,
                             ),
-                          ),
-                        ),
-                      ),
                     ),
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: artworkHeight + 2,
-                      child: DetailArtworkMotion(
-                        scroll: _scroll,
-                        height: artworkHeight,
-                        child: IgnorePointer(
-                          child: DecoratedBox(
-                            key: const Key('video-detail-gradient'),
-                            decoration: BoxDecoration(
-                              gradient: posterOverlayGradient(_pageColor),
-                            ),
-                          ),
-                        ),
-                      ),
+                  SingleChildScrollView(
+                    controller: _scroll,
+                    key: const Key('video-detail-scroll'),
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
                     ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        artworkHeight * .61 + 24,
-                        16,
-                        24 + MediaQuery.paddingOf(context).bottom,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SourceText(
-                            detail?.title ?? widget.item.title,
-                            textAlign: TextAlign.center,
-                            style: dark.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              shadows: const [
-                                Shadow(color: Colors.black54, blurRadius: 12),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          metadataRow(
-                            (detail?.subtitle ?? widget.item.subtitle ?? '')
-                                .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
-                                .replaceAll(RegExp(r'集\s*集'), '集'),
-                            detail?.title ?? widget.item.title,
-                          ),
-                          if (tmdb.metadata?.genres.isNotEmpty == true)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                tmdb.metadata!.genres.join(' · '),
-                                key: const Key('video-detail-genres'),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          resumeHint(),
-                          const SizedBox(height: 4),
-                          Center(
-                            child: FractionallySizedBox(
-                              widthFactor: .72,
-                              child: FilledButton.icon(
-                                key: const Key('video-detail-play'),
-                                style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(50),
-                                  backgroundColor: Colors.white.withValues(
-                                    alpha: .35,
+                    child: Stack(
+                      key: const Key('video-detail-immersive'),
+                      children: [
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: artworkHeight,
+                          child: DetailArtworkMotion(
+                            scroll: _scroll,
+                            height: artworkHeight,
+                            child: IgnorePointer(
+                              child: DetailPosterFade(
+                                key: tmdb.settings.detailBackdropEnabled
+                                    ? const Key('video-detail-gradient')
+                                    : null,
+                                child: TmdbPosterGallery(
+                                  onArtworkDisplayed: _artworkDisplayed,
+                                  controller: tmdb,
+                                  fit: BoxFit.cover,
+                                  fallback: PosterCover(
+                                    pipeline: pipeline,
+                                    url: sourceCover,
+                                    title: widget.item.title,
+                                    headers:
+                                        detail?.coverHeaders ??
+                                        widget.item.coverHeaders,
                                   ),
-                                  foregroundColor: Colors.white,
-                                  shape: const StadiumBorder(),
-                                  elevation: 4,
-                                ),
-                                onPressed:
-                                    loading || resolving || chapters.isEmpty
-                                    ? null
-                                    : play,
-                                icon: resolving
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const LumeIcon(
-                                        Icons.play_arrow,
-                                        slot: 'video_detail_page.4',
-                                      ),
-                                label: Text(
-                                  playLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          summaryBlock(
-                            detail?.title ?? widget.item.title,
-                            synopsis,
+                        ),
+                        if (!tmdb.settings.detailBackdropEnabled)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: artworkHeight + 2,
+                            child: DetailArtworkMotion(
+                              scroll: _scroll,
+                              height: artworkHeight,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  key: const Key('video-detail-gradient'),
+                                  decoration: BoxDecoration(
+                                    gradient: posterOverlayGradient(_pageColor),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                          if (playbackFailed && lines.length > 1)
-                            OutlinedButton.icon(
-                              onPressed: switchLineAfterFailure,
-                              icon: const Icon(Icons.alt_route),
-                              label: const Text('换线路继续看'),
-                            ),
-                          if (playbackFailed)
-                            TextButton.icon(
-                              onPressed: () => searchCurrentVideo(),
-                              icon: const Icon(Icons.search),
-                              label: const Text('其他源找这部'),
-                            ),
-                          if (loading)
-                            const Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                          if (error != null) ...[
-                            const SizedBox(height: 12),
-                            Text(error!),
-                            TextButton(
-                              onPressed: load,
-                              child: const Text('重试'),
-                            ),
-                          ],
-                          const SizedBox(height: 4),
-                          linePicker(),
-                          const SizedBox(height: 10),
-                          episodeSection(immersive: true),
-                          castSection(),
-                        ],
-                      ),
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            artworkHeight * .61 + 24,
+                            16,
+                            24 + MediaQuery.paddingOf(context).bottom,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SourceText(
+                                detail?.title ?? widget.item.title,
+                                textAlign: TextAlign.center,
+                                style: dark.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  shadows: const [
+                                    Shadow(
+                                      color: Colors.black54,
+                                      blurRadius: 12,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              metadataRow(
+                                (detail?.subtitle ?? widget.item.subtitle ?? '')
+                                    .replaceAll(
+                                      RegExp(r'(?:更新至\s*){2,}'),
+                                      '更新至',
+                                    )
+                                    .replaceAll(RegExp(r'集\s*集'), '集'),
+                                detail?.title ?? widget.item.title,
+                              ),
+                              if (tmdb.metadata?.genres.isNotEmpty == true)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    tmdb.metadata!.genres.join(' · '),
+                                    key: const Key('video-detail-genres'),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              resumeHint(),
+                              const SizedBox(height: 4),
+                              Center(
+                                child: FractionallySizedBox(
+                                  widthFactor: .72,
+                                  child: FilledButton.icon(
+                                    key: const Key('video-detail-play'),
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(50),
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: .35,
+                                      ),
+                                      foregroundColor: Colors.white,
+                                      shape: const StadiumBorder(),
+                                      elevation: 4,
+                                    ),
+                                    onPressed:
+                                        loading || resolving || chapters.isEmpty
+                                        ? null
+                                        : play,
+                                    icon: resolving
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const LumeIcon(
+                                            Icons.play_arrow,
+                                            slot: 'video_detail_page.4',
+                                          ),
+                                    label: Text(
+                                      playLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              summaryBlock(
+                                detail?.title ?? widget.item.title,
+                                synopsis,
+                              ),
+                              if (playbackFailed && lines.length > 1)
+                                OutlinedButton.icon(
+                                  onPressed: switchLineAfterFailure,
+                                  icon: const Icon(Icons.alt_route),
+                                  label: const Text('换线路继续看'),
+                                ),
+                              if (playbackFailed)
+                                TextButton.icon(
+                                  onPressed: () => searchCurrentVideo(),
+                                  icon: const Icon(Icons.search),
+                                  label: const Text('其他源找这部'),
+                                ),
+                              if (loading)
+                                const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              if (error != null) ...[
+                                const SizedBox(height: 12),
+                                Text(error!),
+                                TextButton(
+                                  onPressed: load,
+                                  child: const Text('重试'),
+                                ),
+                              ],
+                              const SizedBox(height: 4),
+                              linePicker(),
+                              const SizedBox(height: 10),
+                              episodeSection(immersive: true),
+                              castSection(),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               );
             },
           ),

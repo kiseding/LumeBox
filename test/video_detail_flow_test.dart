@@ -1,3 +1,4 @@
+import 'package:lume_box/features/video/detail_poster_background.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 import 'package:lume_box/core/media/media_library.dart';
 
@@ -633,6 +634,62 @@ void main() {
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
   });
+  testWidgets('详情背景优先 TMDB backdrop，缺失回源封面，开关可关闭', (tester) async {
+    final settings = TmdbSettings.instance;
+    final oldEnabled = settings.enabled;
+    final oldBackdrop = settings.detailBackdropEnabled;
+    addTearDown(() {
+      settings.enabled = oldEnabled;
+      settings.detailBackdropEnabled = oldBackdrop;
+    });
+    settings.detailBackdropEnabled = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    settings.enabled = true;
+    state.setState(() {
+      state.tmdb.metadata = const TmdbMetadata(
+        overview: '',
+        posters: [],
+        backdrops: ['https://preview.invalid/backdrop.jpg'],
+      );
+    });
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<DetailPosterBackground>(find.byType(DetailPosterBackground))
+          .backdrop,
+      'https://preview.invalid/backdrop.jpg',
+    );
+    state.setState(() {
+      state.tmdb.metadata = const TmdbMetadata(overview: '', posters: []);
+    });
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<DetailPosterBackground>(find.byType(DetailPosterBackground))
+          .backdrop,
+      isNull,
+    );
+    settings.detailBackdropEnabled = false;
+    state.setState(() {});
+    await tester.pumpAndSettle();
+    expect(find.byType(DetailPosterBackground), findsNothing);
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xff11131a),
+    );
+  });
+
   testWidgets('源未实现详情接口仍保留剧集和显式播放流程', (tester) async {
     source.failDetail = true;
     var opened = 0;

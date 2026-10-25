@@ -121,6 +121,15 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
               save();
             },
           ),
+          NativeSwitchListTile.adaptive(
+            title: const Text('详情页海报渐变模糊背景'),
+            subtitle: const Text('优先使用 TMDB 背景图，无背景图时使用源封面；关闭后使用深色纯底'),
+            value: settings.detailBackdropEnabled,
+            onChanged: (value) {
+              settings.detailBackdropEnabled = value;
+              save();
+            },
+          ),
           const SizedBox(height: 16),
           const Text('海报展示样式'),
           const SizedBox(height: 10),
