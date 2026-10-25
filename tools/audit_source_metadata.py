@@ -11,7 +11,7 @@ import re
 
 
 def audit(root):
-    catalog = json.loads((root / 'content-ratings.json').read_text(encoding='utf-8'))
+    catalog = json.loads((root / 'metadata/content-ratings.json' if (root / 'metadata/content-ratings.json').exists() else root / 'content-ratings.json').read_text(encoding='utf-8'))
     ratings = catalog.get('sources', {})
     rows = []
     manifests = []

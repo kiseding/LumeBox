@@ -6,6 +6,7 @@ import '../../core/session/section.dart';
 import '../../core/net/source_subscription.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
+import '../../core/source/source_subscription_catalog.dart';
 import '../../shared/widgets/glass_card.dart';
 
 class SourceSubscriptionPage extends StatefulWidget {
@@ -192,6 +193,25 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
             ),
             keyboardType: TextInputType.url,
           ),
+          if (widget.section == Section.comic ||
+              widget.section == Section.video)
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final domestic in [true, false])
+                  ActionChip(
+                    label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _url.text = SubscriptionCatalog.sectionUrl(
+                              widget.section,
+                              cdn: domestic,
+                            );
+                          }),
+                  ),
+              ],
+            ),
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _busy ? null : _add,

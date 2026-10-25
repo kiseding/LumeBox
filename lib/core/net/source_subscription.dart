@@ -9,6 +9,7 @@ import '../util/lume_log.dart';
 import '../util/md5.dart';
 import 'lume_http.dart';
 import '../source/source_package.dart';
+import '../source/source_subscription_catalog.dart';
 import '../source/kazumi_rule.dart';
 import '../source/source_bundle.dart';
 import '../js/module_script.dart';
@@ -155,6 +156,7 @@ class SourceSubscription {
     String url, {
     bool force = false,
   }) async {
+    url = SubscriptionCatalog.migrateUrl(url);
     final headers = force ? const {'Cache-Control': 'no-cache'} : null;
     LumeHttpResponse response;
     try {

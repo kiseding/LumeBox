@@ -86,14 +86,13 @@ class TotalSubscriptionService {
       throw const FormatException('请粘贴总订阅地址或总订阅 JSON');
     }
     if (fetch != null) {
-      return TotalSubscription.decode((await fetch!(text)).text);
+      return TotalSubscription.decode(
+        (await fetch!(SubscriptionCatalog.migrateUrl(text))).text,
+      );
     }
     final http = LumeHttp(source: '总订阅导入');
     try {
-      final response = await http.send(url: text);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw StateError('总订阅读取失败：HTTP ${response.statusCode}');
-      }
+      final response = await SourceSubscription.fetchSubscription(http, text);
       return TotalSubscription.decode(response.text);
     } finally {
       http.dispose();

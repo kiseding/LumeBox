@@ -1,3 +1,4 @@
+import '../../core/source/source_subscription_catalog.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -461,6 +462,28 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   }
 
   List<Widget> _buildSubscription() => <Widget>[
+    if (_section == Section.comic || _section == Section.video)
+      Wrap(
+        spacing: 8,
+        children: [
+          for (final domestic in [true, false])
+            ActionChip(
+              label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                      final audio = _url.text.contains('audiobook');
+                      _url.text = audio
+                          ? '${domestic ? SubscriptionCatalog.cdnBase : SubscriptionCatalog.base}subscriptions/${domestic ? 'cdn/' : ''}audiobook.txt'
+                          : SubscriptionCatalog.sectionUrl(
+                              _section,
+                              cdn: domestic,
+                            );
+                    }),
+            ),
+        ],
+      ),
+    const SizedBox(height: 8),
     TextField(
       controller: _url,
       enabled: !_busy,

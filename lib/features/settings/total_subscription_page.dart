@@ -145,6 +145,21 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
           padding: EdgeInsets.zero,
         ),
         const SizedBox(height: 16),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: true, label: Text('国内 CDN')),
+            ButtonSegment(value: false, label: Text('GitHub 原站')),
+          ],
+          selected: {input.text.trim() == SubscriptionCatalog.totalCdnUrl},
+          onSelectionChanged: busy
+              ? null
+              : (value) => setState(() {
+                  input.text = value.single
+                      ? SubscriptionCatalog.totalCdnUrl
+                      : SubscriptionCatalog.totalUrl;
+                }),
+        ),
+        const SizedBox(height: 12),
         TextField(
           enabled: !busy,
           controller: input,
