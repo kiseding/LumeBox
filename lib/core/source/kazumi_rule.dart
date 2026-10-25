@@ -200,7 +200,7 @@ function kazumiHeaders(page) {
 }
 async function kazumiPage(url, script, form) {
   const headers = kazumiHeaders(url);
-  const options = {url, script, headers, timeoutMs: 8000};
+  const options = {url, script, headers, timeoutMs: 8000, includeHtml: false};
   if (form != null) {
     options.method = 'POST'; options.body = form;
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
@@ -224,15 +224,16 @@ function kazumiExtract(mode) {
       // Kazumi has no home selectors. Use only real same-site poster links;
       // do not manufacture recommendations from an empty search query.
       for (const a of document.querySelectorAll('a[href]')) {
-        const img = a.querySelector('img');
-        if (!img || a.closest('header,footer,nav')) continue;
+        if (a.closest('header,footer,nav')) continue;
+        const card = a.closest('li,article,.module-item,.public-list-box,.video-item,.video_item,.stui-vodlist__box,.hl-list-item,.myui-vodlist__box') || a;
+        const img = a.querySelector('img') || card.querySelector('img');
+        if (!img) continue;
         const url = href(a);
         if (!url || seen.has(url)) continue;
         const target = new URL(url);
-        if (target.origin !== location.origin || target.pathname === '/' ||
+        if (target.hostname !== location.hostname || target.pathname === '/' ||
             /^(search|vodsearch|tag|type|vodtype|play|vodplay|login|register)$/i.test((target.pathname.split('/')[1] || '').split(/[-.]/)[0])) continue;
-        const card = a.closest('li,article,.module-item,.public-list-box,.video-item,.stui-vodlist__box,.hl-list-item,.myui-vodlist__box') || a;
-        const heading = card.querySelector('h2,h3,h4,.module-poster-item-title,.title');
+        const heading = card.querySelector('h2,h3,h4,h5,.module-poster-item-title,.video_item-title,.title');
         const title = (a.getAttribute('title') || img.getAttribute('alt') || (heading && heading.textContent) || a.textContent || '').trim();
         let cover = img.getAttribute('data-original') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('src') || '';
         try { cover = new URL(cover, location.href).href; } catch (_) { continue; }

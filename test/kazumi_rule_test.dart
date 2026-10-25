@@ -85,6 +85,7 @@ void main() {
     final home = await engine.call('list', {'page': 1}) as Map;
     expect((home['items'] as List).single['title'], '真实首页作品');
     expect(requests.single['url'], rule['baseURL']);
+    expect(requests.single['includeHtml'], isFalse);
     expect(requests.single['script'], contains("mode = \"home\""));
     final next = await engine.call('list', {'page': 2}) as Map;
     expect(next['items'], isEmpty);
@@ -359,6 +360,11 @@ void main() {
       'page': 1,
     });
     expect((list as Map)['items'], isEmpty);
+    expect(
+      requests.first['includeHtml'],
+      isFalse,
+      reason: '仅提取结构化数据，不把大页面HTML送过原生通道',
+    );
     expect(requests.first['method'], 'POST');
     expect(requests.first['url'], 'https://example.test/search');
     expect(requests.first['body'], 'q=${Uri.encodeComponent('中文 & query')}');

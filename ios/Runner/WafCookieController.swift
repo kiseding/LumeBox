@@ -234,8 +234,9 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     if let error=error as NSError? {
       let certificate=error.domain==NSURLErrorDomain && [-1201,-1202,-1203,-1204].contains(error.code)
       let timeout=error.domain==NSURLErrorDomain && error.code==NSURLErrorTimedOut
-      finish(FlutterError(code:timeout ? "api_timeout" : "network",
-        message:certificate ? "CERTIFICATE_VERIFY_FAILED" : timeout ? "接口请求超时" : "系统网络请求失败",details:nil)); return
+      let transport=error.domain==NSURLErrorDomain && error.code==NSURLErrorAppTransportSecurityRequiresSecureConnection
+      finish(FlutterError(code:transport ? "transport_security" : timeout ? "api_timeout" : "network",
+        message:certificate ? "CERTIFICATE_VERIFY_FAILED" : transport ? "iOS 阻止了此站点的 HTTP 请求，请更新 App 的站点兼容配置" : timeout ? "接口请求超时" : "系统网络请求失败",details:["domain":error.domain,"code":error.code])); return
     }
     succeed()
   }
