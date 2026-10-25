@@ -834,7 +834,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 },
         ),
       ),
-      const SizedBox(width: 10),
+      SizedBox(width: originalStyle ? 38 : 10),
       Expanded(
         flex: MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 1,
         child: OutlinedButton.icon(
@@ -2030,7 +2030,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               const SizedBox(height: 4),
                               Center(
                                 child: FractionallySizedBox(
-                                  widthFactor: .72,
+                                  widthFactor: .82,
                                   child: FilledButton.icon(
                                     key: const Key('video-detail-play'),
                                     style: FilledButton.styleFrom(
