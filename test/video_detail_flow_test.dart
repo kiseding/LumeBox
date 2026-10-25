@@ -186,7 +186,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('播放线路'), findsOneWidget);
+    expect(find.text('线路'), findsOneWidget);
     expect(
       tester
           .widget<SourceText>(

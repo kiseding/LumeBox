@@ -654,6 +654,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       if (tmdb.metadata != null)
         IconButton(
           key: const Key('video-detail-tmdb-status'),
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          padding: const EdgeInsets.all(4),
           tooltip:
               'TMDB 已匹配${tmdb.metadata!.cast.isEmpty ? '' : ' · ${tmdb.metadata!.cast.length} 位演员'}',
           onPressed: () => Navigator.of(context).push(
@@ -700,105 +703,91 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     ],
   );
 
-  Widget linePicker() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget linePicker() => Row(
+    key: const Key('video-detail-line-heading'),
     children: [
-      Row(
-        key: const Key('video-detail-line-heading'),
-        children: [
-          Expanded(
-            child: Text(
-              '播放线路',
-              style: TextStyle(
-                fontSize: 14,
-                color: originalStyle
-                    ? Colors.white70
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          SourceTranslationAction(
-            texts: [detail?.title ?? widget.item.title, synopsis],
-          ),
-        ],
+      Text(
+        '线路',
+        style: TextStyle(
+          fontSize: 14,
+          color: originalStyle
+              ? Colors.white70
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
-      const SizedBox(height: 8),
-      Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey('video-detail-line-$currentLine'),
-              initialValue: lines.isEmpty ? null : currentLine,
-              isExpanded: true,
-              dropdownColor: _pageColor,
-              style: TextStyle(
-                color: originalStyle
-                    ? Colors.white
-                    : Theme.of(context).colorScheme.onSurface,
-                fontSize: 14,
-              ),
-              decoration: InputDecoration(
-                isDense: !originalStyle,
-                filled: true,
-                fillColor: originalStyle
-                    ? Colors.white.withValues(alpha: .09)
-                    : Colors.black.withValues(alpha: .04),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: originalStyle ? 12 : 10,
+      const SizedBox(width: 10),
+      Expanded(
+        flex: 3,
+        child: DropdownButtonFormField<String>(
+          key: ValueKey('video-detail-line-$currentLine'),
+          initialValue: lines.isEmpty ? null : currentLine,
+          isExpanded: true,
+          dropdownColor: _pageColor,
+          style: TextStyle(
+            color: originalStyle
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurface,
+            fontSize: 14,
+          ),
+          decoration: InputDecoration(
+            isDense: !originalStyle,
+            filled: true,
+            fillColor: originalStyle
+                ? Colors.white.withValues(alpha: .09)
+                : Colors.black.withValues(alpha: .04),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: originalStyle ? 12 : 10,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(originalStyle ? 14 : 12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          items: [
+            for (final e in lines.entries)
+              DropdownMenuItem(
+                value: e.key,
+                child: Text(
+                  '${e.key} · ${e.value.length} 集',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(originalStyle ? 14 : 12),
-                  borderSide: BorderSide.none,
-                ),
               ),
-              items: [
-                for (final e in lines.entries)
-                  DropdownMenuItem(
-                    value: e.key,
-                    child: Text(
-                      '${e.key} · ${e.value.length} 集',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+          ],
+          onChanged: resolving || lines.length < 2
+              ? null
+              : (v) {
+                  if (v != null) changeLine(v);
+                },
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        flex: MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 1,
+        child: OutlinedButton.icon(
+          // Keep the secondary entry usable with large accessibility text.
+          key: const Key('video-detail-select-episodes'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: Size.fromHeight(originalStyle ? 48 : 44),
+            tapTargetSize: originalStyle
+                ? null
+                : MaterialTapTargetSize.shrinkWrap,
+            shape: originalStyle
+                ? null
+                : RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-              ],
-              onChanged: resolving || lines.length < 2
-                  ? null
-                  : (v) {
-                      if (v != null) changeLine(v);
-                    },
+            foregroundColor: originalStyle ? Colors.white : null,
+            side: BorderSide(
+              color: originalStyle ? Colors.white24 : Colors.black12,
             ),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 1,
-            child: OutlinedButton.icon(
-              // Keep the secondary entry usable with large accessibility text.
-              key: const Key('video-detail-select-episodes'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: Size.fromHeight(originalStyle ? 48 : 44),
-                tapTargetSize: originalStyle
-                    ? null
-                    : MaterialTapTargetSize.shrinkWrap,
-                shape: originalStyle
-                    ? null
-                    : RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                foregroundColor: originalStyle ? Colors.white : null,
-                side: BorderSide(
-                  color: originalStyle ? Colors.white24 : Colors.black12,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              onPressed: chapters.isEmpty ? null : showEpisodes,
-              icon: const Icon(Icons.grid_view, size: 17),
-              label: const Text('选集'),
-            ),
-          ),
-        ],
+          onPressed: chapters.isEmpty ? null : showEpisodes,
+          icon: const Icon(Icons.grid_view, size: 17),
+          label: const Text('选集'),
+        ),
       ),
     ],
   );
@@ -1462,6 +1451,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 ),
               ),
             ),
+            SourceTranslationAction(
+              key: const Key('video-detail-translation'),
+              texts: [detail?.title ?? widget.item.title, synopsis],
+            ),
             IconButton(
               tooltip: reversed ? '恢复正序' : '倒序排列',
               onPressed: chapters.isEmpty
@@ -1899,7 +1892,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               ],
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 4),
                           metadataRow(
                             (detail?.subtitle ?? widget.item.subtitle ?? '')
                                 .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
@@ -1907,7 +1900,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             detail?.title ?? widget.item.title,
                           ),
                           resumeHint(),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 4),
                           Center(
                             child: FractionallySizedBox(
                               widthFactor: .72,
