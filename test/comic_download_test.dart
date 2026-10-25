@@ -287,6 +287,7 @@ void main() {
   // ------------------------------------------------------------------ 页面
 
   Future<void> pumpPage(WidgetTester tester) async {
+    library.setSetting('comic.detail.compactLayout', 'false');
     await tester.binding.setSurfaceSize(const Size(420, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(

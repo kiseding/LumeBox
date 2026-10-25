@@ -43,6 +43,7 @@ void main() {
           (_) async => {'known': true, 'audio': true, 'video': true},
         );
     comicLibrary = await ReadingLibrary.open(Section.comic);
+    comicLibrary.setSetting('comic.detail.compactLayout', 'false');
     await ReadingLibrary.open(Section.video);
   });
 

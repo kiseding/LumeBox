@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import '../../core/source/source_picker_groups.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_translation.dart';
 import '../../shared/widgets/network_owned_state.dart';
@@ -37,6 +40,7 @@ class ComicDetailPage extends StatefulWidget {
     required this.manager,
     required this.target,
     this.runtimeAvailable,
+    this.imagePipeline,
   });
 
   final ReadingLibrary library;
@@ -49,6 +53,7 @@ class ComicDetailPage extends StatefulWidget {
   /// 平台是否提供图源运行时；透传给阅读器（为空时它自己按板块判断）。
   /// 与 `ComicPage` 的平台门同一口径，测试也靠它显式声明运行环境。
   final bool? runtimeAvailable;
+  final SectionImagePipeline? imagePipeline;
 
   @override
   State<ComicDetailPage> createState() => _ComicDetailPageState();
@@ -57,16 +62,19 @@ class ComicDetailPage extends StatefulWidget {
 class _ComicDetailPageState extends State<ComicDetailPage>
     with NetworkOwnedState<ComicDetailPage> {
   NetworkProfile _sourceNetwork = NetworkProfile.none;
-  late final SectionImagePipeline _pipeline = SectionImagePipeline(
-    cacheDir: widget.library.imageCacheDir,
-    network: _sourceNetwork,
-    memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
-    // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
-    maxConcurrent: SectionImagePipeline.coverConcurrency,
-    // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）。
-    diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
-    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
-  );
+  late final SectionImagePipeline _pipeline =
+      widget.imagePipeline ??
+      SectionImagePipeline(
+        cacheDir: widget.library.imageCacheDir,
+        network: _sourceNetwork,
+        memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
+        // 封面网格按封面并发（4）跑：并发太大被图床限流，反而更多空白。
+        maxConcurrent: SectionImagePipeline.coverConcurrency,
+        // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）。
+        diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
+        decodeTransform: (bytes) =>
+            automaticUpscale(bytes, UpscaleSurface.cover),
+      );
 
   DataSource? _source;
   SourceDetail? _detail;
@@ -81,6 +89,16 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   bool _descending = false;
 
   bool _onShelf = false;
+  static const _layoutKey = 'comic.detail.compactLayout';
+  bool _compact = true, _descriptionExpanded = false, _isGallery = false;
+  String _chapterQuery = '';
+  int? _locatedIndex;
+  final _chapterSearch = TextEditingController();
+  final _compactScroll = ScrollController();
+  final _compactChapterAnchor = GlobalKey();
+  ImageContent? _galleryPreview;
+  bool _galleryLoading = false;
+  String? _galleryFailure;
 
   /// 批量下载器：第一次点「批量下载」时创建，之后复用同一个实例
   /// （进度卡片、取消、结果汇总都读它）。
@@ -92,6 +110,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   @override
   void initState() {
     super.initState();
+    _compact = widget.library.setting(_layoutKey) != 'false';
     _descending = SourcePreferences.read(
       widget.library.section,
       widget.target.sourceId,
@@ -104,7 +123,9 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     // 先停下载再释放管线：管线关闭会让在飞请求返回空，下载器据此
     // 判定「这一批不下了」，而不是把剩下的图逐张记成失败。
     _downloader?.dispose();
-    _pipeline.dispose();
+    _chapterSearch.dispose();
+    _compactScroll.dispose();
+    if (widget.imagePipeline == null) _pipeline.dispose();
     super.dispose();
   }
 
@@ -115,6 +136,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       _loading = true;
       _chaptersLoading = false;
       _failure = null;
+      _galleryPreview = null;
+      _galleryLoading = false;
+      _galleryFailure = null;
+      _locatedIndex = null;
     });
     try {
       final (descriptors, source) = await (
@@ -128,6 +153,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
               .firstOrNull
               ?.network ??
           NetworkProfile.none;
+      final descriptor = descriptors
+          .where((entry) => entry.id == widget.target.sourceId)
+          .firstOrNull;
+      _isGallery =
+          descriptor != null &&
+          SourcePickerGroups.groupFor(widget.library.section, descriptor) ==
+              'photo';
       _pipeline.bindSource(source);
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么
       // （源站上了 Cloudflare 校验而图片请求不带 cf_clearance 时，封面就是一片空白）。
@@ -176,6 +208,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _onShelf = widget.library.onShelf(widget.target.itemId);
         _progress = widget.library.progress(widget.target.itemId);
       });
+      if (_compact && _isGallery) unawaited(_loadGalleryPreview());
       // 「查看详情」本身也是历史：只写 favorite = 0 的历史行；收藏必须等
       // 用户明确点「加入书架」。
       widget.library.recordHistoryItem(
@@ -292,7 +325,12 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       await _openReader(0);
       return;
     }
-    final index = progress.chapterIndex.clamp(0, _chapters.length - 1);
+    final matched = _chapters.indexWhere(
+      (chapter) => chapter.id == progress.chapterId,
+    );
+    final index = matched >= 0
+        ? matched
+        : progress.chapterIndex.clamp(0, _chapters.length - 1);
     final page = progress is ComicProgress ? progress.page : 0;
     await _openReader(index, page: page);
   }
@@ -352,11 +390,719 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     );
   }
 
+  Widget _layoutMenu() => PopupMenuButton<bool>(
+    key: const Key('comic-detail-layout'),
+    tooltip: '详情页样式',
+    icon: const Icon(Icons.view_compact_outlined),
+    onSelected: (value) {
+      widget.library.setSetting(_layoutKey, '$value');
+      setState(() => _compact = value);
+      if (value && _isGallery && _galleryPreview == null && !_galleryLoading) {
+        unawaited(_loadGalleryPreview());
+      }
+    },
+    itemBuilder: (_) => [
+      CheckedPopupMenuItem(
+        value: true,
+        checked: _compact,
+        child: const Text('紧凑版（新版）'),
+      ),
+      CheckedPopupMenuItem(
+        value: false,
+        checked: !_compact,
+        child: const Text('原版详情页'),
+      ),
+    ],
+  );
+
+  Future<void> _loadGalleryPreview() async {
+    final source = _source;
+    if (!_isGallery || source == null || _chapters.isEmpty || _galleryLoading) {
+      return;
+    }
+    final revision = _loadRevision;
+    setState(() {
+      _galleryLoading = true;
+      _galleryFailure = null;
+    });
+    try {
+      final content = await networkRequests.run(
+        'gallery-preview',
+        () => source.content(
+          itemId: widget.target.itemId,
+          chapterId: _chapters.first.id,
+        ),
+      );
+      if (!mounted || revision != _loadRevision) return;
+      if (content is! ImageContent) throw StateError('源没有返回图片列表');
+      _pipeline.configureImageHeaders(content.imageHeaders);
+      setState(() => _galleryPreview = content);
+    } catch (_) {
+      if (mounted && revision == _loadRevision) {
+        setState(() => _galleryFailure = '预览暂未加载，可直接浏览图集');
+      }
+    } finally {
+      if (mounted && revision == _loadRevision) {
+        setState(() => _galleryLoading = false);
+      }
+    }
+  }
+
+  List<int> get _compactChapterIndexes {
+    final order = ChapterDisplayOrder(widget.library, widget.target.sourceId);
+    final indexes = order.automatic
+        ? ChapterDisplayOrder.correctedIndexes(_chapters)
+        : List.generate(_chapters.length, (i) => i);
+    final sorted = _descending ? indexes.reversed : indexes;
+    return sorted
+        .where(
+          (i) => _locatedIndex != null
+              ? i == _locatedIndex
+              : _chapters[i].title.toLowerCase().contains(
+                  _chapterQuery.toLowerCase(),
+                ),
+        )
+        .toList();
+  }
+
+  bool get _useChapterGrid =>
+      !_isGallery &&
+      _chapters.isNotEmpty &&
+      _chapters.every(
+        (chapter) =>
+            chapter.title.length <= 18 &&
+            ChapterDisplayOrder.chapterNumber(chapter.title) != null,
+      );
+
+  void _locateReading() {
+    final progress = _progress;
+    if (progress == null || _chapters.isEmpty) return;
+    final matched = _chapters.indexWhere(
+      (chapter) => chapter.id == progress.chapterId,
+    );
+    final index = matched >= 0
+        ? matched
+        : progress.chapterIndex.clamp(0, _chapters.length - 1);
+    _chapterSearch.clear();
+    setState(() {
+      _locatedIndex = index;
+      _chapterQuery = '';
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final anchor = _compactChapterAnchor.currentContext;
+      if (anchor != null) {
+        Scrollable.ensureVisible(
+          anchor,
+          duration: const Duration(milliseconds: 250),
+          alignment: .05,
+        );
+      }
+    });
+  }
+
+  String get _compactProgressLabel {
+    final progress = _progress;
+    if (progress == null) return '';
+    final title =
+        _chapters
+            .where((chapter) => chapter.id == progress.chapterId)
+            .firstOrNull
+            ?.title ??
+        progress.chapterTitle;
+    return progress is ComicProgress && title.isNotEmpty
+        ? '$title · 第 ${progress.page + 1} 页'
+        : progress.describe();
+  }
+
+  Widget _compactHeader() {
+    final colors = Theme.of(context).colorScheme;
+    final detail = _detail;
+    final cover = detail?.cover ?? widget.target.cover;
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SourceText(
+          detail?.title ?? widget.target.title,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 24,
+            height: 1.25,
+            fontWeight: FontWeight.w700,
+            color: colors.onSurface,
+          ),
+        ),
+        if (detail?.author?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '作者 · ${detail!.author}',
+              style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+            ),
+          ),
+        if ((detail?.subtitle ?? widget.target.subtitle)?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              detail?.subtitle ?? widget.target.subtitle!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final text in [
+              if (detail?.status?.isNotEmpty == true) detail!.status!,
+              ...?detail?.tags.take(4),
+            ])
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: .07),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  child: Text(
+                    text,
+                    style: TextStyle(fontSize: 11, color: colors.primary),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _chaptersLoading
+              ? '正在加载目录…'
+              : _isGallery
+              ? '共 ${_chapters.length} 组'
+              : '共 ${_chapters.length} 话',
+          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+        ),
+        if (_source != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '来源 · ${_source!.name}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+            ),
+          ),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, bounds) {
+              final narrow =
+                  bounds.maxWidth < 310 ||
+                  MediaQuery.textScalerOf(context).scale(1) > 1.5;
+              final poster = SizedBox(
+                width: narrow ? 90 : 110,
+                height: narrow ? 123 : 150,
+                child: PosterCover(
+                  pipeline: _pipeline,
+                  url: cover,
+                  title: detail?.title ?? widget.target.title,
+                  width: 330,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              );
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  poster,
+                  const SizedBox(width: 16),
+                  Expanded(child: info),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  key: const Key('comic-detail-read'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: _chapters.isEmpty ? null : _continueReading,
+                  icon: Icon(
+                    _isGallery
+                        ? Icons.photo_library_outlined
+                        : Icons.menu_book_outlined,
+                    size: 19,
+                  ),
+                  label: Text(
+                    _isGallery
+                        ? '浏览图集'
+                        : _progress == null
+                        ? '开始阅读'
+                        : '继续阅读',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              IconButton.outlined(
+                key: const Key('comic-detail-favorite'),
+                tooltip: _onShelf ? '移出书架' : '加入书架',
+                onPressed: _source == null
+                    ? null
+                    : _onShelf
+                    ? _unshelve
+                    : _shelve,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(44, 44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: Icon(_onShelf ? Icons.bookmark : Icons.bookmark_border),
+              ),
+            ],
+          ),
+          if (_progress != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '读至 $_compactProgressLabel',
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+            ),
+          if (detail?.updatedAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '更新于 ${detail!.updatedAt!.year}-${detail.updatedAt!.month.toString().padLeft(2, '0')}-${detail.updatedAt!.day.toString().padLeft(2, '0')}',
+                style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactDescription() {
+    final description = _detail?.description?.trim() ?? '';
+    if (description.isEmpty) return const SizedBox(height: 12);
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '简介',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurface,
+                  ),
+                ),
+              ),
+              SourceTranslationAction(
+                texts: [_detail?.title ?? widget.target.title, description],
+              ),
+            ],
+          ),
+          InkWell(
+            key: const Key('comic-detail-description'),
+            onTap: () =>
+                setState(() => _descriptionExpanded = !_descriptionExpanded),
+            child: SourceText(
+              description,
+              maxLines: _descriptionExpanded ? null : 2,
+              overflow: _descriptionExpanded ? null : TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.6,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactGalleryImages() {
+    if (!_isGallery) return const SizedBox.shrink();
+    final images = _galleryPreview?.images ?? [];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            images.isEmpty
+                ? '图片预览'
+                : '${_chapters.length > 1 ? '首组' : '共'} ${images.length} 张图片',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          if (_galleryLoading)
+            const LinearProgressIndicator()
+          else if (_galleryFailure != null)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _galleryFailure!,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '重试图片预览',
+                  onPressed: _loadGalleryPreview,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            )
+          else if (images.isNotEmpty)
+            GridView.builder(
+              key: const Key('comic-detail-gallery-preview'),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: .8,
+              ),
+              itemCount: images.length.clamp(0, 6),
+              itemBuilder: (_, i) => InkWell(
+                onTap: () => _openReader(0, page: i),
+                child: SectionImage(
+                  pipeline: _pipeline,
+                  url: images[i],
+                  targetWidth: 360,
+                  headers: _galleryPreview!.imageHeaders[images[i]] ?? const {},
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactChapterTools() => Padding(
+    key: _compactChapterAnchor,
+    padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _chaptersLoading
+                    ? '章节加载中…'
+                    : '${_isGallery ? '图集分组' : '章节'}（${_chapters.length}）',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: '定位上次阅读',
+              onPressed: _progress == null ? null : _locateReading,
+              icon: const Icon(Icons.my_location_outlined, size: 20),
+            ),
+            TextButton(
+              onPressed: () => setState(() {
+                _descending = !_descending;
+                ChapterDisplayOrder(
+                  widget.library,
+                  widget.target.sourceId,
+                ).descending = _descending;
+              }),
+              child: Text(_descending ? '倒序' : '正序'),
+            ),
+            IconButton(
+              tooltip: '批量下载',
+              onPressed: _chapters.isEmpty ? null : _startBatchDownload,
+              icon: const Icon(Icons.download_outlined, size: 20),
+            ),
+          ],
+        ),
+        TextField(
+          key: const Key('comic-detail-chapter-search'),
+          controller: _chapterSearch,
+          decoration: InputDecoration(
+            hintText: _isGallery ? '搜索图集分组' : '搜索章节名称或序号',
+            prefixIcon: const Icon(Icons.search),
+            isDense: true,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            suffixIcon: _chapterQuery.isNotEmpty || _locatedIndex != null
+                ? IconButton(
+                    tooltip: '显示全部章节',
+                    onPressed: () {
+                      _chapterSearch.clear();
+                      setState(() {
+                        _chapterQuery = '';
+                        _locatedIndex = null;
+                      });
+                    },
+                    icon: const Icon(Icons.close),
+                  )
+                : null,
+          ),
+          onChanged: (value) => setState(() {
+            _chapterQuery = value;
+            _locatedIndex = null;
+          }),
+        ),
+        if (_locatedIndex != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '上次阅读 · ${_chapters[_locatedIndex!].title}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Widget _compactChapter(int index, {bool grid = false}) {
+    final colors = Theme.of(context).colorScheme;
+    final active = _progress?.chapterId == _chapters[index].id;
+    return Material(
+      color: active ? colors.primaryContainer : colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: ValueKey('comic-detail-chapter-$index'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openReader(index),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: grid ? 8 : 14,
+          ),
+          child: Row(
+            children: [
+              if (!grid) ...[
+                Icon(
+                  active
+                      ? Icons.bookmark
+                      : _isRead(index)
+                      ? Icons.check
+                      : Icons.menu_book_outlined,
+                  size: 18,
+                  color: active ? colors.primary : colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Text(
+                  _chapters[index].title,
+                  maxLines: grid ? 2 : 3,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: grid ? TextAlign.center : TextAlign.left,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.3,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                    color: active
+                        ? colors.onPrimaryContainer
+                        : _isRead(index)
+                        ? colors.onSurfaceVariant.withValues(alpha: .65)
+                        : colors.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactRelated() {
+    final items = _detail?.related ?? [];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '同源推荐',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 170,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length.clamp(0, 12),
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (_, i) {
+                final item = items[i];
+                return SizedBox(
+                  width: 100,
+                  child: InkWell(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => ComicDetailPage(
+                          library: widget.library,
+                          manager: widget.manager,
+                          target: ReadingTarget(
+                            sourceId: widget.target.sourceId,
+                            itemId: item.id,
+                            title: item.title,
+                            cover: item.cover,
+                            subtitle: item.subtitle,
+                          ),
+                          runtimeAvailable: widget.runtimeAvailable,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: 136,
+                          child: PosterCover(
+                            pipeline: _pipeline,
+                            url: item.cover,
+                            title: item.title,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactBody() {
+    if (_loading) return const SourceStateView(state: SourceStateKind.loading);
+    if (_failure != null && _detail == null && _chapters.isEmpty) {
+      return SourceStateView(
+        state: SourceStateKind.scriptError,
+        detail: _failure,
+        onRetry: _load,
+      );
+    }
+    final indexes = _compactChapterIndexes;
+    final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.5);
+    final columns = ((MediaQuery.sizeOf(context).width - 32) / (84 * scale))
+        .floor()
+        .clamp(2, 5);
+    return CustomScrollView(
+      key: const Key('comic-detail-compact'),
+      controller: _compactScroll,
+      slivers: [
+        SliverToBoxAdapter(child: _compactHeader()),
+        SliverToBoxAdapter(child: _compactDescription()),
+        if (_isGallery) SliverToBoxAdapter(child: _compactGalleryImages()),
+        SliverToBoxAdapter(child: _compactChapterTools()),
+        SliverToBoxAdapter(child: _buildDownloadCard()),
+        if (_chaptersLoading)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: LinearProgressIndicator(),
+            ),
+          )
+        else if (_failure != null)
+          SliverToBoxAdapter(
+            child: SourceStateView(
+              state: SourceStateKind.networkError,
+              detail: _failure,
+              onRetry: _load,
+            ),
+          )
+        else if (indexes.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(_chapters.isEmpty ? kNoChaptersHint : '没有匹配的章节'),
+            ),
+          )
+        else if (_useChapterGrid)
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverGrid.builder(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                mainAxisExtent: 44 * scale,
+              ),
+              itemCount: indexes.length,
+              itemBuilder: (_, i) => _compactChapter(indexes[i], grid: true),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverList.separated(
+              itemCount: indexes.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (_, i) => _compactChapter(indexes[i]),
+            ),
+          ),
+        SliverToBoxAdapter(child: _compactRelated()),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_compact) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        appBar: AppBar(
+          title: Text(_isGallery ? '图集详情' : '漫画详情'),
+          actions: [_layoutMenu()],
+        ),
+        body: SafeArea(top: false, child: _compactBody()),
+      );
+    }
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: GlassAppBar(
+        actions: [_layoutMenu()],
         title: Text(
           _detail?.title ?? widget.target.title,
           maxLines: 1,

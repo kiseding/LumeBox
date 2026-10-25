@@ -368,6 +368,11 @@ class SourceDetail {
     this.subtitle,
     this.description,
     this.chapters = const [],
+    this.author,
+    this.status,
+    this.tags = const [],
+    this.updatedAt,
+    this.related = const [],
   });
 
   final String id;
@@ -377,6 +382,10 @@ class SourceDetail {
   final String? subtitle;
   final String? description;
   final List<SourceChapter> chapters;
+  final String? author, status;
+  final List<String> tags;
+  final DateTime? updatedAt;
+  final List<SourceItem> related;
 
   static SourceDetail? parse(Object? json) {
     if (json is! Map) return null;
@@ -391,8 +400,25 @@ class SourceDetail {
       subtitle: _text(json['subtitle']),
       description: _text(json['description']),
       chapters: parseChapters(json['chapters'] ?? json['episodes']),
+      author: _detailText(json['author'] ?? json['authors']),
+      status: _detailText(json['status']),
+      tags: (json['tags'] ?? json['genres']) is List
+          ? ((json['tags'] ?? json['genres']) as List)
+                .whereType<String>()
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .toList()
+          : const [],
+      updatedAt: SourceItem.parseTime(json['updatedAt'] ?? json['updateTime']),
+      related: parseItems(json['related'] ?? json['recommendations']),
     );
   }
+
+  static String? _detailText(Object? value) => value is String
+      ? _text(value)
+      : value is List
+      ? _text(value.whereType<String>().join('、'))
+      : null;
 }
 
 /// 章节条目。
