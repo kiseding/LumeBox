@@ -146,7 +146,9 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
       return globalThis.fetch(url, {
         method: options.method || 'GET',
         headers: options.headers || {},
-        body: options.body == null ? null : String(options.body)
+        body: options.body == null ? null : String(options.body),
+        // 透传二进制开关：脚本传 {binary:true} 时宿主会额外回 bodyBase64（见 fetch 垫片）。
+        binary: options.binary === true
       });
     },
     get: function (url, options) {
