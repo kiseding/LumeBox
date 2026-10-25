@@ -200,8 +200,8 @@ void main() {
     );
     expect(
       tester.getTopLeft(find.byKey(const Key('video-detail-summary'))).dy,
-      lessThan(
-        tester.getTopLeft(find.byKey(const Key('video-detail-play'))).dy,
+      greaterThan(
+        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
       ),
     );
     expect(find.text('线路A · 2 集'), findsOneWidget);

@@ -589,7 +589,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             color: originalStyle ? Colors.white70 : null,
           ),
         ),
-      SourceTranslationAction(texts: [title, synopsis]),
     ],
   );
 
@@ -599,25 +598,31 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       ? detail!.description!
       : '暂无简介';
 
-  Widget summaryBlock(String title, String text) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget summaryBlock(String title, String text) => Row(
+    key: const Key('video-detail-summary-row'),
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      InkWell(
-        key: const Key('video-detail-summary'),
-        onTap: () => setState(() => descriptionExpanded = !descriptionExpanded),
-        child: SourceText(
-          text,
-          maxLines: descriptionExpanded ? null : 2,
-          overflow: descriptionExpanded ? null : TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 14,
-            height: 1.6,
-            color: originalStyle
-                ? Colors.white
-                : Theme.of(context).colorScheme.onSurfaceVariant,
+      Expanded(
+        child: InkWell(
+          key: const Key('video-detail-summary'),
+          onTap: () =>
+              setState(() => descriptionExpanded = !descriptionExpanded),
+          child: SourceText(
+            text,
+            maxLines: descriptionExpanded ? null : 2,
+            overflow: descriptionExpanded ? null : TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: originalStyle
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       ),
+      const SizedBox(width: 4),
+      SourceTranslationAction(texts: [title, text]),
     ],
   );
 
@@ -1459,7 +1464,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       final baseTheme = Theme.of(context);
       final colors = baseTheme.colorScheme;
       final title = detail?.title ?? widget.item.title;
-      final description = synopsis;
       final subtitle = (detail?.subtitle ?? widget.item.subtitle ?? '')
           .replaceAll(RegExp(r'(?:更新至\s*){2,}'), '更新至')
           .replaceAll(RegExp(r'集\s*集'), '集');
@@ -1587,7 +1591,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         ),
                         const SizedBox(height: 8),
                         metadataRow(subtitle, title),
-                        summaryBlock(title, description),
+                        resumeHint(),
                         const SizedBox(height: 18),
                         Center(
                           child: FractionallySizedBox(
@@ -1624,7 +1628,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             ),
                           ),
                         ),
-                        resumeHint(),
+                        const SizedBox(height: 12),
+                        summaryBlock(
+                          detail?.title ?? widget.item.title,
+                          synopsis,
+                        ),
                         if (playbackFailed && lines.length > 1)
                           OutlinedButton.icon(
                             onPressed: switchLineAfterFailure,
@@ -1778,10 +1786,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                 .replaceAll(RegExp(r'集\s*集'), '集'),
                             detail?.title ?? widget.item.title,
                           ),
-                          summaryBlock(
-                            detail?.title ?? widget.item.title,
-                            synopsis,
-                          ),
+                          resumeHint(),
                           const SizedBox(height: 12),
                           Center(
                             child: FractionallySizedBox(
@@ -1821,7 +1826,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               ),
                             ),
                           ),
-                          resumeHint(),
+                          const SizedBox(height: 12),
+                          summaryBlock(
+                            detail?.title ?? widget.item.title,
+                            synopsis,
+                          ),
                           if (playbackFailed && lines.length > 1)
                             OutlinedButton.icon(
                               onPressed: switchLineAfterFailure,
