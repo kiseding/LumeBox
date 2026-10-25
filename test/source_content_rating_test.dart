@@ -9,6 +9,10 @@ void main() {
       'xtube_video',
       'xchina_audiobook',
       'kaotic_video',
+      'nnhanman_comic',
+      'smtt6_comic',
+      'relamanhua_comic',
+      'xvideos_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

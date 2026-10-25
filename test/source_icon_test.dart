@@ -43,6 +43,24 @@ void main() {
       ),
       'https://fixture.test',
     );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "const config = {base: 'https://fixture.test/path'};",
+      ),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "var base_url = 'https://fixture.test/path';",
+      ),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "var HOST = 'https://user:secret@fixture.test';",
+      ),
+      isEmpty,
+    );
   });
   test('图标后台解析最多同时两站，避免抽屉占满业务请求队列', () async {
     final gate = Completer<void>();

@@ -1,6 +1,6 @@
 /// Explicitly identified adult sources. Unknown sources stay unclassified.
 class SourceContentRating {
-  // Synced from LumeBox-Sources/content-ratings.json (2026-10-25).
+  // Synced from LumeBox-Sources/content-ratings.json (2026-10-26).
   // Unknown sources remain unclassified; these IDs also drive privacy hiding.
   static const adultIds = <String>{
     'mmcg18_comic',
@@ -91,7 +91,6 @@ class SourceContentRating {
     'pornhub_video',
     'fakehub_video',
     'txxx_video',
-    // 2026-10-25 第二批/第三批新增（这些源的 name 也已带「18+」，双保险）
     'yue5xi5_video',
     'thepornjoy_video',
     'haoqi7_video',
@@ -106,6 +105,21 @@ class SourceContentRating {
     'h4dh3_video',
     'cf2_video',
     'cf3_video',
+    'xman6_comic',
+    'bakamh_comic',
+    'relamanhua_comic',
+    'smtt6_comic',
+    'nnhanman_comic',
+    'p85_video',
+    'jj38_video',
+    'fcw_video',
+    'redtube_video',
+    'voyeurhit_video',
+    'xhamster_video',
+    'xnxx_video',
+    'xvideos_video',
+    'youjizz_video',
+    'dage_video',
   };
   static bool isAdult(String id, String name) =>
       adultIds.contains(id) ||

@@ -425,7 +425,7 @@ class LumeSources {
     // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
     // 认不出来这些源就只能永远显示首字母。
     final single = RegExp(
-      r'''(?:BASE_URL|BASE|HOST|baseURL|baseUrl|H\.base)\s*=\s*['"](https?://[^'"]+)''',
+      r'''\b(?:BASE_URL|BASE|HOST|baseURL|baseUrl|base_url|base|host|H\.base)\s*[:=]\s*['"](https?://[^'"]+)''',
     ).firstMatch(script);
     final host =
         single?.group(1) ??
@@ -465,20 +465,24 @@ class LumeSources {
 
   static String _iconUrl(String script) {
     final match = RegExp(
-      r'^//\s*LumeSource:\s*(\{[^\n]+\})',
+      r'^\s*(?://\s*@?|#\s*)LumeSource\s*[:=]\s*(\{[^\n]+\})',
       multiLine: true,
     ).firstMatch(script);
     if (match == null) return '';
     try {
       final metadata = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-      final value = metadata['icon'];
+      final value = metadata['icon'] ?? metadata['iconUrl'];
       if (value is! String) return '';
-      final uri = Uri.tryParse(value);
+      final declared = Uri.tryParse(value.trim());
+      final site = Uri.tryParse(siteUrlFromScript(script));
+      final uri = declared == null
+          ? null
+          : (site?.hasScheme == true ? site!.resolveUri(declared) : declared);
       return uri != null &&
               {'http', 'https'}.contains(uri.scheme) &&
               uri.host.isNotEmpty &&
               uri.userInfo.isEmpty
-          ? value
+          ? uri.toString()
           : '';
     } on Object {
       return '';

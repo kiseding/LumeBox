@@ -21,6 +21,7 @@ import '../../shared/widgets/glass_card.dart';
 import 'cat_web_page.dart';
 
 const catSubscriptionPresets = <String, String>{
+  '潇洒': 'https://raw.githubusercontent.com/xiaosag/hmtv/main/index.js.md5',
   '牛二': 'https://9280.kstore.vip/cat/index.js.md5',
   '豆儿': 'https://catpaw.douer.me/index.js.md5',
   'lmentor': 'https://ghfast.top/https://raw.githubusercontent.com/Darklessing/catvod/refs/heads/main/lmentor/index.js.md5',
