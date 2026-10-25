@@ -1,3 +1,6 @@
+import 'package:lume_box/core/net/lume_net.dart';
+import 'package:lume_box/core/net/network_settings.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -11,6 +14,38 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('TMDB 真实网络客户端继承全局 HTTP 代理', () async {
+    final original = LumeNet.settings;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final reached = Completer<Uri>();
+    final subscription = server.listen((request) async {
+      if (!reached.isCompleted) reached.complete(request.uri);
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"images":{}}');
+      await request.response.close();
+    });
+    final settings = TmdbSettings()
+      ..enabled = true
+      ..apiKey = 'fixture-only-key'
+      ..apiProxy = 'http://tmdb.fixture.invalid';
+    LumeNet.apply(NetworkSettings(proxy: 'http://127.0.0.1:${server.port}'));
+    final client = TmdbClient(settings);
+    try {
+      await HttpOverrides.runWithHttpOverrides(
+        () => client.testApi(),
+        _RealTmdbHttp(),
+      );
+      final request = await reached.future.timeout(const Duration(seconds: 2));
+      expect(request.host, 'tmdb.fixture.invalid');
+      expect(request.path, '/3/configuration');
+      expect(request.queryParameters['api_key'], 'fixture-only-key');
+    } finally {
+      client.dispose();
+      LumeNet.apply(original);
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
   test('TMDB v4 Token 放在 Bearer 请求头，v3 Key 仍使用 api_key', () async {
     for (final credential in [
       'eyJfixture.payload.signature',
@@ -364,3 +399,5 @@ void main() {
     });
   }
 }
+
+class _RealTmdbHttp extends HttpOverrides {}

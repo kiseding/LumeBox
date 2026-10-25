@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../search/search_settings.dart';
+import '../net/lume_net.dart';
 
 enum TmdbPosterStyle { fixed, random, carousel }
 
@@ -295,7 +297,7 @@ class TmdbClient {
     if (!settings.enabled || settings.revision != revision) {
       throw StateError('TMDB 已关闭或配置已改变');
     }
-    final client = _injected ?? http.Client();
+    final client = _injected ?? _networkClient();
     _active.add(client);
     try {
       final request = http.Request(head ? 'HEAD' : 'GET', uri)
@@ -316,6 +318,24 @@ class TmdbClient {
       _active.remove(client);
       if (_injected == null) client.close();
     }
+  }
+
+  http.Client _networkClient() {
+    final proxy = LumeNet.settings.proxy.trim();
+    if (proxy.isEmpty) return http.Client();
+    final uri = Uri.tryParse(proxy);
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw StateError('TMDB 需要有效的全局 HTTP 代理，或使用 TMDB API 代理地址');
+    }
+    final port = uri.hasPort
+        ? uri.port
+        : uri.scheme == 'https'
+        ? 443
+        : 80;
+    return IOClient(HttpClient()..findProxy = (_) => 'PROXY ${uri.host}:$port');
   }
 
   Future<Uri?> _resolvedBase(int revision) async {
