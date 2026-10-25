@@ -592,7 +592,14 @@ class SectionImagePipeline {
       } else {
         cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
       }
-      final plain = cipher.process(cipherBytes);
+      // 注意：BlockCipher.process() 只处理「一个块」，多块必须逐块 processBlock
+      // （踩过：直接 process 一整张 275KB 的密文只解出 16 字节）。
+      final blockSize = cipher.blockSize;
+      if (cipherBytes.length % blockSize != 0) return null;
+      final plain = Uint8List(cipherBytes.length);
+      for (var offset = 0; offset < cipherBytes.length; offset += blockSize) {
+        cipher.processBlock(cipherBytes, offset, plain, offset);
+      }
       if (plain.isEmpty) return null;
       final pad = plain[plain.length - 1];
       final body = (pad > 0 && pad <= 16 && pad <= plain.length)
