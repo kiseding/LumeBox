@@ -1,3 +1,7 @@
+import 'package:file_selector/file_selector.dart';
+
+import '../../core/cat/cat_local_bundle.dart';
+
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -164,6 +168,73 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     }
   }
 
+  Future<void> importLocal() => run(() async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: '猫源运行包 ZIP',
+          extensions: ['zip'],
+          uniformTypeIdentifiers: ['public.zip-archive'],
+        ),
+      ],
+    );
+    if (file == null || !mounted) return;
+    if (await file.length() > CatLocalBundle.maxArchiveBytes) {
+      throw const FormatException('猫源 ZIP 不能超过 24MB');
+    }
+    if (!mounted) return;
+    final label = TextEditingController(
+      text: file.name.replaceFirst(RegExp(r'\.zip$', caseSensitive: false), ''),
+    );
+    final accepted = await showGlassDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('导入本地猫源'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: label,
+              decoration: const InputDecoration(labelText: '名称'),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'ZIP 需包含 index.js 和 index.config.js。相同名称会替换本地包并保留站点设置；本地包不参与在线更新。',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    final name = label.text;
+    label.dispose();
+    if (accepted != true || !mounted) return;
+    final record = await service.importLocal(name, await file.readAsBytes());
+    if (record.enabled) {
+      try {
+        await service.refreshSites(record);
+      } catch (failure) {
+        throw StateError('本地包已保存，站点加载失败；可在配置中心重试。$failure');
+      }
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已导入 ${record.name} · ${record.sites.length} 个站点'),
+        ),
+      );
+    }
+  });
+
   Future<void> configure(CatSubscription record) => run(() async {
     if (!record.enabled) {
       record.enabled = true;
@@ -221,12 +292,16 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('订阅地址'),
-                SelectableText(record.url),
+                Text(record.isLocal ? '来源' : '订阅地址'),
+                SelectableText(
+                  record.isLocal ? '本地 ZIP · 更新请重新导入同名包' : record.url,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   record.error.isEmpty
-                      ? '订阅正常，${record.automatic ? '自动更新已开启' : '自动更新已关闭'}'
+                      ? record.isLocal
+                            ? '本地包已保存'
+                            : '订阅正常，${record.automatic ? '自动更新已开启' : '自动更新已关闭'}'
                       : record.error,
                 ),
               ],
@@ -248,6 +323,12 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
     effectModule: GlassModule.cat,
     title: '猫源配置中心',
     actions: [
+      IconButton(
+        tooltip: '从本地 ZIP 导入',
+        icon: const Icon(Icons.file_open_outlined),
+        onPressed: working ? null : importLocal,
+      ),
+
       IconButton(
         tooltip: '添加订阅',
         icon: const LumeIcon(Icons.add, slot: 'cat_subscription_page.1'),
@@ -285,6 +366,12 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                     ),
                   ),
           ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.file_open_outlined),
+            label: const Text('从本地 ZIP 导入'),
+            onPressed: working ? null : importLocal,
+          ),
+          const SizedBox(height: 8),
           FilledButton.icon(
             icon: const LumeIcon(
               Icons.system_update_alt,
@@ -298,7 +385,9 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                     var failed = 0;
                     for (final record
                         in service.subscriptions
-                            .where((record) => record.enabled)
+                            .where(
+                              (record) => record.enabled && !record.isLocal,
+                            )
                             .toList()) {
                       try {
                         await service.update(record);
@@ -364,7 +453,7 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                       ],
                     ),
                     subtitle: Text(
-                      '${record.hash.isEmpty
+                      '${record.isLocal ? '本地 ZIP · ' : ''}${record.hash.isEmpty
                           ? (record.error.contains('401') ? '需要作者授权' : '未下载')
                           : record.sites.isEmpty
                           ? '站点尚未读取'
@@ -409,27 +498,31 @@ class _CatSubscriptionPageState extends State<CatSubscriptionPage> {
                               child: Text('源设置'),
                             ),
 
-                            const PopupMenuItem(
-                              value: 'update',
-                              child: Text('立即更新'),
-                            ),
-                            CheckedPopupMenuItem(
-                              value: 'automatic',
-                              checked: record.automatic,
-                              child: const Text('自动更新'),
-                            ),
-                            const PopupMenuItem(
-                              value: 'auth',
-                              child: Text('编辑地址 / 授权'),
-                            ),
+                            if (!record.isLocal)
+                              const PopupMenuItem(
+                                value: 'update',
+                                child: Text('立即更新'),
+                              ),
+                            if (!record.isLocal)
+                              CheckedPopupMenuItem(
+                                value: 'automatic',
+                                checked: record.automatic,
+                                child: const Text('自动更新'),
+                              ),
+                            if (!record.isLocal)
+                              const PopupMenuItem(
+                                value: 'auth',
+                                child: Text('编辑地址 / 授权'),
+                              ),
                             const PopupMenuItem(
                               value: 'info',
                               child: Text('订阅信息'),
                             ),
-                            const PopupMenuItem(
-                              value: 'copy',
-                              child: Text('复制订阅链接'),
-                            ),
+                            if (!record.isLocal)
+                              const PopupMenuItem(
+                                value: 'copy',
+                                child: Text('复制订阅链接'),
+                              ),
                             const PopupMenuItem(
                               value: 'remove',
                               child: Text('移除订阅'),

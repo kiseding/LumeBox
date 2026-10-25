@@ -51,7 +51,9 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         final cats = CatService.instance;
         await cats.boot();
         for (final subscription
-            in cats.subscriptions.where((s) => s.enabled).toList()) {
+            in cats.subscriptions
+                .where((s) => s.enabled && !s.isLocal)
+                .toList()) {
           if (mounted) setState(() => current = '正在同步猫源：${subscription.name}…');
           try {
             await cats.update(subscription);
