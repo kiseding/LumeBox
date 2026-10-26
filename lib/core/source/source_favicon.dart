@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:image/image.dart' as img;
+import 'package:html/parser.dart' as html_parser;
 
 import '../net/lume_http.dart';
 import '../net/source_request_log.dart';
@@ -127,6 +128,7 @@ class SourceFavicon {
   final Map<String, DateTime> _failedUntil = {};
 
   final Map<String, Uint8List?> _cache = <String, Uint8List?>{};
+  int _cacheGeneration = 0;
   final Map<String, Future<Uint8List?>> _inflight =
       <String, Future<Uint8List?>>{};
 
@@ -153,6 +155,7 @@ class SourceFavicon {
     _failedUntil.remove(key);
     final running = _inflight[key];
     if (running != null) return running;
+    final generation = _cacheGeneration;
     final task =
         _loadCachedOrResolve(
               key,
@@ -162,13 +165,13 @@ class SourceFavicon {
               sourceId: sourceId,
             )
             .then((bytes) {
-              _remember(key, bytes);
+              if (generation == _cacheGeneration) _remember(key, bytes);
               return bytes;
             })
             .whenComplete(() {
               // 用块体而不是箭头：箭头写法会把 `Map.remove` 的返回值（就是这条 future
               // 本身）当成「还要等它」——自我等待，永远不完成。
-              _inflight.remove(key);
+              if (generation == _cacheGeneration) _inflight.remove(key);
             });
     _inflight[key] = task;
     return task;
@@ -187,6 +190,7 @@ class SourceFavicon {
     String? sourceId,
   }) async {
     File? file;
+    final generation = _cacheGeneration;
     try {
       final directory = await cacheDirectory?.call();
       if (directory != null) {
@@ -210,10 +214,12 @@ class SourceFavicon {
       section: section,
       sourceId: sourceId,
     );
-    if (bytes != null && file != null) {
+    if (bytes != null && file != null && generation == _cacheGeneration) {
       try {
         await file.parent.create(recursive: true);
-        await file.writeAsBytes(bytes, flush: true);
+        if (generation == _cacheGeneration) {
+          file.writeAsBytesSync(bytes, flush: true);
+        }
       } catch (_) {
         /* Optional cache. */
       }
@@ -224,9 +230,24 @@ class SourceFavicon {
   /// 测试用：清掉缓存与在飞表。
   @visibleForTesting
   void clearCache() {
+    _cacheGeneration++;
     _cache.clear();
     _failedUntil.clear();
     _inflight.clear();
+  }
+
+  Future<int> clearDiskCache() async {
+    clearCache();
+    final directory = await cacheDirectory?.call();
+    if (directory == null || !directory.existsSync()) return 0;
+    var freed = 0;
+    for (final file
+        in directory.listSync(followLinks: false).whereType<File>()) {
+      if (!RegExp(r'[/\\][0-9a-f]{64}\.png$').hasMatch(file.path)) continue;
+      freed += file.lengthSync();
+      file.deleteSync();
+    }
+    return freed;
   }
 
   void _remember(String key, Uint8List? bytes) {
@@ -280,12 +301,12 @@ class SourceFavicon {
       sourceId: sourceId,
     );
     if (home == null) return null;
-    for (final url in iconLinksFromHtml(home, origin)) {
+    for (final url in iconLinksFromHtml(home.text, home.url)) {
       final attempt = await _fetch(
         url,
         section: section,
         sourceId: sourceId,
-        referer: '$origin/',
+        referer: home.url,
       );
       if (attempt.bytes != null) return attempt.bytes;
     }
@@ -318,14 +339,14 @@ class SourceFavicon {
     final uri = Uri.tryParse(siteUrl.trim());
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return '';
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return '';
-    return uri.hasPort
-        ? '${uri.scheme}://${uri.host}:${uri.port}'
-        : '${uri.scheme}://${uri.host}';
+    return uri.userInfo.isEmpty ? uri.origin : '';
   }
 
   static bool _isUsableUrl(String url) {
     final uri = Uri.tryParse(url);
-    if (uri == null || uri.host.isEmpty) return false;
+    if (uri == null || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
+      return false;
+    }
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return false;
     return !uri.path.toLowerCase().endsWith('.svg');
   }
@@ -336,18 +357,27 @@ class SourceFavicon {
   /// 其余 `rel=icon` 按 `sizes` 从大到小排；`.svg` 直接跳过（Flutter 解不了）。
   @visibleForTesting
   static List<String> iconLinksFromHtml(String html, String origin) {
-    final site = _originOf(origin);
+    final document = html_parser.parse(html);
+    final baseHref = document.querySelector('base[href]')?.attributes['href'];
+    final site = baseHref == null ? origin : _absolute(baseHref, origin);
     final found = <({String url, int size, int apple})>[];
-    final pattern = RegExp(r'<link\b[^>]*>', caseSensitive: false);
-    for (final match in pattern.allMatches(html)) {
-      final tag = match.group(0)!;
-      final rel = _attribute(tag, 'rel').toLowerCase();
-      if (!rel.contains('icon')) continue;
-      final href = _attribute(tag, 'href');
+    for (final tag in document.querySelectorAll('link[rel]')) {
+      final rel = (tag.attributes['rel'] ?? '').toLowerCase();
+      if (!rel
+          .split(RegExp(r'\s+'))
+          .any(
+            (token) =>
+                token == 'icon' ||
+                token == 'apple-touch-icon' ||
+                token == 'apple-touch-icon-precomposed',
+          )) {
+        continue;
+      }
+      final href = tag.attributes['href'] ?? '';
       if (href.isEmpty) continue;
       final url = _absolute(href, site);
       if (!_isUsableUrl(url)) continue;
-      final sizes = _attribute(tag, 'sizes');
+      final sizes = tag.attributes['sizes'] ?? '';
       final side =
           int.tryParse(RegExp(r'(\d+)').firstMatch(sizes)?.group(1) ?? '') ?? 0;
       found.add((url: url, size: side, apple: rel.contains('apple') ? 1 : 0));
@@ -363,21 +393,13 @@ class SourceFavicon {
     return out;
   }
 
-  static String _attribute(String tag, String name) {
-    final match = RegExp(
-      '$name\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))',
-      caseSensitive: false,
-    ).firstMatch(tag);
-    if (match == null) return '';
-    return (match.group(1) ?? match.group(2) ?? match.group(3) ?? '').trim();
-  }
-
   static String _absolute(String href, String site) {
     final text = href.trim();
-    if (text.startsWith('//')) return site.isEmpty ? '' : 'https:$text';
-    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(text)) return text;
-    if (site.isEmpty) return '';
-    return text.startsWith('/') ? '$site$text' : '$site/$text';
+    if (text.isEmpty) return '';
+    final base = Uri.tryParse(site);
+    final uri = Uri.tryParse(text);
+    if (uri == null) return '';
+    return base?.hasScheme == true ? base!.resolveUri(uri).toString() : text;
   }
 
   /// 取一张图；状态码不是 200、内容不是图片（或解不了的 SVG）都当作「没有」。
@@ -420,7 +442,7 @@ class SourceFavicon {
   }
 
   /// 取首页 HTML（只为解析图标地址，读满上限即断）。
-  Future<String?> _fetchText(
+  Future<({String text, String url})?> _fetchText(
     String url, {
     Section? section,
     String? sourceId,
@@ -438,7 +460,7 @@ class SourceFavicon {
         maxBytes: maxBytes,
       );
       if (response.statusCode != 200) return null;
-      return response.text;
+      return (text: response.text, url: response.url ?? url);
     } on Object catch (error) {
       LumeLog.info('[源图标] 首页解析失败 $url：$error');
       return null;

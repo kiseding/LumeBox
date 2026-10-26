@@ -1,3 +1,4 @@
+import '../../shared/widgets/video_glass_surface.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -284,12 +285,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 ),
               ),
       ),
-      _label('长按加速倍率 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×'),
+      _label('长按播放速度 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×'),
       NativeGlassSlider(
         value: settings.gestures.boostMultiplier,
-        min: 1.25,
-        max: 3,
-        divisions: 7,
+        min: 1.5,
+        max: 4,
+        divisions: 10,
         onChanged: !settings.gestures.enabled || !settings.gestures.boost
             ? null
             : (v) => _update(
@@ -298,9 +299,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 ),
               ),
       ),
-      const Text(
-        '长按在当前倍速上临时加速，松手恢复。默认 2× 保留原加速规则；自定义倍率最高播放 4×。亮度不可由系统调整时使用画面遮罩。',
-      ),
+      const Text('长按使用所选速度，松手恢复原速度；不会降低当前已设置的更高倍速。亮度不可由系统调整时使用画面遮罩。'),
       const SizedBox(height: 20),
       _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
       SegmentedButton<PlayerControlStyle>(
@@ -387,7 +386,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           fontWeight: FontWeight.w600,
           fontSize: LumeTypography.descriptionSize,
           height: 1.4,
-          color: LumeTheme.descriptionColor,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
       NativeSwitchListTile.adaptive(
@@ -440,7 +439,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     );
     final legacy = ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      child: Material(color: LumeTheme.base, child: content),
+      child: Material(
+        color: VideoGlassScope.active(context)
+            ? Colors.transparent
+            : LumeTheme.base,
+        child: content,
+      ),
     );
     return legacy;
   }
@@ -456,7 +460,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               style: TextStyle(
                 fontSize: LumeTypography.titleSize,
                 fontWeight: FontWeight.w600,
-                color: LumeTheme.textPrimary,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -481,7 +485,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             style: TextStyle(
               fontSize: LumeTypography.sectionTitleSize,
               fontWeight: FontWeight.w600,
-              color: LumeTheme.textPrimary,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 2),
@@ -490,7 +494,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             style: TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -625,7 +629,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: LumeTypography.titleSize,
-                    color: LumeTheme.textPrimary,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -644,7 +648,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               fontWeight: FontWeight.w600,
               fontSize: LumeTypography.descriptionSize,
               height: 1.4,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 8),
@@ -658,7 +662,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               fontWeight: FontWeight.w600,
               fontSize: LumeTypography.descriptionSize,
               height: 1.5,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -684,7 +688,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: LumeTypography.titleSize,
-                    color: LumeTheme.textPrimary,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -946,7 +950,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             style: TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -970,7 +974,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: LumeTypography.titleSize,
-                    color: LumeTheme.textPrimary,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -997,7 +1001,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               fontWeight: FontWeight.w600,
               fontSize: LumeTypography.descriptionSize,
               height: 1.5,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -1026,8 +1030,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         fontWeight: FontWeight.w600,
         fontSize: LumeTypography.descriptionSize,
         color: dim
-            ? LumeTheme.muted.withValues(alpha: 0.5)
-            : LumeTheme.textSecondary,
+            ? Theme.of(context).colorScheme.onSurfaceVariant
+                  .withValues(alpha: 0.5)
+            : Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
   }

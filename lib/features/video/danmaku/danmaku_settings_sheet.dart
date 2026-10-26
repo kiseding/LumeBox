@@ -91,7 +91,10 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                 ].join(' · '),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: LumeTheme.textSecondary),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -109,7 +112,8 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                 children: [
                   DecoratedBox(
                     decoration: BoxDecoration(
-                      color: LumeTheme.surface,
+                      color: Theme.of(context).colorScheme.surface
+                          .withValues(alpha: .3),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Padding(
@@ -129,7 +133,9 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                             '源弹幕 ${widget.sourceCount} · 公共弹幕 ${widget.publicCount}',
                             style: TextStyle(
                               fontSize: 12,
-                              color: LumeTheme.textSecondary,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -193,7 +199,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                     '连接成功只表示服务可访问；作品、集数和弹幕数量以本集加载结果为准。',
                     style: TextStyle(
                       fontSize: 12,
-                      color: LumeTheme.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -321,7 +327,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                     style: TextStyle(
                       fontSize: LumeTypography.sectionTitleSize,
                       fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -331,7 +337,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: LumeTypography.descriptionSize,
-                      color: LumeTheme.descriptionColor,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
               ],
@@ -343,7 +349,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: LumeTypography.descriptionSize,
-                color: LumeTheme.descriptionColor,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 4),
@@ -356,7 +362,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.titleSize,
-                  color: LumeTheme.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               value: _settings.enabled,
@@ -443,7 +449,10 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
           ),
           Text(
             '排数控制轨道数量；每秒上限控制密度。滚动弹幕会在同一轨道保持间隔连续进入。',
-            style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 8),
           ExpansionTile(
@@ -578,7 +587,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.titleSize,
-                  color: LumeTheme.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -587,7 +596,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: LumeTypography.bodySize,
-                color: LumeTheme.muted,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],

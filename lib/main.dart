@@ -1,5 +1,6 @@
 import 'core/media/media_library.dart';
 import 'core/tmdb/tmdb.dart';
+import 'core/cache/media_preload.dart';
 import 'core/session/app_preferences.dart';
 import 'core/session/configuration_backup.dart';
 import 'core/search/search_settings.dart';
@@ -43,6 +44,7 @@ void main() {
       SourceContentVisibility.instance.boot(),
       SearchSettings.instance.boot(),
       TmdbSettings.instance.boot(),
+      MediaPreload.instance.boot(),
       AppearanceController.instance.boot(),
       UserFonts.instance.boot(),
       FloatingModules.instance.boot(),

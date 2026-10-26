@@ -1,3 +1,6 @@
+import '../../shared/widgets/video_glass_surface.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
+
 import 'dart:async';
 import 'dart:math';
 
@@ -31,6 +34,58 @@ class TmdbDetailController extends ChangeNotifier {
   String? _year, _mediaType;
   String? status;
   Future<void> rematch() => refresh(force: true);
+
+  Future<void> selectPoster(String url) async {
+    final current = metadata;
+    if (_closed || current == null || !current.posters.contains(url)) return;
+    _timer?.cancel();
+    metadata = TmdbMetadata.fromJson({
+      ...current.toJson(),
+      'posters': [url, ...current.posters.where((poster) => poster != url)],
+    });
+    index = 0;
+    notifyListeners();
+    await settings.cache(
+      settings.cacheKey(title, year: _year, mediaType: _mediaType),
+      metadata,
+    );
+  }
+
+  Future<bool> selectMatch(TmdbMatchCandidate candidate) async {
+    if (_closed || !settings.configured) return false;
+    final sequence = ++_sequence;
+    _timer?.cancel();
+    loading = true;
+    status = null;
+    notifyListeners();
+    final result = await client.selectMatch(
+      title,
+      candidate,
+      year: _year,
+      mediaType: _mediaType,
+    );
+    if (_closed || sequence != _sequence || !settings.configured) return false;
+    loading = false;
+    if (result == null) {
+      status = client.lastError ?? '未能获取所选条目，请重试';
+      notifyListeners();
+      return false;
+    }
+    metadata = result;
+    index = 0;
+    final count = result.posters.length;
+    if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
+      index = Random().nextInt(count);
+    }
+    if (count > 1 && settings.posterStyle == TmdbPosterStyle.carousel) {
+      _timer = Timer.periodic(
+        const Duration(seconds: 4),
+        (_) => show((index + 1) % count),
+      );
+    }
+    notifyListeners();
+    return true;
+  }
 
   /// 用详情页拿到的标题再次匹配：列表标题可能带站点前缀/别名，而详情标题
   /// 才是视频模块里能命中的那个干净标题。多个候选按顺序回退，全部失败才
@@ -133,6 +188,204 @@ class TmdbDetailController extends ChangeNotifier {
   }
 }
 
+Future<void> showTmdbMatchPicker(
+  BuildContext context,
+  TmdbDetailController controller,
+) => showDialog<void>(
+  context: context,
+  builder: (_) => _TmdbMatchPicker(controller: controller),
+);
+
+Future<void> showTmdbPosterPicker(
+  BuildContext context,
+  TmdbDetailController controller,
+) async {
+  final urls = controller.metadata?.posters ?? const <String>[];
+  if (urls.isEmpty) return;
+  final selected = await showGlassDialog<String>(
+    context: context,
+    videoGlass: true,
+    builder: (context) => AlertDialog(
+      title: const Text('选择海报'),
+      content: SizedBox(
+        width: 480,
+        height: MediaQuery.sizeOf(context).height * .6,
+        child: GridView.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 180,
+            childAspectRatio: 2 / 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+          ),
+          itemCount: urls.length,
+          itemBuilder: (_, index) => InkWell(
+            key: ValueKey('tmdb-poster-choice-$index'),
+            onTap: () => Navigator.of(context).pop(urls[index]),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  urls[index],
+                  fit: BoxFit.cover,
+                  cacheWidth: 300,
+                  errorBuilder: (_, _, _) =>
+                      const Center(child: Icon(Icons.broken_image_outlined)),
+                ),
+                if (index == controller.index)
+                  const Positioned(
+                    right: 4,
+                    top: 4,
+                    child: CircleAvatar(
+                      radius: 14,
+                      child: Icon(Icons.check, size: 18),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    ),
+  );
+  if (selected != null) await controller.selectPoster(selected);
+}
+
+class _TmdbMatchPicker extends StatefulWidget {
+  const _TmdbMatchPicker({required this.controller});
+  final TmdbDetailController controller;
+  @override
+  State<_TmdbMatchPicker> createState() => _TmdbMatchPickerState();
+}
+
+class _TmdbMatchPickerState extends State<_TmdbMatchPicker> {
+  late final query = TextEditingController(
+    text: TmdbClient.cleanTitle(widget.controller.title),
+  );
+  List<TmdbMatchCandidate> candidates = [];
+  bool busy = true;
+  String? error;
+  int sequence = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(search());
+  }
+
+  Future<void> search() async {
+    final current = ++sequence;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    final result = await widget.controller.client.searchMatches(query.text);
+    if (!mounted || current != sequence) return;
+    setState(() {
+      candidates = result;
+      busy = false;
+      error = widget.controller.client.lastError;
+    });
+  }
+
+  Future<void> select(TmdbMatchCandidate candidate) async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    final applied = await widget.controller.selectMatch(candidate);
+    if (!mounted) return;
+    if (applied) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      busy = false;
+      error = widget.controller.status ?? '配置已改变，请检查 TMDB 设置后重试';
+    });
+  }
+
+  @override
+  void dispose() {
+    sequence++;
+    query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => videoGlassDialogSurface(
+    context,
+    AlertDialog(
+      title: const Text('选择 TMDB 条目'),
+      content: SizedBox(
+        width: 480,
+        height: MediaQuery.sizeOf(context).height * .5,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('按年份、类型和简介确认同名作品；也可以修改片名重新搜索。'),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('tmdb-match-query'),
+              controller: query,
+              enabled: !busy,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => search(),
+              decoration: InputDecoration(
+                labelText: '片名',
+                suffixIcon: IconButton(
+                  tooltip: '搜索',
+                  onPressed: busy ? null : search,
+                  icon: const Icon(Icons.search),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: busy
+                  ? const Center(child: CircularProgressIndicator())
+                  : error != null
+                  ? Center(child: Text(error!))
+                  : candidates.isEmpty
+                  ? const Center(child: Text('未找到条目，请修改片名后搜索'))
+                  : ListView.builder(
+                      itemCount: candidates.length,
+                      itemBuilder: (_, index) {
+                        final candidate = candidates[index];
+                        return ListTile(
+                          key: ValueKey(
+                            'tmdb-match-${candidate.mediaType}-${candidate.id}',
+                          ),
+                          title: Text(candidate.title),
+                          subtitle: Text(
+                            '${candidate.label}${candidate.overview.isEmpty ? '' : '\n${candidate.overview}'}',
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => select(candidate),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    ),
+  );
+}
+
 class TmdbPosterGallery extends StatefulWidget {
   const TmdbPosterGallery({
     super.key,
@@ -184,7 +437,7 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
       if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
         reportArtwork(url);
       }
-      return child;
+      return frame == null && !synchronouslyLoaded ? widget.fallback : child;
     },
     errorBuilder: (_, _, _) {
       if (isCurrent(url)) reportArtwork(null);

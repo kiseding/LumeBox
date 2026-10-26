@@ -1,4 +1,5 @@
 import 'video_episode_catalog.dart';
+import '../../core/cache/media_preload.dart';
 
 import 'dart:io' show Platform;
 
@@ -26,6 +27,11 @@ class PreparedEpisode {
 
 /// Holds at most one paused player; ownership transfers on a matching next-episode switch.
 class NextEpisodeBuffer {
+  NextEpisodeBuffer() {
+    _removeClearer = MediaPreload.instance.onClear(clear);
+    MediaPreload.instance.addListener(discard);
+  }
+  late final void Function() _removeClearer;
   int _revision = 0;
   String? _key;
   PreparedEpisode? _ready;
@@ -39,6 +45,7 @@ class NextEpisodeBuffer {
     Future<DataSource?> Function() openSource,
     AbstractPlayer? Function(PlayerKernel) create,
   ) async {
+    if (!MediaPreload.instance.video || MediaPreload.instance.clearing) return;
     final key = _identity(target, settings.kernel);
     if (_key == key || _preparing) return;
     _preparing = true;
@@ -71,10 +78,10 @@ class NextEpisodeBuffer {
       if (player == null) return;
       final instance = player;
       await instance.setBuffering(
-        const BufferingConfig(
-          forwardBuffer: Duration(seconds: 5),
-          readAhead: Duration(seconds: 5),
-          maxBufferBytes: 8 * 1024 * 1024,
+        BufferingConfig(
+          forwardBuffer: Duration(seconds: MediaPreload.instance.bufferSeconds),
+          readAhead: Duration(seconds: MediaPreload.instance.bufferSeconds),
+          maxBufferBytes: MediaPreload.instance.mediaBudgetBytes,
           maxBackBufferBytes: 0,
         ),
       );
@@ -119,7 +126,8 @@ class NextEpisodeBuffer {
   ) {
     final ready = _ready;
     if (_key != _identity(target, kernel) || ready?.index != index) return null;
-    if (DateTime.now().difference(ready!.at) > const Duration(seconds: 60)) {
+    if (DateTime.now().difference(ready!.at) >
+        Duration(seconds: MediaPreload.instance.triggerSeconds + 30)) {
       discard();
       return null;
     }
@@ -130,11 +138,21 @@ class NextEpisodeBuffer {
   }
 
   void discard() {
+    unawaited(clear());
+  }
+
+  Future<void> clear() async {
     _revision++;
     _key = null;
     final ready = _ready;
     _ready = null;
-    if (ready != null) unawaited(_dispose(ready.player));
+    if (ready != null) await _dispose(ready.player);
+  }
+
+  void dispose() {
+    _removeClearer();
+    MediaPreload.instance.removeListener(discard);
+    discard();
   }
 
   static Future<void> _dispose(AbstractPlayer player) async {

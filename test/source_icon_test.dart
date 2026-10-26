@@ -19,6 +19,25 @@ import 'package:lume_box/shared/widgets/source_icon.dart';
 /// 换成 PNG、或只写在首页 `<link rel=icon>` 里，都要能走到真图标；
 /// 全都拿不到时必须老实回退首字母，不许把 HTML 当图片画出来。
 void main() {
+  test('图标路径按网页目录和 base 解析，处理实体并排除伪 rel 与凭据地址', () {
+    expect(
+      SourceFavicon.iconLinksFromHtml('''
+      <base href="/assets/ui/">
+      <link rel="icon" href="../brand.png?x=1&amp;y=2">
+      <link data-rel="icon" href="/wrong.png">
+      <link rel="not-an-icon" href="/wrong2.png">
+      <link rel="icon" href="https://user:pass@elsewhere.test/a.png">
+    ''', 'https://site.test/app/index.html'),
+      ['https://site.test/assets/brand.png?x=1&y=2'],
+    );
+    expect(
+      SourceFavicon.iconLinksFromHtml(
+        '<link rel="icon" href="../icon.png">',
+        'https://site.test/app/sub/page.html',
+      ),
+      ['https://site.test/app/icon.png'],
+    );
+  });
   test('Kazumi 及普通声明镜像的源使用真实站址，不把规则仓库当站点', () {
     const header =
         '// LumeSource: {"id":"kazumi_fixture","name":"Example","version":"1","category":"video","mirrors":["https://anime.example/path/"]}';

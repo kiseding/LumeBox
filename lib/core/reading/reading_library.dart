@@ -132,6 +132,20 @@ class ReadingLibrary {
     _touch();
   }
 
+  /// Includes hidden/history-only rows, without the UI's 500-entry limit.
+  int clearHistory() {
+    final items = _store.shelf(includeHistoryOnly: true);
+    var count = 0;
+    for (final item in items) {
+      final favorite = _store.isFavorite(item.itemId);
+      if (!favorite || _store.progress(item.itemId) != null) count++;
+      _store.clearProgress(item.itemId);
+      if (!favorite) _store.removeItem(item.itemId);
+    }
+    _touch();
+    return count;
+  }
+
   /// 加入书架。已在架时只补全信息（封面、简介、章节数），阅读记录不受影响。
   LibraryItem shelve({
     required String sourceId,

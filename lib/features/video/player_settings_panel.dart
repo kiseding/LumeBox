@@ -1,3 +1,5 @@
+import '../../shared/widgets/video_glass_surface.dart';
+
 import 'package:flutter/material.dart';
 
 import 'danmaku/danmaku_panel.dart';
@@ -105,7 +107,9 @@ class PlayerSettingsScaffold extends StatelessWidget {
         ),
       ),
       child: Scaffold(
-        backgroundColor: theme.colorScheme.surface,
+        backgroundColor: VideoGlassScope.active(context)
+            ? Colors.transparent
+            : theme.colorScheme.surface,
         appBar: AppBar(
           toolbarHeight: 52,
           centerTitle: false,
@@ -113,7 +117,9 @@ class PlayerSettingsScaffold extends StatelessWidget {
             title,
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
-          backgroundColor: theme.colorScheme.surface,
+          backgroundColor: VideoGlassScope.active(context)
+              ? Colors.transparent
+              : theme.colorScheme.surface,
           surfaceTintColor: Colors.transparent,
           leading: scope == null
               ? null
@@ -181,7 +187,9 @@ class PlayerSettingsSection extends StatelessWidget {
             ),
           ),
           clipBehavior: Clip.antiAlias,
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          color: VideoGlassScope.active(context)
+              ? Colors.white.withValues(alpha: .22)
+              : Theme.of(context).colorScheme.surfaceContainerLow,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: children,

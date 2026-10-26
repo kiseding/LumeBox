@@ -7,6 +7,47 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 
 void main() {
+  test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
+    final lightColors = <Color>{};
+    for (final seed in [
+      Colors.red,
+      Colors.orange,
+      Colors.blue,
+      Colors.green,
+      Colors.grey,
+      Colors.black,
+      Colors.white,
+    ]) {
+      final light = compactPosterPageColor(seed, brightness: Brightness.light);
+      final dark = compactPosterPageColor(seed, brightness: Brightness.dark);
+      lightColors.add(light);
+      expect(HSLColor.fromColor(light).saturation, lessThanOrEqualTo(.31));
+      expect(
+        (light.computeLuminance() + .05) /
+            (const Color(0xFF16171B).computeLuminance() + .05),
+        greaterThan(10),
+      );
+      expect(1.05 / (dark.computeLuminance() + .05), greaterThan(10));
+      expect(light.a, 1);
+      expect(dark.a, 1);
+    }
+    expect(
+      lightColors.length,
+      greaterThanOrEqualTo(5),
+      reason: '不同海报应产生可区分的底色',
+    );
+    final warm = compactPosterPageColor(
+      Colors.orange,
+      brightness: Brightness.light,
+    );
+    final cool = compactPosterPageColor(
+      Colors.blue,
+      brightness: Brightness.light,
+    );
+    expect(warm.r, greaterThan(warm.b));
+    expect(cool.b, greaterThan(cool.r));
+  });
+
   testWidgets('海报底部真正淡出到底图，而不是叠黑色蒙层', (tester) async {
     final boundary = GlobalKey();
     await tester.pumpWidget(

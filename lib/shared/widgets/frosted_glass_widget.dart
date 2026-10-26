@@ -21,6 +21,7 @@ class FrostedGlassWidget extends StatefulWidget {
     this.part,
     this.interactive = false,
     this.nativeGlass = false,
+    this.translucentOverlay = false,
     this.nativeStyle,
     this.neutralTint = false,
     this.materialOpacity = 1,
@@ -31,6 +32,10 @@ class FrostedGlassWidget extends StatefulWidget {
 
   /// Opt in only for a small number of overlay surfaces, never list cards.
   final bool nativeGlass;
+
+  /// Floating chrome uses a light background filter on every platform.
+  /// Foreground text and icons stay outside the filter and at full opacity.
+  final bool translucentOverlay;
   final DockNativeGlassStyle? nativeStyle;
   final bool neutralTint;
   final double materialOpacity;
@@ -68,7 +73,9 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
               ? settings.native.radiusScale
               : style.value(GlassParameter.radius));
       final corners = BorderRadius.circular(radius);
-      if (DockNativeGlass.supported && !widget.nativeGlass) {
+      if (DockNativeGlass.supported &&
+          !widget.nativeGlass &&
+          !widget.translucentOverlay) {
         // Ordinary scrolling content stays in Flutter's single render tree.
         // Do not create a platform view, blur pass or optical animation per card.
         return Material(
@@ -118,12 +125,13 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
         LumeTheme.accent,
         widget.neutralTint ? 0 : style.value(GlassParameter.tint),
       )!;
-      final alpha =
-          (widget.opacity *
-                  style.value(GlassParameter.opacity) /
-                  .68 *
-                  widget.materialOpacity)
-              .clamp(0.0, 1.0);
+      final alpha = widget.translucentOverlay
+          ? (widget.opacity * widget.materialOpacity).clamp(0.0, .58)
+          : (widget.opacity *
+                    style.value(GlassParameter.opacity) /
+                    .68 *
+                    widget.materialOpacity)
+                .clamp(0.0, 1.0);
       final fill = enabled
           ? tint.withValues(alpha: alpha)
           : base.withValues(alpha: 1);
@@ -155,8 +163,16 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           0,
         ]),
         inner: ui.ImageFilter.blur(
-          sigmaX: style.value(GlassParameter.blur) * materialAlpha,
-          sigmaY: style.value(GlassParameter.blur) * materialAlpha,
+          sigmaX:
+              (widget.translucentOverlay
+                  ? widget.blur
+                  : style.value(GlassParameter.blur)) *
+              materialAlpha,
+          sigmaY:
+              (widget.translucentOverlay
+                  ? widget.blur
+                  : style.value(GlassParameter.blur)) *
+              materialAlpha,
         ),
       );
       Widget background = ColoredBox(color: fill);

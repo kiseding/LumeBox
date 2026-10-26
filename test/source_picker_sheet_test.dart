@@ -558,7 +558,7 @@ void main() {
         50,
       );
     }
-    expect(find.text('18'), findsOneWidget);
+    expect(find.text('18+'), findsOneWidget);
     expect(find.byIcon(Icons.push_pin), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.runAsync(() => PrivacySettings.instance.setShowAdult(false));

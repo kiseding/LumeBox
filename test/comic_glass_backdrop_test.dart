@@ -1,6 +1,10 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
+import 'package:lume_box/shared/widgets/glass_card.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/comic/comic_glass_backdrop.dart';
@@ -26,6 +30,83 @@ class _Artwork extends CustomPainter {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const key = Key('comic.glass.capture');
+
+  testWidgets('iOS 各级悬浮材质透明，正文不参与模糊和淡化', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    for (final module in [
+      null,
+      FloatingModule.home,
+      FloatingModule.navigation,
+      FloatingModule.overlay,
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                const Positioned.fill(child: ColoredBox(color: Colors.blue)),
+                Center(
+                  child: GlassPanel(
+                    module: module,
+                    radius: 24,
+                    child: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        '清晰标题',
+                        key: Key('foreground'),
+                        style: TextStyle(color: Colors.black),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      final foreground = find.byKey(const Key('foreground'));
+      expect(
+        find.ancestor(of: foreground, matching: find.byType(BackdropFilter)),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(of: foreground, matching: find.byType(ImageFiltered)),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(of: foreground, matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      final fill = tester.widget<ColoredBox>(
+        find.descendant(
+          of: find.byType(BackdropFilter),
+          matching: find.byType(ColoredBox),
+        ),
+      );
+      expect(fill.color.a, closeTo(.58, .01));
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ComicGlassBackdrop(
+          radius: 28,
+          opacity: .42,
+          color: Colors.yellow,
+          child: Text('正文'),
+        ),
+      ),
+    );
+    final glass = tester.widget<FrostedGlassWidget>(
+      find.byType(FrostedGlassWidget),
+    );
+    expect(glass.opacity, .42);
+    expect(glass.color, Colors.yellow);
+    expect(glass.neutralTint, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets('阅读器折射实际采样局部背景，像素密度和位移不破坏点按', (tester) async {
     var taps = 0;

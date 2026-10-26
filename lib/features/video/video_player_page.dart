@@ -24,6 +24,7 @@ import 'package:flutter/services.dart';
 import '../../core/player/abstract_player.dart';
 import '../../core/player/brightness.dart';
 import '../../core/player/buffering.dart';
+import '../../core/cache/media_preload.dart';
 import '../../core/player/playback_session.dart';
 import '../../core/player/player_capabilities.dart';
 import '../../core/player/pip.dart';
@@ -311,6 +312,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 锁屏防误触：锁定后手势层与所有控制都不响应，只留一个解锁按钮。
   bool _locked = false;
+  bool _unlockVisible = true;
+  Timer? _unlockTimer;
+  bool _muted = false, _musicMode = false;
+  double get _effectiveVolume => _muted ? 0 : _gesture.volume;
 
   /// 全屏（沉浸）模式：顶栏与控制栏收起，点画面切换浮层控制栏。
   late bool _fullscreen = widget.fullscreenOnly;
@@ -716,6 +721,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (accessible) {
       // VoiceOver 导航需要稳定的控件，不能在聚焦途中把返回键与控制栏移除。
       _cancelAutoHide();
+      _unlockTimer?.cancel();
+      if (_locked) _unlockVisible = true;
     } else {
       _scheduleAutoHide();
     }
@@ -728,7 +735,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     DanmakuSourcesStore.revision.removeListener(_danmakuServiceChanged);
     _introGeneration++;
     _intro?.dispose();
-    _nextEpisodeBuffer.discard();
+    _nextEpisodeBuffer.dispose();
+    _unlockTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _danmakuLoadSeq++;
     for (final client in _danmakuClients) {
@@ -935,12 +943,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           !snapshot.buffering &&
           snapshot.error == null &&
           !_advancing &&
-          _autoNext &&
+          MediaPreload.instance.video &&
           _lifecycle == AppLifecycleState.resumed &&
           _session?.state != PipState.active &&
           snapshot.position >= const Duration(seconds: 10) &&
           remaining >= const Duration(seconds: 5) &&
-          remaining <= const Duration(seconds: 30) &&
+          remaining <=
+              Duration(seconds: MediaPreload.instance.triggerSeconds) &&
           buffered >=
               Duration(seconds: _settings.kernel == PlayerKernel.mdk ? 3 : 8)) {
         unawaited(
@@ -1071,8 +1080,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final store = result;
       if (!mounted) return;
       _store = store;
-      // 新播放默认按媒体比例适应，旧的缩小档位不影响新播放。
-      _settings = store.load().copyWith(zoom: ZoomMode.fit);
+      _settings = store.load();
+      final experience = PlayerExperienceStore.current;
+      _muted = experience.flag('muted');
+      _musicMode = experience.flag('musicMode');
+      _gesture = _gesture.copyWith(
+        volume: experience.number('volume', 1, 0, 1),
+      );
       if (mounted) setState(() {});
     } catch (error, stackTrace) {
       // 本板块的库打不开：起不了播放器，页面给出可读提示。
@@ -1264,6 +1278,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!mounted || !identical(player, _player)) return;
       await player.applySettings(_settings);
       if (!mounted || !identical(player, _player)) return;
+      await player.setVolume(_effectiveVolume);
       final media = _media;
       if (media != null && loadCurrentMedia) await _loadMedia(media);
       if (!mounted || !identical(player, _player)) return;
@@ -1605,6 +1620,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     // 打开视频即自动播放（用户要求）：装载与续播定位都做完之后再发 play，
     // 免得播放器在 seek 之前就开跑、位置被拉回开头。
     if (_player != null && mounted) {
+      await _player!.setVolume(_effectiveVolume);
       await _player!.play();
       unawaited(_applyPreferredSubtitle());
     }
@@ -1630,7 +1646,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     try {
       await player.setBuffering(_buffering);
       await player.applySettings(_settings);
-      await player.setVolume(_gesture.volume);
+      await player.setVolume(_effectiveVolume);
     } catch (_) {
       await player.dispose();
       rethrow;
@@ -2779,6 +2795,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             active: true,
           );
         });
+        _muted = false;
         unawaited(player.setVolume(next));
       case PlayerGestureIntent.seek:
         final target = PlayerGesturePolicy.applyHorizontalDelta(
@@ -2809,6 +2826,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       unawaited(player.seek(target));
     }
     _endBoost();
+    _savePlaybackPreferences();
     _gestureOrigin = null;
     setState(
       () => _gesture = PlayerGestureState.idle.copyWith(
@@ -2824,11 +2842,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (player == null) return;
     _gestureSpeedBeforeBoost = _settings.speed;
     if (!_settings.gestures.enabled || !_settings.gestures.boost) return;
-    final boosted = _settings.gestures.boostMultiplier == 2
-        ? PlayerGesturePolicy.boostSpeed(_settings.speed)
-        : (_settings.speed * _settings.gestures.boostMultiplier)
-              .clamp(_settings.speed, 4.0)
-              .toDouble();
+    final boosted = _settings.gestures.boostMultiplier
+        .clamp(_settings.speed, 4.0)
+        .toDouble();
     _gestureBoosted = true;
     setState(() {
       _gesture = _gesture.copyWith(
@@ -2910,6 +2926,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 await _openOriginalIntro();
               },
             ),
+            SwitchListTile(
+              title: const Text('静音'),
+              value: _muted,
+              onChanged: (value) {
+                setState(() => _muted = value);
+                update(() {});
+                _savePlaybackPreferences();
+                unawaited(_player?.setVolume(_effectiveVolume));
+              },
+            ),
+            SwitchListTile(
+              title: const Text('音乐模式'),
+              subtitle: const Text('隐藏画面，保留音频和播放控制'),
+              value: _musicMode,
+              onChanged: (value) {
+                setState(() => _musicMode = value);
+                update(() {});
+                _savePlaybackPreferences();
+              },
+            ),
             Text('音量 ${(_gesture.volume * 100).round()}%'),
             NativeGlassSlider(
               value: _gesture.volume,
@@ -2922,6 +2958,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                         () => _gesture = _gesture.copyWith(volume: value),
                       );
                       update(() {});
+                      _muted = false;
+                      _savePlaybackPreferences();
                       unawaited(_player!.setVolume(value));
                     },
             ),
@@ -3170,8 +3208,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       return Stack(
         children: [
           Positioned.fill(child: _buildStage(player)),
-          if (_locked && !_fullscreen)
-            Align(alignment: Alignment.topRight, child: _buildUnlockButton()),
+          if (_locked)
+            Positioned.fill(
+              child: GestureDetector(
+                key: const Key('locked-player-surface'),
+                behavior: HitTestBehavior.opaque,
+                onTap: _showUnlock,
+              ),
+            ),
+          if (_locked && _unlockVisible)
+            SafeArea(
+              child: Align(
+                alignment: _fullscreen
+                    ? Alignment.centerLeft
+                    : Alignment.topRight,
+                child: _buildUnlockButton(),
+              ),
+            ),
         ],
       );
     }
@@ -3358,7 +3411,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                                 tooltip: '锁定（防误触）',
                                 onPressed: () {
                                   _cancelAutoHide();
-                                  setState(() => _locked = true);
+                                  _setLocked();
                                 },
                               ),
                             ),
@@ -3397,15 +3450,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
           ),
         ),
-        if (_locked)
-          SafeArea(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _buildUnlockButton(),
-            ),
-          ),
       ],
     );
+  }
+
+  void _savePlaybackPreferences() {
+    final library = _library;
+    if (library == null) return;
+    PlayerExperienceStore.forLibrary(library).update({
+      'volume': _gesture.volume,
+      'muted': _muted,
+      'musicMode': _musicMode,
+    });
+  }
+
+  void _setLocked() {
+    _cancelAutoHide();
+    setState(() => _locked = true);
+    _showUnlock();
+  }
+
+  void _showUnlock() {
+    _unlockTimer?.cancel();
+    setState(() => _unlockVisible = true);
+    if (_accessibleNavigation) return;
+    _unlockTimer = Timer(_autoHideDelay, () {
+      if (mounted && _locked) setState(() => _unlockVisible = false);
+    });
   }
 
   Widget _buildUnlockButton() => Padding(
@@ -3418,6 +3489,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onPressed: () {
         setState(() {
           _locked = false;
+          _unlockTimer?.cancel();
           _overlayVisible = true;
         });
         _scheduleAutoHide();
@@ -3633,30 +3705,32 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       builder: (context) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                '播放速度',
-                style: TextStyle(
-                  fontSize: LumeTypography.pageTitleSize,
-                  fontWeight: FontWeight.w600,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '播放速度',
+                  style: TextStyle(
+                    fontSize: LumeTypography.pageTitleSize,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final value in PlayerSettings.speeds)
-                    ChoiceChip(
-                      label: Text('${value}x'),
-                      selected: value == _settings.speed,
-                      onSelected: (_) => Navigator.pop(context, value),
-                    ),
-                ],
-              ),
-            ],
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final value in PlayerSettings.speeds)
+                      ChoiceChip(
+                        label: Text('${value}x'),
+                        selected: value == _settings.speed,
+                        onSelected: (_) => Navigator.pop(context, value),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -4051,6 +4125,39 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             children: <Widget>[
               // 画面本身居中，并按设置做取景 / 缩放 / 旋转 / 镜像。
               Center(child: _buildPicture(player, constraints)),
+              if (player.snapshot.value.buffering)
+                const IgnorePointer(
+                  child: Align(
+                    alignment: Alignment(0, .32),
+                    child: SizedBox(
+                      key: Key('player-buffering-notice'),
+                      width: 110,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Color(0xaa111111),
+                          borderRadius: BorderRadius.all(Radius.circular(10)),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.all(10),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '缓冲中',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              SizedBox(height: 7),
+                              LinearProgressIndicator(minHeight: 3),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               // 亮度遮罩：**降级路径**用（平台不支持改系统亮度时）。
               if (!_systemBrightness && _brightness < 1.0)
                 Positioned.fill(
@@ -4083,7 +4190,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 Positioned.fill(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => _showToast('已锁定：点锁图标解开'),
+                    onTap: _showUnlock,
                   ),
                 ),
               // 全屏时这两格挪到顶栏片名后面（见 [_buildImmersiveTopBar]）；
@@ -4130,7 +4237,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                           Shadow(color: Colors.black54, blurRadius: 6),
                         ],
                       ),
-                      onPressed: () => setState(() => _locked = !_locked),
+                      onPressed: _setLocked,
                     ),
                   ),
                 ),
@@ -4164,6 +4271,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 与解码链无关。三套内核都只提供「一块能画画的区域」，因此这里按视频宽高比
   /// 先算好看画面的框，再叠加变换——内核之间不会出现「MPV 能转、MDK 不能转」。
   Widget _buildPicture(AbstractPlayer player, BoxConstraints constraints) {
+    if (_musicMode) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Icon(
+            Icons.music_note_rounded,
+            color: Colors.white54,
+            size: 64,
+          ),
+        ),
+      );
+    }
     final prefs = _settings.current;
     final stats = player.stats.value;
     final view = player.buildView();
@@ -4579,8 +4698,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   color: _fullscreen
                       ? Colors.white
                       : (preview == null
-                            ? LumeTheme.muted
-                            : LumeTheme.textPrimary),
+                            ? Theme.of(context).colorScheme.onSurfaceVariant
+                            : Theme.of(context).colorScheme.onSurface),
                 ),
               ),
               if (preview != null)
@@ -4589,7 +4708,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: LumeTypography.descriptionSize,
-                    color: LumeTheme.textPrimary,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               Text(
@@ -4598,7 +4717,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.descriptionSize,
                   shadows: _fullscreen ? _controlShadows : null,
-                  color: _fullscreen ? Colors.white : LumeTheme.muted,
+                  color: _fullscreen
+                      ? Colors.white
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -4631,7 +4752,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
         tooltip: '后退 10 秒',
         icon: LumeIcon(
           Icons.replay_10,
@@ -4648,7 +4771,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
         tooltip: playing ? '暂停' : '播放',
         icon: LumeIcon(
           playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
@@ -4667,7 +4792,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
         tooltip: '停止',
         icon: LumeIcon(
           Icons.stop_circle,
@@ -4687,7 +4814,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           slot: 'video_player_page.11',
           shadows: _fullscreen ? _controlShadows : null,
         ),
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
         onPressed: _showSpeedPicker,
       ),
       IconButton(
@@ -4695,7 +4824,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         padding: EdgeInsets.zero,
-        color: _fullscreen ? Colors.white : LumeTheme.textPrimary,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
         tooltip: '前进 10 秒',
         icon: LumeIcon(
           Icons.forward_10,
@@ -5023,7 +5154,7 @@ class _PlayerStageNotice extends StatelessWidget {
                   slot: 'video_player_page.14',
                   variant: true,
                   size: 26,
-                  color: LumeTheme.textSecondary,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               const SizedBox(height: 12),
               Text(
@@ -5032,7 +5163,7 @@ class _PlayerStageNotice extends StatelessWidget {
                 style: TextStyle(
                   fontSize: LumeTypography.titleSize,
                   fontWeight: FontWeight.w600,
-                  color: LumeTheme.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 6),
@@ -5043,7 +5174,7 @@ class _PlayerStageNotice extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.descriptionSize,
                   height: 1.5,
-                  color: LumeTheme.descriptionColor,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               if (actions.isNotEmpty) ...<Widget>[
@@ -5082,7 +5213,7 @@ class _VideoSkeleton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: LumeTypography.sectionTitleSize,
                   fontWeight: FontWeight.w600,
-                  color: LumeTheme.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 8),
@@ -5092,7 +5223,7 @@ class _VideoSkeleton extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.bodySize,
-                  color: LumeTheme.muted,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -5102,7 +5233,7 @@ class _VideoSkeleton extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: LumeTypography.bodySize,
-                  color: LumeTheme.muted,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -5246,7 +5377,7 @@ class _TrackSheet extends StatelessWidget {
                     style: TextStyle(
                       fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -5267,7 +5398,7 @@ class _TrackSheet extends StatelessWidget {
                           '关闭字幕',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         onTap: () => Navigator.of(context).pop(offId),
@@ -5283,8 +5414,8 @@ class _TrackSheet extends StatelessWidget {
                           variant: true,
                           size: 20,
                           color: track.selected
-                              ? LumeTheme.textPrimary
-                              : LumeTheme.muted,
+                              ? Theme.of(context).colorScheme.onSurface
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         title: Text(
                           track.label,
@@ -5292,7 +5423,7 @@ class _TrackSheet extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         subtitle: track.language == null
@@ -5302,7 +5433,9 @@ class _TrackSheet extends StatelessWidget {
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   fontSize: LumeTypography.descriptionSize,
-                                  color: LumeTheme.descriptionColor,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
                               ),
                         onTap: () => Navigator.of(context).pop(track.id),
@@ -5349,7 +5482,7 @@ class _QualitySheet extends StatelessWidget {
                     style: TextStyle(
                       fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -5363,7 +5496,7 @@ class _QualitySheet extends StatelessWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: LumeTypography.descriptionSize,
-                      color: LumeTheme.descriptionColor,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -5383,8 +5516,8 @@ class _QualitySheet extends StatelessWidget {
                         variant: true,
                         size: 20,
                         color: selected
-                            ? LumeTheme.textPrimary
-                            : LumeTheme.muted,
+                            ? Theme.of(context).colorScheme.onSurface
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       title: Text(
                         quality.label,
@@ -5392,7 +5525,7 @@ class _QualitySheet extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          color: LumeTheme.textPrimary,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       onTap: () => Navigator.of(context).pop(index),

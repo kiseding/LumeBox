@@ -43,6 +43,7 @@ dependencies:
   sqlite3: ^3.7.0
   image: ^4.10.1
   http: ^1.6.0
+  html: ^0.15.7
   path_provider: ^2.1.6
   path: ^1.9.1
   ffi: ^2.2.0

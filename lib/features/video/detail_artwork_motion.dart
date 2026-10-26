@@ -19,7 +19,10 @@ class DetailArtworkMotion extends StatelessWidget {
       animation: scroll,
       child: RepaintBoundary(child: child),
       builder: (context, artwork) {
-        final offset = scroll.hasClients ? scroll.offset : 0.0;
+        // During a layout-style replacement the old scroll view can remain
+        // attached until the frame ends. Follow the newest view in that frame.
+        final position = scroll.positions.lastOrNull;
+        final offset = position?.hasPixels == true ? position!.pixels : 0.0;
         final pull = (-offset).clamp(0.0, height * .35);
         return Transform.translate(
           offset: Offset(

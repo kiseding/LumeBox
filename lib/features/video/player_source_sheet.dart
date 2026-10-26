@@ -1,3 +1,5 @@
+import '../../shared/widgets/video_glass_surface.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -168,7 +170,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                             ?.copyWith(
                               color: current
                                   ? LumeTheme.onAccent
-                                  : LumeTheme.textPrimary,
+                                  : Theme.of(context).colorScheme.onSurface,
                               fontWeight: FontWeight.w600,
                             ),
                         showCheckmark: false,
@@ -203,7 +205,9 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: LumeTheme.base,
+      color: VideoGlassScope.active(context)
+          ? Colors.transparent
+          : LumeTheme.base,
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -260,7 +264,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                           ?.copyWith(
                             color: index == widget.currentIndex
                                 ? LumeTheme.onAccent
-                                : LumeTheme.textPrimary,
+                                : Theme.of(context).colorScheme.onSurface,
                             fontWeight: FontWeight.w600,
                           ),
                       onSelected: widget.onSelectQuality == null

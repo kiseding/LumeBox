@@ -71,6 +71,18 @@ class DetailSource extends FakeReadingDataSource {
   }
 }
 
+class NetdiskDiagnosticSource extends DetailSource {
+  static const diagnostic =
+      '2 个网盘 · 夸克A OK（匿名 video_preview，无 Cookie，仅 120 秒预览，HTTP 200） / 百度A OK';
+  @override
+  Future<SourceDetail?> detail(String id) async => SourceDetail(
+    id: id,
+    title: '网盘演示',
+    subtitle: diagnostic,
+    description: '剧集简介',
+  );
+}
+
 class MultiLineDetailSource extends DetailSource {
   @override
   Future<List<SourceChapter>> chapters(String id) async => const [
@@ -171,6 +183,36 @@ void main() {
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
   });
+  testWidgets('网盘诊断不占据标题资料，限制保留且完整详情可以展开', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: NetdiskDiagnosticSource(),
+          item: const SourceItem(id: 'netdisk', title: '网盘演示'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    const summary = '2 个网盘 · 可用 2 集 · 含 120 秒预览线路';
+    expect(find.text(summary), findsOneWidget);
+    expect(find.textContaining('HTTP 200'), findsNothing);
+    await tester.tap(find.byKey(const Key('video-detail-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('网盘资源详情'));
+    await tester.pumpAndSettle();
+    expect(find.text(NetdiskDiagnosticSource.diagnostic), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.setDetailStyle(false);
+    await tester.pumpAndSettle();
+    expect(find.text(summary), findsOneWidget);
+    expect(find.textContaining('HTTP 200'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('线路切换不预解析，数字选集只播放所选线路并保持索引', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -187,7 +229,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('线路'), findsOneWidget);
+    expect(
+      find.byKey(const Key('video-detail-original-line-selector')),
+      findsOneWidget,
+    );
+    expect(find.text('选集 · 共 2 集'), findsNothing);
     expect(
       tester
           .widget<SourceText>(
@@ -205,7 +251,7 @@ void main() {
         tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
       ),
     );
-    expect(find.text('线路A · 2 集'), findsOneWidget);
+    expect(find.text('线路A'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const Key('video-detail-play'))).width,
       closeTo((440 - 32) * .82, 2),
@@ -215,8 +261,12 @@ void main() {
     expect(find.text('展开'), findsNothing);
     expect(find.text('全站找片'), findsNothing);
     expect(source.parses, 0);
-    await tester.ensureVisible(find.text('线路A · 2 集'));
-    await tester.tap(find.text('线路A · 2 集'));
+    await tester.ensureVisible(
+      find.byKey(const Key('video-detail-original-line-selector')),
+    );
+    await tester.tap(
+      find.byKey(const Key('video-detail-original-line-selector')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('线路B · 2 集').last);
     await tester.pumpAndSettle();
@@ -230,11 +280,27 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('线路B · 2 集'), findsOneWidget, reason: '两版共享线路选择');
+    expect(
+      find.byKey(const Key('video-compact-line-selector')),
+      findsOneWidget,
+      reason: '紧凑版将线路选择放在选集标题旁',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('video-compact-line-selector')),
+    );
+    await tester.tap(find.byKey(const Key('video-compact-line-selector')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-compact-line-线路A')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('video-compact-line-线路B')));
+    await tester.pumpAndSettle();
+    expect(source.parses, 0, reason: '悬浮选择线路不会提前解析播放');
     expect(
       find.byKey(const Key('video-detail-tmdb-status')),
-      findsNothing,
-      reason: '未匹配时不显示资料图标',
+      findsOneWidget,
+      reason: '未匹配时保留配置和手动匹配入口',
     );
     expect(find.byKey(const Key('video-detail-metadata-row')), findsOneWidget);
     final dynamic state = tester.state(find.byType(VideoDetailPage));
@@ -242,12 +308,17 @@ void main() {
       overview: '',
       posters: [],
       cast: ['示例演员'],
+      year: '2026',
+      genres: ['剧情'],
+
       recommendations: [TmdbRecommendation(title: '推荐示例', poster: '')],
     );
     state.tmdb.notifyListeners();
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('video-detail-tmdb-status')), findsOneWidget);
     expect(find.text('示例演员'), findsOneWidget);
+    expect(find.text('TMDB · 已匹配'), findsOneWidget);
+    expect(find.textContaining('2026 · 剧情'), findsOneWidget);
     expect(find.text('相似影片 · 全站找片'), findsNothing);
     expect(find.text('推荐示例'), findsNothing);
     expect(source.parses, 0);
@@ -265,7 +336,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('紧凑版横幅与播放进度并排，首屏可看到三张剧集封面', (tester) async {
+  testWidgets('紧凑版大海报居中标题，五至六列数字选集按十集切换', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     library.setSetting('video.detail.originalStyle', 'false');
@@ -300,37 +371,33 @@ void main() {
       tester
           .getSize(find.byKey(const Key('video-detail-compact-banner')))
           .height,
-      closeTo(237.6, .1),
+      closeTo(576.4, .1),
     );
     final play = find.byKey(const Key('video-detail-play'));
     final progress = find.byKey(const Key('video-detail-compact-progress'));
-    expect(tester.getSize(play).height, 44);
     expect(
-      tester.getTopLeft(progress).dx,
-      greaterThan(tester.getBottomRight(play).dx),
+      tester.getTopLeft(progress).dy,
+      greaterThan(tester.getBottomRight(play).dy),
     );
     expect(
-      tester.getCenter(progress).dy,
-      closeTo(tester.getCenter(play).dy, 1),
+      find.byKey(const ValueKey('video-detail-episode-9')),
+      findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('video-detail-episode-10')), findsNothing);
     expect(
       tester
-          .getBottomRight(find.byKey(const ValueKey('video-detail-episode-2')))
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-5')))
           .dy,
-      lessThan(900),
+      closeTo(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('video-detail-episode-0')))
+            .dy,
+        .1,
+      ),
     );
-    expect(
-      find.byKey(const Key('video-detail-compact-episode-grid')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('video-detail-episode-5')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('video-detail-episode-6')), findsNothing);
     expect(
       tester
-          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-3')))
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-6')))
           .dy,
       greaterThan(
         tester
@@ -338,14 +405,61 @@ void main() {
             .dy,
       ),
     );
+    final range = find.byKey(const ValueKey('video-compact-range-10'));
+    await tester.ensureVisible(range);
+    await tester.tap(range);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-10')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-19')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-0')), findsNothing);
+    expect(find.byKey(const ValueKey('video-detail-episode-20')), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.binding.setSurfaceSize(const Size(320, 900));
     await tester.pumpAndSettle();
     expect(
-      tester.getTopLeft(progress).dy,
-      greaterThan(tester.getBottomRight(play).dy),
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-14')))
+          .dy,
+      closeTo(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('video-detail-episode-10')))
+            .dy,
+        .1,
+      ),
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-15')))
+          .dy,
+      greaterThan(
+        tester
+            .getBottomLeft(
+              find.byKey(const ValueKey('video-detail-episode-10')),
+            )
+            .dy,
+      ),
     );
     expect(tester.takeException(), isNull);
+    final dynamic detailState = tester.state(find.byType(VideoDetailPage));
+    for (final original in [true, false, true]) {
+      detailState.setDetailStyle(original);
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '两版切换期间不得读取单一 scroll.position',
+      );
+      final view = tester.widget<SingleChildScrollView>(
+        find.byKey(const Key('video-detail-scroll')),
+      );
+      expect(view.controller!.positions.length, 1);
+    }
   });
 
   testWidgets('隐藏空演员和重复入口，保留布局与逐集续播，缺集不自动换线', (tester) async {
@@ -535,7 +649,11 @@ void main() {
       find.byKey(const ValueKey('video-detail-episode-5')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('video-detail-episode-6')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-9')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-10')), findsNothing);
     final picker = find.byKey(const Key('video-detail-select-episodes'));
     await Scrollable.ensureVisible(tester.element(picker), alignment: .5);
     await tester.pumpAndSettle();
@@ -634,7 +752,7 @@ void main() {
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
   });
-  testWidgets('详情背景优先 TMDB backdrop，缺失回源封面，开关可关闭', (tester) async {
+  testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
     final settings = TmdbSettings.instance;
     final oldEnabled = settings.enabled;
     final oldBackdrop = settings.detailBackdropEnabled;
@@ -664,26 +782,27 @@ void main() {
       );
     });
     await tester.pumpAndSettle();
+    final background = find.byKey(
+      const Key('video-detail-poster-color-background'),
+    );
+    expect(find.byType(DetailPosterBackground), findsNothing);
     expect(
-      tester
-          .widget<DetailPosterBackground>(find.byType(DetailPosterBackground))
-          .backdrop,
-      'https://preview.invalid/backdrop.jpg',
+      tester.widget<ColoredBox>(background).color,
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
     );
     state.setState(() {
       state.tmdb.metadata = const TmdbMetadata(overview: '', posters: []);
     });
     await tester.pumpAndSettle();
     expect(
-      tester
-          .widget<DetailPosterBackground>(find.byType(DetailPosterBackground))
-          .backdrop,
-      isNull,
+      tester.widget<ColoredBox>(background).color,
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
     );
     settings.detailBackdropEnabled = false;
     state.setState(() {});
     await tester.pumpAndSettle();
     expect(find.byType(DetailPosterBackground), findsNothing);
+    expect(background, findsNothing);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
       const Color(0xff11131a),

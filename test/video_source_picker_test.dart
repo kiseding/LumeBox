@@ -1,4 +1,6 @@
 import 'package:lume_box/shared/widgets/source_icon.dart';
+import 'package:lume_box/shared/widgets/source_rating_badge.dart';
+import 'package:lume_box/core/session/privacy_settings.dart';
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -146,6 +148,43 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('视频源选择器给已分级的源显示 18+ 徽章，普通源不误标', (tester) async {
+    final privacy = PrivacySettings.instance;
+    final previous = privacy.showAdult;
+    await tester.runAsync(() async {
+      await privacy.boot(directory: root);
+      await privacy.setShowAdult(true);
+    });
+    addTearDown(() => tester.runAsync(() => privacy.setShowAdult(previous)));
+    manager.sources.insert(
+      0,
+      const SourceDescriptor(
+        id: 'p5mh_comic',
+        name: '分级测试源',
+        version: '1.0',
+        enabled: true,
+      ),
+    );
+    await pump(tester);
+    final adult = find.ancestor(
+      of: find.text('分级测试源'),
+      matching: find.byType(SourcePickerCard),
+    );
+    expect(
+      find.descendant(of: adult, matching: find.byType(SourceRatingBadge)),
+      findsOneWidget,
+    );
+    final ordinary = find.ancestor(
+      of: find.text('普通视频长名称测试'),
+      matching: find.byType(SourcePickerCard),
+    );
+    expect(
+      find.descendant(of: ordinary, matching: find.byType(SourceRatingBadge)),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Kazumi与有声小说独立分类，旧源无需重新导入且普通页不混入', (tester) async {
     manager.sources.addAll(const [

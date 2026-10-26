@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'comic_reader_glyphs.dart';
+import 'comic_glass_backdrop.dart';
 
 /// Reader-owned status capsules. The existing iOS channel supplies real battery
 /// levels; unsupported devices show an unknown value rather than a fake level.
@@ -93,18 +94,13 @@ class _ComicReaderStatusState extends State<ComicReaderStatus>
   Widget _capsule(Widget child, String label, Key key) => Semantics(
     label: label,
     child: ExcludeSemantics(
-      child: Container(
+      child: ComicGlassBackdrop(
         key: key,
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .76),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0x22000000), width: .6),
-          boxShadow: const [
-            BoxShadow(color: Color(0x08000000), blurRadius: 12),
-          ],
+        radius: 24,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3),
+          child: child,
         ),
-        child: child,
       ),
     ),
   );

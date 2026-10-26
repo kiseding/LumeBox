@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
@@ -169,6 +170,50 @@ class TmdbSettings extends ChangeNotifier {
     await _cacheWrites;
   }
 
+  Future<int> clearMetadataCache() async {
+    await cached('');
+    final count = _cache.length;
+    final urls = <String>{};
+    for (final raw in _cache.values.whereType<Map>()) {
+      for (final field in [
+        'posters',
+        'backdrops',
+        'logos',
+        'profiles',
+        'videoCovers',
+      ]) {
+        final values = raw[field];
+        if (values is List) {
+          urls.addAll(
+            values.whereType<String>().where((url) => url.isNotEmpty),
+          );
+        }
+      }
+      for (final row
+          in (raw['recommendations'] as List? ?? []).whereType<Map>()) {
+        if (row['poster'] is String && (row['poster'] as String).isNotEmpty) {
+          urls.add(row['poster'] as String);
+        }
+      }
+    }
+    revision++;
+    _cache.clear();
+    await cache('', null);
+    for (final url in urls) {
+      final image = NetworkImage(url);
+      PaintingBinding.instance.imageCache.evict(image, includeLive: false);
+      for (final width in [300, 384]) {
+        final key = await ResizeImage.resizeIfNeeded(
+          width,
+          null,
+          image,
+        ).obtainKey(ImageConfiguration.empty);
+        PaintingBinding.instance.imageCache.evict(key, includeLive: false);
+      }
+    }
+    return count;
+  }
+
   Future<void> disconnect() {
     enabled = false;
     apiKey = '';
@@ -301,6 +346,20 @@ class TmdbMetadata {
     genres: (data['genres'] as List? ?? []).whereType<String>().toList(),
     episodeCount: (data['episodeCount'] as num?)?.toInt() ?? 0,
   );
+}
+
+class TmdbMatchCandidate {
+  const TmdbMatchCandidate({
+    required this.id,
+    required this.mediaType,
+    required this.title,
+    this.year = '',
+    this.overview = '',
+  });
+  final int id;
+  final String mediaType, title, year, overview;
+  String get label =>
+      '${mediaType == 'tv' ? '剧集' : '电影'} · ${year.isEmpty ? '年份未知' : year}';
 }
 
 class TmdbClient {
@@ -456,6 +515,59 @@ class TmdbClient {
   }
 
   String? lastError;
+  Future<List<TmdbMatchCandidate>> searchMatches(String title) async {
+    lastError = null;
+    if (!settings.configured || title.trim().isEmpty) return [];
+    final revision = settings.revision;
+    try {
+      final base = await _resolvedBase(revision);
+      final data = await _json(
+        'search/multi',
+        revision,
+        base,
+        query: {'query': cleanTitle(title), 'language': 'zh-CN'},
+      );
+      if (!settings.configured || settings.revision != revision) return [];
+      final seen = <String>{};
+      return (data['results'] as List? ?? [])
+          .whereType<Map>()
+          .where(
+            (row) =>
+                ['movie', 'tv'].contains(row['media_type']) &&
+                row['id'] is int &&
+                seen.add('${row['media_type']}/${row['id']}'),
+          )
+          .map(
+            (row) => TmdbMatchCandidate(
+              id: row['id'] as int,
+              mediaType: row['media_type'] as String,
+              title: '${row['title'] ?? row['name'] ?? ''}',
+              year:
+                  RegExp(r'^\d{4}').stringMatch(
+                    '${row['first_air_date'] ?? row['release_date'] ?? ''}',
+                  ) ??
+                  '',
+              overview: '${row['overview'] ?? ''}',
+            ),
+          )
+          .where((row) => row.title.trim().isNotEmpty)
+          .toList();
+    } catch (error) {
+      lastError = error is StateError
+          ? error.message.toString()
+          : 'TMDB 搜索失败，请检查网络或 API 代理后重试';
+      return [];
+    }
+  }
+
+  Future<TmdbMetadata?> selectMatch(
+    String title,
+    TmdbMatchCandidate candidate, {
+    String? year,
+    String? mediaType,
+  }) =>
+      _lookup(title, selected: candidate, yearHint: year, mediaType: mediaType);
+
   static String cleanTitle(String value) {
     var title = SearchSettings.toSimplified(value).trim();
     for (var i = 0; i < 3; i++) {
@@ -511,6 +623,7 @@ class TmdbClient {
     bool force = false,
     String? yearHint,
     String? mediaType,
+    TmdbMatchCandidate? selected,
   }) async {
     lastError = null;
     if (!settings.configured) return null;
@@ -523,14 +636,17 @@ class TmdbClient {
     try {
       final cached = await settings.cached(cacheKey);
       if (!settings.configured || settings.revision != revision) return null;
-      if (!force && cached != null) return cached;
-      if (force) await settings.cache(cacheKey, null);
+      if (selected == null && !force && cached != null) return cached;
+      if (selected == null && force) await settings.cache(cacheKey, null);
       final base = await _resolvedBase(revision);
-      Map? match;
+      Map? match = selected == null
+          ? null
+          : {'id': selected.id, 'media_type': selected.mediaType};
       Map<String, dynamic>? matchedDetails;
       final cleaned = cleanTitle(title);
       final year = yearHint ?? titleYear(title);
-      for (final query in <String>{cleaned, title.trim()}) {
+      for (final query
+          in selected == null ? <String>{cleaned, title.trim()} : <String>{}) {
         if (query.isEmpty) continue;
         final data = await _json(
           'search/multi',
@@ -645,7 +761,7 @@ class TmdbClient {
           );
       final actualYear =
           '${details['first_air_date'] ?? details['release_date'] ?? match['first_air_date'] ?? match['release_date'] ?? ''}';
-      if (year != null && !actualYear.startsWith(year)) {
+      if (selected == null && year != null && !actualYear.startsWith(year)) {
         lastError = 'TMDB 年份与源信息不一致，已保留源资料';
         return null;
       }
@@ -662,8 +778,28 @@ class TmdbClient {
         }
       }
       List<String> paths(String field, Object? fallback, TmdbImageKind kind) {
-        final values = (images[field] as List? ?? [])
+        final artwork = (images[field] as List? ?? [])
             .whereType<Map>()
+            .toList();
+        // Prefer Chinese title artwork while keeping TMDB's ranking within
+        // each language. Users can still select any supplied poster.
+        if (field == 'posters') {
+          int rank(Map row) => switch (row['iso_639_1']) {
+            'zh' => 0,
+            null => 1,
+            'en' => 2,
+            _ => 3,
+          };
+          final indexed = artwork.indexed.toList()
+            ..sort((a, b) {
+              final language = rank(a.$2).compareTo(rank(b.$2));
+              return language == 0 ? a.$1.compareTo(b.$1) : language;
+            });
+          artwork
+            ..clear()
+            ..addAll(indexed.map((row) => row.$2));
+        }
+        final values = artwork
             .map((row) => row['file_path'])
             .whereType<String>()
             .where((path) => path.startsWith('/'))

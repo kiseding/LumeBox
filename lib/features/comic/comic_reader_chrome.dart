@@ -316,27 +316,33 @@ extension _ComicReaderChrome on _ComicReaderPageState {
           SizedBox(
             height: math.max(44, safe.top),
             child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: Center(child: ComicReaderStatus()),
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Align(
+                alignment: Alignment(0, -.4),
+                child: ComicReaderStatus(),
+              ),
             ),
           ),
           const SizedBox(height: 6),
-          Row(
-            key: const Key('comic.top.controls'),
-            children: [
-              _roundButton(
-                Icons.close,
-                '退出阅读',
-                () => Navigator.of(context).maybePop(),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Center(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Reserve equal space for the two actions even with asymmetric
+              // landscape insets: the title stays on the screen's centerline.
+              final inset = math.max(safe.left, safe.right);
+              final centerOffset = (safe.right - safe.left) / 2;
+              final titleWidth = math.max(
+                0.0,
+                MediaQuery.sizeOf(context).width - 2 * (12 + inset + 54),
+              );
+              return Stack(
+                key: const Key('comic.top.controls'),
+                alignment: Alignment.center,
+                children: [
+                  Transform.translate(
+                    offset: Offset(centerOffset, 0),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minWidth: math.min(136, constraints.maxWidth),
-                        maxWidth: math.min(180, constraints.maxWidth),
+                        maxWidth: titleWidth,
                         minHeight: 44,
                       ),
                       child: IntrinsicWidth(
@@ -346,35 +352,32 @@ extension _ComicReaderChrome on _ComicReaderPageState {
                             onTap: _showChapterSheet,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
+                                horizontal: 16,
+                                vertical: 12,
                               ),
-                              child: Column(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text(
-                                    _chapters.isEmpty
-                                        ? '漫画阅读'
-                                        : _chapters[_chapterIndex].title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      height: 1.15,
-                                      fontWeight: FontWeight.w700,
+                                  Flexible(
+                                    child: Text(
+                                      _chapters.isEmpty
+                                          ? '漫画阅读'
+                                          : _chapters[_chapterIndex].title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        height: 1.2,
+                                        color: Color(0xFF16171B),
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    widget.target.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      height: 1.15,
-                                      color: Color(0xFF85858D),
-                                    ),
+                                  const SizedBox(width: 10),
+                                  const Icon(
+                                    Icons.keyboard_arrow_down,
+                                    size: 18,
+                                    color: Color(0xFF44444A),
                                   ),
                                 ],
                               ),
@@ -384,21 +387,24 @@ extension _ComicReaderChrome on _ComicReaderPageState {
                       ),
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              _roundButton(
-                _flowIcon,
-                '阅读方向',
-                () => _showReaderMenu('direction'),
-              ),
-              const SizedBox(width: 8),
-              _roundButton(
-                Icons.more_horiz,
-                '更多',
-                () => _showReaderMenu('main'),
-              ),
-            ],
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _roundButton(
+                        Icons.close,
+                        '退出阅读',
+                        () => Navigator.of(context).maybePop(),
+                      ),
+                      _roundButton(
+                        Icons.more_horiz,
+                        '更多',
+                        () => _showReaderMenu('main'),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),

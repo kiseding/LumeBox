@@ -3,6 +3,19 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+/// Preserve the poster's hue in a quiet, readable page surface.
+Color compactPosterPageColor(Color poster, {required Brightness brightness}) {
+  final tone = HSLColor.fromColor(poster);
+  final dark = brightness == Brightness.dark;
+  return tone
+      .withSaturation(
+        (tone.saturation * (dark ? .35 : .42)).clamp(0, dark ? .24 : .30),
+      )
+      .withLightness(dark ? .14 : .87)
+      .withAlpha(1)
+      .toColor();
+}
+
 /// Fixed, bounded-resolution image layer. Blur the image alone, not the scrolling
 /// controls above it; the repaint boundary can reuse it while content scrolls.
 class DetailPosterBackground extends StatelessWidget {
@@ -52,7 +65,7 @@ class DetailPosterBackground extends StatelessWidget {
 }
 
 /// Fade only the poster's alpha. A bounded saveLayer with dstIn avoids using
-/// ShaderMask and exposes the actual blurred image underneath the poster.
+/// ShaderMask and exposes the page colour underneath the poster.
 class DetailPosterFade extends SingleChildRenderObjectWidget {
   const DetailPosterFade({super.key, required super.child});
 
@@ -75,7 +88,7 @@ class _PosterFadeRender extends RenderProxyBox {
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0, .68, .86, .98],
+          stops: [0, .5, .78, .98],
           colors: [
             Colors.white,
             Colors.white,

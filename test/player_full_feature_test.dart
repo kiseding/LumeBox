@@ -22,6 +22,7 @@ import 'package:lume_box/core/player/playback_orientation.dart';
 import 'package:lume_box/core/player/player_capabilities.dart';
 import 'package:lume_box/core/player/player_factory.dart';
 import 'package:lume_box/core/player/player_settings.dart';
+import 'package:lume_box/core/player/player_experience_store.dart';
 import 'package:lume_box/core/player/player_stats.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
@@ -680,7 +681,7 @@ void main() {
       expect(find.byType(BottomSheet), findsWidgets);
     });
 
-    testWidgets('旧的 0.75x 不影响新播放，画面默认按原比例适应', (tester) async {
+    testWidgets('重新播放保留上次选择的画面适配', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
       VideoPlayerSettingsStore(library)
           .save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
@@ -688,7 +689,7 @@ void main() {
       players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
       await tester.pumpAndSettle();
       final picture = tester.getRect(find.text('fake-view'));
-      expect(picture.width, closeTo(900, 1));
+      expect(picture.width, closeTo(675, 1));
       expect(picture.width / picture.height, closeTo(16 / 9, 0.01));
     });
 
@@ -1035,6 +1036,87 @@ void main() {
       expect(find.text('重试播放'), findsOneWidget);
       expect(find.byTooltip('退出全屏'), findsOneWidget);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
+    });
+
+    testWidgets('锁定按钮自动隐藏，播放报错后仍可点击画面唤回并解锁', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('锁定（防误触）'));
+      await tester.pump();
+      expect(find.byTooltip('解除锁定'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('解除锁定'), findsNothing);
+      players.single.emit(error: 'fixture error');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('locked-player-surface')));
+      await tester.pump();
+      expect(find.byTooltip('解除锁定'), findsOneWidget);
+      await tester.tap(find.byTooltip('解除锁定'));
+      await tester.pump();
+      expect(find.byKey(const Key('locked-player-surface')), findsNothing);
+    });
+
+    testWidgets('长按使用4倍临时速度，松手恢复1.25倍且不覆盖已保存倍速', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      VideoPlayerSettingsStore(library).save(
+        const PlayerSettings().copyWith(
+          speed: 1.25,
+          gestures: const PlayerGestureOptions(boostMultiplier: 4),
+        ),
+      );
+      final players = await pump(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('fake-view')),
+      );
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(players.single.lastAppliedSettings!.speed, 4);
+      await gesture.up();
+      await tester.pump();
+      expect(players.single.lastAppliedSettings!.speed, 1.25);
+      expect(VideoPlayerSettingsStore(library).load().speed, 1.25);
+    });
+
+    testWidgets('音乐模式和静音音量从偏好恢复，切换音乐模式写回本机', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      final preferences = PlayerExperienceStore.forLibrary(library);
+      preferences.update({'volume': .35, 'muted': true, 'musicMode': true});
+      final players = await pump(tester);
+      expect(players.single.volume, 0);
+      expect(find.text('fake-view'), findsNothing);
+      expect(find.byIcon(Icons.music_note_rounded), findsOneWidget);
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.text('音乐模式'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(SwitchListTile, '音乐模式'));
+      await tester.pumpAndSettle();
+      expect(preferences.value.flag('musicMode'), false);
+      expect(preferences.value.number('volume', 1, 0, 1), .35);
+    });
+
+    testWidgets('缓冲提示为画面中下部的小型进度条', (tester) async {
+      final players = await pump(tester);
+      players.single.emit(buffering: true);
+      await tester.pump();
+      final notice = find.byKey(const Key('player-buffering-notice'));
+      expect(notice, findsOneWidget);
+      expect(
+        find.descendant(
+          of: notice,
+          matching: find.byType(LinearProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getCenter(notice).dy,
+        greaterThan(tester.getCenter(find.text('fake-view')).dy),
+      );
+      players.single.emit(buffering: false);
+      await tester.pump();
+      expect(notice, findsNothing);
     });
 
     testWidgets('全屏锁定后解锁按钮避让顶部和右侧系统安全区', (tester) async {
@@ -1790,6 +1872,8 @@ class _FakePlayer extends AbstractPlayer {
   final List<Duration> seeks = <Duration>[];
   Object? seekError;
   int plays = 0, pauses = 0, stops = 0, disposals = 0, loads = 0;
+  double volume = 1;
+  PlayerSettings? lastAppliedSettings;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -1803,12 +1887,14 @@ class _FakePlayer extends AbstractPlayer {
     Duration? position,
     Duration? duration,
     bool? playing,
+    bool? buffering,
     String? error,
   }) {
     _snapshot.value = PlayerSnapshot(
       position: position ?? _snapshot.value.position,
       duration: duration ?? _snapshot.value.duration,
       playing: playing ?? _snapshot.value.playing,
+      buffering: buffering ?? _snapshot.value.buffering,
       error: error,
     );
   }
@@ -1844,10 +1930,14 @@ class _FakePlayer extends AbstractPlayer {
   }
 
   @override
-  Future<void> setVolume(double volume) async {}
+  Future<void> setVolume(double volume) async {
+    this.volume = volume;
+  }
 
   @override
-  Future<void> applySettings(PlayerSettings settings) async {}
+  Future<void> applySettings(PlayerSettings settings) async {
+    lastAppliedSettings = settings;
+  }
 
   @override
   Widget buildView() => const Text('fake-view');

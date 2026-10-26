@@ -27,6 +27,8 @@ import '../../shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_card_metrics.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_icon.dart';
+import '../../shared/widgets/source_rating_badge.dart';
+import '../../core/source/source_content_rating.dart';
 import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
@@ -726,6 +728,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (SourceContentRating.isAdult(id, name))
+              const Padding(
+                padding: EdgeInsets.only(left: 4),
+                child: SourceRatingBadge(compact: true),
+              ),
             if (prefs.pinned)
               Padding(
                 padding: const EdgeInsets.only(left: 4),

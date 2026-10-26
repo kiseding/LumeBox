@@ -1,4 +1,5 @@
 import '../net/network_cancellation.dart';
+import '../cache/media_preload.dart';
 import '../source/source_preferences.dart';
 
 import 'dart:async';
@@ -65,7 +66,16 @@ class SectionImagePipeline {
     this.decodeTransform,
   }) : _client = client ?? http.Client(),
        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
-       _memory = ImageMemoryCache(memoryBudgetBytes);
+       _memory = ImageMemoryCache(memoryBudgetBytes) {
+    _removePreloadClearer = MediaPreload.instance.onClear(() {
+      _preloadQueue.clear();
+      _preloadKeys.clear();
+      _memory.clearUnused(includePinned: true, keys: _speculativeKeys);
+      _speculativeKeys.clear();
+    });
+  }
+  late final void Function() _removePreloadClearer;
+  final _speculativeKeys = <String>{};
 
   /// 阅读器默认内存预算。漫画长图按屏宽解码，64MB 约对应十余页。
   static const int defaultMemoryBudgetBytes = 64 * 1024 * 1024;
@@ -300,13 +310,16 @@ class SectionImagePipeline {
     final trimmed = url.trim();
     if (trimmed.isEmpty || _disposed) return Future<ui.Image?>.value();
     final cacheKey = key(trimmed, targetWidth);
+    if (holdReference) _speculativeKeys.remove(cacheKey);
     final cached = _memory.get(cacheKey);
     if (cached != null) {
       if (holdReference) _memory.acquire(cacheKey);
       return Future<ui.Image?>.value(cached);
     }
     final existing = _inFlightImages[cacheKey];
-    final request = existing ?? _startDecode(trimmed, targetWidth, cacheKey);
+    final request =
+        existing ??
+        _startDecode(trimmed, targetWidth, cacheKey, preload: !holdReference);
     if (!holdReference) return request;
     // 在飞请求是共享的，引用必须各自记账：谁 await，谁的账上多一次引用。
     return request.then((image) {
@@ -319,20 +332,21 @@ class SectionImagePipeline {
   Future<ui.Image?> _startDecode(
     String url,
     int? targetWidth,
-    String cacheKey,
-  ) {
-    final request = _decode(url, targetWidth, cacheKey);
+    String cacheKey, {
+    bool preload = false,
+  }) {
+    final request = _decode(url, targetWidth, cacheKey, preload: preload);
     _inFlightImages[cacheKey] = request;
     return request.whenComplete(() => _inFlightImages.remove(cacheKey));
   }
 
   /// 取原始字节（保存图片、解码前的缓存写入都走这里）。
-  Future<Uint8List?> bytes(String url) {
+  Future<Uint8List?> bytes(String url, {bool preload = false}) {
     final trimmed = url.trim();
     if (trimmed.isEmpty || _disposed) return Future<Uint8List?>.value();
     final existing = _inFlightBytes[trimmed];
     if (existing != null) return existing;
-    final request = _loadBytes(trimmed);
+    final request = _loadBytes(trimmed, preload: preload);
     _inFlightBytes[trimmed] = request;
     return request.whenComplete(() => _inFlightBytes.remove(trimmed));
   }
@@ -355,7 +369,11 @@ class SectionImagePipeline {
   /// 预加载一批图片（阅读器前后 N 张）。结果只进缓存，不返回给调用方。
   /// 预加载失败只记日志：它属于「提前准备」，不该打断阅读。
   void preload(Iterable<String> urls, {int? targetWidth}) {
-    if (_disposed) return;
+    if (_disposed ||
+        !MediaPreload.instance.images ||
+        MediaPreload.instance.clearing) {
+      return;
+    }
     for (final raw in urls) {
       final url = raw.trim();
       final cacheKey = key(url, targetWidth);
@@ -370,6 +388,11 @@ class SectionImagePipeline {
   }
 
   void _drainPreloads() {
+    if (!MediaPreload.instance.images) {
+      _preloadQueue.clear();
+      _preloadKeys.clear();
+      return;
+    }
     // Background work reserves room for images that just became visible.
     final limit = (maxConcurrent - 1).clamp(1, 2);
     while (!_disposed && _activePreloads < limit && _preloadQueue.isNotEmpty) {
@@ -413,6 +436,7 @@ class SectionImagePipeline {
 
   /// 关闭客户端、取消在飞请求、清空内存缓存并拒绝后续调用。可重复调用。
   void dispose() {
+    _removePreloadClearer();
     _preloadQueue.clear();
     _preloadKeys.clear();
     _requestLifetime.cancel();
@@ -441,6 +465,18 @@ class SectionImagePipeline {
   // ------------------------------------------------------------------ 内部
 
   Future<void> _preloadOne(String url, int? targetWidth) async {
+    final policy = MediaPreload.instance;
+    if (!policy.images ||
+        policy.clearing ||
+        _memory.bytes >= policy.imageBudgetBytes) {
+      return;
+    }
+    final generation = policy.generation;
+    final speculativeKey = key(url, targetWidth);
+    if (!_inFlightImages.containsKey(speculativeKey) &&
+        _memory.get(speculativeKey) == null) {
+      _speculativeKeys.add(speculativeKey);
+    }
     // 预加载不持有引用：图只进缓存，随时可以被预算回收。
     final loaded = await _resolveImage(
       url,
@@ -450,14 +486,24 @@ class SectionImagePipeline {
     if (loaded == null && !_disposed) {
       LumeLog.warn('预加载未命中: $url');
     }
+    if (!_disposed && generation != policy.generation) {
+      // Let on-screen consumers acquire a shared decode before evicting unused
+      // speculative images. A just-resolved image must not be disposed early.
+      Timer.run(() {
+        if (!_disposed) {
+          _memory.clearUnused(includePinned: true, keys: {speculativeKey});
+        }
+      });
+    }
   }
 
   Future<ui.Image?> _decode(
     String url,
     int? targetWidth,
-    String cacheKey,
-  ) async {
-    var data = await bytes(url);
+    String cacheKey, {
+    bool preload = false,
+  }) async {
+    var data = await bytes(url, preload: preload);
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
@@ -637,7 +683,8 @@ class SectionImagePipeline {
     }
   }
 
-  Future<Uint8List?> _loadBytes(String rawUrl) async {
+  Future<Uint8List?> _loadBytes(String rawUrl, {bool preload = false}) async {
+    final preloadGeneration = MediaPreload.instance.generation;
     // 源声明的「加密封面」：`lume-enc://aes-ecb/<base64url(key)>/<原始地址>`
     // 这类站把封面 AES 加密后直接扔在 CDN 上（好妻网的 .ceb/.geb 就是 AES-256-ECB 加密的
     // `data:image/...` 文本）。解密放这里用原生 AES 做，比在 JS 沙箱里纯 JS 解快一个数量级
@@ -661,8 +708,18 @@ class SectionImagePipeline {
     } catch (error) {
       LumeLog.warn('图片缓存读取失败: $url ($error)');
     }
+    final speculative = MediaPreload.instance.image('$cacheDir|$url');
+    if (speculative != null) return speculative;
     final downloaded = await _download(url);
     if (downloaded == null) return null;
+    if (preload) {
+      MediaPreload.instance.cacheImage(
+        '$cacheDir|$url',
+        downloaded,
+        preloadGeneration,
+      );
+      return downloaded;
+    }
     try {
       file.parent.createSync(recursive: true);
       await file.writeAsBytes(downloaded, flush: false);
@@ -1142,6 +1199,14 @@ class ImageMemoryCache {
       entry.value.pinned = keys.contains(entry.key);
     }
     _trim();
+  }
+
+  void clearUnused({bool includePinned = false, Set<String>? keys}) {
+    for (final key in _entries.keys.toList()) {
+      final entry = _entries[key]!;
+      if (keys != null && !keys.contains(key)) continue;
+      if (entry.refs == 0 && (includePinned || !entry.pinned)) _remove(key);
+    }
   }
 
   /// 清空全部缓存，逐个释放位图。
