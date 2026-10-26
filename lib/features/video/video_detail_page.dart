@@ -532,7 +532,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     final revision = ++_paletteRevision;
     try {
       final color = await PosterPaletteCache.resolve(
-        ('video-detail-poster-bottom-v3', cover),
+        ('video-detail-poster-bottom-v5', cover),
         () async {
           final sample = _displayedPoster == cover
               ? await _displayedPosterSample(cover)
@@ -551,23 +551,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               maximumColorCount: 24,
               filters: const [],
             );
-            // Very dark neutral swatches usually describe clothes, not the
-            // poster's atmosphere. Prefer a coloured swatch in that case.
-            final muted = palette.darkMutedColor?.color;
-            final hsl = muted == null ? null : HSLColor.fromColor(muted);
-            final swatches = palette.paletteColors.where((swatch) {
-              final value = HSLColor.fromColor(swatch.color);
-              return value.saturation > .22 && value.lightness > .12;
-            }).toList()..sort((a, b) => b.population.compareTo(a.population));
-            final chosen =
-                hsl != null && hsl.lightness > .13 && hsl.saturation > .2
-                ? muted
-                : swatches.firstOrNull?.color ??
-                      muted ??
-                      palette.dominantColor?.color;
-            if (chosen == null) return null;
-            final tone = HSLColor.fromColor(chosen);
-            return tone.withLightness(tone.lightness.clamp(.16, .24)).toColor();
+            return immersivePosterPageColor(
+              [
+                for (final swatch in palette.paletteColors)
+                  (swatch.color, swatch.population),
+              ],
+              darkMuted: palette.darkMutedColor?.color,
+              dominant: palette.dominantColor?.color,
+            );
           } finally {
             sample.dispose();
           }
@@ -1138,6 +1129,25 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               Icons.play_circle_fill,
                               color: Colors.white,
                               size: 26,
+                            ),
+                          ),
+                        if (selected == index)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: DecoratedBox(
+                                key: ValueKey(
+                                  'video-detail-episode-border-$index',
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: Theme.of(this.context)
+                                        .colorScheme
+                                        .primary,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                       ],
@@ -2520,7 +2530,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                       style: FilledButton.styleFrom(
                                         minimumSize: const Size.fromHeight(50),
                                         backgroundColor: Colors.transparent,
-                                        foregroundColor: VideoGlassSurface.foreground,
+                                        foregroundColor:
+                                            VideoGlassSurface.foreground,
                                         shape: const StadiumBorder(),
                                         elevation: 0,
                                       ),

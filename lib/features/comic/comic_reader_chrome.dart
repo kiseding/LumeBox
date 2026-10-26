@@ -315,11 +315,14 @@ extension _ComicReaderChrome on _ComicReaderPageState {
         children: [
           SizedBox(
             height: math.max(44, safe.top),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Align(
-                alignment: Alignment(0, -.4),
-                child: ComicReaderStatus(),
+                alignment: const Alignment(0, -.4),
+                child: Transform.translate(
+                  offset: const Offset(0, 4),
+                  child: const ComicReaderStatus(),
+                ),
               ),
             ),
           ),

@@ -7,6 +7,42 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 
 void main() {
+  test('沉浸详情不再选近黑衣服色，保留海报色相和可读亮度', () {
+    final color = immersivePosterPageColor([
+      (const Color(0xff351e1d), 600),
+      (const Color(0xff9b2727), 300),
+    ], darkMuted: const Color(0xff351e1d))!;
+    final tone = HSLColor.fromColor(color);
+    expect(tone.hue, closeTo(0, 1));
+    expect(tone.lightness, greaterThanOrEqualTo(.19));
+    expect(tone.saturation, greaterThan(.32));
+    expect(
+      color.computeLuminance(),
+      greaterThan(const Color(0xff351e1d).computeLuminance()),
+    );
+    expect(1.05 / (color.computeLuminance() + .05), greaterThan(4.5));
+    final blue = immersivePosterPageColor([(const Color(0xff2466aa), 300)])!;
+    expect(blue.b, greaterThan(blue.r));
+    expect(immersivePosterPageColor([]), isNull);
+  });
+  test('浅灰棕海报不再被压成深棕，红海报保留暖红底色', () {
+    const greyBrown = Color(0xff81776f);
+    final surface = immersivePosterPageColor(
+      [(greyBrown, 600), (const Color(0xff503323), 100)],
+      dominant: greyBrown,
+      darkMuted: const Color(0xff503323),
+    )!;
+    expect(HSLColor.fromColor(surface).lightness, greaterThan(.42));
+    expect(surface.r, greaterThan(surface.b));
+    final red = immersivePosterPageColor([
+      (const Color(0xff9b2727), 300),
+    ], darkMuted: const Color(0xff351e1d))!;
+    expect(red.r, greaterThan(red.g * 2));
+    for (final seed in [Colors.yellow, Colors.green, Colors.white, greyBrown]) {
+      final color = immersivePosterPageColor([(seed, 100)], dominant: seed)!;
+      expect(1.05 / (color.computeLuminance() + .05), greaterThan(4.5));
+    }
+  });
   test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
     final lightColors = <Color>{};
     for (final seed in [

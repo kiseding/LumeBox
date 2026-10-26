@@ -752,6 +752,42 @@ void main() {
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
   });
+  testWidgets('当前剧集封面显示用户主题色边框，切集后边框跟随', (tester) async {
+    const accent = Colors.tealAccent;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: accent)
+              .copyWith(primary: accent),
+        ),
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final first = find.byKey(const ValueKey('video-detail-episode-border-0'));
+    expect(first, findsOneWidget);
+    final decoration =
+        tester.widget<DecoratedBox>(first).decoration as BoxDecoration;
+    expect((decoration.border! as Border).top.color, accent);
+    final second = find.byKey(const ValueKey('video-detail-episode-1'));
+    await tester.ensureVisible(second);
+    await tester.runAsync(() async {
+      await tester.tap(second);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(first, findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-border-1')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
     final settings = TmdbSettings.instance;
     final oldEnabled = settings.enabled;
