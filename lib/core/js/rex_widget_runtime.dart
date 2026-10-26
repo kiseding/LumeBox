@@ -126,7 +126,7 @@ function(metadata, resolve, seed, run, state) {
   if (!catalogs.length && !streams.length && !metadata.search) throw new Error('此 Widget 只提供弹幕／字幕等扩展，当前视频源入口无法导入');
   var globalParams = Array.isArray(metadata.globalParams) ? metadata.globalParams : [];
   function copyItem(value) { return JSON.parse(JSON.stringify(value)); }
-  var streamResults = new Map();
+  var streamResults = new Map(), detailResults = new Map();
   var privateItems = new Map(), privateChapters = new Map(), cacheDirty = false;
   var cacheKey = '__lume_rex_items';
   var hostRun = run;
@@ -141,7 +141,7 @@ function(metadata, resolve, seed, run, state) {
       }
     }
   }); };
-  Widget.__lumeClear = function(){privateItems.clear();privateChapters.clear();streamResults.clear();cacheDirty=false;};
+  Widget.__lumeClear = function(){privateItems.clear();privateChapters.clear();streamResults.clear();detailResults.clear();cacheDirty=false;};
   var streamSettings = streams.length && !catalogs.length ? [
     {name:'_lume_stream_type',title:'播放类型',type:'enumeration',value:'movie',enumOptions:[{title:'电影',value:'movie'},{title:'剧集',value:'tv'}]},
     {name:'_lume_stream_season',title:'季数（剧集）',type:'input',value:'1'},
@@ -196,8 +196,10 @@ function(metadata, resolve, seed, run, state) {
   function publicItem(item,depth) {
     if(depth>8)throw new Error('Widget 条目目录超过 8 层');
     var result={};
-    ['id','type','title','description','coverUrl','posterPath','detailPoster','backdropPath','releaseDate','mediaType','genreTitle','durationText','videoUrl','link','season','episode','year','parent','index'].forEach(function(k){if(item[k] != null)result[k]=item[k];});
+    ['id','type','title','description','coverUrl','posterPath','posterUrl','poster_url','detailPoster','backdropPath','releaseDate','mediaType','genreTitle','durationText','videoUrl','link','season','episode','year','parent','index'].forEach(function(k){if(item[k] != null)result[k]=item[k];});
     if(item.params)result.params=mediaParams(item.params);
+    ['peoples','genreItems','backdropPaths','backdropImageUrls'].forEach(function(k){if(Array.isArray(item[k]))result[k]=copyItem(item[k]);});
+    if(item.rating != null)result.rating=item.rating;
     if(item.headers || item.customHeaders || item.requiresHeaders)result.requiresHeaders=true;
     ['episodeItems','childItems'].forEach(function(k){if(Array.isArray(item[k]))result[k]=item[k].map(function(x){return publicItem(x,depth+1);});});
     return result;
@@ -216,21 +218,30 @@ function(metadata, resolve, seed, run, state) {
     if(typeof id !== 'string' || id.slice(0,4) !== 'rex:')throw new Error('Widget 条目身份无效');
     return privateItems.has(id) ? copyItem(privateItems.get(id)) : JSON.parse(decodeURIComponent(id.slice(4)));
   }
-  function poster(item) {
-    var url=item.coverUrl || item.posterPath || item.detailPoster || item.backdropPath || '';
-    return typeof url === 'string' && url.charAt(0)==='/' ? 'https://image.tmdb.org/t/p/w500'+url : url;
+  function imageUrl(url) {
+    return typeof url === 'string' && url.charAt(0)==='/' ? 'https://image.tmdb.org/t/p/w500'+url : url || '';
   }
-  function row(item) {return {id:pack(item),title:item.title || String(item.id || ''),cover:poster(item),subtitle:item.description || item.durationText || item.genreTitle || ''};}
+  function poster(item, detail) {
+    return imageUrl((detail && item.detailPoster) || item.posterPath || item.posterUrl || item.poster_url || item.backdropPath || item.coverUrl);
+  }
+  function backdrop(item) {return imageUrl(item.backdropPath || item.coverUrl || item.posterPath || item.posterUrl || item.poster_url);}
+  function row(item) {return {id:pack(item),title:item.title || String(item.id || ''),cover:poster(item,false),coverHeaders:item.headers || {},duration:item.duration,subtitle:item.description || item.durationText || item.genreTitle || ''};}
   function listItems(value) {if(Array.isArray(value))return value;if(value && Array.isArray(value.items))return value.items;if(value && Array.isArray(value.list))return value.list;throw new Error('Widget 列表方法没有返回条目数组');}
   async function details(item) {
-    if(item.type === 'widget-stream' || item.videoUrl || item.type === 'url')return item;
-    if(item.type === 'detail' || item.link) {
+    if(item.type === 'widget-stream')return item;
+    // URL/Forward links route to loadDetail(link), not directly to playback.
+    // ID-backed metadata types must not call another module's detail handler.
+    if((item.link && ['tmdb','douban','imdb'].indexOf(item.type)<0) || item.type === 'detail') {
+      var key=String(item.type)+':'+String(item.link || item.id), cached=detailResults.get(key);
+      if(cached && cached.expires>Date.now())return copyItem(cached.item);
       var fn;
       try {fn=resolve('loadDetail');} catch(_) {throw new Error('Widget 详情条目缺少 loadDetail 函数');}
       var value=await fn(String(item.link || item.id));
-      if(Array.isArray(value))return Object.assign({},item,{episodeItems:value});
+      if(Array.isArray(value))value={episodeItems:value};
       if(!value || typeof value !== 'object')throw new Error('Widget 详情没有返回条目');
-      return Object.assign({},item,value);
+      var result=Object.assign({},item,value), duration=metadata.detailCacheDuration == null ? 60 : Math.max(0,Number(metadata.detailCacheDuration)||0);
+      if(duration>0){detailResults.set(key,{item:copyItem(result),expires:Date.now()+duration*1000});if(detailResults.size>64)detailResults.delete(detailResults.keys().next().value);}
+      return result;
     }
     return item;
   }
@@ -250,7 +261,7 @@ function(metadata, resolve, seed, run, state) {
       var list=listItems(await invoke(module,Object.assign(paramsFor(module,{}),params)));
       for(var line of list) {
         if(!line || !line.url || seen[line.url])continue;
-        seen[line.url]=true;output.push({type:'url',id:line.url,videoUrl:line.url,title:line.name || module.title || '播放',description:line.description || '',headers:line.customHeaders || line.headers || {},playerType:line.playerType});
+        seen[line.url]=true;output.push({type:'url',id:line.url,videoUrl:line.url,title:line.name || module.title || '播放',description:line.description || '',headers:line.customHeaders || line.headers || {},playerType:line.playerType,__lumeResourceParams:copyItem(params),__lumeResourceName:line.name || module.title || '播放',__lumeResourceModule:String(module.id)});
         if(output.length>=500)throw new Error('Widget 播放线路超过 500 条');
       }
     }
@@ -267,14 +278,14 @@ function(metadata, resolve, seed, run, state) {
   async function chapters(item) {
     if(item.type === 'widget-stream')return await streamChapters(item);
     var value=await details(item), output=[];
-    function walk(node,depth) {
+    function walk(node,depth,line) {
       if(depth>8)throw new Error('Widget 剧集目录超过 8 层');
       if(output.length>=500)throw new Error('Widget 剧集超过 500 项');
       var children=node.episodeItems || node.childItems;
-      if(Array.isArray(children) && children.length){children.forEach(function(x){walk(x,depth+1);});return;}
-      output.push(node);
+      if(Array.isArray(children) && children.length){children.forEach(function(x){walk(x,depth+1,depth>0 ? node.line || node.title || line : line);});return;}
+      output.push(Object.assign({},node,{__lumeLine:node.line || line || ''}));
     }
-    if(value.videoUrl || value.type === 'url' || value.childItems || value.episodeItems)walk(value,0);
+    if(value.videoUrl || value.type === 'url' || value.childItems || value.episodeItems)walk(value,0,'');
     else if(streams.length)output=await streamChapters(value);
     else throw new Error('此 Widget 条目只提供影视资料，尚未提供可用播放资源');
     return output;
@@ -307,11 +318,17 @@ function(metadata, resolve, seed, run, state) {
       var countParam=(module.params || []).find(function(p){return p.type === 'count';});
       return {items:items.map(row),hasMore:typeof value.hasMore === 'boolean' ? value.hasMore : paged && items.length >= Number(countParam ? p[countParam.name] : p.count || p.limit || 20)};
     });},
-    detail:async function(a){return run(async function(){var item=await details(unpack(a.id));return {id:a.id,title:item.title || '',cover:poster(item),description:item.description || '',author:item.genreTitle || ''};});},
+    detail:async function(a){return run(async function(){var item=await details(unpack(a.id));return {
+      id:a.id,title:item.title || '',cover:poster(item,true),coverHeaders:item.headers || {},backdrop:backdrop(item),
+      description:item.description || '',author:item.genreTitle || '',year:String(item.releaseDate || item.year || ''),mediaType:item.mediaType || '',
+      subtitle:[item.releaseDate || item.year,item.genreTitle,item.rating ? '评分 '+item.rating : ''].filter(Boolean).join(' · '),
+      tags:(item.genreItems || []).map(function(g){return g.title;}).filter(Boolean),
+      cast:(item.peoples || []).filter(function(p){return p && p.title;}).map(function(p){return {id:String(p.id || ''),name:p.title,avatar:imageUrl(p.avatar),role:p.role || '',headers:item.headers || {}};})
+    };});},
     chapters:async function(a){return run(async function(){return (await chapters(unpack(a.id))).map(function(item,index){
       var id=pack({type:'widget-chapter',parent:a.id,index:index,title:item.title || '播放'});
       privateChapters.set(id,item);if(privateChapters.size>500)privateChapters.delete(privateChapters.keys().next().value);
-      return {id:id,title:(item.title || '播放')+(item.description ? ' · '+item.description : '')};
+      return {id:id,title:(item.title || '播放')+(item.description ? ' · '+item.description : ''),line:item.__lumeLine || (item.__lumeResourceParams ? item.__lumeResourceName : ''),cover:poster(item,false),coverHeaders:item.headers || {}};
     });});},
     content:async function(a){return run(async function(){
       var item=unpack(a.chapterId);
@@ -321,7 +338,16 @@ function(metadata, resolve, seed, run, state) {
         if(!leaf)throw new Error('Widget 播放线路已变化，请重新打开目录');
         item=leaf;
       }
-      item=await details(item);
+      if(item.__lumeResourceParams) {
+        var refreshed=await resourceLines(item.__lumeResourceParams);
+        var selected=refreshed.find(function(line){return line.__lumeResourceName === item.__lumeResourceName && line.__lumeResourceModule === item.__lumeResourceModule;});
+        if(!selected)throw new Error('Widget 当前线路已不可用，请重新打开目录');
+        item=selected;
+      } else if(!item.videoUrl && !(item.type === 'url' && /^https?:\/\//i.test(item.id || '')) && streams.length) {
+        var resources=await streamChapters(item);
+        if(!resources.length)throw new Error('Widget 没有匹配到当前剧集资源');
+        item=resources[0];
+      } else if(!item.videoUrl) item=await details(item);
       if(item.requiresHeaders && !item.headers && !item.customHeaders)throw new Error('Widget 请求头缓存已失效，请重新搜索此影片');
       var url=item.videoUrl || (item.type === 'url' ? item.id : '');
       if(typeof url !== 'string' || !/^https?:\/\//i.test(url))throw new Error('Widget 未返回可直接播放的 HTTP(S) 地址');

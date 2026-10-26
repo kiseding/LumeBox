@@ -358,12 +358,43 @@ class SourceItem {
   }
 }
 
+/// A source-provided person. TMDB is optional; modules can supply their own cast.
+class SourcePerson {
+  const SourcePerson({
+    required this.name,
+    this.id = '',
+    this.avatar,
+    this.role = '',
+    this.headers = const {},
+  });
+  final String id, name, role;
+  final String? avatar;
+  final Map<String, String> headers;
+
+  static SourcePerson? parse(Object? value) {
+    if (value is! Map) return null;
+    final name = _text(value['name'] ?? value['title']);
+    if (name == null) return null;
+    return SourcePerson(
+      id: '${value['id'] ?? ''}',
+      name: name,
+      avatar: _text(value['avatar']),
+      role: _text(value['role']) ?? '',
+      headers: _stringMap(value['headers']),
+    );
+  }
+}
+
 /// 条目详情。
 class SourceDetail {
   const SourceDetail({
     required this.id,
     required this.title,
     this.cover,
+    this.backdrop,
+    this.year = '',
+    this.mediaType = '',
+    this.cast = const [],
     this.coverHeaders = const {},
     this.subtitle,
     this.description,
@@ -378,6 +409,9 @@ class SourceDetail {
   final String id;
   final String title;
   final String? cover;
+  final String? backdrop;
+  final String year, mediaType;
+  final List<SourcePerson> cast;
   final Map<String, String> coverHeaders;
   final String? subtitle;
   final String? description;
@@ -396,6 +430,16 @@ class SourceDetail {
       id: id,
       title: title,
       cover: _text(json['cover']),
+      backdrop: _text(json['backdrop']),
+      year:
+          RegExp(r'^(?:19|20)\d{2}')
+              .stringMatch('${json['year'] ?? json['releaseDate'] ?? ''}') ??
+          '',
+      mediaType: _text(json['mediaType']) ?? '',
+      cast: (json['cast'] is List ? json['cast'] as List : const [])
+          .map(SourcePerson.parse)
+          .whereType<SourcePerson>()
+          .toList(),
       coverHeaders: _stringMap(json['coverHeaders']),
       subtitle: _text(json['subtitle']),
       description: _text(json['description']),

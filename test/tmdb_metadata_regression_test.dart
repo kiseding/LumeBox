@@ -125,7 +125,8 @@ void main() {
       configured(),
       client: MockClient((r) async => response(r.url)),
     );
-    expect(await client.lookup('影片 (2024) 1080p'), isNotNull);
+    expect(await client.lookup('影片 (2024) 1080p'), isNull);
+    expect(await client.lookup('影片 (2026) 1080p'), isNotNull);
     expect(await client.lookup('完全无关'), isNull);
     client.dispose();
   });

@@ -120,7 +120,7 @@ void main() {
     final result = (await client.lookup('测试剧'))!;
     expect(result.recommendations.length, 1);
     expect(result.recommendations.single.title, '相似剧');
-    expect(result.recommendations.single.poster, contains('/w500/similar.jpg'));
+    expect(result.recommendations.single.poster, contains('/w780/similar.jpg'));
     expect(
       TmdbMetadata.fromJson(result.toJson()).recommendations.single.title,
       '相似剧',
@@ -190,7 +190,7 @@ void main() {
       expect(TmdbImageKind.values.map(settings.imageSize), [
         'w1280',
         'w500',
-        'w500',
+        'w780',
         'w185',
         'w300',
       ]);
@@ -231,7 +231,7 @@ void main() {
     );
     expect(
       settings.imageUrl('/poster.jpg'),
-      'https://images.test/t/p/w500/poster.jpg',
+      'https://images.test/t/p/w780/poster.jpg',
     );
     settings.apiProxy = '';
     settings.imageProxy = '';
@@ -272,7 +272,7 @@ void main() {
     final client = TmdbClient(settings, client: transport(requests));
     final result = await client.lookup('影片');
     expect(result?.overview, 'TMDB简介');
-    expect(result?.posters.first, 'https://images.test/t/p/w500/zero.jpg');
+    expect(result?.posters.first, 'https://images.test/t/p/w780/zero.jpg');
     expect(result?.posters.length, 3);
     expect(
       requests.every((url) => url.queryParameters['api_key'] == 'fixture-key'),

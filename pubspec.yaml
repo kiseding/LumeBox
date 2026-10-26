@@ -120,6 +120,7 @@ flutter:
     - assets/shaders/comic_page_filters.frag
     - assets/shaders/comic_glass.frag
   assets:
+    - assets/rex/lumebox_demo.js
     - assets/reference/
     - assets/js/
     - assets/cat/

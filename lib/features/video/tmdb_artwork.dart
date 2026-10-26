@@ -6,11 +6,15 @@ import 'package:flutter/material.dart';
 import '../../core/tmdb/tmdb.dart';
 
 class TmdbDetailController extends ChangeNotifier {
-  TmdbDetailController(this.title, {TmdbSettings? settings, TmdbClient? client})
-    : settings = settings ?? TmdbSettings.instance {
+  TmdbDetailController(
+    this.title, {
+    TmdbSettings? settings,
+    TmdbClient? client,
+    bool autoLoad = true,
+  }) : settings = settings ?? TmdbSettings.instance {
     this.client = client ?? TmdbClient(this.settings);
     this.settings.addListener(refresh);
-    unawaited(refresh());
+    if (autoLoad) unawaited(refresh());
   }
   String title;
 
@@ -23,21 +27,36 @@ class TmdbDetailController extends ChangeNotifier {
   int index = 0, _sequence = 0;
   bool _closed = false;
   bool loading = false;
+  bool _started = false;
+  String? _year, _mediaType;
   String? status;
   Future<void> rematch() => refresh(force: true);
 
   /// 用详情页拿到的标题再次匹配：列表标题可能带站点前缀/别名，而详情标题
   /// 才是视频模块里能命中的那个干净标题。多个候选按顺序回退，全部失败才
   /// 显示「未匹配」。
-  void updateTitles(Iterable<String> values) {
+  void updateTitles(
+    Iterable<String> values, {
+    String? year,
+    String? mediaType,
+  }) {
     final unique = <String>[];
     for (final value in values) {
       final text = value.trim();
-      if (text.isEmpty || unique.contains(text)) continue;
+      if (text.isEmpty ||
+          unique.any(
+            (v) =>
+                TmdbClient.normalized(TmdbClient.cleanTitle(v)) ==
+                TmdbClient.normalized(TmdbClient.cleanTitle(text)),
+          )) {
+        continue;
+      }
       unique.add(text);
     }
     if (_closed || unique.isEmpty) return;
-    final samePrimary = unique.first == title;
+    final samePrimary =
+        TmdbClient.normalized(TmdbClient.cleanTitle(unique.first)) ==
+        TmdbClient.normalized(TmdbClient.cleanTitle(title));
     final sameAlternates =
         unique.length - 1 == _alternateTitles.length &&
         <int>[
@@ -45,7 +64,15 @@ class TmdbDetailController extends ChangeNotifier {
                 if (unique[i] == _alternateTitles[i - 1]) i,
             ].length ==
             _alternateTitles.length;
-    if (samePrimary && sameAlternates) return;
+    if (_started &&
+        samePrimary &&
+        sameAlternates &&
+        _year == year &&
+        _mediaType == mediaType) {
+      return;
+    }
+    _year = year;
+    _mediaType = mediaType;
     title = unique.first;
     _alternateTitles = unique.skip(1).toList(growable: false);
     unawaited(refresh());
@@ -53,6 +80,7 @@ class TmdbDetailController extends ChangeNotifier {
 
   Timer? _timer;
   Future<void> refresh({bool force = false}) async {
+    _started = true;
     final sequence = ++_sequence;
     _timer?.cancel();
     metadata = null;
@@ -63,7 +91,12 @@ class TmdbDetailController extends ChangeNotifier {
     if (!settings.configured) return;
     TmdbMetadata? result;
     for (final candidate in <String>[title, ..._alternateTitles]) {
-      result = await client.lookup(candidate, force: force);
+      result = await client.lookup(
+        candidate,
+        force: force,
+        year: _year,
+        mediaType: _mediaType,
+      );
       if (_closed || sequence != _sequence || !settings.configured) return;
       if (result != null) break;
     }
@@ -146,6 +179,7 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
   Widget poster(String url) => Image.network(
     url,
     fit: widget.fit,
+    filterQuality: FilterQuality.high,
     frameBuilder: (_, child, frame, synchronouslyLoaded) {
       if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
         reportArtwork(url);
@@ -290,4 +324,43 @@ class TmdbRematchMenu extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// TMDB title artwork is separate from the poster; missing/failed logos keep the
+/// real text title. Do not recolour the supplied PNG (green lettering stays green).
+class TmdbTitleArtwork extends StatelessWidget {
+  const TmdbTitleArtwork({
+    super.key,
+    required this.controller,
+    required this.fallback,
+  });
+  final TmdbDetailController controller;
+  final Widget fallback;
+  @override
+  Widget build(BuildContext context) {
+    final logo = controller.settings.enabled
+        ? controller.metadata?.logos
+              .where(
+                (url) => !Uri.parse(url).path.toLowerCase().endsWith('.svg'),
+              )
+              .firstOrNull
+        : null;
+    if (logo == null) return fallback;
+    return Center(
+      child: SizedBox(
+        key: const Key('tmdb-title-artwork'),
+        width: MediaQuery.sizeOf(context).width * .62,
+        height: 76,
+        child: Image.network(
+          logo,
+          fit: BoxFit.contain,
+          cacheWidth: 900,
+          filterQuality: FilterQuality.high,
+          frameBuilder: (_, child, frame, sync) =>
+              frame != null || sync ? child : Center(child: fallback),
+          errorBuilder: (_, _, _) => Center(child: fallback),
+        ),
+      ),
+    );
+  }
 }

@@ -11,11 +11,13 @@ class DetailPosterBackground extends StatelessWidget {
     required this.backdrop,
     required this.fallback,
     required this.tint,
+    this.headers = const {},
   });
 
   final String? backdrop;
   final Widget fallback;
   final Color tint;
+  final Map<String, String> headers;
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
@@ -32,6 +34,7 @@ class DetailPosterBackground extends StatelessWidget {
                     ? fallback
                     : Image.network(
                         backdrop!,
+                        headers: headers,
                         cacheWidth: 384,
                         fit: BoxFit.cover,
                         filterQuality: FilterQuality.low,
@@ -72,7 +75,7 @@ class _PosterFadeRender extends RenderProxyBox {
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0, .53, .76, 1],
+          stops: [0, .68, .86, .98],
           colors: [
             Colors.white,
             Colors.white,

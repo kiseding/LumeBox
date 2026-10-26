@@ -1,3 +1,4 @@
+import '../../core/tmdb/tmdb.dart';
 import 'detail_poster_background.dart';
 import 'detail_artwork_motion.dart';
 import 'video_episode_catalog.dart';
@@ -100,7 +101,7 @@ class VideoDetailPage extends StatefulWidget {
 
 class _VideoDetailPageState extends State<VideoDetailPage>
     with NetworkOwnedState<VideoDetailPage> {
-  late final tmdb = TmdbDetailController(widget.item.title);
+  late final tmdb = TmdbDetailController(widget.item.title, autoLoad: false);
   DataSource? _source;
   SourceDetail? detail;
   String? get sourceCover => detail?.cover?.trim().isNotEmpty == true
@@ -182,11 +183,24 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           cover: metadata?.coverHeaders ?? widget.item.coverHeaders,
         });
       }
+      if (metadata?.backdrop != null) {
+        pipeline.configureImageHeaders({
+          metadata!.backdrop!: metadata.coverHeaders,
+        });
+      }
       setState(() => detail = metadata);
-      tmdb.updateTitles([
-        metadata?.title ?? widget.item.title,
-        widget.item.title,
-      ]);
+      final sourceYear = metadata?.year.isNotEmpty == true
+          ? metadata!.year
+          : TmdbClient.titleYear(
+              metadata?.subtitle ?? widget.item.subtitle ?? '',
+            );
+      tmdb.updateTitles(
+        [metadata?.title ?? widget.item.title, widget.item.title],
+        year: sourceYear,
+        mediaType: ['movie', 'tv'].contains(metadata?.mediaType)
+            ? metadata!.mediaType
+            : null,
+      );
       unawaited(updatePalette());
       List<SourceChapter> episodes;
       if (direct != null) {
@@ -225,10 +239,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         compactEpisodeStart = index ~/ 6 * 6;
         loading = false;
       });
-      tmdb.updateTitles([
-        metadata?.title ?? widget.item.title,
-        widget.item.title,
-      ]);
       // 查看详情只写历史（favorite = 0）；收藏只能由心形按钮触发。
       if (widget.recordHistory) {
         widget.library.recordHistoryItem(
@@ -243,6 +253,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     } catch (failure) {
       if (NetworkCancellation.current?.isCancelled ?? false) return;
       if (mounted) {
+        // Source-detail failure must not leave metadata permanently unstarted.
+        // If detail already arrived, keep its year/type hints from the first call.
+        if (detail == null) tmdb.updateTitles([widget.item.title]);
         setState(() {
           error = '$failure';
           loading = false;
@@ -449,8 +462,16 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Future<ui.Image?> _displayedPosterSample(String url) async {
     // The gallery has already decoded this NetworkImage. Reuse Flutter's image
     // cache rather than downloading the same poster again through the source.
-    final ImageProvider provider = url == tmdb.metadata?.backdrops.firstOrNull
-        ? ResizeImage.resizeIfNeeded(384, null, NetworkImage(url))
+    final ImageProvider provider =
+        url == tmdb.metadata?.backdrops.firstOrNull || url == detail?.backdrop
+        ? ResizeImage.resizeIfNeeded(
+            384,
+            null,
+            NetworkImage(
+              url,
+              headers: url == detail?.backdrop ? detail?.coverHeaders : null,
+            ),
+          )
         : NetworkImage(url);
     final stream = provider.resolve(ImageConfiguration.empty);
     final ready = Completer<ui.Image?>();
@@ -1094,7 +1115,18 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Widget castSection() {
     final metadata = tmdb.metadata;
-    if (metadata == null || metadata.cast.isEmpty) {
+    final people = metadata?.cast.isNotEmpty == true
+        ? [
+            for (var i = 0; i < metadata!.cast.length; i++)
+              SourcePerson(
+                name: metadata.cast[i],
+                avatar: i < metadata.profiles.length
+                    ? metadata.profiles[i]
+                    : null,
+              ),
+          ]
+        : detail?.cast ?? const <SourcePerson>[];
+    if (people.isEmpty) {
       return const SizedBox.shrink();
     }
     return Padding(
@@ -1111,7 +1143,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             height: 68 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: metadata.cast.length,
+              itemCount: people.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (_, i) => SizedBox(
                 width: 68,
@@ -1120,13 +1152,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     ClipOval(
                       child: SizedBox.square(
                         dimension: 60,
-                        child:
-                            i < metadata.profiles.length &&
-                                metadata.profiles[i].isNotEmpty
+                        child: people[i].avatar?.isNotEmpty == true
                             ? PosterCover(
                                 pipeline: pipeline,
-                                url: metadata.profiles[i],
-                                title: metadata.cast[i],
+                                url: people[i].avatar,
+                                title: people[i].name,
+                                headers: people[i].headers,
                                 width: 180,
                                 borderRadius: BorderRadius.zero,
                               )
@@ -1140,7 +1171,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      metadata.cast[i],
+                      people[i].name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12),
@@ -1945,10 +1976,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   if (tmdb.settings.detailBackdropEnabled)
                     DetailPosterBackground(
                       key: const Key('video-detail-blurred-background'),
-                      backdrop: tmdb.settings.enabled
-                          ? tmdb.metadata?.backdrops.firstOrNull
-                          : null,
+                      backdrop:
+                          (tmdb.settings.enabled
+                              ? tmdb.metadata?.backdrops.firstOrNull
+                              : null) ??
+                          detail?.backdrop,
                       tint: _pageColor,
+                      headers: tmdb.metadata?.backdrops.isNotEmpty == true
+                          ? const {}
+                          : detail?.coverHeaders ?? const {},
                       fallback: sourceCover == null
                           ? ColoredBox(color: _pageColor)
                           : PosterCover(
@@ -1990,6 +2026,13 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   fallback: PosterCover(
                                     pipeline: pipeline,
                                     url: sourceCover,
+                                    width:
+                                        (constraints.maxWidth *
+                                                MediaQuery.devicePixelRatioOf(
+                                                  context,
+                                                ))
+                                            .ceil()
+                                            .clamp(320, 1600),
                                     title: widget.item.title,
                                     headers:
                                         detail?.coverHeaders ??
@@ -2029,18 +2072,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              SourceText(
-                                detail?.title ?? widget.item.title,
-                                textAlign: TextAlign.center,
-                                style: dark.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                  shadows: const [
-                                    Shadow(
-                                      color: Colors.black54,
-                                      blurRadius: 12,
-                                    ),
-                                  ],
+                              TmdbTitleArtwork(
+                                controller: tmdb,
+                                fallback: SourceText(
+                                  detail?.title ?? widget.item.title,
+                                  textAlign: TextAlign.center,
+                                  style: dark.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black54,
+                                        blurRadius: 12,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 4),

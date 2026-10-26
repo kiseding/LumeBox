@@ -208,7 +208,7 @@ void main() {
     expect(find.text('线路A · 2 集'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const Key('video-detail-play'))).width,
-      closeTo((440 - 32) * .72, 2),
+      closeTo((440 - 32) * .82, 2),
     );
     expect(find.byKey(const Key('video-detail-quick-actions')), findsNothing);
     expect(find.byKey(const Key('video-detail-favorite')), findsOneWidget);
