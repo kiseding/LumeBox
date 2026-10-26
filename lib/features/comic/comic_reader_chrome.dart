@@ -320,7 +320,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
               child: Align(
                 alignment: const Alignment(0, -.4),
                 child: Transform.translate(
-                  offset: const Offset(0, 4),
+                  offset: const Offset(0, 7),
                   child: const ComicReaderStatus(),
                 ),
               ),
