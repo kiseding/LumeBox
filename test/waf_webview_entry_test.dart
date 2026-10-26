@@ -5,6 +5,21 @@ import 'package:lume_box/core/net/waf.dart';
 /// 「这张错误卡要不要给【网页视图】出口」的口径（真机反馈：卡片上写着「可点
 /// 【网页视图】过校验」，按钮却不在——巴卡漫画首页超时那一次）。
 void main() {
+  test('明确的 TLS 和证书错误不再提示去做网页验证码', () {
+    for (final message in [
+      'TLS_HANDSHAKE_FAILED：HTTPS安全连接失败（iOS -1200）',
+      'RuntimeError: CERTIFICATE_VERIFY_FAILED',
+      'PlatformException(network, 系统网络请求失败, {code: -1200, domain: NSURLErrorDomain}, null)',
+      '网页视图：TLS错误导致安全连接失败。',
+    ]) {
+      expect(webViewMayHelp(message), isFalse, reason: message);
+    }
+    expect(
+      webViewMayHelp('NEED_WEBVIEW_VERIFY：显式要求验证；TLS_HANDSHAKE_FAILED'),
+      isTrue,
+    );
+  });
+
   test('明确被 WAF 拦下：给出口', () {
     for (final message in <String>[
       'NEED_WEBVIEW_VERIFY：巴卡漫画 需要网页验证（HTTP 403）',

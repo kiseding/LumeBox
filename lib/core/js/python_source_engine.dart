@@ -1,4 +1,5 @@
 import '../net/network_cancellation.dart';
+import '../net/secure_connection_failure.dart';
 import 'source_tools.dart';
 import '../player/source_media_runtime.dart';
 import '../net/site_session_pool.dart';
@@ -186,7 +187,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
             : error is TimeoutException
             ? '网页操作超时'
             : error is PlatformException
-            ? '网页操作失败：${error.code}'
+            ? pythonHostPlatformFailure(error)
             : 'Python 宿主请求失败，请检查网络或参数',
       });
     }

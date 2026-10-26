@@ -56,8 +56,20 @@ class SourceDisplayNames {
   /// 这个图源在界面上该显示什么名字。[fallback] 是脚本自报的名字。
   static String of(String sourceId, [String fallback = '']) {
     final mapped = _names[sourceId.trim()];
-    if (mapped != null && mapped.isNotEmpty) return mapped;
-    return fallback;
+    return withoutRatingSuffix(
+      mapped != null && mapped.isNotEmpty ? mapped : fallback,
+    );
+  }
+
+  /// Age classification remains separate; only remove a duplicate trailing label.
+  static String withoutRatingSuffix(String name) {
+    final clean = name
+        .replaceFirst(
+          RegExp(r'(?:\s*(?:[\[（(【]\s*18\s*\+\s*[\]）)】]|18\s*\+))+\s*$'),
+          '',
+        )
+        .trimRight();
+    return clean.isEmpty ? name : clean;
   }
 
   /// 仅测试用：表里有哪些 id（钉住「映射不改 id」这条口径）。

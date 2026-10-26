@@ -154,6 +154,21 @@ def _session_init(self):
 requests.Session.__init__ = _session_init
 
 
+_original_get_adapter = requests.Session.get_adapter
+
+
+def _session_get_adapter(self, url):
+    adapter = _original_get_adapter(self, url)
+    # Spiders often remount HTTPAdapter to configure pools/retries after init.
+    # Their requests must still use Dart's session, cancellation and network.
+    if _active.get(None) is not None and isinstance(adapter, requests.adapters.HTTPAdapter):
+        return _HttpAdapter()
+    return adapter
+
+
+requests.Session.get_adapter = _session_get_adapter
+
+
 class _UrlResponse(io.BytesIO):
     def __init__(self, value, url):
         from email.message import Message

@@ -17,6 +17,15 @@ import 'package:lume_box/shared/widgets/source_translation.dart';
 import 'support/fake_reading_source.dart';
 import 'support/fake_source_manager.dart';
 
+class MixedTitleComicSource extends CompactComicSource {
+  @override
+  Future<List<SourceChapter>> chapters(String itemId) async => const [
+    SourceChapter(id: 'one', title: '第1话'),
+    SourceChapter(id: 'extra', title: '特别篇'),
+    SourceChapter(id: 'long', title: '这是一段超过十八个字的章节标题，也应保持统一的方格选集'),
+  ];
+}
+
 class CompactComicSource extends FakeReadingDataSource {
   CompactComicSource({this.gallery = false})
     : super(
@@ -143,6 +152,18 @@ void main() {
     expect(metadata.updatedAt!.day, 24);
     expect(metadata.related.single.id, 'r');
     expect(SourceDetail.parse({'id': 'b', 'title': '旧源'})!.author, isNull);
+  });
+  testWidgets('紧凑版有番外或长标题也使用统一方格，放大文字不退回整行列表', (tester) async {
+    await open(tester, MixedTitleComicSource(), width: 390, scale: 1.5);
+    expect(find.byType(SliverGrid), findsOneWidget);
+    final first = find.byKey(const ValueKey('comic-detail-chapter-0'));
+    await tester.ensureVisible(first);
+    await tester.pumpAndSettle();
+    final second = find.byKey(const ValueKey('comic-detail-chapter-1'));
+    expect(tester.getRect(first).top, closeTo(tester.getRect(second).top, .1));
+    expect(tester.getSize(first).width, lessThan(195));
+    expect(find.text('特别篇'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('新版摘要、搜索与两版切换共享状态且记住选择', (tester) async {
     final source = CompactComicSource();

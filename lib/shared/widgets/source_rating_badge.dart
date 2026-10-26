@@ -17,8 +17,8 @@ class SourceRatingBadge extends StatelessWidget {
         image: true,
         child: Container(
           padding: EdgeInsets.symmetric(
-            horizontal: compact ? 5 : 6,
-            vertical: 2,
+            horizontal: compact ? 4 : 5,
+            vertical: 1.5,
           ),
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -32,12 +32,12 @@ class SourceRatingBadge extends StatelessWidget {
               color: const Color(0xfffa9aaa).withValues(alpha: .5),
               width: .7,
             ),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(5),
           ),
           child: Text(
             '18+',
             style: TextStyle(
-              fontSize: compact ? 9 : 10,
+              fontSize: compact ? 8.5 : 9,
               height: 1.2,
               fontWeight: FontWeight.w800,
               letterSpacing: .2,

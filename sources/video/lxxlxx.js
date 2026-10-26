@@ -1,0 +1,246 @@
+// LumeSource: {"id":"lxxlxx_video","name":"LXXLXX","version":"1.0.0","category":"video","mirrors":["https://zhs.lxxlxx.com"]}
+
+// 站点：https://zhs.lxxlxx.com （繁中成人短片站，2026-10-25 逐页实测，走本机代理出口）
+//
+// 结构：
+//   列表     GET /new/、/best/、/hot/、/hd/                 （各自只有第 1 页；站点自己给的分页链接是坏的）
+//   标签     GET /tags/<Tag>/ → /tags/<Tag>/<N>/            （只有标签页的分页是好的，1 基）
+//   搜索     GET /search/?key=<词>                          （表单 action="/search/"，参数名 key；无分页）
+//   卡片     `<div class="thumb"><div class="pic"><a href="/video/<Slug>.html"><img src="/imgs/sfiles/…jpg"
+//            alt="标题">
+//            <u>标题</u><t>1:24:09</t></a></div></div>`
+//   详情     GET /video/<Slug>.html → `<h1>` 标题、`<div class="video-info">` 时长/观看/日期、
+//            `<div class="video-tags">` 标签；播放器是 `<script src="/vjs/<n>.js"></script>`
+//   播放     三段跳：
+//            ① /vjs/<n>.js        → `document.write('<script src="//m4-player-a-lx-cn.gotojs.xyz/<build>/vjs/<n>.js">')`
+//            ② 那个 player js     → `document.writeln("<source src='//m4-a-mail-cn2p.gotojs.xyz/b_kJ5p9a/move/
+//                                    <YYYYMM>/<n>_<tok>.mp4' type='video/mp4'/>")` + `poster='/imgs/files/…jpg'`
+//            ③ mp4 直链
+//   实测结论（重要）：①② 稳定，③ 的 mp4 在本机代理出口（HK）**恒 404**
+//            （`HTTP Error 404. The requested resource is not found.`，试过换 UA / Referer / 换 cn1p、cn3p、
+//            http、带 ? 都一样）。站点也没有 m3u8 备档。所以 content() 的规矩是：
+//            **先把真实 mp4 地址解析出来并做一次 Range 探活，2xx/3xx 才返回 video，否则老实退 webplayer
+//            （pageUrl 指向详情页）**——换到能回源的网络就是直链，回不了源也不会给假地址。
+var H = {
+  name: 'LXXLXX',
+  defaultBase: 'https://zhs.lxxlxx.com',
+  base: 'https://zhs.lxxlxx.com',
+  ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+
+  useDomain: function () {
+    var c = (typeof LumeSource !== 'undefined' && LumeSource.config) || null;
+    this.base = String((c && c.domain) || this.defaultBase).replace(/\/+$/, '');
+    return this.base;
+  },
+  entity: function (s) {
+    return String(s == null ? '' : s).replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, function (all, code) {
+      var map = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ', '#39': "'", '#34': '"' };
+      if (map[code] !== undefined) return map[code];
+      if (code.charAt(0) === '#') {
+        var n = code.charAt(1) === 'x' || code.charAt(1) === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+        if (isFinite(n) && n > 0 && n < 0x110000) return String.fromCharCode(n);
+      }
+      return all;
+    });
+  },
+  clean: function (s) {
+    return this.entity(String(s == null ? '' : s).replace(/<script\b[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  },
+  abs: function (u) {
+    u = this.entity(String(u == null ? '' : u)).trim();
+    if (!u) return '';
+    if (u.indexOf('//') === 0) return 'https:' + u;
+    if (/^https?:\/\//i.test(u)) return u;
+    if (u.charAt(0) === '/') return this.base + u;
+    return this.base + '/' + u;
+  },
+  headers: function (referer) {
+    return { 'User-Agent': this.ua, 'Referer': referer || this.base + '/', 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8' };
+  },
+  response: function (r) {    if (!r) throw new Error(this.name + '：没有网络响应');
+    var s = Number(r.status);
+    if (s === 403 || s === 503 || s === 521) throw new Error('NEED_WEBVIEW_VERIFY：' + this.name + ' 要求网页验证（HTTP ' + s + '）');
+    if (s === 404) throw new Error(this.name + '：页面不存在（HTTP 404）');
+    if (s !== 200) throw new Error(this.name + '：请求失败（HTTP ' + s + '）');
+    return String(r.body || '');
+  },
+  get: async function (path, referer) {
+    var url = /^https?:\/\//i.test(path) ? path : this.base + path;
+    return this.response(await LumeSource.http.get(url, { headers: this.headers(referer) }));
+  }
+};
+
+var LumeSource = {
+  id: 'lxxlxx_video',
+  name: 'LXXLXX',
+  version: '1.0.0',
+  category: 'video',
+  mirrors: ['https://zhs.lxxlxx.com'],
+
+  async home() {
+    H.useDomain();
+    var page = await this.list({ categoryId: '/new/', page: 1 });
+    if (!page.items.length) throw new Error('LXXLXX：首页没认出条目（站点可能改版）');
+    return [{ title: '最新', moreUrl: '/new/', items: page.items.slice(0, 24) }];
+  },
+
+  async categories() {
+    H.useDomain();
+    return [
+      { id: '/new/', title: '最新' },
+      { id: '/best/', title: '最佳' },
+      { id: '/hot/', title: '熱門' },
+      { id: '/hd/', title: '高清' },
+      { id: '/tags/Chinese/', title: '中國' },
+      { id: '/tags/Japanese/', title: '日本' },
+      { id: '/tags/Asian/', title: '亞洲' },
+      { id: '/tags/Uncensored/', title: '無碼' },
+      { id: '/tags/Lesbians/', title: '女同' },
+      { id: '/tags/Big-Tits/', title: '巨乳' }
+    ];
+  },
+
+  async list(argument) {
+    H.useDomain();
+    var args = argument || {};
+    var page = Math.max(1, Number(args.page) || 1);
+    var keyword = H.clean(args.keyword || '').trim();
+    var category = String(args.categoryId == null ? '' : args.categoryId).trim() || '/new/';
+    var path, isTag = false;
+    if (keyword) {
+      path = '/search/?key=' + encodeURIComponent(keyword);
+    } else {
+      path = category.charAt(0) === '/' ? category : '/' + category;
+      if (!/\/$/.test(path)) path += '/';
+      isTag = /^\/tags\/[^/]+\/$/.test(path);
+      // 只有 /tags/<Tag>/ 支持分页（/tags/Chinese/12/）；/new/、/best/ 这类站点的分页链接是坏的（href=" 2"）
+      if (isTag && page > 1) path = path + page + '/';
+    }
+    var html = await H.get(path);
+    var items = this.__items(html);
+    if (!items.length) console.warn('[lxxlxx] 列表没解析出条目：' + path);
+    var hasMore = isTag && /下一頁|Next/i.test(html);
+    return { items: items, hasMore: hasMore };
+  },
+
+  __items: function (html) {
+    var text = String(html), out = [], seen = {};
+    var chunks = text.split('class="thumb"');
+    for (var i = 1; i < chunks.length; i++) {
+      var block = chunks[i].slice(0, 1400);
+      var hit = /<a[^>]+href="(\/video\/[^"]+\.html)"[^>]*>/.exec(block);
+      if (!hit) continue;
+      var path = hit[1];
+      if (seen[path]) continue;
+      seen[path] = 1;
+      var img = /<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"/i.exec(block) || /<img[^>]+alt="([^"]*)"[^>]+src="([^"]+)"/i.exec(block);
+      var cover = '', title = '';
+      if (img) {
+        if (/^\/|^https?:/i.test(img[1])) { cover = img[1]; title = img[2] || ''; }
+        else { title = img[1]; cover = img[2] || ''; }
+      }
+      if (!title) title = (/<u>([\s\S]{0,300}?)<\/u>/.exec(block) || [])[1] || '';
+      if (!cover) cover = (/<img[^>]+src="([^"]+)"/i.exec(block) || [])[1] || '';
+      var dur = (/<t>([^<]{0,20})<\/t>/.exec(block) || [])[1] || '';
+      out.push({
+        id: H.base + path,
+        title: H.clean(title) || H.clean(path.replace(/^\/video\//, '').replace(/\.html$/i, '').replace(/-/g, ' ')),
+        cover: cover ? H.abs(cover) : null,
+        coverHeaders: H.headers(),
+        subtitle: H.clean(dur)
+      });
+    }
+    return out;
+  },
+
+  async detail(argument) {
+    H.useDomain();
+    var id = String(argument && argument.id ? argument.id : '').trim();
+    var m = /(\/video\/[^"'?#]+\.html)/i.exec(id);
+    if (!m) return null;
+    var pageUrl = H.base + m[1];
+    var html = await H.get(pageUrl);
+    var title = (/<h1[^>]*>([\s\S]{0,300}?)<\/h1>/i.exec(html) || [])[1] || '';
+    if (!title) {
+      var t = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+      title = t ? H.clean(t[1]).replace(/\s*[-|].*$/, '') : '';
+    }
+    var info = (/<div class="video-info">([\s\S]{0,400}?)<\/div>/i.exec(html) || [])[1] || '';
+    var tags = '';
+    var tre = /<div class="pagination">([\s\S]{0,1200}?)<\/ul>/i.exec(html);
+    if (tre) tags = H.clean(tre[1].replace(/<\/li>/gi, '、')).replace(/[、\s]+$/, '');
+    var cover = '';
+    try {
+      var resolved = await this.__resolve(m[1]);
+      cover = resolved.poster || '';
+    } catch (error) {
+      console.warn('[lxxlxx] 取海报失败：' + error);
+    }
+    return {
+      id: pageUrl,
+      title: H.clean(title) || 'LXXLXX',
+      cover: cover ? H.abs(cover) : null,
+      coverHeaders: H.headers(),
+      subtitle: H.clean(info).slice(0, 120),
+      description: tags ? '類別：' + tags : H.clean(info)
+    };
+  },
+
+  async chapters(argument) {
+    if (!argument || !argument.id) return [];
+    return [{ id: 'play', title: '正片' }];
+  },
+
+  async content(argument) {
+    H.useDomain();
+    var id = String(argument && argument.id ? argument.id : '').trim();
+    var m = /(\/video\/[^"'?#]+\.html)/i.exec(id);
+    if (!m) throw new Error('LXXLXX：认不出视频地址（' + id + '）——id 应来自 list()');
+    var pageUrl = H.base + m[1];
+    var resolved = await this.__resolve(m[1]);
+    if (!resolved.mp4) {
+      return { kind: 'webplayer', pageUrl: pageUrl, headers: H.headers(pageUrl) };
+    }
+    // 真探活：拿 1KB 看是不是 video（回源不通就退 webplayer，不给假地址）
+    var ok = false, status = 0, type = '';
+    try {
+      var probe = await LumeSource.http.get(resolved.mp4, {
+        headers: { 'User-Agent': H.ua, 'Referer': pageUrl, 'Range': 'bytes=0-1023' }
+      });
+      status = Number(probe && probe.status) || 0;
+      type = String((probe && probe.headers && (probe.headers['content-type'] || probe.headers['Content-Type'])) || '');
+      ok = status >= 200 && status < 400 && /video|octet-stream|mp4/i.test(type);
+    } catch (error) {
+      console.warn('[lxxlxx] mp4 探活失败：' + error);
+    }
+    if (!ok) {
+      console.warn('[lxxlxx] mp4 回源不可用（HTTP ' + status + ' / ' + (type || '无 content-type') + '），退 webplayer：' + resolved.mp4);
+      return { kind: 'webplayer', pageUrl: pageUrl, direct: resolved.mp4, headers: H.headers(pageUrl) };
+    }
+    return {
+      kind: 'video',
+      url: resolved.mp4,
+      headers: { 'Referer': pageUrl, 'User-Agent': H.ua, 'Range': 'bytes=0-1023' },
+      qualities: [{ label: 'MP4', url: resolved.mp4 }]
+    };
+  },
+
+  /// /video/<Slug>.html → /vjs/<n>.js → <player host>/.../vjs/<n>.js → {mp4, poster}
+  __resolve: async function (videoPath) {
+    var pageUrl = H.base + videoPath;
+    var html = await H.get(pageUrl);
+    var vjs = (/<script[^>]+src="(\/vjs\/\d+\.js)"/i.exec(html) || [])[1] || '';
+    if (!vjs) return { mp4: '', poster: '', pageUrl: pageUrl };
+    var first = await H.get(vjs, pageUrl);
+    var inner = (/src="(\/\/[^"]+\.js)"/i.exec(first) || [])[1] || '';
+    if (!inner) return { mp4: '', poster: '', pageUrl: pageUrl };
+    var second = await H.get('https:' + inner, pageUrl);
+    // player js 里是 document.writeln("… <source src=\'//host/…mp4\' …")，注意避开转义用的反斜杠
+    var mp4 = (/source src=\\?['"](\/\/[^'"\\]+\.mp4[^'"\\]*)\\?['"]/.exec(second) || [])[1] || '';
+    if (!mp4) mp4 = (/['"](\/\/[^'"\\\s]+\.mp4[^'"\\\s]*)\\?['"]/.exec(second) || [])[1] || '';
+    var poster = (/poster=\\?['"]([^'"\\]+)\\?['"]/.exec(second) || [])[1] || '';
+    return { mp4: mp4 ? H.abs(mp4) : '', poster: poster, pageUrl: pageUrl };
+  }
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = LumeSource;

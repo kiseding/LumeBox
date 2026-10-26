@@ -4,6 +4,7 @@ import '../reading/reading.dart';
 import '../session/section.dart';
 import 'source_request_log.dart';
 import 'web_session_lifecycle.dart';
+import 'secure_connection_failure.dart';
 import '../util/lume_log.dart';
 
 /// Cloudflare / WAF 拦截的识别与会话（Cookie）保存（用户要求）。
@@ -357,6 +358,7 @@ bool webViewMayHelp(String? message) {
   final kind = wafKindOf(message);
   if (kind == WafFailureKind.bridge) return false;
   if (kind == WafFailureKind.webView) return true;
+  if (secureConnectionFailureOf(message) != null) return false;
   final text = (message ?? '').toUpperCase();
   if (text.contains('超时') ||
       text.contains('TIMEOUT') ||

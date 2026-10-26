@@ -343,6 +343,35 @@ Spider.playerContent = lambda *args: {'url': args[0].getProxyUrl() + '&kind=bina
         self.assertEqual(self.value("home")[0]["title"], "网络通过")
         self.assertEqual(len(CALLS), 4)
 
+    def test_source_remounting_connection_pool_still_uses_app_network(self):
+        source = FIXTURE + '''
+    def init(self, extend):
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        self.session = requests.Session()
+        for scheme in ('http://', 'https://'):
+            self.session.mount(scheme, HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=Retry(total=1)))
+    def homeVideoContent(self):
+        import requests
+        from requests.adapters import HTTPAdapter
+        first = self.session.get('https://fixture.invalid/cookie').json()
+        with requests.Session() as session:
+            session.mount('https://fixture.invalid/', HTTPAdapter())
+            second = session.get('https://fixture.invalid/cookie').json()
+        assert first['ok'] and second['ok']
+        return {'list':[{'vod_id':'bridge','vod_name':'连接池兼容'}]}
+'''
+        from unittest.mock import patch
+        with patch('requests.adapters.HTTPAdapter.send', side_effect=AssertionError('不应绕过 App 网络桥')) as direct_send:
+            self.assertTrue(call('remounted', 'load', script=source)['ok'])
+            result = call('remounted', method='home')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['value'][0]['title'], '连接池兼容')
+        direct_send.assert_not_called()
+        self.assertEqual(len(CALLS), 2)
+        self.assertTrue(all(request['sourceId'] == 'remounted' for request in CALLS))
+
     def test_namespace_cache_dispose_and_missing_dependency(self):
         self.assertTrue(call("second", "load", script=FIXTURE)["ok"])
         host._contexts["fixture"]["cache"]["key"] = "secret"

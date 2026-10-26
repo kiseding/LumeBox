@@ -10,6 +10,7 @@ import '../util/debug_request_log.dart';
 import '../util/lume_log.dart';
 import 'network_settings.dart';
 import 'network_cancellation.dart';
+import 'secure_connection_failure.dart';
 
 /// 一次待发请求。队列只认这些字段，不认识 http 包的类型。
 class NetworkRequest {
@@ -447,9 +448,7 @@ class NetworkQueue {
 
   /// 证书验证失败重试不会改变结果，立即释放下载额度。
   static bool isCertificateFailure(Object error) =>
-      '$error'.contains('CERTIFICATE_VERIFY_FAILED') ||
-      '$error'.contains('TLS_HANDSHAKE_FAILED') ||
-      '$error'.contains('A TLS error caused the secure connection to fail');
+      secureConnectionFailureOf(error) != null;
 
   /// 解析 HTTP 日期（`Retry-After` 的日期写法）。解析失败返回 null。
   static DateTime? _tryParseHttpDate(String value) {

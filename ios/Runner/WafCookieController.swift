@@ -233,10 +233,16 @@ private final class SourceHTTPRead: NSObject, URLSessionDataDelegate {
     guard !finished else { return }
     if let error=error as NSError? {
       let certificate=error.domain==NSURLErrorDomain && [-1201,-1202,-1203,-1204].contains(error.code)
+      let tls=error.domain==NSURLErrorDomain && error.code==NSURLErrorSecureConnectionFailed
       let timeout=error.domain==NSURLErrorDomain && error.code==NSURLErrorTimedOut
       let transport=error.domain==NSURLErrorDomain && error.code==NSURLErrorAppTransportSecurityRequiresSecureConnection
-      finish(FlutterError(code:transport ? "transport_security" : timeout ? "api_timeout" : "network",
-        message:certificate ? "CERTIFICATE_VERIFY_FAILED" : transport ? "iOS 阻止了此站点的 HTTP 请求，请更新 App 的站点兼容配置" : timeout ? "接口请求超时" : "系统网络请求失败",details:["domain":error.domain,"code":error.code])); return
+      var details:[String:Any]=["domain":error.domain,"code":error.code]
+      if let underlying=error.userInfo[NSUnderlyingErrorKey] as? NSError {
+        details["underlyingDomain"]=underlying.domain
+        details["underlyingCode"]=underlying.code
+      }
+      finish(FlutterError(code:certificate ? "certificate" : tls ? "tls_handshake" : transport ? "transport_security" : timeout ? "api_timeout" : "network",
+        message:certificate ? "CERTIFICATE_VERIFY_FAILED" : tls ? "TLS_HANDSHAKE_FAILED：HTTPS安全连接失败" : transport ? "iOS 阻止了此站点的 HTTP 请求，请更新 App 的站点兼容配置" : timeout ? "接口请求超时" : "系统网络请求失败",details:details)); return
     }
     succeed()
   }

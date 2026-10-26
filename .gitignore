@@ -70,3 +70,9 @@ app.*.map.json
 
 # Downloaded CPython runtime and hash-locked wheels
 ios/PythonRuntime/
+
+# 侦察/跑测临时产物（tools/lume-probe.mjs 会往这里写页面快照）
+.tmp_probe/
+
+# 本地截图、页面快照与诊断输出；已跟踪的参考图保持不变。
+/.tmp_shots/

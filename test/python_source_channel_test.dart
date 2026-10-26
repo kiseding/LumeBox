@@ -30,6 +30,61 @@ void main() {
     () => messenger.setMockMethodCallHandler(PythonSourceEngine.channel, null),
   );
 
+  test('Python HTTP 失败保留 TLS 分类和系统错误码，不泄露原始异常内容', () async {
+    final errors = [
+      PlatformException(
+        code: 'network',
+        message: 'https://private.invalid/?token=private-token',
+        details: {
+          'domain': 'NSURLErrorDomain',
+          'code': -1200,
+          'headers': {'Cookie': 'private-cookie'},
+        },
+      ),
+      PlatformException(
+        code: 'tls_handshake',
+        message: 'private-token',
+        details: {'domain': 'NSURLErrorDomain', 'code': -1200},
+      ),
+      PlatformException(
+        code: 'certificate',
+        message: 'private-token',
+        details: {'domain': 'NSURLErrorDomain', 'code': -1202},
+      ),
+    ];
+    for (var index = 0; index < errors.length; index++) {
+      var requests = 0;
+      final client = LumeHttp(
+        client: MockClient((_) async {
+          requests++;
+          throw errors[index];
+        }),
+      );
+      final engine = PythonSourceEngine(sourceId: 'tls-$index', http: client);
+      final result = await host({
+        'sourceId': 'tls-$index',
+        'request': jsonEncode({
+          'method': 'http',
+          'payload': {'url': 'https://fixture.invalid/list', 'body': ''},
+        }),
+      });
+      expect(result['ok'], isFalse);
+      final message = result['error'] as String;
+      expect(
+        message,
+        contains(
+          index == 2 ? 'CERTIFICATE_VERIFY_FAILED' : 'TLS_HANDSHAKE_FAILED',
+        ),
+      );
+      expect(message, contains(index == 2 ? '-1202' : '-1200'));
+      expect(message, isNot(contains('private')));
+      expect(message, isNot(contains('headers')));
+      expect(requests, 1);
+      engine.dispose();
+      client.dispose();
+    }
+  });
+
   test('Python 网络桥保留二进制、请求头、重定向语义，并拒绝已释放来源', () async {
     late http.Request outgoing;
     final client = LumeHttp(

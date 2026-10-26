@@ -470,14 +470,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         .toList();
   }
 
-  bool get _useChapterGrid =>
-      !_isGallery &&
-      _chapters.isNotEmpty &&
-      _chapters.every(
-        (chapter) =>
-            chapter.title.length <= 18 &&
-            ChapterDisplayOrder.chapterNumber(chapter.title) != null,
-      );
+  bool get _useChapterGrid => !_isGallery && _chapters.isNotEmpty;
 
   void _locateReading() {
     final progress = _progress;
@@ -910,7 +903,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: grid ? 8 : 14,
+            vertical: grid ? 4 : 14,
           ),
           child: Row(
             children: [
