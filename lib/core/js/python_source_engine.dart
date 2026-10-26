@@ -29,13 +29,15 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     this.section = Section.video,
   }) {
     _install();
-    _clients[sourceId] = http;
-    _engines[sourceId] = this;
+    _clients[_runtimeId] = http;
+    _engines[_runtimeId] = this;
   }
 
   final String sourceId;
   final LumeHttp http;
   final Section section;
+  String get _runtimeId =>
+      section == Section.video ? sourceId : '${section.id}:$sourceId';
   late final _web = SourceWebRuntime("python:${section.id}:$sourceId");
   late final _storage = SourceScriptStorage(section, sourceId);
   late final _mediaRuntime = SourceMediaRuntime(http);
@@ -221,7 +223,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     }
     try {
       final reply = await channel
-          .invokeMethod<String>('execute', {...args, 'sourceId': sourceId})
+          .invokeMethod<String>('execute', {...args, 'sourceId': _runtimeId})
           .timeout(const Duration(seconds: 65));
       final result = SandboxResult.fromJson(reply ?? '');
       if (result.error?.kind.poisonsContext ?? false) isPoisoned = true;
@@ -251,6 +253,7 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     final result = await _request({
       'action': 'load',
       'script': script,
+      'section': section.id,
       'timeout': 15,
     });
     if (!result.isOk) {
@@ -277,7 +280,9 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
           'id': _metadata!.id,
           'name': _metadata!.name,
           'version': _metadata!.version,
-          'category': 'video',
+          'category': _metadata!.category.isEmpty
+              ? section.id
+              : _metadata!.category,
           'compatibilityWarnings': _warnings,
         };
   @override
@@ -302,13 +307,13 @@ class PythonSourceEngine implements SourceEngine, ScriptConfigCapable {
     _mediaRuntime.dispose();
     _storage.dispose();
     _proxy.dispose();
-    _clients.remove(sourceId);
-    _engines.remove(sourceId);
+    _clients.remove(_runtimeId);
+    _engines.remove(_runtimeId);
     unawaited(
       channel
           .invokeMethod<String>('execute', {
             'action': 'dispose',
-            'sourceId': sourceId,
+            'sourceId': _runtimeId,
           })
           .catchError((Object _) => null),
     );

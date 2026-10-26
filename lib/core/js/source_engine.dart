@@ -111,7 +111,7 @@ class SourceEngineRegistry {
     required Section section,
   }) {
     if (SourcePackage.kindOf(script) == SourcePackageKind.python) {
-      if (section != Section.video) {
+      if (section != Section.video && section != Section.comic) {
         return Future.value(null);
       }
       return Future.value(

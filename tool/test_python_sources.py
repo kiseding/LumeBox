@@ -105,6 +105,37 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_comic_python_returns_ordered_images_and_per_image_headers(self):
+        source = '''
+class Spider:
+    def homeVideoContent(self): return {'list':[{'vod_id':'book','vod_name':'测试漫画'}]}
+    def detailContent(self, ids): return {'list':[{'vod_id':ids[0],'vod_name':'测试漫画','vod_play_url':'第1话$https://comic.test/read/1'}]}
+    def imageContent(self, chapter_id):
+        return {'images':['/pages/1.jpg', {'url':'https://img.test/2.jpg','headers':{'X-Page':'2'}}],
+                'headers':{'Referer':chapter_id}, 'imageHeaders':{'/pages/1.jpg':{'X-Page':'1'}}}
+'''
+        loaded = call('comic-images', 'load', script=source, section='comic')
+        self.assertTrue(loaded['ok'], loaded)
+        item = call('comic-images', method='list')['value']['items'][0]
+        chapter = call('comic-images', method='chapters', argument={'id':item['id']})['value'][0]
+        result = call('comic-images', method='content', argument={'id':item['id'], 'chapterId':chapter['id']})
+        self.assertTrue(result['ok'], result)
+        content = result['value']
+        self.assertEqual(content['kind'], 'images')
+        self.assertEqual(content['images'], ['https://comic.test/pages/1.jpg','https://img.test/2.jpg'])
+        self.assertEqual(content['imageHeaders'][content['images'][0]], {'Referer':'https://comic.test/read/1','X-Page':'1'})
+
+    def test_comic_player_compatibility_rejects_video_and_invalid_images(self):
+        for value in ("{'url':'https://media.test/movie.mp4'}", "{'images':['javascript:bad']}", "{'images':[]}"):
+            source = FIXTURE + '\n    def playerContent(self, flag, id, vipFlags=None): return ' + value
+            self.assertTrue(call('comic-invalid', 'load', script=source, section='comic')['ok'])
+            result = call('comic-invalid', method='content', argument={'id':'one','chapterId':json.dumps({'id':'https://comic.test/read/1'})})
+            self.assertFalse(result['ok'], result)
+        source = FIXTURE + "\n    def playerContent(self, flag, id, vipFlags=None): return ['https://img.test/1.jpg']"
+        self.assertTrue(call('comic-player', 'load', script=source, section='comic')['ok'])
+        result = call('comic-player', method='content', argument={'id':'one','chapterId':json.dumps({'id':'chapter'})})
+        self.assertEqual(result['value']['images'], ['https://img.test/1.jpg'])
+
     def test_source_signature_hook_and_web_player_mode(self):
         source = FIXTURE + '''
     def prepareRequest(self, request):
