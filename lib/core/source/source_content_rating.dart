@@ -143,6 +143,9 @@ class SourceContentRating {
     'tianlula_video',
     'tianlula_photo',
     'tianlula_novel',
+    // 海角情（haijiaolove.xyz，WordPress 站，正文内嵌 player.abyssplayer.com）与爱播爱播（994555.xyz，SSR 直给 m3u8）。
+    'haijiaoqing_video',
+    'aiboaibo_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -297,6 +300,8 @@ class SourceContentRating {
     "天撸啦",
     "天撸啦图集",
     "天撸啦小说",
+    "海角情",
+    "爱播爱播",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

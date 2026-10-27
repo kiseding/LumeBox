@@ -73,7 +73,9 @@ sources/video/
 ├── f016.js        在线影院 / 91吃瓜（同一站群，前者是超集）；hash slug 路径，搜索走站点自带的 Meilisearch
 ├── resao.js       91热爆（www.resao.com）KVS 站；**VIP 专享片靠 CDN 路径可预测直接取流**（去掉 ?k=&t= 也 200）
 ├── yuxiu.js       玉羞园（yhh.yxy881p.icu）xvideos 镜像站；媒体直连 xvideos CDN，无 VIP
-└── tianlula.js    天撸啦（ttbd067.top:51000）视频频道；接口密文 AES-128-CBC，源内自带纯 JS 解密
+├── tianlula.js    天撸啦（ttbd067.top:51000）视频频道；接口密文 AES-128-CBC，源内自带纯 JS 解密
+├── haijiaoqing.js 海角情（haijiaolove.xyz）WordPress 站；列表/详情走 wp-json，正文内嵌 abyssplayer 走 webplayer
+└── aiboaibo.js    爱播爱播（994555.xyz）SvelteKit SSR；首页 HTML 内嵌 list[]，每条自带 m3u8 直链
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -127,11 +129,15 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 探花视频 | 否 | 4 块 | 42 分类 | 30 | 无搜索接口 | ok | 1 | **video（m3u8，实测 200 + #EXTM3U；另一域名 91大神 同库同地址）** |
 | 在线影院 | 否 | 3 块 | 31 分类 | 40 | 40（Meilisearch） | ok | 1 | **video（m3u8，master→variant 实测 200；另一域名 91吃瓜 是子集，404 自动回落）** |
 | 91热爆 | 否 | 3 块 | 12 分类 | 20 | 20（站内搜索） | ok | 1 | **video（CDN 直连：`/{dir}/{id}/{id}.mp4/index.m3u8` 去掉签名也 200；VIP 专享片同样可播）** |
+| 海角情 | WordPress：`/wp-json/wp/v2/posts?per_page=20&page=N`（X-WP-Total 1156）、`/wp-json/wp/v2/posts/{id}`；正文是 Elementor 生成的 HTML | 播放器是正文里的 `<iframe src="https://player.abyssplayer.com/{code}">`，播放器页 JS 渲染、HTML 无 m3u8 → 按 `kind: webplayer` 交给 App 网页播放器；一个帖子 1–3 个源，做成 chapters。封面取正文首个 `<img>`（多为 gif）。 |
+| 爱播爱播 | SvelteKit SSR：首页 HTML 内嵌 `data:{…list:[{id,name,pic,m3u8,…}]}`；`/?page=N`、`/page/N`、`/__data.json` 都只回同一批 12 条；搜索 `/search?q=` 有效 | 每条自带 m3u8（`sryndbsfvd.com/…/index.m3u8`），`content()` 直接返回，无需详情页；源内缓存 10 分钟。 |
 | 天撸啦 | 综合站拆三源：`Api-vod_list&cid&limit&page`（视频，total 284,145）、`Api-vod_search&wd`、`Api-vod_detail&id`（`vod_url` 是 m3u8）；`Api-news_list&cid&type=pic\|text`（图集/小说）、`Api-news_detail&id`（`news_content` 是一整段 HTML）；分类树在 `Api-list_all` 的 `children` 里 | **接口返回体是 AES-128-CBC 密文**（key `bfd7257d9bee742c`、iv `506ecf5490eeb552`，同为 ASCII），沙箱没有 crypto/atob，所以三个源各自内联一份纯 JS AES-128-CBC（FIPS-197 向量 + 站点真实密文双向核对）；图集把 `news_content` 里的 `<img>` 抽成 images 列表并统一 http→https；小说把 HTML 去标签转纯文本。 |
 | 玉羞园 | 否 | 3 块 | 38 分类 | 48 | 27（站内搜索 `/?k=`） | ok | 1 | **video（hls_low.m3u8 200 206B master；mp4_sd 200 93 MB 整片可直下）** |
 | 天撸啦 | 否 | 4 块 | 52 分类 | 20 | 20（`Api-vod_search`，探花 7718 条） | ok | 1 | **video（`vod_url` = m3u8，实测 200 + #EXTM3U 3790 B）** |
 | 天撸啦图集 | 否 | 3 块 | 9 分类 | 20 | 无搜索接口 | ok | 1 | **images（一套 17 张直链，首图 200）** |
 | 天撸啦小说 | 否 | 3 块 | 9 分类 | 20 | 无搜索接口 | ok | 1 | **text（正文 1.2 万字，HTML 去标签）** |
+| 海角情 | 否 | 1 块 | 7 分类 | 20 | 20（wp-json `search=`） | ok | 3 | **webplayer（正文内嵌 player.abyssplayer.com，多线路）** |
+| 爱播爱播 | 否 | 1 块 | — | 12 | 搜索页 SSR | ok | 1 | **video（m3u8 直链，探活 200 + #EXTM3U，1080p master）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -229,6 +235,8 @@ dart run tools/site_reachability.dart
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
 - **VIP 一律先破解再决定怎么放** —— 判定顺序、三种打法（CDN 路径可推导 / 试看签名复用 / 同库镜像）、记录要求见 [docs/VIP处理约定.md](../docs/VIP处理约定.md)；同样规则也适用于此后新增的源。
+- **海角情 / 爱播爱播 的边界**：海角情正文只有 iframe，播放器页不暴露 m3u8（要深挖 player.abyssplayer.com 的接口才能直连，目前按 webplayer 交付）；爱播爱播服务端只吐最新 12 条，翻页参数全被忽略，所以列表很短，靠搜索取老片。
+- **hsex.men 与 reddxxx.com 无法做源**：两者的详情/接口全部返回 Cloudflare「Just a moment…」JS 挑战（`cf-mitigated`），App 的 HTTP 客户端过不去，源里只能拿 403 页面；除非改走浏览器内核。
 - **天撸啦接口是密文**：`/res?s=Api-xxx` 的 `list`/`data` 字段 base64 后是 AES-128-CBC（PKCS7），密钥 iv 都写在 `assets/core.js` 的混淆里，用「挂钩 `CryptoJS.AES.decrypt` 抓参数」的办法取到 key/iv 后解出明文。站点改 key 时源会抛「密文解不开（站点换 key 了？）」，届时重抓一次即可。图集/小说**没有搜索接口**（`Api-news_search` 返回 code=0）。纯文本源在 `lume-source-check` 里 `playable` 一项会报「没有给出绝对地址」（没有 URL 可探活），属工具限制，其余入口都是 ok。
 - **玉羞园是 xvideos 镜像**：内容就是 xvideos 公共库，媒体走 `hls-cdn77` / `mp4-cdn77`，`secure=` token 约 1 小时失效 → 每次现取详情页；分页是 0 基（`/new/{页码-1}`、`/c/{slug}/{页码-1}`、搜索 `&p={页码}` 从 1 起），两套卡片版式（`<img data-src>` 与 `<picture><source data-srcset>`）都要兼容。
 - **91热爆的 VIP 不是绕过，是 CDN 裸奔**：`/private/` 的 VIP 片页面只给 `no-player` 占位（游客还有观看次数上限），但视频文件路径可预测且签名不校验，`content()` 只用 id 拼 CDN 就拿到整片；`delivery.douyinpaly.com` 换域时改脚本顶部 `CDN_HOSTS`。

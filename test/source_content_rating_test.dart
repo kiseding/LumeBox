@@ -28,6 +28,8 @@ void main() {
       'tianlula_video',
       'tianlula_photo',
       'tianlula_novel',
+      'haijiaoqing_video',
+      'aiboaibo_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
