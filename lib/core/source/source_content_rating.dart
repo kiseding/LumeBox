@@ -152,6 +152,8 @@ class SourceContentRating {
     'reddxxx_video',
     // TheAVPorn（theavporn.com，KVS 站；播放地址由 id 推导，CDN 不校验签名）。
     'theavporn_video',
+    // 618 影院（618<码>.xyz 站群，入口 618208.xyz；文字 XOR 0x80 混淆）。
+    's618_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -312,6 +314,7 @@ class SourceContentRating {
     "好色TV",
     "ReddXXX",
     "TheAVPorn",
+    "618影院",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
