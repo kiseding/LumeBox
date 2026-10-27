@@ -16,6 +16,9 @@ void main() {
       'p5mh_comic',
       'fxcomic_comic',
       'zhilian-duanju',
+      'cg1_photo',
+      'cg1_video',
+      'betareel_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

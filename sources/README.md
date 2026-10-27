@@ -65,8 +65,13 @@ sources/video/
 ├── cf2.js         Butterfly（d1q6v0m0fmxvl0.cloudfront.net）匿名设备登录即整片；interfaceKey 独立
 ├── cf3.js         Butterfly2（d17rhkrwip15vt.cloudfront.net）同 SDK 另一运营方；API 域与页面域分离
 ├── hentai2w.js    Hentai2W（hentai2w.com）**18+**，**需代理**，Inertia props + 自动过年龄门
-└── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
+├── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
+├── 91cg1.js       91吃瓜（www.91cg1.com）Typecho HTML；短片地址在帖子页内嵌的 DPlayer 配置里（新 CDN op.udhhzr.cn，实测 m3u8 200）
+└── betareel.js    BetaTok（betareel.com）Firebase + R2；`/api/betatok/feed` 给预签名清单，**清单 27 MB 用 Range 窗口读**
 ```
+
+**图片类图源**在 `photo/`（漫画板块的「美图」分组，内容形态 `{kind:'images'}`）：
+`photo/91cg1.js` 是同一个 91吃瓜站的图集源（图片在帖子页 `data-xkrkllgl` 属性里）。
 
 ---
 
@@ -108,6 +113,8 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | Butterfly | 否 | 2 块 | ok | ok | ok | ok | 1 | **video（m3u8 整片）** |
 | Butterfly2 | 否 | 2 块 | ok | ok | 本地过滤 | ok | 1 | **video（m3u8 整片）** |
 | 栀莲短剧 | 否 | 3 块 | 10 | 20 | 20 | ok | 18 | video / webplayer（获准播放的地址直连，锁定集转源站） |
+| 91吃瓜 | 否 | 4 块 | 23 | 19~30 | 30 | ok | 1 | **video（m3u8 直链 + AES key/分片逐个签名）** |
+| BetaTok | 否 | 1 块 | 84 频道 | 19~20 | 窗口内过滤 | ok | 1 | **video（mp4，Worker 302 到 R2 预签名地址，实测 206）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -180,6 +187,8 @@ dart run tools/site_reachability.dart
 | SpankBang | 纯 HTTP 全路径/UA/头组合均 403（CF `Just a moment...`，只有 `/robots.txt` 放行；带浏览器导出的 cookie 用 curl 也 403） | 抓取层抛 `NEED_WEBVIEW_VERIFY`；**解析已用真实 HTML 实测**：`data-testid="video-item"` 卡片 + `/{short}/video/{slug}` + `tbi.sb-cd.com` 封面 + `video-item-length`；播放取详情页 `var stream_data.m3u8`（240p/480p/720p，实测 200 + mpegurl）与 `…-720p.mp4`（206） |
 | HSTV | Vue3 前端 + `/api/app/*`，响应自定义 AES-256-CBC（interfaceKey 派生）；**`POST /mine/login/h5` 匿名设备登录即得 JWT**（`Authorization: <JWT>`，不加 Bearer） | `POST /video/play` → `playPolicy.result`：`FULL` 整片 m3u8；`PREVIEW` 服务端截断 15 秒（4 段/18.48s + ENDLIST），换 scene/videoType 无效 ⇒ VIP 锁在服务端 |
 | 栀莲短剧 | React SPA + `/api/v1`：`/home`（分类+最新+推荐）、`/dramas?sort=&category_id=&keyword=&page=&size=`、`/dramas/{id}`（带客户端头时返回 `{drama, episodes}`）、`/dramas/{id}/episodes/{number}` | **`POST /api/v1/auth/guest` 游客登录**（`requestKey` 必须是 base64url(32 随机字节)，43 字符）；`video_url` 只对带 `Authorization` 的请求下发。没有下发媒体地址时转源站网页显示权限要求，不构造播放路径。 |
+| 91吃瓜 | Typecho + Mirages：`/`、`/page/N/`、`/category/{slug}/N/`、`/search/{词}/N/`、`/archives/{pid}/`；卡片 = `<a href="/archives/{pid}/">` + `loadBannerDirect('封面')` + `<h2 class="post-card-title">`（搜索页的链接是绝对 URL，两种都要认） | 帖子页内嵌 DPlayer：`"video":{"url":"https://op.udhhzr.cn/videos5/…/index.m3u8?auth_key=…"}`，`\/` 还原成 `/` 即可直连（清单 200 + `#EXTM3U`，key/`.ts` 都在 as.ucjosl.cn 上逐条签好）。图片在 `data-xkrkllgl` 属性（`<img src>` 只是占位图）。栖影那套 `hls.ffxddn.cn` / `op.vkjyoi.cn` 已死。 |
+| BetaTok | Firebase 项目 + R2：`GET /api/betatok/feed` → `{manifestUrl(预签名), mediaBase, mediaQuery, expiresAt}`；清单是 **27 MB / 34466 条**的整包 JSON（对象本身 gzip 3.7 MB） | **Range 窗口**：每次只取前 N KB 压缩（64 KB ≈ 550 KB 文本 ≈ 680 条），用 `},{"id":"` 切条、只 `JSON.parse` 需要的那几条；`/api/betatok/media/{videoKey}?{mediaQuery}` → 302 到 R2 预签名 mp4（实测 206，单个 60 MB）；封面走同一代理 `{posterKey}`。`locked:true` 的付费片不列。 |
 
 三个「苹果CMS」系源都自带纯 JS 版 base64 / 百分号解码（沙箱没有 `atob`/`unescape`），
 所以 `encrypt=1/2` 的站点换了编码也不用改脚本。
@@ -192,6 +201,10 @@ dart run tools/site_reachability.dart
 - **站点改版就会失效**：这些源靠 HTML 结构/正则吃饭，源站换模板后需要按新结构改（每站文件头都写了它是怎么解析的）。失效时先在 App 里「测试连通性」，再跑 `tools/lume-source-check.mjs` 看是哪一步断了。
 - **成人分区**：A123TV 有「福利」分类（站点自带），这些源不对内容做过滤，请自行按需使用。
 - **栀莲短剧使用游客会话**：令牌到期或接口返回 401 时重新登录，已有游客身份按站点分别缓存。仅使用该集接口实际下发的播放地址；锁定集转源站网页显示会员或付费要求。
+- **91吃瓜的图片域与站点分离**：图片在 `pic.hdhwqx.cn`（直连 200，不需要 Referer），视频清单/分片在 `op.udhhzr.cn` 与 `as.ucjosl.cn`；站点每篇都同时带图集和短片，所以分成了 `photo/91cg1.js`（图集）与 `video/91cg1.js`（短片）两个源。
+- **BetaTok 的清单没法整包读**：`manifests/betatok.json` 解压后 27 MB / 34466 条，沙箱 64 MB 堆装不下；本源用 Range 分窗，所以**搜索与频道筛选只作用于当前窗口**（上限 256 KB 压缩 ≈ 2.8 千条），无过滤的翻页窗口按页数自动放大；窗口文本 5 分钟内复用。
+- **BetaTok 的工具跑测会「假失败」**：`tools/lume-source-check.mjs` 验播放时会把整段 mp4 拉完，60 MB 的资源必然超时；手工用 `Range: bytes=0-262143` 复验是 `206 + video/mp4 + content-range …/60540624`。
+- **BetaTok 的付费片不列**：`locked:true`（PPV，price 单位钻石）直接从列表里滤掉，不代下单。
 
 ## 七、免责
 

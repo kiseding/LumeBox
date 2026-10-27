@@ -125,6 +125,11 @@ class SourceContentRating {
     // 栀莲短剧：与「黄果剧场」同一套后端（请求头 X-Client-Platform: huangguo-h5），
     // 整站是 AI 成人短剧，默认按 18+ 处理。
     'zhilian-duanju',
+    // 91吃瓜（www.91cg1.com）：吃瓜/探花类成人图集与短片站，图集源与视频源同站。
+    'cg1_photo',
+    'cg1_video',
+    // BetaTok（betareel.com）：竖屏成人短片 Feed。
+    'betareel_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
@@ -263,7 +268,9 @@ class SourceContentRating {
     "麻豆社",
     "黄果剧场",
     "栀莲短剧",
-    "栖影图库",
+    "91吃瓜图集",
+    "91吃瓜视频",
+    "betatok",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
