@@ -78,7 +78,8 @@ sources/video/
 ├── aiboaibo.js    爱播爱播（994555.xyz）SvelteKit SSR；首页 HTML 内嵌 list[]，每条自带 m3u8 直链
 ├── jizeyy.js      AV仓库（jizeyy.com）Typecho 主题；取流走 ?action=get&p=1 里的 jx.php?url=<m3u8>
 ├── hsex.js        好色TV（hsex.men）列表可直连、详情 CF 挑战 → content 走 webplayer
-└── reddxxx.js     ReddXXX（reddxxx.com）列表取 sitemap 视频索引、播放走 webplayer
+├── reddxxx.js     ReddXXX（reddxxx.com）列表取 sitemap 视频索引、播放走 webplayer
+└── theavporn.js   TheAVPorn（theavporn.com）KVS；播放地址由 id 推导（bytt.jb-aiwei.cc，去掉 ttl/dsc 仍 200）
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -144,6 +145,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | AV仓库 | 否 | 3 块 | 8 分类 | 20 | 无搜索接口 | ok | 1 | **video（`?action=get&p=1` → jx.php?url=<m3u8>；直连 CDN 在本机被 RST，地址本身正确）** |
 | 好色TV | 否 | 3 块 | 5 栏目 | 24 | 40（search.htm） | ok | 1 | **webplayer（列表/封面可 HTTP 取，详情页有 CF 挑战 → 交给 App 内嵌浏览器）** |
 | ReddXXX | 否 | 1 块 | — | 1004（一个 sitemap 分片） | 无 | ok | 1 | **webplayer（列表来自 sitemap-videos 视频索引，播放走内嵌浏览器）** |
+| TheAVPorn | 否 | 3 块 | 3 栏目 | 24 | 无 | ok | 1 | **video（`bytt.jb-aiwei.cc/contents/videos/{dir}/{id}/index.m3u8` 免登录，探活 200 + #EXTM3U 1382B）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -241,6 +243,7 @@ dart run tools/site_reachability.dart
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
 - **VIP 一律先破解再决定怎么放** —— 判定顺序、三种打法（CDN 路径可推导 / 试看签名复用 / 同库镜像）、记录要求见 [docs/VIP处理约定.md](../docs/VIP处理约定.md)；同样规则也适用于此后新增的源。
+- **TheAVPorn 的流是浏览器抓包定位的**：游客页只有 `no-player`（观看次数受限），但真实播放请求是 `https://bytt.jb-aiwei.cc/contents/videos/{dir}/{id}/index.m3u8?ttl=…&dsc=…`；实测**整段查询串去掉仍 200**、分片 `.ts` 也不带签名、另一个 id 同规则可播 → `content()` 只用 id 拼路径（`dir=floor(id/1000)*1000`）。换分发域时改 `CDN_HOSTS`。
 - **jizeyy / hsex / reddxxx 的取流方式各不相同**：jizeyy 详情页按钮指向 `?action=get&p=1`，页面里是 `jx.php?url=<真 m3u8>`，URL 解码即得直链（`play4.laoyacdn.com` 在本机出口被 RST，换网络可播）；hsex 列表页可直连但详情页一律 CF 挑战、CDN 是逐条签名（`/hls/{id}/index.m3u8` 403），reddxxx 整站 Turnstile 但 **sitemap 未被挑战**（`/sitemap-videos/{N}`，N=0 最新，4214 个分片）——这两个都按 `webplayer` 交付，由 App 内嵌浏览器过 CF 后播放。
 - **海角情 / 爱播爱播 的边界**：海角情正文只有 iframe，播放器页不暴露 m3u8（要深挖 player.abyssplayer.com 的接口才能直连，目前按 webplayer 交付）；爱播爱播服务端只吐最新 12 条，翻页参数全被忽略，所以列表很短，靠搜索取老片。
 - **hsex.men 与 reddxxx.com 无法做源**：两者的详情/接口全部返回 Cloudflare「Just a moment…」JS 挑战（`cf-mitigated`），App 的 HTTP 客户端过不去，源里只能拿 403 页面；除非改走浏览器内核。

@@ -33,6 +33,7 @@ void main() {
       'jizeyy_video',
       'hsex_video',
       'reddxxx_video',
+      'theavporn_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
