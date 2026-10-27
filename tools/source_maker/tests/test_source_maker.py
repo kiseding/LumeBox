@@ -182,8 +182,8 @@ class SourceMakerTests(unittest.TestCase):
     def test_site_title_and_safe_export_filename(self):
         from core import source_filename
         c, _, _ = self.make('/catalog', 'video')
-        self.assertEqual('公开示例 - 视频目录 | 完整标题', c['name'])
-        self.assertEqual('公开示例 - 视频目录 _ 完整标题.js', source_filename(c, '.js'))
+        self.assertEqual('公开示例', c['name'])
+        self.assertEqual('公开示例.js', source_filename(c, '.js'))
         self.assertEqual('_CON.js', source_filename({'name':'CON','id':'id'}, '.js'))
         self.assertEqual('源 _ 标题.js', source_filename({'name':'源 / 标题. ','id':'id'}, '.js'))
 

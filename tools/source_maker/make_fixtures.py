@@ -45,6 +45,9 @@ def make(directory):
     (root / 'kazumi-html.json').write_bytes(raw)
     py = target_config(c, 'python')
     (root / 'python-html.py').write_bytes(export_source(py, rows)[1])
+    comic = target_config(c, 'comic_python')
+    comic['imageSelector'] = 'article img'
+    (root / 'comic-python.py').write_bytes(export_source(comic, rows)[1])
     browser = dict(c, useBrowser=True)
     (root / 'browser.js').write_bytes(export_source(browser, rows)[1])
     (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')

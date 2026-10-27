@@ -71,7 +71,8 @@ sources/video/
 ├── gamebus.js     绅游巴士（gamebus001.cc）`/api/video/page/N` 接口；HLS 是 fMP4（init.mp4 + seg_*.m4s），实测 m3u8 200
 └── tanhua.js      探花视频 / 91大神（同一套内容库的两个域名）；SSR 无接口，播放地址在详情页 DPlayer 配置里
 ├── f016.js        在线影院 / 91吃瓜（同一站群，前者是超集）；hash slug 路径，搜索走站点自带的 Meilisearch
-└── resao.js       91热爆（www.resao.com）KVS 站；**VIP 专享片靠 CDN 路径可预测直接取流**（去掉 ?k=&t= 也 200）
+├── resao.js       91热爆（www.resao.com）KVS 站；**VIP 专享片靠 CDN 路径可预测直接取流**（去掉 ?k=&t= 也 200）
+└── yuxiu.js       玉羞园（yhh.yxy881p.icu）xvideos 镜像站；媒体直连 xvideos CDN，无 VIP
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -125,6 +126,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 探花视频 | 否 | 4 块 | 42 分类 | 30 | 无搜索接口 | ok | 1 | **video（m3u8，实测 200 + #EXTM3U；另一域名 91大神 同库同地址）** |
 | 在线影院 | 否 | 3 块 | 31 分类 | 40 | 40（Meilisearch） | ok | 1 | **video（m3u8，master→variant 实测 200；另一域名 91吃瓜 是子集，404 自动回落）** |
 | 91热爆 | 否 | 3 块 | 12 分类 | 20 | 20（站内搜索） | ok | 1 | **video（CDN 直连：`/{dir}/{id}/{id}.mp4/index.m3u8` 去掉签名也 200；VIP 专享片同样可播）** |
+| 玉羞园 | 否 | 3 块 | 38 分类 | 48 | 27（站内搜索 `/?k=`） | ok | 1 | **video（hls_low.m3u8 200 206B master；mp4_sd 200 93 MB 整片可直下）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -222,6 +224,7 @@ dart run tools/site_reachability.dart
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
 - **VIP 一律先破解再决定怎么放** —— 判定顺序、三种打法（CDN 路径可推导 / 试看签名复用 / 同库镜像）、记录要求见 [docs/VIP处理约定.md](../docs/VIP处理约定.md)；同样规则也适用于此后新增的源。
+- **玉羞园是 xvideos 镜像**：内容就是 xvideos 公共库，媒体走 `hls-cdn77` / `mp4-cdn77`，`secure=` token 约 1 小时失效 → 每次现取详情页；分页是 0 基（`/new/{页码-1}`、`/c/{slug}/{页码-1}`、搜索 `&p={页码}` 从 1 起），两套卡片版式（`<img data-src>` 与 `<picture><source data-srcset>`）都要兼容。
 - **91热爆的 VIP 不是绕过，是 CDN 裸奔**：`/private/` 的 VIP 片页面只给 `no-player` 占位（游客还有观看次数上限），但视频文件路径可预测且签名不校验，`content()` 只用 id 拼 CDN 就拿到整片；`delivery.douyinpaly.com` 换域时改脚本顶部 `CDN_HOSTS`。
 - **在线影院 / 91吃瓜 是包含关系**：J(`bb.f016video.com`) 是超集、A(`ss.99utv.com`) 是子集（A 的条目 16/20 能在 B 上取到，B 的条目 0/20 能在 A 上取到）。所以只做一个源（`f016_video`），B 做默认、A 做镜像，并且**详情 404 自动回落**——A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失，不能只看状态码。列表最多 100 页，更早内容靠站内 Meilisearch 搜索。
 

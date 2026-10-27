@@ -99,7 +99,9 @@ def batch_convert(urls, target, directory, settings=None, stop=None, progress=No
     output = Path(directory)
     output.mkdir(parents=True, exist_ok=True)
     checkpoint = output / '制源任务.json'
-    identity = {'urls': urls, 'target': target}
+    # Old checkpoints may contain automatically converted PY output. Never
+    # silently reuse that result for a JS batch under the confirmation policy.
+    identity = {'urls': urls, 'target': target, 'formatPolicy': 'explicit-python-v1'}
     previous = {}
     if checkpoint.exists():
         saved = json.loads(checkpoint.read_text(encoding='utf-8'))
@@ -141,6 +143,8 @@ def batch_convert(urls, target, directory, settings=None, stop=None, progress=No
             fetcher = CachedFetcher()
             config, rows, message = discover(url, target, fetcher)
             checked, result = verify_with_fallback(config, rows, fetcher)
+            if stop and stop.is_set():
+                break
             extension, raw, route = export_source(checked, rows)
             filename = source_filename(checked, extension)
             if (output / filename).exists():

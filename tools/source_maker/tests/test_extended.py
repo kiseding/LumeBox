@@ -100,9 +100,33 @@ class ExtendedTests(unittest.TestCase):
         pages = Pages()
         c, rows, _ = discover('https://example.test/', 'video', pages)
         c['listSelector'] = 'article.video-card:not(.advert)'
-        checked, report = verify_with_fallback(c, rows, pages)
+        with self.assertRaises(ValueError):
+            verify_with_fallback(c, rows, pages)
+        self.assertEqual(c['target'], 'video')
+        checked, report = verify_with_fallback(c, rows, pages, allow_python=True)
         self.assertEqual(checked['target'], 'python')
         self.assertIn('备用', report)
+        self.assertIn('确认', report)
+
+    def test_comic_python_exports_images_only_after_opt_in(self):
+        from exports import export_source
+        pages = Pages()
+        c, rows, _ = discover('https://example.test/comic', 'comic', pages)
+        c['imageSelector'] = '.reading-content img:not(.advert)'
+        with self.assertRaises(ValueError):
+            verify_with_fallback(c, rows, pages)
+        checked, report = verify_with_fallback(c, rows, pages, allow_python=True)
+        self.assertEqual(checked['target'], 'comic_python')
+        self.assertEqual(checked['category'], 'comic')
+        suffix, raw, route = export_source(checked, rows)
+        self.assertEqual(suffix, '.py')
+        self.assertIn('漫画', route)
+        namespace = {}
+        exec(compile(raw, 'comic.py', 'exec'), namespace)
+        spider = namespace['Spider']()
+        spider._get = lambda url: pages.get(url)[1]
+        images = spider.imageContent('https://example.test/read/one')
+        self.assertEqual(images['images'], ['https://example.test/one.jpg', 'https://example.test/two-big.jpg'])
 
 
 if __name__ == '__main__':

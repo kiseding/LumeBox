@@ -137,6 +137,8 @@ class SourceContentRating {
     'f016_video',
     // 91热爆（www.resao.com，KVS 站；VIP 专享片靠 CDN 路径可预测直接取流）。
     'resao_video',
+    // 玉羞园（yhh.yxy881p.icu，xvideos 镜像站；媒体直连 xvideos CDN）。
+    'yuxiu_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -287,6 +289,7 @@ class SourceContentRating {
     "在线影院",
     "91吃瓜",
     "91热爆",
+    "玉羞园",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

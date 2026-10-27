@@ -144,8 +144,11 @@ class Spider:
             links = soup.select(CONFIG['chapterSelector']) if CONFIG.get('chapterSelector') else [a for a in soup.select('a[href]') if re.search(CONFIG['chapters'], urljoin(address, a['href']), re.I)]
             episodes = [(a.get_text(' ', strip=True) or a.get('title') or '播放', urljoin(address, a['href'])) for a in links]
             if not episodes:
-                self._media(soup, address)  # Refuse non-content pages.
-                episodes = [('播放', address)]
+                if CONFIG['media'] == 'images':
+                    self._images(soup, address)
+                else:
+                    self._media(soup, address)  # Refuse non-content pages.
+                episodes = [('阅读' if CONFIG['media'] == 'images' else '播放', address)]
             row.update(vod_play_from='默认线路', vod_play_url='#'.join(title.replace('$', ' ').replace('#', ' ') + '$' + quote(url, safe='') for title, url in episodes))
             return {'list': [row]}
         return self._api(ac='detail', ids=','.join(str(v) for v in ids))
@@ -181,7 +184,33 @@ class Spider:
                     pass
         raise ValueError('PY 也未识别到公开媒体；需站点专用适配')
 
+    def _images(self, soup, base):
+        selector = CONFIG.get('imageSelector')
+        if not selector:
+            root = soup.find(id=CONFIG['contentId']) if CONFIG.get('contentId') else soup
+            selector = 'img' if CONFIG.get('contentId') else 'article img,.reading-content img,.comic-content img,#content img'
+        else:
+            root = soup
+        images = []
+        for image in root.select(selector) if root else []:
+            value = next((image.get(key) for key in ('data-original', 'data-lazy-src', 'data-src', 'src') if image.get(key) and not image.get(key).startswith('data:')), '')
+            if image.get('srcset'):
+                value = image['srcset'].split(',')[-1].strip().split()[0]
+            address = urljoin(base, value)
+            if value and address.startswith(('http://', 'https://')) and address not in images:
+                images.append(address)
+        if not images:
+            raise ValueError('漫画 PY 没有识别到阅读区图片，请调整图片解析规则')
+        return images
+
+    def imageContent(self, id):
+        address = unquote(id)
+        soup = BeautifulSoup(self._get(address), 'html.parser')
+        return {'images': self._images(soup, address), 'headers': {'Referer': address}}
+
     def playerContent(self, flag, id, vipFlags=None):
+        if CONFIG['media'] == 'images':
+            return self.imageContent(id)
         if not id.startswith(('http://', 'https://')):
             id = unquote(id)
         if not re.search(r'\.(mp4|m3u8|webm|mpd)(?:[?#]|$)', id, re.I):
