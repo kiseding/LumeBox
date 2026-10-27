@@ -14,8 +14,12 @@ class SourceScriptPresentation {
     required this.contentCategory,
     required this.siteUrl,
     required this.iconUrl,
+    this.network = '',
   });
   final String runtimeKind, mediaKind, contentCategory, siteUrl, iconUrl;
+
+  /// 脚本声明的站点网络要求（direct / proxy / 空）。
+  final String network;
 
   factory SourceScriptPresentation.fromScript(String script) =>
       SourceScriptPresentation(
@@ -24,6 +28,7 @@ class SourceScriptPresentation {
         contentCategory: SourceContentCategories.fromScript(script),
         siteUrl: siteUrlFromScript(script),
         iconUrl: _iconUrl(script),
+        network: (SourceMetadata.parseHeader(script)?.network ?? '').trim(),
       );
 
   static String siteUrlFromScript(String script) {

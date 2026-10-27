@@ -133,6 +133,7 @@ class SourceDescriptor {
     this.runtimeKind = 'javascript',
     this.mediaKind = '',
     this.contentCategory = '',
+    this.networkMode = '',
   });
 
   final String id;
@@ -141,6 +142,11 @@ class SourceDescriptor {
   final String runtimeKind;
   final String mediaKind;
   final String contentCategory;
+
+  /// 脚本自报的站点网络要求：`direct` 直连可访问 / `proxy` 需要代理 / 空未标注。
+  ///
+  /// 只在设置页做提示，不参与运行时决策（实际网络由 [network] 与全局设置决定）。
+  final String networkMode;
   bool get isKazumi => id.startsWith('kazumi_');
   bool get isAudio =>
       mediaKind == 'audio' ||

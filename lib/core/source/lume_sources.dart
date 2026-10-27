@@ -447,6 +447,7 @@ class LumeSources {
       runtimeKind: info.runtimeKind,
       mediaKind: info.mediaKind,
       contentCategory: info.contentCategory,
+      networkMode: info.network,
       name: SourceDisplayNames.of(record.id, record.name),
       version: record.version,
       enabled: record.enabled,

@@ -106,6 +106,16 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             title: const Text('源版本'),
             trailing: Text(widget.descriptor!.version),
           ),
+        if (widget.descriptor != null)
+          ListTile(
+            leading: Icon(
+              widget.descriptor!.networkMode == 'proxy'
+                  ? Icons.vpn_lock_outlined
+                  : Icons.wifi_tethering,
+            ),
+            title: const Text('站点网络'),
+            subtitle: Text(_networkHint(widget.descriptor!.networkMode)),
+          ),
         if (widget.siteUrl.isNotEmpty)
           ListTile(
             leading: const Icon(Icons.login),
@@ -320,4 +330,18 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
       ],
     ),
   );
+}
+
+/// 脚本自报的网络要求 → 设置页提示文案。
+String _networkHint(String mode) {
+  switch (mode.trim().toLowerCase()) {
+    case 'direct':
+      return '直连可访问（无需代理）';
+    case 'proxy':
+      return '需要代理（走全局代理 / Clash 等）';
+    case 'webview':
+      return '含 Cloudflare 挑战，播放走内嵌浏览器';
+    default:
+      return '未标注（按全局网络设置）';
+  }
 }

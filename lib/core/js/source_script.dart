@@ -34,6 +34,7 @@ class SourceMetadata {
     required this.version,
     this.category = '',
     this.mirrors = const <String>[],
+    this.network = '',
   });
 
   final String id;
@@ -56,6 +57,12 @@ class SourceMetadata {
   /// 落库时会**整体替换**脚本上次声明的镜像（见 `SourceRegistry.import`），
   /// 用户自己选的下标与手填域名不受影响。
   final List<String> mirrors;
+
+  /// 站点网络要求（**可选**）：`direct` 直连可访问 / `proxy` 需要代理 / 空串未标注。
+  ///
+  /// 写在头部注释 JSON 的 `network` 字段里，只用于设置页提示与排错，
+  /// 不改变运行时的网络选择（那是 [NetworkProfile] 与全局设置的事）。
+  final String network;
 
   /// 头部声明注释的匹配式：`//` 行注释与 `/* */` 块注释，分隔符 `:` / `=`，
   /// 前缀允许 `@`。第三个式子是 `key=value` 列表写法（`{` 开头的不走这条）。
@@ -186,7 +193,7 @@ class SourceMetadata {
   static Map<String, Object?>? _parseKeyValues(String text) {
     final values = <String, Object?>{};
     for (final pair in text.split(RegExp(r'[,;]'))) {
-      final match = RegExp(r'^\s*(id|name|version|category)\s*[:=]\s*(.+?)\s*$')
+      final match = RegExp(r'^\s*(id|name|version|category|network)\s*[:=]\s*(.+?)\s*$')
           .firstMatch(pair);
       if (match == null) continue;
       values[match.group(1)!] = match.group(2)!;
@@ -206,6 +213,7 @@ class SourceMetadata {
       version: '${json['version'] ?? ''}'.trim(),
       category: '${json['category'] ?? ''}'.trim(),
       mirrors: SourceSiteConfig.normalizeMirrors(json['mirrors']),
+      network: '${json['network'] ?? ''}'.trim(),
     );
   }
 
