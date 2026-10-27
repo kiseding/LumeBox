@@ -1,8 +1,10 @@
 import '../net/network_cancellation.dart';
+import '../cache/media_preload.dart';
 import '../source/source_preferences.dart';
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -10,6 +12,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:pointycastle/export.dart'
+    show
+        AESEngine,
+        BlockCipher,
+        CBCBlockCipher,
+        ECBBlockCipher,
+        KeyParameter,
+        ParametersWithIV;
 
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
@@ -56,7 +66,16 @@ class SectionImagePipeline {
     this.decodeTransform,
   }) : _client = client ?? http.Client(),
        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
-       _memory = ImageMemoryCache(memoryBudgetBytes);
+       _memory = ImageMemoryCache(memoryBudgetBytes) {
+    _removePreloadClearer = MediaPreload.instance.onClear(() {
+      _preloadQueue.clear();
+      _preloadKeys.clear();
+      _memory.clearUnused(includePinned: true, keys: _speculativeKeys);
+      _speculativeKeys.clear();
+    });
+  }
+  late final void Function() _removePreloadClearer;
+  final _speculativeKeys = <String>{};
 
   /// 阅读器默认内存预算。漫画长图按屏宽解码，64MB 约对应十余页。
   static const int defaultMemoryBudgetBytes = 64 * 1024 * 1024;
@@ -291,13 +310,16 @@ class SectionImagePipeline {
     final trimmed = url.trim();
     if (trimmed.isEmpty || _disposed) return Future<ui.Image?>.value();
     final cacheKey = key(trimmed, targetWidth);
+    if (holdReference) _speculativeKeys.remove(cacheKey);
     final cached = _memory.get(cacheKey);
     if (cached != null) {
       if (holdReference) _memory.acquire(cacheKey);
       return Future<ui.Image?>.value(cached);
     }
     final existing = _inFlightImages[cacheKey];
-    final request = existing ?? _startDecode(trimmed, targetWidth, cacheKey);
+    final request =
+        existing ??
+        _startDecode(trimmed, targetWidth, cacheKey, preload: !holdReference);
     if (!holdReference) return request;
     // 在飞请求是共享的，引用必须各自记账：谁 await，谁的账上多一次引用。
     return request.then((image) {
@@ -310,20 +332,21 @@ class SectionImagePipeline {
   Future<ui.Image?> _startDecode(
     String url,
     int? targetWidth,
-    String cacheKey,
-  ) {
-    final request = _decode(url, targetWidth, cacheKey);
+    String cacheKey, {
+    bool preload = false,
+  }) {
+    final request = _decode(url, targetWidth, cacheKey, preload: preload);
     _inFlightImages[cacheKey] = request;
     return request.whenComplete(() => _inFlightImages.remove(cacheKey));
   }
 
   /// 取原始字节（保存图片、解码前的缓存写入都走这里）。
-  Future<Uint8List?> bytes(String url) {
+  Future<Uint8List?> bytes(String url, {bool preload = false}) {
     final trimmed = url.trim();
     if (trimmed.isEmpty || _disposed) return Future<Uint8List?>.value();
     final existing = _inFlightBytes[trimmed];
     if (existing != null) return existing;
-    final request = _loadBytes(trimmed);
+    final request = _loadBytes(trimmed, preload: preload);
     _inFlightBytes[trimmed] = request;
     return request.whenComplete(() => _inFlightBytes.remove(trimmed));
   }
@@ -346,7 +369,11 @@ class SectionImagePipeline {
   /// 预加载一批图片（阅读器前后 N 张）。结果只进缓存，不返回给调用方。
   /// 预加载失败只记日志：它属于「提前准备」，不该打断阅读。
   void preload(Iterable<String> urls, {int? targetWidth}) {
-    if (_disposed) return;
+    if (_disposed ||
+        !MediaPreload.instance.images ||
+        MediaPreload.instance.clearing) {
+      return;
+    }
     for (final raw in urls) {
       final url = raw.trim();
       final cacheKey = key(url, targetWidth);
@@ -361,6 +388,11 @@ class SectionImagePipeline {
   }
 
   void _drainPreloads() {
+    if (!MediaPreload.instance.images) {
+      _preloadQueue.clear();
+      _preloadKeys.clear();
+      return;
+    }
     // Background work reserves room for images that just became visible.
     final limit = (maxConcurrent - 1).clamp(1, 2);
     while (!_disposed && _activePreloads < limit && _preloadQueue.isNotEmpty) {
@@ -404,6 +436,7 @@ class SectionImagePipeline {
 
   /// 关闭客户端、取消在飞请求、清空内存缓存并拒绝后续调用。可重复调用。
   void dispose() {
+    _removePreloadClearer();
     _preloadQueue.clear();
     _preloadKeys.clear();
     _requestLifetime.cancel();
@@ -432,6 +465,18 @@ class SectionImagePipeline {
   // ------------------------------------------------------------------ 内部
 
   Future<void> _preloadOne(String url, int? targetWidth) async {
+    final policy = MediaPreload.instance;
+    if (!policy.images ||
+        policy.clearing ||
+        _memory.bytes >= policy.imageBudgetBytes) {
+      return;
+    }
+    final generation = policy.generation;
+    final speculativeKey = key(url, targetWidth);
+    if (!_inFlightImages.containsKey(speculativeKey) &&
+        _memory.get(speculativeKey) == null) {
+      _speculativeKeys.add(speculativeKey);
+    }
     // 预加载不持有引用：图只进缓存，随时可以被预算回收。
     final loaded = await _resolveImage(
       url,
@@ -441,14 +486,24 @@ class SectionImagePipeline {
     if (loaded == null && !_disposed) {
       LumeLog.warn('预加载未命中: $url');
     }
+    if (!_disposed && generation != policy.generation) {
+      // Let on-screen consumers acquire a shared decode before evicting unused
+      // speculative images. A just-resolved image must not be disposed early.
+      Timer.run(() {
+        if (!_disposed) {
+          _memory.clearUnused(includePinned: true, keys: {speculativeKey});
+        }
+      });
+    }
   }
 
   Future<ui.Image?> _decode(
     String url,
     int? targetWidth,
-    String cacheKey,
-  ) async {
-    var data = await bytes(url);
+    String cacheKey, {
+    bool preload = false,
+  }) async {
+    var data = await bytes(url, preload: preload);
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
@@ -540,7 +595,107 @@ class SectionImagePipeline {
     return 'https://${url.substring('http://'.length)}';
   }
 
-  Future<Uint8List?> _loadBytes(String rawUrl) async {
+  /// `lume-enc://aes-ecb/<base64url(key)>/<原始地址>` → 下载密文 → 原生 AES 解密。
+  ///
+  /// 源里把「加密的封面」写成这种 URI 即可：key 随 URI 带过来（不进 App 代码），
+  /// 解密用 pointycastle 的原生实现。明文若是 `data:image/…;base64,xxx` 就取出 xxx 解码，
+  /// 否则当作图片字节直接用。前缀不匹配或任一步失败返回 null（调用方会回退到普通下载）。
+  Future<Uint8List?> _loadEncrypted(String rawUrl) async {
+    const ecbPrefix = 'lume-enc://aes-ecb/';
+    const cbcPrefix = 'lume-enc://aes-cbc/';
+    final isCbc = rawUrl.startsWith(cbcPrefix);
+    if (!isCbc && !rawUrl.startsWith(ecbPrefix)) return null;
+    final prefix = isCbc ? cbcPrefix : ecbPrefix;
+    final rest = rawUrl.substring(prefix.length);
+    final parts = rest.split('/');
+    // aes-ecb/<key>/<url>            ← 二进制密文
+    // aes-cbc/<key>/<iv>/<url>       ← Base64 文本密文（站点 JS 直接喂 CryptoJS 的形态）
+    final need = isCbc ? 3 : 2;
+    if (parts.length < need) return null;
+    Uint8List key;
+    Uint8List? iv;
+    try {
+      key = base64Url.decode(base64Url.normalize(parts[0]));
+      if (isCbc) iv = base64Url.decode(base64Url.normalize(parts[1]));
+    } catch (_) {
+      return null;
+    }
+    if (key.isEmpty || (isCbc && (iv == null || iv.isEmpty))) return null;
+    final target = parts.sublist(isCbc ? 2 : 1).join('/');
+    final raw = await _download(upgradeToHttps(normalizeTransform(target)));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      Uint8List cipherBytes = raw;
+      if (isCbc) {
+        // 站点给的是 Base64 文本密文，先解成字节
+        final text = utf8.decode(raw, allowMalformed: true).trim();
+        cipherBytes = Uint8List.fromList(base64Decode(base64.normalize(text)));
+      }
+      final BlockCipher cipher;
+      if (isCbc) {
+        cipher = CBCBlockCipher(AESEngine())
+          ..init(false, ParametersWithIV(KeyParameter(key), iv!));
+      } else {
+        cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
+      }
+      // 注意：BlockCipher.process() 只处理「一个块」，多块必须逐块 processBlock
+      // （踩过：直接 process 一整张 275KB 的密文只解出 16 字节）。
+      final blockSize = cipher.blockSize;
+      if (cipherBytes.length % blockSize != 0) return null;
+      final plain = Uint8List(cipherBytes.length);
+      for (var offset = 0; offset < cipherBytes.length; offset += blockSize) {
+        cipher.processBlock(cipherBytes, offset, plain, offset);
+      }
+      if (plain.isEmpty) return null;
+      final pad = plain[plain.length - 1];
+      final body = (pad > 0 && pad <= 16 && pad <= plain.length)
+          ? Uint8List.sublistView(plain, 0, plain.length - pad)
+          : plain;
+      final text = utf8.decode(body, allowMalformed: true);
+      if (text.startsWith('data:')) {
+        final decoded = decodeDataUri(text);
+        if (decoded != null) return decoded;
+      }
+      return Uint8List.fromList(body);
+    } catch (error) {
+      LumeLog.warn('[$sourceLabel] 加密封面解密失败: $rawUrl ($error)');
+      return null;
+    }
+  }
+
+  /// 解析内联 `data:` 图片地址，非内联或格式不对返回 null。  ///
+  /// 图源里有些封面是**加密后内联**的：源脚本（纯 JS）把它解出来就成了一整条
+  /// `data:image/jpeg;base64,xxxx`，此时没有任何可请求的主机，只能就地解码。
+  /// 支持 `;base64` 与无参数的 `data:image/png,`（后者按百分号编码解）。
+  static Uint8List? decodeDataUri(String url) {
+    final text = url.trim();
+    if (!text.startsWith('data:')) return null;
+    final comma = text.indexOf(',');
+    if (comma <= 0) return null;
+    final meta = text.substring(5, comma).toLowerCase();
+    if (!meta.startsWith('image/')) return null;
+    final payload = text.substring(comma + 1);
+    try {
+      if (meta.contains('base64')) return base64Decode(payload);
+      return Uint8List.fromList(Uri.decodeComponent(payload).codeUnits);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _loadBytes(String rawUrl, {bool preload = false}) async {
+    final preloadGeneration = MediaPreload.instance.generation;
+    // 源声明的「加密封面」：`lume-enc://aes-ecb/<base64url(key)>/<原始地址>`
+    // 这类站把封面 AES 加密后直接扔在 CDN 上（好妻网的 .ceb/.geb 就是 AES-256-ECB 加密的
+    // `data:image/...` 文本）。解密放这里用原生 AES 做，比在 JS 沙箱里纯 JS 解快一个数量级
+    // （实测 275KB：纯 JS 2.7s，这里 ~20ms）；key 由源提供，不写进 App。
+    final enc = await _loadEncrypted(rawUrl);
+    if (enc != null) return enc;
+    // 内联 data URI：`data:image/jpeg;base64,…` 这类地址没有主机、没有路径，
+    // 走网络层只会得到 0 字节（或者把 `data:…` 当成磁盘文件名）。
+    // 有的源把封面加密后以内联形式给出（9sex 的 AES 密文等），源脚本解密后就是一条 data URI。
+    final inline = decodeDataUri(rawUrl);
+    if (inline != null) return inline;
     // 明文地址在这里一次性升级：内存缓存键、磁盘文件名、实际请求三者保持一致，
     // 不会同一张图存两份。
     final url = upgradeToHttps(normalizeTransform(rawUrl));
@@ -553,8 +708,18 @@ class SectionImagePipeline {
     } catch (error) {
       LumeLog.warn('图片缓存读取失败: $url ($error)');
     }
+    final speculative = MediaPreload.instance.image('$cacheDir|$url');
+    if (speculative != null) return speculative;
     final downloaded = await _download(url);
     if (downloaded == null) return null;
+    if (preload) {
+      MediaPreload.instance.cacheImage(
+        '$cacheDir|$url',
+        downloaded,
+        preloadGeneration,
+      );
+      return downloaded;
+    }
     try {
       file.parent.createSync(recursive: true);
       await file.writeAsBytes(downloaded, flush: false);
@@ -1034,6 +1199,14 @@ class ImageMemoryCache {
       entry.value.pinned = keys.contains(entry.key);
     }
     _trim();
+  }
+
+  void clearUnused({bool includePinned = false, Set<String>? keys}) {
+    for (final key in _entries.keys.toList()) {
+      final entry = _entries[key]!;
+      if (keys != null && !keys.contains(key)) continue;
+      if (entry.refs == 0 && (includePinned || !entry.pinned)) _remove(key);
+    }
   }
 
   /// 清空全部缓存，逐个释放位图。

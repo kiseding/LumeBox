@@ -1,3 +1,5 @@
+import 'video_glass_surface.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/material.dart' as material;
 
@@ -49,6 +51,7 @@ Future<T?> showGlassDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool nativeGlass = false,
+  bool? videoGlass,
   bool barrierDismissible = true,
   Color? barrierColor,
   String? barrierLabel,
@@ -62,9 +65,11 @@ Future<T?> showGlassDialog<T>({
   AnimationStyle? animationStyle,
 }) => material.showDialog<T>(
   context: context,
-  builder: (context) => nativeGlass
-      ? nativeDialogSurface(context, builder(context))
-      : builder(context),
+  builder: (dialogContext) => (videoGlass ?? VideoGlassScope.active(context))
+      ? videoGlassDialogSurface(dialogContext, builder(dialogContext))
+      : nativeGlass
+      ? nativeDialogSurface(dialogContext, builder(dialogContext))
+      : builder(dialogContext),
   barrierDismissible: barrierDismissible,
   barrierColor: barrierColor,
   barrierLabel: barrierLabel,
@@ -82,6 +87,7 @@ Future<T?> showGlassModalBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool nativeGlass = false,
+  bool? videoGlass,
   Color? backgroundColor,
   String? barrierLabel,
   double? elevation,
@@ -103,14 +109,18 @@ Future<T?> showGlassModalBottomSheet<T>({
   bool? requestFocus,
 }) => material.showModalBottomSheet<T>(
   context: context,
-  builder: (context) => nativeGlass && DockNativeGlass.supported
+  builder: (sheetContext) => (videoGlass ?? VideoGlassScope.active(context))
+      ? VideoGlassSurface(child: builder(sheetContext))
+      : nativeGlass && DockNativeGlass.supported
       ? FrostedGlassWidget(
           nativeGlass: true,
           radius: 28,
-          child: builder(context),
+          child: builder(sheetContext),
         )
-      : builder(context),
-  backgroundColor: nativeGlass && DockNativeGlass.supported
+      : builder(sheetContext),
+  backgroundColor:
+      (videoGlass ?? VideoGlassScope.active(context)) ||
+          (nativeGlass && DockNativeGlass.supported)
       ? Colors.transparent
       : backgroundColor,
   barrierLabel: barrierLabel,

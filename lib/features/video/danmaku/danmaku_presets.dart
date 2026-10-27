@@ -1,6 +1,6 @@
-/// User supplied compatible services. Paths are part of the endpoint.
+/// Kept only to recognize and remove the retired built-in service catalog.
 class DanmakuPresets {
-  static const urls = <String>[
+  static const retiredUrls = <String>[
     "https://dm.999.team/87654321",
     "https://danmu.qianting168.com/456765847636987622146901",
     "https://dm.ljiaovm.com/luosen",
@@ -16,4 +16,9 @@ class DanmakuPresets {
     "https://dm.66608880.xyz/87654321",
     "https://danmu.iyo.us.ci/theft-dastardly-prognosis-hula-agenda2-dropkick",
   ];
+
+  static bool retired(Map<String, String> source) =>
+      (source['id'] ?? '').startsWith('preset-') ||
+      (RegExp(r'^弹(?:[1-9]|1[0-4])$').hasMatch(source['name'] ?? '') &&
+          retiredUrls.contains(source['url']));
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -16,6 +17,45 @@ import 'package:lume_box/core/net/network_settings.dart';
 /// 同一域名的并发**绝不超过上限**、不同域名可以并行、429/503 会退避重试、
 /// 其余 4xx 不重试、Retry-After 被尊重。
 void main() {
+  test('iOS 新旧 TLS 错误不自动重试，并释放额度供下一次请求使用', () async {
+    for (final error in [
+      PlatformException(
+        code: 'network',
+        details: {'domain': 'NSURLErrorDomain', 'code': -1200},
+      ),
+      PlatformException(code: 'tls_handshake', message: 'TLS_HANDSHAKE_FAILED'),
+      PlatformException(
+        code: 'network',
+        details: {'code': -1202, 'domain': 'NSURLErrorDomain'},
+      ),
+    ]) {
+      var calls = 0;
+      final queue = NetworkQueue(
+        settings: const NetworkSettings(
+          maxRetries: 2,
+          retryBaseDelay: Duration(milliseconds: 1),
+        ),
+        sender: (_) async {
+          calls++;
+          if (calls == 1) throw error;
+          return const NetworkResponse(statusCode: 200, body: [], headers: {});
+        },
+      );
+      await expectLater(
+        queue.send(const NetworkRequest(url: 'https://tls.example/')),
+        throwsA(same(error)),
+      );
+      expect(calls, 1);
+      expect(queue.activeGlobal, 0);
+      expect(
+        (await queue.send(const NetworkRequest(url: 'https://tls.example/')))
+            .statusCode,
+        200,
+      );
+      expect(calls, 2);
+    }
+  });
+
   test('封面下载保留前台请求额度，TLS握手错误不重复重试', () async {
     final held = Completer<void>();
     final entered = <String>[];

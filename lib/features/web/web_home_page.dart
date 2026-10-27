@@ -1,3 +1,6 @@
+import '../video/direct_video_source.dart';
+import '../video/video_detail_page.dart';
+import '../../core/source/source.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'dart:async';
@@ -8,7 +11,6 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/player/player_experience_store.dart';
-import '../../core/player/abstract_player.dart';
 import '../../core/media/playback_focus.dart';
 import '../../core/cat/cat_web_parse.dart';
 import '../../core/reading/reading.dart';
@@ -263,20 +265,37 @@ class _WebHomePageState extends State<WebHomePage> {
       if (result == null || !mounted) return;
       uri = result;
     }
-    await PlaybackFocus.acquire('video');
-    if (!mounted) return;
     final library = await ReadingLibrary.open(Section.video);
     if (!mounted) return;
+    final source = DirectVideoSource(
+      id: 'web-${widget.source.id}',
+      name: widget.source.name,
+      title: request.title,
+      uri: uri,
+      headers: request.headers,
+    );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => VideoPlayerPage(
-          media: PlayerMedia(
-            uri: uri,
-            headers: request.headers,
-            title: request.title,
-          ),
-          title: request.title,
+        builder: (_) => VideoDetailPage(
+          source: source,
+          item: SourceItem(id: 'captured-video', title: request.title),
           library: library,
+          recordHistory: false,
+          onPlay: (media, target, qualities, prelaunch) async {
+            await PlaybackFocus.acquire('video');
+            if (!mounted) return;
+            await Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => VideoPlayerPage(
+                  media: media,
+                  title: request.title,
+                  library: library,
+                  qualities: qualities,
+                  prelaunch: prelaunch,
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

@@ -1,8 +1,18 @@
+import 'dart:collection';
+
+import '../net/lume_net.dart';
+
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/foundation.dart';
 
 import 'package:image/image.dart' as img;
+import 'package:html/parser.dart' as html_parser;
 
 import '../net/lume_http.dart';
 import '../net/source_request_log.dart';
@@ -28,15 +38,23 @@ import '../util/lume_log.dart';
 class SourceFavicon {
   SourceFavicon({
     LumeHttp? http,
-    this.maxEntries = 96,
+    this.maxEntries = 512,
+    this.cacheDirectory,
     this.fetchHtmlHomepage = true,
     this.failureRetryAfter = const Duration(minutes: 2),
     DateTime Function()? now,
-  }) : _http = http ?? LumeHttp(source: '源图标'),
+    // Public parameter keeps the existing test/client injection API.
+    // ignore: prefer_initializing_formals
+  }) : _http = http,
        _now = now ?? DateTime.now;
 
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
-  static final SourceFavicon instance = SourceFavicon();
+  static final SourceFavicon instance = SourceFavicon(
+    cacheDirectory: () async => Directory(
+      '${(await getApplicationSupportDirectory()).path}/source-icons-v2',
+    ),
+  );
+  final Future<Directory> Function()? cacheDirectory;
 
   /// 单张图标的读取上限（图标不该超过这个量级）。
   static const int maxBytes = 256 * 1024;
@@ -45,9 +63,62 @@ class SourceFavicon {
   /// 真连不上的站点最多也就耗一个 5 秒 × 重试次数，不会长时间占着后台）。
   static const Duration timeout = Duration(seconds: 5);
 
-  final LumeHttp _http;
+  final LumeHttp? _http;
+  Future<LumeHttpResponse> _request({
+    required String url,
+    required Map<String, String> headers,
+    Duration? timeout,
+    int? maxBytes,
+  }) async {
+    final client = _http ?? LumeHttp(settings: LumeNet.settings, source: '源图标');
+    try {
+      return await client.send(
+        url: url,
+        headers: headers,
+        timeout: timeout,
+        maxBytes: maxBytes,
+      );
+    } finally {
+      if (_http == null) client.dispose();
+    }
+  }
 
-  /// 缓存条目上限（按源去重，96 个源足够覆盖当前全部源）。
+  int _activeResolutions = 0;
+  final _waitingResolutions = Queue<Completer<void>>();
+
+  Future<Uint8List?> _resolveBounded({
+    required String origin,
+    required List<String> explicit,
+    Section? section,
+    String? sourceId,
+  }) async {
+    if (_activeResolutions >= 2) {
+      final ready = Completer<void>();
+      _waitingResolutions.add(ready);
+      await ready.future;
+    } else {
+      _activeResolutions++;
+    }
+    try {
+      return await _resolve(
+        origin: origin,
+        explicit: explicit,
+        section: section,
+        sourceId: sourceId,
+      );
+    } finally {
+      if (_waitingResolutions.isNotEmpty) {
+        _waitingResolutions.removeFirst().complete();
+      } else {
+        _activeResolutions--;
+      }
+    }
+  }
+
+  static Uint8List? _decodeIcon(({Uint8List bytes, String? type}) input) =>
+      _asImage(input.bytes, input.type);
+
+  /// 内存缓存上限；成功图标另存磁盘，避免重启后逐站重新抓取。
   final int maxEntries;
 
   /// 候选全挂时要不要再抓一次首页解析图标地址。
@@ -57,6 +128,7 @@ class SourceFavicon {
   final Map<String, DateTime> _failedUntil = {};
 
   final Map<String, Uint8List?> _cache = <String, Uint8List?>{};
+  int _cacheGeneration = 0;
   final Map<String, Future<Uint8List?>> _inflight =
       <String, Future<Uint8List?>>{};
 
@@ -83,32 +155,99 @@ class SourceFavicon {
     _failedUntil.remove(key);
     final running = _inflight[key];
     if (running != null) return running;
+    final generation = _cacheGeneration;
     final task =
-        _resolve(
+        _loadCachedOrResolve(
+              key,
               origin: origin,
               explicit: explicit,
               section: section,
               sourceId: sourceId,
             )
             .then((bytes) {
-              _remember(key, bytes);
+              if (generation == _cacheGeneration) _remember(key, bytes);
               return bytes;
             })
             .whenComplete(() {
               // 用块体而不是箭头：箭头写法会把 `Map.remove` 的返回值（就是这条 future
               // 本身）当成「还要等它」——自我等待，永远不完成。
-              _inflight.remove(key);
+              if (generation == _cacheGeneration) _inflight.remove(key);
             });
     _inflight[key] = task;
     return task;
   }
 
+  Uint8List? cached({
+    required String origin,
+    List<String> explicit = const [],
+  }) => _cache[_key(origin, explicit)];
+
+  Future<Uint8List?> _loadCachedOrResolve(
+    String key, {
+    required String origin,
+    required List<String> explicit,
+    Section? section,
+    String? sourceId,
+  }) async {
+    File? file;
+    final generation = _cacheGeneration;
+    try {
+      final directory = await cacheDirectory?.call();
+      if (directory != null) {
+        file = File(
+          '${directory.path}/${sha256.convert(utf8.encode(key))}.png',
+        );
+        if (await file.exists() &&
+            _now().difference(await file.lastModified()) <
+                const Duration(days: 14) &&
+            await file.length() <= maxBytes) {
+          final bytes = _asImage(await file.readAsBytes(), null);
+          if (bytes != null) return bytes;
+        }
+      }
+    } catch (_) {
+      /* Cache failure must not prevent network resolution. */
+    }
+    final bytes = await _resolveBounded(
+      origin: origin,
+      explicit: explicit,
+      section: section,
+      sourceId: sourceId,
+    );
+    if (bytes != null && file != null && generation == _cacheGeneration) {
+      try {
+        await file.parent.create(recursive: true);
+        if (generation == _cacheGeneration) {
+          file.writeAsBytesSync(bytes, flush: true);
+        }
+      } catch (_) {
+        /* Optional cache. */
+      }
+    }
+    return bytes;
+  }
+
   /// 测试用：清掉缓存与在飞表。
   @visibleForTesting
   void clearCache() {
+    _cacheGeneration++;
     _cache.clear();
     _failedUntil.clear();
     _inflight.clear();
+  }
+
+  Future<int> clearDiskCache() async {
+    clearCache();
+    final directory = await cacheDirectory?.call();
+    if (directory == null || !directory.existsSync()) return 0;
+    var freed = 0;
+    for (final file
+        in directory.listSync(followLinks: false).whereType<File>()) {
+      if (!RegExp(r'[/\\][0-9a-f]{64}\.png$').hasMatch(file.path)) continue;
+      freed += file.lengthSync();
+      file.deleteSync();
+    }
+    return freed;
   }
 
   void _remember(String key, Uint8List? bytes) {
@@ -162,12 +301,12 @@ class SourceFavicon {
       sourceId: sourceId,
     );
     if (home == null) return null;
-    for (final url in iconLinksFromHtml(home, origin)) {
+    for (final url in iconLinksFromHtml(home.text, home.url)) {
       final attempt = await _fetch(
         url,
         section: section,
         sourceId: sourceId,
-        referer: '$origin/',
+        referer: home.url,
       );
       if (attempt.bytes != null) return attempt.bytes;
     }
@@ -200,14 +339,14 @@ class SourceFavicon {
     final uri = Uri.tryParse(siteUrl.trim());
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return '';
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return '';
-    return uri.hasPort
-        ? '${uri.scheme}://${uri.host}:${uri.port}'
-        : '${uri.scheme}://${uri.host}';
+    return uri.userInfo.isEmpty ? uri.origin : '';
   }
 
   static bool _isUsableUrl(String url) {
     final uri = Uri.tryParse(url);
-    if (uri == null || uri.host.isEmpty) return false;
+    if (uri == null || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
+      return false;
+    }
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return false;
     return !uri.path.toLowerCase().endsWith('.svg');
   }
@@ -218,18 +357,27 @@ class SourceFavicon {
   /// 其余 `rel=icon` 按 `sizes` 从大到小排；`.svg` 直接跳过（Flutter 解不了）。
   @visibleForTesting
   static List<String> iconLinksFromHtml(String html, String origin) {
-    final site = _originOf(origin);
+    final document = html_parser.parse(html);
+    final baseHref = document.querySelector('base[href]')?.attributes['href'];
+    final site = baseHref == null ? origin : _absolute(baseHref, origin);
     final found = <({String url, int size, int apple})>[];
-    final pattern = RegExp(r'<link\b[^>]*>', caseSensitive: false);
-    for (final match in pattern.allMatches(html)) {
-      final tag = match.group(0)!;
-      final rel = _attribute(tag, 'rel').toLowerCase();
-      if (!rel.contains('icon')) continue;
-      final href = _attribute(tag, 'href');
+    for (final tag in document.querySelectorAll('link[rel]')) {
+      final rel = (tag.attributes['rel'] ?? '').toLowerCase();
+      if (!rel
+          .split(RegExp(r'\s+'))
+          .any(
+            (token) =>
+                token == 'icon' ||
+                token == 'apple-touch-icon' ||
+                token == 'apple-touch-icon-precomposed',
+          )) {
+        continue;
+      }
+      final href = tag.attributes['href'] ?? '';
       if (href.isEmpty) continue;
       final url = _absolute(href, site);
       if (!_isUsableUrl(url)) continue;
-      final sizes = _attribute(tag, 'sizes');
+      final sizes = tag.attributes['sizes'] ?? '';
       final side =
           int.tryParse(RegExp(r'(\d+)').firstMatch(sizes)?.group(1) ?? '') ?? 0;
       found.add((url: url, size: side, apple: rel.contains('apple') ? 1 : 0));
@@ -245,21 +393,13 @@ class SourceFavicon {
     return out;
   }
 
-  static String _attribute(String tag, String name) {
-    final match = RegExp(
-      '$name\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))',
-      caseSensitive: false,
-    ).firstMatch(tag);
-    if (match == null) return '';
-    return (match.group(1) ?? match.group(2) ?? match.group(3) ?? '').trim();
-  }
-
   static String _absolute(String href, String site) {
     final text = href.trim();
-    if (text.startsWith('//')) return site.isEmpty ? '' : 'https:$text';
-    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(text)) return text;
-    if (site.isEmpty) return '';
-    return text.startsWith('/') ? '$site$text' : '$site/$text';
+    if (text.isEmpty) return '';
+    final base = Uri.tryParse(site);
+    final uri = Uri.tryParse(text);
+    if (uri == null) return '';
+    return base?.hasScheme == true ? base!.resolveUri(uri).toString() : text;
   }
 
   /// 取一张图；状态码不是 200、内容不是图片（或解不了的 SVG）都当作「没有」。
@@ -272,7 +412,7 @@ class SourceFavicon {
     String referer = '',
   }) async {
     try {
-      final response = await _http.send(
+      final response = await _request(
         url: url,
         headers: _headers(
           url,
@@ -287,7 +427,10 @@ class SourceFavicon {
         return (bytes: null, reachable: true);
       }
       return (
-        bytes: _asImage(response.body, response.headers['content-type']),
+        bytes: await compute(_decodeIcon, (
+          bytes: response.body,
+          type: response.headers['content-type'],
+        )),
         reachable: true,
       );
     } on Object catch (error) {
@@ -299,13 +442,13 @@ class SourceFavicon {
   }
 
   /// 取首页 HTML（只为解析图标地址，读满上限即断）。
-  Future<String?> _fetchText(
+  Future<({String text, String url})?> _fetchText(
     String url, {
     Section? section,
     String? sourceId,
   }) async {
     try {
-      final response = await _http.send(
+      final response = await _request(
         url: url,
         headers: _headers(
           url,
@@ -317,7 +460,7 @@ class SourceFavicon {
         maxBytes: maxBytes,
       );
       if (response.statusCode != 200) return null;
-      return response.text;
+      return (text: response.text, url: response.url ?? url);
     } on Object catch (error) {
       LumeLog.info('[源图标] 首页解析失败 $url：$error');
       return null;
@@ -360,10 +503,23 @@ class SourceFavicon {
     // Flutter's codecs do not decode Windows ICO containers.
     if (_startsWith(bytes, const [0, 0, 1, 0])) {
       try {
-        final decoded = img.decodeIco(bytes);
+        // ICO entries are alternative sizes, not animation frames. Encoding
+        // decodeIco's full frame list as PNG produces APNG and a pulsing icon.
+        final decoded = img.IcoDecoder().decodeImageLargest(bytes);
         return decoded == null
             ? null
-            : Uint8List.fromList(img.encodePng(decoded));
+            : Uint8List.fromList(img.encodePng(decoded, singleFrame: true));
+      } catch (_) {
+        return null;
+      }
+    }
+    // Site logos should stay still even when the original is GIF/APNG/WebP.
+    final decoder = img.findDecoderForData(bytes);
+    final info = decoder?.startDecode(bytes);
+    if (info != null && info.numFrames > 1) {
+      try {
+        final frame = decoder!.decodeFrame(0);
+        return frame == null ? null : img.encodePng(frame, singleFrame: true);
       } catch (_) {
         return null;
       }

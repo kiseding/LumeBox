@@ -16,6 +16,21 @@ import 'package:lume_box/features/settings/total_subscription_page.dart';
 import 'support/fake_source_manager.dart';
 
 void main() {
+  testWidgets('总订阅可切换国内 CDN 与原站，地址跟随选择', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: TotalSubscriptionPage()));
+    await tester.tap(find.text('国内 CDN'));
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      SubscriptionCatalog.totalCdnUrl,
+    );
+    await tester.tap(find.text('GitHub 原站'));
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      SubscriptionCatalog.totalUrl,
+    );
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   late Map<Section, _Manager> managers;
@@ -131,7 +146,10 @@ void main() {
     );
     expect(stored.subscriptions.length, 1);
     final record = stored.subscriptions.single;
-    expect(record.url, '${SubscriptionCatalog.base}comics');
+    expect(
+      record.url,
+      '${SubscriptionCatalog.base}${SubscriptionCatalog.names[Section.comic]}',
+    );
     expect(record.members.keys, containsAll(['photo', 'comic']));
     expect(record.excludedIds, {'photo'});
     expect(record.enabled, isTrue);
@@ -141,14 +159,14 @@ void main() {
         '${SubscriptionCatalog.base}movies',
         Section.video,
       ),
-      '${SubscriptionCatalog.base}videos',
+      '${SubscriptionCatalog.base}${SubscriptionCatalog.names[Section.video]}',
     );
     expect(
       SubscriptionCatalog.canonical(
         '${SubscriptionCatalog.base}movies',
         Section.video,
       ),
-      '${SubscriptionCatalog.base}videos',
+      '${SubscriptionCatalog.base}${SubscriptionCatalog.names[Section.video]}',
     );
   });
 
@@ -192,9 +210,7 @@ void main() {
     await tester.tap(find.text('导入总订阅'));
     await tester.pumpAndSettle();
     expect(
-      find.text(
-        '漫画：1 个订阅\n视频：1 个订阅\n\n按板块保存并立即同步。保留其他订阅和手动导入的源；同名订阅源会更新。',
-      ),
+      find.text('漫画：1 个订阅\n视频：1 个订阅\n\n按板块保存并立即同步。保留其他订阅和手动导入的源；同名订阅源会更新。'),
       findsOneWidget,
     );
     await tester.tap(find.text('取消'));

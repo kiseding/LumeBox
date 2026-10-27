@@ -15,6 +15,7 @@ class ConfigurationBackup {
   static const files = <String>{
     'app_preferences.json',
     'audio_book_settings.json',
+    'media_preload.json',
     'tmdb_settings.json',
     'appearance_settings.json',
     'custom_icons.json',

@@ -15,6 +15,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/comic/comic_detail_page.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
+import 'package:lume_box/shared/widgets/source_translation.dart';
 import 'package:lume_box/shared/widgets/chapter_tile.dart';
 
 import 'support/fake_reading_source.dart';
@@ -43,6 +44,7 @@ void main() {
           (_) async => {'known': true, 'audio': true, 'video': true},
         );
     comicLibrary = await ReadingLibrary.open(Section.comic);
+    comicLibrary.setSetting('comic.detail.compactLayout', 'false');
     await ReadingLibrary.open(Section.video);
   });
 
@@ -176,7 +178,10 @@ void main() {
     }
     // 行距：相邻两行之间要留间隔，避免点串行。
     for (var i = 1; i < rects.length; i++) {
-      final gap = rects[i].top - rects[i - 1].bottom;
+      final sameRow = (rects[i].top - rects[i - 1].top).abs() < 1;
+      final gap = sameRow
+          ? rects[i].left - rects[i - 1].right
+          : rects[i].top - rects[i - 1].bottom;
       expect(
         gap,
         greaterThanOrEqualTo(8.0),
@@ -186,6 +191,49 @@ void main() {
     // 全局可读性调整：标题用统一的 LumeTypography.titleSize。
     final title = tester.widget<Text>(find.text('第 1 章'));
     expect(title.style?.fontSize, 16);
+  });
+
+  testWidgets('原版目录两列、切换持久化、搜索及书架旁翻译入口', (tester) async {
+    await pump(
+      tester,
+      ComicDetailPage(
+        library: comicLibrary,
+        manager: managerFor(Section.comic),
+        target: comicTarget,
+        runtimeAvailable: true,
+      ),
+    );
+    Rect chapter(int index) => tester.getRect(
+      find.byKey(ValueKey('comic-detail-original-chapter-$index')),
+    );
+    expect(chapter(0).top, chapter(1).top);
+    expect(chapter(1).left - chapter(0).right, 10);
+    expect(chapter(0).height, 52);
+    await tester.tap(find.byTooltip('章节列数'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<int>, '一列'));
+    await tester.pumpAndSettle();
+    expect(comicLibrary.setting('comic.detail.originalColumns'), '1');
+    expect(chapter(1).top, greaterThan(chapter(0).bottom));
+    await tester.tap(find.byTooltip('搜索章节'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '第 2 章');
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 章'), findsNothing);
+    expect(find.byKey(const ValueKey('comic-detail-original-chapter-1')), findsOneWidget);
+    await tester.tap(find.byTooltip('显示全部章节'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 章'), findsOneWidget);
+    final actions = find
+        .ancestor(of: find.text('加入书架'), matching: find.byType(Row))
+        .first;
+    expect(
+      find.descendant(
+        of: actions,
+        matching: find.byType(SourceTranslationAction),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('漫画详情：点章节进阅读器，只写历史，不自动收藏', (tester) async {

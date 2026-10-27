@@ -26,26 +26,29 @@ void main() {
       ),
   ];
 
-  Widget scene({double scale = 1, ValueChanged<SearchHit>? onOpen}) =>
-      MaterialApp(
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(scale)),
-          child: child!,
-        ),
-        home: Scaffold(
-          body: AggregateSearchResults(
-            section: Section.video,
-            hits: hits,
-            sites: sites,
-            completed: const {'s0', 's1', 's2'},
-            failed: const {},
-            loading: false,
-            onOpen: onOpen ?? (_) {},
-            onRetry: () {},
-          ),
-        ),
-      );
+  Widget scene({
+    double scale = 1,
+    ValueChanged<SearchHit>? onOpen,
+    Set<String> failed = const {},
+  }) => MaterialApp(
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context)
+          .copyWith(textScaler: TextScaler.linear(scale)),
+      child: child!,
+    ),
+    home: Scaffold(
+      body: AggregateSearchResults(
+        section: Section.video,
+        hits: hits,
+        sites: sites,
+        completed: const {'s0', 's1', 's2'},
+        failed: failed,
+        loading: false,
+        onOpen: onOpen ?? (_) {},
+        onRetry: () {},
+      ),
+    ),
+  );
 
   for (final width in [320.0, 393.0, 440.0, 768.0]) {
     for (final scale in [1.0, 2.0]) {
@@ -67,20 +70,33 @@ void main() {
             for (var i = 0; i < 4; i++)
               tester.getRect(find.byKey(ValueKey('search-cover-s${i % 3}-$i'))),
           ];
-          expect(rail.width, closeTo(covers[0].width, .01));
+          expect(rail.width, closeTo(width * .26, .01));
           expect(covers[0].top, closeTo(covers[1].top, .01));
           expect(covers[0].top, closeTo(covers[2].top, .01));
           expect(covers[3].top, greaterThan(covers[0].bottom));
           expect(covers[1].left - covers[0].right, closeTo(8, .01));
           expect(covers[2].left - covers[1].right, closeTo(8, .01));
-          expect(covers[0].height / covers[0].width, closeTo(1.4, .001));
+          expect(covers[0].height / covers[0].width, closeTo(1.38, .001));
           final title = tester.getRect(find.text('示例作品标题0'));
-          expect(title.top - covers[0].bottom, closeTo(6, .01));
+          expect(title.top - covers[0].bottom, closeTo(7, .01));
           expect(tester.takeException(), isNull);
         },
       );
     }
   }
+
+  testWidgets('失败站点使用紧凑提示，窄屏大字不增加整行错误横幅', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(scene(scale: 2, failed: {'s1', 's2'}));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('2 个源未取得结果，其他来源正常显示'), findsOneWidget);
+    expect(find.text('2 个源未取得结果，其他来源正常显示'), findsNothing);
+    final caption = tester.widget<Text>(find.text('示例作品标题0'));
+    expect(caption.maxLines, 2);
+    expect(caption.textAlign, TextAlign.start);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('source filtering keeps the hit identity and complete metadata', (
     tester,

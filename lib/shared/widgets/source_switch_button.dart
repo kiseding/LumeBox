@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/source/source_display_names.dart';
+
 import '../../core/theme/lume_theme.dart';
 import 'lume_icon.dart';
 
@@ -54,7 +56,7 @@ class SourceSwitchButton extends StatelessWidget {
                       Expanded(
                         child: ExcludeSemantics(
                           child: Text(
-                            name,
+                            SourceDisplayNames.withoutRatingSuffix(name),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(

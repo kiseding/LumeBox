@@ -13,6 +13,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/net/waf.dart';
 import '../../core/net/waf_auto_verify.dart';
+import '../../core/net/secure_connection_failure.dart';
 import '../../core/net/site_session_pool.dart';
 import '../../core/js/source_web_runtime.dart';
 
@@ -197,8 +198,11 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onProgress: (value) => setState(() => _progress = value),
+          onProgress: (value) {
+            if (mounted) setState(() => _progress = value);
+          },
           onPageStarted: (url) {
+            if (!mounted) return;
             LumeLog.info('[waf] 网页视图开始加载：$url');
             // 新的一页开始了：上一个失败卡与它的定时器都作废。
             _loadErrorTimer?.cancel();
@@ -295,7 +299,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
         widget.onUserAgent?.call('${retained['userAgent'] ?? ''}');
       }
       if (mounted) {
-        Navigator.of(context).pop(retained['verified'] == true ? 1 : 0);
+        _dismissVerification();
       }
       return;
     }
@@ -531,36 +535,79 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   Future<void> _closeAndCollect() async {
     if (_collecting) return;
     setState(() => _collecting = true);
+    try {
+      await _collectAndClose();
+    } catch (error) {
+      LumeLog.warn('[waf] 关闭验证窗口时读取会话失败：$error');
+      if (mounted) await _showSessionFailureAndExit();
+    } finally {
+      if (mounted) setState(() => _collecting = false);
+    }
+  }
+
+  void _dismissVerification() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent == true) {
+      route!.navigator!.pop();
+    }
+  }
+
+  Future<void> _showSessionFailureAndExit() async {
+    if (!widget.auto) {
+      await showGlassDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('未能读取验证会话'),
+          content: const Text(
+            '本次未能读取可复用的验证会话，验证尚未生效。\n\n'
+            '点击「知道了」将退出验证窗口，之后可重新打开网页视图重试。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+    }
+    // Pop the owning verification route only after its child dialog returns.
+    // A failed Cookie read must not trap the user behind the modal sheet.
+    _dismissVerification();
+  }
+
+  Future<void> _collectAndClose() async {
     final currentProbe = await _readProbe(
-      await _controller?.currentUrl() ?? widget.url,
-    );
+      await _controller?.currentUrl().timeout(const Duration(seconds: 3)) ??
+          widget.url,
+    ).timeout(const Duration(seconds: 3));
     if (!mounted) return;
     if (currentProbe == null ||
         currentProbe.challenge ||
         !currentProbe.readyComplete ||
         currentProbe.blank) {
-      setState(() => _collecting = false);
       if (!widget.auto) {
-        await showGlassDialog<void>(
+        final exit = await showGlassDialog<bool>(
           context: context,
+          barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
             title: const Text('网页验证尚未完成'),
             content: const Text('当前页面仍在验证或加载。通过后应能看到站点内容；如果出现下一道验证，请继续完成。'),
             actions: [
               TextButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.pop(dialogContext, true),
                 child: const Text('退出验证'),
               ),
               TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
+                onPressed: () => Navigator.pop(dialogContext, false),
                 child: const Text('继续验证'),
               ),
             ],
           ),
         );
+        if (exit == true) _dismissVerification();
       }
       return;
     }
@@ -568,10 +615,13 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
 
     // 1) JS 可见的那份（非 HttpOnly）。
     try {
-      final raw = await _controller?.runJavaScriptReturningResult(
-        'document.cookie',
+      final raw = await _controller
+          ?.runJavaScriptReturningResult('document.cookie')
+          .timeout(const Duration(seconds: 3));
+      final current = Uri.tryParse(
+        await _controller?.currentUrl().timeout(const Duration(seconds: 3)) ??
+            '',
       );
-      final current = Uri.tryParse(await _controller?.currentUrl() ?? '');
       if (current?.host == Uri.tryParse(widget.url)?.host) {
         cookies.addAll(parseJsCookie('$raw'));
       }
@@ -581,10 +631,11 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
 
     // 2) 原生 Cookie 仓库（含 HttpOnly 的 cf_clearance——这份才是关键）。
     try {
-      final list = await _cookieChannel.invokeMethod<List<Object?>>(
-        'allCookies',
-        <String, Object?>{'url': widget.url},
-      );
+      final list = await _cookieChannel
+          .invokeMethod<List<Object?>>('allCookies', <String, Object?>{
+            'url': widget.url,
+          })
+          .timeout(const Duration(seconds: 3));
       cookies.addAll(
         webViewCookiesForUrl(list ?? const <Object?>[], widget.url),
       );
@@ -599,37 +650,13 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     if (!mounted) return;
     if (cookies.isEmpty ||
         (_challengeSeen && (cookies['cf_clearance'] ?? '').isEmpty)) {
-      if (widget.auto) {
-        // 自动模式下静默退出：由调用方（引擎层）按原来的失败处理并给出口，
-        // 不要在这里插一个「未能读取验证会话」的对话框打断正在进行的解析。
-        setState(() => _collecting = false);
-        Navigator.of(context).pop(0);
-        return;
-      }
-      // 用户口径 2.1.4：一个 Cookie 都没取到就如实说，别让用户以为已经生效。
-      setState(() => _collecting = false);
-      await showGlassDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('未能读取验证会话'),
-          content: const Text(
-            '未能读取验证会话，请重新执行网页视图验证。\n\n'
-            '（通常是页面还没加载完就关闭了：等验证通过、站点页面真正显示出来后再关。）',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('知道了'),
-            ),
-          ],
-        ),
-      );
+      await _showSessionFailureAndExit();
       return;
     }
     try {
-      final rawUa = await _controller?.runJavaScriptReturningResult(
-        'navigator.userAgent',
-      );
+      final rawUa = await _controller
+          ?.runJavaScriptReturningResult('navigator.userAgent')
+          .timeout(const Duration(seconds: 3));
       widget.onUserAgent?.call('$rawUa'.replaceAll('"', '').trim());
       SiteSessionPool.shared.rememberPage(
         widget.url,
@@ -641,7 +668,7 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     if (!mounted) return;
     widget.onCollected(cookies);
     widget.onVerified?.call();
-    Navigator.of(context).pop();
+    _dismissVerification();
   }
 
   @override
@@ -815,10 +842,13 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
   }
 
   /// 加载失败时给一句能照着做的下一步（真机上最常见的是代理没配到网页视图上）。
-  String get _loadErrorHint =>
-      '网页视图走的是**系统网络**，App 里给这个图源配的代理 / UA 不会作用到它。\n'
-      '如果这个站需要代理才能访问，请在「源管理 → 网络配置」确认代理后，'
-      '或在系统设置里配好 VPN / 代理再试。';
+  String get _loadErrorHint {
+    final secureFailure = secureConnectionFailureOf(_loadError);
+    if (secureFailure != null) return secureConnectionHint(secureFailure);
+    return '网页视图使用系统网络；App 内为源设置的代理不会改变此窗口的系统网络线路。\n'
+        '如果这个站需要代理才能访问，请在「源管理 → 网络配置」确认代理后，'
+        '或在系统设置里配好 VPN / 代理再试。';
+  }
 }
 
 /// 把 WKWebView 的默认 UA 变成**与本机 Safari 一致**的 Safari UA。

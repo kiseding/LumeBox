@@ -1,3 +1,6 @@
+import 'package:lume_box/core/net/lume_net.dart';
+import 'package:lume_box/core/net/network_settings.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -11,6 +14,120 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('TMDB 真实网络客户端继承全局 HTTP 代理', () async {
+    final original = LumeNet.settings;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final reached = Completer<Uri>();
+    final subscription = server.listen((request) async {
+      if (!reached.isCompleted) reached.complete(request.uri);
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"images":{}}');
+      await request.response.close();
+    });
+    final settings = TmdbSettings()
+      ..enabled = true
+      ..apiKey = 'fixture-only-key'
+      ..apiProxy = 'http://tmdb.fixture.invalid';
+    LumeNet.apply(NetworkSettings(proxy: 'http://127.0.0.1:${server.port}'));
+    final client = TmdbClient(settings);
+    try {
+      await HttpOverrides.runWithHttpOverrides(
+        () => client.testApi(),
+        _RealTmdbHttp(),
+      );
+      final request = await reached.future.timeout(const Duration(seconds: 2));
+      expect(request.host, 'tmdb.fixture.invalid');
+      expect(request.path, '/3/configuration');
+      expect(request.queryParameters['api_key'], 'fixture-only-key');
+    } finally {
+      client.dispose();
+      LumeNet.apply(original);
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+  test('TMDB v4 Token 放在 Bearer 请求头，v3 Key 仍使用 api_key', () async {
+    for (final credential in [
+      'eyJfixture.payload.signature',
+      'Bearer eyJfixture.payload.signature',
+      'fixture-v3-key',
+    ]) {
+      final settings = TmdbSettings()
+        ..enabled = true
+        ..apiKey = credential;
+      final client = TmdbClient(
+        settings,
+        client: MockClient((request) async {
+          if (settings.usesBearer) {
+            expect(
+              request.headers['Authorization'],
+              'Bearer eyJfixture.payload.signature',
+            );
+            expect(request.url.queryParameters.containsKey('api_key'), false);
+          } else {
+            expect(request.headers.containsKey('Authorization'), false);
+            expect(request.url.queryParameters['api_key'], 'fixture-v3-key');
+          }
+          return http.Response('{"images":{}}', 200);
+        }),
+      );
+      await client.testApi();
+      client.dispose();
+    }
+  });
+  test('推荐使用匹配影片类型，过滤自身和重复条目并保留缓存', () async {
+    final settings = TmdbSettings()
+      ..enabled = true
+      ..apiKey = 'fixture-key';
+    final client = TmdbClient(
+      settings,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/search/multi')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {'id': 7, 'media_type': 'tv', 'name': '测试剧'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path.endsWith('/tv/7')) {
+          expect(
+            request.url.queryParameters['append_to_response'],
+            contains('recommendations'),
+          );
+          return http.Response(
+            jsonEncode({
+              'recommendations': {
+                'results': [
+                  {'id': 7, 'name': '测试剧'},
+                  {'id': 8, 'name': '相似剧', 'poster_path': '/similar.jpg'},
+                  {'id': 8, 'name': '相似剧'},
+                  {'id': 9, 'name': ''},
+                  {'id': 10, 'name': '成人条目', 'adult': true},
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('{}', 200);
+      }),
+    );
+    final result = (await client.lookup('测试剧'))!;
+    expect(result.recommendations.length, 1);
+    expect(result.recommendations.single.title, '相似剧');
+    expect(result.recommendations.single.poster, contains('/w780/similar.jpg'));
+    expect(
+      TmdbMetadata.fromJson(result.toJson()).recommendations.single.title,
+      '相似剧',
+    );
+    expect((await client.lookup('测试剧'))!.recommendations.single.title, '相似剧');
+    client.dispose();
+  });
   test('缺省关闭且不内置 Key，关闭和空 Key 时不产生请求', () async {
     final settings = TmdbSettings();
     var calls = 0;
@@ -73,7 +190,7 @@ void main() {
       expect(TmdbImageKind.values.map(settings.imageSize), [
         'w1280',
         'w500',
-        'w500',
+        'w780',
         'w185',
         'w300',
       ]);
@@ -114,7 +231,7 @@ void main() {
     );
     expect(
       settings.imageUrl('/poster.jpg'),
-      'https://images.test/t/p/w500/poster.jpg',
+      'https://images.test/t/p/w780/poster.jpg',
     );
     settings.apiProxy = '';
     settings.imageProxy = '';
@@ -155,7 +272,7 @@ void main() {
     final client = TmdbClient(settings, client: transport(requests));
     final result = await client.lookup('影片');
     expect(result?.overview, 'TMDB简介');
-    expect(result?.posters.first, 'https://images.test/t/p/w500/zero.jpg');
+    expect(result?.posters.first, 'https://images.test/t/p/w780/zero.jpg');
     expect(result?.posters.length, 3);
     expect(
       requests.every((url) => url.queryParameters['api_key'] == 'fixture-key'),
@@ -282,3 +399,5 @@ void main() {
     });
   }
 }
+
+class _RealTmdbHttp extends HttpOverrides {}

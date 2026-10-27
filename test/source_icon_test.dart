@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
 import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/source/source_favicon.dart';
+import 'package:lume_box/core/source/lume_sources.dart';
 import 'package:lume_box/shared/widgets/source_icon.dart';
 
 /// 源图标（真机反馈「源图标好多都没有」）：候选地址、首页解析、图片校验、缓存。
@@ -16,6 +19,159 @@ import 'package:lume_box/shared/widgets/source_icon.dart';
 /// 换成 PNG、或只写在首页 `<link rel=icon>` 里，都要能走到真图标；
 /// 全都拿不到时必须老实回退首字母，不许把 HTML 当图片画出来。
 void main() {
+  test('图标路径按网页目录和 base 解析，处理实体并排除伪 rel 与凭据地址', () {
+    expect(
+      SourceFavicon.iconLinksFromHtml('''
+      <base href="/assets/ui/">
+      <link rel="icon" href="../brand.png?x=1&amp;y=2">
+      <link data-rel="icon" href="/wrong.png">
+      <link rel="not-an-icon" href="/wrong2.png">
+      <link rel="icon" href="https://user:pass@elsewhere.test/a.png">
+    ''', 'https://site.test/app/index.html'),
+      ['https://site.test/assets/brand.png?x=1&y=2'],
+    );
+    expect(
+      SourceFavicon.iconLinksFromHtml(
+        '<link rel="icon" href="../icon.png">',
+        'https://site.test/app/sub/page.html',
+      ),
+      ['https://site.test/app/icon.png'],
+    );
+  });
+  test('Kazumi 及普通声明镜像的源使用真实站址，不把规则仓库当站点', () {
+    const header =
+        '// LumeSource: {"id":"kazumi_fixture","name":"Example","version":"1","category":"video","mirrors":["https://anime.example/path/"]}';
+    expect(
+      LumeSources.siteUrlFromScript('$header\nconst kazumiRule = {};'),
+      'https://anime.example',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "$header\nvar BASE_URL = 'https://current.example';",
+      ),
+      'https://current.example',
+    );
+    expect(LumeSources.siteUrlFromScript('var LumeSource = {};'), '');
+    expect(
+      LumeSources.siteUrlFromScript("var HOST = 'https://fixture.test';"),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "const baseURL = 'https://fixture.test/path';",
+      ),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "const config = {base: 'https://fixture.test/path'};",
+      ),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "var base_url = 'https://fixture.test/path';",
+      ),
+      'https://fixture.test',
+    );
+    expect(
+      LumeSources.siteUrlFromScript(
+        "var HOST = 'https://user:secret@fixture.test';",
+      ),
+      isEmpty,
+    );
+  });
+  test('图标后台解析最多同时两站，避免抽屉占满业务请求队列', () async {
+    final gate = Completer<void>();
+    final started = Completer<void>();
+    var calls = 0, active = 0, peak = 0;
+    final png = img.encodePng(img.Image(width: 2, height: 2));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        client: MockClient((request) async {
+          calls++;
+          active++;
+          if (active > peak) peak = active;
+          if (calls == 2) started.complete();
+          await gate.future;
+          active--;
+          return http.Response.bytes(
+            png,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      ),
+    );
+    final loads = [
+      for (var i = 0; i < 6; i++) resolver.load(origin: 'https://icon$i.test'),
+    ];
+    await started.future;
+    expect(calls, 2);
+    gate.complete();
+    expect(await Future.wait(loads), everyElement(isNotNull));
+    expect(peak, 2);
+  });
+
+  test('多尺寸 ICO 只输出最大尺寸的静态 PNG，不把图标尺寸轮播为动画', () async {
+    final image = img.Image(width: 16, height: 16)
+      ..addFrame(img.Image(width: 48, height: 48));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            img.encodeIco(image),
+            200,
+            headers: {'content-type': 'image/x-icon'},
+          ),
+        ),
+      ),
+    );
+    final bytes = await resolver.load(origin: 'https://sizes.test');
+    final decoded = img.decodePng(bytes!);
+    expect(decoded!.width, 48);
+    expect(decoded.numFrames, 1);
+  });
+
+  test('GIF 站点图标冻结为静态 PNG，避免动态闪烁', () async {
+    final image = img.Image(width: 16, height: 16)
+      ..addFrame(img.Image(width: 16, height: 16));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            img.encodeGif(image),
+            200,
+            headers: {'content-type': 'image/gif'},
+          ),
+        ),
+      ),
+    );
+    final bytes = await resolver.load(origin: 'https://animated.test');
+    expect(img.decodePng(bytes!)!.numFrames, 1);
+  });
+
+  test('重新创建解析器后从磁盘读取成功图标，不重复请求网站', () async {
+    final root = Directory.systemTemp.createTempSync('source-icon-cache-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    var calls = 0;
+    SourceFavicon resolver() => SourceFavicon(
+      cacheDirectory: () async => root,
+      http: LumeHttp(
+        client: MockClient((_) async {
+          calls++;
+          return http.Response.bytes(
+            img.encodePng(img.Image(width: 16, height: 16)),
+            200,
+          );
+        }),
+      ),
+    );
+    final first = await resolver().load(origin: 'https://cache.test');
+    final second = await resolver().load(origin: 'https://cache.test');
+    expect(second, first);
+    expect(calls, 1);
+  });
   test('ICO 站点图标转换为 Flutter 可解码的 PNG', () async {
     final ico = img.encodeIco(img.Image(width: 16, height: 16));
     final resolver = SourceFavicon(
@@ -269,6 +425,8 @@ void main() {
     expect(find.text('禁'), findsOneWidget, reason: '取不到时回退首字母');
     expect(find.byType(Image), findsNothing);
 
+    final loadedResolver = resolver(png);
+    await tester.runAsync(() => loadedResolver.load(origin: 'https://a.com'));
     await tester.pumpWidget(
       MaterialApp(
         home: Column(
@@ -276,7 +434,7 @@ void main() {
             SourceIcon(
               name: '禁漫天堂',
               siteUrl: 'https://a.com',
-              favicon: resolver(png),
+              favicon: loadedResolver,
             ),
           ],
         ),

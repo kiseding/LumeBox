@@ -44,7 +44,7 @@ class SystemTabBarCapabilities {
       : null;
 }
 
-/// Real UITabBar controls. The platform view occupies only this bar's bounds;
+/// Native UIKit glass controls. The platform view occupies only this bar's bounds;
 /// it never owns or replaces the Flutter page controller.
 class SystemDockBar extends StatelessWidget {
   const SystemDockBar({
@@ -139,6 +139,7 @@ class _SystemTabBarViewState extends State<_SystemTabBarView> {
       'iconSize': bar.settings.iconSize,
       'barHeight': bar.settings.barHeight,
       'materialOpacity': bar.settings.materialOpacity,
+      'opaqueBackground': bar.settings.opaqueBackground,
       'tintColor': bar.settings.followThemeColor
           ? LumeTheme.accent.toARGB32()
           : bar.settings.tintColor,

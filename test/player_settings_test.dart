@@ -125,7 +125,7 @@ void main() {
         '{"seekSeconds":999,"boostMultiplier":-2,"volume":false}',
       );
       expect(store.load().gestures.seekSeconds, 180);
-      expect(store.load().gestures.boostMultiplier, 1.25);
+      expect(store.load().gestures.boostMultiplier, 1.5);
       expect(store.load().gestures.volume, false);
     });
 

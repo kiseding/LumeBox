@@ -30,11 +30,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_loading');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     for (final section in Section.values) {
       await SectionScope.open(section);
     }
@@ -59,6 +59,7 @@ void main() {
     WidgetTester tester, {
     required DataSource source,
     SectionImagePipeline? pipeline,
+    bool kazumi = false,
   }) async {
     await tester.binding.setSurfaceSize(const Size(900, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -70,15 +71,17 @@ void main() {
             section: Section.comic,
             pipeline: pipeline,
             manager: FakeSourceManager(
-              sources: const <SourceDescriptor>[
+              sources: <SourceDescriptor>[
                 SourceDescriptor(
-                  id: 'source-a',
+                  id: kazumi ? 'kazumi_example' : 'source-a',
                   name: '示例源',
                   version: '1',
                   enabled: true,
                 ),
               ],
-              opened: <String, DataSource>{'source-a': source},
+              opened: <String, DataSource>{
+                kazumi ? 'kazumi_example' : 'source-a': source,
+              },
             ),
             // 列表形态：条目标题是纯文本，断言不受封面加载影响。
             layout: ExploreLayout.list,
@@ -88,6 +91,21 @@ void main() {
       ),
     );
   }
+
+  testWidgets('Kazumi 无首页时提供明确搜索入口，不显示普通空列表重试提示', (tester) async {
+    final source = _EmptySource(section: Section.comic);
+    final pipeline = await openPipeline(Section.comic);
+    addTearDown(pipeline.dispose);
+    await pump(tester, source: source, pipeline: pipeline, kazumi: true);
+    await tester.pumpAndSettle();
+    expect(find.text('搜索这站的动漫'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '搜索动漫'), findsOneWidget);
+    expect(find.text('换个分类或关键词试试'), findsNothing);
+    await tester.tap(find.widgetWithText(FilledButton, '搜索动漫'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('当前源搜索'), findsOneWidget);
+  });
 
   testWidgets('首屏请求在飞：显示加载态，不显示「暂无内容」', (tester) async {
     final source = _GatedSource(section: Section.comic);
@@ -149,8 +167,9 @@ class _GatedSource implements DataSource {
   String get name => '放行源';
 
   @override
-  Future<List<SourceCategory>> categories() async =>
-      <SourceCategory>[const SourceCategory(id: 'c1', title: '分类一')];
+  Future<List<SourceCategory>> categories() async => <SourceCategory>[
+    const SourceCategory(id: 'c1', title: '分类一'),
+  ];
 
   @override
   Future<SourceList> list({
@@ -177,8 +196,7 @@ class _GatedSource implements DataSource {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 /// 列表回来是空的（真空态）。
@@ -195,8 +213,9 @@ class _EmptySource implements DataSource {
   String get name => '空源';
 
   @override
-  Future<List<SourceCategory>> categories() async =>
-      <SourceCategory>[const SourceCategory(id: 'c1', title: '分类一')];
+  Future<List<SourceCategory>> categories() async => <SourceCategory>[
+    const SourceCategory(id: 'c1', title: '分类一'),
+  ];
 
   @override
   Future<SourceList> list({
@@ -204,8 +223,7 @@ class _EmptySource implements DataSource {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      const SourceList(items: <SourceItem>[], hasMore: false);
+  }) async => const SourceList(items: <SourceItem>[], hasMore: false);
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -218,8 +236,7 @@ class _EmptySource implements DataSource {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 /// 首页探针很慢（一直不返回），但列表很快。
@@ -239,11 +256,13 @@ class _SlowProbeSource implements DataSource, HomeCapable {
   Future<bool> supportsHome() => Completer<bool>().future; // 永挂：模拟慢探针
 
   @override
-  Future<SourceHome> home() async => const SourceHome(boards: <SourceHomeBoard>[]);
+  Future<SourceHome> home() async =>
+      const SourceHome(boards: <SourceHomeBoard>[]);
 
   @override
-  Future<List<SourceCategory>> categories() async =>
-      <SourceCategory>[const SourceCategory(id: 'c1', title: '分类一')];
+  Future<List<SourceCategory>> categories() async => <SourceCategory>[
+    const SourceCategory(id: 'c1', title: '分类一'),
+  ];
 
   @override
   Future<SourceList> list({
@@ -251,11 +270,10 @@ class _SlowProbeSource implements DataSource, HomeCapable {
     String? keyword,
     int page = 1,
     Map<String, String>? filters,
-  }) async =>
-      const SourceList(
-        items: <SourceItem>[SourceItem(id: 'a1', title: '条目 1')],
-        hasMore: false,
-      );
+  }) async => const SourceList(
+    items: <SourceItem>[SourceItem(id: 'a1', title: '条目 1')],
+    hasMore: false,
+  );
 
   @override
   Future<SourceDetail?> detail(String itemId) async => null;
@@ -268,6 +286,5 @@ class _SlowProbeSource implements DataSource, HomeCapable {
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
-  }) async =>
-      null;
+  }) async => null;
 }

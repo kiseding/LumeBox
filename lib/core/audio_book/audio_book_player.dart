@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../media/media_library.dart';
 import '../media/playback_focus.dart';
 import '../util/lume_log.dart';
+import '../cache/media_preload.dart';
 import 'audio_book_track.dart';
 import 'audio_book_proxy.dart';
 
@@ -105,9 +106,46 @@ abstract interface class AudioBookPlayer {
 }
 
 class JustAudioBookPlayer implements AudioBookPlayer {
-  JustAudioBookPlayer() : _player = ja.AudioPlayer();
+  JustAudioBookPlayer({
+    ja.AudioPlayer? player,
+    Future<void> Function()? configureSession,
+  }) : _configureSession = configureSession ?? _configureAudioSession,
+       _player =
+           player ??
+           ja.AudioPlayer(
+             audioLoadConfiguration: ja.AudioLoadConfiguration(
+               darwinLoadControl: ja.DarwinLoadControl(
+                 automaticallyWaitsToMinimizeStalling: false,
+                 preferredForwardBufferDuration: Duration(
+                   seconds: MediaPreload.instance.bufferSeconds,
+                 ),
+               ),
+               androidLoadControl: ja.AndroidLoadControl(
+                 minBufferDuration: const Duration(seconds: 3),
+                 maxBufferDuration: Duration(
+                   seconds: MediaPreload.instance.bufferSeconds,
+                 ),
+                 bufferForPlaybackDuration: const Duration(milliseconds: 500),
+                 bufferForPlaybackAfterRebufferDuration: const Duration(
+                   seconds: 1,
+                 ),
+                 targetBufferBytes: MediaPreload.instance.mediaBudgetBytes,
+               ),
+             ),
+           );
   final ja.AudioPlayer _player;
+  final Future<void> Function() _configureSession;
+  static Future<void> _configureAudioSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.speech());
+  }
+
   final _proxy = AudioBookProxy();
+  List<ja.AudioSource> _playlist = [];
+  bool _singleMode = false, _changing = false;
+  int _offset = 0;
+  StreamSubscription<ja.PlayerState>? _completion;
+  VoidCallback? _removePreloadClearer;
   static Future<void>? _background;
   static Future<void> initialize() => _background ??= JustAudioBackground.init(
     androidNotificationChannelId: 'lumebox.audioBooks',
@@ -121,7 +159,9 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   @override
   Stream<bool> get playing => _player.playingStream;
   @override
-  Stream<int?> get index => _player.currentIndexStream;
+  Stream<int?> get index => _player.currentIndexStream.map(
+    (index) => index == null ? null : index + (_singleMode ? _offset : 0),
+  );
   @override
   Stream<String> get errors => _player.errorStream.map((error) {
     LumeLog.warn('[audioBook] 播放器错误: $error');
@@ -133,28 +173,54 @@ class JustAudioBookPlayer implements AudioBookPlayer {
     int index = 0,
     Duration position = Duration.zero,
   }) async {
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.speech());
+    await _configureSession();
     final urls = await _proxy.prepare(sources);
+    _singleMode = !MediaPreload.instance.audio;
+    _removePreloadClearer ??= MediaPreload.instance.onClear(() async {
+      if (_playlist.isEmpty || _changing || _singleMode) return;
+      final index = (_player.currentIndex ?? 0) + (_singleMode ? _offset : 0);
+      final wasPlaying = _player.playing;
+      final position = _player.position;
+      _singleMode = true;
+      await _loadSingle(index, position: position, play: wasPlaying);
+    });
+    _completion ??= _player.playerStateStream.listen((state) {
+      if (_singleMode &&
+          !_changing &&
+          state.processingState == ja.ProcessingState.completed &&
+          _offset + 1 < _playlist.length) {
+        unawaited(
+          _loadSingle(_offset + 1, play: true).catchError((Object error) {
+            LumeLog.warn('[audioBook] 自动切集失败：$error');
+          }),
+        );
+      }
+    });
     try {
-      await _player.setAudioSources(
-        [
-          for (var i = 0; i < sources.length; i++)
-            ja.AudioSource.uri(
-              urls[i],
-              tag: MediaItem(
-                id: sources[i].id,
-                title: sources[i].episode.title,
-                album: sources[i].album,
-                artUri: sources[i].cover == null
-                    ? null
-                    : Uri.tryParse(sources[i].cover!),
-              ),
+      _playlist = [
+        for (var i = 0; i < sources.length; i++)
+          ja.AudioSource.uri(
+            urls[i],
+            tag: MediaItem(
+              id: sources[i].id,
+              title: sources[i].episode.title,
+              album: sources[i].album,
+              artUri: sources[i].cover == null
+                  ? null
+                  : Uri.tryParse(sources[i].cover!),
             ),
-        ],
-        initialIndex: index,
-        initialPosition: position,
-      );
+          ),
+      ];
+      if (_singleMode) {
+        await _loadSingle(index, position: position);
+      } else {
+        _offset = 0;
+        await _player.setAudioSources(
+          _playlist,
+          initialIndex: index,
+          initialPosition: position,
+        );
+      }
     } catch (_) {
       final message = _proxy.lastError;
       if (message != null) throw AudioBookFailure(message);
@@ -166,22 +232,54 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   Future<void> play() => _player.play();
   @override
   Future<void> pause() => _player.pause();
+  Future<void> _loadSingle(
+    int index, {
+    Duration position = Duration.zero,
+    bool play = false,
+  }) async {
+    if (index < 0 || index >= _playlist.length || _changing) return;
+    _changing = true;
+    try {
+      _offset = index;
+      await _player.setAudioSource(_playlist[index], initialPosition: position);
+      if (play) unawaited(_player.play());
+    } finally {
+      _changing = false;
+    }
+  }
+
   @override
   Future<void> stop() => _player.stop();
   @override
   Future<void> seek(Duration value, {int? index}) =>
-      _player.seek(value, index: index);
+      _singleMode && index != null
+      ? _loadSingle(index, position: value, play: _player.playing)
+      : _player.seek(value, index: index);
   @override
-  Future<void> next() => _player.seekToNext();
+  Future<void> next() => _singleMode
+      ? _loadSingle(_offset + 1, play: _player.playing)
+      : _player.seekToNext();
   @override
-  Future<void> previous() => _player.seekToPrevious();
+  Future<void> previous() => _singleMode
+      ? _loadSingle(_offset - 1, play: _player.playing)
+      : _player.seekToPrevious();
   @override
   Future<void> speed(double value) => _player.setSpeed(value);
   @override
   Future<void> release() async {
+    _removePreloadClearer?.call();
+    _removePreloadClearer = null;
+    await _completion?.cancel();
+    _completion = null;
+    _playlist = [];
     await _player.stop();
     await _player.clearAudioSources();
     _proxy.reset();
+  }
+
+  Future<void> disposeNative() async {
+    await _proxy.close();
+    await _player.dispose();
   }
 }
 
@@ -203,6 +301,7 @@ class AudioBookSession extends ChangeNotifier {
   final AudioBookSettings settings;
   final Timer Function(Duration, void Function()) _schedule;
   AudioBookPlayer? _player;
+  String? _preloadConfiguration;
   MediaResource? resource;
   Duration position = Duration.zero, duration = Duration.zero;
   int current = 0;
@@ -244,9 +343,22 @@ class AudioBookSession extends ChangeNotifier {
       await PlaybackFocus.acquire('audioBook');
       await settings.load();
       if (generation != _generation) return;
+      final policy = MediaPreload.instance;
+      final configuration = '${policy.bufferSeconds}|${policy.capacityMb}';
+      if (_player != null && _preloadConfiguration != configuration) {
+        for (final subscription in _subscriptions) {
+          await subscription.cancel();
+        }
+        _subscriptions.clear();
+        await _player!.release();
+        final previous = _player;
+        if (previous is JustAudioBookPlayer) await previous.disposeNative();
+        _player = null;
+      }
       if (_player == null) {
         await _initialize();
         _player = _factory();
+        _preloadConfiguration = configuration;
         _subscriptions.addAll([
           _player!.position.listen((value) {
             if (!_ready && !loading) return;

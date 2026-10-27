@@ -1,4 +1,5 @@
 import 'builtin_danmaku_service.dart';
+import 'danmaku_presets.dart';
 
 import 'dart:convert';
 
@@ -11,7 +12,7 @@ class DandanplayCredentials {
     this.appSecret, {
     this.baseUrl = defaultBase,
   });
-  static const defaultBase = 'https://dm.999.team/87654321';
+  static const defaultBase = BuiltinDanmakuService.address;
   static const officialBase = 'https://api.dandanplay.net';
   static const builtinBase = BuiltinDanmakuService.address;
   bool get builtin => baseUrl == builtinBase;
@@ -62,8 +63,32 @@ class DanmakuSourcesStore {
       }
     }
     if (data == null) return {};
-    if (!data.containsKey('profilesJson')) return data;
-    final sources = profiles(data);
+    if (!data.containsKey('profilesJson')) {
+      if (!DanmakuPresets.retiredUrls.contains(data['baseUrl'])) return data;
+      return {
+        ...data,
+        'baseUrl': DandanplayCredentials.builtinBase,
+        'appId': '',
+        'appSecret': '',
+      };
+    }
+    final all = profiles(data);
+    final sources = all
+        .where((source) => !DanmakuPresets.retired(source))
+        .toList();
+    if (sources.length != all.length) {
+      final active =
+          sources.where((s) => s['id'] == data!['activeId']).firstOrNull ??
+          sources.where((s) => s['type'] != 'builtin').firstOrNull ??
+          sources.firstOrNull;
+      data = {
+        ...data,
+        'profilesJson': jsonEncode(sources),
+        'activeId': active?['id'] ?? '',
+        'baseUrl': active?['url'] ?? DandanplayCredentials.builtinBase,
+      };
+      await channel.invokeMethod<void>('write', data);
+    }
     final selected = sources
         .where((s) => s['id'] == data!['activeId'])
         .firstOrNull;
@@ -94,6 +119,7 @@ class DanmakuSourcesStore {
     String active,
   ) async {
     sources = sources
+        .where((s) => !DanmakuPresets.retired(s))
         .where((s) => s['type'] != 'builtin' || s['id'] == active)
         .toList();
     final selected = sources.where((s) => s['id'] == active).firstOrNull;

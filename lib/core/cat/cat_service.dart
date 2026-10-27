@@ -1,3 +1,5 @@
+import 'cat_local_bundle.dart';
+
 import 'dart:async';
 
 import '../session/privacy_settings.dart';
@@ -39,6 +41,7 @@ class CatSubscription {
     this.sites = const [],
     Set<String>? removedSiteIds,
   }) : removedSiteIds = Set.of(removedSiteIds ?? const {});
+  bool get isLocal => url.startsWith('local:');
   final String id;
   String name, url, hash, configHash, error;
   bool enabled, automatic;
@@ -406,6 +409,87 @@ class CatService extends ChangeNotifier {
     return record;
   });
 
+  /// A local bundle is copied into private storage; the picked ZIP is no longer needed.
+  Future<CatSubscription> importLocal(String name, Uint8List bytes) => _serial(
+    () async {
+      await boot();
+      final bundle = await compute(CatLocalBundle.fromZip, bytes);
+      final label = name.trim().isEmpty ? '本地猫源' : name.trim();
+      final existing = subscriptions
+          .where((s) => s.isLocal && s.name == label)
+          .firstOrNull;
+      final id =
+          existing?.id ??
+          List.generate(
+            16,
+            (_) =>
+                Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+          ).join();
+      final record =
+          existing ??
+          CatSubscription(
+            id: id,
+            name: label,
+            url: 'local:$id',
+            automatic: false,
+          );
+      await _writeBundle(
+        record.id,
+        bundle.hash,
+        bundle.configHash,
+        bundle.index,
+        bundle.config,
+      );
+      record.hash = bundle.hash;
+      record.configHash = bundle.configHash;
+      record.checked = DateTime.now().millisecondsSinceEpoch;
+      record.error = '';
+      record.automatic = false;
+      if (existing == null) subscriptions.add(record);
+      await save();
+      SourceSubscriptionSync.recordChange(
+        Section.cat,
+        record.id,
+        record.name,
+        existing == null ? '已新增' : '已更新',
+      );
+      return record;
+    },
+  );
+
+  Future<void> _writeBundle(
+    String id,
+    String hash,
+    String configHash,
+    List<int> bytes,
+    List<int> config,
+  ) async {
+    final destination = Directory(
+      '${_root!.path}/bundles/$id/$hash-$configHash',
+    );
+    final indexFile = File('${destination.path}/index.js');
+    final configFile = File('${destination.path}/index.config.js');
+    final valid =
+        await indexFile.exists() &&
+        await configFile.exists() &&
+        md5.convert(await indexFile.readAsBytes()).toString() == hash &&
+        md5.convert(await configFile.readAsBytes()).toString() == configHash;
+    if (valid) return;
+    final staging = Directory(
+      '${destination.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await staging.create(recursive: true);
+    try {
+      await File('${staging.path}/index.js').writeAsBytes(bytes, flush: true);
+      await File('${staging.path}/index.config.js')
+          .writeAsBytes(config, flush: true);
+      if (await destination.exists()) await destination.delete(recursive: true);
+      await staging.rename(destination.path);
+    } finally {
+      if (await staging.exists()) await staging.delete(recursive: true);
+    }
+  }
+
   Future<void> update(CatSubscription record) => _serial(() async {
     try {
       await _update(record);
@@ -417,6 +501,13 @@ class CatService extends ChangeNotifier {
     await save();
   });
   Future<void> _update(CatSubscription record) async {
+    if (record.isLocal) {
+      if (!await hasBundle(record)) {
+        throw const FormatException('本地猫源包已丢失，请从本地 ZIP 重新导入');
+      }
+      return;
+    }
+
     record.checked = DateTime.now().millisecondsSinceEpoch;
     status = '检查 ${record.name} 更新';
     busy = true;
@@ -486,34 +577,7 @@ class CatService extends ChangeNotifier {
       } on HttpException catch (error) {
         if (!error.message.contains('404')) rethrow;
       }
-      final destination = Directory(
-        '${_root!.path}/bundles/${record.id}/$hash-$configHash',
-      );
-      final indexFile = File('${destination.path}/index.js');
-      final configFile = File('${destination.path}/index.config.js');
-      final valid =
-          await indexFile.exists() &&
-          await configFile.exists() &&
-          md5.convert(await indexFile.readAsBytes()).toString() == hash &&
-          md5.convert(await configFile.readAsBytes()).toString() == configHash;
-      if (!valid) {
-        final staging = Directory(
-          '${destination.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
-        );
-        await staging.create(recursive: true);
-        try {
-          await File('${staging.path}/index.js')
-              .writeAsBytes(bytes, flush: true);
-          await File('${staging.path}/index.config.js')
-              .writeAsBytes(config, flush: true);
-          if (await destination.exists()) {
-            await destination.delete(recursive: true);
-          }
-          await staging.rename(destination.path);
-        } finally {
-          if (await staging.exists()) await staging.delete(recursive: true);
-        }
-      }
+      await _writeBundle(record.id, hash, configHash, bytes, config);
       if (record.hash != hash || record.configHash != configHash) {
         SourceSubscriptionSync.recordChange(
           Section.cat,
@@ -598,7 +662,9 @@ class CatService extends ChangeNotifier {
     await boot();
     if (subscriptions.isEmpty) return;
     for (final subscription
-        in subscriptions.where((s) => s.enabled && s.automatic).toList()) {
+        in subscriptions
+            .where((s) => s.enabled && s.automatic && !s.isLocal)
+            .toList()) {
       if (DateTime.now().millisecondsSinceEpoch - subscription.checked <
           (subscription.error.isEmpty
                   ? const Duration(hours: 6)

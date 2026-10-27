@@ -205,6 +205,7 @@ class _VideoPageState extends State<VideoPage> {
         MaterialPageRoute<void>(
           builder: (_) => VideoDetailPage(
             sourceId: selection.sourceId,
+            manager: manager,
             loadSource: () => manager.open(selection.sourceId),
             item: selection.item,
             library: library,

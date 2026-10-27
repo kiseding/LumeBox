@@ -8,36 +8,34 @@ import 'section_toolbar.dart';
 /// Logical-pixel dimensions for the reference three-column search layout.
 abstract final class AggregateSearchLayout {
   static const columns = 3;
-  static const gridPadding = 8.0;
+  static const gridPadding = 10.0;
   static const columnGap = 8.0;
-  static const rowGap = 18.0;
-  static const coverHeightRatio = 1.4;
-  static const coverRadius = 10.0;
-  static const titleGap = 6.0;
-  static const titleSize = 13.0;
+  static const rowGap = 16.0;
+  static const coverHeightRatio = 1.38;
+  static const coverRadius = 8.0;
+  static const titleGap = 7.0;
+  static const titleSize = 12.5;
   static const titleLineHeight = 1.25;
   static const dividerSlotWidth = 1.0;
-  static const siteRowMinHeight = 44.0;
-  static const siteRowRadius = 6.0;
-  static const selectedSiteOpacity = .07;
+  static const siteRowMinHeight = 46.0;
+  static const siteRowRadius = 8.0;
+  static const selectedSiteOpacity = .065;
   static const selectedIndicatorWidth = 2.0;
-  static const selectedIndicatorHeight = 18.0;
-  static const dividerOpacity = .10;
-  static const siteSeparatorOpacity = .16;
+  static const selectedIndicatorHeight = 22.0;
+  static const dividerOpacity = .08;
+  static const siteSeparatorOpacity = .07;
 
-  // One sidebar plus three equally wide covers share the remaining width.
-  static double sidebarWidth(double width) =>
-      (width - dividerSlotWidth - 2 * gridPadding - (columns - 1) * columnGap) /
-      (columns + 1);
+  // Keep the source rail at the requested proportion across screen sizes.
+  static double sidebarWidth(double width) => width * .26;
   static double cellWidth(double width) =>
       (width - 2 * gridPadding - (columns - 1) * columnGap) / columns;
   static double itemExtent(double width, double textScale) =>
       cellWidth(width) * coverHeightRatio +
       titleGap +
-      titleSize * titleLineHeight * textScale;
+      titleSize * titleLineHeight * textScale * 2;
 }
 
-/// Search keeps its one-line caption below the cover, independently of the
+/// Search keeps its two-line caption below the cover, independently of the
 /// reader's global overlay-title preference. Complete metadata stays available.
 class AggregateSearchPoster extends StatelessWidget {
   const AggregateSearchPoster({
@@ -59,7 +57,9 @@ class AggregateSearchPoster extends StatelessWidget {
       return '${duration.inMinutes}:$seconds';
     }
     final subtitle = hit.item.subtitle?.trim() ?? '';
-    return subtitle.isNotEmpty ? subtitle : '来源 ${hit.sourceName}';
+    return subtitle.isNotEmpty
+        ? subtitle.split(RegExp(r'\s*[·|｜]\s*')).first
+        : '来源 ${hit.sourceName}';
   }
 
   @override
@@ -105,9 +105,9 @@ class AggregateSearchPoster extends StatelessWidget {
                                     .clamp(1, 1200),
                           ),
                           Positioned(
-                            left: 5,
-                            right: 5,
-                            bottom: 5,
+                            left: 4,
+                            right: 4,
+                            bottom: 4,
                             child: Align(
                               alignment: Alignment.bottomLeft,
                               child: Container(
@@ -116,7 +116,7 @@ class AggregateSearchPoster extends StatelessWidget {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: .55),
+                                  color: Colors.black.withValues(alpha: .42),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -129,8 +129,8 @@ class AggregateSearchPoster extends StatelessWidget {
                                         maxScaleFactor: 1.4,
                                       ),
                                   style: const TextStyle(
-                                    fontSize: 10,
-                                    height: 1.2,
+                                    fontSize: 9.5,
+                                    height: 1.15,
                                     color: Colors.white,
                                   ),
                                 ),
@@ -146,15 +146,16 @@ class AggregateSearchPoster extends StatelessWidget {
                 SizedBox(
                   height:
                       scaler.scale(AggregateSearchLayout.titleSize) *
-                      AggregateSearchLayout.titleLineHeight,
+                      AggregateSearchLayout.titleLineHeight *
+                      2,
                   child: MediaQuery.withClampedTextScaling(
                     minScaleFactor: 1,
                     maxScaleFactor: 2,
                     child: SourceText(
                       hit.item.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
+                      textAlign: TextAlign.start,
                       style: TextStyle(
                         fontSize: AggregateSearchLayout.titleSize,
                         height: AggregateSearchLayout.titleLineHeight,

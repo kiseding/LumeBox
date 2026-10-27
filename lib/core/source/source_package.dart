@@ -173,6 +173,9 @@ class SourcePackage {
         : script;
     final id =
         '${kind.name}_${sha256.convert(utf8.encode(identity)).toString().substring(0, 24)}';
-    return '$marker\n$prefix LumeSource: ${jsonEncode({'id': id, 'name': label, 'version': '1', 'category': 'video'})}\n$script';
+    // Bare Python scripts belong to the importing library. An explicit header
+    // still controls category validation, so video/comic mismatches are rejected.
+    final category = kind == SourcePackageKind.python ? '' : 'video';
+    return '$marker\n$prefix LumeSource: ${jsonEncode({'id': id, 'name': label, 'version': '1', 'category': category})}\n$script';
   }
 }

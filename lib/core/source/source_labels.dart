@@ -10,6 +10,7 @@ String sourceLabel(String original) {
 
 const _labels = <String, String>{
   'all': '全部',
+  'ai generated': 'AI 生成',
   'all categories': '全部分类',
   'categories': '分类',
   'category': '分类',

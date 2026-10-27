@@ -6,6 +6,7 @@ import '../../core/session/section.dart';
 import '../../core/net/source_subscription.dart';
 import '../../core/source/source.dart';
 import '../../core/source/source_subscription_sync.dart';
+import '../../core/source/source_subscription_catalog.dart';
 import '../../shared/widgets/glass_card.dart';
 
 class SourceSubscriptionPage extends StatefulWidget {
@@ -30,6 +31,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   bool _busy = false;
   String? _error;
   String? _syncStatus;
+  List<String> _syncErrors = [];
   @override
   void initState() {
     super.initState();
@@ -76,7 +78,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   }
 
   Future<void> _sync() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+      _syncErrors = [];
+    });
     try {
       final result = await SourceSubscriptionSync.refresh(
         widget.section,
@@ -85,7 +91,10 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
         fetch: widget.fetchSubscription,
       );
       if (!mounted) return;
-      setState(() => _syncStatus = result.summary);
+      setState(() {
+        _syncStatus = result.summary;
+        _syncErrors = List.of(result.errors);
+      });
       await _load();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -158,6 +167,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(_syncStatus!),
             ),
+          for (final failure in _syncErrors)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: SelectableText(failure),
+            ),
           FilledButton.icon(
             onPressed: _busy ? null : _sync,
             icon: const LumeIcon(
@@ -179,6 +193,25 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
             ),
             keyboardType: TextInputType.url,
           ),
+          if (widget.section == Section.comic ||
+              widget.section == Section.video)
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final domestic in [true, false])
+                  ActionChip(
+                    label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _url.text = SubscriptionCatalog.sectionUrl(
+                              widget.section,
+                              cdn: domestic,
+                            );
+                          }),
+                  ),
+              ],
+            ),
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _busy ? null : _add,

@@ -436,7 +436,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
           padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
           child: SizedBox(
             height:
-                kToolbarHeight *
+                (widget.mode == SearchMode.aggregate ? 52 : kToolbarHeight) *
                 MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
             child: Row(
               children: <Widget>[
@@ -465,7 +465,10 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: LumeTypography.sectionTitleSize,
+                                    fontSize:
+                                        widget.mode == SearchMode.aggregate
+                                        ? 16
+                                        : LumeTypography.sectionTitleSize,
                                     fontWeight: FontWeight.w600,
                                     color: LumeTheme.textPrimary,
                                   ),
@@ -475,20 +478,21 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                               const Icon(Icons.edit_outlined, size: 16),
                             ],
                           ),
-                          Text(
-                            _loading
-                                ? (widget.mode == SearchMode.aggregate
-                                      ? '正在搜索 $_aggregateCompleted/$_aggregateSiteCount 个站点 · $_count 条'
-                                      : '正在搜索…')
-                                : '${widget.mode.label} · $_count 条',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: LumeTypography.descriptionSize,
-                              color: LumeTheme.descriptionColor,
+                          if (widget.mode != SearchMode.aggregate)
+                            Text(
+                              _loading
+                                  ? (widget.mode == SearchMode.aggregate
+                                        ? '正在搜索 $_aggregateCompleted/$_aggregateSiteCount 个站点 · $_count 条'
+                                        : '正在搜索…')
+                                  : '${widget.mode.label} · $_count 条',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: LumeTypography.descriptionSize,
+                                color: LumeTheme.descriptionColor,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -496,6 +500,14 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                 ),
                 if (widget.mode == SearchMode.aggregate)
                   TextButton.icon(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 36),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     onPressed: _chooseSources,
                     icon: const LumeIcon(
                       Icons.checklist,
@@ -503,7 +515,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
                       size: 18,
                     ),
                     label: Text(
-                      _sourceIds == null ? '搜索站点' : '站点 ${_sourceIds!.length}',
+                      _sourceIds == null ? '站点' : '站点 ${_sourceIds!.length}',
                     ),
                   ),
                 const SizedBox(width: 12),

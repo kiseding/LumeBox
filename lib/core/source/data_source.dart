@@ -2,6 +2,7 @@ import '../session/section.dart';
 import '../net/network_settings.dart';
 import 'source_models.dart';
 import 'source_site_config.dart';
+import 'source_media_hints.dart';
 
 abstract interface class RefreshingImageCapable {
   Future<String?> refreshImage(String url, String page);
@@ -130,12 +131,19 @@ class SourceDescriptor {
     this.failureCount = 0,
     this.broken = false,
     this.runtimeKind = 'javascript',
+    this.mediaKind = '',
   });
 
   final String id;
 
   /// Interpreter classification; derived from the stored script at read time.
   final String runtimeKind;
+  final String mediaKind;
+  bool get isKazumi => id.startsWith('kazumi_');
+  bool get isAudio =>
+      mediaKind == 'audio' ||
+      (mediaKind != 'video' && SourceMediaHints.audioLabel('$name $id $group'));
+
   final String name;
   final String version;
   final bool enabled;

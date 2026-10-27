@@ -3,29 +3,77 @@ import '../session/section.dart';
 class SubscriptionCatalog {
   static const base =
       'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/';
-  static const totalUrl = '${base}all';
+  static const cdnBase =
+      'https://cdn.jsdelivr.net/gh/teng662858/LumeBox-Sources@main/';
+  static const totalUrl = '${base}subscriptions/all.json';
+  static const totalCdnUrl = '${cdnBase}subscriptions/cdn/all.json';
+  static const audiobooksUrl = '${base}subscriptions/audiobook.txt';
   static const sections = [Section.comic, Section.video];
-  static const names = {Section.comic: 'comics', Section.video: 'videos'};
+  static const names = {
+    Section.comic: 'subscriptions/comics.txt',
+    Section.video: 'subscriptions/videos.txt',
+  };
+  static String sectionUrl(Section section, {bool cdn = false}) =>
+      '${cdn ? cdnBase : base}${cdn ? names[section]!.replaceFirst('subscriptions/', 'subscriptions/cdn/') : names[section]}';
+  static const legacyPaths = {
+    "video/A123TV.js": "movie/A123TV.js",
+    "video/华视影院.js": "movie/华视影院.js",
+    "video/播剧网.js": "movie/播剧网.js",
+    "video/欧乐影院.js": "movie/欧乐影院.js",
+    "video/短剧网.js": "movie/短剧网.js",
+    "video/飞流视频.js": "movie/飞流视频.js",
+    "video/饭搭子影视.js": "movie/饭搭子影视.js",
+    "video/夜读小说听书.js": "audiobook/夜读小说听书.js",
+    "video/小黄书听书.js": "audiobook/小黄书听书.js",
+    'all': 'subscriptions/all.json',
+    'comics': 'subscriptions/comics.txt',
+    'photos': 'subscriptions/comics.txt',
+    'comic/sources.js': 'subscriptions/comics.txt',
+    'comic/sources.txt': 'subscriptions/comics.txt',
+    'photo/sources.txt': 'subscriptions/comics.txt',
+    '漫画订阅.js': 'subscriptions/comics.txt',
+    'videos': 'subscriptions/videos.txt',
+    'movies': 'subscriptions/videos.txt',
+    'video/sources.js': 'subscriptions/videos.txt',
+    'video/sources.txt': 'subscriptions/videos.txt',
+    'movie/sources.txt': 'subscriptions/videos.txt',
+    '视频订阅.js': 'subscriptions/videos.txt',
+    'audiobooks': 'subscriptions/audiobook.txt',
+    'videos-hd': 'subscriptions/legacy/videos-hd.txt',
+    'videos-hd-cdn': 'subscriptions/legacy/videos-hd-cdn.txt',
+    'videos-18plus': 'subscriptions/legacy/videos-18plus.txt',
+    'videos-18plus-cdn': 'subscriptions/legacy/videos-18plus-cdn.txt',
+  };
+
+  /// Only migrate exact paths in our official repository, never arbitrary URLs.
+  static String migrateUrl(String url) {
+    for (final prefix in [base, cdnBase]) {
+      if (!url.startsWith(prefix)) continue;
+      final rawPath = url.substring(prefix.length);
+      String path;
+      try {
+        path = rawPath.contains('%') ? Uri.decodeFull(rawPath) : rawPath;
+      } on ArgumentError {
+        return url;
+      }
+      final target = legacyPaths[path];
+      if (target != null) {
+        if (prefix == cdnBase && target.startsWith('subscriptions/')) {
+          final cdnTarget = target.startsWith('subscriptions/legacy/')
+              ? (target.endsWith('-cdn.txt')
+                    ? target
+                    : target.replaceFirst('.txt', '-cdn.txt'))
+              : target.replaceFirst('subscriptions/', 'subscriptions/cdn/');
+          return '$prefix$cdnTarget';
+        }
+        return '$prefix$target';
+      }
+    }
+    return url;
+  }
+
   static String canonical(String url, Section section) {
-    const old = {
-      Section.comic: [
-        'comics',
-        'photos',
-        'comic/sources.txt',
-        'photo/sources.txt',
-        '漫画订阅.js',
-      ],
-      Section.video: [
-        'videos',
-        'movies',
-        'video/sources.txt',
-        'movie/sources.txt',
-        '视频订阅.js',
-      ],
-    };
-    return (old[section] ?? []).any((name) => url == '$base$name')
-        ? '$base${names[section]}'
-        : url;
+    return migrateUrl(url);
   }
 
   static bool validUrl(String url) {

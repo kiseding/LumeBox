@@ -1,4 +1,6 @@
 import 'package:lume_box/shared/widgets/source_icon.dart';
+import 'package:lume_box/shared/widgets/source_rating_badge.dart';
+import 'package:lume_box/core/session/privacy_settings.dart';
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -13,6 +15,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/kazumi_rule.dart';
+import 'package:lume_box/core/source/source_subscription_catalog.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
@@ -133,10 +136,163 @@ void main() {
     }
     await tester.pumpAndSettle();
     if (!keepInitialType) {
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('video-source-type-all')),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('video-source-type-all')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('视频源选择器给已分级的源显示 18+ 徽章，普通源不误标', (tester) async {
+    final privacy = PrivacySettings.instance;
+    final previous = privacy.showAdult;
+    await tester.runAsync(() async {
+      await privacy.boot(directory: root);
+      await privacy.setShowAdult(true);
+    });
+    addTearDown(() => tester.runAsync(() => privacy.setShowAdult(previous)));
+    manager.sources.insert(
+      0,
+      const SourceDescriptor(
+        id: 'p5mh_comic',
+        name: '分级测试源',
+        version: '1.0',
+        enabled: true,
+      ),
+    );
+    await pump(tester);
+    final adult = find.ancestor(
+      of: find.text('分级测试源'),
+      matching: find.byType(SourcePickerCard),
+    );
+    expect(
+      find.descendant(of: adult, matching: find.byType(SourceRatingBadge)),
+      findsOneWidget,
+    );
+    final ordinary = find.ancestor(
+      of: find.text('普通视频长名称测试'),
+      matching: find.byType(SourcePickerCard),
+    );
+    expect(
+      find.descendant(of: ordinary, matching: find.byType(SourceRatingBadge)),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Kazumi与有声小说独立分类，旧源无需重新导入且普通页不混入', (tester) async {
+    manager.sources.addAll(const [
+      SourceDescriptor(
+        id: 'kazumi_fixture',
+        name: '动漫测试',
+        version: '8',
+        enabled: true,
+      ),
+      SourceDescriptor(
+        id: 'book',
+        name: '听书测试',
+        version: '1',
+        enabled: true,
+        group: '听书',
+      ),
+      SourceDescriptor(
+        id: 'podcast',
+        name: '明确音频',
+        version: '1',
+        enabled: true,
+        mediaKind: 'audio',
+        runtimeKind: 'python',
+      ),
+    ]);
+    manager.selected = 'book';
+    await pump(tester, keepInitialType: true);
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('video-source-type-audio')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('听书测试'), findsOneWidget);
+    expect(find.text('明确音频'), findsOneWidget);
+    expect(find.text('动漫测试'), findsNothing);
+    final tab = find.byKey(const ValueKey('video-source-type-kazumi'));
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
+    await tester.pumpAndSettle();
+    expect(find.text('动漫测试'), findsOneWidget);
+    expect(find.text('听书测试'), findsNothing);
+    final ordinary = find.byKey(const ValueKey('video-source-type-ordinary'));
+    await tester.ensureVisible(ordinary);
+    await tester.tap(ordinary);
+    await tester.pumpAndSettle();
+    expect(find.text('普通视频长名称测试'), findsOneWidget);
+    expect(find.text('动漫测试'), findsNothing);
+    expect(find.text('听书测试'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('有声小说汇集猫源和网页音频，保留选中状态且不混入普通影视', (tester) async {
+    service.subscriptions.add(
+      CatSubscription(
+        id: 'books',
+        name: '书库订阅',
+        url: 'https://fixture.test/books',
+        sites: const [
+          CatSite(
+            subscriptionId: 'books',
+            key: 'audio',
+            name: '猫源听书',
+            api: '/audio',
+          ),
+        ],
+      ),
+    );
+    final store = await WebHomeStore.open();
+    store.upsert(
+      WebHomeSource(
+        id: 'audio-home',
+        name: '网页听书',
+        url: 'https://fixture.test/audio',
+      ),
+    );
+    await pump(
+      tester,
+      keepInitialType: true,
+      showingCat: true,
+      currentCatId: 'books|video|audio',
+    );
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('video-source-type-audio')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('猫源听书'), findsOneWidget);
+    expect(find.text('网页听书'), findsOneWidget);
+    expect(find.text('猫源测试长名称站点'), findsNothing);
+    expect(find.text('普通视频长名称测试'), findsNothing);
+    expect(VideoSourceType.values.map((s) => s.label).toList(), [
+      '全部',
+      '普通',
+      '猫源',
+      'PY',
+      '有声小说',
+      'Kazumi',
+      '模块',
+      '网页',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final runtime in ['javascript', 'python', 'module']) {
     testWidgets(
@@ -178,6 +334,10 @@ void main() {
         );
         expect(manager.sources.map((source) => source.id).toList(), order);
         expect(manager.selectedIds, isEmpty);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('video-source-type-all')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
         await tester.pumpAndSettle();
         final scrollable = tester.state<ScrollableState>(
@@ -277,6 +437,10 @@ void main() {
         tester.getTopLeft(card).dy,
         closeTo(tester.getTopLeft(find.byType(SourcePickerScrollList)).dy, 1),
       );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('video-source-type-all')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('video-source-type-all')));
       await tester.pumpAndSettle();
       final ordinary = tester.widget<SourcePickerCard>(
@@ -360,6 +524,10 @@ void main() {
     }
 
     await pump(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-web')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-import-html')));
@@ -393,6 +561,10 @@ void main() {
 
   testWidgets('网页添加菜单仍能保存普通地址，取消编辑保留原值', (tester) async {
     await pump(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-web')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('添加网页主页'));
@@ -454,6 +626,22 @@ void main() {
         findsNothing,
       );
     }
+  });
+
+  testWidgets('有声小说独立导入入口预填听书订阅，取消不写入源', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byTooltip('添加视频源'));
+    await tester.pumpAndSettle();
+    final entry = find.text('有声小说源');
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.text('导入有声小说源'), findsOneWidget);
+    expect(find.text(SubscriptionCatalog.audiobooksUrl), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(manager.sources.length, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Kazumi 独立入口预填官方订阅，取消不写入任何源', (tester) async {
@@ -552,6 +740,10 @@ void main() {
     expect(find.text('普通视频长名称测试'), findsOneWidget);
     expect(find.text('牛二'), findsOneWidget);
     expect(find.text('停用源'), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-cat')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-cat')));
     await tester.pumpAndSettle();
     expect(find.text('普通视频长名称测试'), findsNothing);
@@ -577,6 +769,10 @@ void main() {
       );
     }
     await pump(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-web')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '排序');
@@ -611,15 +807,27 @@ void main() {
       ),
     ]);
     await pump(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-python')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-python')));
     await tester.pumpAndSettle();
     expect(find.text('Python 测试源'), findsOneWidget);
     expect(find.text('模块测试源'), findsNothing);
     expect(find.text('普通视频长名称测试'), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-module')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-module')));
     await tester.pumpAndSettle();
     expect(find.text('模块测试源'), findsOneWidget);
     expect(find.text('Python 测试源'), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-ordinary')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-ordinary')));
     await tester.pumpAndSettle();
     expect(find.text('普通视频长名称测试'), findsOneWidget);
@@ -655,6 +863,10 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 100));
     }
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('video-source-type-cat')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-cat')));
     await tester.pumpAndSettle();

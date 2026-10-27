@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/source/source_display_names.dart';
+
 import '../../core/theme/lume_theme.dart';
 import 'source_card_metrics.dart';
 import 'lume_icon.dart';
@@ -36,7 +38,7 @@ class SourcePickerCard extends StatelessWidget {
         ? LumeTheme.surfaceAlt
         : LumeTheme.surface;
     return Tooltip(
-      message: title,
+      message: SourceDisplayNames.withoutRatingSuffix(title),
       triggerMode: TooltipTriggerMode.manual,
       child: Semantics(
         selected: selected,
@@ -85,7 +87,9 @@ class SourcePickerCard extends StatelessWidget {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          title,
+                                          SourceDisplayNames.withoutRatingSuffix(
+                                            title,
+                                          ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(

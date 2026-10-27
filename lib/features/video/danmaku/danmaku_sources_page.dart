@@ -1,16 +1,13 @@
+import '../player_settings_panel.dart';
 import '../../../shared/widgets/native_glass_surfaces.dart';
 import 'builtin_danmaku_service.dart';
 
-import 'package:lume_box/shared/widgets/lume_icon.dart';
-
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'dandanplay_client.dart';
 import 'danmaku_connection_test.dart';
-import 'danmaku_presets.dart';
 
 export 'danmaku_credentials.dart' show DanmakuSourcesStore;
 
@@ -41,13 +38,18 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       if (!data.containsKey('profilesJson') &&
           _sources.isEmpty &&
           (data['baseUrl'] ?? '').isNotEmpty) {
-        _active = 'legacy';
+        _active = data['baseUrl'] == DandanplayCredentials.builtinBase
+            ? 'builtin-local'
+            : 'legacy';
         _sources = [
           {
             'id': _active,
             'name': '现有弹幕服务',
-            'type':
-                DandanplayCredentials.isOfficial(Uri.tryParse(data['baseUrl']!))
+            'type': data['baseUrl'] == DandanplayCredentials.builtinBase
+                ? 'builtin'
+                : DandanplayCredentials.isOfficial(
+                    Uri.tryParse(data['baseUrl']!),
+                  )
                 ? 'official'
                 : 'logvar',
             'url': data['baseUrl']!,
@@ -87,43 +89,45 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     context: context,
     useSafeArea: true,
     showDragHandle: true,
-    builder: (context) => Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            '内置本机服务',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            '无需填写地址。选择此服务后，手机直接联网查询各平台弹幕。首次启动可能稍慢，空闲两分钟自动停止，下次查询自动启动。连接成功不代表当前剧集一定有弹幕。',
-          ),
-          DanmakuConnectionTest(
-            credentials: () => const DandanplayCredentials(
-              '',
-              '',
-              baseUrl: DandanplayCredentials.builtinBase,
+    builder: (context) => SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '内置本机服务',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-          ),
-          TextButton(
-            onPressed: () async {
-              await BuiltinDanmakuService.instance.stop();
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text('停止本机服务'),
-          ),
-          TextButton(
-            onPressed: () => showLicensePage(context: context),
-            child: const Text('开源许可与组件说明'),
-          ),
-          const Text(
-            '基于 YYDS678/danmu_api（AGPL-3.0），源码与手机适配补丁见 LumeBox 仓库 assets/local_danmaku。',
-            style: TextStyle(fontSize: 12),
-          ),
-        ],
+            const SizedBox(height: 12),
+            const Text(
+              '无需填写地址。选择此服务后，手机直接联网查询各平台弹幕。首次启动可能稍慢，空闲两分钟自动停止，下次查询自动启动。连接成功不代表当前剧集一定有弹幕。',
+            ),
+            DanmakuConnectionTest(
+              credentials: () => const DandanplayCredentials(
+                '',
+                '',
+                baseUrl: DandanplayCredentials.builtinBase,
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                await BuiltinDanmakuService.instance.stop();
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('停止本机服务'),
+            ),
+            TextButton(
+              onPressed: () => showLicensePage(context: context),
+              child: const Text('开源许可与组件说明'),
+            ),
+            const Text(
+              '基于 YYDS678/danmu_api（AGPL-3.0），源码与手机适配补丁见 LumeBox 仓库 assets/local_danmaku。',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -153,13 +157,6 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
                 title: Text(choice.value),
                 onTap: () => Navigator.pop(context, choice.key),
               ),
-            for (var i = 0; i < DanmakuPresets.urls.length; i++)
-              ListTile(
-                title: Text(
-                  '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
-                ),
-                onTap: () => Navigator.pop(context, 'preset:$i'),
-              ),
           ],
         ),
       ),
@@ -181,19 +178,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
       );
       return;
     }
-    if (type.startsWith('preset:')) {
-      final index = int.parse(type.substring(7));
-      await _edit(
-        existing: {
-          'id': 'preset-${index + 1}',
-          'type': 'logvar',
-          'name': '弹${index + 1}',
-          'url': DanmakuPresets.urls[index],
-        },
-      );
-    } else {
-      await _edit(type: type);
-    }
+    await _edit(type: type);
   }
 
   Future<void> _edit({String? type, Map<String, String>? existing}) async {
@@ -207,140 +192,115 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     final id = TextEditingController(text: existing?['appId'] ?? '');
     final secret = TextEditingController(text: existing?['appSecret'] ?? '');
     String? error;
-    bool saving = false;
-    ModalBottomSheetRoute<Map<String, String>>? route;
+    PageRoute<Map<String, String>>? route;
     try {
-      route = ModalBottomSheetRoute<Map<String, String>>(
-        isScrollControlled: true,
-        showDragHandle: true,
-        useSafeArea: true,
-        barrierLabel: MaterialLocalizations.of(context)
-            .modalBarrierDismissLabel,
-        capturedThemes: InheritedTheme.capture(
-          from: context,
-          to: Navigator.of(context).context,
-        ),
+      route = MaterialPageRoute<Map<String, String>>(
         builder: (context) => StatefulBuilder(
-          builder: (context, refresh) => Padding(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              0,
-              20,
-              20 + MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          kind == 'official' ? '弹弹play 开放平台' : '添加弹幕服务器',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const LumeIcon(
-                          CupertinoIcons.xmark_circle_fill,
-                          slot: 'danmaku_sources_page.1',
-                        ),
-                      ),
-                    ],
-                  ),
+          builder: (context, refresh) => PlayerSettingsScaffold(
+            title: existing == null ? '添加弹幕服务' : '编辑弹幕服务',
+            body: ListView(
+              key: const ValueKey('danmaku-service-form'),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                Text(
+                  kind == 'official' ? '弹弹play 开放平台' : '兼容弹弹play服务',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: '名称（可不填）'),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 16),
+                if (kind != 'official') ...[
                   TextField(
-                    controller: name,
-                    decoration: const InputDecoration(labelText: '名称（可不填）'),
+                    controller: url,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: '服务地址（保留路径前缀）',
+                    ),
+                    autocorrect: false,
+                    textInputAction: TextInputAction.next,
                   ),
-                  if (kind != 'official')
-                    TextField(
-                      controller: url,
-                      keyboardType: TextInputType.url,
-                      decoration: const InputDecoration(
-                        labelText: '服务地址（保留路径前缀）',
-                      ),
-                      autocorrect: false,
-                    ),
-                  if (kind == 'official') ...[
-                    TextField(
-                      controller: id,
-                      decoration: const InputDecoration(labelText: 'AppId'),
-                      autocorrect: false,
-                    ),
-                    TextField(
-                      controller: secret,
-                      decoration: const InputDecoration(labelText: 'AppSecret'),
-                      obscureText: true,
-                      autocorrect: false,
-                    ),
-                  ],
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      kind == 'official'
-                          ? '开放平台需要申请并审核通过的 AppId / AppSecret。凭据仅保存在本机安全存储中。'
-                          : '使用兼容弹弹play /api/v2 接口的服务。若访问 token 位于地址路径中，请完整保留。',
-                    ),
-                  ),
-                  if (error != null)
-                    Text(error!, style: const TextStyle(color: Colors.red)),
-                  DanmakuConnectionTest(
-                    credentials: () => DandanplayCredentials(
-                      id.text.trim(),
-                      secret.text.trim(),
-                      baseUrl: url.text.trim(),
-                    ),
-                  ),
-                  FilledButton(
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            final uri = Uri.tryParse(url.text.trim());
-                            if (uri == null ||
-                                !['http', 'https'].contains(uri.scheme) ||
-                                uri.host.isEmpty ||
-                                uri.hasQuery ||
-                                uri.hasFragment ||
-                                uri.userInfo.isNotEmpty) {
-                              refresh(
-                                () => error = '请输入有效服务地址，保留路径，不附查询参数或用户名密码',
-                              );
-                              return;
-                            }
-                            if (kind == 'official' &&
-                                (id.text.trim().isEmpty ||
-                                    secret.text.trim().isEmpty)) {
-                              refresh(() => error = '请填写 AppId 与 AppSecret');
-                              return;
-                            }
-                            refresh(() => saving = true);
-                            Navigator.pop(context, {
-                              'id':
-                                  existing?['id'] ??
-                                  'source-${DateTime.now().microsecondsSinceEpoch}',
-                              'type': kind,
-                              'name': name.text.trim().isEmpty
-                                  ? (kind == 'official'
-                                        ? '弹弹play 开放平台'
-                                        : uri.host)
-                                  : name.text.trim(),
-                              'url': url.text.trim().replaceFirst(
-                                RegExp(r'/+$'),
-                                '',
-                              ),
-                              'appId': id.text.trim(),
-                              'appSecret': secret.text.trim(),
-                            });
-                          },
-                    child: const Text('保存'),
-                  ),
+                  const SizedBox(height: 16),
                 ],
-              ),
+                if (kind == 'official') ...[
+                  TextField(
+                    controller: id,
+                    decoration: const InputDecoration(labelText: 'AppId'),
+                    autocorrect: false,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: secret,
+                    decoration: const InputDecoration(labelText: 'AppSecret'),
+                    obscureText: true,
+                    autocorrect: false,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(
+                  kind == 'official'
+                      ? '填写审核通过的 AppId / AppSecret。凭据保存在本机安全存储中。'
+                      : '填写兼容 /api/v2 的服务地址。地址路径中包含的访问 token 请完整保留。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                DanmakuConnectionTest(
+                  credentials: () => DandanplayCredentials(
+                    id.text.trim(),
+                    secret.text.trim(),
+                    baseUrl: url.text.trim(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  label: const Text('保存'),
+                  onPressed: () {
+                    final uri = Uri.tryParse(url.text.trim());
+                    if (uri == null ||
+                        !['http', 'https'].contains(uri.scheme) ||
+                        uri.host.isEmpty ||
+                        uri.hasQuery ||
+                        uri.hasFragment ||
+                        uri.userInfo.isNotEmpty) {
+                      refresh(() => error = '请输入有效服务地址，保留路径，不附查询参数或用户名密码');
+                      return;
+                    }
+                    if (kind == 'official' &&
+                        (id.text.trim().isEmpty ||
+                            secret.text.trim().isEmpty)) {
+                      refresh(() => error = '请填写 AppId 与 AppSecret');
+                      return;
+                    }
+                    Navigator.pop(context, {
+                      'id':
+                          existing?['id'] ??
+                          'source-${DateTime.now().microsecondsSinceEpoch}',
+                      'type': kind,
+                      'name': name.text.trim().isEmpty
+                          ? (kind == 'official' ? '弹弹play 开放平台' : uri.host)
+                          : name.text.trim(),
+                      'url': url.text.trim().replaceFirst(RegExp(r'/+$'), ''),
+                      'appId': id.text.trim(),
+                      'appSecret': secret.text.trim(),
+                    });
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -368,8 +328,6 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
         }
       }
     } finally {
-      // Navigator's pop result arrives before the sheet's exit animation ends.
-      // Its TextFields still use these controllers until the overlay is removed.
       await route?.completed;
       name.dispose();
       url.dispose();
@@ -378,174 +336,140 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     }
   }
 
+  Future<void> _select(Map<String, String> source) async {
+    final old = _active;
+    setState(() => _active = source['id']!);
+    try {
+      await _persist();
+    } catch (_) {
+      if (mounted) setState(() => _active = old);
+    }
+  }
+
+  Future<void> _remove(Map<String, String> source) async {
+    final old = List<Map<String, String>>.of(_sources);
+    final oldActive = _active;
+    setState(() {
+      _sources.remove(source);
+      if (_active == source['id']) _active = _sources.firstOrNull?['id'] ?? '';
+    });
+    try {
+      await _persist();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _sources = old;
+          _active = oldActive;
+        });
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Theme.of(context).brightness == Brightness.dark
-        ? const Color(0xFF171719)
-        : const Color(0xFFF0F2ED),
-    appBar: AppBar(
-      title: const Text('弹幕源'),
-      backgroundColor: Colors.transparent,
-      actions: [
-        IconButton(
-          tooltip: '添加弹幕源',
-          onPressed: _chooseType,
-          icon: const LumeIcon(
-            CupertinoIcons.add,
-            slot: 'danmaku_sources_page.2',
-          ),
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => PlayerSettingsScaffold(
+    title: '弹幕源',
+    actions: [
+      IconButton(
+        tooltip: '添加弹幕源',
+        onPressed: _chooseType,
+        icon: const Icon(Icons.add_rounded, size: 23),
+      ),
+    ],
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
         ? Center(child: Text(_error!))
         : ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
             children: [
-              for (final source in _sources.where(
-                (source) => !DanmakuPresets.urls.contains(source['url']),
-              ))
-                Card(
-                  child: ListTile(
-                    title: Text(source['name'] ?? ''),
-                    subtitle: Text(
-                      source['type'] == 'builtin'
-                          ? '无需服务器地址 · 手机联网获取弹幕'
-                          : source['type'] == 'official'
-                          ? '弹弹play 开放平台'
-                          : 'LogVar / 弹弹play兼容服务',
-                    ),
-                    leading: IconButton(
-                      tooltip: source['type'] == 'builtin'
-                          ? '使用内置本机服务'
-                          : '设为当前弹幕源',
-                      icon: LumeIcon(
-                        _active == source['id']
-                            ? CupertinoIcons.check_mark_circled_solid
-                            : CupertinoIcons.circle,
-                        slot: 'danmaku_sources_page.4',
-                        variant: true,
-                      ),
-                      onPressed: () async {
-                        final old = _active;
-                        setState(() => _active = source['id']!);
-                        try {
-                          await _persist();
-                        } catch (_) {
-                          if (mounted) setState(() => _active = old);
-                        }
-                      },
-                    ),
-                    onTap: source['type'] == 'builtin'
-                        ? _showBuiltin
-                        : () => _edit(existing: source),
-                    trailing: source['type'] == 'builtin'
-                        ? IconButton(
-                            tooltip: '测试内置服务',
-                            onPressed: _showBuiltin,
-                            icon: const Icon(Icons.settings_outlined),
-                          )
-                        : IconButton(
-                            tooltip: '删除弹幕源',
-                            icon: const LumeIcon(
-                              CupertinoIcons.trash,
-                              slot: 'danmaku_sources_page.5',
-                            ),
-                            onPressed: () async {
-                              final old = List<Map<String, String>>.of(
-                                _sources,
-                              );
-                              final oldActive = _active;
-                              setState(() {
-                                _sources.remove(source);
-                                if (_active == source['id']) {
-                                  _active = _sources.firstOrNull?['id'] ?? '';
-                                }
-                              });
-                              try {
-                                await _persist();
-                              } catch (_) {
-                                if (mounted) {
-                                  setState(() {
-                                    _sources = old;
-                                    _active = oldActive;
-                                  });
-                                }
-                              }
-                            },
-                          ),
-                  ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(
+                  '选择后立即保存，全局设置与播放页共用。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('兼容服务 · 点击选择，右侧测试连接'),
               ),
-              for (var i = 0; i < DanmakuPresets.urls.length; i++)
-                Card(
-                  child: ExpansionTile(
-                    title: Text(
-                      '弹${i + 1} · ${Uri.parse(DanmakuPresets.urls[i]).host}',
-                    ),
-                    leading: IconButton(
-                      tooltip: '使用弹${i + 1}',
-                      icon: Icon(
-                        _sources.any(
-                              (source) =>
-                                  source['id'] == _active &&
-                                  source['url'] == DanmakuPresets.urls[i],
-                            )
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                      ),
-                      onPressed: () async {
-                        final id = 'preset-${i + 1}';
-                        final sources = [
-                          ..._sources.where((source) => source['id'] != id),
-                          {
-                            'id': id,
-                            'type': 'logvar',
-                            'name': '弹${i + 1}',
-                            'url': DanmakuPresets.urls[i],
-                            'appId': '',
-                            'appSecret': '',
-                          },
-                        ];
-                        try {
-                          await DanmakuSourcesStore.save(sources, id);
-                          if (mounted) {
-                            setState(() {
-                              _sources = sources;
-                              _active = id;
-                            });
-                          }
-                        } catch (_) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(content: Text('保存失败，请重试')),
-                            );
-                          }
-                        }
+              PlayerSettingsSection(
+                title: '可用服务 · ${_sources.length}',
+                children: [
+                  for (var i = 0; i < _sources.length; i++) ...[
+                    if (i > 0)
+                      const Divider(height: 1, indent: 12, endIndent: 12),
+                    Builder(
+                      builder: (context) {
+                        final source = _sources[i],
+                            active = _active == source['id'];
+                        final builtin = source['type'] == 'builtin';
+                        return ListTile(
+                          title: Text(
+                            source['name'] ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: active
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${active ? '当前 · ' : ''}${builtin
+                                ? '本机联网获取，无需地址'
+                                : source['type'] == 'official'
+                                ? '弹弹play 开放平台'
+                                : '兼容弹弹play服务'}',
+                            maxLines: 2,
+                          ),
+                          leading: IconButton(
+                            tooltip: builtin ? '使用内置本机服务' : '设为当前弹幕源',
+                            icon: Icon(
+                              active
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              color: active
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                              size: 22,
+                            ),
+                            onPressed: () => _select(source),
+                          ),
+                          onTap: () => _select(source),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: builtin ? '测试内置服务' : '编辑弹幕源',
+                                onPressed: builtin
+                                    ? _showBuiltin
+                                    : () => _edit(existing: source),
+                                icon: Icon(
+                                  builtin
+                                      ? Icons.settings_outlined
+                                      : Icons.edit_outlined,
+                                  size: 20,
+                                ),
+                              ),
+                              if (!builtin)
+                                IconButton(
+                                  tooltip: '删除弹幕源',
+                                  onPressed: () => _remove(source),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 20,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
                       },
                     ),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: DanmakuConnectionTest(
-                          credentials: () => DandanplayCredentials(
-                            '',
-                            '',
-                            baseUrl: DanmakuPresets.urls[i],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('勾选的服务供两种播放器使用。保存后自动重新加载当前视频的弹幕。'),
+                  ],
+                ],
+              ),
+              Text(
+                '切换服务后，当前视频会自动重新加载弹幕。',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),

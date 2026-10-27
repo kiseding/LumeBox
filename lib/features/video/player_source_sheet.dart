@@ -1,3 +1,5 @@
+import '../../shared/widgets/video_glass_surface.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -19,10 +21,12 @@ class PlayerSourceSheet extends StatefulWidget {
     this.loadEpisodes,
     this.currentChapterId,
     this.onSelectEpisode,
+    this.onSwitchLine,
   });
 
   /// 当前播放地址（为空表示还没装载任何媒体）。
   final String address;
+  final VoidCallback? onSwitchLine;
 
   /// 候选线路（图源给多条时才有）；单条 / 空时不出「线路」一栏。
   final List<VideoQuality> qualities;
@@ -166,7 +170,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                             ?.copyWith(
                               color: current
                                   ? LumeTheme.onAccent
-                                  : LumeTheme.textPrimary,
+                                  : Theme.of(context).colorScheme.onSurface,
                               fontWeight: FontWeight.w600,
                             ),
                         showCheckmark: false,
@@ -201,7 +205,9 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: LumeTheme.base,
+      color: VideoGlassScope.active(context)
+          ? Colors.transparent
+          : LumeTheme.base,
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -234,6 +240,15 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                   ),
                 ],
               ),
+              if (widget.onSwitchLine != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: widget.onSwitchLine,
+                    icon: const Icon(Icons.alt_route),
+                    label: const Text('换线路继续看'),
+                  ),
+                ),
               if (widget.qualities.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 SizedBox(
@@ -249,7 +264,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                           ?.copyWith(
                             color: index == widget.currentIndex
                                 ? LumeTheme.onAccent
-                                : LumeTheme.textPrimary,
+                                : Theme.of(context).colorScheme.onSurface,
                             fontWeight: FontWeight.w600,
                           ),
                       onSelected: widget.onSelectQuality == null

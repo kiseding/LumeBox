@@ -55,6 +55,109 @@ void main() {
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
+  test('手动同步等待后台检查后强制刷新，不沿用六小时内跳过的结果', () async {
+    final stored = await SourceSubscriptionSync.open(
+      Section.video,
+      manager: manager,
+    );
+    await stored.register([manifest]);
+    stored.subscriptions.single.checkedAt = DateTime.now();
+    await stored.save();
+    remote[manifest] = 'https://repo.example/a.js';
+    remote['https://repo.example/a.js'] = script('a', 2);
+    final background = SourceSubscriptionSync.refresh(
+      Section.video,
+      manager: manager,
+      fetch: service.fetch,
+    );
+    final manual = SourceSubscriptionSync.refresh(
+      Section.video,
+      force: true,
+      manager: manager,
+      fetch: service.fetch,
+    );
+    final repeatedTap = SourceSubscriptionSync.refresh(
+      Section.video,
+      force: true,
+      manager: manager,
+      fetch: service.fetch,
+    );
+    expect(identical(manual, repeatedTap), isTrue);
+    expect((await background).skipped, 1);
+    final result = await manual;
+    expect(result.checked, 1);
+    expect(result.added, 1);
+    expect(manager.sources.single.version, '2');
+    await SourceSubscriptionSync.waitForIdle(Section.video);
+  });
+
+  test('没有启用订阅时明确说明，不返回无变化的假成功', () async {
+    service.subscriptions.clear();
+    final result = await service.sync(force: true);
+    expect(result.summary, contains('请先添加订阅地址'));
+    expect(result.checked, 0);
+  });
+
+  test('部分脚本拉取失败报告具体链接和原因，仍导入其余脚本', () async {
+    remote[manifest] =
+        'https://repo.example/a.js\nhttps://repo.example/missing.js';
+    remote['https://repo.example/a.js'] = script('a', 1);
+    final result = await service.sync(force: true);
+    expect(result.added, 1);
+    expect(
+      result.errors.join('\n'),
+      contains('https://repo.example/missing.js'),
+    );
+    expect(result.errors.join('\n'), contains('HTTP 503'));
+  });
+
+  test('普通订阅同步也可按板块展开总订阅 JSON，忽略其他板块和停用条目', () async {
+    remote[manifest] = jsonEncode({
+      'format': 'lume.total-subscription',
+      'version': 1,
+      'sections': {
+        'comic': ['https://repo.example/comics'],
+        'video': [
+          'https://repo.example/videos',
+          {'url': 'https://repo.example/disabled', 'enabled': false},
+          'https://repo.example/audiobooks',
+        ],
+      },
+    });
+    remote['https://repo.example/videos'] = 'https://repo.example/v.js';
+    remote['https://repo.example/audiobooks'] = 'https://repo.example/a.js';
+    remote['https://repo.example/v.js'] = script('video', 1);
+    remote['https://repo.example/a.js'] = script('audio', 1);
+    final result = await service.sync(force: true);
+    expect(result.added, 2);
+    expect(result.errors, isEmpty);
+    expect(manager.sources.map((s) => s.id), containsAll(['video', 'audio']));
+  });
+
+  test('损坏的总订阅不触发已导入源移除', () async {
+    remote[manifest] = 'https://repo.example/a.js';
+    remote['https://repo.example/a.js'] = script('a', 1);
+    await service.sync(force: true);
+    remote[manifest] = jsonEncode({
+      'format': 'lume.total-subscription',
+      'version': 1,
+      'sections': {'video': 'invalid-list'},
+    });
+    final result = await service.sync(force: true);
+    expect(result.errors, isNotEmpty);
+    expect(result.removed, 0);
+    expect(manager.sources.single.id, 'a');
+    remote[manifest] = jsonEncode({
+      'format': 'lume.total-subscription',
+      'version': 1,
+      'sections': {'vidoe': []},
+    });
+    final typo = await service.sync(force: true);
+    expect(typo.errors.join(), contains('未知板块'));
+    expect(typo.removed, 0);
+    expect(manager.sources.single.id, 'a');
+  });
+
   test('手动删除不被同步装回，其他源继续更新；重新添加订阅可恢复', () async {
     remote[manifest] = 'https://repo.example/a.js\nhttps://repo.example/b.js';
     remote['https://repo.example/a.js'] = script('a', 1);
@@ -277,6 +380,12 @@ void main() {
     await tester.tap(find.text('一键更新全部订阅'));
     await settle();
     expect(manager.sources.single.version, '2');
+    remote.remove('https://repo.example/a.js');
+    await tester.tap(find.text('一键更新全部订阅'));
+    await settle();
+    expect(find.byType(SelectableText), findsWidgets);
+    expect(find.textContaining('HTTP 503'), findsWidgets);
+    expect(manager.sources.single.version, '2', reason: '失败时保留原源');
   });
 }
 

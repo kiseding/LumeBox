@@ -138,7 +138,9 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   Widget _menu() => PopupMenuButton<String>(
     tooltip: '搜索结果布局',
     onSelected: _configure,
-    icon: const Icon(Icons.view_quilt_outlined),
+    icon: const Icon(Icons.view_quilt_outlined, size: 19),
+    padding: const EdgeInsets.all(8),
+    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
     itemBuilder: (_) => [
       for (final entry in const {
         'grouped': '站点分组',
@@ -209,7 +211,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
             selected: selected,
             button: true,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               child: Tooltip(
                 message: entry.name,
                 child: Material(
@@ -235,7 +237,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                                     .scale(1)
                                     .clamp(1.0, 2.0),
                           ),
-                          padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+                          padding: const EdgeInsets.fromLTRB(8, 6, 7, 6),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -245,7 +247,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   height: 1.2,
                                   fontWeight: selected
                                       ? FontWeight.w600
@@ -255,13 +257,13 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                                       : Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 1.5),
                               Text(
                                 entry.detail,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   height: 1.2,
                                   color: Theme.of(context)
                                       .colorScheme
@@ -273,7 +275,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                         ),
                         if (selected)
                           Positioned(
-                            right: 2,
+                            left: 0,
                             top: 0,
                             bottom: 0,
                             child: Center(
@@ -471,16 +473,41 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                 child: Text(
                   widget.loading
                       ? '${widget.completed.length}/${widget.sites.length} 站点 · ${widget.hits.length} 条'
-                      : '${widget.sites.length} 站点 · ${widget.hits.length} 条',
+                      : _selected == null
+                      ? '${widget.hits.length} 条结果 · ${_visibleSites.length} 个来源'
+                      : '${widget.sites.where((s) => s.id == _selected).firstOrNull?.name ?? '所选站点'} · ${filtered.length} 条',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
+              if (widget.failed.isNotEmpty)
+                Tooltip(
+                  message: '${widget.failed.length} 个源未取得结果，其他来源正常显示',
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.info_outline, size: 13),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${widget.failed.length}',
+                          style: const TextStyle(fontSize: 10.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               IconButton(
                 tooltip: '刷新搜索',
                 onPressed: widget.onRetry,
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.refresh, size: 19),
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
               _menu(),
             ],
@@ -491,14 +518,6 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
             value: widget.sites.isEmpty
                 ? 0
                 : widget.completed.length / widget.sites.length,
-          ),
-        if (widget.failed.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              '${widget.failed.length} 个源未取得结果，其他来源正常显示',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ),
         if (_layout == _SiteLayout.top ||
             (_layout == _SiteLayout.grouped && _selected != null))

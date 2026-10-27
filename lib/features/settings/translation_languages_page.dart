@@ -1,3 +1,5 @@
+import '../comic/comic_image_tools_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -114,7 +116,19 @@ class _TranslationLanguagesPageState extends State<TranslationLanguagesPage>
         children: [
           const SettingsPageIntro(
             title: '一次下载，各个源共用',
-            description: '提前安装译为简体中文所需的系统语言包，供首页标题和漫画的设备端翻译共用。下载时 iOS 可能逐项要求确认，建议连接 Wi-Fi。',
+            description: '这些语言包供标题和漫画的系统本地翻译共用；AI 翻译不需要下载语言包。下载时 iOS 可能逐项要求确认，建议连接 Wi-Fi。',
+          ),
+          ListTile(
+            leading: const Icon(Icons.translate),
+            title: const Text('全局翻译设置'),
+            subtitle: const Text('系统翻译、AI 翻译与失败自动补译'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    const ComicImageToolsSettingsPage(translation: true),
+              ),
+            ),
           ),
           if (_loading)
             const Center(child: CircularProgressIndicator())

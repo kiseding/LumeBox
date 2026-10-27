@@ -1,3 +1,5 @@
+import '../../core/reading/comic_image_tools_settings.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -89,7 +91,8 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
             .showSnackBar(const SnackBar(content: Text('当前内容无需替换，已保留原文')));
       }
     } catch (error) {
-      if (service.displayOriginal && texts.any((text) => service.lookup(text) != null)) {
+      if (service.displayOriginal &&
+          texts.any((text) => service.lookup(text) != null)) {
         service.toggleOriginal();
       }
       if (mounted) {
@@ -102,7 +105,7 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
                   ? error.message
                   : error is PlatformException
                   ? error.message ?? '翻译失败，原文保留'
-                  : '翻译未完成，原文保留；请检查系统语言包',
+                  : '翻译未完成，原文保留；请检查全局翻译设置与网络',
             ),
           ),
         );
@@ -127,7 +130,9 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
             ? '正在翻译…'
             : cached && !service.displayOriginal
             ? '显示原文'
-            : '翻译成中文',
+            : ComicImageToolsSettings.instance.target == 'zh-Hans'
+            ? '翻译成中文'
+            : '翻译成${ComicImageToolsSettings.languages[ComicImageToolsSettings.instance.target]}',
         constraints: const BoxConstraints.tightFor(width: 40, height: 44),
         onPressed: busy ? null : translate,
         icon: busy

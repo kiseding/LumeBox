@@ -26,7 +26,7 @@ class PlayerGestureOptions {
     seek: seek ?? this.seek,
     boost: boost ?? this.boost,
     seekSeconds: (seekSeconds ?? this.seekSeconds).clamp(30, 180),
-    boostMultiplier: (boostMultiplier ?? this.boostMultiplier).clamp(1.25, 3),
+    boostMultiplier: (boostMultiplier ?? this.boostMultiplier).clamp(1.5, 4),
   );
   Map<String, Object> toJson() => {
     'enabled': enabled,
@@ -51,7 +51,7 @@ class PlayerGestureOptions {
           ? seconds.toInt().clamp(30, 180)
           : 90,
       boostMultiplier: multiplier is num && multiplier.isFinite
-          ? multiplier.toDouble().clamp(1.25, 3)
+          ? multiplier.toDouble().clamp(1.5, 4)
           : 2,
     );
   }

@@ -1,3 +1,7 @@
+import '../reading/comic_image_tools_settings.dart';
+import '../reading/translation_http_client.dart';
+import 'ai_text_translation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -11,8 +15,26 @@ typedef TextTranslator = Future<List<String>> Function(List<String> texts);
 
 /// Display-only translations. IDs, original metadata and search queries stay intact.
 class TextTranslationService extends ChangeNotifier {
-  TextTranslationService({this.file, this.translator});
-  static final shared = TextTranslationService();
+  TextTranslationService({
+    this.file,
+    this.translator,
+    this.aiTranslator,
+    this.useGlobalSettings = false,
+    ComicImageToolsSettings? settings,
+  }) : settings = settings ?? ComicImageToolsSettings.instance {
+    if (useGlobalSettings) this.settings.addListener(_settingsChanged);
+  }
+  static final shared = TextTranslationService(useGlobalSettings: true);
+  final bool useGlobalSettings;
+  final ComicImageToolsSettings settings;
+  final TextTranslator? aiTranslator;
+  void _settingsChanged() => notifyListeners();
+  @override
+  void dispose() {
+    if (useGlobalSettings) settings.removeListener(_settingsChanged);
+    super.dispose();
+  }
+
   final File? file;
   final TextTranslator? translator;
   final Map<String, String> _cache = {};
@@ -29,14 +51,42 @@ class TextTranslationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _key(String text, String source, String target) => sha256
-      .convert(utf8.encode(jsonEncode([1, source, target, text])))
+  String get _profile => jsonEncode([settings.endpoint, settings.model]);
+
+  String _key(
+    String text,
+    String source,
+    String target,
+    TextTranslationMode mode, [
+    String? profile,
+  ]) => sha256
+      .convert(
+        utf8.encode(
+          jsonEncode(
+            mode == TextTranslationMode.system
+                ? [1, source, target, text]
+                : [2, mode.name, profile ?? _profile, source, target, text],
+          ),
+        ),
+      )
       .toString();
   String? lookup(
     String text, {
-    String source = 'auto',
-    String target = 'zh-Hans',
-  }) => _cache[_key(text, source, target)];
+    String? source,
+    String? target,
+    TextTranslationMode? mode,
+    String? profile,
+  }) =>
+      _cache[_key(
+        text,
+        source ?? (useGlobalSettings ? settings.source : 'auto'),
+        target ?? (useGlobalSettings ? settings.target : 'zh-Hans'),
+        mode ??
+            (useGlobalSettings
+                ? settings.translationMode
+                : TextTranslationMode.system),
+        profile,
+      )];
   Future<File> _file() async =>
       file ??
       File(
@@ -67,10 +117,20 @@ class TextTranslationService extends ChangeNotifier {
 
   Future<List<String>> translate(
     List<String> texts, {
-    String source = 'auto',
-    String target = 'zh-Hans',
+    String? source,
+    String? target,
+    TextTranslationMode? mode,
     TextTranslator? using,
+    TextTranslator? aiUsing,
   }) async {
+    source ??= useGlobalSettings ? settings.source : 'auto';
+    target ??= useGlobalSettings ? settings.target : 'zh-Hans';
+    mode ??= useGlobalSettings
+        ? settings.translationMode
+        : TextTranslationMode.system;
+    final selectedSource = source, selectedTarget = target, selectedMode = mode;
+    final selectedProfile = _profile;
+    final selectedEndpoint = settings.endpoint, selectedModel = settings.model;
     await boot();
     final revision = _revision;
     if (texts.any((t) => t.runes.length > 40000) ||
@@ -82,7 +142,14 @@ class TextTranslationService extends ChangeNotifier {
         .where(
           (t) =>
               t.trim().isNotEmpty &&
-              lookup(t, source: source, target: target) == null,
+              lookup(
+                    t,
+                    source: selectedSource,
+                    target: selectedTarget,
+                    mode: selectedMode,
+                    profile: selectedProfile,
+                  ) ==
+                  null,
         )
         .toSet()
         .toList();
@@ -94,15 +161,39 @@ class TextTranslationService extends ChangeNotifier {
         try {
           if (revision != _revision) throw StateError('译文缓存已清理，请重试');
           final pending = missing
-              .where((t) => lookup(t, source: source, target: target) == null)
+              .where(
+                (t) =>
+                    lookup(
+                      t,
+                      source: selectedSource,
+                      target: selectedTarget,
+                      mode: selectedMode,
+                      profile: selectedProfile,
+                    ) ==
+                    null,
+              )
               .toList();
           if (pending.isNotEmpty) {
             PlatformException? partial;
             late final List<String> values;
             try {
-              values = await (using ??
+              values = await translateWithPolicy(
+                pending,
+                mode: selectedMode,
+                native:
+                    using ??
                     translator ??
-                    (values) => _native(values, source, target))(pending);
+                    (values) => _native(values, selectedSource, selectedTarget),
+                ai:
+                    aiUsing ??
+                    aiTranslator ??
+                    (values) => _ai(
+                      values,
+                      selectedTarget,
+                      selectedEndpoint,
+                      selectedModel,
+                    ),
+              );
             } on PlatformException catch (error) {
               final details = error.details;
               if (error.code != 'translation_partial' ||
@@ -116,13 +207,22 @@ class TextTranslationService extends ChangeNotifier {
             }
             if (revision != _revision) throw StateError('译文缓存已清理，请重试');
             if (values.length != pending.length ||
-                values.any((v) =>
-                    (partial == null && v.trim().isEmpty) || v.length > 100000)) {
+                values.any(
+                  (v) =>
+                      (partial == null && v.trim().isEmpty) ||
+                      v.length > 100000,
+                )) {
               throw const FormatException('翻译结果不完整，请重试');
             }
             for (var i = 0; i < pending.length; i++) {
               if (values[i].trim().isEmpty) continue;
-              final key = _key(pending[i], source, target);
+              final key = _key(
+                pending[i],
+                selectedSource,
+                selectedTarget,
+                selectedMode,
+                selectedProfile,
+              );
               _cache.remove(key);
               _cache[key] = values[i];
             }
@@ -135,7 +235,17 @@ class TextTranslationService extends ChangeNotifier {
           }
           result.complete(
             texts
-                .map((t) => lookup(t, source: source, target: target) ?? t)
+                .map(
+                  (t) =>
+                      lookup(
+                        t,
+                        source: selectedSource,
+                        target: selectedTarget,
+                        mode: selectedMode,
+                        profile: selectedProfile,
+                      ) ??
+                      t,
+                )
                 .toList(),
           );
         } catch (error, stack) {
@@ -145,8 +255,42 @@ class TextTranslationService extends ChangeNotifier {
       return result.future;
     }
     return texts
-        .map((t) => lookup(t, source: source, target: target) ?? t)
+        .map(
+          (t) =>
+              lookup(
+                t,
+                source: selectedSource,
+                target: selectedTarget,
+                mode: selectedMode,
+                profile: selectedProfile,
+              ) ??
+              t,
+        )
         .toList();
+  }
+
+  Future<List<String>> _ai(
+    List<String> texts,
+    String target,
+    String endpoint,
+    String model,
+  ) async {
+    AiTextTranslation.endpoint(endpoint);
+    if (model.trim().isEmpty) throw const FormatException('请先在全局翻译设置中填写 AI 模型');
+    final key = await channel.invokeMethod<String>('getKey') ?? '';
+    final transport = TranslationHttpClient();
+    try {
+      return await AiTextTranslation.translate(
+        transport,
+        texts,
+        url: endpoint,
+        model: model,
+        key: key,
+        language: ComicImageToolsSettings.languages[target] ?? target,
+      );
+    } finally {
+      transport.close();
+    }
   }
 
   Future<List<String>> _native(
@@ -205,5 +349,65 @@ class TextTranslationService extends ChangeNotifier {
     displayOriginal = false;
     notifyListeners();
     await _save();
+  }
+}
+
+/// Preserve successful native translations; only unresolved entries go online.
+Future<List<String>> translateWithPolicy(
+  List<String> texts, {
+  required TextTranslationMode mode,
+  required TextTranslator native,
+  required TextTranslator ai,
+}) async {
+  if (mode == TextTranslationMode.ai) return ai(texts);
+  if (mode == TextTranslationMode.system) return native(texts);
+  var values = List<String>.filled(texts.length, '');
+  try {
+    values = List<String>.of(await native(texts));
+    if (values.length != texts.length) throw const FormatException('系统译文数量不一致');
+  } catch (error) {
+    if (error is StateError ||
+        (error is PlatformException &&
+            [
+              'cancelled',
+              'canceled',
+              'translation_cancelled',
+            ].contains(error.code))) {
+      rethrow;
+    }
+    if (error is PlatformException &&
+        error.code == 'translation_partial' &&
+        error.details is List) {
+      final details = error.details as List;
+      if (details.length == texts.length && details.every((v) => v is String)) {
+        values = details.cast<String>().toList();
+      }
+    }
+  }
+  if (values.length != texts.length) values = List.filled(texts.length, '');
+  final missing = [
+    for (var i = 0; i < values.length; i++)
+      if (values[i].trim().isEmpty) i,
+  ];
+  if (missing.isEmpty) return values;
+  try {
+    final translated = await ai([for (final index in missing) texts[index]]);
+    if (translated.length != missing.length ||
+        translated.any((v) => v.trim().isEmpty)) {
+      throw const FormatException('AI 补译结果不完整');
+    }
+    for (var i = 0; i < missing.length; i++) {
+      values[missing[i]] = translated[i];
+    }
+    return values;
+  } catch (_) {
+    if (values.any((v) => v.trim().isNotEmpty)) {
+      throw PlatformException(
+        code: 'translation_partial',
+        message: 'AI 补译未完成，已保留系统成功译文，请检查全局 AI 配置和网络',
+        details: values,
+      );
+    }
+    rethrow;
   }
 }

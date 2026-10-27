@@ -509,7 +509,7 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
     let step = index < items.count ? items[index] : nil
     let type = step?["type"] as? String
     var program = "const inspectVerification = () => " + probeProgram() + ";\n" + Self.prelude
-    var arguments: [String: Any] = ["elementTimeout":elementBudget,
+    var arguments: [String: Any] = ["includeHTML": options["includeHtml"] as? Bool != false, "elementTimeout":elementBudget,
       "apiTimeout": min(30000,max(100,(options["apiTimeoutMs"] as? NSNumber)?.doubleValue ?? 6000))]
     if let step = step {
       arguments["step"] = step
@@ -908,7 +908,7 @@ final class SourceWebTask: NSObject, WKNavigationDelegate, WKUIDelegate {
   for (const entry of performance.getEntriesByType('resource')) {
     if (/\.(m3u8|mpd|mp4|m4a|mp3|flv)([?#]|$)/i.test(entry.name)) media.add(entry.name);
   }
-  return {url: location.href, title: document.title, html: document.documentElement.outerHTML,
+  return {url: location.href, title: document.title, html: includeHTML ? document.documentElement.outerHTML : "",
     result: result == null ? null : JSON.parse(JSON.stringify(result)),
     requests: (globalThis.__lumeRequests || []).slice(-16),
     media: Array.from(media).slice(0, 100).map(url => ({url,

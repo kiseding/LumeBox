@@ -16,6 +16,29 @@ void main() {
     expect(SourceSubscription.defaultMaxScripts, 2000);
   });
 
+  test('manifest comments mentioning LumeSource are not executed as JavaScript', () async {
+    const manifest =
+        '# Single-file source scripts (`// LumeSource: {...}` header)\n'
+        'https://fixture.test/video/one.js\nhttps://fixture.test/video/two.js';
+    expect(SourceSubscription.looksLikeScript(manifest), isFalse);
+    final subscription = SourceSubscription(
+      fetch: (url) async {
+        final text = url.endsWith('/videos-hd')
+            ? manifest
+            : '// LumeSource: {}\nLumeSource = {};';
+        return SourceFetchResult(bytes: utf8.encode(text), text: text);
+      },
+    );
+    final refs = await subscription.resolveRefs([
+      'https://fixture.test/videos-hd',
+    ]);
+    expect(refs.map((r) => r.url), [
+      'https://fixture.test/video/one.js',
+      'https://fixture.test/video/two.js',
+    ]);
+    expect(subscription.complete, isTrue);
+  });
+
   test('nested subscription resolves 2000 sources and flags truncation', () async {
     final fetched = <String>[];
     final subscription = SourceSubscription(

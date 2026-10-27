@@ -6,7 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lume_box/core/js/python_source_engine.dart';
+import 'package:lume_box/core/js/source_engine.dart';
+import 'package:lume_box/core/js/source_script.dart';
 import 'package:lume_box/core/net/lume_http.dart';
+import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/source/js_data_source.dart';
+import 'package:lume_box/core/source/source_models.dart';
 import 'package:lume_box/core/source/source_package.dart';
 
 void main() {
@@ -29,6 +34,172 @@ void main() {
   tearDown(
     () => messenger.setMockMethodCallHandler(PythonSourceEngine.channel, null),
   );
+
+  test('漫画 PY 使用漫画引擎与图片载荷，同名视频源网络会话独立', () async {
+    final loads = <Map>[];
+    messenger.setMockMethodCallHandler(PythonSourceEngine.channel, (
+      call,
+    ) async {
+      final args = call.arguments as Map;
+      if (args['action'] == 'load') {
+        loads.add(args);
+        return jsonEncode({
+          'ok': true,
+          'value': {
+            'methods': ['list', 'detail', 'chapters', 'content'],
+          },
+        });
+      }
+      return jsonEncode({
+        'ok': true,
+        'value': {
+          'kind': 'images',
+          'images': ['https://images.test/1.jpg'],
+          'imageHeaders': {
+            'https://images.test/1.jpg': {
+              'Referer': 'https://comic.test/read/1',
+            },
+          },
+        },
+      });
+    });
+    final requests = <String>[];
+    final comicHttp = LumeHttp(
+      client: MockClient((r) async {
+        requests.add('comic');
+        return http.Response('', 200);
+      }),
+    );
+    final videoHttp = LumeHttp(
+      client: MockClient((r) async {
+        requests.add('video');
+        return http.Response('', 200);
+      }),
+    );
+    final comic = await SourceEngineRegistry.createForScript(
+      script: 'class Spider: pass',
+      kind: CatEngineKind.quickjs,
+      sourceId: 'same-python-id',
+      http: comicHttp,
+      section: Section.comic,
+    ) as PythonSourceEngine;
+    final video = PythonSourceEngine(
+      sourceId: 'same-python-id',
+      http: videoHttp,
+    );
+    addTearDown(() {
+      comic.dispose();
+      video.dispose();
+      comicHttp.dispose();
+      videoHttp.dispose();
+    });
+    final script = SourcePackage.prepare(
+      'class Spider: pass',
+      name: 'manga.py',
+    );
+    expect(await comic.loadScript(script), isTrue);
+    expect(loads.single['section'], 'comic');
+    expect(loads.single['sourceId'], 'comic:same-python-id');
+    final metadata = SourceMetadata.merge(
+      SourceMetadata.parseHeader(script),
+      SourceMetadata.parse(await comic.metadata()),
+    )!;
+    expect(metadata.category, 'comic');
+    expect(metadata.sectionMismatch(Section.comic), isNull);
+    final source = JsDataSource(
+      id: 'manga',
+      name: '漫画',
+      section: Section.comic,
+      runtime: _PythonRuntime(comic),
+    );
+    final content = await source.content(
+      itemId: 'book',
+      chapterId: 'chapter',
+    ) as ImageContent;
+    expect(content.images, ['https://images.test/1.jpg']);
+    expect(
+      content.imageHeaders[content.images.single]!['Referer'],
+      'https://comic.test/read/1',
+    );
+    for (final id in ['comic:same-python-id', 'same-python-id']) {
+      expect(
+        (await host({
+          'sourceId': id,
+          'request': jsonEncode({
+            'method': 'http',
+            'payload': {'url': 'https://fixture.test/', 'body': ''},
+          }),
+        }))['ok'],
+        isTrue,
+      );
+    }
+    expect(requests, ['comic', 'video']);
+    expect(
+      await SourceEngineRegistry.createForScript(
+        script: script,
+        kind: CatEngineKind.quickjs,
+        sourceId: 'cat-python',
+        http: comicHttp,
+        section: Section.cat,
+      ),
+      isNull,
+    );
+  });
+
+  test('Python HTTP 失败保留 TLS 分类和系统错误码，不泄露原始异常内容', () async {
+    final errors = [
+      PlatformException(
+        code: 'network',
+        message: 'https://private.invalid/?token=private-token',
+        details: {
+          'domain': 'NSURLErrorDomain',
+          'code': -1200,
+          'headers': {'Cookie': 'private-cookie'},
+        },
+      ),
+      PlatformException(
+        code: 'tls_handshake',
+        message: 'private-token',
+        details: {'domain': 'NSURLErrorDomain', 'code': -1200},
+      ),
+      PlatformException(
+        code: 'certificate',
+        message: 'private-token',
+        details: {'domain': 'NSURLErrorDomain', 'code': -1202},
+      ),
+    ];
+    for (var index = 0; index < errors.length; index++) {
+      var requests = 0;
+      final client = LumeHttp(
+        client: MockClient((_) async {
+          requests++;
+          throw errors[index];
+        }),
+      );
+      final engine = PythonSourceEngine(sourceId: 'tls-$index', http: client);
+      final result = await host({
+        'sourceId': 'tls-$index',
+        'request': jsonEncode({
+          'method': 'http',
+          'payload': {'url': 'https://fixture.invalid/list', 'body': ''},
+        }),
+      });
+      expect(result['ok'], isFalse);
+      final message = result['error'] as String;
+      expect(
+        message,
+        contains(
+          index == 2 ? 'CERTIFICATE_VERIFY_FAILED' : 'TLS_HANDSHAKE_FAILED',
+        ),
+      );
+      expect(message, contains(index == 2 ? '-1202' : '-1200'));
+      expect(message, isNot(contains('private')));
+      expect(message, isNot(contains('headers')));
+      expect(requests, 1);
+      engine.dispose();
+      client.dispose();
+    }
+  });
 
   test('Python 网络桥保留二进制、请求头、重定向语义，并拒绝已释放来源', () async {
     late http.Request outgoing;
@@ -117,4 +288,15 @@ void main() {
     expect(actions.last, 'dispose');
     client.dispose();
   });
+}
+
+class _PythonRuntime implements JsSourceRuntime {
+  _PythonRuntime(this.engine);
+  final PythonSourceEngine engine;
+  @override
+  Future<Object?> call(String method, [Object? argument]) async =>
+      (await engine.callResult(method, argument)).value;
+  @override
+  Future<Set<String>> contractMethods() async =>
+      (await engine.contractMethods()) ?? {};
 }

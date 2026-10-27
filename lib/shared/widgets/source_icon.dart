@@ -76,6 +76,7 @@ class _SourceIconState extends State<SourceIcon> {
       if (widget.siteIcon.trim().isNotEmpty) widget.siteIcon.trim(),
     ];
     final site = widget.siteUrl.trim();
+    _bytes = _resolver.cached(origin: site, explicit: explicit);
     if (site.isEmpty && explicit.isEmpty) return;
     _resolver
         .load(

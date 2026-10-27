@@ -46,12 +46,25 @@ class SourcePlayback {
   static Uri? itemAddress(String? value) {
     final uri = directAddress(value);
     if (uri == null) return null;
-    if ((uri.scheme == 'https' || uri.scheme == 'http') &&
-        RegExp(
-          r'/(?:watch|detail)(?:/|\.php(?:/|$)|$)|\.(?:html?|aspx?)$',
-          caseSensitive: false,
-        ).hasMatch(uri.path)) {
-      return null;
+    if (uri.scheme == 'https' || uri.scheme == 'http') {
+      final media = RegExp(
+        r'\.(?:m3u8|mp4|m4v|mkv|webm|mov|avi|flv|mpd|ts|mp3|m4a|aac|flac|ogg|opus|wav)$',
+        caseSensitive: false,
+      ).hasMatch(uri.path);
+      final download = RegExp(
+        r'/download\.(?:php|ashx)$',
+        caseSensitive: false,
+      ).hasMatch(uri.path);
+      final type =
+          uri.queryParameters['response-content-type'] ??
+          uri.queryParameters['mime'] ??
+          '';
+      if (!media &&
+          !download &&
+          !type.startsWith('video/') &&
+          !type.startsWith('audio/')) {
+        return null;
+      }
     }
     return uri;
   }

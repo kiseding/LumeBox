@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:archive/archive.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
@@ -185,6 +186,45 @@ void main() {
     await node.close(force: true);
     root.deleteSync(recursive: true);
   });
+  test('本地ZIP保存并启动、同名替换保留身份，跳过在线更新且重启可用', () async {
+    Uint8List pack(String script) => Uint8List.fromList(ZipEncoder().encode(Archive()
+      ..addFile(ArchiveFile.string('dist/index.js', script))
+      ..addFile(ArchiveFile.string('dist/index.config.js', 'module.exports={}'))));
+    final record = await service.importLocal('本地测试', pack(index));
+    expect(record.isLocal, isTrue);
+    expect(record.automatic, isFalse);
+    expect(await service.hasBundle(record), isTrue);
+    expect(CatSubscription.fromJson(record.toJson()).isLocal, isTrue);
+    await service.refreshSites(record);
+    expect(record.sites, isNotEmpty);
+    final id = record.id;
+    final oldHash = record.hash;
+    final oldSites = record.sites.map((s) => s.id).toList();
+    final replaced = await service.importLocal('本地测试', pack('$index; // updated'));
+    expect(replaced.id, id);
+    expect(replaced.hash, isNot(oldHash));
+    expect(replaced.sites.map((s) => s.id), oldSites);
+    expect(service.subscriptions.length, 1);
+    failDownload = true;
+    await service.update(replaced);
+    await service.checkUpdates();
+    expect(replaced.error, isEmpty);
+    await service.closeForTesting();
+    service = CatService.testing();
+    await service.boot();
+    final restored = service.subscriptions.single;
+    expect(restored.id, id);
+    expect(restored.isLocal, isTrue);
+    expect(await service.hasBundle(restored), isTrue);
+  });
+
+  test('损坏的本地ZIP不新增记录、不替换旧包', () async {
+    final archive = Archive()..addFile(ArchiveFile.string('index.js', index));
+    await expectLater(service.importLocal('坏包', Uint8List.fromList(ZipEncoder().encode(archive))),
+      throwsFormatException);
+    expect(service.subscriptions, isEmpty);
+  });
+
   test('内置服务安装校验、随机地址、重复启动复用，且不进入猫源订阅表', () async {
     final first = await service.startLocalDanmaku();
     expect(first.host, '127.0.0.1');

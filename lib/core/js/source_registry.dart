@@ -16,6 +16,7 @@ import 'lume_js_engine.dart';
 import 'source_engine.dart';
 import 'source_script.dart';
 import '../source/source_package.dart';
+import '../source/kazumi_rule.dart';
 import 'python_source_engine.dart';
 import 'rex_widget_host.dart';
 
@@ -621,7 +622,9 @@ class SourceRegistry {
       engine.dispose();
       return null;
     }
-    if (!await engine.loadScript(stripScriptBom(record.script))) {
+    if (!await engine.loadScript(
+      KazumiRule.upgradeAdapter(stripScriptBom(record.script)),
+    )) {
       _loadFailures[sourceId] = engine.loadFailure ?? '源脚本载入失败';
       // 运行时载入失败的原因同样记全：日志是用户排查「图源为什么打不开」的入口。
       LumeLog.warn(

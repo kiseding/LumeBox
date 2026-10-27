@@ -55,7 +55,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('随机'));
     await tester.pumpAndSettle();

@@ -25,6 +25,7 @@ Future<void> showBangumiMatchSheet({
   required String initialTitle,
 }) => showGlassModalBottomSheet<void>(
   context: context,
+  videoGlass: true,
   isScrollControlled: true,
   showDragHandle: true,
   builder: (_) => BangumiMatchSheet(
@@ -240,7 +241,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
             style: TextStyle(
               fontSize: LumeTypography.sectionTitleSize,
               fontWeight: FontWeight.w600,
-              color: LumeTheme.textPrimary,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 4),
@@ -248,7 +249,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
             user == null ? '未连接 Bangumi 账号' : '已连接 ${user!.displayName}',
             style: TextStyle(
               fontSize: LumeTypography.descriptionSize,
-              color: LumeTheme.descriptionColor,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 12),
@@ -264,7 +265,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
                 style: TextStyle(
                   fontSize: LumeTypography.bodySize,
                   height: 1.6,
-                  color: LumeTheme.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -292,7 +293,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
                     style: TextStyle(
                       fontSize: LumeTypography.titleSize,
                       fontWeight: FontWeight.w600,
-                      color: LumeTheme.textPrimary,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -301,7 +302,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
                     '${binding!.episodes.isEmpty ? '章节待同步' : '${binding!.episodes.length} 集'}',
                     style: TextStyle(
                       fontSize: LumeTypography.descriptionSize,
-                      color: LumeTheme.descriptionColor,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -371,7 +372,7 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
                 fontWeight: FontWeight.w600,
                 fontSize: LumeTypography.descriptionSize,
                 color: message!.startsWith('已绑定') || message!.startsWith('已同步')
-                    ? LumeTheme.textPrimary
+                    ? Theme.of(context).colorScheme.onSurface
                     : Theme.of(context).colorScheme.error,
               ),
             ),

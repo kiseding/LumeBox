@@ -7,6 +7,7 @@ import 'package:lume_box/core/js/source_script.dart';
 import 'package:lume_box/core/net/source_import_input.dart';
 import 'package:lume_box/core/net/source_subscription.dart';
 import 'package:lume_box/core/source/source_package.dart';
+import 'package:lume_box/core/session/section.dart';
 
 void main() {
   const python =
@@ -21,8 +22,26 @@ void main() {
     expect(SourcePackage.kindOf(first.text), SourcePackageKind.python);
     final meta = SourceMetadata.parseHeader(first.text)!;
     expect(meta.name, '影探4K');
+    expect(meta.category, isEmpty);
     expect(SourceMetadata.parseHeader(second.text)!.id, meta.id);
     expect(SourcePackage.prepare(first.text), first.text);
+  });
+
+  test('Python 明确声明的漫画或视频归属不被导入入口改写', () {
+    for (final section in [Section.comic, Section.video]) {
+      final raw =
+          '# LumeSource: {"id":"declared-py","name":"PY","version":"1","category":"${section.id}"}\n$python';
+      final metadata = SourceMetadata.parseHeader(
+        SourcePackage.prepare(raw, name: 'source.py'),
+      )!;
+      expect(metadata.sectionMismatch(section), isNull);
+      expect(
+        metadata.sectionMismatch(
+          section == Section.comic ? Section.video : Section.comic,
+        ),
+        isNotNull,
+      );
+    }
   });
 
   test('Python / ESM / CommonJS 订阅识别，URL 身份不随正文变化', () async {

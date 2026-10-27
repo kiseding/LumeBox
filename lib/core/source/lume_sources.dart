@@ -1,3 +1,5 @@
+import 'source_media_hints.dart';
+
 import 'dart:convert';
 
 import '../net/network_cancellation.dart';
@@ -416,15 +418,19 @@ class LumeSources {
   /// 管理界面默认用它；注入替身的场景（测试）不经过本方法。
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
-  static String _siteUrl(String script) {
+  /// Resolve the actual website, including generated Kazumi metadata mirrors.
+  static String siteUrlFromScript(String script) {
     // 站点根有两种写法：单值（`BASE_URL = 'https://a.com'` / `H.base="https://a.com"`）
     // 与主机列表（`var HOSTS = ['https://a.com', 'https://a.net']`，多域名备用）。
     // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
     // 认不出来这些源就只能永远显示首字母。
     final single = RegExp(
-      r'''(?:BASE_URL|BASE|H\.base)\s*=\s*['"](https?://[^'"]+)''',
+      r'''\b(?:BASE_URL|BASE|HOST|baseURL|baseUrl|base_url|base|host|H\.base)\s*[:=]\s*['"](https?://[^'"]+)''',
     ).firstMatch(script);
-    final host = single?.group(1) ?? _firstHost(script);
+    final host =
+        single?.group(1) ??
+        _firstHost(script) ??
+        SourceMetadata.parseHeader(script)?.mirrors.firstOrNull;
     final uri = Uri.tryParse(host ?? '');
     return uri != null && uri.host.isNotEmpty && uri.userInfo.isEmpty
         ? uri.origin
@@ -441,6 +447,7 @@ class LumeSources {
   static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
     id: record.id,
     runtimeKind: SourcePackage.kindOf(record.script).name,
+    mediaKind: SourceMediaHints.fromScript(record.script),
     // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
     name: SourceDisplayNames.of(record.id, record.name),
     version: record.version,
@@ -448,7 +455,7 @@ class LumeSources {
     network: record.network,
     siteConfig: record.siteConfig,
     originUrl: record.originUrl,
-    siteUrl: _siteUrl(record.script),
+    siteUrl: siteUrlFromScript(record.script),
     iconUrl: _iconUrl(record.script),
     section: Section.values.where((s) => s.id == record.section).firstOrNull,
     group: record.group,
@@ -458,20 +465,24 @@ class LumeSources {
 
   static String _iconUrl(String script) {
     final match = RegExp(
-      r'^//\s*LumeSource:\s*(\{[^\n]+\})',
+      r'^\s*(?://\s*@?|#\s*)LumeSource\s*[:=]\s*(\{[^\n]+\})',
       multiLine: true,
     ).firstMatch(script);
     if (match == null) return '';
     try {
       final metadata = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-      final value = metadata['icon'];
+      final value = metadata['icon'] ?? metadata['iconUrl'];
       if (value is! String) return '';
-      final uri = Uri.tryParse(value);
+      final declared = Uri.tryParse(value.trim());
+      final site = Uri.tryParse(siteUrlFromScript(script));
+      final uri = declared == null
+          ? null
+          : (site?.hasScheme == true ? site!.resolveUri(declared) : declared);
       return uri != null &&
               {'http', 'https'}.contains(uri.scheme) &&
               uri.host.isNotEmpty &&
               uri.userInfo.isEmpty
-          ? value
+          ? uri.toString()
           : '';
     } on Object {
       return '';

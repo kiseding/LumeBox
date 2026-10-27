@@ -1,18 +1,22 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../search/search_settings.dart';
+import '../net/lume_net.dart';
 
 enum TmdbPosterStyle { fixed, random, carousel }
 
 enum TmdbImageKind {
   backdrop('背景图', ['original', 'w1280', 'w780'], 'w1280'),
   logo('Logo', ['original', 'w500'], 'w500'),
-  poster('海报', ['original', 'w500', 'w342'], 'w500'),
+  poster('海报', ['original', 'w780', 'w500', 'w342'], 'w780'),
   profile('演员头像', ['original', 'w632', 'w185'], 'w185'),
   video('视频封面', ['original', 'w500', 'w300'], 'w300');
 
@@ -26,6 +30,7 @@ class TmdbSettings extends ChangeNotifier {
   TmdbSettings();
   static final instance = TmdbSettings();
   bool enabled = false;
+  bool detailBackdropEnabled = true;
   TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
@@ -53,7 +58,14 @@ class TmdbSettings extends ChangeNotifier {
               ? value as String
               : kind.defaultSize;
         }
+        // Older settings saved the old default w500 even without an explicit
+        // user choice. Upgrade that legacy default once; retain w342/original.
+        if (data['posterQualityVersion'] != 2 &&
+            imageSize(TmdbImageKind.poster) == 'w500') {
+          _imageSizes[TmdbImageKind.poster] = 'w780';
+        }
         enabled = data['enabled'] == true;
+        detailBackdropEnabled = data['detailBackdropEnabled'] != false;
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
         imageProxy = data['imageProxy'] as String? ?? '';
@@ -73,10 +85,12 @@ class TmdbSettings extends ChangeNotifier {
     notifyListeners();
     final snapshot = jsonEncode({
       'enabled': enabled,
+      'detailBackdropEnabled': detailBackdropEnabled,
       'apiKey': apiKey,
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,
       'posterStyle': posterStyle.name,
+      'posterQualityVersion': 2,
       'imageSizes': {
         for (final kind in TmdbImageKind.values) kind.name: imageSize(kind),
       },
@@ -92,18 +106,20 @@ class TmdbSettings extends ChangeNotifier {
   }
 
   final Map<String, dynamic> _cache = {};
-  bool _cacheLoaded = false;
+  Future<void>? _cacheLoad;
   Future<void> _cacheWrites = Future.value();
-  String cacheKey(String title) => jsonEncode([
-    'cast-profile-order-v2',
-    apiProxy.trim(),
-    imageProxy.trim(),
-    TmdbClient.normalized(title),
-    for (final kind in TmdbImageKind.values) imageSize(kind),
-  ]);
+  String cacheKey(String title, {String? year, String? mediaType}) =>
+      jsonEncode([
+        'detail-facts-v5',
+        apiProxy.trim(),
+        imageProxy.trim(),
+        TmdbClient.normalized(TmdbClient.cleanTitle(title)),
+        year ?? TmdbClient.titleYear(title),
+        mediaType,
+        for (final kind in TmdbImageKind.values) imageSize(kind),
+      ]);
   Future<TmdbMetadata?> cached(String key) async {
-    if (!_cacheLoaded) {
-      _cacheLoaded = true;
+    await (_cacheLoad ??= () async {
       try {
         final file = _file;
         if (file != null) {
@@ -117,7 +133,7 @@ class TmdbSettings extends ChangeNotifier {
       } catch (_) {
         /* Damaged cache must not affect source details. */
       }
-    }
+    }());
     final value = _cache[key];
     return value is Map<String, dynamic> ? TmdbMetadata.fromJson(value) : null;
   }
@@ -127,7 +143,11 @@ class TmdbSettings extends ChangeNotifier {
     if (value == null) {
       _cache.remove(key);
     } else {
+      _cache.remove(key);
       _cache[key] = value.toJson();
+      while (_cache.length > 200) {
+        _cache.remove(_cache.keys.first);
+      }
     }
     final snapshot = jsonEncode(_cache);
     _cacheWrites = _cacheWrites.catchError((Object _) {}).then((_) async {
@@ -150,6 +170,50 @@ class TmdbSettings extends ChangeNotifier {
     await _cacheWrites;
   }
 
+  Future<int> clearMetadataCache() async {
+    await cached('');
+    final count = _cache.length;
+    final urls = <String>{};
+    for (final raw in _cache.values.whereType<Map>()) {
+      for (final field in [
+        'posters',
+        'backdrops',
+        'logos',
+        'profiles',
+        'videoCovers',
+      ]) {
+        final values = raw[field];
+        if (values is List) {
+          urls.addAll(
+            values.whereType<String>().where((url) => url.isNotEmpty),
+          );
+        }
+      }
+      for (final row
+          in (raw['recommendations'] as List? ?? []).whereType<Map>()) {
+        if (row['poster'] is String && (row['poster'] as String).isNotEmpty) {
+          urls.add(row['poster'] as String);
+        }
+      }
+    }
+    revision++;
+    _cache.clear();
+    await cache('', null);
+    for (final url in urls) {
+      final image = NetworkImage(url);
+      PaintingBinding.instance.imageCache.evict(image, includeLive: false);
+      for (final width in [300, 384]) {
+        final key = await ResizeImage.resizeIfNeeded(
+          width,
+          null,
+          image,
+        ).obtainKey(ImageConfiguration.empty);
+        PaintingBinding.instance.imageCache.evict(key, includeLive: false);
+      }
+    }
+    return count;
+  }
+
   Future<void> disconnect() {
     enabled = false;
     apiKey = '';
@@ -159,6 +223,13 @@ class TmdbSettings extends ChangeNotifier {
   }
 
   bool get configured => enabled && apiKey.trim().isNotEmpty;
+  String get credential => apiKey.trim().replaceFirst(
+    RegExp(r'^Bearer\s+', caseSensitive: false),
+    '',
+  );
+  bool get usesBearer =>
+      apiKey.trim().toLowerCase().startsWith('bearer ') ||
+      (credential.startsWith('eyJ') && credential.split('.').length == 3);
   static Uri address(String raw, String fallback) {
     var value = raw.trim();
     if (value.isEmpty) value = fallback;
@@ -185,7 +256,7 @@ class TmdbSettings extends ChangeNotifier {
       queryParameters: {
         ...root.queryParameters,
         ...query,
-        'api_key': apiKey.trim(),
+        if (!usesBearer) 'api_key': credential,
       },
     );
   }
@@ -202,6 +273,17 @@ class TmdbSettings extends ChangeNotifier {
   }
 }
 
+class TmdbRecommendation {
+  const TmdbRecommendation({required this.title, required this.poster});
+  final String title, poster;
+  Map<String, dynamic> toJson() => {'title': title, 'poster': poster};
+  factory TmdbRecommendation.fromJson(Map<String, dynamic> data) =>
+      TmdbRecommendation(
+        title: data['title'] as String? ?? '',
+        poster: data['poster'] as String? ?? '',
+      );
+}
+
 class TmdbMetadata {
   const TmdbMetadata({
     required this.overview,
@@ -211,13 +293,21 @@ class TmdbMetadata {
     this.profiles = const [],
     this.videoCovers = const [],
     this.cast = const [],
+    this.recommendations = const [],
     this.rating = 0,
     this.voteCount = 0,
+    this.year = '',
+    this.genres = const [],
+    this.episodeCount = 0,
   });
   final String overview;
   final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
+  final List<TmdbRecommendation> recommendations;
   final double rating;
   final int voteCount;
+  final String year;
+  final List<String> genres;
+  final int episodeCount;
   Map<String, dynamic> toJson() => {
     'overview': overview,
     'posters': posters,
@@ -226,10 +316,21 @@ class TmdbMetadata {
     'profiles': profiles,
     'videoCovers': videoCovers,
     'cast': cast,
+    'recommendations': recommendations.map((item) => item.toJson()).toList(),
     'rating': rating,
     'voteCount': voteCount,
+    'year': year,
+    'genres': genres,
+    'episodeCount': episodeCount,
   };
   factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
+    recommendations: (data['recommendations'] as List? ?? [])
+        .whereType<Map>()
+        .map(
+          (row) => TmdbRecommendation.fromJson(Map<String, dynamic>.from(row)),
+        )
+        .where((item) => item.title.trim().isNotEmpty)
+        .toList(),
     overview: data['overview'] as String? ?? '',
     posters: (data['posters'] as List? ?? []).whereType<String>().toList(),
     backdrops: (data['backdrops'] as List? ?? []).whereType<String>().toList(),
@@ -241,7 +342,24 @@ class TmdbMetadata {
         .toList(),
     rating: (data['rating'] as num?)?.toDouble() ?? 0,
     voteCount: (data['voteCount'] as num?)?.toInt() ?? 0,
+    year: data['year'] as String? ?? '',
+    genres: (data['genres'] as List? ?? []).whereType<String>().toList(),
+    episodeCount: (data['episodeCount'] as num?)?.toInt() ?? 0,
   );
+}
+
+class TmdbMatchCandidate {
+  const TmdbMatchCandidate({
+    required this.id,
+    required this.mediaType,
+    required this.title,
+    this.year = '',
+    this.overview = '',
+  });
+  final int id;
+  final String mediaType, title, year, overview;
+  String get label =>
+      '${mediaType == 'tv' ? '剧集' : '电影'} · ${year.isEmpty ? '年份未知' : year}';
 }
 
 class TmdbClient {
@@ -251,11 +369,16 @@ class TmdbClient {
   final TmdbSettings settings;
   final http.Client? _injected;
   final _active = <http.Client>{};
+  http.Client? _owned;
+  final _pending = <String, Future<TmdbMetadata?>>{};
   void _changed() {
     for (final client in _active.toList()) {
       client.close();
     }
     _active.clear();
+    _owned?.close();
+    _owned = null;
+    _pending.clear();
   }
 
   void dispose() {
@@ -267,11 +390,14 @@ class TmdbClient {
     if (!settings.enabled || settings.revision != revision) {
       throw StateError('TMDB 已关闭或配置已改变');
     }
-    final client = _injected ?? http.Client();
+    final client = _injected ?? (_owned ??= _networkClient());
     _active.add(client);
     try {
       final request = http.Request(head ? 'HEAD' : 'GET', uri)
         ..followRedirects = !head;
+      if (!head && settings.usesBearer) {
+        request.headers['Authorization'] = 'Bearer ${settings.credential}';
+      }
       final stream = await client
           .send(request)
           .timeout(const Duration(seconds: 12));
@@ -281,10 +407,33 @@ class TmdbClient {
         throw StateError('TMDB 已关闭或配置已改变');
       }
       return response;
+    } catch (_) {
+      if (_injected == null) {
+        client.close();
+        if (identical(_owned, client)) _owned = null;
+      }
+      rethrow;
     } finally {
       _active.remove(client);
-      if (_injected == null) client.close();
     }
+  }
+
+  http.Client _networkClient() {
+    final proxy = LumeNet.settings.proxy.trim();
+    if (proxy.isEmpty) return http.Client();
+    final uri = Uri.tryParse(proxy);
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw StateError('TMDB 需要有效的全局 HTTP 代理，或使用 TMDB API 代理地址');
+    }
+    final port = uri.hasPort
+        ? uri.port
+        : uri.scheme == 'https'
+        ? 443
+        : 80;
+    return IOClient(HttpClient()..findProxy = (_) => 'PROXY ${uri.host}:$port');
   }
 
   Future<Uri?> _resolvedBase(int revision) async {
@@ -314,10 +463,29 @@ class TmdbClient {
     Uri? base, {
     Map<String, String> query = const {},
   }) async {
-    final response = await _get(
-      settings.apiUri(path, base: base, query: query),
-      revision,
-    );
+    late http.Response response;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await _get(
+          settings.apiUri(path, base: base, query: query),
+          revision,
+        );
+        if (attempt == 0 &&
+            (response.statusCode >= 500 || response.statusCode == 429)) {
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          continue;
+        }
+        break;
+      } on Exception catch (error) {
+        if (attempt > 0 ||
+            !(error is TimeoutException ||
+                error is SocketException ||
+                error is http.ClientException)) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
     if (response.statusCode != 200) {
       throw StateError('TMDB 请求失败（HTTP ${response.statusCode}）');
     }
@@ -347,6 +515,59 @@ class TmdbClient {
   }
 
   String? lastError;
+  Future<List<TmdbMatchCandidate>> searchMatches(String title) async {
+    lastError = null;
+    if (!settings.configured || title.trim().isEmpty) return [];
+    final revision = settings.revision;
+    try {
+      final base = await _resolvedBase(revision);
+      final data = await _json(
+        'search/multi',
+        revision,
+        base,
+        query: {'query': cleanTitle(title), 'language': 'zh-CN'},
+      );
+      if (!settings.configured || settings.revision != revision) return [];
+      final seen = <String>{};
+      return (data['results'] as List? ?? [])
+          .whereType<Map>()
+          .where(
+            (row) =>
+                ['movie', 'tv'].contains(row['media_type']) &&
+                row['id'] is int &&
+                seen.add('${row['media_type']}/${row['id']}'),
+          )
+          .map(
+            (row) => TmdbMatchCandidate(
+              id: row['id'] as int,
+              mediaType: row['media_type'] as String,
+              title: '${row['title'] ?? row['name'] ?? ''}',
+              year:
+                  RegExp(r'^\d{4}').stringMatch(
+                    '${row['first_air_date'] ?? row['release_date'] ?? ''}',
+                  ) ??
+                  '',
+              overview: '${row['overview'] ?? ''}',
+            ),
+          )
+          .where((row) => row.title.trim().isNotEmpty)
+          .toList();
+    } catch (error) {
+      lastError = error is StateError
+          ? error.message.toString()
+          : 'TMDB 搜索失败，请检查网络或 API 代理后重试';
+      return [];
+    }
+  }
+
+  Future<TmdbMetadata?> selectMatch(
+    String title,
+    TmdbMatchCandidate candidate, {
+    String? year,
+    String? mediaType,
+  }) =>
+      _lookup(title, selected: candidate, yearHint: year, mediaType: mediaType);
+
   static String cleanTitle(String value) {
     var title = SearchSettings.toSimplified(value).trim();
     for (var i = 0; i < 3; i++) {
@@ -370,22 +591,62 @@ class TmdbClient {
       SearchSettings.toSimplified(value)
           .toLowerCase()
           .replaceAll(RegExp(r'[\s·:：\-《》、，,。.!！?？（）()\[\]]'), '');
-  Future<TmdbMetadata?> lookup(String title, {bool force = false}) async {
+  static String? titleYear(String title) =>
+      RegExp(r'(?:\s|[（(\[]|^)((?:19|20)\d{2})(?=[）)\]\s]|$)')
+          .firstMatch(title)
+          ?.group(1);
+
+  Future<TmdbMetadata?> lookup(
+    String title, {
+    bool force = false,
+    String? year,
+    String? mediaType,
+  }) {
+    if (!settings.configured) return Future.value(null);
+    final key =
+        '${settings.revision}:${settings.cacheKey(title, year: year, mediaType: mediaType)}';
+    if (!force && _pending[key] != null) return _pending[key]!;
+    final task = _lookup(
+      title,
+      force: force,
+      yearHint: year,
+      mediaType: mediaType,
+    );
+    _pending[key] = task;
+    return task.whenComplete(() {
+      if (identical(_pending[key], task)) _pending.remove(key);
+    });
+  }
+
+  Future<TmdbMetadata?> _lookup(
+    String title, {
+    bool force = false,
+    String? yearHint,
+    String? mediaType,
+    TmdbMatchCandidate? selected,
+  }) async {
     lastError = null;
     if (!settings.configured) return null;
     final revision = settings.revision;
-    final cacheKey = settings.cacheKey(title);
+    final cacheKey = settings.cacheKey(
+      title,
+      year: yearHint,
+      mediaType: mediaType,
+    );
     try {
       final cached = await settings.cached(cacheKey);
       if (!settings.configured || settings.revision != revision) return null;
-      if (!force && cached != null) return cached;
-      if (force) await settings.cache(cacheKey, null);
+      if (selected == null && !force && cached != null) return cached;
+      if (selected == null && force) await settings.cache(cacheKey, null);
       final base = await _resolvedBase(revision);
-      Map? match;
+      Map? match = selected == null
+          ? null
+          : {'id': selected.id, 'media_type': selected.mediaType};
       Map<String, dynamic>? matchedDetails;
       final cleaned = cleanTitle(title);
-      final year = RegExp(r'(?:19|20)\d{2}').firstMatch(title)?.group(0);
-      for (final query in <String>{title.trim(), cleaned}) {
+      final year = yearHint ?? titleYear(title);
+      for (final query
+          in selected == null ? <String>{cleaned, title.trim()} : <String>{}) {
         if (query.isEmpty) continue;
         final data = await _json(
           'search/multi',
@@ -398,7 +659,13 @@ class TmdbClient {
             .where(
               (row) =>
                   ['movie', 'tv'].contains(row['media_type']) &&
-                  row['id'] is int,
+                  row['id'] is int &&
+                  (mediaType == null || row['media_type'] == mediaType) &&
+                  (year == null ||
+                      '${row['release_date'] ?? row['first_air_date'] ?? ''}'
+                          .isEmpty ||
+                      '${row['release_date'] ?? row['first_air_date'] ?? ''}'
+                          .startsWith(year)),
             )
             .toList();
         bool same(Object? name) =>
@@ -414,57 +681,69 @@ class TmdbClient {
               ].any(same),
             )
             .toList();
-        if (exact.isNotEmpty) {
-          match =
-              exact
-                  .where(
-                    (row) =>
-                        year != null &&
-                        '${row['release_date'] ?? row['first_air_date'] ?? ''}'
-                            .startsWith(year),
-                  )
-                  .firstOrNull ??
-              exact.first;
+        if (exact.length > 1) {
+          lastError = 'TMDB 有多个同名版本，缺少足够年份或影片类型信息，已保留源资料';
+          return null;
+        }
+        if (exact.length == 1) {
+          match = exact.single;
           break;
         }
         // Check a bounded number of translated aliases; never accept the first search hit blindly.
-        for (final candidate in candidates.take(3)) {
-          final details = await _json(
-            '${candidate['media_type']}/${candidate['id']}',
-            revision,
-            base,
-            query: {
-              'language': 'zh-CN',
-              'append_to_response': 'credits,alternative_titles,translations',
-            },
-          );
-          final alternatives = details['alternative_titles'] as Map? ?? {};
-          final translations =
-              (details['translations'] as Map?)?['translations'] as List? ?? [];
-          final aliases = <Object?>[
-            details['title'],
-            details['name'],
-            details['original_title'],
-            details['original_name'],
-            ...(alternatives['titles'] as List? ??
-                    alternatives['results'] as List? ??
-                    [])
-                .whereType<Map>()
-                .map((row) => row['title']),
-            ...translations.whereType<Map>().expand(
-              (row) => [
-                (row['data'] as Map?)?['title'],
-                (row['data'] as Map?)?['name'],
-              ],
-            ),
-          ];
-          if (aliases.any(same)) {
-            match = candidate;
-            matchedDetails = details;
-            break;
-          }
+        final checked = await Future.wait(
+          candidates.take(3).map((candidate) async {
+            final details = await _json(
+              '${candidate['media_type']}/${candidate['id']}',
+              revision,
+              base,
+              query: {
+                'language': 'zh-CN',
+                'include_image_language': 'zh,en,null',
+                'append_to_response': 'credits,alternative_titles,translations,recommendations,images',
+              },
+            );
+            final alternatives = details['alternative_titles'] as Map? ?? {};
+            final translations =
+                (details['translations'] as Map?)?['translations'] as List? ??
+                [];
+            final aliases = <Object?>[
+              details['title'],
+              details['name'],
+              details['original_title'],
+              details['original_name'],
+              ...(alternatives['titles'] as List? ??
+                      alternatives['results'] as List? ??
+                      [])
+                  .whereType<Map>()
+                  .map((row) => row['title']),
+              ...translations.whereType<Map>().expand(
+                (row) => [
+                  (row['data'] as Map?)?['title'],
+                  (row['data'] as Map?)?['name'],
+                ],
+              ),
+            ];
+            final candidateYear =
+                '${details['first_air_date'] ?? details['release_date'] ?? candidate['first_air_date'] ?? candidate['release_date'] ?? ''}';
+            if (aliases.any(same) &&
+                (year == null || candidateYear.startsWith(year))) {
+              return (candidate, details);
+            }
+            return null;
+          }),
+        );
+        final verified = checked
+            .whereType<(Map, Map<String, dynamic>)>()
+            .toList();
+        if (verified.length > 1) {
+          lastError = 'TMDB 别名存在多个匹配版本，已保留源资料';
+          return null;
         }
-        if (match != null) break;
+        if (verified.length == 1) {
+          match = verified.single.$1;
+          matchedDetails = verified.single.$2;
+          break;
+        }
       }
       if (match == null) return null;
       final type = match['media_type'], id = match['id'];
@@ -476,18 +755,51 @@ class TmdbClient {
             base,
             query: {
               'language': 'zh-CN',
-              'append_to_response': 'credits,alternative_titles,translations',
+              'include_image_language': 'zh,en,null',
+              'append_to_response': 'credits,alternative_titles,translations,recommendations,images',
             },
           );
-      Map<String, dynamic> images = {};
-      try {
-        images = await _json('$type/$id/images', revision, base);
-      } catch (_) {
-        lastError = 'TMDB 图片列表暂时无法获取，已保留其他影片资料';
+      final actualYear =
+          '${details['first_air_date'] ?? details['release_date'] ?? match['first_air_date'] ?? match['release_date'] ?? ''}';
+      if (selected == null && year != null && !actualYear.startsWith(year)) {
+        lastError = 'TMDB 年份与源信息不一致，已保留源资料';
+        return null;
+      }
+      // Standard TMDB combines artwork with details. Older API proxies may omit
+      // appended images; only those need a separate compatibility request.
+      Map<String, dynamic> images = details['images'] is Map
+          ? Map<String, dynamic>.from(details['images'] as Map)
+          : {};
+      if (details['images'] is! Map) {
+        try {
+          images = await _json('$type/$id/images', revision, base);
+        } catch (_) {
+          lastError = 'TMDB 图片列表暂时无法获取，已保留其他影片资料';
+        }
       }
       List<String> paths(String field, Object? fallback, TmdbImageKind kind) {
-        final values = (images[field] as List? ?? [])
+        final artwork = (images[field] as List? ?? [])
             .whereType<Map>()
+            .toList();
+        // Prefer Chinese title artwork while keeping TMDB's ranking within
+        // each language. Users can still select any supplied poster.
+        if (field == 'posters') {
+          int rank(Map row) => switch (row['iso_639_1']) {
+            'zh' => 0,
+            null => 1,
+            'en' => 2,
+            _ => 3,
+          };
+          final indexed = artwork.indexed.toList()
+            ..sort((a, b) {
+              final language = rank(a.$2).compareTo(rank(b.$2));
+              return language == 0 ? a.$1.compareTo(b.$1) : language;
+            });
+          artwork
+            ..clear()
+            ..addAll(indexed.map((row) => row.$2));
+        }
+        final values = artwork
             .map((row) => row['file_path'])
             .whereType<String>()
             .where((path) => path.startsWith('/'))
@@ -501,7 +813,29 @@ class TmdbClient {
       }
 
       if (!settings.configured || settings.revision != revision) return null;
+      final seenRecommendations = <String>{};
       final result = TmdbMetadata(
+        recommendations:
+            ((details['recommendations'] as Map?)?['results'] as List? ?? [])
+                .whereType<Map>()
+                .where((row) => row['adult'] != true && row['id'] != id)
+                .map(
+                  (row) => TmdbRecommendation(
+                    title: '${row['title'] ?? row['name'] ?? ''}'.trim(),
+                    poster:
+                        row['poster_path'] is String &&
+                            (row['poster_path'] as String).startsWith('/')
+                        ? settings.imageUrl(row['poster_path'] as String)
+                        : '',
+                  ),
+                )
+                .where(
+                  (item) =>
+                      item.title.isNotEmpty &&
+                      seenRecommendations.add(normalized(item.title)),
+                )
+                .take(12)
+                .toList(),
         overview: (details['overview'] as String?)?.trim().isNotEmpty == true
             ? details['overview'] as String
             : match['overview'] as String? ?? '',
@@ -537,6 +871,18 @@ class TmdbClient {
         voteCount:
             ((details['vote_count'] ?? match['vote_count']) as num?)?.toInt() ??
             0,
+        year:
+            RegExp(r'^\d{4}').stringMatch(
+              '${details['first_air_date'] ?? details['release_date'] ?? match['first_air_date'] ?? match['release_date'] ?? ''}',
+            ) ??
+            '',
+        genres: (details['genres'] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => '${row['name'] ?? ''}'.trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList(),
+        episodeCount: (details['number_of_episodes'] as num?)?.toInt() ?? 0,
         cast: ((details['credits'] as Map?)?['cast'] as List? ?? [])
             .whereType<Map>()
             .map((row) => row['name'])

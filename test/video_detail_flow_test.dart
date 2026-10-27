@@ -1,9 +1,13 @@
+import 'package:lume_box/features/video/detail_poster_background.dart';
+import 'package:lume_box/core/intro/intro_store.dart';
 import 'package:lume_box/core/media/media_library.dart';
 
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:lume_box/shared/widgets/source_translation.dart';
+import 'package:lume_box/core/tmdb/tmdb.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
@@ -15,6 +19,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
@@ -66,10 +71,40 @@ class DetailSource extends FakeReadingDataSource {
   }
 }
 
+class NetdiskDiagnosticSource extends DetailSource {
+  static const diagnostic =
+      '2 个网盘 · 夸克A OK（匿名 video_preview，无 Cookie，仅 120 秒预览，HTTP 200） / 百度A OK';
+  @override
+  Future<SourceDetail?> detail(String id) async => SourceDetail(
+    id: id,
+    title: '网盘演示',
+    subtitle: diagnostic,
+    description: '剧集简介',
+  );
+}
+
+class MultiLineDetailSource extends DetailSource {
+  @override
+  Future<List<SourceChapter>> chapters(String id) async => const [
+    SourceChapter(id: 'a1', title: '第1集', line: '线路A'),
+    SourceChapter(id: 'a2', title: '第2集', line: '线路A'),
+    SourceChapter(id: 'b1', title: '线路B · 第1集'),
+    SourceChapter(id: 'b2', title: '线路B · 第2集'),
+  ];
+}
+
+class LongDetailSource extends DetailSource {
+  @override
+  Future<List<SourceChapter>> chapters(String id) async => [
+    for (var i = 1; i <= 230; i++) SourceChapter(id: 'e$i', title: '第$i集'),
+  ];
+}
+
 class RoutePlayer extends AbstractPlayer {
   final state = ValueNotifier(const PlayerSnapshot());
   final information = ValueNotifier(const PlayerStats());
   PlayerMedia? media;
+  final seeks = <Duration>[];
   @override
   ValueListenable<PlayerSnapshot> get snapshot => state;
   @override
@@ -92,7 +127,10 @@ class RoutePlayer extends AbstractPlayer {
   @override
   Future<void> stop() async {}
   @override
-  Future<void> seek(Duration position) async {}
+  Future<void> seek(Duration position) async {
+    seeks.add(position);
+  }
+
   @override
   Future<void> setVolume(double value) async {}
   @override
@@ -126,6 +164,7 @@ void main() {
         );
     library = await ReadingLibrary.open(Section.video);
     await MediaLibrary.instance.boot();
+    await IntroStore.open();
     library.setSetting(
       VideoPlayerSettingsStore.keyBackgroundSourceValidation,
       'false',
@@ -138,11 +177,499 @@ void main() {
     source = DetailSource();
   });
   tearDown(() async {
+    await IntroStore.resetForTesting();
     ReadingLibrary.disposeAll();
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
   });
+  testWidgets('网盘诊断不占据标题资料，限制保留且完整详情可以展开', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: NetdiskDiagnosticSource(),
+          item: const SourceItem(id: 'netdisk', title: '网盘演示'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    const summary = '2 个网盘 · 可用 2 集 · 含 120 秒预览线路';
+    expect(find.text(summary), findsOneWidget);
+    expect(find.textContaining('HTTP 200'), findsNothing);
+    await tester.tap(find.byKey(const Key('video-detail-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('网盘资源详情'));
+    await tester.pumpAndSettle();
+    expect(find.text(NetdiskDiagnosticSource.diagnostic), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.setDetailStyle(false);
+    await tester.pumpAndSettle();
+    expect(find.text(summary), findsOneWidget);
+    expect(find.textContaining('HTTP 200'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('线路切换不预解析，数字选集只播放所选线路并保持索引', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = MultiLineDetailSource();
+    VideoPlayTarget? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, target, _, _) async => opened = target,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('video-detail-original-line-selector')),
+      findsOneWidget,
+    );
+    expect(find.text('选集 · 共 2 集'), findsNothing);
+    expect(
+      tester
+          .widget<SourceText>(
+            find.descendant(
+              of: find.byKey(const Key('video-detail-summary')),
+              matching: find.byType(SourceText),
+            ),
+          )
+          .maxLines,
+      2,
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('video-detail-summary'))).dy,
+      greaterThan(
+        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
+      ),
+    );
+    expect(find.text('线路A'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('video-detail-play'))).width,
+      closeTo((440 - 32) * .82, 2),
+    );
+    expect(find.byKey(const Key('video-detail-quick-actions')), findsNothing);
+    expect(find.byKey(const Key('video-detail-favorite')), findsOneWidget);
+    expect(find.text('展开'), findsNothing);
+    expect(find.text('全站找片'), findsNothing);
+    expect(source.parses, 0);
+    await tester.ensureVisible(
+      find.byKey(const Key('video-detail-original-line-selector')),
+    );
+    await tester.tap(
+      find.byKey(const Key('video-detail-original-line-selector')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('线路B · 2 集').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('video-detail-more')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('紧凑版（当前版）'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('紧凑版（当前版）'),
+        matching: find.byType(CheckedPopupMenuItem<String>),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('video-compact-line-selector')),
+      findsOneWidget,
+      reason: '紧凑版将线路选择放在选集标题旁',
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('video-compact-line-selector')),
+    );
+    await tester.tap(find.byKey(const Key('video-compact-line-selector')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-compact-line-线路A')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('video-compact-line-线路B')));
+    await tester.pumpAndSettle();
+    expect(source.parses, 0, reason: '悬浮选择线路不会提前解析播放');
+    expect(
+      find.byKey(const Key('video-detail-tmdb-status')),
+      findsOneWidget,
+      reason: '未匹配时保留配置和手动匹配入口',
+    );
+    expect(find.byKey(const Key('video-detail-metadata-row')), findsOneWidget);
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.tmdb.metadata = const TmdbMetadata(
+      overview: '',
+      posters: [],
+      cast: ['示例演员'],
+      year: '2026',
+      genres: ['剧情'],
+
+      recommendations: [TmdbRecommendation(title: '推荐示例', poster: '')],
+    );
+    state.tmdb.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('video-detail-tmdb-status')), findsOneWidget);
+    expect(find.text('示例演员'), findsOneWidget);
+    expect(find.text('TMDB · 已匹配'), findsOneWidget);
+    expect(find.textContaining('2026 · 剧情'), findsOneWidget);
+    expect(find.text('相似影片 · 全站找片'), findsNothing);
+    expect(find.text('推荐示例'), findsNothing);
+    expect(source.parses, 0);
+    final second = find.byKey(const ValueKey('video-detail-episode-1'));
+    await tester.ensureVisible(second);
+    await tester.runAsync(() async {
+      await tester.tap(second);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(opened?.chapterId, 'b2');
+    expect(opened?.chapterIndex, 1);
+    expect(opened?.chapterTitle, '第2集');
+    expect(source.parses, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('紧凑版大海报居中标题，五至六列数字选集按十集切换', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    library.setSetting('video.detail.originalStyle', 'false');
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'movie',
+        chapterIndex: 1,
+        chapterId: 'e2',
+        chapterTitle: '第2集',
+        updatedAt: DateTime.now(),
+        position: const Duration(minutes: 12, seconds: 36),
+        duration: const Duration(minutes: 40),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: LongDetailSource(),
+          item: const SourceItem(
+            id: 'movie',
+            title: '详情测试片',
+            cover: 'https://fixture.test/poster.jpg',
+          ),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getSize(find.byKey(const Key('video-detail-compact-banner')))
+          .height,
+      closeTo(576.4, .1),
+    );
+    final play = find.byKey(const Key('video-detail-play'));
+    final progress = find.byKey(const Key('video-detail-compact-progress'));
+    expect(
+      tester.getTopLeft(progress).dy,
+      greaterThan(tester.getBottomRight(play).dy),
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-9')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-10')), findsNothing);
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-5')))
+          .dy,
+      closeTo(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('video-detail-episode-0')))
+            .dy,
+        .1,
+      ),
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-6')))
+          .dy,
+      greaterThan(
+        tester
+            .getBottomLeft(find.byKey(const ValueKey('video-detail-episode-0')))
+            .dy,
+      ),
+    );
+    final range = find.byKey(const ValueKey('video-compact-range-10'));
+    await tester.ensureVisible(range);
+    await tester.tap(range);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-10')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-19')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-0')), findsNothing);
+    expect(find.byKey(const ValueKey('video-detail-episode-20')), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(320, 900));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-14')))
+          .dy,
+      closeTo(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('video-detail-episode-10')))
+            .dy,
+        .1,
+      ),
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('video-detail-episode-15')))
+          .dy,
+      greaterThan(
+        tester
+            .getBottomLeft(
+              find.byKey(const ValueKey('video-detail-episode-10')),
+            )
+            .dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    final dynamic detailState = tester.state(find.byType(VideoDetailPage));
+    for (final original in [true, false, true]) {
+      detailState.setDetailStyle(original);
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '两版切换期间不得读取单一 scroll.position',
+      );
+      final view = tester.widget<SingleChildScrollView>(
+        find.byKey(const Key('video-detail-scroll')),
+      );
+      expect(view.controller!.positions.length, 1);
+    }
+  });
+
+  testWidgets('隐藏空演员和重复入口，保留布局与逐集续播，缺集不自动换线', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    library.setSetting('video.detail.originalStyle', 'false');
+    library.saveProgress(
+      VideoProgress(
+        section: Section.video,
+        itemId: 'movie',
+        chapterIndex: 1,
+        chapterId: 'a2',
+        chapterTitle: '第2集',
+        updatedAt: DateTime.now(),
+        position: const Duration(minutes: 12, seconds: 36),
+        duration: const Duration(minutes: 40),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: MultiLineDetailSource(),
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.originalStyle, false);
+    expect(find.text('继续看 · 第2集'), findsOneWidget);
+    expect(find.text('看到 12:36 / 40:00'), findsOneWidget);
+    expect(find.text('演员'), findsNothing);
+    expect(find.text('全部'), findsNothing);
+    expect(find.text('追番'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-episode-progress-1')),
+      findsOneWidget,
+    );
+    state.lines['缺集线路'] = [const SourceChapter(id: 'c3', title: '第3集')];
+    expect(state.changeLine('缺集线路'), false);
+    await tester.pumpAndSettle();
+    expect(state.currentLine, '线路A');
+    expect(state.selected, 1);
+    expect(find.text('该线路没有对应集，请在选集里手动选择'), findsOneWidget);
+    expect(state.changeLine('线路B'), true);
+    await tester.pumpAndSettle();
+    expect(find.text('继续看 · 第2集'), findsOneWidget);
+    expect(state.lineResume.position, const Duration(minutes: 12, seconds: 36));
+  });
+
+  testWidgets('长剧集数字跳转只定位不播放，清除定位后恢复完整列表', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = LongDetailSource();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'long', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('video-detail-select-episodes')),
+    );
+    await tester.tap(find.byKey(const Key('video-detail-select-episodes')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('video-episode-jump')), '203');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-202')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-0')),
+      findsNothing,
+    );
+    expect(source.parses, 0);
+    await tester.tap(find.text('显示全部剧集'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-0')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('播放器报错换线路仍播放同一集并恢复时间点', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = MultiLineDetailSource();
+    final manager = FakeSourceManager(
+      sources: [
+        SourceDescriptor(
+          id: source.id,
+          name: source.name,
+          version: '1',
+          enabled: true,
+        ),
+      ],
+      opened: {source.id: source},
+    );
+    final player = RoutePlayer();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoPlayerPage(
+          library: library,
+          sourceManager: manager,
+          playerFactory: (_) => player,
+          catalog: const RouteCatalog(),
+          media: PlayerMedia(uri: Uri.parse('https://example.test/a2.mp4')),
+          target: VideoPlayTarget(
+            sourceId: source.id,
+            itemId: 'movie',
+            title: '详情测试片',
+            chapterIndex: 1,
+            chapterId: 'a2',
+            chapterTitle: '第2集',
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+    player.state.value = const PlayerSnapshot(
+      error: 'fixture连接失败',
+      position: Duration(seconds: 75),
+      duration: Duration(minutes: 40),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('换线路继续看'));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('线路B'));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+    expect(player.media!.uri.path, '/b2.mp4');
+    expect(player.seeks, contains(const Duration(seconds: 75)));
+    expect(source.parses, 1);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('窄屏大字长剧集分页显示，选集弹层不一次构建全部按钮', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: VideoDetailPage(
+          source: LongDetailSource(),
+          item: const SourceItem(id: 'long', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('video-detail-more')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('紧凑版（当前版）'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('紧凑版（当前版）'),
+        matching: find.byType(CheckedPopupMenuItem<String>),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(OutlinedButton).evaluate().length, lessThan(55));
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-5')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-9')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('video-detail-episode-10')), findsNothing);
+    final picker = find.byKey(const Key('video-detail-select-episodes'));
+    await Scrollable.ensureVisible(tester.element(picker), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-picker-episode-50')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('列表先详情，点击选集直接创建一个全屏实例，旋转复用，返回详情', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -225,6 +752,99 @@ void main() {
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.byType(VideoPlayerPage), findsNothing);
   });
+  testWidgets('当前剧集封面显示用户主题色边框，切集后边框跟随', (tester) async {
+    const accent = Colors.tealAccent;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: accent)
+              .copyWith(primary: accent),
+        ),
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final first = find.byKey(const ValueKey('video-detail-episode-border-0'));
+    expect(first, findsOneWidget);
+    final decoration =
+        tester.widget<DecoratedBox>(first).decoration as BoxDecoration;
+    expect((decoration.border! as Border).top.color, accent);
+    final second = find.byKey(const ValueKey('video-detail-episode-1'));
+    await tester.ensureVisible(second);
+    await tester.runAsync(() async {
+      await tester.tap(second);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(first, findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-border-1')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
+    final settings = TmdbSettings.instance;
+    final oldEnabled = settings.enabled;
+    final oldBackdrop = settings.detailBackdropEnabled;
+    addTearDown(() {
+      settings.enabled = oldEnabled;
+      settings.detailBackdropEnabled = oldBackdrop;
+    });
+    settings.detailBackdropEnabled = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'movie', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    settings.enabled = true;
+    state.setState(() {
+      state.tmdb.metadata = const TmdbMetadata(
+        overview: '',
+        posters: [],
+        backdrops: ['https://preview.invalid/backdrop.jpg'],
+      );
+    });
+    await tester.pumpAndSettle();
+    final background = find.byKey(
+      const Key('video-detail-poster-color-background'),
+    );
+    expect(find.byType(DetailPosterBackground), findsNothing);
+    expect(
+      tester.widget<ColoredBox>(background).color,
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+    );
+    state.setState(() {
+      state.tmdb.metadata = const TmdbMetadata(overview: '', posters: []);
+    });
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ColoredBox>(background).color,
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+    );
+    settings.detailBackdropEnabled = false;
+    state.setState(() {});
+    await tester.pumpAndSettle();
+    expect(find.byType(DetailPosterBackground), findsNothing);
+    expect(background, findsNothing);
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xff11131a),
+    );
+  });
+
   testWidgets('源未实现详情接口仍保留剧集和显式播放流程', (tester) async {
     source.failDetail = true;
     var opened = 0;
@@ -246,7 +866,7 @@ void main() {
     expect(find.byKey(const Key('video-detail-gradient')), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      const Color(0xff805b7a),
+      Colors.black,
     );
     expect(find.byTooltip('更多'), findsOneWidget);
     expect(source.parses, 0);

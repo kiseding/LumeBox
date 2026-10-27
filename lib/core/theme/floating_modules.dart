@@ -37,7 +37,11 @@ class FloatingStyle {
 
   /// 各模块的默认值（新建配置 / 重置时用）。
   static FloatingStyle defaultFor(FloatingModule module) =>
-      module == FloatingModule.dock ? dockDefault : const FloatingStyle();
+      module == FloatingModule.dock
+      ? dockDefault
+      : module == FloatingModule.navigation || module == FloatingModule.home
+      ? const FloatingStyle(opacity: .9)
+      : const FloatingStyle();
 
   final double opacity, x, y, blur;
   Offset get offset => Offset.zero;
@@ -81,7 +85,8 @@ class FloatingModules extends ChangeNotifier {
   final Map<FloatingModule, FloatingStyle> _styles = {};
   File? _file;
   FloatingStyle style(FloatingModule module) =>
-      FloatingStyle.defaultFor(module);
+      FloatingStyle.defaultFor(module)
+          .copyWith(opacity: _styles[module]?.opacity);
   Future<void> boot() async {
     try {
       _styles.clear();
@@ -107,6 +112,11 @@ class FloatingModules extends ChangeNotifier {
                       blur: FloatingStyle.dockDefault.blur,
                     )
                   : readable;
+              if ((module == FloatingModule.home ||
+                      module == FloatingModule.navigation) &&
+                  data['_topGlassVersion'] != 1) {
+                _styles[module] = _styles[module]!.copyWith(opacity: .9);
+              }
             }
           }
         }
@@ -139,6 +149,7 @@ class FloatingModules extends ChangeNotifier {
           '_microGlassVersion': 1,
           '_readableGlassVersion': 1,
           '_dockGlassVersion': 2,
+          '_topGlassVersion': 1,
           for (final e in _styles.entries) e.key.name: e.value.toJson(),
         }),
         flush: true,

@@ -7,6 +7,14 @@ import 'package:lume_box/core/source/source_display_names.dart';
 /// 这一层只改界面文字：脚本里的 id / 变量 / 解析逻辑、数据库里的 name 字段都不动
 /// ——收藏、阅读记录、阅读进度、WAF 会话全都按 **id** 存，改名字不会碰它们。
 void main() {
+  test('展示名去除重复分级后缀，保留品牌里的18及原始输入', () {
+    for (final name in ['测试源 18+', '测试源18+', '测试源 (18+)', '测试源【18+】']) {
+      expect(SourceDisplayNames.of('custom', name), '测试源');
+    }
+    expect(SourceDisplayNames.of('custom', '18AV'), '18AV');
+    expect(SourceDisplayNames.of('custom', '18禁漫'), '18禁漫');
+    expect(SourceDisplayNames.of('custom', '18+'), '18+');
+  });
   test('已知图源给中文展示名（用户点名的两个在内）', () {
     expect(SourceDisplayNames.of('nnhanman_comic', 'NN韩漫'), '鸟鸟韩漫');
     expect(SourceDisplayNames.of('mh92_comic', '92漫画'), '92漫画');

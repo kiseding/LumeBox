@@ -10,6 +10,7 @@ import '../comic/comic_image_tools_page.dart';
 import 'total_subscription_page.dart';
 import 'subscription_sync_page.dart';
 import 'tmdb_settings_page.dart';
+import 'preload_settings_page.dart';
 import 'search_settings_page.dart';
 import 'content_visibility_page.dart';
 
@@ -153,7 +154,7 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.navigation_outlined,
       title: '原生系统导航',
-      subtitle: '胶囊与圆圈透明度、系统栏高度与样式',
+      subtitle: '顶部与底部透明度、胶囊高度与图标样式',
       onTap: () => _push(context, const NavigationPreferencesPage()),
     ),
     SettingsEntryCard(
@@ -198,8 +199,8 @@ class SettingsPage extends StatelessWidget {
     ),
     SettingsEntryCard(
       icon: Icons.translate,
-      title: '漫画翻译',
-      subtitle: '设备端免费翻译 · 自填 AI 接口 · 目标语言',
+      title: '全局翻译',
+      subtitle: '标题、搜索与漫画共用 · 系统 / AI / 自动补译',
       onTap: () =>
           _push(context, const ComicImageToolsSettingsPage(translation: true)),
     ),
@@ -250,6 +251,12 @@ class SettingsPage extends StatelessWidget {
     ),
 
     const SettingsGroupTitle('存储与安全'),
+    SettingsEntryCard(
+      icon: Icons.downloading_outlined,
+      title: '预载与清理',
+      subtitle: '视频 / 图片 / 音频预载 · TMDB · 源图标 · 历史',
+      onTap: () => _push(context, const PreloadSettingsPage()),
+    ),
     SettingsEntryCard(
       icon: Icons.cleaning_services_outlined,
       title: '缓存管理',

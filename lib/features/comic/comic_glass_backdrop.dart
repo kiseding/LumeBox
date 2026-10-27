@@ -24,6 +24,11 @@ class ComicGlassBackdrop extends StatelessWidget {
       key: const Key('comic.glass.backdrop'),
       radius: radius,
       part: GlassPart.panels,
+      color: color,
+      opacity: opacity,
+      blur: 18,
+      neutralTint: true,
+      translucentOverlay: true,
       child: child,
     ),
   );

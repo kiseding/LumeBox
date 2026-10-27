@@ -13,10 +13,12 @@ import '../../core/reading/reading_library.dart';
 import '../../core/session/privacy_settings.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
+import '../../core/source/source_media_hints.dart';
 import '../../core/source/kazumi_rule.dart';
 import '../../core/source/source_content_visibility.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_preferences.dart';
+import '../../core/source/source_subscription_catalog.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/web/web_home_sources.dart';
 import '../../core/web/html_home_import.dart';
@@ -25,6 +27,8 @@ import '../../shared/widgets/lume_icon.dart';
 import '../../shared/widgets/source_card_metrics.dart';
 import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_icon.dart';
+import '../../shared/widgets/source_rating_badge.dart';
+import '../../core/source/source_content_rating.dart';
 import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
@@ -40,11 +44,25 @@ enum VideoSourceType {
   ordinary('普通'),
   cat('猫源'),
   python('PY'),
+  audio('有声小说'),
+  kazumi('Kazumi'),
   module('模块'),
   web('网页');
 
   const VideoSourceType(this.label);
   final String label;
+
+  static VideoSourceType forSource(SourceDescriptor source) => source.isAudio
+      ? audio
+      : source.isKazumi
+      ? kazumi
+      : switch (source.runtimeKind) {
+          'python' => python,
+          'module' => module,
+          _ => ordinary,
+        };
+  bool accepts(SourceDescriptor source) =>
+      this == all || forSource(source) == this;
 }
 
 class VideoSourceChoice {
@@ -108,6 +126,25 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
   List<WebHomeSource> webHomes = const [];
   bool _importingHtml = false;
   final _currentSourceKey = GlobalKey();
+  final _tabKeys = {
+    for (final kind in VideoSourceType.values) kind: GlobalKey(),
+  };
+
+  void _revealSelectedType() =>
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final target = _tabKeys[type]?.currentContext;
+        if (target != null) {
+          unawaited(
+            Scrollable.ensureVisible(
+              target,
+              alignment: .5,
+              duration: const Duration(milliseconds: 220),
+            ),
+          );
+        }
+      });
+
   bool _locateCurrent = true, _initialTypeChosen = false;
 
   bool _ordinarySelected(String id) =>
@@ -119,7 +156,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     if (!_locateCurrent) return;
     if (widget.currentWebId != null) {
       if (webHomes.any((home) => home.id == widget.currentWebId)) {
-        type = VideoSourceType.web;
+        final home = webHomes.firstWhere((h) => h.id == widget.currentWebId);
+        type = SourceMediaHints.audioLabel(home.name)
+            ? VideoSourceType.audio
+            : VideoSourceType.web;
       }
     } else if (widget.showingCat) {
       if (service.subscriptions
@@ -131,7 +171,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   PrivacySettings.instance.allowsSource(site.id, site.name),
             ),
           )) {
-        type = VideoSourceType.cat;
+        final site = service.subscriptions
+            .expand((s) => s.sites)
+            .firstWhere((s) => s.id == widget.currentCatId);
+        type =
+            SourceMediaHints.audioLabel('${site.name} ${site.key} ${site.kind}')
+            ? VideoSourceType.audio
+            : VideoSourceType.cat;
       }
     } else {
       final current = sources
@@ -143,12 +189,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           )
           .firstOrNull;
       if (current != null) {
-        type = switch (current.runtimeKind) {
-          'python' => VideoSourceType.python,
-          'module' => VideoSourceType.module,
-          'javascript' => VideoSourceType.ordinary,
-          _ => VideoSourceType.all,
-        };
+        type = VideoSourceType.forSource(current);
       }
     }
   }
@@ -198,6 +239,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         currentId = current?.id;
         webHomes = webStore.items;
         _chooseInitialType();
+        _revealSelectedType();
         loading = false;
         error = null;
       });
@@ -279,6 +321,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   '导入 Spider 脚本、ZIP 源包或订阅链接',
                 ),
                 (
+                  VideoSourceType.audio,
+                  Icons.headphones,
+                  '有声小说源',
+                  '导入听书源，已填入有声小说订阅地址',
+                ),
+                (
                   VideoSourceType.module,
                   Icons.extension_outlined,
                   '模块源',
@@ -317,7 +365,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         helpText: '支持规则 JSON 和索引订阅。导入后可搜索作品、选择剧集播放，部分规则没有首页推荐。',
       );
       if (!mounted) return;
-      setState(() => type = VideoSourceType.ordinary);
+      setState(() => type = VideoSourceType.kazumi);
       await load();
       return;
     }
@@ -326,11 +374,19 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       VideoSourceType.ordinary,
       VideoSourceType.python,
       VideoSourceType.module,
+      VideoSourceType.audio,
     ].contains(target)) {
       await runSourceImport(
         context,
         section: Section.video,
         manager: widget.manager,
+        initialSubscription: target == VideoSourceType.audio
+            ? SubscriptionCatalog.audiobooksUrl
+            : null,
+        title: target == VideoSourceType.audio ? '导入有声小说源' : null,
+        helpText: target == VideoSourceType.audio
+            ? '支持听书 JS、音频源包和订阅链接，导入后显示在有声小说标签。'
+            : null,
       );
       if (mounted) setState(() => type = target);
     } else if (target == VideoSourceType.cat) {
@@ -672,6 +728,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (SourceContentRating.isAdult(id, name))
+              const Padding(
+                padding: EdgeInsets.only(left: 4),
+                child: SourceRatingBadge(compact: true),
+              ),
             if (prefs.pinned)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
@@ -745,12 +806,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         .where(
           (s) =>
               s.enabled &&
-              (type == VideoSourceType.all ||
-                  type == VideoSourceType.ordinary &&
-                      s.runtimeKind == 'javascript' ||
-                  type == VideoSourceType.python && s.runtimeKind == 'python' ||
-                  type == VideoSourceType.module &&
-                      s.runtimeKind == 'module') &&
+              type.accepts(s) &&
               SourceContentVisibility.instance.allows(Section.video, s) &&
               matches('${s.name} ${s.id} ${s.group}'),
         )
@@ -770,32 +826,55 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           .where(
             (s) =>
                 PrivacySettings.instance.allowsSource(s.id, s.name) &&
+                (type == VideoSourceType.all ||
+                    (type == VideoSourceType.audio) ==
+                        SourceMediaHints.audioLabel(
+                          '${s.name} ${s.key} ${s.kind}',
+                        )) &&
                 matches('${record.name} ${s.name} ${s.key}'),
           )
           .toList();
       final order = record.sites.map((s) => s.id).toList();
       sites.sort((a, b) => SourceOrder.compare(Section.cat, a.id, b.id, order));
       if (sites.isNotEmpty ||
-          (record.sites.isEmpty &&
+          (type != VideoSourceType.audio &&
+              record.sites.isEmpty &&
               record.removedSiteIds.isEmpty &&
               matches(record.name))) {
         groups.add((record, sites));
       }
     }
     final filteredWeb = webHomes
-        .where((home) => matches('${home.name} ${home.url}'))
+        .where(
+          (home) =>
+              (type == VideoSourceType.all ||
+                  (type == VideoSourceType.audio) ==
+                      SourceMediaHints.audioLabel(home.name)) &&
+              matches('${home.name} ${home.url}'),
+        )
         .toList();
     final showOrdinary = [
       VideoSourceType.all,
       VideoSourceType.ordinary,
       VideoSourceType.python,
       VideoSourceType.module,
+      VideoSourceType.kazumi,
+      VideoSourceType.audio,
     ].contains(type);
-    final showCat = type == VideoSourceType.all || type == VideoSourceType.cat;
-    final showWeb = type == VideoSourceType.all || type == VideoSourceType.web;
+    final showCat = [
+      VideoSourceType.all,
+      VideoSourceType.cat,
+      VideoSourceType.audio,
+    ].contains(type);
+    final showWeb = [
+      VideoSourceType.all,
+      VideoSourceType.web,
+      VideoSourceType.audio,
+    ].contains(type);
     var initialOffset = 0.0;
     bool hasFocus = false;
-    if (type == VideoSourceType.cat && widget.showingCat) {
+    if ([VideoSourceType.cat, VideoSourceType.audio].contains(type) &&
+        widget.showingCat) {
       initialOffset = 44;
       for (final (_, sites) in groups) {
         final index = sites.indexWhere(
@@ -814,7 +893,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
             ((sites.length + 1) ~/ 2) *
                 (SourceCardMetrics.height + SourceCardMetrics.rowGap);
       }
-    } else if (type == VideoSourceType.web) {
+    } else if (type == VideoSourceType.web ||
+        (type == VideoSourceType.audio && widget.currentWebId != null)) {
       final index = filteredWeb.indexWhere(
         (home) => home.id == widget.currentWebId,
       );
@@ -838,18 +918,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         (!showCat || groups.isEmpty) &&
         (!showWeb || filteredWeb.isEmpty);
     Widget runtimeGroup(VideoSourceType kind) {
-      final runtime = switch (kind) {
-        VideoSourceType.python => 'python',
-        VideoSourceType.module => 'module',
-        _ => 'javascript',
-      };
-      final entries = ordinary
-          .where((source) => source.runtimeKind == runtime)
-          .toList();
+      final entries = ordinary.where((source) => kind.accepts(source)).toList();
       if (entries.isEmpty) return const SizedBox.shrink();
       final title = switch (kind) {
         VideoSourceType.python => 'PY · Python 源',
         VideoSourceType.module => '模块 · ESM / CommonJS',
+        VideoSourceType.kazumi => 'Kazumi · 动漫规则源',
+        VideoSourceType.audio => '有声小说 · 音频源',
         _ => '普通 · JS 源',
       };
       return Column(
@@ -879,7 +954,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   name: s.name,
                   subtitle: _ordinarySelected(s.id)
                       ? '当前使用'
-                      : '${s.runtimeKind == 'python'
+                      : '${s.isAudio
+                            ? '音频'
+                            : s.isKazumi
+                            ? 'Kazumi'
+                            : s.runtimeKind == 'python'
                             ? 'PY'
                             : s.runtimeKind == 'module'
                             ? '模块'
@@ -962,6 +1041,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                       children: [
                         for (final item in VideoSourceType.values)
                           Padding(
+                            key: _tabKeys[item],
                             padding: const EdgeInsets.only(right: 8),
                             child: ChoiceChip(
                               key: ValueKey('video-source-type-${item.name}'),
@@ -971,6 +1051,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                               onSelected: (_) => setState(() {
                                 _locateCurrent = false;
                                 type = item;
+                                _revealSelectedType();
                               }),
                             ),
                           ),
@@ -1033,7 +1114,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                 if (showOrdinary &&
                                     (type != VideoSourceType.all ||
                                         ordinary.any(
-                                          (s) => s.runtimeKind == 'javascript',
+                                          (s) => VideoSourceType.ordinary
+                                              .accepts(s),
                                         )))
                                   runtimeGroup(
                                     type == VideoSourceType.all
@@ -1144,9 +1226,13 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                   ],
                                 if (type == VideoSourceType.all) ...[
                                   runtimeGroup(VideoSourceType.python),
+                                  runtimeGroup(VideoSourceType.audio),
+                                  runtimeGroup(VideoSourceType.kazumi),
                                   runtimeGroup(VideoSourceType.module),
                                 ],
-                                if (showWeb) ...[
+                                if (showWeb &&
+                                    (type != VideoSourceType.audio ||
+                                        filteredWeb.isNotEmpty)) ...[
                                   KeyedSubtree(
                                     key: const ValueKey(
                                       'video-source-group-web',

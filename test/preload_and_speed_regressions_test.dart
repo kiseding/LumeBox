@@ -1,4 +1,5 @@
 import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/cache/media_preload.dart';
 
 import 'dart:async';
 
@@ -125,6 +126,7 @@ void main() {
   );
   test('下一集保留请求头、限额缓冲、静音暂停，并且只准备一次、接手一次', () async {
     final buffer = NextEpisodeBuffer();
+    addTearDown(buffer.dispose);
     final source = _Source();
     final player = _Player();
     int creates = 0;
@@ -139,7 +141,10 @@ void main() {
     expect(player.volume, 0);
     expect(player.plays, 0);
     expect(player.pauses, 1);
-    expect(player.buffer!.maxBufferBytes, 8 * 1024 * 1024);
+    expect(
+      player.buffer!.maxBufferBytes,
+      MediaPreload.instance.mediaBudgetBytes,
+    );
     expect(buffer.take(target, 2, PlayerKernel.avplayer), isNull);
     final ready = buffer.take(target, 1, PlayerKernel.avplayer)!;
     expect(ready.player, same(player));
@@ -149,8 +154,37 @@ void main() {
     expect(player.disposals, 0, reason: '接手后的播放器由播放页管理');
     await player.dispose();
   });
+  test('全局关闭阻止下一集解析，启用后按预算准备，单独清理会释放实例', () async {
+    final policy = MediaPreload.instance;
+    policy.update(video: false, bufferSeconds: 12, capacityMb: 32);
+    final buffer = NextEpisodeBuffer();
+    addTearDown(() {
+      buffer.dispose();
+      policy.update(video: true, bufferSeconds: 5, capacityMb: 64);
+    });
+    final source = _Source();
+    final player = _Player();
+    var opens = 0;
+    Future<void> prepare() =>
+        buffer.prepare(target, const PlayerSettings(), () async {
+          opens++;
+          return source;
+        }, (_) => player);
+    await prepare();
+    expect(opens, 0);
+    policy.update(video: true);
+    await prepare();
+    expect(opens, 1);
+    expect(player.buffer!.forwardBuffer, const Duration(seconds: 12));
+    expect(player.buffer!.maxBufferBytes, 8 * 1024 * 1024);
+    await policy.clear();
+    expect(player.disposals, 1);
+    expect(buffer.take(target, 1, PlayerKernel.avplayer), isNull);
+  });
+
   test('退出或换源取消在飞预加载，晚到的结果不会被接手且实例被释放', () async {
     final buffer = NextEpisodeBuffer();
+    addTearDown(buffer.dispose);
     final source = _Source();
     final player = _Player()..loadGate = Completer<void>();
     final task = buffer.prepare(

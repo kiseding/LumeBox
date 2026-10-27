@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/shell/shell_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/core/theme/floating_modules.dart';
 import 'package:lume_box/features/reading/compact_browse_header.dart';
 import 'package:lume_box/features/settings/native_navigation_settings_card.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
@@ -125,6 +126,26 @@ void main() {
     directory.deleteSync(recursive: true);
   });
 
+  test('导航默认值采用用户截图参数，明确保存的系统高度和零留白仍保留', () {
+    const defaults = NativeNavigationSettings();
+    expect(defaults.barHeight, 90);
+    expect(defaults.iconSize, 24);
+    expect(defaults.horizontalMargin, 10);
+    expect(defaults.safeGap, -31);
+    expect(defaults.materialOpacity, .6);
+    expect(defaults.opaqueBackground, isFalse);
+    expect(defaults.showLabels && defaults.followThemeColor, isTrue);
+    expect(NativeNavigationSettings.fromJson({}), defaults);
+    final saved = NativeNavigationSettings.fromJson({
+      'barHeight': 0,
+      'safeGap': 0,
+      'horizontalMargin': 0,
+    });
+    expect(saved.heightFor(64), 64);
+    expect(saved.safeGap, 0);
+    expect(saved.horizontalMargin, 0);
+  });
+
   test('原生参数单独保存，隐藏排序及修改自定义外观不会覆盖它', () {
     const native = NativeNavigationSettings(
       enabled: false,
@@ -175,7 +196,7 @@ void main() {
       'showLabels': 'bad',
     });
     expect(parsed.iconSize, 24);
-    expect(parsed.safeGap, 0);
+    expect(parsed.safeGap, -31);
     expect(parsed.horizontalMargin, 40);
     expect(parsed.tintColor, 0xFF7C5CFF);
     expect(parsed.showLabels, isTrue);
@@ -195,12 +216,13 @@ void main() {
       barHeight: 88,
       safeGap: -50,
       materialOpacity: .25,
+      opaqueBackground: true,
     );
     expect(NativeNavigationSettings.fromJson(value.toJson()), value);
     expect(value.heightFor(64), 88);
     expect(value.bottomFor(34), 0);
     expect(value.copyWith(safeGap: -12).bottomFor(34), 22);
-    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 64);
+    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 90);
     final bounded = NativeNavigationSettings.fromJson({
       'barHeight': 999,
       'safeGap': -999,
@@ -218,7 +240,7 @@ void main() {
     );
     expect(
       NativeNavigationSettings.fromJson({'barHeight': double.nan}).barHeight,
-      0,
+      90,
     );
   });
 
@@ -378,9 +400,9 @@ void main() {
     expect(find.byType(SystemDockBar), findsOneWidget);
     final page = tester.element(find.text('page-comic'));
     final scope = ShellDockScope.maybeScopeOf(page)!;
-    expect(scope.navigationHeight, 64);
-    expect(scope.dockBottom, 34);
-    expect(scope.dockInset, 106);
+    expect(scope.navigationHeight, 90);
+    expect(scope.dockBottom, 3);
+    expect(scope.dockInset, 101);
     final creations = harness.created.length;
     ShellSettingsController.instance.updateNativeNavigation(
       const NativeNavigationSettings(safeGap: 12, horizontalMargin: 16),
@@ -607,6 +629,29 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final top = tester.widget<NativeGlassSlider>(
+      find.byKey(const ValueKey('top-navigation-transparency')),
+    );
+    final bottom = tester.widget<NativeGlassSlider>(
+      find.byKey(const ValueKey('bottom-navigation-transparency')),
+    );
+    final oldBottom = controller.settings.nativeNavigation.materialOpacity;
+    top.onChanged!(.25);
+    await tester.pump();
+    expect(FloatingModules.instance.style(FloatingModule.home).opacity, .75);
+    expect(
+      FloatingModules.instance.style(FloatingModule.navigation).opacity,
+      .75,
+    );
+    expect(controller.settings.nativeNavigation.materialOpacity, oldBottom);
+    bottom.onChanged!(.6);
+    bottom.onChangeEnd!(.6);
+    await tester.pumpAndSettle();
+    expect(
+      controller.settings.nativeNavigation.materialOpacity,
+      closeTo(.4, .001),
+    );
+    expect(FloatingModules.instance.style(FloatingModule.home).opacity, .75);
     await tester.tap(find.byKey(const ValueKey('native-navigation-labels')));
     await tester.pumpAndSettle();
     expect(controller.settings.nativeNavigation.showLabels, false);

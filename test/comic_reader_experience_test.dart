@@ -20,7 +20,6 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/comic/comic_page_filters.dart';
 import 'package:lume_box/features/comic/comic_reader_page.dart';
-import 'package:lume_box/features/comic/comic_reader_glyphs.dart';
 import 'package:lume_box/features/comic/comic_reader_preferences.dart';
 import 'package:lume_box/features/comic/comic_settings.dart';
 
@@ -429,6 +428,11 @@ void main() {
       safe: const EdgeInsets.fromLTRB(59, 0, 59, 21),
       scale: 1.0,
     ),
+    (
+      size: const Size(844, 390),
+      safe: const EdgeInsets.fromLTRB(59, 0, 0, 21),
+      scale: 1.0,
+    ),
   ]) {
     testWidgets('顶部状态区不重复留白且标题收紧 ${spec.size} ${spec.scale}', (tester) async {
       await pumpReader(
@@ -448,18 +452,30 @@ void main() {
       );
       final title = tester.getRect(find.byKey(const Key('comic.top.title')));
       final exit = tester.getRect(find.byTooltip('退出阅读'));
-      final direction = tester.getRect(find.byTooltip('阅读方向'));
+      expect(find.byTooltip('阅读方向'), findsNothing);
       final more = tester.getRect(find.byTooltip('更多'));
       final statusHeight = spec.safe.top > 44 ? spec.safe.top : 44.0;
       expect(time.bottom, lessThanOrEqualTo(statusHeight));
       expect(battery.bottom, lessThanOrEqualTo(statusHeight));
+      expect(time.left, closeTo(spec.safe.left + 18, .1));
+      expect(
+        battery.right,
+        closeTo(spec.size.width - spec.safe.right - 18, .1),
+      );
       expect(controls.top, statusHeight + 6);
-      expect(title.width, lessThanOrEqualTo(180));
+      expect(title.center.dx, closeTo(spec.size.width / 2, .1));
+      expect(title.width, lessThanOrEqualTo(spec.size.width - 132));
       expect(title.height, greaterThanOrEqualTo(44));
       expect(exit.right, lessThan(title.left));
-      expect(title.right, lessThan(direction.left));
+      expect(title.right, lessThan(more.left));
       expect(more.right, lessThanOrEqualTo(spec.size.width - spec.safe.right));
-      expect(find.byType(ComicReaderVerticalFlowGlyph), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('comic.top.title')),
+          matching: find.byIcon(Icons.keyboard_arrow_down),
+        ),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
       await capture(
         tester,
@@ -469,12 +485,35 @@ void main() {
             ? 'reader-narrow-fixed'
             : 'reader-landscape-fixed',
       );
-      await tester.tap(find.byTooltip('阅读方向'));
+      await tester.tap(find.byTooltip('更多'));
+      await settle(tester);
+      await selectMenuItem(tester, '阅读模式');
+      await selectMenuItem(tester, '阅读方向');
       await settle(tester);
       expect(activeText('从右到左（日漫）'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('标题按文字自适应，长章名不挤压操作且可打开目录', (tester) async {
+    await pumpReader(tester, size: const Size(390, 844), chapterTitle: '第1话');
+    final short = tester.getRect(find.byKey(const Key('comic.top.title')));
+    expect(short.width, lessThan(136));
+    await tester.pumpWidget(const SizedBox());
+    await pumpReader(
+      tester,
+      size: const Size(390, 844),
+      chapterTitle: '这是一个很长很长的章节名称，用于检查标题截断与屏幕居中',
+    );
+    final long = tester.getRect(find.byKey(const Key('comic.top.title')));
+    expect(long.width, greaterThan(short.width));
+    expect(long.center.dx, closeTo(195, .1));
+    expect(long.right, lessThan(tester.getRect(find.byTooltip('更多')).left));
+    await tester.tap(find.byKey(const Key('comic.top.title')));
+    await settle(tester);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('阅读方向保留页位置并持久化，纵向连续滚动不吸附整页', (tester) async {
     await pumpReader(tester);
@@ -486,7 +525,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
     final before = library.comicProgress('item-1')!.page;
     expect(before, greaterThan(0));
-    await tester.tap(find.byTooltip('阅读方向'));
+    await tester.tap(find.byTooltip('更多'));
+    await settle(tester);
+    await selectMenuItem(tester, '阅读模式');
+    await selectMenuItem(tester, '阅读方向');
     await settle(tester);
     await tester.tap(find.text('垂直滚动'));
     await settle(tester);

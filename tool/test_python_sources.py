@@ -105,6 +105,37 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_comic_python_returns_ordered_images_and_per_image_headers(self):
+        source = '''
+class Spider:
+    def homeVideoContent(self): return {'list':[{'vod_id':'book','vod_name':'测试漫画'}]}
+    def detailContent(self, ids): return {'list':[{'vod_id':ids[0],'vod_name':'测试漫画','vod_play_url':'第1话$https://comic.test/read/1'}]}
+    def imageContent(self, chapter_id):
+        return {'images':['/pages/1.jpg', {'url':'https://img.test/2.jpg','headers':{'X-Page':'2'}}],
+                'headers':{'Referer':chapter_id}, 'imageHeaders':{'/pages/1.jpg':{'X-Page':'1'}}}
+'''
+        loaded = call('comic-images', 'load', script=source, section='comic')
+        self.assertTrue(loaded['ok'], loaded)
+        item = call('comic-images', method='list')['value']['items'][0]
+        chapter = call('comic-images', method='chapters', argument={'id':item['id']})['value'][0]
+        result = call('comic-images', method='content', argument={'id':item['id'], 'chapterId':chapter['id']})
+        self.assertTrue(result['ok'], result)
+        content = result['value']
+        self.assertEqual(content['kind'], 'images')
+        self.assertEqual(content['images'], ['https://comic.test/pages/1.jpg','https://img.test/2.jpg'])
+        self.assertEqual(content['imageHeaders'][content['images'][0]], {'Referer':'https://comic.test/read/1','X-Page':'1'})
+
+    def test_comic_player_compatibility_rejects_video_and_invalid_images(self):
+        for value in ("{'url':'https://media.test/movie.mp4'}", "{'images':['javascript:bad']}", "{'images':[]}"):
+            source = FIXTURE + '\n    def playerContent(self, flag, id, vipFlags=None): return ' + value
+            self.assertTrue(call('comic-invalid', 'load', script=source, section='comic')['ok'])
+            result = call('comic-invalid', method='content', argument={'id':'one','chapterId':json.dumps({'id':'https://comic.test/read/1'})})
+            self.assertFalse(result['ok'], result)
+        source = FIXTURE + "\n    def playerContent(self, flag, id, vipFlags=None): return ['https://img.test/1.jpg']"
+        self.assertTrue(call('comic-player', 'load', script=source, section='comic')['ok'])
+        result = call('comic-player', method='content', argument={'id':'one','chapterId':json.dumps({'id':'chapter'})})
+        self.assertEqual(result['value']['images'], ['https://img.test/1.jpg'])
+
     def test_source_signature_hook_and_web_player_mode(self):
         source = FIXTURE + '''
     def prepareRequest(self, request):
@@ -342,6 +373,35 @@ Spider.playerContent = lambda *args: {'url': args[0].getProxyUrl() + '&kind=bina
         self.assertTrue(call("fixture", "load", script=source)["ok"])
         self.assertEqual(self.value("home")[0]["title"], "网络通过")
         self.assertEqual(len(CALLS), 4)
+
+    def test_source_remounting_connection_pool_still_uses_app_network(self):
+        source = FIXTURE + '''
+    def init(self, extend):
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        self.session = requests.Session()
+        for scheme in ('http://', 'https://'):
+            self.session.mount(scheme, HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=Retry(total=1)))
+    def homeVideoContent(self):
+        import requests
+        from requests.adapters import HTTPAdapter
+        first = self.session.get('https://fixture.invalid/cookie').json()
+        with requests.Session() as session:
+            session.mount('https://fixture.invalid/', HTTPAdapter())
+            second = session.get('https://fixture.invalid/cookie').json()
+        assert first['ok'] and second['ok']
+        return {'list':[{'vod_id':'bridge','vod_name':'连接池兼容'}]}
+'''
+        from unittest.mock import patch
+        with patch('requests.adapters.HTTPAdapter.send', side_effect=AssertionError('不应绕过 App 网络桥')) as direct_send:
+            self.assertTrue(call('remounted', 'load', script=source)['ok'])
+            result = call('remounted', method='home')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['value'][0]['title'], '连接池兼容')
+        direct_send.assert_not_called()
+        self.assertEqual(len(CALLS), 2)
+        self.assertTrue(all(request['sourceId'] == 'remounted' for request in CALLS))
 
     def test_namespace_cache_dispose_and_missing_dependency(self):
         self.assertTrue(call("second", "load", script=FIXTURE)["ok"])

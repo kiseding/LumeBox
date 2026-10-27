@@ -29,7 +29,7 @@ class ReadingStore {
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
 
-  static const int _schemaVersion = 3;
+  static const int _schemaVersion = 4;
 
   /// 板块内阅读数据根目录（相对板块根）。
   static const String cacheRootName = 'reading_cache';
@@ -152,6 +152,17 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         .any((row) => row['name'] == 'favorite')) {
       _db.execute(
         'ALTER TABLE library_item ADD COLUMN favorite INTEGER NOT NULL DEFAULT 1',
+      );
+    }
+    if (version < 4) {
+      _db.execute(
+        'CREATE TABLE IF NOT EXISTS video_episode_progress AS SELECT * FROM reading_progress WHERE 0',
+      );
+      _db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS video_episode_identity ON video_episode_progress(item_id, chapter_id, section)',
+      );
+      _db.execute(
+        "INSERT OR IGNORE INTO video_episode_progress SELECT * FROM reading_progress WHERE progress_kind = 'video'",
       );
     }
     if (version < _schemaVersion) {
@@ -330,6 +341,29 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     return rows.isEmpty ? null : _progressFromRow(rows.first);
   }
 
+  Map<String, VideoProgress> videoEpisodes(String itemId) {
+    if (_closed) return {};
+    final result = <String, VideoProgress>{};
+    for (final row in _db.select(
+      'SELECT * FROM video_episode_progress WHERE item_id = ? AND section = ?',
+      [itemId, section.id],
+    )) {
+      final progress = _progressFromRow(row);
+      if (progress is VideoProgress) result[progress.chapterId] = progress;
+    }
+    return result;
+  }
+
+  VideoProgress? videoEpisode(String itemId, String chapterId) {
+    if (_closed) return null;
+    final rows = _db.select(
+      'SELECT * FROM video_episode_progress WHERE item_id = ? AND chapter_id = ? AND section = ?',
+      [itemId, chapterId, section.id],
+    );
+    final progress = rows.isEmpty ? null : _progressFromRow(rows.first);
+    return progress is VideoProgress ? progress : null;
+  }
+
   /// 保存阅读进度（同一作品一条，覆盖写）。
   void saveProgress(ReadingProgress progress) {
     if (_closed) return;
@@ -377,10 +411,23 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         progress.updatedAt.millisecondsSinceEpoch,
       ],
     );
+    if (progress is VideoProgress) {
+      _db.execute(
+        'INSERT OR REPLACE INTO video_episode_progress '
+        '(item_id, section, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at) '
+        'SELECT item_id, section, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at '
+        'FROM reading_progress WHERE item_id = ? AND section = ?',
+        [progress.itemId, section.id],
+      );
+    }
   }
 
   void clearProgress(String itemId) {
     if (_closed) return;
+    _db.execute(
+      'DELETE FROM video_episode_progress WHERE item_id = ? AND section = ?',
+      [itemId, section.id],
+    );
     _db.execute(
       'DELETE FROM reading_progress WHERE item_id = ? AND section = ?',
       <Object?>[itemId, section.id],

@@ -43,6 +43,7 @@ dependencies:
   sqlite3: ^3.7.0
   image: ^4.10.1
   http: ^1.6.0
+  html: ^0.15.7
   path_provider: ^2.1.6
   path: ^1.9.1
   ffi: ^2.2.0
@@ -76,6 +77,7 @@ dependencies:
   lume_cat_node:
     path: third_party/lume_cat_node
   cupertino_http: 3.1.0
+  palette_generator: 0.3.3+7
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -119,6 +121,7 @@ flutter:
     - assets/shaders/comic_page_filters.frag
     - assets/shaders/comic_glass.frag
   assets:
+    - assets/rex/lumebox_demo.js
     - assets/reference/
     - assets/js/
     - assets/cat/

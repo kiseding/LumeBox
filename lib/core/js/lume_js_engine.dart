@@ -673,14 +673,19 @@ class _FetchPolyfill implements SandboxPolyfill {
       url: String(url),
       method: options.method || 'GET',
       headers: options.headers || {},
-      body: options.body == null ? null : String(options.body)
+      body: options.body == null ? null : String(options.body),
+      // 二进制响应：源里解密封面这类场景需要原始字节（文本 body 会把 0x80-0xFF 解坏），
+      // 传 binary:true 才会额外拿到 bodyBase64。
+      binary: options.binary === true
     }).then(function (reply) {
       reply = reply || {};
       var body = reply.body == null ? '' : String(reply.body);
+      var bytes = reply.bodyBase64 == null ? '' : String(reply.bodyBase64);
       return {
         status: reply.status == null ? 0 : reply.status,
         headers: reply.headers || {},
         body: body,
+        bytes: bytes,
         text: function () { return Promise.resolve(body); },
         json: function () { return Promise.resolve(JSON.parse(body || 'null')); }
       };

@@ -1,12 +1,10 @@
 import '../../../shared/widgets/native_glass_surfaces.dart';
-import '../../../shared/widgets/frosted_glass_widget.dart';
+import '../../../shared/widgets/video_glass_surface.dart';
 import '../../../shared/widgets/module_glass_scope.dart';
 
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-
-import '../../../core/theme/lume_theme.dart';
 
 /// Landscape: a compact right drawer. Portrait: a bottom panel.
 ///
@@ -19,11 +17,24 @@ Future<T?> showDanmakuPanel<T>({
   required WidgetBuilder builder,
 }) => showGlassModalBottomSheet<T>(
   context: context,
+  videoGlass: false,
   isScrollControlled: true,
   useSafeArea: true,
   backgroundColor: Colors.transparent,
+  constraints: const BoxConstraints(maxWidth: double.infinity),
   barrierColor: Colors.black.withValues(alpha: .22),
-  builder: (context) => DanmakuPanelFrame(child: builder(context)),
+  builder: (context) => Stack(
+    children: [
+      Positioned.fill(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).pop(),
+          child: const SizedBox.expand(),
+        ),
+      ),
+      DanmakuPanelFrame(child: builder(context)),
+    ],
+  ),
 );
 
 class DanmakuPanelFrame extends StatelessWidget {
@@ -34,11 +45,10 @@ class DanmakuPanelFrame extends StatelessWidget {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
     final keyboard = media.viewInsets.bottom;
-    final textColor = LumeTheme.textPrimary;
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(
-      220.0,
+      0.0,
       media.size.height -
           media.viewPadding.top -
           media.viewPadding.bottom -
@@ -58,49 +68,23 @@ class DanmakuPanelFrame extends StatelessWidget {
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
         child: SizedBox(
           key: const ValueKey('danmaku-panel-frame'),
-          width: landscape ? math.min(400, media.size.width * .46) : 560,
-          height: available * .92,
+          width: landscape ? media.size.width / 3 : 560,
+          height: landscape
+              ? math.min(available, media.size.height * .85)
+              : available * .92,
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
-            child: FrostedGlassWidget(
-              radius: 20,
-              part: GlassPart.panels,
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(20),
-                clipBehavior: Clip.antiAlias,
-                child: MediaQuery.removeViewInsets(
+            child: VideoGlassSurface(
+              radius: 28,
+              child: MediaQuery.removeViewInsets(
+                context: context,
+                removeBottom: true,
+                child: MediaQuery.removePadding(
                   context: context,
+                  removeTop: true,
                   removeBottom: true,
-                  child: MediaQuery.removePadding(
-                    context: context,
-                    removeTop: true,
-                    removeBottom: true,
-                    child: Theme(
-                      data: Theme.of(context).copyWith(
-                        textTheme: Theme.of(context).textTheme.apply(
-                          bodyColor: textColor,
-                          displayColor: textColor,
-                        ),
-                        iconTheme: IconThemeData(color: textColor),
-                        inputDecorationTheme: Theme.of(context)
-                            .inputDecorationTheme
-                            .copyWith(
-                              labelStyle: TextStyle(
-                                color: LumeTheme.textSecondary,
-                              ),
-                              floatingLabelStyle: TextStyle(
-                                color: LumeTheme.accent,
-                              ),
-                            ),
-                      ),
-                      child: DefaultTextStyle(
-                        style: TextStyle(color: textColor, fontSize: 14),
-                        child: child,
-                      ),
-                    ),
-                  ),
+                  child: child,
                 ),
               ),
             ),

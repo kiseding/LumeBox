@@ -1,42 +1,48 @@
-import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
-
-import '../../core/theme/lume_theme.dart';
 
 class SourceRatingBadge extends StatelessWidget {
   const SourceRatingBadge({super.key, this.compact = false});
 
-  /// 紧凑模式：10px 的「18」小角标，跟在版本号后面，不单独占一行。
+  /// Fixed red age-rating mark, independent of theme and custom icon packs.
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
     const message = '含成人内容 · 18+';
-    if (!compact) {
-      return const Tooltip(
-        message: message,
-        child: LumeIcon(
-          Icons.eighteen_up_rating_outlined,
-          slot: 'source_rating_badge.1',
-          size: 18,
-        ),
-      );
-    }
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Tooltip(
       message: message,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: .5),
-        decoration: BoxDecoration(
-          border: Border.all(color: LumeTheme.inputBorder),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Text(
-          '18',
-          style: TextStyle(
-            fontSize: 10,
-            height: 1.15,
-            fontWeight: FontWeight.w600,
-            color: LumeTheme.muted,
+      child: Semantics(
+        label: message,
+        image: true,
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 2.5 : 3,
+            vertical: .75,
+          ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: dark
+                  ? const [Color(0xffe94e65), Color(0xffb52340)]
+                  : const [Color(0xffdb3e55), Color(0xffad2039)],
+            ),
+            border: Border.all(
+              color: const Color(0xfffa9aaa).withValues(alpha: .5),
+              width: .5,
+            ),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Text(
+            '18+',
+            style: TextStyle(
+              fontSize: compact ? 6.5 : 7,
+              height: 1.1,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .1,
+              color: Colors.white,
+            ),
           ),
         ),
       ),

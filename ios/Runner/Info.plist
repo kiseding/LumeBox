@@ -16,6 +16,22 @@
 		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
+			<!-- These legacy source URLs use HTTP.
+                 URLSession needs its own exception; WebKit permission is separate. -->
+			<key>yuetingba.cn</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>sangshipian.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
 			<key>imgcdn01.dycp444.com</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>

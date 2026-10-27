@@ -177,7 +177,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     final position = _clock.advance(
       sample: widget.position,
       frame: _elapsed,
-      playing: _animate,
+      // An idle ticker has no advancing frame time. Anchor to the engine's
+      // sample until frames restart, otherwise interpolation can remain stuck
+      // at the last comment for up to two seconds and then jump forward.
+      playing: _animate && _ticker.isActive,
       rate: widget.playbackRate,
     );
     _renderPosition =
@@ -239,20 +242,38 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   /// 投放：把时间窗口内还没上屏的弹幕加进来。
   void _spawn(Duration position) {
     final items = widget.track.items;
+    var examined = 0;
+    // A resumed/late frame must not walk thousands of obsolete comments.
+    if (_cursor < items.length &&
+        position - items[_cursor].time > const Duration(seconds: 1)) {
+      _cursor = _after(position - const Duration(seconds: 1));
+    }
     // 只投放「已经到点」的弹幕（不提前显示）。
     while (_cursor < items.length && items[_cursor].time <= position) {
+      // Blocked/duplicate/colliding bursts must not monopolize a video frame.
+      // Excess already-due comments are discarded, never queued up for later.
+      if (examined++ >= 64) {
+        _cursor = _after(position);
+        break;
+      }
       final item = items[_cursor];
       _cursor++;
       // 太旧的弹幕不补投：seek 之后不该把几分钟前的弹幕一次性糊上来。
       if (position - item.time > const Duration(seconds: 1)) continue;
       final settings = widget.settings;
-      if (!settings.accepts(item)) continue;
       final second = item.time.inSeconds;
       if (second != _rateSecond) {
         _rateSecond = second;
         _rateCount = 0;
       }
-      if (_rateCount >= settings.maxPerSecond) continue;
+      if (_rateCount >= settings.maxPerSecond ||
+          _active.length >= settings.maxOnScreen) {
+        final end =
+            Duration(seconds: second + 1) - const Duration(microseconds: 1);
+        _cursor = _after(end < position ? end : position);
+        continue;
+      }
+      if (!settings.accepts(item)) continue;
       final previous = _recentText[item.text];
       if (settings.mergeDuplicates &&
           previous != null &&
@@ -269,6 +290,19 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         (text, time) => item.time - time > const Duration(seconds: 5),
       );
     }
+  }
+
+  int _after(Duration time) {
+    var low = _cursor, high = widget.track.items.length;
+    while (low < high) {
+      final mid = (low + high) >> 1;
+      if (widget.track.items[mid].time <= time) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
   }
 
   /// 清理已经离开屏幕的弹幕，并释放轨道。
@@ -398,10 +432,13 @@ class _ActiveDanmaku {
   final DanmakuItem item;
   final int lane;
   TextPainter? fill, outline;
+  ui.Picture? picture;
   DanmakuStyle? cachedStyle;
   void dispose() {
     fill?.dispose();
     outline?.dispose();
+    picture?.dispose();
+    picture = null;
     fill = outline = null;
   }
 
@@ -418,6 +455,13 @@ class _ActiveDanmaku {
     if (style.strokeWidth > 0) {
       outline = _DanmakuPainter.textPainter(item.text, style, stroke: true);
     }
+    // Record outlined glyphs once per comment/style. During scrolling each
+    // vsync now submits one translated picture instead of two Paragraph paints.
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    outline?.paint(canvas, Offset.zero);
+    fill!.paint(canvas, Offset.zero);
+    picture = recorder.endRecording();
   }
 
   /// 上屏时刻（视频时间轴）。
@@ -472,7 +516,7 @@ class _DanmakuPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(0, 0, size.width, laneCount * rowHeight));
     for (final entry in entries) {
-      if (entry.lane >= laneCount || !settings.accepts(entry.item)) continue;
+      if (entry.lane >= laneCount) continue;
       final style = DanmakuStyle.of(entry.item, settings);
       entry.layout(style);
       final painter = entry.fill!;
@@ -513,8 +557,8 @@ class _DanmakuPainter extends CustomPainter {
         );
       }
       final offset = Offset(dx, (dy * pixelRatio).round() / pixelRatio);
-      entry.outline?.paint(canvas, offset);
-      painter.paint(canvas, offset);
+      canvas.translate(offset.dx, offset.dy);
+      canvas.drawPicture(entry.picture!);
       if (opacity < 1) canvas.restore();
       canvas.restore();
     }

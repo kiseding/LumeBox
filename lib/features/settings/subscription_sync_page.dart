@@ -27,6 +27,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
 
   Future<void> run() async {
     if (busy) return;
+    var failures = 0;
     setState(() {
       busy = true;
       results.clear();
@@ -43,13 +44,16 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         );
         results.add('${section.label}：${result.summary}');
         results.addAll(result.errors);
+        failures += result.errors.length;
         if (mounted) setState(() {});
       }
       if (widget.section == null) {
         final cats = CatService.instance;
         await cats.boot();
         for (final subscription
-            in cats.subscriptions.where((s) => s.enabled).toList()) {
+            in cats.subscriptions
+                .where((s) => s.enabled && !s.isLocal)
+                .toList()) {
           if (mounted) setState(() => current = '正在同步猫源：${subscription.name}…');
           try {
             await cats.update(subscription);
@@ -57,6 +61,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
               setState(() => results.add('猫源 ${subscription.name}：已同步'));
             }
           } catch (error) {
+            failures++;
             if (mounted) {
               setState(
                 () => results.add('猫源 ${subscription.name}：同步失败，保留原包。$error'),
@@ -66,12 +71,13 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         }
       }
     } catch (error) {
+      failures++;
       if (mounted) setState(() => results.add('同步未完成：$error'));
     } finally {
       if (mounted) {
         setState(() {
           busy = false;
-          current = '同步完成';
+          current = failures == 0 ? '订阅检查完成' : '部分订阅未同步成功，请查看下方原因';
         });
       }
     }
@@ -87,6 +93,17 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         const Text('立即更新已启用的订阅。单个订阅失败时保留原内容并继续其他订阅；本地手动源、收藏和历史会保留。'),
         const SizedBox(height: 16),
         Text(current),
+        if (busy)
+          for (final section in [Section.comic, Section.video])
+            ValueListenableBuilder<String>(
+              valueListenable: SourceSubscriptionSync.progress(section),
+              builder: (_, text, child) => text.isEmpty
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text('${section.label}：$text'),
+                    ),
+            ),
         if (busy)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),

@@ -358,23 +358,68 @@ class SourceItem {
   }
 }
 
+/// A source-provided person. TMDB is optional; modules can supply their own cast.
+class SourcePerson {
+  const SourcePerson({
+    required this.name,
+    this.id = '',
+    this.avatar,
+    this.role = '',
+    this.headers = const {},
+  });
+  final String id, name, role;
+  final String? avatar;
+  final Map<String, String> headers;
+
+  static SourcePerson? parse(Object? value) {
+    if (value is! Map) return null;
+    final name = _text(value['name'] ?? value['title']);
+    if (name == null) return null;
+    return SourcePerson(
+      id: '${value['id'] ?? ''}',
+      name: name,
+      avatar: _text(value['avatar']),
+      role: _text(value['role']) ?? '',
+      headers: _stringMap(value['headers']),
+    );
+  }
+}
+
 /// 条目详情。
 class SourceDetail {
   const SourceDetail({
     required this.id,
     required this.title,
     this.cover,
+    this.backdrop,
+    this.year = '',
+    this.mediaType = '',
+    this.cast = const [],
     this.coverHeaders = const {},
     this.subtitle,
     this.description,
+    this.chapters = const [],
+    this.author,
+    this.status,
+    this.tags = const [],
+    this.updatedAt,
+    this.related = const [],
   });
 
   final String id;
   final String title;
   final String? cover;
+  final String? backdrop;
+  final String year, mediaType;
+  final List<SourcePerson> cast;
   final Map<String, String> coverHeaders;
   final String? subtitle;
   final String? description;
+  final List<SourceChapter> chapters;
+  final String? author, status;
+  final List<String> tags;
+  final DateTime? updatedAt;
+  final List<SourceItem> related;
 
   static SourceDetail? parse(Object? json) {
     if (json is! Map) return null;
@@ -385,11 +430,39 @@ class SourceDetail {
       id: id,
       title: title,
       cover: _text(json['cover']),
+      backdrop: _text(json['backdrop']),
+      year:
+          RegExp(r'^(?:19|20)\d{2}')
+              .stringMatch('${json['year'] ?? json['releaseDate'] ?? ''}') ??
+          '',
+      mediaType: _text(json['mediaType']) ?? '',
+      cast: (json['cast'] is List ? json['cast'] as List : const [])
+          .map(SourcePerson.parse)
+          .whereType<SourcePerson>()
+          .toList(),
       coverHeaders: _stringMap(json['coverHeaders']),
       subtitle: _text(json['subtitle']),
       description: _text(json['description']),
+      chapters: parseChapters(json['chapters'] ?? json['episodes']),
+      author: _detailText(json['author'] ?? json['authors']),
+      status: _detailText(json['status']),
+      tags: (json['tags'] ?? json['genres']) is List
+          ? ((json['tags'] ?? json['genres']) as List)
+                .whereType<String>()
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .toList()
+          : const [],
+      updatedAt: SourceItem.parseTime(json['updatedAt'] ?? json['updateTime']),
+      related: parseItems(json['related'] ?? json['recommendations']),
     );
   }
+
+  static String? _detailText(Object? value) => value is String
+      ? _text(value)
+      : value is List
+      ? _text(value.whereType<String>().join('、'))
+      : null;
 }
 
 /// 章节条目。
@@ -398,10 +471,16 @@ class SourceChapter {
     required this.id,
     required this.title,
     this.publishedAt,
+    this.line = '',
+    this.cover,
+    this.coverHeaders = const {},
   });
 
   final String id;
   final String title;
+  final String line;
+  final String? cover;
+  final Map<String, String> coverHeaders;
 
   /// 章节发布时间（可选能力）：追剧日历据此把「更新」归到某一天。
   ///
@@ -417,6 +496,13 @@ class SourceChapter {
     return SourceChapter(
       id: id,
       title: title.isEmpty ? id : title,
+      line:
+          _text(
+            json['line'] ?? json['route'] ?? json['flag'] ?? json['road'],
+          ) ??
+          '',
+      cover: _text(json['cover'] ?? json['thumbnail']),
+      coverHeaders: _stringMap(json['coverHeaders']),
       publishedAt: _parseTime(
         json['publishedAt'] ??
             json['published'] ??

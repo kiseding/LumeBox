@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/theme/lume_theme.dart';
 import '../../../shared/widgets/lume_icon.dart';
 import 'dandanplay_client.dart';
 import 'danmaku_models.dart';
@@ -328,7 +327,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: LumeTheme.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -383,7 +382,7 @@ class _DanmakuMatchSheetState extends State<DanmakuMatchSheet> {
                     widget.serviceLabel!,
                     style: TextStyle(
                       fontSize: 12,
-                      color: LumeTheme.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),

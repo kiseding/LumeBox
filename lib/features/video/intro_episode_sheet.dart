@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/intro/intro_controller.dart';
 import '../../core/intro/intro_models.dart';
 import 'intro_settings_page.dart';
+import 'player_settings_panel.dart';
 
 class IntroEpisodeSheet extends StatefulWidget {
   const IntroEpisodeSheet({
@@ -154,20 +155,18 @@ class _IntroEpisodeSheetState extends State<IntroEpisodeSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('片头片尾'),
-      actions: [
-        IconButton(
-          tooltip: '全部识别设置',
-          icon: const LumeIcon(Icons.tune, slot: 'intro_episode_sheet.1'),
-          onPressed: () => Navigator.push<void>(
-            context,
-            MaterialPageRoute(builder: (_) => const IntroSettingsPage()),
-          ),
+  Widget build(BuildContext context) => PlayerSettingsScaffold(
+    title: '片头片尾',
+    actions: [
+      IconButton(
+        tooltip: '全部识别设置',
+        icon: const LumeIcon(Icons.tune, slot: 'intro_episode_sheet.1'),
+        onPressed: () => Navigator.push<void>(
+          context,
+          MaterialPageRoute(builder: (_) => const IntroSettingsPage()),
         ),
-      ],
-    ),
+      ),
+    ],
     body: AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) => Center(

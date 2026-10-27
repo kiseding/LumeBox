@@ -1,18 +1,11 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
-import 'frosted_glass_widget.dart';
-
 import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/lume_theme.dart';
 
-/// Dock 收起后的左下角悬浮球：三种样式共用同一套位置/手势，只换外观。
-///
-/// 背景统一走 [BackdropFilter] 毛玻璃：
-/// - 灵动箭头：主题渐变 + 白色箭头；
-/// - 精致网格：半透明白玻璃 + 主题紫九点；
-/// - 极简线条：更透的白玻璃 + 主题紫三横线。
+/// 收起后的导航把手：透明中性底色，不绘制主题色边缘；仅图标跟随主题。
 class DockHandleButton extends StatelessWidget {
   const DockHandleButton({
     super.key,
@@ -39,11 +32,7 @@ class DockHandleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentSection = style == DockHandleStyle.currentSection;
     final accent = LumeTheme.accent;
-    final border = Border.all(
-      color: Colors.white.withValues(alpha: .28 * materialOpacity),
-    );
     final content = switch (style) {
       DockHandleStyle.currentSection => LumeIcon(
         sectionIcon,
@@ -76,8 +65,6 @@ class DockHandleButton extends StatelessWidget {
         fallback: _RoundedLines(color: accent),
       ),
     };
-    const fill = BoxDecoration(shape: BoxShape.circle);
-
     return Opacity(
       opacity: opacity,
       child: Tooltip(
@@ -85,39 +72,16 @@ class DockHandleButton extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: border,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .08 * materialOpacity),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ClipOval(
-              child: FrostedGlassWidget(
-                nativeGlass: true,
-                neutralTint: true,
-                materialOpacity: materialOpacity,
-                nativeStyle: currentSection ? DockNativeGlassStyle.thin : null,
-                opacity: currentSection ? .18 : .72,
-                border: !currentSection,
-                radius: size / 2,
-                child: DecoratedBox(
-                  decoration: fill,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: onPressed,
-                      child: Center(child: content),
-                    ),
-                  ),
-                ),
-              ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              focusColor: Colors.transparent,
+              customBorder: const CircleBorder(),
+              onTap: onPressed,
+              child: Center(child: content),
             ),
           ),
         ),

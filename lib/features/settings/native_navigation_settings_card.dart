@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/shell/shell_settings.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../core/theme/floating_modules.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../shell/shell_dock_bar.dart';
 import '../shell/system_dock_bar.dart';
@@ -90,7 +91,7 @@ class _NativeNavigationSettingsCardState
           key: const ValueKey('native-navigation-enabled'),
           contentPadding: EdgeInsets.zero,
           title: const Text('使用系统导航栏'),
-          subtitle: const Text('使用 iOS 26 系统导航栏，下方可调整原生栏的高度和位置。'),
+          subtitle: const Text('使用 iOS 26 原生液态玻璃，下方可调整胶囊高度和位置。'),
           value: settings.enabled,
           onChanged: (value) => _change(settings.copyWith(enabled: value)),
         ),
@@ -104,22 +105,64 @@ class _NativeNavigationSettingsCardState
         ],
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('胶囊透明度'),
-          subtitle: const Text('同时调节底部导航胶囊与收缩圆圈，图标保持清晰'),
+          title: const Text('顶部透明度'),
+          subtitle: const Text('顶部导航、首页分类及收缩状态同步调整'),
+          trailing: Text(
+            '${((1 - FloatingModules.instance.style(FloatingModule.home).opacity) * 100).round()}%',
+          ),
+        ),
+        NativeGlassSlider(
+          key: const ValueKey('top-navigation-transparency'),
+          value:
+              1 - FloatingModules.instance.style(FloatingModule.home).opacity,
+          min: 0,
+          max: 1,
+          divisions: 100,
+          onChanged: (value) => setState(() {
+            for (final module in [
+              FloatingModule.navigation,
+              FloatingModule.home,
+            ]) {
+              FloatingModules.instance.set(
+                module,
+                FloatingModules.instance
+                    .style(module)
+                    .copyWith(opacity: 1 - value),
+              );
+            }
+          }),
+          onChangeEnd: (_) => FloatingModules.instance.save(),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('底部透明度'),
+          subtitle: const Text('0% 遮挡底下内容，100% 保留系统玻璃。收起后只显示图标，无圆形底色。'),
           trailing: Text('${((1 - settings.materialOpacity) * 100).round()}%'),
         ),
         NativeGlassSlider(
+          key: const ValueKey('bottom-navigation-transparency'),
           value: 1 - settings.materialOpacity,
           min: 0,
           max: 1,
           divisions: 100,
-          onChanged: (value) => _change(
-            settings.copyWith(materialOpacity: 1 - value),
-            save: false,
-          ),
+          onChanged: settings.enabled && settings.opaqueBackground
+              ? null
+              : (value) => _change(
+                  settings.copyWith(materialOpacity: 1 - value),
+                  save: false,
+                ),
           onChangeEnd: (_) =>
               unawaited(widget.controller.saveNativeNavigation()),
         ),
+        if (settings.enabled)
+          NativeSwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('底部使用纯色背景'),
+            subtitle: const Text('开启后完全遮挡内容，无需调透明度；关闭后恢复系统液态玻璃。'),
+            value: settings.opaqueBackground,
+            onChanged: (value) =>
+                _change(settings.copyWith(opaqueBackground: value)),
+          ),
         if (settings.enabled) ...[
           FutureBuilder<SystemTabBarCapabilities>(
             future: _capabilities,
@@ -136,43 +179,32 @@ class _NativeNavigationSettingsCardState
                   : widget.entries.first.id;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      colors: [
-                        LumeTheme.accent.withValues(alpha: .15),
-                        LumeTheme.base,
-                      ],
+                child: MediaQuery.removeViewPadding(
+                  context: context,
+                  removeLeft: true,
+                  removeRight: true,
+                  removeBottom: true,
+                  child: SystemDockBar(
+                    entries: widget.entries,
+                    activeId: id,
+                    onSelect: (id) {
+                      if (id != ShellDockEntry.search.id) {
+                        setState(() => _previewId = id);
+                      }
+                    },
+                    settings: settings,
+                    height: height,
+                    bottomMargin: settings.bottomFor(
+                      MediaQuery.viewPaddingOf(context).bottom,
                     ),
-                  ),
-                  child: MediaQuery.removeViewPadding(
-                    context: context,
-                    removeLeft: true,
-                    removeRight: true,
-                    removeBottom: true,
-                    child: SystemDockBar(
-                      entries: widget.entries,
-                      activeId: id,
-                      onSelect: (id) {
-                        if (id != ShellDockEntry.search.id) {
-                          setState(() => _previewId = id);
-                        }
-                      },
-                      settings: settings,
-                      height: height,
-                      bottomMargin: settings.bottomFor(
-                        MediaQuery.viewPaddingOf(context).bottom,
-                      ),
-                      onHeightChanged: (value) {
-                        if (mounted && value != _previewHeight) {
-                          setState(() => _previewHeight = value);
-                        }
-                      },
-                      onUnavailable: () {
-                        if (mounted) setState(() => _previewAvailable = false);
-                      },
-                    ),
+                    onHeightChanged: (value) {
+                      if (mounted && value != _previewHeight) {
+                        setState(() => _previewHeight = value);
+                      }
+                    },
+                    onUnavailable: () {
+                      if (mounted) setState(() => _previewAvailable = false);
+                    },
                   ),
                 ),
               );
@@ -260,8 +292,7 @@ class _NativeNavigationSettingsCardState
             (value) => settings.copyWith(safeGap: value),
           ),
           const SettingsFooterNote(
-            '高度通过缩放完整原生栏实现，水滴、图标与文字一起变化；'
-            '系统水滴不能单独指定尺寸。负距离向下移动，最低贴近屏幕底部。',
+            '高度直接控制原生玻璃胶囊及收缩圆圈的直径。图标大小独立调整。负距离向下移动，最低贴近屏幕底部。',
             padding: EdgeInsets.zero,
           ),
           TextButton(

@@ -23,6 +23,7 @@ import importlib.util
 import warnings as python_warnings
 import urllib.error
 import urllib.request
+from urllib.parse import urljoin, urlsplit, unquote
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 
 import _lume_host
@@ -40,6 +41,7 @@ _aliases = {
     "searchContent": ("searchContent", "getSearchContent", "search"),
     "detailContent": ("detailContent", "getDetailContent", "detail"),
     "playerContent": ("playerContent", "getPlayerContent", "play"),
+    "imageContent": ("imageContent", "getImageContent", "chapterContent", "getChapterContent"),
 }
 
 
@@ -152,6 +154,21 @@ def _session_init(self):
 
 
 requests.Session.__init__ = _session_init
+
+
+_original_get_adapter = requests.Session.get_adapter
+
+
+def _session_get_adapter(self, url):
+    adapter = _original_get_adapter(self, url)
+    # Spiders often remount HTTPAdapter to configure pools/retries after init.
+    # Their requests must still use Dart's session, cancellation and network.
+    if _active.get(None) is not None and isinstance(adapter, requests.adapters.HTTPAdapter):
+        return _HttpAdapter()
+    return adapter
+
+
+requests.Session.get_adapter = _session_get_adapter
 
 
 class _UrlResponse(io.BytesIO):
@@ -719,6 +736,33 @@ def _home(state):
     return boards
 
 
+def _image_content(raw, chapter):
+    value = _decoded(raw)
+    entries = value.get("images", value.get("pages", [])) if isinstance(value, dict) else value
+    if not isinstance(entries, (list, tuple)) or not entries:
+        raise ValueError("漫画 PY 必须返回非空图片列表 images，不能返回视频或网页地址")
+    shared = _decoded(value.get("headers", value.get("header", {}))) if isinstance(value, dict) else {}
+    per_image = value.get("imageHeaders", {}) if isinstance(value, dict) else {}
+    images, headers = [], {}
+    base = unquote(chapter)
+    for entry in entries:
+        address = entry.get("url", entry.get("src", "")) if isinstance(entry, dict) else entry
+        if not isinstance(address, str) or not address.strip():
+            raise ValueError("漫画 PY 返回了无效的图片地址")
+        url = urljoin(base, address.strip())
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+            raise ValueError("漫画 PY 图片地址须为 http(s) 网址")
+        image_headers = dict(shared) if isinstance(shared, dict) else {}
+        if isinstance(per_image, dict):
+            image_headers.update(per_image.get(address, per_image.get(url, {})))
+        if isinstance(entry, dict):
+            image_headers.update(entry.get("headers", entry.get("header", {})))
+        images.append(url)
+        if image_headers:
+            headers[url] = {str(k): str(v) for k, v in image_headers.items()}
+    return {"kind": "images", "images": images, "imageHeaders": headers}
+
+
 def _dispatch(state, method, arg):
     spider = state["spider"]
     if not state["initialized"]:
@@ -787,7 +831,13 @@ def _dispatch(state, method, arg):
         return chapters
     if method == "content":
         episode = json.loads(arg["chapterId"])
-        raw = _decoded(_invoke(spider, "playerContent", (episode.get("flag", ""), episode["id"], []), {"flag": episode.get("flag", ""), "id": episode["id"], "video_id": episode["id"], "vipflags": []}))
+        if state.get("section") == "comic" and _method(spider, "imageContent"):
+            raw = _invoke(spider, "imageContent", (episode["id"],), {"id": episode["id"], "chapterid": episode["id"], "chapter_id": episode["id"], "flag": episode.get("flag", "")})
+        else:
+            raw = _invoke(spider, "playerContent", (episode.get("flag", ""), episode["id"], []), {"flag": episode.get("flag", ""), "id": episode["id"], "video_id": episode["id"], "vipflags": []})
+        if state.get("section") == "comic":
+            return _image_content(raw, episode["id"])
+        raw = _decoded(raw)
         url = str(raw.get("url") or raw.get("pageUrl") or "")
         if not url:
             raise ValueError("源未返回播放地址；请检查站点、外部解析后端或 Android 专属依赖")
@@ -806,7 +856,8 @@ def execute(request):
         _close_source(_contexts.pop(source_id, None))
         return {"ok": True, "value": None}
     if action == "load":
-        state = {"source_id": source_id, "cache": {}, "config": {}, "initialized": False}
+        state = {"source_id": source_id, "cache": {}, "config": {}, "initialized": False,
+                 "section": request.get("section", "video")}
         _close_source(_contexts.pop(source_id, None))
         _contexts[source_id] = state
         source, filename = _unpack_source(state, request["script"])
@@ -824,7 +875,10 @@ def execute(request):
             exec(compile(source, filename, "exec"), namespace)
             cls = namespace.get("Spider")
             spider = cls() if isinstance(cls, type) else namespace.get("spider") or types.SimpleNamespace(**namespace)
-            for name in ("detailContent", "playerContent"):
+            required = ["detailContent"]
+            if state['section'] != 'comic' or not _method(spider, "imageContent"):
+                required.append("playerContent")
+            for name in required:
                 if not _method(spider, name):
                     raise ValueError("Python 源缺少接口：" + name)
             if not any(_method(spider, name) for name in ("homeContent", "homeVideoContent", "categoryContent", "searchContent")):

@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -7,6 +9,7 @@ import '../util/lume_log.dart';
 import '../util/md5.dart';
 import 'lume_http.dart';
 import '../source/source_package.dart';
+import '../source/source_subscription_catalog.dart';
 import '../source/kazumi_rule.dart';
 import '../source/source_bundle.dart';
 import '../js/module_script.dart';
@@ -36,12 +39,73 @@ class SourceFetchResult {
 /// 这一层刻意从 UI 里抽出来：导入弹窗与「更新订阅源」共用同一套解析，两处的
 /// 行为不会走偏（更新时同样会校验 MD5）。
 class SourceSubscription {
+  final _downloads =
+      <
+        String,
+        Future<({SourceFetchResult? value, Object? error, StackTrace? stack})>
+      >{};
+  final _downloadWaiters = Queue<Completer<void>>();
+  int _activeDownloads = 0;
+
+  Future<({SourceFetchResult? value, Object? error, StackTrace? stack})>
+  _startDownload(String url) async {
+    if (_activeDownloads >= 4) {
+      final ready = Completer<void>();
+      _downloadWaiters.add(ready);
+      await ready.future;
+    } else {
+      _activeDownloads++;
+    }
+    try {
+      return (value: await fetch(url), error: null, stack: null);
+    } catch (error, stack) {
+      // Capture errors immediately: a prefetched sibling may be consumed later.
+      return (value: null, error: error, stack: stack);
+    } finally {
+      if (_downloadWaiters.isEmpty) {
+        _activeDownloads--;
+      } else {
+        _downloadWaiters.removeFirst().complete();
+      }
+    }
+  }
+
+  Future<SourceFetchResult> _download(String url) async {
+    final pending = _downloads.remove(url) ?? _startDownload(url);
+    final result = await pending;
+    if (result.error != null) {
+      Error.throwWithStackTrace(result.error!, result.stack!);
+    }
+    return result.value!;
+  }
+
+  Iterable<String> _siblings(
+    List<String> urls,
+    Set<String> visited,
+    int budget,
+  ) sync* {
+    for (var i = 0; i < urls.length; i++) {
+      // Tiny/custom import limits preserve strictly lazy expansion. Normal
+      // subscriptions prefetch only a four-entry window; parsing stays ordered.
+      if (maxScripts >= defaultMaxScripts) {
+        for (var j = i; j < urls.length && j < i + 4 && j < budget; j++) {
+          final url = urls[j];
+          if (!visited.contains(url)) {
+            _downloads.putIfAbsent(url, () => _startDownload(url));
+          }
+        }
+      }
+      yield urls[i];
+    }
+  }
+
   static const defaultMaxScripts = 2000;
   SourceSubscription({
     required this.fetch,
     this.maxScripts = defaultMaxScripts,
     this.onSkip,
     this.strictManifest = false,
+    this.section,
   });
 
   /// 拉取动作（URL → 字节 + 文本）。默认走宿主网络层。
@@ -50,6 +114,9 @@ class SourceSubscription {
   /// 单次订阅最多收多少份脚本（防止清单无限展开）。
   final int maxScripts;
   final bool strictManifest;
+
+  /// A total subscription is expanded only for its importing section.
+  final String? section;
   bool complete = true;
 
   /// 清单里的**某一条**拉不到时的回调（地址 + 原因）。
@@ -73,20 +140,72 @@ class SourceSubscription {
       fetch: (url) async {
         final http = LumeHttp(source: '订阅拉取');
         try {
-          final response = await http.send(url: url);
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            throw StateError('HTTP ${response.statusCode}');
-          }
-          return SourceFetchResult(
-            bytes: response.body,
-            text: stripBomText(response.text),
-          );
+          return await fetchSubscription(http, url);
         } finally {
           // 每次拉取用完即关：订阅拉取是低频操作，不需要长期持有连接池。
           http.dispose();
         }
       },
     );
+  }
+
+  /// Preserve the saved/origin URL. Only public raw GitHub downloads get a CDN
+  /// retry after transport failure or server overload; a real 404 stays a 404.
+  static Future<SourceFetchResult> fetchSubscription(
+    LumeHttp http,
+    String url, {
+    bool force = false,
+  }) async {
+    url = SubscriptionCatalog.migrateUrl(url);
+    final headers = force ? const {'Cache-Control': 'no-cache'} : null;
+    LumeHttpResponse response;
+    try {
+      response = await http.send(url: url, headers: headers);
+      if (response.statusCode == 429 || response.statusCode >= 500) {
+        throw LumeHttpException('HTTP ${response.statusCode}');
+      }
+    } on LumeHttpException {
+      final alternate = githubCdnUrl(url);
+      if (alternate == null) rethrow;
+      LumeLog.info('[订阅] GitHub 原始地址暂不可达，尝试 CDN：$url');
+      response = await http.send(url: alternate, headers: headers);
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('HTTP ${response.statusCode}（$url）');
+    }
+    return SourceFetchResult(
+      bytes: response.body,
+      text: stripBomText(response.text),
+    );
+  }
+
+  static String? githubCdnUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'raw.githubusercontent.com' ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    final parts = uri.pathSegments.toList();
+    if (parts.length < 4) return null;
+    if (parts.length >= 6 &&
+        parts[2] == 'refs' &&
+        (parts[3] == 'heads' || parts[3] == 'tags')) {
+      parts.removeRange(2, 4);
+    }
+    return Uri(
+      scheme: 'https',
+      host: 'cdn.jsdelivr.net',
+      pathSegments: [
+        'gh',
+        parts[0],
+        '${parts[1]}@${parts[2]}',
+        ...parts.skip(3),
+      ],
+    ).toString();
   }
 
   /// 地址清单 → 脚本清单。
@@ -104,16 +223,24 @@ class SourceSubscription {
     complete = true;
     final refs = <SourceScriptRef>[];
     final visited = <String>{};
-    for (final url in urls) {
-      if (refs.length >= maxScripts) {
-        complete = false;
-        break;
+    try {
+      for (final url in urls) {
+        if (refs.length >= maxScripts) {
+          complete = false;
+          break;
+        }
+        refs.addAll(
+          await scriptRefsAt(url, visited, remaining: maxScripts - refs.length),
+        );
       }
-      refs.addAll(
-        await scriptRefsAt(url, visited, remaining: maxScripts - refs.length),
-      );
+      return refs;
+    } finally {
+      // Finish the small prefetch window before the caller closes its client.
+      // Captured errors remain per-entry failures, never unhandled futures.
+      final pending = _downloads.values.toList();
+      _downloads.clear();
+      await Future.wait(pending);
     }
-    return refs;
   }
 
   /// 单个订阅地址 → 脚本清单（0..n 条）。
@@ -143,11 +270,34 @@ class SourceSubscription {
       complete = false;
       return const <SourceScriptRef>[];
     }
-    final download = await fetch(url);
+    final download = await _download(url);
+    final total = _totalUrls(download.text);
+    if (total != null) {
+      final refs = <SourceScriptRef>[];
+      for (final nested in total) {
+        if (refs.length >= budget) {
+          complete = false;
+          break;
+        }
+        try {
+          refs.addAll(
+            await scriptRefsAt(
+              nested,
+              visited,
+              remaining: budget - refs.length,
+            ),
+          );
+        } catch (error) {
+          complete = false;
+          onSkip?.call(nested, error);
+        }
+      }
+      return refs;
+    }
     final kazumiIndex = KazumiRule.indexUrls(download.text, url);
     if (kazumiIndex != null) {
       final refs = <SourceScriptRef>[];
-      for (final item in kazumiIndex) {
+      for (final item in _siblings(kazumiIndex, visited, budget)) {
         if (refs.length >= budget) {
           complete = false;
           break;
@@ -238,7 +388,7 @@ class SourceSubscription {
     }
     final nested = urlsIn(download.text, limit: maxScripts + 1);
     if (nested.length > maxScripts) complete = false;
-    for (final item in nested) {
+    for (final item in _siblings(nested, visited, budget)) {
       if (refs.length >= budget) {
         complete = false;
         break;
@@ -260,6 +410,54 @@ class SourceSubscription {
   Future<List<SourceScriptRef>> resolveCollectionText(String text) {
     complete = true;
     return _collection(RexCollection.parse(text), <String>{}, maxScripts);
+  }
+
+  List<String>? _totalUrls(String text) {
+    final clean = stripBomText(text).trim();
+    if (!clean.startsWith('{')) return null;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(clean);
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! Map || decoded['format'] != 'lume.total-subscription') {
+      return null;
+    }
+    final sections = decoded['sections'];
+    if (decoded['version'] != 1 || sections is! Map || sections.isEmpty) {
+      throw const FormatException('总订阅格式错误，保留现有源');
+    }
+    final urls = <String>{};
+    for (final entry in sections.entries) {
+      if (entry.key == 'novel') continue;
+      if (!['comic', 'video'].contains(entry.key)) {
+        throw const FormatException('总订阅包含未知板块，保留现有源');
+      }
+      if (section != null && entry.key != section) continue;
+      if (entry.value is! List || (entry.value as List).length > 100) {
+        throw const FormatException('总订阅板块地址格式错误，保留现有源');
+      }
+      for (final raw in entry.value as List) {
+        if (raw is Map && raw['enabled'] != null && raw['enabled'] is! bool) {
+          throw const FormatException('总订阅启用状态格式错误，保留现有源');
+        }
+        if (raw is Map && raw['enabled'] == false) continue;
+        final url = raw is String
+            ? raw
+            : raw is Map
+            ? raw['url']
+            : null;
+        if (url is! String ||
+            !isHttpUrl(url) ||
+            Uri.tryParse(url)?.host.isEmpty != false ||
+            Uri.parse(url).userInfo.isNotEmpty) {
+          throw const FormatException('总订阅包含无效地址，保留现有源');
+        }
+        urls.add(url);
+      }
+    }
+    return urls.toList();
   }
 
   Future<List<SourceScriptRef>> _collection(
@@ -392,7 +590,10 @@ class SourceSubscription {
   /// 是不是图源脚本：认头部元信息声明，也认脚本里的 `LumeSource` 全局对象。
   static bool looksLikeScript(String text) =>
       SourceMetadataHeader.hasHeader(text) ||
-      text.contains('LumeSource') ||
+      RegExp(
+        r'^\s*(?:(?:var|let|const)\s+)?LumeSource\s*=',
+        multiLine: true,
+      ).hasMatch(text) ||
       SourcePackage.looksLikeScript(text);
 
   static bool isHttpUrl(String value) {

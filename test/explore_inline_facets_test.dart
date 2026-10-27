@@ -151,6 +151,31 @@ void main() {
     expect(find.byType(AppBar), findsNothing);
   });
 
+  testWidgets('大量筛选时顶部最多半屏，内部滚动仍可选择末尾条件', (tester) async {
+    final source = _ManyFilterSource(count: 20);
+    await show(
+      tester,
+      FakeSourceManager(
+        sources: const [
+          SourceDescriptor(id: 'a', name: '源A', version: '1', enabled: true),
+        ],
+        opened: {'a': source},
+      ),
+    );
+    final headerScroll = find.ancestor(
+      of: find.text('网站第20行'),
+      matching: find.byType(SingleChildScrollView),
+    );
+    expect(headerScroll, findsOneWidget);
+    expect(tester.getSize(headerScroll).height, lessThanOrEqualTo(956 / 2));
+    await tester.ensureVisible(find.text('第五组条件20'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第五组条件20'));
+    await tester.pumpAndSettle();
+    expect(source.requests.last.$2, {'row20': 'pick20'});
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('分类指定类型时，筛选类型的高亮和实际请求一致', (tester) async {
     final source = _TypedFilterSource();
     await show(
@@ -222,10 +247,11 @@ void main() {
 }
 
 class _ManyFilterSource extends _FilterSource {
-  _ManyFilterSource() : super('a', '网站分类', '网站分组', '网站条件');
+  _ManyFilterSource({this.count = 5}) : super('a', '网站分类', '网站分组', '网站条件');
+  final int count;
   @override
   Future<List<SourceFilterGroup>> filters() async => [
-    for (var i = 1; i <= 5; i++)
+    for (var i = 1; i <= count; i++)
       SourceFilterGroup(
         id: 'row$i',
         title: '网站第$i行',

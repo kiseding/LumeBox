@@ -1,3 +1,4 @@
+import '../../core/source/source_subscription_catalog.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -75,8 +76,7 @@ Future<bool> runSourceImport(
     skipped: request.skipped,
     notes: request.notes,
   );
-  if (imported &&
-      request.subscriptionUrls.isNotEmpty &&
+  if (request.subscriptionUrls.isNotEmpty &&
       manager is SubscriptionImportManager) {
     await SourceSubscriptionSync.remember(
       request.section,
@@ -411,7 +411,8 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     Text(
       '脚本头部写一行「// LumeSource: {"id":"…","name":"…"}」即可被识别；'
       '只写顶层函数（getList(page) 等）的脚本同样支持。'
-      '视频板块还支持 Python Spider、ESM / CommonJS、ZIP 多文件源包与远程 Spider JSON。'
+      '漫画和视频板块支持 Python Spider；漫画 PY 返回章节图片列表。'
+      '视频板块还支持 ESM / CommonJS、ZIP 多文件源包与远程 Spider JSON。'
       'Python 源会执行代码，请仅导入可信来源。'
       '也可以选择「一行一个地址」的清单文件（.txt / .js.md5），'
       '会按订阅逐个拉取并记下来源地址。',
@@ -462,6 +463,28 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
   }
 
   List<Widget> _buildSubscription() => <Widget>[
+    if (_section == Section.comic || _section == Section.video)
+      Wrap(
+        spacing: 8,
+        children: [
+          for (final domestic in [true, false])
+            ActionChip(
+              label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                      final audio = _url.text.contains('audiobook');
+                      _url.text = audio
+                          ? '${domestic ? SubscriptionCatalog.cdnBase : SubscriptionCatalog.base}subscriptions/${domestic ? 'cdn/' : ''}audiobook.txt'
+                          : SubscriptionCatalog.sectionUrl(
+                              _section,
+                              cdn: domestic,
+                            );
+                    }),
+            ),
+        ],
+      ),
+    const SizedBox(height: 8),
     TextField(
       controller: _url,
       enabled: !_busy,
@@ -714,6 +737,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
           break;
         }
         final refs = await SourceSubscription(
+          section: _section.id,
           maxScripts: (widget.maxScripts - items.length).clamp(
             0,
             widget.maxScripts,
@@ -817,6 +841,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
     var fetches = 0;
     final fetch = widget.fetchSubscription ?? _fetchSubscriptionText;
     return SourceSubscription(
+      section: _section.id,
       maxScripts: maxScripts ?? widget.maxScripts,
       onSkip: onSkip,
       fetch: (url) async {
