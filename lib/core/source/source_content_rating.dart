@@ -133,6 +133,8 @@ class SourceContentRating {
     'gamebus_video',
     // 探花视频 / 91大神（同一套内容库的两个域名，吃瓜/探花类成人短片）。
     'tanhua_video',
+    // 在线影院 / 91吃瓜（bb.f016video.com 与 ss.99utv.com，同一站群，前者是超集）。
+    'f016_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -280,6 +282,8 @@ class SourceContentRating {
     "绅游巴士漫画",
     "探花视频",
     "91大神",
+    "在线影院",
+    "91吃瓜",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

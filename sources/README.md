@@ -70,6 +70,7 @@ sources/video/
 ├── betareel.js    BetaTok（betareel.com）Firebase + R2；`/api/betatok/feed` 给预签名清单，**清单 27 MB 用 Range 窗口读**
 ├── gamebus.js     绅游巴士（gamebus001.cc）`/api/video/page/N` 接口；HLS 是 fMP4（init.mp4 + seg_*.m4s），实测 m3u8 200
 └── tanhua.js      探花视频 / 91大神（同一套内容库的两个域名）；SSR 无接口，播放地址在详情页 DPlayer 配置里
+└── f016.js        在线影院 / 91吃瓜（同一站群，前者是超集）；hash slug 路径，搜索走站点自带的 Meilisearch
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -121,6 +122,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 绅游巴士 | 否 | 2 块 | 3 排序 | 30 | 30 | ok | 1 | **video（m3u8，fMP4：init.mp4 + seg_*.m4s，实测 200）** |
 | 绅游巴士漫画 | 否 | 3 块 | 4 排序 | 30 | 30 | ok | 10 | **images（一整话 136 张 webp，首图 200）** |
 | 探花视频 | 否 | 4 块 | 42 分类 | 30 | 无搜索接口 | ok | 1 | **video（m3u8，实测 200 + #EXTM3U；另一域名 91大神 同库同地址）** |
+| 在线影院 | 否 | 3 块 | 31 分类 | 40 | 40（Meilisearch） | ok | 1 | **video（m3u8，master→variant 实测 200；另一域名 91吃瓜 是子集，404 自动回落）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -197,6 +199,7 @@ dart run tools/site_reachability.dart
 | BetaTok | Firebase 项目 + R2：`GET /api/betatok/feed` → `{manifestUrl(预签名), mediaBase, mediaQuery, expiresAt}`；清单是 **27 MB / 34466 条**的整包 JSON（对象本身 gzip 3.7 MB） | **Range 窗口**：每次只取前 N KB 压缩（64 KB ≈ 550 KB 文本 ≈ 680 条），用 `},{"id":"` 切条、只 `JSON.parse` 需要的那几条；`/api/betatok/media/{videoKey}?{mediaQuery}` → 302 到 R2 预签名 mp4（实测 206，单个 60 MB）；封面走同一代理 `{posterKey}`。`locked:true` 的付费片不列。 |
 | 绅游巴士 | Quasar SSR + `/api`：`POST /api/comic/page/{N}`（`sort`=last_chapterAt/createdAt/views/likes）、`GET /api/comic/{id}`、`GET /api/comic/chapters?comicId=`、`GET /api/comic/{chapterId}/pages`；`POST /api/video/page/{N}`、`GET /api/video/{id}`。接口表来自 `/assets/index-Cq4bvF8R.js` | 漫画：`/comic/{chapterId}/pages` 直接给 `pages[].image_path`（webp，一话最多三百多页）；短片：详情里的 `hlsUrl` 是 `image.gamebus001.cc/…/index.m3u8`（fMP4，`init.mp4` + `seg_*.m4s`，实测清单与分片都 200，无 AES key、不需要 Referer）。`vipOnly` 只给可读错误。 |
 | 探花视频 / 91大神 | SSR 无接口：首页 `/index-{cat}-{N}.html`、详情 `/content-{id}.html`；分类导航随域名不同（探花=题材，91大神=大神名） | 详情页 DPlayer 配置里直接写 `url: '…index.m3u8'`（`2609.sysl2026.com` / `voddadaizi2.com:52866` / `vostrely.com` / `play2.laoyacdn.com` 等历史 CDN 轮换），实测 200 + `#EXTM3U`。**两个域名同 id 同 m3u8**，做成一个源 + mirrors。 |
+| 在线影院 / 91吃瓜 | hash slug 站：首页 `/`+`/page/N/`、分类 `/{slug}/`+`/{slug}/page/N/`、详情 `/{slug}/{2字母}/{10字母}.html`；搜索是站点自带 Meilisearch：`POST /search/indexes/indexes/articles/search`（`Authorization: Bearer <search-config.js 里的 apiKey>`，路径里 host 段出现两次） | `<video poster>` + 页面内直给 m3u8（`hsm3.hwzcfz.com`、`lsbbf11.com`…）。**B(在线影院) 是超集、A(91吃瓜) 是子集**：A 的条目在 B 上 16/20 命中，B 的条目在 A 上 0/20，同路径同 m3u8；A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失并回落到 B。 |
 
 三个「苹果CMS」系源都自带纯 JS 版 base64 / 百分号解码（沙箱没有 `atob`/`unescape`），
 所以 `encrypt=1/2` 的站点换了编码也不用改脚本。
@@ -215,6 +218,7 @@ dart run tools/site_reachability.dart
 - **BetaTok 的付费片不列**：`locked:true`（PPV，price 单位钻石）直接从列表里滤掉，不代下单。
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
+- **在线影院 / 91吃瓜 是包含关系**：J(`bb.f016video.com`) 是超集、A(`ss.99utv.com`) 是子集（A 的条目 16/20 能在 B 上取到，B 的条目 0/20 能在 A 上取到）。所以只做一个源（`f016_video`），B 做默认、A 做镜像，并且**详情 404 自动回落**——A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失，不能只看状态码。列表最多 100 页，更早内容靠站内 Meilisearch 搜索。
 
 ## 七、免责
 
