@@ -331,6 +331,7 @@ class LumeSources {
     // 覆盖导入不会动网络覆盖与来源地址（它们属于用户配置，不属于脚本）。
     return SourceUpdateResult.updated(
       _describe(updated),
+      previousVersion: record.version,
       note: skipped.isEmpty
           ? ''
           : '订阅里另有 ${skipped.length} 条拉不到：${skipped.join('、')}',

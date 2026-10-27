@@ -65,12 +65,14 @@ class SourceImportOutcome {
     this.message = '',
     this.subscription = false,
     this.originUrl = '',
+    this.versionChange = '',
   });
 
   /// 来源标签（失败行靠它定位是哪一条）。
   final String label;
 
   final SourceImportStatus status;
+  final String versionChange;
 
   /// 图源显示名（成功时有值）。
   final String name;
@@ -98,7 +100,7 @@ class SourceImportOutcome {
       // 弹窗与「复制明细」里能看到完整内容。
       return originUrl.trim().isEmpty ? head : '$head\n地址：$originUrl';
     }
-    return '${status.label}：$name${subscription ? '（订阅）' : ''}${message.isEmpty ? '' : '\n$message'}';
+    return '${status.label}：$name${subscription ? '（订阅）' : ''}${versionChange.isEmpty ? '' : '\n$versionChange；分类、置顶、排序和网络设置已保留'}${message.isEmpty ? '' : '\n$message'}';
   }
 }
 
@@ -304,6 +306,12 @@ Future<bool> importSources(
             ? SourceImportStatus.overwritten
             : SourceImportStatus.added,
         name: descriptor.name,
+        versionChange: existing.containsKey(descriptor.id)
+            ? sourceVersionChange(
+                existing[descriptor.id]!.version,
+                descriptor.version,
+              )
+            : '',
         message: [
           result.message ?? '',
           categoryNote,

@@ -14,6 +14,9 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/net/source_subscription.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/source/source_preferences.dart';
+import 'package:lume_box/core/source/source_order.dart';
 
 /// 导入失败的提示口径（用户反馈：只看到一句「脚本载入失败：语法错误、运行异常，
 /// 或用到了沙箱不支持的能力」，得翻运行日志才知道真实原因）。
@@ -71,6 +74,86 @@ void main() {
     await SectionScope.open(section);
     return SourceRegistry.open(section);
   }
+
+  test('overwrite and subscription updates preserve personal settings and report versions', () async {
+    final registry = await openRegistry(Section.video);
+    await ReadingLibrary.open(Section.video);
+    String script(String version) =>
+        '// LumeSource: {"id":"keep-settings","name":"配置保留","version":"$version","category":"video","mirrors":["https://source.test"]}\n'
+        "async function getList(page) { return {list: []}; }";
+    await registry.import(
+      script('1'),
+      originUrl: 'https://example.test/source.js',
+    );
+    registry.setEnabled('keep-settings', false);
+    registry.setGroup('keep-settings', '自定义组');
+    registry.setSourceNetwork(
+      'keep-settings',
+      userAgent: 'custom-UA',
+      cookie: 'session=fixture',
+      proxy: 'http://127.0.0.1:9999',
+    );
+    registry.setSourceSiteConfig(
+      'keep-settings',
+      const SourceSiteConfig(
+        mirrors: ['https://source.test'],
+        domainOverride: 'https://mirror.test',
+        account: 'fixture',
+        password: 'fixture-pass',
+      ),
+    );
+    await const SourcePreferences(
+      contentCategory: 'movie',
+      pinned: true,
+      newestFirst: true,
+      iconUrl: 'https://icon.test/cover.png',
+    ).save(Section.video, 'keep-settings');
+    ReadingLibrary.find(Section.video)!
+        .setSetting(SourceOrder.key, jsonEncode(['other', 'keep-settings']));
+    void verify() {
+      final record = registry.source('keep-settings')!;
+      expect(record.enabled, isFalse);
+      expect(record.group, '自定义组');
+      expect(record.network.userAgent, 'custom-UA');
+      expect(record.network.cookie, 'session=fixture');
+      expect(record.network.proxy, 'http://127.0.0.1:9999');
+      expect(record.siteConfig.domainOverride, 'https://mirror.test');
+      expect(record.siteConfig.account, 'fixture');
+      expect(record.siteConfig.password, 'fixture-pass');
+      expect(record.originUrl, 'https://example.test/source.js');
+      final prefs = SourcePreferences.read(Section.video, 'keep-settings');
+      expect(prefs.pinned, isTrue);
+      expect(prefs.contentCategory, 'movie');
+      expect(prefs.iconUrl, 'https://icon.test/cover.png');
+      expect(prefs.newestFirst, isTrue);
+      expect(SourceOrder.read(Section.video), ['other', 'keep-settings']);
+    }
+
+    try {
+      expect((await registry.import(script('2'))).isSuccess, isTrue);
+      verify();
+      final result = await LumeSources.updateFromSubscription(
+        Section.video,
+        'keep-settings',
+        subscription: SourceSubscription(
+          fetch: (url) async => SourceFetchResult(
+            bytes: Uint8List.fromList(utf8.encode(script('3'))),
+            text: script('3'),
+          ),
+        ),
+      );
+      expect(result.status, SourceUpdateStatus.updated, reason: result.message);
+      expect(result.versionChange, '2 → 3');
+      verify();
+      ReadingLibrary.disposeAll();
+      ReadingStore.disposeAll();
+      await ReadingLibrary.open(Section.video);
+      verify();
+    } finally {
+      ReadingLibrary.disposeAll();
+      ReadingStore.disposeAll();
+    }
+  }, skip: skipReason);
 
   test('猫源脚本真的用到 dns：提示点名 dns，并说明自建服务端程序不是图源脚本', () async {
     final registry = await openRegistry(Section.cat);

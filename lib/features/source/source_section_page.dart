@@ -19,6 +19,9 @@ import '../../core/source/source_picker_groups.dart';
 import '../../shared/widgets/source_icon.dart';
 
 import 'package:flutter/material.dart';
+
+import '../../core/source/source_content_category.dart';
+
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/js/cat_engines.dart';
@@ -74,6 +77,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   String? _group;
   bool _compact = false;
   int _sourceFilter = 0;
+  SourceContentCategory? _contentFilter;
   bool _selecting = false;
   bool _maintaining = false;
   final Set<String> _selectedIds = {};
@@ -590,6 +594,41 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     });
   }
 
+  Future<void> _bulkCategory(String category) async {
+    if (_maintaining || _selectedIds.isEmpty) return;
+    final selected = (_sources ?? [])
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
+    final targets = selected.where(SourceContentCategories.appliesTo).toList();
+    setState(() => _maintaining = true);
+    var saved = 0;
+    final failed = <String>[];
+    try {
+      for (final source in targets) {
+        try {
+          await SourcePreferences.read(
+            widget.section,
+            source.id,
+          ).copyWith(contentCategory: category).save(widget.section, source.id);
+          saved++;
+        } catch (_) {
+          failed.add(source.id);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _selectedIds.removeAll(
+          targets.map((s) => s.id).where((id) => !failed.contains(id)),
+        );
+        _maintenanceStatus =
+            '已归类 $saved 个 JS 源${selected.length > targets.length ? '，跳过 ${selected.length - targets.length} 个其他类型源' : ''}${failed.isNotEmpty ? '，失败 ${failed.length} 项（保留选择，可重试）' : ''}';
+      });
+      await _reload();
+    } finally {
+      if (mounted) setState(() => _maintaining = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_manager.runtimeAvailable) {
@@ -739,11 +778,20 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     source.id,
                     source.name,
                   ) &&
+                  (widget.section != Section.video ||
+                      PrivacySettings.instance.showAdult ||
+                      !SourceContentCategories.appliesTo(source) ||
+                      SourceContentCategories.forSource(source) !=
+                          SourceContentCategory.adult) &&
                   (query.isEmpty ||
                       '${source.name} ${source.id} ${source.group}'
                           .toLowerCase()
                           .contains(query)) &&
                   (_group == null || source.group == _group) &&
+                  (_contentFilter == null ||
+                      (SourceContentCategories.appliesTo(source) &&
+                          SourceContentCategories.forSource(source) ==
+                              _contentFilter)) &&
                   (_sourceFilter == 0 ||
                       (_sourceFilter == 1 ? source.enabled : source.broken)),
             )
@@ -862,6 +910,28 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                 ),
               ],
             ),
+            if (widget.section == Section.video)
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final category in [
+                    null,
+                    ...SourceContentCategory.groups,
+                  ])
+                    if (category != SourceContentCategory.adult ||
+                        PrivacySettings.instance.showAdult)
+                      ChoiceChip(
+                        key: ValueKey(
+                          'manager-content-${category?.id ?? 'all'}',
+                        ),
+                        label: Text(category?.label ?? '全部内容'),
+                        selected: _contentFilter == category,
+                        onSelected: _maintaining
+                            ? null
+                            : (_) => setState(() => _contentFilter = category),
+                      ),
+                ],
+              ),
             Text('${visible.length} 个源 · 长按源条目拖动排序'),
             if (_maintenanceStatus != null)
               Padding(
@@ -886,6 +956,31 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     child: const Text('清空选择'),
                   ),
                   Text('已选 ${_selectedIds.length} 个'),
+                  if (widget.section == Section.video)
+                    PopupMenuButton<String>(
+                      key: const ValueKey('bulk-source-category'),
+                      enabled:
+                          !_maintaining &&
+                          sources.any(
+                            (s) =>
+                                _selectedIds.contains(s.id) &&
+                                SourceContentCategories.appliesTo(s),
+                          ),
+                      tooltip: '批量归类 JS 源',
+                      onSelected: _bulkCategory,
+                      itemBuilder: (_) => [
+                        for (final category in SourceContentCategory.groups)
+                          PopupMenuItem(
+                            value: category.id,
+                            child: Text('归到${category.label}'),
+                          ),
+                        const PopupMenuItem(value: '', child: Text('恢复自动归类')),
+                      ],
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('归类所选'),
+                      ),
+                    ),
                   TextButton(
                     onPressed: _selectedIds.isEmpty
                         ? null

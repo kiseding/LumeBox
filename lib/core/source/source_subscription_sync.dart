@@ -377,7 +377,12 @@ class SourceSubscriptionSync {
             next[descriptor.id] = ref.url;
             if (before.containsKey(descriptor.id)) {
               result.updated++;
-              recordChange(section, descriptor.id, descriptor.name, '已更新');
+              recordChange(
+                section,
+                descriptor.id,
+                descriptor.name,
+                '已更新 ${sourceVersionChange(before[descriptor.id]!.version, descriptor.version)}',
+              );
             } else {
               result.added++;
               recordChange(section, descriptor.id, descriptor.name, '已新增');

@@ -1,6 +1,7 @@
 import '../../shared/widgets/video_glass_surface.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 import 'video_source_metadata.dart';
+import 'playback_failure_panel.dart';
 import '../../core/tmdb/tmdb.dart';
 import 'detail_poster_background.dart';
 import 'detail_artwork_motion.dart';
@@ -106,6 +107,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     with NetworkOwnedState<VideoDetailPage> {
   late final tmdb = TmdbDetailController(widget.item.title, autoLoad: false);
   DataSource? _source;
+  DataSource? _updatedSource;
+  Object? _playFailure;
   SourceDetail? detail;
   String? get sourceCover => detail?.cover?.trim().isNotEmpty == true
       ? detail!.cover
@@ -167,7 +170,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       error = null;
     });
     try {
-      final source = widget.source ?? await widget.loadSource?.call();
+      final source =
+          _updatedSource ?? widget.source ?? await widget.loadSource?.call();
       if (source == null) throw StateError('源不可用（未启用或脚本加载失败）');
       _source = source;
       pipeline.bindSource(source);
@@ -279,6 +283,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     setState(() {
       resolving = true;
       playbackFailed = false;
+      _playFailure = null;
     });
     PlayerPrelaunch? prepared;
     try {
@@ -409,7 +414,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       }
     } catch (failure) {
       if (mounted) {
-        setState(() => playbackFailed = true);
+        setState(() {
+          playbackFailed = true;
+          _playFailure = failure;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('解析失败：$failure'),
@@ -441,6 +449,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     }
     setState(() {});
   }
+
+  Widget playbackRecovery() => PlaybackFailurePanel(
+    error: _playFailure!,
+    retry: play,
+    sourceId: _source?.id ?? widget.sourceId,
+    manager: widget.manager,
+    onUpdated: () async {
+      final id = _source?.id ?? widget.sourceId;
+      if (id == null) return;
+      _updatedSource =
+          await (widget.manager ?? LumeSources.manager(widget.library.section))
+              .open(id);
+      if (mounted) await load();
+    },
+  );
 
   Color? _coverColor;
   String? _displayedPoster;
@@ -2319,6 +2342,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           Text(error!),
                           TextButton(onPressed: load, child: const Text('重试')),
                         ],
+                        if (_playFailure != null) playbackRecovery(),
                         compactEpisodeSection(),
                         const SizedBox(height: 24),
                         summaryBlock(title, synopsis),
@@ -2594,6 +2618,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   child: const Text('重试'),
                                 ),
                               ],
+                              if (_playFailure != null) playbackRecovery(),
                               const SizedBox(height: 4),
                               linePicker(),
                               const SizedBox(height: 10),

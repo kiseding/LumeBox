@@ -14,6 +14,7 @@ import 'package:lume_box/core/source/source_content_visibility.dart';
 import 'package:lume_box/core/source/source_preferences.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/source/source_preferences_page.dart';
+import 'package:lume_box/features/source/source_section_page.dart';
 import 'package:lume_box/features/source/source_import_flow.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
 import 'package:lume_box/shared/widgets/source_picker_card.dart';
@@ -297,6 +298,77 @@ void main() {
         SourceContentCategories.forSource(unknown),
         SourceContentCategory.adult,
       );
+    },
+  );
+
+  testWidgets(
+    'manager bulk classifies unclassified JS sources and preserves pinned settings',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      manager.sources.add(
+        const SourceDescriptor(
+          id: 'new2',
+          name: '另一新源',
+          version: '1',
+          enabled: true,
+        ),
+      );
+      await const SourcePreferences(
+        pinned: true,
+        iconUrl: 'https://example.test/icon.png',
+      ).save(Section.video, 'new');
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          home: SourceSectionPage(section: Section.video, manager: manager),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('manager-content-unclassified')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('站点维护'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('多选站点'));
+      await tester.pumpAndSettle();
+      for (final id in ['new', 'new2']) {
+        final box = find.byKey(ValueKey('select-source-$id'));
+        await tester.ensureVisible(box);
+        await tester.tap(box);
+        await tester.pump();
+      }
+      final action = find.byKey(const ValueKey('bulk-source-category'));
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('归到成人'));
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(
+        SourcePreferences.read(Section.video, 'new').contentCategory,
+        'adult',
+      );
+      expect(
+        SourcePreferences.read(Section.video, 'new2').contentCategory,
+        'adult',
+      );
+      expect(SourcePreferences.read(Section.video, 'new').pinned, isTrue);
+      expect(
+        SourcePreferences.read(Section.video, 'new').iconUrl,
+        'https://example.test/icon.png',
+      );
+      expect(
+        SourcePreferences.read(Section.video, 'py').contentCategory,
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
     },
   );
 

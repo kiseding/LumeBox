@@ -112,7 +112,13 @@ void main() {
         call,
       ) async {
         calls++;
-        return calls == 1 ? ['A foreign title'] : ['外文标题'];
+        expect(
+          (call.arguments as Map)['texts'],
+          calls == 1
+              ? ['A foreign title', 'Completed title']
+              : ['A foreign title'],
+        );
+        return calls == 1 ? ['A foreign title', '已完成标题'] : ['外文标题'];
       });
       await tester.pumpWidget(
         const MaterialApp(
@@ -120,7 +126,10 @@ void main() {
             body: Column(
               children: [
                 SourceText('A foreign title'),
-                SourceTranslationAction(texts: ['A foreign title']),
+                SourceText('Completed title'),
+                SourceTranslationAction(
+                  texts: ['A foreign title', 'Completed title'],
+                ),
               ],
             ),
           ),
@@ -132,15 +141,18 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('部分外文尚未得到中文译文'), findsOneWidget);
+      expect(find.text('已翻译 1 条，未完成 1 条'), findsOneWidget);
       expect(find.text('当前内容无需替换，已保留原文'), findsNothing);
       expect(TextTranslationService.shared.lookup('A foreign title'), isNull);
-      await tester.tap(find.byTooltip('翻译成中文'));
+      await tester.tap(find.text('重试未完成'));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 30)),
       );
       await tester.pumpAndSettle();
       expect(calls, 2);
       expect(find.text('外文标题'), findsOneWidget);
+      expect(find.text('已完成标题'), findsOneWidget);
+      expect(find.text('已翻译 2 条，未完成 0 条'), findsOneWidget);
       var flushed = false;
       TextTranslationService.shared.flush().then((_) => flushed = true);
       for (var i = 0; i < 30 && !flushed; i++) {

@@ -329,7 +329,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           }
           toast(switch (result.status) {
             SourceUpdateStatus.updated =>
-              '「${source.name}」已更新到最新脚本${result.message.isEmpty ? '' : '（${result.message}）'}',
+              '「${source.name}」已更新：${result.versionChange}；个人设置已保留${result.message.isEmpty ? '' : '（${result.message}）'}',
             SourceUpdateStatus.unchanged => '「${source.name}」已是最新',
             SourceUpdateStatus.skipped => '跳过：${result.message}',
             SourceUpdateStatus.failed => '更新失败：${result.message}',

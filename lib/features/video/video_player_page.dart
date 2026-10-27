@@ -7,6 +7,7 @@ import 'danmaku/danmaku_match_sheet.dart';
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'playback_glass.dart';
+import 'playback_failure_panel.dart';
 import '../../core/session/app_preferences.dart';
 
 import 'dart:io' show Platform;
@@ -4036,30 +4037,43 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 播放失败：如实显示内核给的文案（不再叠一层自己的话）。
   Widget _buildErrorStage(PlayerSnapshot snapshot) {
-    return _PlayerStageNotice(
-      icon: Icons.wifi_off_rounded,
-      title: (snapshot.error ?? '').contains('403') ? '视频服务器拒绝访问' : '播放连接中断',
-      detail: (snapshot.error ?? '').startsWith('打开失败：')
-          ? snapshot.error!
-          : PlayerErrorText.describe(snapshot.error),
-      actions: <Widget>[
-        FilledButton.icon(
-          onPressed: () => _restoreInlinePlayback(retry: true),
-          icon: const LumeIcon(Icons.refresh, slot: 'video_player_page.6'),
-          label: const Text('重试播放'),
-        ),
-        if (_target != null &&
-            ((snapshot.error ?? '').contains('403') ||
-                shouldOfferWebView(snapshot.error)))
-          OutlinedButton(
-            onPressed: _openPlaybackVerification,
-            child: const Text('播放网页验证'),
+    return Center(
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: PlaybackFailurePanel(
+            key: ValueKey(
+              'playback-failure-${_target?.sourceId ?? widget.sourceId}',
+            ),
+            error: snapshot.error ?? '播放连接中断',
+            dark: true,
+            sourceId: _target?.sourceId ?? widget.sourceId,
+            manager:
+                widget.sourceManager ??
+                (_fallbackManager ??= LumeSources.manager(Section.video)),
+            retry: () => _restoreInlinePlayback(retry: true),
+            onUpdated: () async {
+          _nextEpisodeBuffer.discard();
+              _source = null;
+              await _openSource();
+              if (mounted) _showToast('源已更新，请重试播放以获取新地址');
+            },
+            extraActions: [
+              if (_target != null &&
+                  ((snapshot.error ?? '').contains('403') ||
+                      shouldOfferWebView(snapshot.error)))
+                TextButton(
+                  onPressed: _openPlaybackVerification,
+                  child: const Text('播放网页验证'),
+                ),
+              TextButton(
+                onPressed: _offerAlternativeLines,
+                child: const Text('换线路继续看'),
+              ),
+            ],
           ),
-        OutlinedButton(
-          onPressed: _offerAlternativeLines,
-          child: const Text('换线路继续看'),
         ),
-      ],
+      ),
     );
   }
 
