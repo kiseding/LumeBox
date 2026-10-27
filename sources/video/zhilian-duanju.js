@@ -1,52 +1,14 @@
-// LumeSource: {"id":"zhilian-duanju","name":"栀莲短剧","version":"1.0.0","category":"video","mirrors":["https://yklyo880.lldj1.xyz"],"icon":"https://yklyo880.lldj1.xyz/assets/image/favicon.png"}
-//
-// 站点：栀莲短剧（https://yklyo880.lldj1.xyz）—— React + Vite 的 SPA，数据全在一个 JSON 后端
-// （前端包 /assets/index-BHpv7ftJ.js 里能直接看到 /api/v1 契约，HTML 里没有一条影片数据，所以只能走接口）。
-//
-// 接口地图（本脚本用到的）：
-//   · 首页      GET  /api/v1/home                        → {categories[], hot[], latest[], recommend[]}
-//   · 列表/搜索 GET  /api/v1/dramas?sort=&category_id=&keyword=&page=&size=
-//                       sort = hot | new | likes（脚本实测还有 random），size 上限宽松（20/30 都吃）
-//   · 详情      GET  /api/v1/dramas/{id}                  → 带客户端头时是 {drama, episodes}；
-//                                                          不带 X-Client-Platform 时是平铺对象（两种都兼容）
-//   · 选集      GET  /api/v1/dramas/{id}/episodes          → {list:[{id, number, title, access_type, locked, coin_price}]}
-//   · 单集      GET  /api/v1/dramas/{id}/episodes/{number} → {episode:{video_url, locked, access_type, …}, prev, next}
-//
-// 两个关键事实（不写清楚，下一个人会踩同样的坑）：
-//
-// 1) **播放地址只对带 Authorization 的请求下发**。不带 token 时，连免费集的 video_url 都是空串 ""
-//    （看起来像「站点坏了」）。所以脚本必须先做一次游客登录：
-//        POST /api/v1/auth/guest  body={requestKey, automatic:true, guestDeviceKey}
-//        ★ requestKey 必须是 **base64url(32 个随机字节)**：43 个字符、末位只能是 A/Q/g/w；
-//          UUID、42/44 字符、末位不是那四个字符的串，一律 400 "invalid requestKey"。
-//        ★ 同一个 requestKey 反复投会返回**同一个游客 uid**（幂等），所以缓存下来当设备身份。
-//        ★ 响应里的 token 是 JWT，exp ≈ 7 天；过期或 401 时用同一份 key 重投即可换新 token。
-//
-// 2) **锁定集可以解锁**。播放地址形如
-//        https://v.lldj3.xyz/{剧ID}/{集ID}/index.m3u8?AuthKey=<md5>&Timestamp=<秒>
-//    实测这个 AuthKey 是**按时间戳算出来的全局签名**：同一时刻哪部剧、哪一集拿到的都一模一样
-//    （剧 16 与剧 36 在同一次响应里就是同一个 AuthKey），CDN 只校验「是不是服务端发过的那个时间戳」，
-//    **完全不绑路径**——把路径换成另一集的 /{剧ID}/{集ID}/index.m3u8 照样 200 + #EXTM3U；
-//    自己把 Timestamp 加/减 20 秒就 403（签名算不出来）。
-//    → 于是 content() 的次序是：先按正常渠道取地址；取不到（VIP/付费）就拿任意一个免费集的签名复用
-//      ——「这部剧一集免费都没有」也照样能开：签名跟剧无关，借热榜里别的剧的签名即可。
-//    本机实测：v.lldj3.xyz 上的剧（含全 VIP 单集剧）**全部**可解锁；另一批采集剧落在 c10.hs100.top，
-//    路径是「/日期/哈希/index.m3u8」猜不出来 → 这类只能走源站网页。
-//
-// 沙箱约束（照文档）：没有 atob/btoa、没有 crypto，所以 base64url 编解码和随机字节都在脚本里自带；
-// 网络一律走 LumeSource.http（带并发闸门与退避重试），不要在脚本里自己等异步。
-
+// LumeSource: {"id": "zhilian-duanju", "name": "栀莲短剧", "version": "1.0.1", "category": "video", "contentCategory": "adult", "mirrors": ["https://yklyo880.lldj1.xyz"], "icon": "https://yklyo880.lldj1.xyz/assets/image/favicon.png"}
+// LumeRuntime: javascript
+// 通过站点游客会话获取当前账号获准播放的地址；锁定集交回源站处理。
 var BASE_URL = 'https://yklyo880.lldj1.xyz';
 var UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 var PLATFORM = 'huangguo-h5';
 
 var SESSION_FILE = 'guest.json';
 var CATEGORY_FILE = 'categories.json';
-var SIGNATURE_FILE = 'signatures.json';
-var UNLOCK_FILE = 'unlock-ok.json';
 var SESSION_TTL_MS = 6 * 24 * 3600 * 1000;   // JWT 实际 7 天，留一天余量主动换票
 var CATEGORY_TTL_MS = 6 * 3600 * 1000;
-var SIGNATURE_TTL_MS = 30 * 60 * 1000;       // 签名实测一小时以上仍有效，30 分钟足够且不会用到失效的
 
 function base() {
   var domain = LumeSource.config && LumeSource.config.domain ? LumeSource.config.domain : '';
@@ -55,7 +17,7 @@ function base() {
 
 function absolute(url) {
   var text = String(url == null ? '' : url).trim();
-  if (!text) return '';
+  if (!text || (/^[a-z][a-z0-9+.-]*:/i.test(text) && !/^https?:\/\//i.test(text))) return '';
   if (/^https?:\/\//i.test(text)) return text;
   if (text.indexOf('//') === 0) return 'https:' + text;
   if (text.charAt(0) === '/') return base() + text;
@@ -165,10 +127,11 @@ async function readSession() {
 
 async function mintSession() {
   var cached = await readSession();
+  if (cached && cached.base !== base()) cached = null;
   var device = cached && cached.device ? String(cached.device) : '';
   var key = cached && cached.key ? String(cached.key) : '';
   if (!device) device = hexOf(randomBytes(16));
-  if (!key) key = base64UrlEncode(randomBytes(32));
+  if (!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(key)) key = base64UrlEncode(randomBytes(32));
 
   var response = await LumeSource.http.post(
     base() + '/api/v1/auth/guest',
@@ -193,8 +156,9 @@ async function mintSession() {
   } catch (error) {
     body = null;
   }
+  if (body && body.data) body = body.data;
   var token = body && body.token ? String(body.token) : '';
-  if (!token) {
+  if (status < 200 || status >= 300 || !token) {
     var reason = body && (body.message || body.msg) ? String(body.message || body.msg) : 'HTTP ' + status;
     throw new Error('游客登录失败：' + reason + '（站点接口可能改版了）');
   }
@@ -210,13 +174,18 @@ async function mintSession() {
   return session;
 }
 
+var sessionPending = null;
 async function ensureSession(force) {
-  var cached = await readSession();
-  if (!force && cached && cached.token && cached.device && cached.base === base()) {
-    var exp = Number(cached.exp || 0);
-    if (!exp || exp > Date.now() + 120000) return cached;
-  }
-  return await mintSession();
+  if (sessionPending) return await sessionPending;
+  sessionPending = (async function() {
+    var cached = await readSession();
+    if (!force && cached && cached.token && cached.device && cached.base === base()) {
+      var exp = Number(cached.exp || 0);
+      if (exp > Date.now() + 120000 && Date.now() - Number(cached.at || 0) < SESSION_TTL_MS) return cached;
+    }
+    return await mintSession();
+  })();
+  try { return await sessionPending; } finally { sessionPending = null; }
 }
 
 // ------------------------------------------------------------------ 接口请求
@@ -259,7 +228,7 @@ async function api(path, options) {
     if (typeof json.code === 'number' && json.code !== 0) {
       throw new Error('接口报错：' + String(json.message || json.msg || json.code));
     }
-    if (status >= 400) throw new Error('接口返回 HTTP ' + status);
+    if (status < 200 || status >= 300) throw new Error('接口返回 HTTP ' + status);
     return json.data !== undefined ? json.data : json;
   }
   throw new Error('接口重试后仍未通过：' + path);
@@ -328,189 +297,6 @@ function dramaIdOf(value) {
   return matched ? matched[1] : '';
 }
 
-// ---------------------------------------------------------------- 签名复用解锁
-
-// 签名（AuthKey + Timestamp）是**按时间戳算的全局签名**：同一时刻任何一部剧、任何一集拿到的
-// AuthKey 完全相同（实测剧 16 与 36 在同一响应里是同一个值），且只校验「时间戳是不是服务端发的那个」。
-// 所以「一份刚取的签名」可以给整条 CDN 上的所有剧所有集用，缓存按 origin 存就够。
-
-function splitSigned(url) {
-  var text = String(url || '');
-  var at = text.indexOf('?');
-  if (at < 0) return null;
-  var originMatch = /^(https?:\/\/[^\/]+)/i.exec(text);
-  if (!originMatch) return null;
-  return { origin: originMatch[1], query: text.slice(at) };
-}
-
-async function readSignatures() {
-  var cached = await readJson(SIGNATURE_FILE);
-  if (!cached || !Array.isArray(cached.list) || !cached.at) return [];
-  if (Date.now() - Number(cached.at) > SIGNATURE_TTL_MS) return [];
-  var out = [];
-  for (var i = 0; i < cached.list.length; i++) {
-    var row = cached.list[i];
-    if (row && row.origin && row.query) out.push({ origin: String(row.origin), query: String(row.query) });
-  }
-  return out;
-}
-
-async function rememberSignature(url) {
-  var entry = splitSigned(url);
-  if (!entry) return null;
-  var known = await readSignatures();
-  var merged = [entry];
-  for (var i = 0; i < known.length; i++) {
-    if (known[i].origin !== entry.origin) merged.push(known[i]);
-  }
-  await writeJson(SIGNATURE_FILE, { at: Date.now(), list: merged.slice(0, 3) });
-  return entry;
-}
-
-function freeUrlFrom(rows) {
-  if (!rows || !rows.length) return '';
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i];
-    if (!row || row.locked) continue;
-    if (String(row.access_type || 'free').toLowerCase() !== 'free') continue;
-    var url = String(row.video_url || '');
-    if (url) return url;
-  }
-  return '';
-}
-
-// 某部剧的免费集地址 → 顺带落成签名（详情接口带客户端头时是 {drama, episodes}，episodes 里免费集就带 video_url）
-async function signatureOf(dramaId) {
-  var url = '';
-  try {
-    var payload = await api('/api/v1/dramas/' + dramaId);
-    var episodes = payload && Array.isArray(payload.episodes) ? payload.episodes : null;
-    url = freeUrlFrom(episodes);
-  } catch (error) {
-    url = '';
-  }
-  if (!url) return null;
-  return await rememberSignature(url);
-}
-
-// 借用别的剧的签名（这部剧一集免费都没有时）：热榜里逐部找有免费集的，最多看 limit 部、
-// 凑够 2 个不同 CDN 源就停——站点有两套 CDN，只借一套容易对不上。
-async function borrowSignatures(limit) {
-  var rows = [];
-  try {
-    var data = await api('/api/v1/dramas?sort=hot&size=12&page=1');
-    rows = data && Array.isArray(data.list) ? data.list : [];
-  } catch (error) {
-    rows = [];
-  }
-  var seeds = [];
-  var origins = {};
-  for (var i = 0; i < rows.length && i < limit; i++) {
-    if (seeds.length >= 2) break;
-    var dramaId = rows[i] && rows[i].id != null ? String(rows[i].id) : '';
-    if (!dramaId) continue;
-    var sig = await signatureOf(dramaId);
-    if (!sig || origins[sig.origin]) continue;
-    origins[sig.origin] = true;
-    seeds.push(sig);
-  }
-  return seeds;
-}
-
-async function probePlaylist(url) {
-  try {
-    var response = await LumeSource.http.get(url, {
-      headers: { 'User-Agent': UA, Referer: base() + '/' },
-    });
-    var status = response ? response.status : 0;
-    if (status !== 200) return false;
-    var body = response.body ? String(response.body) : '';
-    return body.indexOf('#EXTM3U') >= 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-// 记住「哪部剧的成功解锁落在哪个 CDN 源」：同一部剧切下一集时就不用再探一次（短剧一集一集连播，这个很关键）
-async function readUnlockMap() {
-  var cached = await readJson(UNLOCK_FILE);
-  if (!cached || !cached.map || !cached.at) return {};
-  if (Date.now() - Number(cached.at) > SIGNATURE_TTL_MS) return {};
-  return cached.map;
-}
-
-async function rememberUnlock(dramaId, origin) {
-  var map = await readUnlockMap();
-  map[String(dramaId)] = String(origin);
-  await writeJson(UNLOCK_FILE, { at: Date.now(), map: map });
-}
-
-async function unlockUrl(dramaId, episodeId, number) {
-  var id = episodeId || number;
-  var path = '/' + dramaId + '/' + id + '/index.m3u8';
-
-  var known = [];
-  var okMap = {};
-  try {
-    known = await readSignatures();
-  } catch (error) {
-    known = [];
-  }
-  try {
-    okMap = await readUnlockMap();
-  } catch (error) {
-    okMap = {};
-  }
-
-  var index;
-  var trusted = okMap[String(dramaId)] || '';
-  if (trusted) {
-    for (index = 0; index < known.length; index++) {
-      if (known[index].origin === trusted) return known[index].origin + path + known[index].query;
-    }
-  }
-
-  // 1) 缓存里的签名（最便宜，一次探测）
-  for (index = 0; index < known.length; index++) {
-    var cachedUrl = known[index].origin + path + known[index].query;
-    if (await probePlaylist(cachedUrl)) {
-      await rememberUnlock(dramaId, known[index].origin);
-      return cachedUrl;
-    }
-  }
-
-  // 2) 本剧自己的免费集签名（同源，几乎必中）
-  var own = null;
-  try {
-    own = await signatureOf(dramaId);
-  } catch (error) {
-    own = null;
-  }
-  if (own) {
-    var ownUrl = own.origin + path + own.query;
-    if (await probePlaylist(ownUrl)) {
-      await rememberUnlock(dramaId, own.origin);
-      return ownUrl;
-    }
-  }
-
-  // 3) 全 VIP / 全付费剧：借别的剧的签名（最多 3 部、最多 2 个 CDN 源，控制住单次预算）
-  var seeds = [];
-  try {
-    seeds = await borrowSignatures(3);
-  } catch (error) {
-    seeds = [];
-  }
-  for (index = 0; index < seeds.length; index++) {
-    var seedUrl = seeds[index].origin + path + seeds[index].query;
-    if (await probePlaylist(seedUrl)) {
-      await rememberUnlock(dramaId, seeds[index].origin);
-      return seedUrl;
-    }
-  }
-  return '';
-}
-
 function videoResult(url) {
   return {
     kind: 'video',
@@ -524,7 +310,7 @@ function videoResult(url) {
 var LumeSource = {
   id: 'zhilian-duanju',
   name: '栀莲短剧',
-  version: '1.0.0',
+  version: '1.0.1',
   category: 'video',
   mirrors: ['https://yklyo880.lldj1.xyz'],
 
@@ -625,19 +411,14 @@ var LumeSource = {
     var total = data && typeof data.total === 'number' ? data.total : 0;
     return {
       items: mapItems(rows),
-      hasMore: total > page * size || rows.length >= size,
+      hasMore: typeof data.total === 'number' ? total > page * size : rows.length >= size,
     };
   },
 
   async detail(argument) {
     var id = dramaIdOf(argument && argument.id);
     if (!id) return null;
-    var payload = null;
-    try {
-      payload = await api('/api/v1/dramas/' + id);
-    } catch (error) {
-      return null;
-    }
+    var payload = await api('/api/v1/dramas/' + id);
     // 带 X-Client-Platform 时是 {drama, episodes} 包裹；老版本 / 不带客户端头时是平铺对象
     var drama = payload && payload.drama ? payload.drama : payload;
     if (!drama || !drama.title) return null;
@@ -691,30 +472,19 @@ var LumeSource = {
     var ref = String(args.chapterId == null ? '' : args.chapterId).trim();
     var matched = /^(\d+)(?::(\d+))?$/.exec(ref) || /^ep:(\d+)(?::(\d+))?$/.exec(ref);
     var number = matched ? Number(matched[1]) : 0;
-    var episodeId = matched && matched[2] ? Number(matched[2]) : 0;
-    if (!number || number < 1) number = 1;
+    if (!number || number < 1) throw new Error('缺少有效的选集编号，请重新打开选集');
 
     var data = await api('/api/v1/dramas/' + dramaId + '/episodes/' + number);
     var episode = data && data.episode ? data.episode : null;
     if (!episode) throw new Error('第' + number + '集取不到（剧集可能已下架）');
-    if (!episodeId) episodeId = Number(episode.id || 0);
 
-    var url = String(episode.video_url || '');
+    var url = String(episode.video_url || '').trim();
     if (url) {
-      // 顺手把这份签名存下来：之后同一部剧（以及整条 CDN 上）的锁定集就能直接复用
-      try {
-        await rememberSignature(url);
-      } catch (error) {
-        /* 只是缓存，失败不影响播放 */
-      }
+      url = absolute(url);
+      if (!/^https?:\/\//i.test(url)) throw new Error('站点返回无效播放地址');
       return videoResult(url);
     }
-
-    var unlocked = await unlockUrl(dramaId, episodeId, number);
-    if (unlocked) return videoResult(unlocked);
-
-    // 解不开（落在 c10.hs100.top 那批「日期+哈希」路径的采集剧上）→ 交给 App 内置网页播放器打开源站自己的播放页，
-    // 那里会显示站点真实的会员/付费门槛，比一句死错误有用。
+    // No URL was granted to this session. Let the site display its login or purchase flow.
     return {
       kind: 'webplayer',
       pageUrl: base() + '/play/' + dramaId + '/' + number,

@@ -3,12 +3,81 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/reading/comic_image_tools_settings.dart';
 import 'package:lume_box/core/translation/text_translation.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'legacy unchanged cache entries cannot suppress a fresh translation',
+    () async {
+      final root = await Directory.systemTemp.createTemp('legacy-noop-cache');
+      addTearDown(() => root.delete(recursive: true));
+      final file = File('${root.path}/cache.json');
+      final key = sha256
+          .convert(
+            utf8.encode(jsonEncode([1, 'auto', 'zh-Hans', 'Foreign title'])),
+          )
+          .toString();
+      await file.writeAsString(jsonEncode({key: 'Foreign title'}));
+      final service = TextTranslationService(
+        file: file,
+        translator: (_) async => ['外文标题'],
+      );
+      addTearDown(service.dispose);
+      await service.boot();
+      expect(service.lookup('Foreign title'), isNull);
+      expect(await service.translate(['Foreign title']), ['外文标题']);
+      await service.flush();
+    },
+  );
+  test(
+    'Chinese fallback retries unchanged foreign titles but preserves Chinese',
+    () async {
+      final result = await translateWithPolicy(
+        ['Hello world', '中文标题', 'こんにちは'],
+        mode: TextTranslationMode.fallback,
+        native: (texts) async => texts,
+        ai: (texts) async {
+          expect(texts, ['Hello world', 'こんにちは']);
+          return ['你好世界', '你好'];
+        },
+      );
+      expect(result, ['你好世界', '中文标题', '你好']);
+      expect(unresolvedTranslation('Hello', 'Hello', 'en'), isFalse);
+      expect(unresolvedTranslation('中文', '中文', 'zh-Hans'), isFalse);
+      expect(unresolvedTranslation('Hello', 'Hello', 'zh-Hans'), isTrue);
+    },
+  );
+
+  test(
+    'unchanged foreign results are retryable rather than cached successes',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'unchanged-translation',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      var calls = 0;
+      final service = TextTranslationService(
+        file: File('${root.path}/cache.json'),
+        translator: (texts) async {
+          calls++;
+          return calls == 1 ? texts : ['你好世界'];
+        },
+      );
+      addTearDown(service.dispose);
+      await expectLater(
+        service.translate(['Hello world']),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(service.lookup('Hello world'), isNull);
+      expect(await service.translate(['Hello world']), ['你好世界']);
+      expect(calls, 2);
+      await service.flush();
+    },
+  );
   test('全局AI模式由标题翻译使用，与系统模式缓存隔离且可跨启动复用', () async {
     final root = await Directory.systemTemp.createTemp('global-translation');
     addTearDown(() => root.delete(recursive: true));

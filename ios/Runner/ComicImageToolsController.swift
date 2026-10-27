@@ -429,7 +429,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       let alreadyTarget = source == "auto" && texts.allSatisfy { text in
         if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) { return true }
         guard let detected = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue else { return false }
-        return detected.lowercased().split(separator: "-").first == targetFamily
+        return detected.lowercased().split(separator: "-").first == targetFamily &&
+          !(targetFamily == "zh" && hasForeignChineseTargetText(text))
       }
       if !preparing && (source == target || alreadyTarget) {
         finishTranslation(texts, error: nil)
@@ -474,6 +475,11 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
 }
 
 #if canImport(Translation)
+// Short and mixed titles can be guessed as Chinese despite foreign script.
+private func hasForeignChineseTargetText(_ text: String) -> Bool {
+  text.range(of: "[A-Za-z]{3,}|[\\u3040-\\u30ff\\uac00-\\ud7af\\u0400-\\u052f\\u0600-\\u06ff\\u0900-\\u097f\\u0e00-\\u0e7f]", options: .regularExpression) != nil
+}
+
 @available(iOS 18.0, *)
 private struct ComicTranslationTaskView: View {
   struct Group {
@@ -526,6 +532,18 @@ private struct ComicTranslationTaskView: View {
       }
       // Apple cannot translate a language to itself, including regional variants.
       // Chinese content already meets the Chinese-display request.
+      if source == "auto", family(target) == "zh",
+         detected.map({ family($0) == "zh" }) == true,
+         hasForeignChineseTargetText(text) {
+        if text.range(of: "[\\u3040-\\u30ff]", options: .regularExpression) != nil { detected = "ja" }
+        else if text.range(of: "[\\uac00-\\ud7af]", options: .regularExpression) != nil { detected = "ko" }
+        else {
+          // Re-detect the foreign portion without the Chinese page labels.
+          let foreign = text.replacingOccurrences(of: "[\\u3400-\\u9fff]", with: " ", options: .regularExpression)
+          detected = NLLanguageRecognizer.dominantLanguage(for: foreign)?.rawValue ?? "en"
+          if detected.map({ family($0) == "zh" }) == true { detected = "en" }
+        }
+      }
       if let detected, family(detected) == family(target) { continue }
       let language = detected ?? "en"
       if let found = plan.firstIndex(where: { $0.language == language }) {

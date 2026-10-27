@@ -226,6 +226,16 @@ void main() {
         lessThan(tester.getTopLeft(find.text('360资源站')).dx),
       );
       expect(tester.widget<Text>(find.text('360资源站')).maxLines, 2);
+      expect(
+        find.byKey(const ValueKey('video-source-content-heading-movie')),
+        findsNothing,
+      );
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('video-source-content-filter')))
+            .height,
+        lessThanOrEqualTo(46),
+      );
       await category(tester, 'adult');
       expect(find.text('成人示例源'), findsOneWidget);
       expect(find.text('360资源站'), findsNothing);

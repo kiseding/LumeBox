@@ -1073,21 +1073,23 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                     (source) =>
                         SourceContentCategories.forSource(source) == category,
                   )) ...[
-                    KeyedSubtree(
-                      key: ValueKey(
-                        'video-source-content-heading-${category.id}',
+                    if (type == VideoSourceType.all ||
+                        content == SourceContentCategory.all)
+                      KeyedSubtree(
+                        key: ValueKey(
+                          'video-source-content-heading-${category.id}',
+                        ),
+                        child: heading(
+                          category.label,
+                          entries
+                              .where(
+                                (source) =>
+                                    SourceContentCategories.forSource(source) ==
+                                    category,
+                              )
+                              .length,
+                        ),
                       ),
-                      child: heading(
-                        category.label,
-                        entries
-                            .where(
-                              (source) =>
-                                  SourceContentCategories.forSource(source) ==
-                                  category,
-                            )
-                            .length,
-                      ),
-                    ),
                     sourceGrid(
                       entries
                           .where(
@@ -1182,7 +1184,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                   if (type == VideoSourceType.ordinary)
                     Padding(
                       key: const ValueKey('video-source-content-filter'),
-                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: LumeTheme.surfaceAlt,
@@ -1203,6 +1205,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                               final minWidth =
                                   MediaQuery.textScalerOf(context).scale(13) *
                                       3 +
+                                  MediaQuery.textScalerOf(context).scale(11) *
+                                      2 +
                                   12;
                               final columns =
                                   constraints.maxWidth / categories.length >=
@@ -1223,10 +1227,12 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                           onPressed: () =>
                                               selectContent(category),
                                           style: TextButton.styleFrom(
-                                            minimumSize: const Size(0, 44),
+                                            minimumSize: const Size(0, 30),
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 2,
-                                              vertical: 6,
+                                              vertical: 4,
                                             ),
                                             foregroundColor: content == category
                                                 ? Theme.of(context)
@@ -1241,7 +1247,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                                   BorderRadius.circular(9),
                                             ),
                                           ),
-                                          child: Column(
+                                          child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Text(
@@ -1251,6 +1257,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                                   fontSize: 13,
                                                 ),
                                               ),
+                                              const SizedBox(width: 4),
                                               Text(
                                                 '${category == SourceContentCategory.all ? contentCounts.values.fold<int>(0, (sum, value) => sum + value) : contentCounts[category] ?? 0}',
                                                 style: const TextStyle(

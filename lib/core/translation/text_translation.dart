@@ -13,6 +13,14 @@ import 'package:path_provider/path_provider.dart';
 
 typedef TextTranslator = Future<List<String>> Function(List<String> texts);
 
+/// An unchanged foreign title is an unresolved Chinese translation, not a hit.
+bool unresolvedTranslation(String original, String value, String target) =>
+    target.toLowerCase().split('-').first == 'zh' &&
+    original.trim() == value.trim() &&
+    RegExp(
+      r'[A-Za-z]{3,}|[\u3040-\u30ff\uac00-\ud7af\u0400-\u052f\u0600-\u06ff\u0900-\u097f\u0e00-\u0e7f]',
+    ).hasMatch(original);
+
 /// Display-only translations. IDs, original metadata and search queries stay intact.
 class TextTranslationService extends ChangeNotifier {
   TextTranslationService({
@@ -76,17 +84,25 @@ class TextTranslationService extends ChangeNotifier {
     String? target,
     TextTranslationMode? mode,
     String? profile,
-  }) =>
-      _cache[_key(
-        text,
-        source ?? (useGlobalSettings ? settings.source : 'auto'),
-        target ?? (useGlobalSettings ? settings.target : 'zh-Hans'),
-        mode ??
-            (useGlobalSettings
-                ? settings.translationMode
-                : TextTranslationMode.system),
-        profile,
-      )];
+  }) {
+    final language =
+        target ?? (useGlobalSettings ? settings.target : 'zh-Hans');
+    final value =
+        _cache[_key(
+          text,
+          source ?? (useGlobalSettings ? settings.source : 'auto'),
+          target ?? (useGlobalSettings ? settings.target : 'zh-Hans'),
+          mode ??
+              (useGlobalSettings
+                  ? settings.translationMode
+                  : TextTranslationMode.system),
+          profile,
+        )];
+    return value != null && unresolvedTranslation(text, value, language)
+        ? null
+        : value;
+  }
+
   Future<File> _file() async =>
       file ??
       File(
@@ -179,6 +195,7 @@ class TextTranslationService extends ChangeNotifier {
             try {
               values = await translateWithPolicy(
                 pending,
+                target: selectedTarget,
                 mode: selectedMode,
                 native:
                     using ??
@@ -215,7 +232,18 @@ class TextTranslationService extends ChangeNotifier {
               throw const FormatException('翻译结果不完整，请重试');
             }
             for (var i = 0; i < pending.length; i++) {
-              if (values[i].trim().isEmpty) continue;
+              if (values[i].trim().isEmpty ||
+                  unresolvedTranslation(
+                    pending[i],
+                    values[i],
+                    selectedTarget,
+                  )) {
+                partial ??= PlatformException(
+                  code: 'translation_partial',
+                  message: '部分外文尚未得到中文译文，已保留成功译文；可重试或在全局翻译设置中选择自动识别原文、AI 补译。',
+                );
+                continue;
+              }
               final key = _key(
                 pending[i],
                 selectedSource,
@@ -355,6 +383,7 @@ class TextTranslationService extends ChangeNotifier {
 /// Preserve successful native translations; only unresolved entries go online.
 Future<List<String>> translateWithPolicy(
   List<String> texts, {
+  String target = 'zh-Hans',
   required TextTranslationMode mode,
   required TextTranslator native,
   required TextTranslator ai,
@@ -387,8 +416,13 @@ Future<List<String>> translateWithPolicy(
   if (values.length != texts.length) values = List.filled(texts.length, '');
   final missing = [
     for (var i = 0; i < values.length; i++)
-      if (values[i].trim().isEmpty) i,
+      if (values[i].trim().isEmpty ||
+          unresolvedTranslation(texts[i], values[i], target))
+        i,
   ];
+  for (final index in missing) {
+    values[index] = '';
+  }
   if (missing.isEmpty) return values;
   try {
     final translated = await ai([for (final index in missing) texts[index]]);

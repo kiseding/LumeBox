@@ -65,7 +65,7 @@ sources/video/
 ├── cf2.js         Butterfly（d1q6v0m0fmxvl0.cloudfront.net）匿名设备登录即整片；interfaceKey 独立
 ├── cf3.js         Butterfly2（d17rhkrwip15vt.cloudfront.net）同 SDK 另一运营方；API 域与页面域分离
 ├── hentai2w.js    Hentai2W（hentai2w.com）**18+**，**需代理**，Inertia props + 自动过年龄门
-└── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录拿 JWT 换播放地址，锁定集签名复用可整剧解锁
+└── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
 ```
 
 ---
@@ -107,7 +107,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | hxc | 否 | 2 块 | ok | ok | ok | ok | 1 | **video（m3u8 整片，删 start/end 后）** |
 | Butterfly | 否 | 2 块 | ok | ok | ok | ok | 1 | **video（m3u8 整片）** |
 | Butterfly2 | 否 | 2 块 | ok | ok | 本地过滤 | ok | 1 | **video（m3u8 整片）** |
-| 栀莲短剧 | 否 | 3 块 | 10 | 20 | 20 | ok | 18 | **video（m3u8；锁定集靠签名复用解锁，解不开的转网页播放器）** |
+| 栀莲短剧 | 否 | 3 块 | 10 | 20 | 20 | ok | 18 | video / webplayer（获准播放的地址直连，锁定集转源站） |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -179,7 +179,7 @@ dart run tools/site_reachability.dart
 | 41看片 | 首页 `window.CONFIG` 是 Fernet 串 → 解出 apiBase `sm-api.wieuc.com`；`/api/vod/video?page=&per_page=&site_id=6&orderby=`、`/api/vod/tag_group`、`/search/vod/?search=`、`/api/vod/video/{id}` | 详情给 3 条线路，播放 `https://<线路>/videos…/index.m3u8`，实测 200 + `#EXTM3U` |
 | SpankBang | 纯 HTTP 全路径/UA/头组合均 403（CF `Just a moment...`，只有 `/robots.txt` 放行；带浏览器导出的 cookie 用 curl 也 403） | 抓取层抛 `NEED_WEBVIEW_VERIFY`；**解析已用真实 HTML 实测**：`data-testid="video-item"` 卡片 + `/{short}/video/{slug}` + `tbi.sb-cd.com` 封面 + `video-item-length`；播放取详情页 `var stream_data.m3u8`（240p/480p/720p，实测 200 + mpegurl）与 `…-720p.mp4`（206） |
 | HSTV | Vue3 前端 + `/api/app/*`，响应自定义 AES-256-CBC（interfaceKey 派生）；**`POST /mine/login/h5` 匿名设备登录即得 JWT**（`Authorization: <JWT>`，不加 Bearer） | `POST /video/play` → `playPolicy.result`：`FULL` 整片 m3u8；`PREVIEW` 服务端截断 15 秒（4 段/18.48s + ENDLIST），换 scene/videoType 无效 ⇒ VIP 锁在服务端 |
-| 栀莲短剧 | React SPA + `/api/v1`：`/home`（分类+最新+推荐）、`/dramas?sort=&category_id=&keyword=&page=&size=`、`/dramas/{id}`（带客户端头时返回 `{drama, episodes}`）、`/dramas/{id}/episodes/{number}` | **`POST /api/v1/auth/guest` 游客登录**（`requestKey` 必须是 base64url(32 随机字节)，43 字符）；`video_url` 只对带 `Authorization` 的请求下发。锁定集用「免费集的 AuthKey + Timestamp」重写路径解锁（签名只绑时间戳、不绑路径不绑剧，连全 VIP 剧都能借签名开）；`c10.hs100.top` 那批「日期+哈希」路径猜不出来 → 转 webplayer |
+| 栀莲短剧 | React SPA + `/api/v1`：`/home`（分类+最新+推荐）、`/dramas?sort=&category_id=&keyword=&page=&size=`、`/dramas/{id}`（带客户端头时返回 `{drama, episodes}`）、`/dramas/{id}/episodes/{number}` | **`POST /api/v1/auth/guest` 游客登录**（`requestKey` 必须是 base64url(32 随机字节)，43 字符）；`video_url` 只对带 `Authorization` 的请求下发。没有下发媒体地址时转源站网页显示权限要求，不构造播放路径。 |
 
 三个「苹果CMS」系源都自带纯 JS 版 base64 / 百分号解码（沙箱没有 `atob`/`unescape`），
 所以 `encrypt=1/2` 的站点换了编码也不用改脚本。
@@ -191,10 +191,7 @@ dart run tools/site_reachability.dart
 - **华视影院分类页没有分页**：站方一次铺完 246 部，`hasMore` 恒为 false。
 - **站点改版就会失效**：这些源靠 HTML 结构/正则吃饭，源站换模板后需要按新结构改（每站文件头都写了它是怎么解析的）。失效时先在 App 里「测试连通性」，再跑 `tools/lume-source-check.mjs` 看是哪一步断了。
 - **成人分区**：A123TV 有「福利」分类（站点自带），这些源不对内容做过滤，请自行按需使用。
-- **栀莲短剧的锁定集靠「签名复用」解锁**：`v.lldj3.xyz` 那批（平台自建、路径 `/{剧ID}/{集ID}/index.m3u8`）可以整剧解锁，
-  全 VIP 剧借别的剧的签名也能开；从 `jp98.vip` 采集进来的那批落在 `c10.hs100.top`，路径带日期与哈希、猜不出来，
-  只能转 App 的网页播放器看源站播放页。另外该站的游客 token 7 天过期，脚本会自动换票；收藏/点赞/评论这类接口没用，
-  本脚本不碰（只做浏览与播放）。
+- **栀莲短剧使用游客会话**：令牌到期或接口返回 401 时重新登录，已有游客身份按站点分别缓存。仅使用该集接口实际下发的播放地址；锁定集转源站网页显示会员或付费要求。
 
 ## 七、免责
 
