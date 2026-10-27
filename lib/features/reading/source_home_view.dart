@@ -16,6 +16,7 @@ import '../../core/source/home_browse_mode.dart';
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
 import '../../core/net/waf.dart';
+import '../../core/net/secure_connection_failure.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -251,6 +252,10 @@ class _SourceHomeViewState extends State<SourceHomeView>
     final error = _error;
     if (error != null) {
       final detail = error is SourceException ? error.message : '$error';
+      final connection = secureConnectionFailureOf(error);
+      final description = connection == null
+          ? detail
+          : '$detail\n\n${secureConnectionHint(connection)}';
       final kind = wafKindOf(detail);
       // 「网页视图」出口与提示**必须同时出现或同时不出现**（真机反馈：卡片上写着
       // 「可点【网页视图】过校验」却找不到按钮——首页超时这类失败原本不给按钮）。
@@ -272,8 +277,8 @@ class _SourceHomeViewState extends State<SourceHomeView>
               NoticeCard(
                 title: '首页加载失败',
                 subtitle: kind == WafFailureKind.bridge
-                    ? '$detail\n\n$wafBridgeHint'
-                    : (hint == null ? detail : '$detail\n\n$hint'),
+                    ? '$description\n\n$wafBridgeHint'
+                    : (hint == null ? description : '$description\n\n$hint'),
               ),
               const SizedBox(height: 12),
               Row(

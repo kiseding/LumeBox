@@ -100,6 +100,15 @@ class SourcePackage {
   }
 
   static SourcePackageKind kindOf(String script) {
+    // Exporters explicitly declare their interpreter. Do not let embedded
+    // examples/templates or compatibility code override a leading marker.
+    final marker = RegExp(
+      r'^\s*(?://|#)\s*LumeRuntime:\s*(javascript|python|module)\s*$',
+      multiLine: true,
+    ).firstMatch(stripScriptBom(script));
+    if (marker != null) {
+      return SourcePackageKind.values.byName(marker[1]!);
+    }
     if (RemoteSpider.matches(script)) return SourcePackageKind.module;
     if (RegExp(
           r'^\s*#\s*LumeRuntime:\s*python',

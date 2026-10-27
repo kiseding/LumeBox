@@ -366,6 +366,7 @@ class LumeHttp {
       body: body,
       bodyBytes: bodyBytes,
       source: _source,
+      textResponse: true,
       // 只有幂等方法参与重试：POST 重试可能造成重复提交。
       retryOn: _isIdempotent(method),
       proxy: Platform.isIOS ? '' : _profile.mergedWith(_settings).proxy,

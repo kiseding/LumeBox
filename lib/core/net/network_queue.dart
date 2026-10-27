@@ -30,6 +30,7 @@ class NetworkRequest {
     this.reuseVerifiedSession = false,
     this.cancellation,
     this.isForeground,
+    this.textResponse = false,
   });
 
   final String url;
@@ -60,6 +61,9 @@ class NetworkRequest {
 
   /// Evaluated when a slot opens, so a visible image can promote its prefetch.
   final bool Function()? isForeground;
+
+  /// Only text source requests may use WebKit as an iOS TLS compatibility path.
+  final bool textResponse;
   NetworkRequest withCancellation(
     NetworkCancellation token, {
     bool Function()? isForeground,
@@ -79,6 +83,7 @@ class NetworkRequest {
     reuseVerifiedSession: reuseVerifiedSession,
     cancellation: token,
     isForeground: isForeground ?? this.isForeground,
+    textResponse: textResponse,
   );
 
   /// 响应体读取上限（字节）；null = 读完整。见 [readResponseBody] 的说明
@@ -293,6 +298,7 @@ class NetworkQueue {
             request.allowBadCertificate,
             request.followRedirects,
             request.reuseVerifiedSession,
+            request.textResponse,
             request.timeout?.inMicroseconds,
             request.maxBytes,
             request.retryOn,
