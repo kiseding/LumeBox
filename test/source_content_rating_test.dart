@@ -30,6 +30,9 @@ void main() {
       'tianlula_novel',
       'haijiaoqing_video',
       'aiboaibo_video',
+      'jizeyy_video',
+      'hsex_video',
+      'reddxxx_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
