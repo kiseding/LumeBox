@@ -128,6 +128,9 @@ class SourceContentRating {
     // 91吃瓜（www.91cg1.com）：吃瓜/探花类成人图集与短片站，图集源与视频源同站。
     'cg1_photo',
     'cg1_video',
+    // 绅游巴士（gamebus001.cc）：H 漫 + 成人短片的接口站。
+    'gamebus_comic',
+    'gamebus_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -271,6 +274,8 @@ class SourceContentRating {
     "91吃瓜图集",
     "91吃瓜视频",
     "betatok",
+    "绅游巴士",
+    "绅游巴士漫画",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

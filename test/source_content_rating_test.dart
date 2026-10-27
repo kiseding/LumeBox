@@ -19,6 +19,8 @@ void main() {
       'cg1_photo',
       'cg1_video',
       'betareel_video',
+      'gamebus_comic',
+      'gamebus_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

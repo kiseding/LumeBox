@@ -67,11 +67,13 @@ sources/video/
 ├── hentai2w.js    Hentai2W（hentai2w.com）**18+**，**需代理**，Inertia props + 自动过年龄门
 ├── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
 ├── 91cg1.js       91吃瓜（www.91cg1.com）Typecho HTML；短片地址在帖子页内嵌的 DPlayer 配置里（新 CDN op.udhhzr.cn，实测 m3u8 200）
-└── betareel.js    BetaTok（betareel.com）Firebase + R2；`/api/betatok/feed` 给预签名清单，**清单 27 MB 用 Range 窗口读**
+├── betareel.js    BetaTok（betareel.com）Firebase + R2；`/api/betatok/feed` 给预签名清单，**清单 27 MB 用 Range 窗口读**
+└── gamebus.js     绅游巴士（gamebus001.cc）`/api/video/page/N` 接口；HLS 是 fMP4（init.mp4 + seg_*.m4s），实测 m3u8 200
 ```
 
-**图片类图源**在 `photo/`（漫画板块的「美图」分组，内容形态 `{kind:'images'}`）：
-`photo/91cg1.js` 是同一个 91吃瓜站的图集源（图片在帖子页 `data-xkrkllgl` 属性里）。
+**漫画 / 图片类图源**不在 video/ 下：
+- `comic/gamebus.js` —— 同一站绅游巴士的 H 漫（`/api/comic/{chapterId}/pages` 直接给整话图片）；
+- `photo/91cg1.js` —— 91吃瓜的图集（图片在帖子页 `data-xkrkllgl` 属性里）。
 
 ---
 
@@ -115,6 +117,8 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 栀莲短剧 | 否 | 3 块 | 10 | 20 | 20 | ok | 18 | video / webplayer（获准播放的地址直连，锁定集转源站） |
 | 91吃瓜 | 否 | 4 块 | 23 | 19~30 | 30 | ok | 1 | **video（m3u8 直链 + AES key/分片逐个签名）** |
 | BetaTok | 否 | 1 块 | 84 频道 | 19~20 | 窗口内过滤 | ok | 1 | **video（mp4，Worker 302 到 R2 预签名地址，实测 206）** |
+| 绅游巴士 | 否 | 2 块 | 3 排序 | 30 | 30 | ok | 1 | **video（m3u8，fMP4：init.mp4 + seg_*.m4s，实测 200）** |
+| 绅游巴士漫画 | 否 | 3 块 | 4 排序 | 30 | 30 | ok | 10 | **images（一整话 136 张 webp，首图 200）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
@@ -189,6 +193,7 @@ dart run tools/site_reachability.dart
 | 栀莲短剧 | React SPA + `/api/v1`：`/home`（分类+最新+推荐）、`/dramas?sort=&category_id=&keyword=&page=&size=`、`/dramas/{id}`（带客户端头时返回 `{drama, episodes}`）、`/dramas/{id}/episodes/{number}` | **`POST /api/v1/auth/guest` 游客登录**（`requestKey` 必须是 base64url(32 随机字节)，43 字符）；`video_url` 只对带 `Authorization` 的请求下发。没有下发媒体地址时转源站网页显示权限要求，不构造播放路径。 |
 | 91吃瓜 | Typecho + Mirages：`/`、`/page/N/`、`/category/{slug}/N/`、`/search/{词}/N/`、`/archives/{pid}/`；卡片 = `<a href="/archives/{pid}/">` + `loadBannerDirect('封面')` + `<h2 class="post-card-title">`（搜索页的链接是绝对 URL，两种都要认） | 帖子页内嵌 DPlayer：`"video":{"url":"https://op.udhhzr.cn/videos5/…/index.m3u8?auth_key=…"}`，`\/` 还原成 `/` 即可直连（清单 200 + `#EXTM3U`，key/`.ts` 都在 as.ucjosl.cn 上逐条签好）。图片在 `data-xkrkllgl` 属性（`<img src>` 只是占位图）。栖影那套 `hls.ffxddn.cn` / `op.vkjyoi.cn` 已死。 |
 | BetaTok | Firebase 项目 + R2：`GET /api/betatok/feed` → `{manifestUrl(预签名), mediaBase, mediaQuery, expiresAt}`；清单是 **27 MB / 34466 条**的整包 JSON（对象本身 gzip 3.7 MB） | **Range 窗口**：每次只取前 N KB 压缩（64 KB ≈ 550 KB 文本 ≈ 680 条），用 `},{"id":"` 切条、只 `JSON.parse` 需要的那几条；`/api/betatok/media/{videoKey}?{mediaQuery}` → 302 到 R2 预签名 mp4（实测 206，单个 60 MB）；封面走同一代理 `{posterKey}`。`locked:true` 的付费片不列。 |
+| 绅游巴士 | Quasar SSR + `/api`：`POST /api/comic/page/{N}`（`sort`=last_chapterAt/createdAt/views/likes）、`GET /api/comic/{id}`、`GET /api/comic/chapters?comicId=`、`GET /api/comic/{chapterId}/pages`；`POST /api/video/page/{N}`、`GET /api/video/{id}`。接口表来自 `/assets/index-Cq4bvF8R.js` | 漫画：`/comic/{chapterId}/pages` 直接给 `pages[].image_path`（webp，一话最多三百多页）；短片：详情里的 `hlsUrl` 是 `image.gamebus001.cc/…/index.m3u8`（fMP4，`init.mp4` + `seg_*.m4s`，实测清单与分片都 200，无 AES key、不需要 Referer）。`vipOnly` 只给可读错误。 |
 
 三个「苹果CMS」系源都自带纯 JS 版 base64 / 百分号解码（沙箱没有 `atob`/`unescape`），
 所以 `encrypt=1/2` 的站点换了编码也不用改脚本。
@@ -205,6 +210,7 @@ dart run tools/site_reachability.dart
 - **BetaTok 的清单没法整包读**：`manifests/betatok.json` 解压后 27 MB / 34466 条，沙箱 64 MB 堆装不下；本源用 Range 分窗，所以**搜索与频道筛选只作用于当前窗口**（上限 256 KB 压缩 ≈ 2.8 千条），无过滤的翻页窗口按页数自动放大；窗口文本 5 分钟内复用。
 - **BetaTok 的工具跑测会「假失败」**：`tools/lume-source-check.mjs` 验播放时会把整段 mp4 拉完，60 MB 的资源必然超时；手工用 `Range: bytes=0-262143` 复验是 `206 + video/mp4 + content-range …/60540624`。
 - **BetaTok 的付费片不列**：`locked:true`（PPV，price 单位钻石）直接从列表里滤掉，不代下单。
+- **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 
 ## 七、免责
 
