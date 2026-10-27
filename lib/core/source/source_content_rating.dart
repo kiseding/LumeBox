@@ -139,6 +139,10 @@ class SourceContentRating {
     'resao_video',
     // 玉羞园（yhh.yxy881p.icu，xvideos 镜像站；媒体直连 xvideos CDN）。
     'yuxiu_video',
+    // 天撸啦（ttbd067.top:51000）综合站：视频 / 图集 / 小说拆成三个源，共用一套 AES 解密。
+    'tianlula_video',
+    'tianlula_photo',
+    'tianlula_novel',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -290,6 +294,9 @@ class SourceContentRating {
     "91吃瓜",
     "91热爆",
     "玉羞园",
+    "天撸啦",
+    "天撸啦图集",
+    "天撸啦小说",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

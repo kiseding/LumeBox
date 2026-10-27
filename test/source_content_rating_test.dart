@@ -25,6 +25,9 @@ void main() {
       'f016_video',
       'resao_video',
       'yuxiu_video',
+      'tianlula_video',
+      'tianlula_photo',
+      'tianlula_novel',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
