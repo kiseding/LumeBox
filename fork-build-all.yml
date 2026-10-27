@@ -1,0 +1,383 @@
+# =============================================================================
+#  Fork 专属工作流 —— 放在 .github/workflows/fork-build-all.yml
+#
+#  设计原则（决定它永远不会和上游冲突）：
+#    1. 本文件是**上游不存在的路径**，只做「新增」，从不修改上游任何文件；
+#    2. 构建时 git fetch 上游 main 后 reset 过去，所以**即使你的 fork 落后也能构建最新代码**；
+#    3. 版本号、构建号、产物命名都在命令行参数里，不写回 pubspec.yaml，不在仓库里留痕。
+#
+#  结果：上游一有新提交 → 自动出 Android/Windows/iOS 三个包 → 发到你 fork 的 Release。
+#        fork 的 main 依然可以随时 "Sync fork" 一键同步，永远不冲突。
+# =============================================================================
+name: Fork Build (all platforms)
+
+on:
+  workflow_dispatch:
+    inputs:
+      android:
+        description: 构建 Android APK
+        type: boolean
+        default: true
+      windows:
+        description: 构建 Windows x64（实验性，失败不阻塞发布）
+        type: boolean
+        default: true
+      ios:
+        description: 构建未签名 iOS IPA
+        type: boolean
+        default: true
+      sync:
+        description: 顺便把上游 main 合并进本 fork
+        type: boolean
+        default: true
+      force:
+        description: 上游这个提交已构建过也强制重建
+        type: boolean
+        default: false
+
+  schedule:
+    # 注意 cron 是 UTC。03:17 UTC = 北京 11:17。
+    # 避开整点（GitHub 整点排队严重，可能延迟 15~45 分钟）。
+    - cron: '17 3 * * *'
+
+# 创建 Release、回推 main 都需要写权限
+permissions:
+  contents: write
+
+# 同一时间只跑一份，避免重复出包
+concurrency:
+  group: fork-build-all
+  cancel-in-progress: false
+
+env:
+  # 源项目（不是你的 fork）
+  UPSTREAM_REPO: teng662858/LumeBox
+  # 必须和上游 build-ios.yml 里的版本一致，上游升级时同步改这里
+  FLUTTER_VERSION: '3.47.5'
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) 探测上游有没有新提交
+  # ---------------------------------------------------------------------------
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.up.outputs.sha }}
+      short: ${{ steps.up.outputs.short }}
+      tag: ${{ steps.up.outputs.tag }}
+      subject: ${{ steps.up.outputs.subject }}
+      should_build: ${{ steps.up.outputs.should_build }}
+    steps:
+      - id: up
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" refs/heads/main | cut -f1)
+          if [ -z "${SHA}" ]; then echo "拿不到上游 HEAD"; exit 1; fi
+          SHORT=${SHA:0:7}
+          TAG="up-${SHORT}"
+          SUBJECT=$(gh api "repos/${UPSTREAM_REPO}/commits/main" --jq '.commit.message' | head -1)
+
+          echo "sha=$SHA"         >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT"     >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "subject=$SUBJECT" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "手动强制构建"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "上游 ${SHORT} 已经发过包，跳过"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "发现上游新提交 ${SHORT}，开始构建"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2) 保持 fork 跟随上游（只做 merge，不 force，所以不会丢你自己的文件）
+  # ---------------------------------------------------------------------------
+  sync:
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.sync == 'true' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 合并上游 main
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream main
+          if git merge --no-edit upstream/main; then
+            git push origin main
+          else
+            git merge --abort || true
+            echo "::warning::上游改到了本 fork 也改过的行，自动合并失败，需要手动处理"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 3) Android APK
+  # ---------------------------------------------------------------------------
+  android:
+    needs: detect
+    if: ${{ needs.detect.outputs.should_build == 'true' && (github.event_name == 'schedule' || github.event.inputs.android == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 切到上游最新代码
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          # 先按精确 sha 抓，失败则退回抓分支头
+          git fetch --depth=1 upstream "${{ needs.detect.outputs.sha }}" || git fetch --depth=1 upstream main
+          git reset --hard FETCH_HEAD
+          echo "构建提交：$(git log -1 --format='%h %s')"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: 环境版本
+        run: flutter --version
+
+      - name: 拉取依赖
+        run: flutter pub get --enforce-lockfile
+
+      # 上游 iOS 流程里会准备模型和 Python 运行时；Android 若因缺资源失败，把这两步的
+      # continue-on-error 去掉让错误暴露出来，再对照上游 build-ios.yml 补齐。
+      - name: 准备本地资源（缺就跳过）
+        continue-on-error: true
+        run: |
+          python3 tool/prepare_intro_models.py
+          python3 tool/prepare_python_runtime.py
+
+      - name: 构建 APK
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "dist/LumeBox-android-1.0.${{ github.run_number }}.apk"
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 4) Windows x64
+  # ---------------------------------------------------------------------------
+  windows:
+    needs: detect
+    if: ${{ needs.detect.outputs.should_build == 'true' && (github.event_name == 'schedule' || github.event.inputs.windows == 'true') }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # 上游没在 Windows 上跑过（依赖里 cupertino_http 是 Apple 专属、tflite/sherpa 也没验证），
+    # 编译失败很正常。这里标记为「可失败」，不拖累其他平台发版。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 切到上游最新代码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --depth=1 upstream "${{ needs.detect.outputs.sha }}" || git fetch --depth=1 upstream main
+          git reset --hard FETCH_HEAD
+          echo "构建提交：$(git log -1 --format='%h %s')"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: 环境版本
+        run: flutter --version
+
+      - name: 拉取依赖
+        run: flutter pub get --enforce-lockfile
+
+      - name: 构建
+        run: >-
+          flutter build windows --release
+          --build-name=1.0.${{ github.run_number }}
+          --build-number=${{ github.run_number }}
+
+      - name: 打包 zip
+        shell: pwsh
+        run: |
+          $ver = "1.0.${{ github.run_number }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path build/windows/x64/runner/Release/* `
+                           -DestinationPath "dist/LumeBox-windows-$ver.zip" -Force
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 5) iOS 未签名 IPA（复用上游 build-ios.yml 的 --no-codesign 做法）
+  # ---------------------------------------------------------------------------
+  ios:
+    needs: detect
+    if: ${{ needs.detect.outputs.should_build == 'true' && (github.event_name == 'schedule' || github.event.inputs.ios == 'true') }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 切到上游最新代码
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --depth=1 upstream "${{ needs.detect.outputs.sha }}" || git fetch --depth=1 upstream main
+          git reset --hard FETCH_HEAD
+          echo "构建提交：$(git log -1 --format='%h %s')"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: 环境版本
+        run: flutter --version
+
+      - name: 拉取依赖
+        run: flutter pub get --enforce-lockfile
+
+      - name: 准备并校验片头片尾本地模型
+        run: python3 tool/prepare_intro_models.py
+
+      - name: 准备 Python 运行环境（锁定版本与校验值）
+        run: python3 tool/prepare_python_runtime.py
+
+      - name: 编译（--no-codesign，带构建号）
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/lumebox-unsigned.xcconfig" <<'EOF'
+          CODE_SIGN_ENTITLEMENTS =
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGNING_REQUIRED = NO
+          STRIP_STYLE = non-global
+          EOF
+          export XCODE_XCCONFIG_FILE="$RUNNER_TEMP/lumebox-unsigned.xcconfig"
+          flutter build ipa --no-codesign --verbose \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+
+      - name: 打包未签名 IPA
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          EXISTING=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1 || true)
+          if [ -n "${EXISTING}" ]; then
+            cp "${EXISTING}" "dist/LumeBox-ios-unsigned-1.0.${{ github.run_number }}.ipa"
+          else
+            APP="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+            if [ ! -d "${APP}" ]; then APP="build/ios/iphoneos/Runner.app"; fi
+            if [ ! -d "${APP}" ]; then
+              echo "找不到 Runner.app：构建产物缺失"
+              ls -R build/ios 2>/dev/null | head -50 || true
+              exit 1
+            fi
+            rm -rf out_tmp/Payload && mkdir -p out_tmp/Payload
+            cp -R "${APP}" out_tmp/Payload/
+            (cd out_tmp && zip -qry "../dist/LumeBox-ios-unsigned-1.0.${{ github.run_number }}.ipa" Payload)
+          fi
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: dist/*.ipa
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 6) 汇总发布 Release（哪个平台成了就发哪个）
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [detect, android, windows, ios]
+    if: ${{ always() && needs.detect.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 检查产物
+        id: check
+        run: |
+          set -euo pipefail
+          ls -lhR dist || true
+          if [ -z "$(ls -A dist 2>/dev/null)" ]; then
+            echo "没有任何产物，跳过发布"
+            echo "has=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 生成发行说明
+        if: ${{ steps.check.outputs.has == 'true' }}
+        run: |
+          cat > release-notes.md <<EOF
+          自动构建，源码来自上游 \`${UPSTREAM_REPO}\` 的提交 \`${{ needs.detect.outputs.short }}\`。
+
+          上游提交信息：${{ needs.detect.outputs.subject }}
+
+          | 平台 | 文件 | 说明 |
+          | --- | --- | --- |
+          | Android | \`LumeBox-android-*.apk\` | release 构建，使用 debug 签名（可直接侧载） |
+          | Windows | \`LumeBox-windows-*.zip\` | 解压后运行 LumeBox.exe |
+          | iOS | \`LumeBox-ios-unsigned-*.ipa\` | 未签名，需自行用 Sideloadly + 证书重签名 |
+
+          版本号对应 App 内「设置 → 关于」显示的 1.0.<run_number>。
+          本 Release 由 fork 的 CI 生成，与源项目作者无关。
+          EOF
+          cat release-notes.md
+
+      - name: 发布
+        if: ${{ steps.check.outputs.has == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.detect.outputs.tag }}
+          name: LumeBox ${{ needs.detect.outputs.tag }} (upstream ${{ needs.detect.outputs.short }})
+          body_path: release-notes.md
+          files: dist/*
+          fail_on_unmatched_files: false
+          make_latest: true
