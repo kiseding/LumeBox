@@ -16,6 +16,7 @@ void main() {
       'p5mh_comic',
       'fxcomic_comic',
       'zhilian-duanju',
+      'qiying_vault',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
