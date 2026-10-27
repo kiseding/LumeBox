@@ -102,7 +102,9 @@ class LongDetailSource extends DetailSource {
 
 class RoutePlayer extends AbstractPlayer {
   final state = ValueNotifier(const PlayerSnapshot());
-  final information = ValueNotifier(const PlayerStats());
+  final information = ValueNotifier(
+    const PlayerStats(width: 1920, height: 1080),
+  );
   PlayerMedia? media;
   final seeks = <Duration>[];
   @override

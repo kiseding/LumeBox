@@ -5,6 +5,50 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/reading/image_bytes_decoder.dart';
 
 void main() {
+  const fernetHeaders = {
+    'X-Lume-Image-Encoding': 'fernet',
+    'X-Lume-Image-Key': 'NyGRG56A8i5J2JMqh7da83r2MMfgbM7Ppw1aCF8YnAY=',
+  };
+  test(
+    'Fernet full and encrypted-prefix images reconstruct the original PNG',
+    () {
+      final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1sAAAAASUVORK5CYII=',
+      );
+      for (final token in [
+        'gAAAAAAAAAABBQUFBQUFBQUFBQUFBQUFBXezJcxgBrQChEp93jxOA0kTSqLkKIVkK40nOKMLKHQdMB2vTirf3s8-v58vjUiBVURBYT_ZdCJiK67ztol0g1q3A3k4SKyCxNMB8xwVlojIjUEP0qiq_CSyra3qivk0fZxh_uUIUFe4bZIYZNirymY6luHKqZ_mgUN2XhIHn0FOB75p7qadfULW-QKEYnXlsZ7DtOGyUq5Af07tsD8eNUM',
+        'gAAAAAAAAAABBQUFBQUFBQUFBQUFBQUFBXezJcxgBrQChEp93jxOA0kTSqLkKIVkK40nOKMLKHQdMB2vTirf3s8-v58vjUiBVURBYT_ZdCJiK67ztol0g1qbTOFfLzcnpoxA5Wxz5JTwpFLyYb5c9iNrQB-ZRdDty7WLzrmBWNNE6_4bRYAkyTg@@@CAAAAC0lEQVR42mP8/x8AAwMCAO+jN1sAAAAASUVORK5CYII=',
+      ]) {
+        expect(
+          decodeSourceImage(
+            Uint8List.fromList(utf8.encode(token)),
+            fernetHeaders,
+          ),
+          png,
+        );
+      }
+      expect(identical(decodeSourceImage(png, fernetHeaders), png), isTrue);
+    },
+  );
+  test('Fernet signature corruption and malformed image payloads fail', () {
+    final token =
+        'gAAAAAAAAAABBQUFBQUFBQUFBQUFBQUFBXezJcxgBrQChEp93jxOA0kTSqLkKIVkK40nOKMLKHQdMB2vTirf3s8-v58vjUiBVURBYT_ZdCJiK67ztol0g1q3A3k4SKyCxNMB8xwVlojIjUEP0qiq_CSyra3qivk0fZxh_uUIUFe4bZIYZNirymY6luHKqZ_mgUN2XhIHn0FOB75p7qadfULW-QKEYnXlsZ7DtOGyUq5Af07tsD8eNUM';
+    final raw = base64Url.decode(base64Url.normalize(token));
+    raw[raw.length - 1] ^= 1;
+    for (final invalid in [
+      base64UrlEncode(raw),
+      'not-a-token',
+      '$token@@@bad',
+    ]) {
+      expect(
+        () => decodeSourceImage(
+          Uint8List.fromList(utf8.encode(invalid)),
+          fernetHeaders,
+        ),
+        throwsFormatException,
+      );
+    }
+  });
   const mh18Headers = {
     'X-Lume-Image-Encoding': 'aes-cbc-nopadding',
     'X-Lume-Image-Key': 'f5d965df75336270',

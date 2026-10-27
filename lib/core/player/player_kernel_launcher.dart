@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show mapEquals;
+
 import '../util/lume_log.dart';
 import 'abstract_player.dart';
 import 'player_factory.dart';
 import 'player_settings.dart';
+import 'player_stats.dart';
 
 /// 一次内核启动的结果。
 class PlayerLaunch {
@@ -179,7 +182,74 @@ class PlayerPrelaunch {
   /// 预启动的那个内核（播放器页据此判断能不能接手）。
   final PlayerKernel kernel;
 
-  final Future<PlayerLaunch?> _launch;
+  Future<PlayerLaunch?> _launch;
+  PlayerMedia? _preparedMedia;
+  PlayerStats? get preparedStats => _preparedStats;
+  PlayerStats? _preparedStats;
+
+  bool hasPreparedMedia(PlayerMedia media) =>
+      _preparedMedia?.uri == media.uri &&
+      mapEquals(_preparedMedia?.headers, media.headers);
+
+  /// Load silently on the detail page so the route's first orientation uses
+  /// actual dimensions. The same loaded instance is transferred to the page.
+  Future<void> prepareMedia(
+    PlayerMedia media, {
+    PlayerMedia? requestMedia,
+    PlayerSettings? settings,
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    if (_consumed || _preparedMedia != null) return;
+    final pending = _launch;
+    Future<PlayerLaunch?> prepare() async {
+      final launch = await pending;
+      if (launch == null) return null;
+      final player = launch.player;
+      try {
+        await (() async {
+          if (settings != null) await player.applySettings(settings);
+          await player.load(requestMedia ?? media);
+          await player.pause();
+        })().timeout(timeout);
+        _preparedMedia = media;
+        bool hasSize() =>
+            (player.stats.value.width ?? 0) > 0 &&
+            (player.stats.value.height ?? 0) > 0;
+        if (!hasSize()) {
+          final ready = Completer<void>();
+          void changed() {
+            if (hasSize() && !ready.isCompleted) ready.complete();
+          }
+
+          player.stats.addListener(changed);
+          try {
+            changed();
+            await ready.future.timeout(const Duration(milliseconds: 700));
+          } on TimeoutException {
+            // Keep the loaded player; unknown dimensions never force landscape.
+          } finally {
+            player.stats.removeListener(changed);
+          }
+        }
+        if (hasSize()) _preparedStats = player.stats.value;
+        return launch;
+      } catch (error) {
+        _preparedMedia = null;
+        unawaited(_discardPrepared(player));
+        LumeLog.info('[player] 入场方向预检未完成：$error');
+        return null;
+      }
+    }
+
+    _launch = prepare();
+    await _launch;
+  }
+
+  Future<void> _discardPrepared(AbstractPlayer player) async {
+    try {
+      await player.dispose();
+    } catch (_) {}
+  }
 
   bool _consumed = false;
 

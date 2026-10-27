@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/block/aes.dart';
 import 'package:pointycastle/block/modes/cbc.dart';
@@ -18,6 +19,10 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
       '';
   final encoding = field('x-lume-image-encoding');
   if (encoding.isEmpty) return bytes;
+  if (encoding == 'fernet') {
+    if (_isPlainImage(bytes)) return bytes;
+    return _decodeFernetImage(bytes, field('x-lume-image-key'));
+  }
   final noPadding = encoding == 'aes-cbc-nopadding';
   if (encoding != 'aes-cbc-pkcs7' && !noPadding) {
     throw const FormatException('Unsupported source image encoding');
@@ -56,6 +61,62 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     return cipher.process(bytes);
   } on Object {
     throw const FormatException('Invalid encoded source image');
+  }
+}
+
+/// Some public readers encrypt only the data-URI prefix, then append the
+/// remaining Base64 after @@@. Authenticate the Fernet part before rebuilding.
+Uint8List _decodeFernetImage(Uint8List bytes, String encodedKey) {
+  try {
+    final text = utf8.decode(bytes).trim();
+    final separator = text.indexOf('@@@');
+    final token = separator < 0 ? text : text.substring(0, separator);
+    final raw = base64Url.decode(base64Url.normalize(token));
+    final key = base64Url.decode(base64Url.normalize(encodedKey));
+    if (key.length != 32 || raw.length < 73 || raw[0] != 0x80) {
+      throw const FormatException('Invalid Fernet image parameters');
+    }
+    final signedEnd = raw.length - 32;
+    final signature = crypto.Hmac(
+      crypto.sha256,
+      key.sublist(0, 16),
+    ).convert(raw.sublist(0, signedEnd)).bytes;
+    var difference = 0;
+    for (var i = 0; i < 32; i++) {
+      difference |= signature[i] ^ raw[signedEnd + i];
+    }
+    if (difference != 0 || (signedEnd - 25) % 16 != 0) {
+      throw const FormatException('Invalid Fernet image signature');
+    }
+    final cipher =
+        PaddedBlockCipherImpl(
+          PKCS7Padding(),
+          CBCBlockCipher(AESEngine()),
+        )..init(
+          false,
+          PaddedBlockCipherParameters<ParametersWithIV<KeyParameter>, Null>(
+            ParametersWithIV(KeyParameter(key.sublist(16)), raw.sublist(9, 25)),
+            null,
+          ),
+        );
+    final plain = cipher.process(raw.sublist(25, signedEnd));
+    if (separator < 0 && _isPlainImage(plain)) return plain;
+    final uri =
+        utf8.decode(plain) +
+        (separator < 0 ? '' : text.substring(separator + 3));
+    final comma = uri.indexOf(',');
+    if (!uri.startsWith('data:image/') ||
+        comma < 0 ||
+        !uri.substring(0, comma).endsWith(';base64')) {
+      throw const FormatException('Invalid Fernet image payload');
+    }
+    final image = base64Decode(uri.substring(comma + 1));
+    if (!_isPlainImage(image)) {
+      throw const FormatException('Invalid Fernet image');
+    }
+    return image;
+  } on Object {
+    throw const FormatException('Invalid encoded Fernet image');
   }
 }
 

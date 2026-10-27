@@ -515,6 +515,7 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
+      created.single.volumes.clear();
 
       final layer = _gestureLayerRect(tester);
       await _dragInSteps(

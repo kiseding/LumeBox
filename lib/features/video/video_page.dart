@@ -12,6 +12,7 @@ import '../../core/player/brightness.dart';
 import '../../core/player/pip.dart';
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
+import '../../core/player/playback_orientation.dart';
 import '../../core/reading/comic_image_tools.dart';
 import '../../core/player/player_settings.dart';
 import '../../core/reading/reading.dart';
@@ -25,6 +26,8 @@ import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
 import 'video_player_page.dart';
 import 'video_player_settings.dart';
+import 'playback_quality_preference.dart';
+import 'playback_entry_preparation.dart';
 
 /// 视频板块：**只保留【浏览】**（真机反馈：播放子页签移除）。
 ///
@@ -243,6 +246,25 @@ class _VideoPageState extends State<VideoPage> {
       return;
     }
     await PlaybackFocus.acquire('video');
+    if (mounted &&
+        prelaunch != null &&
+        PlaybackOrientationController.instance.orientation ==
+            PlaybackOrientation.auto) {
+      final settings = _library == null
+          ? null
+          : VideoPlayerSettingsStore(_library!).load();
+      final quality = settings == null
+          ? null
+          : PlaybackQualityPreference.select(qualities, settings);
+      if (quality != null) {
+        media = PlayerMedia(
+          uri: quality.url,
+          title: media.title,
+          headers: quality.headers.isEmpty ? media.headers : quality.headers,
+        );
+      }
+      await preparePlaybackEntry(prelaunch, media, settings);
+    }
     if (!mounted) {
       _discardPrelaunch(prelaunch);
       return;

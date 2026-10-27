@@ -21,6 +21,7 @@ import 'package:lume_box/core/player/abstract_player.dart';
 import 'package:lume_box/core/player/playback_orientation.dart';
 import 'package:lume_box/core/player/player_capabilities.dart';
 import 'package:lume_box/core/player/player_factory.dart';
+import 'package:lume_box/core/player/player_kernel_launcher.dart';
 import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/player/player_experience_store.dart';
 import 'package:lume_box/core/player/player_stats.dart';
@@ -275,6 +276,8 @@ void main() {
       SourceManager? sourceManager,
       PipBackend? pipBackend,
       PlaybackSourceValidator? validator,
+      bool fullscreenOnly = false,
+      PlayerPrelaunch? prelaunch,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -283,7 +286,8 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-            fullscreenOnly: false,
+            fullscreenOnly: fullscreenOnly,
+            prelaunch: prelaunch,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             qualities: qualities,
             catalog: catalog ?? const _AllKernelsCatalog(),
@@ -1127,7 +1131,8 @@ void main() {
       );
       tester.view.padding = FakeViewPadding(top: 59 * ratio, right: 44 * ratio);
       addTearDown(tester.view.reset);
-      await pump(tester);
+      final players = await pump(tester);
+      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('锁定（防误触）'));
@@ -1246,7 +1251,8 @@ void main() {
             .setMockMethodCallHandler(SystemChannels.platform, null),
       );
 
-      await pump(tester);
+      final players = await pump(tester);
+      players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
 
@@ -1268,6 +1274,54 @@ void main() {
         (call) => call.method == 'SystemChrome.setPreferredOrientations',
       );
       expect(portrait.arguments, <String>['DeviceOrientation.portraitUp']);
+    });
+
+    testWidgets('竖屏短剧入场首帧使用预检尺寸且不重复加载', (tester) async {
+      final calls = _captureOrientations(tester);
+      final player = _FakePlayer(kernel: PlayerKernel.avplayer);
+      player.pushStats(const PlayerStats(width: 720, height: 1280));
+      late PlayerPrelaunch prelaunch;
+      await tester.runAsync(() async {
+        prelaunch = PlayerPrelaunch.start(
+          PlayerKernel.avplayer,
+          factory: (_) => player,
+        );
+        await prelaunch.prepareMedia(
+          PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+        );
+      });
+      await pump(tester, fullscreenOnly: true, prelaunch: prelaunch);
+      expect(player.loads, 1, reason: '入场接手已经加载的同一个实例');
+      final entries = calls.where(
+        (c) => c.method == 'SystemChrome.setPreferredOrientations',
+      );
+      expect(entries, isNotEmpty);
+      expect(
+        entries.every(
+          (c) => (c.arguments as List).contains('DeviceOrientation.portraitUp'),
+        ),
+        isTrue,
+      );
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('未知尺寸先保持竖屏，迟到的短剧尺寸不会触发横屏闪动', (tester) async {
+      final calls = _captureOrientations(tester);
+      final players = await pump(tester, fullscreenOnly: true);
+      expect(_lastOrientations(calls), ['DeviceOrientation.portraitUp']);
+      players.single.pushStats(const PlayerStats(width: 720, height: 1280));
+      await tester.pumpAndSettle();
+      expect(
+        calls
+            .where((c) => c.method == 'SystemChrome.setPreferredOrientations')
+            .every(
+              (c) => !(c.arguments as List).contains(
+                'DeviceOrientation.landscapeLeft',
+              ),
+            ),
+        isTrue,
+      );
+      await tester.pumpWidget(const SizedBox());
     });
 
     testWidgets('全屏：竖屏短剧进竖屏全屏，横片进横屏全屏（用户要求）', (tester) async {

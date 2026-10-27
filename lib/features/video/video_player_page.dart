@@ -18,7 +18,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -273,6 +273,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 浏览页预启动的内核实例：**只有第一次重建**能接手（见 [_rebuildPlayer]）。
   PlayerPrelaunch? _prelaunch;
+  PlayerMedia? _preparedInitialMedia;
 
   /// 当前正在播的图源条目：有它才记进度。
   VideoPlayTarget? _target;
@@ -1210,6 +1211,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (prelaunch != null) {
         if (prelaunch.kernel == kernel) {
           launch = await prelaunch.take();
+          if (launch != null &&
+              widget.media != null &&
+              prelaunch.hasPreparedMedia(widget.media!)) {
+            _preparedInitialMedia = widget.media;
+          }
         } else {
           unawaited(prelaunch.discard());
         }
@@ -1271,6 +1277,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     player.snapshot.addListener(_onSnapshotChanged);
     // 分辨率参数也算全屏方向的输入（「自动」档要按宽高比判断，见 [_onStatsChanged]）。
     player.stats.addListener(_onStatsChanged);
+    _onStatsChanged();
 
     try {
       // 缓冲参数要先于装载落定（见 [AbstractPlayer.setBuffering]）：模块设置里的
@@ -1606,7 +1613,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _syncQualityIndex(media);
     _suppressProgressSave = true;
     try {
-      await _loadMedia(media, alreadyLoaded: preparedPlayer != null);
+      final preparedInitial = _preparedInitialMedia;
+      _preparedInitialMedia = null;
+      await _loadMedia(
+        media,
+        alreadyLoaded:
+            preparedPlayer != null ||
+            (preparedInitial != null &&
+                preparedInitial.uri == media.uri &&
+                mapEquals(preparedInitial.headers, media.headers)),
+      );
       if (!mounted || !identical(media, _media)) return;
       if (resumePosition != null && resumePosition > Duration.zero) {
         await _player?.seek(resumePosition);
@@ -3347,9 +3363,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       case PlaybackOrientation.portrait:
         return const <DeviceOrientation>[DeviceOrientation.portraitUp];
       case PlaybackOrientation.auto:
-        // 竖屏短剧（宽 < 高）→ 竖屏全屏；其余（含参数未知）→ 横屏全屏，
-        // 与历史行为一致：普通横片照旧横屏，不会因为这次改造反而变竖。
-        return _isPortraitVideo
+        // Unknown dimensions retain the entry direction instead of briefly
+        // forcing a portrait short into landscape before metadata arrives.
+        return !_hasVideoDimensions || _isPortraitVideo
             ? const <DeviceOrientation>[DeviceOrientation.portraitUp]
             : const <DeviceOrientation>[
                 DeviceOrientation.landscapeLeft,
@@ -3358,9 +3374,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
-  /// 当前视频是不是竖屏（宽 < 高）。参数没到 / 内核不报时按横片处理。
-  bool get _isPortraitVideo {
+  PlayerStats? get _orientationStats {
     final stats = _player?.stats.value;
+    if ((stats?.width ?? 0) > 0 && (stats?.height ?? 0) > 0) return stats;
+    if (_media?.uri == widget.media?.uri) {
+      return widget.prelaunch?.preparedStats;
+    }
+    return null;
+  }
+
+  bool get _hasVideoDimensions =>
+      (_orientationStats?.width ?? 0) > 0 &&
+      (_orientationStats?.height ?? 0) > 0;
+
+  /// 当前视频是不是竖屏（宽 < 高）；入场可使用详情页预加载的实测尺寸。
+  bool get _isPortraitVideo {
+    final stats = _orientationStats;
     final width = stats?.width;
     final height = stats?.height;
     if (width == null || height == null || width <= 0 || height <= 0) {
@@ -4053,7 +4082,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 (_fallbackManager ??= LumeSources.manager(Section.video)),
             retry: () => _restoreInlinePlayback(retry: true),
             onUpdated: () async {
-          _nextEpisodeBuffer.discard();
+              _nextEpisodeBuffer.discard();
               _source = null;
               await _openSource();
               if (mounted) _showToast('源已更新，请重试播放以获取新地址');
