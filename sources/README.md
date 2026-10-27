@@ -68,9 +68,6 @@ sources/video/
 └── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
 ```
 
-**图片类图源不在这个目录**：`photo/` 下是漫画板块「美图」分组的源（内容形态 `{kind:'images'}`），
-见 [`sources/photo/README.md`](photo/README.md)（当前一个：`qiying.js` 栖影图库，Cloudflare Worker 静态数据站，**需代理**）。
-
 ---
 
 ## 一、怎么导入
