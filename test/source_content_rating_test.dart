@@ -21,6 +21,7 @@ void main() {
       'betareel_video',
       'gamebus_comic',
       'gamebus_video',
+      'tanhua_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
