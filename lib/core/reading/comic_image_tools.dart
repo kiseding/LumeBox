@@ -594,6 +594,7 @@ class ComicImageTools {
         url: preferences.endpoint,
         model: preferences.model,
         key: key,
+        target: preferences.target,
         language:
             ComicImageToolsSettings.languages[preferences.target] ??
             preferences.target,

@@ -24,6 +24,7 @@ void main() {
   });
   tearDown(() async {
     MediaPreload.instance.update(video: true, audio: true, images: true);
+    await MediaPreload.instance.flush();
     ReadingLibrary.disposeAll();
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
@@ -57,6 +58,15 @@ void main() {
       expect(library.history().single.itemId, 'keep');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
+      var flushed = false;
+      MediaPreload.instance.flush().then((_) => flushed = true);
+      for (var i = 0; i < 50 && !flushed; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      expect(flushed, isTrue);
     });
   }
 }

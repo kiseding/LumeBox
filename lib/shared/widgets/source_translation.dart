@@ -52,14 +52,17 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
   @override
   void initState() {
     super.initState();
+    _texts = _uniqueTexts(widget.texts);
     unawaited(TextTranslationService.shared.boot());
   }
 
   bool attempted = false;
   String? attemptedProfile;
   int processed = 0;
-  List<String> get texts =>
-      widget.texts.where((s) => s.trim().isNotEmpty).toSet().toList();
+  late List<String> _texts;
+  List<String> get texts => _texts;
+  static List<String> _uniqueTexts(List<String> values) =>
+      values.where((s) => s.trim().isNotEmpty).toSet().toList();
   String get profile {
     final settings = ComicImageToolsSettings.instance;
     return '${settings.source}|${settings.target}|${settings.translationMode}|${settings.endpoint}|${settings.model}';
@@ -68,7 +71,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
   @override
   void didUpdateWidget(covariant SourceTranslationAction oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.texts, widget.texts)) attempted = false;
+    if (!listEquals(oldWidget.texts, widget.texts)) {
+      attempted = false;
+      _texts = _uniqueTexts(widget.texts);
+    }
   }
 
   String errorText(Object error) => error is MissingPluginException
@@ -77,6 +83,8 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
       ? error.message.toString()
       : error is PlatformException
       ? error.message ?? '翻译失败，原文保留'
+      : error is TimeoutException
+      ? '翻译请求超时，成功译文已保留；请检查翻译接口与网络后重试'
       : '翻译未完成，原文保留；请检查全局翻译设置与网络';
 
   Future<void> translate({bool retryOnly = false}) async {
@@ -145,9 +153,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
     } finally {
       if (mounted) setState(() => busy = false);
       if (mounted && selectedProfile == profile && listEquals(all, texts)) {
-        final complete = all.where((s) => service.lookup(s) != null).length;
-        final translated = all
-            .where((s) => service.lookup(s) != null && service.lookup(s) != s)
+        final values = {for (final text in all) text: service.lookup(text)};
+        final complete = values.values.where((value) => value != null).length;
+        final translated = values.entries
+            .where((entry) => entry.value != null && entry.value != entry.key)
             .length;
         final remaining = all.length - complete;
         if (service.displayOriginal && complete > 0) service.toggleOriginal();
@@ -189,11 +198,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
     listenable: TextTranslationService.shared,
     builder: (context, _) {
       final service = TextTranslationService.shared;
-      final cached =
-          widget.texts.any((s) => s.trim().isNotEmpty) &&
-          widget.texts
-              .where((s) => s.trim().isNotEmpty)
-              .every((s) => service.lookup(s) != null);
+      final remaining = texts
+          .where((text) => service.lookup(text) == null)
+          .length;
+      final cached = texts.isNotEmpty && remaining == 0;
       return IconButton(
         tooltip: busy
             ? '正在翻译… 已完成 $processed/${texts.length}'
@@ -212,12 +220,8 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
               )
             : Badge(
                 isLabelVisible:
-                    attempted &&
-                    attemptedProfile == profile &&
-                    texts.any((s) => service.lookup(s) == null),
-                label: Text(
-                  '${texts.where((s) => service.lookup(s) == null).length}',
-                ),
+                    attempted && attemptedProfile == profile && remaining > 0,
+                label: Text('$remaining'),
                 child: const Icon(Icons.translate, size: 18),
               ),
       );

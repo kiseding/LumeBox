@@ -465,7 +465,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         result(FlutterError(code: "translation_partial", message: error, details: strings))
       }
       else if let strings = strings { result(strings) }
-      else { result(FlutterError(code: "translation", message: error ?? "翻译失败", details: nil)) }
+      else { result(FlutterError(code: error == "翻译已取消" ? "translation_cancelled" : "translation", message: error ?? "翻译失败", details: nil)) }
     }
     if let host = host, host.presentingViewController != nil {
       host.dismiss(animated: true, completion: complete)
@@ -573,6 +573,7 @@ private struct ComicTranslationTaskView: View {
             return
           }
           for (offset, index) in group.indices.enumerated() { output[index] = values[offset] }
+          if let error { failures.append(error) }
           advance()
         }.id(groupIndex)
       }
@@ -605,13 +606,21 @@ private struct ComicTranslationBatchView: View {
             return
           }
           if case .supported = status { try await session.prepareTranslation() }
-          var translated: [String] = []
-          for text in texts {
+          var translated = [String](repeating: "", count: texts.count)
+          var failed = 0
+          for (index, text) in texts.enumerated() {
             try Task.checkCancellation()
-            let response = try await session.translate(text)
-            translated.append(response.targetText)
+            do {
+              let response = try await session.translate(text)
+              translated[index] = response.targetText
+            } catch {
+              try Task.checkCancellation()
+              // One rejected title must not erase this language's completed work.
+              failed += 1
+            }
           }
-          await MainActor.run { completion(translated, nil) }
+          let message = failed == 0 ? nil : "\(source) → \(target) 有 \(failed) 条翻译失败，成功译文已保留"
+          await MainActor.run { completion(translated, message) }
         } catch {
           await MainActor.run { completion(nil, "\(source) → \(target) 翻译失败：\(error.localizedDescription)") }
         }

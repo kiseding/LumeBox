@@ -1665,6 +1665,7 @@ class _ExploreViewState extends State<ExploreView>
   }
 
   Widget _buildGrid({int crossAxisCount = 3}) {
+    final items = _sortedItems;
     final compactGrid = crossAxisCount == 3;
     final sidePadding = compactGrid
         ? ThreeColumnPosterLayout.sidePadding
@@ -1716,9 +1717,8 @@ class _ExploreViewState extends State<ExploreView>
                     ? 1
                     : _mode.tileAspectRatio,
               ),
-              itemCount: _sortedItems.length + 1,
+              itemCount: items.length + 1,
               itemBuilder: (context, index) {
-                final items = _sortedItems;
                 if (index == items.length) return _buildFooter();
                 final item = items[index];
                 return PosterTile(
@@ -1737,6 +1737,7 @@ class _ExploreViewState extends State<ExploreView>
   }
 
   Widget _buildList() {
+    final items = _sortedItems;
     return RefreshIndicator(
       onRefresh: _refresh,
       child: NotificationListener<ScrollNotification>(
@@ -1761,10 +1762,9 @@ class _ExploreViewState extends State<ExploreView>
                   _keyboardInset(context) +
                   ShellDockScope.bottomInset(context),
             ),
-            itemCount: _sortedItems.length + 1,
+            itemCount: items.length + 1,
             separatorBuilder: (_, _) => SizedBox(height: 10 * _spacingScale),
             itemBuilder: (context, index) {
-              final items = _sortedItems;
               if (index == items.length) return _buildFooter();
               final item = items[index];
               return CompactSourceItemTile(

@@ -630,8 +630,8 @@ class SectionImagePipeline {
             final file = File(
               _diskPath(upgradeToHttps(normalizeTransform(url))),
             );
-            file.parent.createSync(recursive: true);
-            file.writeAsBytesSync(data);
+            await file.parent.create(recursive: true);
+            await file.writeAsBytes(data);
           } catch (_) {}
         }
         _failures.remove(upgradeToHttps(normalizeTransform(url)));
@@ -646,7 +646,7 @@ class SectionImagePipeline {
         final file = File(_diskPath(normalized));
         if (!file.existsSync()) return null;
         try {
-          file.deleteSync();
+          await file.delete();
         } catch (_) {
           return null;
         }
@@ -766,12 +766,12 @@ class SectionImagePipeline {
     } catch (error) {
       LumeLog.warn('图片缓存读取失败: $url ($error)');
     }
-    final speculative = MediaPreload.instance.image('$cacheDir|$url');
+    final speculative = await MediaPreload.instance.image('$cacheDir|$url');
     if (speculative != null) return speculative;
     final downloaded = await _download(url, preload: preload);
     if (downloaded == null) return null;
     if (preload) {
-      MediaPreload.instance.cacheImage(
+      await MediaPreload.instance.cacheImage(
         '$cacheDir|$url',
         downloaded,
         preloadGeneration,
