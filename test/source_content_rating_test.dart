@@ -23,6 +23,7 @@ void main() {
       'gamebus_video',
       'tanhua_video',
       'f016_video',
+      'resao_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

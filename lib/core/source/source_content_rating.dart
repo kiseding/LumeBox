@@ -135,6 +135,8 @@ class SourceContentRating {
     'tanhua_video',
     // 在线影院 / 91吃瓜（bb.f016video.com 与 ss.99utv.com，同一站群，前者是超集）。
     'f016_video',
+    // 91热爆（www.resao.com，KVS 站；VIP 专享片靠 CDN 路径可预测直接取流）。
+    'resao_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -284,6 +286,7 @@ class SourceContentRating {
     "91大神",
     "在线影院",
     "91吃瓜",
+    "91热爆",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
