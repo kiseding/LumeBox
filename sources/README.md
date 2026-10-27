@@ -221,6 +221,7 @@ dart run tools/site_reachability.dart
 - **BetaTok 的付费片不列**：`locked:true`（PPV，price 单位钻石）直接从列表里滤掉，不代下单。
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
+- **VIP 一律先破解再决定怎么放** —— 判定顺序、三种打法（CDN 路径可推导 / 试看签名复用 / 同库镜像）、记录要求见 [docs/VIP处理约定.md](../docs/VIP处理约定.md)；同样规则也适用于此后新增的源。
 - **91热爆的 VIP 不是绕过，是 CDN 裸奔**：`/private/` 的 VIP 片页面只给 `no-player` 占位（游客还有观看次数上限），但视频文件路径可预测且签名不校验，`content()` 只用 id 拼 CDN 就拿到整片；`delivery.douyinpaly.com` 换域时改脚本顶部 `CDN_HOSTS`。
 - **在线影院 / 91吃瓜 是包含关系**：J(`bb.f016video.com`) 是超集、A(`ss.99utv.com`) 是子集（A 的条目 16/20 能在 B 上取到，B 的条目 0/20 能在 A 上取到）。所以只做一个源（`f016_video`），B 做默认、A 做镜像，并且**详情 404 自动回落**——A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失，不能只看状态码。列表最多 100 页，更早内容靠站内 Meilisearch 搜索。
 
