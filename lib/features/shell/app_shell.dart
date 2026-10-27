@@ -346,7 +346,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (kIsWeb || !(Platform.isIOS || Platform.isAndroid)) return;
     _subscriptionTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (_foreground) {
-        _syncSubscriptions(force: true);
+        // Automatic polling must respect the six-hour subscription cooldown.
+        // Only the user's explicit refresh bypasses it.
+        _syncSubscriptions();
         if (AppPreferences.instance.autoBackup) {
           unawaited(() async {
             try {

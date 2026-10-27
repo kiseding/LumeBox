@@ -93,15 +93,28 @@ class SourceSubscriptionSync {
     String name,
     String status,
   ) {
+    _recordChanges(section, [
+      {'id': id, 'name': name, 'status': status},
+    ]);
+  }
+
+  static void _recordChanges(
+    Section section,
+    Iterable<Map<String, String>> changes, {
+    bool notifyRevision = true,
+  }) {
+    if (changes.isEmpty) return;
     final entries = _changes.putIfAbsent(section, () => {});
-    final fresh = !entries.containsKey(id);
-    entries[id] = {'id': id, 'name': name, 'status': status};
-    if (fresh) {
-      changeCount(section).value++;
+    for (final change in changes) {
+      entries[change['id']!] = change;
+    }
+    final count = changeCount(section);
+    if (count.value != entries.length) {
+      count.value = entries.length;
     } else {
       final file = _noticeFiles[section];
       if (file != null) _saveChanges(section, file);
-      revision(section).value++;
+      if (notifyRevision) revision(section).value++;
     }
   }
 
@@ -288,6 +301,7 @@ class SourceSubscriptionSync {
 
   Future<SubscriptionSyncResult> sync({bool force = false}) async {
     final result = SubscriptionSyncResult();
+    final changes = <Map<String, String>>[];
     var downloaded = 0;
     if (!manager.runtimeAvailable) {
       return result..errors.add('当前平台无法运行 JS 源，订阅未同步');
@@ -377,15 +391,19 @@ class SourceSubscriptionSync {
             next[descriptor.id] = ref.url;
             if (before.containsKey(descriptor.id)) {
               result.updated++;
-              recordChange(
-                section,
-                descriptor.id,
-                descriptor.name,
-                '已更新 ${sourceVersionChange(before[descriptor.id]!.version, descriptor.version)}',
-              );
+              changes.add({
+                'id': descriptor.id,
+                'name': descriptor.name,
+                'status':
+                    '已更新 ${sourceVersionChange(before[descriptor.id]!.version, descriptor.version)}',
+              });
             } else {
               result.added++;
-              recordChange(section, descriptor.id, descriptor.name, '已新增');
+              changes.add({
+                'id': descriptor.id,
+                'name': descriptor.name,
+                'status': '已新增',
+              });
             }
           }
           if (complete) {
@@ -400,7 +418,11 @@ class SourceSubscriptionSync {
               if (existing == null || existing.originUrl != old.value) continue;
               await manager.remove(old.key);
               result.removed++;
-              recordChange(section, existing.id, existing.name, '已移除');
+              changes.add({
+                'id': existing.id,
+                'name': existing.name,
+                'status': '已移除',
+              });
             }
             record.members = next;
             record.error = '';
@@ -418,9 +440,10 @@ class SourceSubscriptionSync {
     } finally {
       http.dispose();
       progress(section).value = '';
-    }
-    if (result.changed) {
-      revision(section).value++;
+      // Persist and invalidate once per batch. Per-source revisions repeatedly
+      // cancel and restart the visible page while a large subscription updates.
+      _recordChanges(section, changes, notifyRevision: false);
+      if (result.changed) revision(section).value++;
     }
     if (result.changed || result.errors.isNotEmpty) {
       LumeLog.info('[订阅] ${section.label}: ${result.summary}');

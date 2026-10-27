@@ -1,14 +1,105 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pointycastle/export.dart'
+    show
+        AESEngine,
+        BlockCipher,
+        CBCBlockCipher,
+        ECBBlockCipher,
+        KeyParameter,
+        ParametersWithIV;
 import 'package:lume_box/core/reading/image_bytes_decoder.dart';
 
 void main() {
+  test(
+    'legacy multi-block ECB/CBC covers decode off UI, including data URIs',
+    () async {
+      final key = Uint8List.fromList(utf8.encode('0123456789abcdef'));
+      final iv = Uint8List.fromList(utf8.encode('abcdef0123456789'));
+      final image = Uint8List.fromList(
+        List.generate(256 * 1024, (i) => i % 251),
+      );
+      for (final cbc in [false, true]) {
+        for (final inline in [false, true]) {
+          final plain = inline
+              ? Uint8List.fromList(
+                  utf8.encode('data:image/png;base64,${base64Encode(image)}'),
+                )
+              : image;
+          final padding = 16 - plain.length % 16;
+          final padded = Uint8List(plain.length + padding)..setAll(0, plain);
+          padded.fillRange(plain.length, padded.length, padding);
+          final BlockCipher cipher = cbc
+              ? (CBCBlockCipher(AESEngine())
+                  ..init(true, ParametersWithIV(KeyParameter(key), iv)))
+              : (ECBBlockCipher(AESEngine())..init(true, KeyParameter(key)));
+          final encrypted = Uint8List(padded.length);
+          for (var offset = 0; offset < padded.length; offset += 16) {
+            cipher.processBlock(padded, offset, encrypted, offset);
+          }
+          var uiResponded = false;
+          Timer.run(() => uiResponded = true);
+          final decoded = await decodeLegacySourceImageInBackground(
+            cbc
+                ? Uint8List.fromList(utf8.encode(base64Encode(encrypted)))
+                : encrypted,
+            key,
+            iv: cbc ? iv : null,
+          );
+          expect(uiResponded, isTrue);
+          expect(decoded, image);
+        }
+      }
+      expect(
+        await decodeLegacySourceImageInBackground(Uint8List(3), key),
+        isNull,
+      );
+    },
+  );
   const fernetHeaders = {
     'X-Lume-Image-Encoding': 'fernet',
     'X-Lume-Image-Key': 'NyGRG56A8i5J2JMqh7da83r2MMfgbM7Ppw1aCF8YnAY=',
   };
+  test('encrypted cover decoding yields to UI events and propagates malformed payloads', () async {
+    const headers = {
+      'X-Lume-Image-Encoding': 'aes-cbc-pkcs7',
+      'X-Lume-Image-Key': 'my2ecret782ecret',
+      'X-Lume-Image-IV': 'my2ecret782ecret',
+    };
+    var responsive = false;
+    Timer.run(() => responsive = true);
+    final decoded = await decodeSourceImageInBackground(
+      base64Decode('2PYbUWttRSwkvhc43GjR7b0ZD9UVipvpW1dructvID0='),
+      headers,
+    );
+    expect(responsive, isTrue);
+    expect(utf8.decode(decoded), 'reader-image-fixture');
+    await expectLater(
+      decodeSourceImageInBackground(Uint8List(3), headers),
+      throwsFormatException,
+    );
+    final plain = Uint8List.fromList([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    expect(
+      identical(await decodeSourceImageInBackground(plain, headers), plain),
+      isTrue,
+    );
+  });
   test(
     'Fernet full and encrypted-prefix images reconstruct the original PNG',
     () {

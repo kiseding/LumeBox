@@ -117,7 +117,7 @@ void main() {
 
     await importScript(tester, 'var LumeSource = {id: "lume.new"};');
 
-    expect(find.text('已覆盖：新图源'), findsOneWidget);
+    expect(find.textContaining('已覆盖：新图源\n1.0.0（脚本内容已变化）'), findsOneWidget);
   });
 
   testWidgets('导入失败：提示具体原因，列表不变', (tester) async {

@@ -21,9 +21,20 @@ class SourceOrder {
     String b,
     List<String> fallback,
   ) {
-    final saved = read(section);
-    final order = [...saved, ...fallback.where((id) => !saved.contains(id))];
-    return order.indexOf(a).compareTo(order.indexOf(b));
+    return comparator(section, fallback)(a, b);
+  }
+
+  /// Snapshot once per sort, rather than querying SQLite and rebuilding the
+  /// complete order on every comparison.
+  static Comparator<String> comparator(
+    Section section,
+    Iterable<String> fallback,
+  ) {
+    final ranks = <String, int>{};
+    for (final id in [...read(section), ...fallback]) {
+      ranks.putIfAbsent(id, () => ranks.length);
+    }
+    return (a, b) => (ranks[a] ?? -1).compareTo(ranks[b] ?? -1);
   }
 
   static Future<void> move(

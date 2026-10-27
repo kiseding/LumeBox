@@ -449,6 +449,8 @@ class _ExploreViewState extends State<ExploreView>
     if (source is HomeCapable) {
       try {
         supported = await (source as HomeCapable).supportsHome();
+      } on NetworkCancelled {
+        return;
       } catch (error) {
         LumeLog.info('[${widget.section.id}] home() 探测失败，按「没有首页」处理：$error');
       }
@@ -483,7 +485,9 @@ class _ExploreViewState extends State<ExploreView>
           }
         });
       } catch (error) {
-        LumeLog.warn('[${source.id}] 分类获取失败: $error');
+        if (error is! NetworkCancelled) {
+          LumeLog.warn('[${source.id}] 分类获取失败: $error');
+        }
       }
     })();
     if (!mounted || seq != _facetRequestSeq || !identical(source, _source)) {
@@ -520,7 +524,9 @@ class _ExploreViewState extends State<ExploreView>
             );
         });
       } catch (error) {
-        LumeLog.warn('[${source.id}] 筛选获取失败: $error');
+        if (error is! NetworkCancelled) {
+          LumeLog.warn('[${source.id}] 筛选获取失败: $error');
+        }
       }
     })();
   }
@@ -841,6 +847,9 @@ class _ExploreViewState extends State<ExploreView>
         }
       });
       _preloadCovers(result.items, more: more);
+    } on NetworkCancelled {
+      // Replaced requests belong to the previous source/filter/page lifetime.
+      return;
     } catch (error) {
       if (error is! SourceException) {
         LumeLog.error(error, StackTrace.current);

@@ -891,12 +891,15 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       );
     }
     final originalOrder = sources.map((s) => s.id).toList();
+    final compareOrder = SourceOrder.comparator(Section.video, originalOrder);
+    final pinned = {
+      for (final source in ordinary)
+        source.id: SourcePreferences.read(Section.video, source.id).pinned,
+    };
     ordinary.sort((a, b) {
-      final pa = SourcePreferences.read(Section.video, a.id).pinned;
-      final pb = SourcePreferences.read(Section.video, b.id).pinned;
-      return pa != pb
-          ? (pa ? -1 : 1)
-          : SourceOrder.compare(Section.video, a.id, b.id, originalOrder);
+      final pa = pinned[a.id]!;
+      final pb = pinned[b.id]!;
+      return pa != pb ? (pa ? -1 : 1) : compareOrder(a.id, b.id);
     });
     final records = service.subscriptions.where((s) => s.enabled).toList();
     final groups = <(CatSubscription, List<CatSite>)>[];
@@ -914,7 +917,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           )
           .toList();
       final order = record.sites.map((s) => s.id).toList();
-      sites.sort((a, b) => SourceOrder.compare(Section.cat, a.id, b.id, order));
+      final compareSites = SourceOrder.comparator(Section.cat, order);
+      sites.sort((a, b) => compareSites(a.id, b.id));
       if (sites.isNotEmpty ||
           (type != VideoSourceType.audio &&
               record.sites.isEmpty &&

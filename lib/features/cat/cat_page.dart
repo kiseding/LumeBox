@@ -520,15 +520,12 @@ class _CatPageState extends State<CatPage>
     name: site.name,
     accepts: (id) => record.sites.any((entry) => entry.id == id),
     onMove: (from, to) async {
+      final compareOrder = SourceOrder.comparator(
+        Section.cat,
+        record.sites.map((entry) => entry.id),
+      );
       final all = record.sites.map((entry) => entry.id).toList()
-        ..sort(
-          (a, b) => SourceOrder.compare(
-            Section.cat,
-            a,
-            b,
-            record.sites.map((entry) => entry.id).toList(),
-          ),
-        );
+        ..sort(compareOrder);
       await SourceOrder.move(
         Section.cat,
         all,
@@ -595,16 +592,18 @@ class _CatPageState extends State<CatPage>
                         .contains(pickerQuery.toLowerCase())),
           )
           .toList();
+      final compareOrder = SourceOrder.comparator(
+        Section.cat,
+        record.sites.map((site) => site.id),
+      );
+      final pinned = {
+        for (final site in rows)
+          site.id: SourcePreferences.read(Section.cat, site.id).pinned,
+      };
       rows.sort((a, b) {
-        final pa = SourcePreferences.read(Section.cat, a.id).pinned,
-            pb = SourcePreferences.read(Section.cat, b.id).pinned;
+        final pa = pinned[a.id]!, pb = pinned[b.id]!;
         return pa == pb
-            ? SourceOrder.compare(
-                Section.cat,
-                a.id,
-                b.id,
-                record.sites.map((site) => site.id).toList(),
-              )
+            ? compareOrder(a.id, b.id)
             : pa
             ? -1
             : 1;

@@ -770,6 +770,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       );
     }
     final query = _sourceQuery.toLowerCase().trim();
+    final compareOrder = SourceOrder.comparator(
+      widget.section,
+      sources.map((s) => s.id),
+    );
+    final pinned = {
+      for (final source in sources)
+        source.id: SourcePreferences.read(widget.section, source.id).pinned,
+    };
     final visible =
         sources
             .where(
@@ -797,26 +805,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
             )
             .toList()
           ..sort((a, b) {
-            final pinA = SourcePreferences.read(widget.section, a.id).pinned;
-            final pinB = SourcePreferences.read(widget.section, b.id).pinned;
+            final pinA = pinned[a.id]!;
+            final pinB = pinned[b.id]!;
             if (pinA != pinB) return pinA ? -1 : 1;
-            return SourceOrder.compare(
-              widget.section,
-              a.id,
-              b.id,
-              sources.map((s) => s.id).toList(),
-            );
+            return compareOrder(a.id, b.id);
           });
     Future<void> move(String from, String to) async {
       final all = List<SourceDescriptor>.of(sources)
-        ..sort(
-          (a, b) => SourceOrder.compare(
-            widget.section,
-            a.id,
-            b.id,
-            sources.map((s) => s.id).toList(),
-          ),
-        );
+        ..sort((a, b) => compareOrder(a.id, b.id));
       await SourceOrder.move(
         widget.section,
         all.map((s) => s.id).toList(),

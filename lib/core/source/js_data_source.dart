@@ -1,5 +1,6 @@
 import '../cache/section_memory_cache.dart';
 import '../net/waf.dart';
+import '../net/network_cancellation.dart';
 import '../net/waf_auto_verify.dart';
 import '../util/lume_log.dart';
 import '../session/section.dart';
@@ -355,6 +356,8 @@ class JsDataSource
   }) async {
     try {
       return await runtime.call(method, argument);
+    } on NetworkCancelled {
+      rethrow;
     } on SourceException catch (error) {
       if (!retriedWaf && _needsWebView(error.message)) {
         // 地址同样走**统一兜底链**（不只是从报错文案里捞）：老脚本的标记文案里

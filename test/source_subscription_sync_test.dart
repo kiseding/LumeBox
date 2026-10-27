@@ -55,6 +55,50 @@ void main() {
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
+  test('150 个源批量同步仅刷新页面一次，未读变更更新也不重复刷新', () async {
+    SourceSubscriptionSync.attachNoticeFile(
+      Section.video,
+      File('${root.path}/notice.txt'),
+    );
+    SourceSubscriptionSync.acknowledge(Section.video);
+    final ids = List.generate(150, (i) => 'batch-$i');
+    remote[manifest] = ids
+        .map((id) => 'https://repo.example/$id.js')
+        .join('\n');
+    final revision = SourceSubscriptionSync.revision(Section.video);
+    final count = SourceSubscriptionSync.changeCount(Section.video);
+    var reloads = 0;
+    var countChanges = 0;
+    void onReload() => reloads++;
+    void onCount() => countChanges++;
+    revision.addListener(onReload);
+    count.addListener(onCount);
+    addTearDown(() {
+      revision.removeListener(onReload);
+      count.removeListener(onCount);
+    });
+    for (var version = 1; version <= 2; version++) {
+      for (final id in ids) {
+        remote['https://repo.example/$id.js'] = script(id, version);
+      }
+      final result = await service.sync(force: true);
+      expect(result.errors, isEmpty);
+      expect(version == 1 ? result.added : result.updated, 150);
+      expect(reloads, version, reason: '每轮整批完成后只刷新一次');
+      expect(countChanges, 1, reason: '首次新增合并通知，已有未读变更不重复写入计数');
+      expect(count.value, 150);
+      expect(SourceSubscriptionSync.notices(Section.video), hasLength(150));
+    }
+    final saved = jsonDecode(
+      File('${root.path}/notice.txt.json').readAsStringSync(),
+    ) as Map;
+    expect(saved, hasLength(150));
+    expect(saved['batch-0']['status'], contains('1 → 2'));
+    final unchanged = await service.sync(force: true);
+    expect(unchanged.unchanged, 150);
+    expect(reloads, 2, reason: '脚本没有变化不刷新页面');
+  });
+
   test('手动同步等待后台检查后强制刷新，不沿用六小时内跳过的结果', () async {
     final stored = await SourceSubscriptionSync.open(
       Section.video,

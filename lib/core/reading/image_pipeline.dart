@@ -12,14 +12,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:pointycastle/export.dart'
-    show
-        AESEngine,
-        BlockCipher,
-        CBCBlockCipher,
-        ECBBlockCipher,
-        KeyParameter,
-        ParametersWithIV;
 
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
@@ -736,38 +728,7 @@ class SectionImagePipeline {
     final raw = await _download(upgradeToHttps(normalizeTransform(target)));
     if (raw == null || raw.isEmpty) return null;
     try {
-      Uint8List cipherBytes = raw;
-      if (isCbc) {
-        // 站点给的是 Base64 文本密文，先解成字节
-        final text = utf8.decode(raw, allowMalformed: true).trim();
-        cipherBytes = Uint8List.fromList(base64Decode(base64.normalize(text)));
-      }
-      final BlockCipher cipher;
-      if (isCbc) {
-        cipher = CBCBlockCipher(AESEngine())
-          ..init(false, ParametersWithIV(KeyParameter(key), iv!));
-      } else {
-        cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
-      }
-      // 注意：BlockCipher.process() 只处理「一个块」，多块必须逐块 processBlock
-      // （踩过：直接 process 一整张 275KB 的密文只解出 16 字节）。
-      final blockSize = cipher.blockSize;
-      if (cipherBytes.length % blockSize != 0) return null;
-      final plain = Uint8List(cipherBytes.length);
-      for (var offset = 0; offset < cipherBytes.length; offset += blockSize) {
-        cipher.processBlock(cipherBytes, offset, plain, offset);
-      }
-      if (plain.isEmpty) return null;
-      final pad = plain[plain.length - 1];
-      final body = (pad > 0 && pad <= 16 && pad <= plain.length)
-          ? Uint8List.sublistView(plain, 0, plain.length - pad)
-          : plain;
-      final text = utf8.decode(body, allowMalformed: true);
-      if (text.startsWith('data:')) {
-        final decoded = decodeDataUri(text);
-        if (decoded != null) return decoded;
-      }
-      return Uint8List.fromList(body);
+      return await decodeLegacySourceImageInBackground(raw, key, iv: iv);
     } catch (error) {
       LumeLog.warn('[$sourceLabel] 加密封面解密失败: $rawUrl ($error)');
       return null;
@@ -778,21 +739,7 @@ class SectionImagePipeline {
   /// 图源里有些封面是**加密后内联**的：源脚本（纯 JS）把它解出来就成了一整条
   /// `data:image/jpeg;base64,xxxx`，此时没有任何可请求的主机，只能就地解码。
   /// 支持 `;base64` 与无参数的 `data:image/png,`（后者按百分号编码解）。
-  static Uint8List? decodeDataUri(String url) {
-    final text = url.trim();
-    if (!text.startsWith('data:')) return null;
-    final comma = text.indexOf(',');
-    if (comma <= 0) return null;
-    final meta = text.substring(5, comma).toLowerCase();
-    if (!meta.startsWith('image/')) return null;
-    final payload = text.substring(comma + 1);
-    try {
-      if (meta.contains('base64')) return base64Decode(payload);
-      return Uint8List.fromList(Uri.decodeComponent(payload).codeUnits);
-    } catch (_) {
-      return null;
-    }
-  }
+  static Uint8List? decodeDataUri(String url) => decodeImageDataUri(url);
 
   Future<Uint8List?> _loadBytes(String rawUrl, {bool preload = false}) async {
     final preloadGeneration = MediaPreload.instance.generation;
@@ -1148,7 +1095,10 @@ class SectionImagePipeline {
         }
         _failures.remove(url);
         final decoded = await restoreSourceImageStrips(
-          decodeSourceImage(Uint8List.fromList(bytes), explicitHeaders),
+          await decodeSourceImageInBackground(
+            Uint8List.fromList(bytes),
+            explicitHeaders,
+          ),
           explicitHeaders,
         );
         if (_disposed) return (bytes: null, retryable: false, forbidden: false);

@@ -437,21 +437,23 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         )
         .toList();
     final order = sources.map((s) => s.id).toList();
+    final compareOrder = SourceOrder.comparator(widget.section, order);
+    final pinned = {
+      for (final source in visible)
+        source.id: SourcePreferences.read(widget.section, source.id).pinned,
+    };
     visible.sort((a, b) {
-      final pinA = SourcePreferences.read(widget.section, a.id).pinned;
-      final pinB = SourcePreferences.read(widget.section, b.id).pinned;
-      return pinA != pinB
-          ? (pinA ? -1 : 1)
-          : SourceOrder.compare(widget.section, a.id, b.id, order);
+      final pinA = pinned[a.id]!;
+      final pinB = pinned[b.id]!;
+      return pinA != pinB ? (pinA ? -1 : 1) : compareOrder(a.id, b.id);
     });
     Future<void> move(
       List<SourceDescriptor> entries,
       String from,
       String to,
     ) async {
-      final all = List<SourceDescriptor>.of(
-        sources,
-      )..sort((a, b) => SourceOrder.compare(widget.section, a.id, b.id, order));
+      final all = List<SourceDescriptor>.of(sources)
+        ..sort((a, b) => compareOrder(a.id, b.id));
       await SourceOrder.move(
         widget.section,
         all.map((s) => s.id).toList(),

@@ -1,12 +1,83 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/block/aes.dart';
 import 'package:pointycastle/block/modes/cbc.dart';
+import 'package:pointycastle/block/modes/ecb.dart';
 import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
+
+typedef _LegacyImageWork = ({Uint8List bytes, Uint8List key, Uint8List? iv});
+
+Future<Uint8List?> decodeLegacySourceImageInBackground(
+  Uint8List bytes,
+  Uint8List key, {
+  Uint8List? iv,
+}) => compute(_decodeLegacyImageWork, (bytes: bytes, key: key, iv: iv));
+
+Uint8List? _decodeLegacyImageWork(_LegacyImageWork work) {
+  final iv = work.iv;
+  final cipherBytes = iv == null
+      ? work.bytes
+      : base64Decode(base64.normalize(utf8.decode(work.bytes).trim()));
+  final BlockCipher cipher = iv == null
+      ? (ECBBlockCipher(AESEngine())..init(false, KeyParameter(work.key)))
+      : (CBCBlockCipher(AESEngine())
+          ..init(false, ParametersWithIV(KeyParameter(work.key), iv)));
+  if (cipherBytes.isEmpty || cipherBytes.length % cipher.blockSize != 0) {
+    return null;
+  }
+  final plain = Uint8List(cipherBytes.length);
+  for (
+    var offset = 0;
+    offset < cipherBytes.length;
+    offset += cipher.blockSize
+  ) {
+    cipher.processBlock(cipherBytes, offset, plain, offset);
+  }
+  final pad = plain.last;
+  final body = pad > 0 && pad <= 16 && pad <= plain.length
+      ? Uint8List.sublistView(plain, 0, plain.length - pad)
+      : plain;
+  final text = utf8.decode(body, allowMalformed: true);
+  return decodeImageDataUri(text) ?? body;
+}
+
+Uint8List? decodeImageDataUri(String url) {
+  final text = url.trim();
+  if (!text.startsWith('data:')) return null;
+  final comma = text.indexOf(',');
+  if (comma <= 0) return null;
+  final meta = text.substring(5, comma).toLowerCase();
+  if (!meta.startsWith('image/')) return null;
+  final payload = text.substring(comma + 1);
+  try {
+    if (meta.contains('base64')) return base64Decode(payload);
+    return Uint8List.fromList(Uri.decodeComponent(payload).codeUnits);
+  } catch (_) {
+    return null;
+  }
+}
+
+Uint8List _decodeImageWork(
+  ({Uint8List bytes, Map<String, String> headers}) work,
+) => decodeSourceImage(work.bytes, work.headers);
+
+/// CPU-heavy image decryption must not hold the scrolling UI isolate.
+Future<Uint8List> decodeSourceImageInBackground(
+  Uint8List bytes,
+  Map<String, String> headers,
+) {
+  final encoded = headers.entries.any(
+    (entry) =>
+        entry.key.toLowerCase() == 'x-lume-image-encoding' &&
+        entry.value.isNotEmpty,
+  );
+  if (!encoded || _isPlainImage(bytes)) return Future.value(bytes);
+  return compute(_decodeImageWork, (bytes: bytes, headers: headers));
+}
 
 /// A source may describe its public reader's image encoding using local headers.
 /// These fields are consumed locally and never sent to the image server.
