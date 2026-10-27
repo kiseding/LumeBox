@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 /// 漫画与视频源选择面板共用的卡片度量。
 abstract final class SourceCardMetrics {
   static const double height = 50;
+  static const double jsHeight = 66;
   static const double horizontalPadding = 14;
   static const double columnGap = 8;
   static const double rowGap = 5;

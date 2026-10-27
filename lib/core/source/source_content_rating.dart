@@ -128,6 +128,8 @@ class SourceContentRating {
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
+    '奶香香资源',
+    '奶香香资源网',
     "1024videos",
     "127漫画",
     "177漫畫",

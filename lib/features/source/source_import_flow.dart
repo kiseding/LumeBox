@@ -6,6 +6,9 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/js/source_script.dart';
 import '../../core/source/source.dart';
+import '../../core/source/source_content_category.dart';
+import '../../core/source/source_preferences.dart';
+import '../../core/session/section.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 
@@ -217,6 +220,8 @@ Future<bool> importSources(
   List<SourceImportSkip> skipped = const <SourceImportSkip>[],
   List<String> notes = const <String>[],
   String? sectionLabel,
+  Section? section,
+  String contentCategory = '',
 }) async {
   if (items.isEmpty && skipped.isEmpty) return false;
 
@@ -277,6 +282,21 @@ Future<bool> importSources(
       continue;
     }
     succeeded = true;
+    final category = SourceContentCategory.fromId(contentCategory);
+    var categoryNote = '';
+    if (section == Section.video &&
+        category != null &&
+        category != SourceContentCategory.all &&
+        SourceContentCategories.appliesTo(descriptor)) {
+      try {
+        await SourcePreferences.read(Section.video, descriptor.id)
+            .copyWith(contentCategory: category.id)
+            .save(Section.video, descriptor.id);
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+        categoryNote = '源已导入，分类未保存；可在源设置中重新归类。';
+      }
+    }
     outcomes.add(
       SourceImportOutcome(
         label: item.label,
@@ -284,7 +304,10 @@ Future<bool> importSources(
             ? SourceImportStatus.overwritten
             : SourceImportStatus.added,
         name: descriptor.name,
-        message: result.message ?? '',
+        message: [
+          result.message ?? '',
+          categoryNote,
+        ].where((value) => value.isNotEmpty).join('\n'),
         subscription: item.isSubscription,
       ),
     );

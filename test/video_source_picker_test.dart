@@ -283,7 +283,7 @@ void main() {
     expect(find.text('普通视频长名称测试'), findsNothing);
     expect(VideoSourceType.values.map((s) => s.label).toList(), [
       '全部',
-      '普通',
+      'JS 源',
       '猫源',
       'PY',
       '有声小说',
@@ -904,7 +904,7 @@ void main() {
     expect(find.text('选择视频源'), findsNothing);
   });
 
-  testWidgets('视频源卡片与漫画共用50高、32图标、14留白、8列距和5行距', (tester) async {
+  testWidgets('JS源卡片支持双行名称，保留32图标、14留白、8列距和5行距', (tester) async {
     manager.sources.addAll([
       for (final id in ['b', 'c', 'd'])
         SourceDescriptor(id: id, name: '视频源$id', version: '1.0', enabled: true),
@@ -916,7 +916,7 @@ void main() {
     final first = tester.getRect(a),
         second = tester.getRect(b),
         third = tester.getRect(c);
-    expect(first.height, 50);
+    expect(first.height, 66);
     expect(first.width, 177);
     expect(first.left, 14);
     expect(second.right, 376);

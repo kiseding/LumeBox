@@ -10,6 +10,7 @@ import '../session/section.dart';
 import '../util/lume_log.dart';
 import 'source.dart';
 import 'source_picker_groups.dart';
+import 'source_content_category.dart';
 
 /// Only source-drawer visibility; it never changes enabled sources or search scope.
 class SourceContentVisibility extends ChangeNotifier {
@@ -31,7 +32,12 @@ class SourceContentVisibility extends ChangeNotifier {
   bool sectionVisible(Section section) => groups(section).isNotEmpty;
   bool allows(Section section, SourceDescriptor source) =>
       isVisible(SourcePickerGroups.groupFor(section, source)) &&
-      PrivacySettings.instance.allowsSource(source.id, source.name);
+      PrivacySettings.instance.allowsSource(source.id, source.name) &&
+      (section != Section.video ||
+          !SourceContentCategories.appliesTo(source) ||
+          PrivacySettings.instance.showAdult ||
+          SourceContentCategories.forSource(source) !=
+              SourceContentCategory.adult);
   Future<void> boot({File? file}) async {
     try {
       _file =

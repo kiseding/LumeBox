@@ -3,6 +3,8 @@ import 'source_login_page.dart';
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../core/source/source_picker_groups.dart';
+import '../../core/source/source_content_category.dart';
+import '../../core/source/data_source.dart';
 import '../../core/cache/section_memory_cache.dart';
 
 import 'package:flutter/services.dart';
@@ -23,17 +25,23 @@ class SourcePreferencesPage extends StatefulWidget {
     this.onNetwork,
     this.showChapterOrder,
     this.showWidgetParameters = false,
+    this.descriptor,
   });
   final Section section;
   final String sourceId, name, siteUrl;
   final Future<void> Function()? onNetwork;
   final bool? showChapterOrder;
   final bool showWidgetParameters;
+  final SourceDescriptor? descriptor;
   @override
   State<SourcePreferencesPage> createState() => _SourcePreferencesPageState();
 }
 
 class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
+  bool get _jsContent =>
+      widget.section == Section.video &&
+      widget.descriptor != null &&
+      SourceContentCategories.appliesTo(widget.descriptor!);
   late SourcePreferences prefs = SourcePreferences.read(
     widget.section,
     widget.sourceId,
@@ -93,6 +101,11 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (widget.descriptor != null)
+          ListTile(
+            title: const Text('源版本'),
+            trailing: Text(widget.descriptor!.version),
+          ),
         if (widget.siteUrl.isNotEmpty)
           ListTile(
             leading: const Icon(Icons.login),
@@ -113,7 +126,40 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             ),
           ),
 
-        if (widget.section != Section.cat)
+        if (_jsContent)
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('内容分类'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final group in [
+                      ('', '自动'),
+                      for (final category in SourceContentCategory.groups)
+                        (category.id, category.label),
+                    ])
+                      ChoiceChip(
+                        key: ValueKey('source-content-setting-${group.$1}'),
+                        label: Text(group.$2),
+                        selected: prefs.contentCategory == group.$1,
+                        onSelected: (_) => setState(
+                          () =>
+                              prefs = prefs.copyWith(contentCategory: group.$1),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '自动识别：${SourceContentCategories.automatic(widget.descriptor!).label}；手动分类在更新源后保留。',
+                ),
+              ],
+            ),
+          ),
+        if (widget.section != Section.cat && !_jsContent)
           GlassCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

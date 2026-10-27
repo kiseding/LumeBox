@@ -132,6 +132,7 @@ class SourceDescriptor {
     this.broken = false,
     this.runtimeKind = 'javascript',
     this.mediaKind = '',
+    this.contentCategory = '',
   });
 
   final String id;
@@ -139,6 +140,7 @@ class SourceDescriptor {
   /// Interpreter classification; derived from the stored script at read time.
   final String runtimeKind;
   final String mediaKind;
+  final String contentCategory;
   bool get isKazumi => id.startsWith('kazumi_');
   bool get isAudio =>
       mediaKind == 'audio' ||

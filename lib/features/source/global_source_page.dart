@@ -280,6 +280,8 @@ class _GlobalSourcePageState extends State<GlobalSourcePage> {
       items: request.items,
       skipped: request.skipped,
       notes: request.notes,
+      section: request.section,
+      contentCategory: request.contentCategory,
       sectionLabel: section.label,
     );
     if (!mounted) return;
