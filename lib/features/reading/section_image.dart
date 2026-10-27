@@ -11,6 +11,7 @@ import '../../core/reading/reading.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/net/waf.dart';
 import '../source/waf_webview_page.dart';
+import 'cover_viewport.dart';
 
 /// 板块远程图片：走本板块的图片管线取图，负责引用计数、占位与失败态。
 ///
@@ -53,6 +54,9 @@ class SectionImage extends StatefulWidget {
 class _SectionImageState extends State<SectionImage> {
   ui.Image? _image;
   bool _failed = false;
+  bool _resolving = false;
+  CoverViewportState? _viewport;
+  CoverViewportEntry? _viewportEntry;
 
   /// 自动重试计数（弱网下封面一两次失败就永久占位，用户看到的就是
   /// 「很多封面加载不出来」——失败后自己再试几次，别让人去滑来滑去）。
@@ -79,7 +83,45 @@ class _SectionImageState extends State<SectionImage> {
   void initState() {
     super.initState();
     widget.pipeline.verificationRevision.addListener(_onVerificationChanged);
-    _resolve();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final viewport = CoverViewport.of(context);
+    if (_viewportEntry == null || !identical(viewport, _viewport)) {
+      _registerViewport(viewport);
+    }
+  }
+
+  void _registerViewport(CoverViewportState? viewport) {
+    final old = _viewportEntry;
+    if (old != null) _viewport?.unregister(old);
+    _viewport = viewport;
+    if (viewport == null) {
+      _viewportEntry = null;
+      if (_image == null && !_resolving) unawaited(_resolve());
+      return;
+    }
+    widget.pipeline.configureImageHeaders({widget.url: widget.headers});
+    final entry = CoverViewportEntry(
+      context: context,
+      pipeline: widget.pipeline,
+      url: widget.url,
+      width: widget.targetWidth,
+      onVisible: () {
+        if (_image == null &&
+            !_resolving &&
+            (!_failed ||
+                (widget.pipeline.canRetry(widget.url) &&
+                    _retries < _maxRetries))) {
+          _retryTimer?.cancel();
+          unawaited(_resolve());
+        }
+      },
+    );
+    _viewportEntry = entry;
+    viewport.register(entry);
   }
 
   @override
@@ -99,12 +141,16 @@ class _SectionImageState extends State<SectionImage> {
       _retries = 0;
       _failed = false;
       _release();
-      _resolve();
+      _resolveSeq++;
+      _resolving = false;
+      _registerViewport(_viewport);
     }
   }
 
   @override
   void dispose() {
+    final entry = _viewportEntry;
+    if (entry != null) _viewport?.unregister(entry);
     widget.pipeline.verificationRevision.removeListener(_onVerificationChanged);
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -176,19 +222,28 @@ class _SectionImageState extends State<SectionImage> {
   }
 
   Future<void> _resolve() async {
+    if (_viewportEntry != null && !_viewportEntry!.visible) return;
     final seq = ++_resolveSeq;
+    _resolving = true;
     final pipeline = widget.pipeline;
     if (widget.headers.isNotEmpty) {
       pipeline.configureImageHeaders({widget.url: widget.headers});
     }
     final url = widget.url.trim();
     if (url.isEmpty) {
+      _resolving = false;
       if (mounted) setState(() => _failed = true);
       return;
     }
     final width = widget.targetWidth;
     // image() 返回的图自带一次引用（见管线的引用契约），由 _release 归还。
-    final image = await pipeline.image(url, targetWidth: width);
+    final entry = _viewportEntry;
+    final image = await pipeline.image(
+      url,
+      targetWidth: width,
+      isForeground: entry == null ? null : () => entry.visible,
+    );
+    if (seq == _resolveSeq) _resolving = false;
     if (!mounted || seq != _resolveSeq) {
       // 页面已退出：立刻把这次引用还回去，别把它钉在管线上。
       if (image != null) pipeline.release(url, targetWidth: width);

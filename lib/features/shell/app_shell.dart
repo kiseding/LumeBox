@@ -1,4 +1,5 @@
 import '../../core/net/lume_net.dart';
+import '../../core/net/network_cancellation.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -20,6 +21,7 @@ import '../../core/session/configuration_backup.dart';
 import '../../core/net/waf.dart';
 import '../../core/net/waf_auto_verify.dart';
 import '../../core/reading/reading.dart';
+import '../../core/reading/cover_warmup.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/shell/shell_settings.dart';
@@ -310,6 +312,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           .removeListener(_onSubscriptionChanges);
     }
     _backgroundWarmTimer?.cancel();
+    SectionPreloader.discard();
+    CatPreloader.discard();
     WidgetsBinding.instance.removeObserver(this);
     _shellSettings.removeListener(_onShellSettingsChanged);
     if (_ownsController) _controller.dispose();
@@ -458,6 +462,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       section,
       manager: LumeSources.manager(section),
       openLibrary: () => ReadingLibrary.open(section).then((_) {}),
+      preloadCovers: (source, descriptor, items) async {
+        final library = await ReadingLibrary.open(section);
+        NetworkCancellation.current?.check();
+        unawaited(
+          CoverWarmup.start(
+            source: source,
+            network: descriptor.network,
+            cacheDir: library.imageCacheDir,
+            items: items,
+          ),
+        );
+      },
     );
   }
 

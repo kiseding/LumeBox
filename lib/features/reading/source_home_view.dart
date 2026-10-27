@@ -9,6 +9,7 @@ import 'dart:async';
 import '../../shared/widgets/missing_cover.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../../core/source/home_browse_mode.dart';
 
@@ -23,6 +24,7 @@ import '../source/waf_webview_page.dart';
 import 'poster_card.dart';
 import 'adaptive_cover_surface.dart';
 import 'section_image.dart';
+import 'cover_viewport.dart';
 import '../shell/section_preloader.dart';
 
 /// 板块首页：**多板块横滑**（用户口径任务 3：视频 / 漫画三块共用）。
@@ -184,29 +186,33 @@ class _SourceHomeViewState extends State<SourceHomeView>
     ]);
   }
 
-  /// 首屏封面的预取：第一块板块的前几张。
-  ///
-  /// 横向板块是懒构建的（只建可见卡片），后面的卡片进视口时自己会取；这里补的是
-  /// 「首屏那几张要立刻出现」。以前这里完全不预取、而且卡片按原图解（见
-  /// [_HomeCard]），首屏封面一边下载一边解码，看着就是「半天不出图」。
+  /// 数据返回后立刻预取首屏，按页面的平铺顺序和实际解码档准备封面。
   void _preloadFirstScreen(SourceHome home) {
     final pipeline = widget.pipeline;
     if (pipeline == null) return;
     pipeline.bindSource(widget.source);
     _bindSession();
     final items = home.isBoards
-        ? (home.boards.isEmpty ? const <SourceItem>[] : home.boards.first.items)
+        ? home.boards.expand((board) => board.items)
         : home.items;
     final urls = <String>[];
     for (final item in items) {
-      if (urls.length >= 4) break;
+      if (urls.length >= 12) break;
       final cover = (item.cover ?? '').trim();
       if (cover.isNotEmpty) {
         pipeline.configureImageHeaders({cover: item.coverHeaders});
         urls.add(cover);
       }
     }
-    pipeline.preload(urls, targetWidth: _HomeCard.coverWidth);
+    final mode = BrowseLayoutSettings.instance.modeFor(widget.source.section);
+    pipeline.preload(
+      urls,
+      targetWidth: switch (mode) {
+        BrowseLayoutMode.list => 200,
+        BrowseLayoutMode.list2 => 200,
+        _ => _HomeCard.coverWidth,
+      },
+    );
   }
 
   /// 被 WAF 拦下：网页视图过校验 → 存会话 → 重新拉首页（用户口径 2.1）。
@@ -375,7 +381,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
             if (widget.onRefreshMetadata != null) widget.onRefreshMetadata!(),
           ]);
         },
-        child: _buildFlat(items),
+        child: CoverViewport(child: _buildFlat(items)),
       ),
     );
   }
@@ -387,6 +393,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
         BrowseLayoutMode.grid3;
     if (mode == BrowseLayoutMode.list) {
       return ListView.separated(
+        scrollCacheExtent: const ScrollCacheExtent.viewport(1),
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           16,
@@ -420,6 +427,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
         : TwoColumnSourceLayout.spacing;
     return LayoutBuilder(
       builder: (context, constraints) => GridView.builder(
+        scrollCacheExtent: const ScrollCacheExtent.viewport(1),
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           sidePadding,
@@ -610,47 +618,50 @@ class _SourceHomeMorePageState extends State<SourceHomeMorePage>
     return GlassScaffold(
       behindBar: true,
       title: widget.title,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          if (notification.metrics.extentAfter < 600) _loadMore();
-          return false;
-        },
-        child: GridView.builder(
-          padding: GlassScaffold.barInset(context)
-              .add(const EdgeInsets.fromLTRB(10, 8, 10, 16)),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            mainAxisSpacing: ThreeColumnPosterLayout.rowSpacing,
-            crossAxisSpacing: ThreeColumnPosterLayout.spacing,
-            childAspectRatio: 0.62,
-          ),
-          itemCount: _items.length + (_hasMore || _error != null ? 1 : 0),
-          itemBuilder: (context, index) {
-            if (index >= _items.length) {
-              if (_error != null) {
-                return Center(
-                  child: TextButton(
-                    onPressed: _retryMore,
-                    child: const Text('加载失败，点击重试'),
+      child: CoverViewport(
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.extentAfter < 600) _loadMore();
+            return false;
+          },
+          child: GridView.builder(
+            scrollCacheExtent: const ScrollCacheExtent.viewport(1),
+            padding: GlassScaffold.barInset(context)
+                .add(const EdgeInsets.fromLTRB(10, 8, 10, 16)),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: ThreeColumnPosterLayout.rowSpacing,
+              crossAxisSpacing: ThreeColumnPosterLayout.spacing,
+              childAspectRatio: 0.62,
+            ),
+            itemCount: _items.length + (_hasMore || _error != null ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= _items.length) {
+                if (_error != null) {
+                  return Center(
+                    child: TextButton(
+                      onPressed: _retryMore,
+                      child: const Text('加载失败，点击重试'),
+                    ),
+                  );
+                }
+                return const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 );
               }
-              return const Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              final item = _items[index];
+              return _HomeCard(
+                compactGrid: true,
+                item: item,
+                pipeline: widget.pipeline,
+                onTap: () => widget.onOpenItem(item),
               );
-            }
-            final item = _items[index];
-            return _HomeCard(
-              compactGrid: true,
-              item: item,
-              pipeline: widget.pipeline,
-              onTap: () => widget.onOpenItem(item),
-            );
-          },
+            },
+          ),
         ),
       ),
     );

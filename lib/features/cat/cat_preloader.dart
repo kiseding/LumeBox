@@ -1,10 +1,15 @@
 import 'dart:async';
+
 import '../../core/session/privacy_settings.dart';
 
 import '../../core/cat/cat_data_source.dart';
 import '../../core/cat/cat_service.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
+import '../../core/reading/cover_warmup.dart';
+import '../../core/reading/reading.dart';
+import '../../core/session/section.dart';
+import '../../core/net/network_settings.dart';
 
 class CatWarmPage {
   CatWarmPage(this.source, this.categories, this.groups, this.list);
@@ -23,7 +28,10 @@ class CatPreloader {
 
   static CatSite? selectedSite(CatService service) {
     final records = service.subscriptions.where((r) => r.enabled).toList();
-    final sites = records.expand((r) => r.sites).where((s) => PrivacySettings.instance.allowsSource(s.id, s.name)).toList();
+    final sites = records
+        .expand((r) => r.sites)
+        .where((s) => PrivacySettings.instance.allowsSource(s.id, s.name))
+        .toList();
     return sites.where((s) => s.id == service.selectedSiteId).firstOrNull ??
         sites
             .where(
@@ -68,6 +76,17 @@ class CatPreloader {
       final list = await source.homeList();
       if (generation == _generation) {
         _page = CatWarmPage(source, categories, groups, list);
+        final library = await ReadingLibrary.open(Section.cat);
+        if (generation != _generation) return;
+        unawaited(
+          CoverWarmup.start(
+            section: Section.cat,
+            source: source,
+            network: NetworkProfile.none,
+            cacheDir: library.imageCacheDir,
+            items: list.items,
+          ),
+        );
       }
     } catch (error) {
       LumeLog.info('[cat] 首页预热未完成，页面可重试：$error');
@@ -90,6 +109,7 @@ class CatPreloader {
   }
 
   static void discard() {
+    CoverWarmup.discard(Section.cat);
     _generation++;
     _page = null;
   }

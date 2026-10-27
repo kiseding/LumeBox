@@ -574,7 +574,8 @@ class CompactSourceItemTile extends StatelessWidget {
                     url: item.cover,
                     title: item.title,
                     headers: item.coverHeaders,
-                    width: (coverWidth * 2.5).round(),
+                    // One decode bucket for list covers, shared with prefetch.
+                    width: 200,
                   ),
                 ),
               ),

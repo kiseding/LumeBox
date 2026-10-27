@@ -275,13 +275,19 @@ class SourceItem {
     final id = _text(json['id']) ?? _text(json['url']);
     final title = _text(json['title']) ?? _text(json['name']);
     if (id == null || title == null) return null;
+    // Only use an explicit source-provided thumbnail; never invent CDN URLs.
+    final thumbnail = _text(json['thumbnail']) ?? _text(json['thumb']);
     return SourceItem(
       id: id,
       title: title,
-      coverHeaders: _stringMap(json['coverHeaders']),
+      coverHeaders: _stringMap(
+        thumbnail != null
+            ? json['thumbnailHeaders'] ?? json['coverHeaders']
+            : json['coverHeaders'],
+      ),
       cover:
+          thumbnail ??
           _text(json['cover']) ??
-          _text(json['thumbnail']) ??
           _text(json['image']) ??
           _text(json['poster']),
       subtitle: _text(json['subtitle']),

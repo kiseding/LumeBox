@@ -11,6 +11,7 @@ import '../../core/media/media_library.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../../core/reading/reading.dart';
 import '../../core/reading/browse_layout.dart';
@@ -36,6 +37,7 @@ import '../source/source_section_page.dart';
 import 'poster_card.dart';
 import 'search_results_page.dart';
 import 'section_toolbar.dart';
+import 'cover_viewport.dart';
 import 'source_bar.dart';
 import 'compact_browse_header.dart';
 import '../shell/board_tabs.dart';
@@ -887,19 +889,17 @@ class _ExploreViewState extends State<ExploreView>
     return fresh;
   }
 
-  /// 封面解码宽度：**与 tile 实际显示宽度一致**（网络解码到 300/160 两档）。
-  ///
-  /// 以前预取固定按 160 解，而网格 tile 按 300 解——内存缓存的键带宽度，
-  /// 等于同一张图白解一次；漫画板块没有磁盘缓存（见 `diskCacheFor`），
-  /// 预取的那次下载也帮不上 tile，滑到眼前还得再下一次。两处一致才是「预取」。
-  int get _coverWidth => widget.layout == ExploreLayout.grid ? 300 : 160;
+  /// 网格与列表分别使用 300 / 200 的解码档，与实际卡片共用缓存键。
+  int get _coverWidth => switch (_mode) {
+    BrowseLayoutMode.list => 200,
+    BrowseLayoutMode.list2 => 200,
+    _ => 300,
+  };
 
   /// 预取这一页的封面：列表还在滑的时候图就已经在路上了。
   ///
-  /// 只预取**开头一小段**（首屏 + 半屏）：一屏二三十张一起开抢，图床会按 IP 限流
-  /// （429），反而把眼前这几张挤在后面——真机反馈「很多封面显示不出来」有一半
-  /// 是这种自己人打自己人。后面的条目靠 tile 自己进视口时再取（`GridView.builder`
-  /// 只建可见的那些）。
+  /// 数据返回即预取开头一小段；布局完成后由 CoverViewport 接管滚动窗口，
+  /// 可见封面优先，屏幕附近的封面低优先级预取。
   void _preloadCovers(List<SourceItem> items, {bool more = false}) {
     final pipeline = _imagePipeline;
     if (pipeline == null) return;
@@ -1673,51 +1673,54 @@ class _ExploreViewState extends State<ExploreView>
             }
             return false;
           },
-          child: GridView.builder(
-            // 内容不足一屏时也要能下拉刷新。
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(
-              sidePadding,
-              _contentTop,
-              sidePadding,
-              // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
-              // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
-              //（用户口径：不要固定预留一大块空白）。
-              16 +
-                  _keyboardInset(context) +
-                  ShellDockScope.bottomInset(context),
+          child: CoverViewport(
+            child: GridView.builder(
+              scrollCacheExtent: const ScrollCacheExtent.viewport(1),
+              // 内容不足一屏时也要能下拉刷新。
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                sidePadding,
+                _contentTop,
+                sidePadding,
+                // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
+                // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
+                //（用户口径：不要固定预留一大块空白）。
+                16 +
+                    _keyboardInset(context) +
+                    ShellDockScope.bottomInset(context),
+              ),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: compactGrid
+                    ? ThreeColumnPosterLayout.rowSpacing
+                    : TwoColumnSourceLayout.rowSpacing,
+                crossAxisSpacing: spacing,
+                // 双列行高同时适配实际列宽和系统字号。
+                mainAxisExtent: _mode == BrowseLayoutMode.list2
+                    ? TwoColumnSourceLayout.itemExtent(
+                        context,
+                        TwoColumnSourceLayout.cellWidth(constraints.maxWidth),
+                      )
+                    : null,
+                // mainAxisExtent 非空时会被忽略；给默认 1。
+                childAspectRatio: _mode == BrowseLayoutMode.list2
+                    ? 1
+                    : _mode.tileAspectRatio,
+              ),
+              itemCount: _sortedItems.length + 1,
+              itemBuilder: (context, index) {
+                final items = _sortedItems;
+                if (index == items.length) return _buildFooter();
+                final item = items[index];
+                return PosterTile(
+                  compactGrid: compactGrid,
+                  horizontal: _mode == BrowseLayoutMode.list2,
+                  item: item,
+                  pipeline: _imagePipeline,
+                  onTap: () => _open(item),
+                );
+              },
             ),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: crossAxisCount,
-              mainAxisSpacing: compactGrid
-                  ? ThreeColumnPosterLayout.rowSpacing
-                  : TwoColumnSourceLayout.rowSpacing,
-              crossAxisSpacing: spacing,
-              // 双列行高同时适配实际列宽和系统字号。
-              mainAxisExtent: _mode == BrowseLayoutMode.list2
-                  ? TwoColumnSourceLayout.itemExtent(
-                      context,
-                      TwoColumnSourceLayout.cellWidth(constraints.maxWidth),
-                    )
-                  : null,
-              // mainAxisExtent 非空时会被忽略；给默认 1。
-              childAspectRatio: _mode == BrowseLayoutMode.list2
-                  ? 1
-                  : _mode.tileAspectRatio,
-            ),
-            itemCount: _sortedItems.length + 1,
-            itemBuilder: (context, index) {
-              final items = _sortedItems;
-              if (index == items.length) return _buildFooter();
-              final item = items[index];
-              return PosterTile(
-                compactGrid: compactGrid,
-                horizontal: _mode == BrowseLayoutMode.list2,
-                item: item,
-                pipeline: _imagePipeline,
-                onTap: () => _open(item),
-              );
-            },
           ),
         ),
       ),
@@ -1734,34 +1737,39 @@ class _ExploreViewState extends State<ExploreView>
           }
           return false;
         },
-        child: ListView.separated(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(
-            16 * _spacingScale,
-            _contentTop,
-            16 * _spacingScale,
-            // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
-            // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
-            //（用户口径：不要固定预留一大块空白）。
-            16 + _keyboardInset(context) + ShellDockScope.bottomInset(context),
+        child: CoverViewport(
+          child: ListView.separated(
+            scrollCacheExtent: const ScrollCacheExtent.viewport(1),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              16 * _spacingScale,
+              _contentTop,
+              16 * _spacingScale,
+              // 底部内边距 = 常规间距 + 键盘 + **悬浮 Dock 的占用**：
+              // 只有滚到最末才真正让出 Dock 那一段，没滚到底时内容尽量往下铺
+              //（用户口径：不要固定预留一大块空白）。
+              16 +
+                  _keyboardInset(context) +
+                  ShellDockScope.bottomInset(context),
+            ),
+            itemCount: _sortedItems.length + 1,
+            separatorBuilder: (_, _) => SizedBox(height: 10 * _spacingScale),
+            itemBuilder: (context, index) {
+              final items = _sortedItems;
+              if (index == items.length) return _buildFooter();
+              final item = items[index];
+              return CompactSourceItemTile(
+                item: item,
+                pipeline: _imagePipeline,
+                onTap: () => _open(item),
+                columns: 1,
+                coverWidth: 80,
+                coverHeight: 100,
+                flat: true,
+                showMenu: true,
+              );
+            },
           ),
-          itemCount: _sortedItems.length + 1,
-          separatorBuilder: (_, _) => SizedBox(height: 10 * _spacingScale),
-          itemBuilder: (context, index) {
-            final items = _sortedItems;
-            if (index == items.length) return _buildFooter();
-            final item = items[index];
-            return CompactSourceItemTile(
-              item: item,
-              pipeline: _imagePipeline,
-              onTap: () => _open(item),
-              columns: 1,
-              coverWidth: 80,
-              coverHeight: 100,
-              flat: true,
-              showMenu: true,
-            );
-          },
         ),
       ),
     );
