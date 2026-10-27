@@ -30,6 +30,16 @@ void main() {
     ]) {
       final bytes = Uint8List.fromList(signature);
       expect(identical(decodeSourceImage(bytes, mh18Headers), bytes), isTrue);
+      expect(
+        identical(
+          decodeSourceImage(bytes, {
+            ...mh18Headers,
+            'X-Lume-Image-Encoding': 'aes-cbc-pkcs7',
+          }),
+          bytes,
+        ),
+        isTrue,
+      );
     }
   });
   test('NoPadding 不完整分组和错误解密内容明确失败', () {

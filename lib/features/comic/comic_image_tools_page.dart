@@ -464,9 +464,13 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 TextTranslationMode.ai: 'AI 翻译（联网）',
                 TextTranslationMode.fallback: '系统失败后用 AI 补译',
               }, (v) => settings.translationMode = v),
-              const SettingsFooterNote(
-                '补译模式会把系统失败或不支持的文字发送给已配置的 AI 接口；成功译文保留。AI 不可用时保留原文。',
-              ),
+              SettingsFooterNote(switch (settings.translationMode) {
+                TextTranslationMode.system =>
+                  '本模式在设备上翻译文字，不调用 AI 接口。首次使用可能需要下载系统语言包。',
+                TextTranslationMode.ai => '本模式直接把待翻译文字发送给下方配置的 AI 接口，不先调用系统翻译；成功译文缓存到本机。网络失败时保留原文，可重试未完成条目。',
+                TextTranslationMode.fallback =>
+                  '先使用系统翻译；只有失败、不支持或未译出的外文才发送给 AI 补译。成功译文保留，AI 不可用时保留原文。',
+              }),
               NativeSwitchListTile.adaptive(
                 title: const Text('漫画使用整图翻译服务器'),
                 subtitle: const Text('仅影响漫画图片；关闭时，漫画文字跟随全局翻译方式'),

@@ -23,7 +23,7 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     throw const FormatException('Unsupported source image encoding');
   }
   // The public reader mixes encrypted business images with plain images.
-  if (noPadding && _isPlainImage(bytes)) return bytes;
+  if (_isPlainImage(bytes)) return bytes;
   final key = Uint8List.fromList(utf8.encode(field('x-lume-image-key')));
   final iv = Uint8List.fromList(utf8.encode(field('x-lume-image-iv')));
   if (!{16, 24, 32}.contains(key.length) ||
