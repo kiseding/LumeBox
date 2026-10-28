@@ -193,8 +193,8 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
           if (!_unifiedSite && widget.siteUrl.isNotEmpty)
             ListTile(
               leading: const Icon(Icons.login),
-              title: const Text('站点账号登录'),
-              subtitle: const Text('网页登录与会话同步'),
+              title: const Text('登录站点'),
+              subtitle: const Text('登录后自动同步，完成后直接返回'),
               onTap: () async {
                 final address = await _activeAddress();
                 if (!context.mounted) return;

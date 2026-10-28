@@ -446,6 +446,47 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
     ],
   );
 
+  List<SourceSetting> get _extensionFields => widget
+      .source
+      .siteConfig
+      .sourceDefinitions
+      .where(
+        (field) =>
+            !widget.embedded ||
+            !['login', 'openWebsite', 'clearCache'].contains(field.action),
+      )
+      .toList();
+
+  Future<void> _openExtensions() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('源扩展功能')),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                widget.source.name,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              SourceExtensionEditor(
+                definitions: _extensionFields,
+                initialValues: _extra,
+                onChanged: (values) {
+                  if (mounted) setState(() => _extra = values);
+                },
+                onAction: _runSettingAction,
+              ),
+              const Text('修改后返回源设置，点“保存”生效。'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -459,12 +500,12 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
             FilledButton.tonalIcon(
               key: const ValueKey('source-account-web-login'),
               icon: const Icon(Icons.login),
-              label: const Text('网页登录 / 检查登录'),
+              label: const Text('登录站点'),
               onPressed: _openLogin,
             ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 6),
-            child: Text('在站点网页完成登录后检查并同步会话。'),
+            child: Text('登录后自动同步，完成后直接返回即可。'),
           ),
           if (widget.embedded)
             ExpansionTile(
@@ -670,27 +711,29 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
         ]),
-        if (widget.source.siteConfig.sourceDefinitions.isNotEmpty) ...[
+        if (_extensionFields.isNotEmpty) ...[
           const SizedBox(height: 12),
-          _group('源扩展功能', '由此源提供；只对当前源生效。', [
-            SourceExtensionEditor(
-              key: ValueKey('extra-$_resetRevision'),
-              definitions: widget.source.siteConfig.sourceDefinitions
-                  .where(
-                    (f) =>
-                        !widget.embedded ||
-                        ![
-                          'login',
-                          'openWebsite',
-                          'clearCache',
-                        ].contains(f.action),
-                  )
-                  .toList(),
-              initialValues: _extra,
-              onChanged: (v) => _extra = v,
-              onAction: _runSettingAction,
-            ),
-          ]),
+          if (widget.embedded)
+            ListTile(
+              key: const ValueKey('source-extensions-entry'),
+              leading: const Icon(Icons.extension_outlined),
+              title: const Text('源扩展功能'),
+              subtitle: Text(
+                '${_extensionFields.length} 项 · ${_extensionFields.take(2).map((field) => field.title).join('、')}',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openExtensions,
+            )
+          else
+            _group('源扩展功能', '由此源提供；只对当前源生效。', [
+              SourceExtensionEditor(
+                key: ValueKey('extra-$_resetRevision'),
+                definitions: _extensionFields,
+                initialValues: _extra,
+                onChanged: (v) => _extra = v,
+                onAction: _runSettingAction,
+              ),
+            ]),
         ],
         const SizedBox(height: 12),
       ],

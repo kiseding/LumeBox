@@ -43,10 +43,70 @@ class SourceLoginPage extends StatefulWidget {
   State<SourceLoginPage> createState() => _SourceLoginPageState();
 }
 
-class _SourceLoginPageState extends State<SourceLoginPage> {
+class _SourceLoginPageState extends State<SourceLoginPage>
+    with WidgetsBindingObserver {
   late final controller = WebViewController();
   String status = '正在打开站点…';
   bool checking = false;
+  bool _ready = false;
+  Timer? _autoSync;
+  String? _lastSession;
+  Future<void> _sessionQueue = Future.value();
+
+  void _startAutoSync() {
+    _autoSync?.cancel();
+    _autoSync = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_ready && mounted && ModalRoute.of(context)?.isCurrent == true) {
+        unawaited(_check());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startAutoSync();
+      if (_ready) unawaited(_check());
+    } else {
+      _autoSync?.cancel();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoSync?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<Map<String, String>> _synchronizeSession() {
+    final task = _sessionQueue.then((_) async {
+      final native = await IosVerifiedWebView.channel
+          .invokeMethod<List<Object?>>('allCookies', {'url': widget.url})
+          .timeout(const Duration(seconds: 3));
+      final cookies = webViewCookiesForUrl(native ?? [], widget.url);
+      await SiteSessionPool.shared.synchronize(widget.url, {'User-Agent': ua});
+      final identity = jsonEncode({
+        for (final key in cookies.keys.toList()..sort()) key: cookies[key],
+      });
+      if (identity != _lastSession) {
+        WafSessions.save(widget.section, widget.sourceId, cookies);
+        WafSessions.saveUserAgent(widget.section, widget.sourceId, ua);
+        SectionMemoryCache.instance.removeSource(
+          widget.section,
+          widget.sourceId,
+        );
+        _lastSession = identity;
+      }
+      return cookies;
+    });
+    _sessionQueue = task.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return task;
+  }
+
   late final ua =
       SiteSessionPool.shared.userAgentFor(widget.url) ??
       (widget.userAgent?.trim().isNotEmpty == true
@@ -56,6 +116,8 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startAutoSync();
     unawaited(_open());
   }
 
@@ -95,6 +157,7 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
         throw const FormatException();
       }
       await controller.loadRequest(uri);
+      _ready = true;
     } catch (_) {
       if (mounted) setState(() => status = '站点网页无法打开，请检查地址与网络');
     }
@@ -104,27 +167,23 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
     if (checking || !mounted) return;
     setState(() => checking = true);
     try {
-      final current = Uri.tryParse(await controller.currentUrl() ?? '');
+      final current = Uri.tryParse(
+        await controller.currentUrl().timeout(const Duration(seconds: 3)) ?? '',
+      );
       if (current?.host != Uri.parse(widget.url).host) {
-        if (mounted) setState(() => status = '请完成授权并返回原站点后检查登录');
+        if (mounted) setState(() => status = '请完成授权并返回原站点，App 会自动同步登录状态');
         return;
       }
-      final raw = await controller.runJavaScriptReturningResult(
-        '''JSON.stringify({
+      final raw = await controller
+          .runJavaScriptReturningResult('''JSON.stringify({
         loggedIn:document.body.classList.contains('logged-in') || !!document.querySelector('a[href*="action=logout"],a[href*="customer-logout"]'),
         loginForm:!!document.querySelector('input[type="password"]'),
         blocked:/Sorry, you have been blocked|Just a moment|Attention Required/i.test(document.title+' '+document.body.innerText.slice(0,500))
-      })''',
-      );
+      })''')
+          .timeout(const Duration(seconds: 3));
       var parsed = jsonDecode('$raw');
       if (parsed is String) parsed = jsonDecode(parsed);
-      final native = await IosVerifiedWebView.channel
-          .invokeMethod<List<Object?>>('allCookies', {'url': widget.url});
-      final cookies = webViewCookiesForUrl(native ?? [], widget.url);
-      await SiteSessionPool.shared.synchronize(widget.url, {'User-Agent': ua});
-      WafSessions.save(widget.section, widget.sourceId, cookies);
-      WafSessions.saveUserAgent(widget.section, widget.sourceId, ua);
-      SectionMemoryCache.instance.removeSource(widget.section, widget.sourceId);
+      final cookies = await _synchronizeSession();
       if (mounted) {
         setState(
           () => status = SourceLoginPage.status(
@@ -134,49 +193,55 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
         );
       }
     } catch (_) {
-      if (mounted) setState(() => status = '未能核实登录状态，请在站点个人中心确认后重试检查');
+      if (mounted) setState(() => status = '暂未同步登录状态，App 会自动重试');
     } finally {
       if (mounted) setState(() => checking = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text('${widget.name} · ${widget.loginMode ? '登录' : '作品网页'}'),
-      actions: [
-        IconButton(
-          tooltip: '刷新网页',
-          onPressed: controller.reload,
-          icon: const Icon(Icons.refresh),
+  Widget build(BuildContext context) => PopScope(
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop || !_ready) return;
+      // Native cookies outlive the page. Collect the final state on every back
+      // path, including swipe-back, without adding another user action.
+      _autoSync?.cancel();
+      unawaited(
+        _synchronizeSession().then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
         ),
-      ],
-    ),
-    body: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(child: Text(status)),
-              TextButton(
-                onPressed: checking ? null : _check,
-                child: Text(checking ? '检查中…' : '检查登录'),
-              ),
-            ],
+      );
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.name} · ${widget.loginMode ? '登录' : '作品网页'}'),
+        actions: [
+          IconButton(
+            tooltip: '刷新网页',
+            onPressed: controller.reload,
+            icon: const Icon(Icons.refresh),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          child: Text(
-            widget.loginMode
-                ? '在站点网页中登录后点击检查。完成后返回原章节点重试。'
-                : '可在本站网页中选择章节阅读；若仍显示拒绝访问，说明站点也拦截了当前网页连接。',
-            style: const TextStyle(fontSize: 12),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [Expanded(child: Text(status))]),
           ),
-        ),
-        Expanded(child: WebViewWidget(controller: controller)),
-      ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Text(
+              widget.loginMode
+                  ? '在下方网页登录，App 会自动同步登录状态，完成后直接返回即可。'
+                  : '可在本站网页中选择章节阅读；若仍显示拒绝访问，说明站点也拦截了当前网页连接。',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          Expanded(child: WebViewWidget(controller: controller)),
+        ],
+      ),
     ),
   );
 }

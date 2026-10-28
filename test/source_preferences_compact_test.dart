@@ -71,6 +71,8 @@ void main() {
     expect(find.text('打开站点网页登录 / 检查状态'), findsNothing);
     expect(find.text('站点账号'), findsOneWidget);
     expect(find.text('站点账号登录'), findsNothing);
+    expect(find.text('登录站点'), findsOneWidget);
+    expect(find.textContaining('检查登录'), findsNothing);
     expect(find.text('账号与密码'), findsNothing);
     expect(
       find.byKey(const ValueKey('source-account-web-login')),
@@ -100,6 +102,21 @@ void main() {
     await tester.ensureVisible(domain);
     await tester.enterText(domain, 'https://new.example');
     await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('source-extensions-entry')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('source-extensions-entry')),
+    );
+    await tester.tap(find.byKey(const ValueKey('source-extensions-entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, '额外开关'));
+    await tester.pumpAndSettle();
+    expect(manager.siteConfigs, isEmpty, reason: '扩展页改动在源设置统一保存');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
       find.text('恢复默认源设置'),
       300,
       scrollable: find.byType(Scrollable).first,
@@ -116,6 +133,7 @@ void main() {
     }
     expect(manager.siteConfigs, hasLength(1));
     expect(manager.siteConfigs.single.$2.resolvedDomain, 'https://new.example');
+    expect(manager.siteConfigs.single.$2.resolvedSettings['more'], isTrue);
     expect(manager.siteConfigs.single.$2.account, 'fixture-user');
     expect(manager.siteConfigs.single.$2.password, 'fixture-password');
     expect(manager.networks, hasLength(1));
