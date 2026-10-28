@@ -49,7 +49,17 @@ class SourceTranslationAction extends StatefulWidget {
 
 class _SourceTranslationActionState extends State<SourceTranslationAction> {
   bool busy = false;
-  bool live = false;
+  bool? _localLive;
+  bool get live =>
+      _localLive ?? ComicImageToolsSettings.instance.liveTranslation;
+  void _settingsChanged() {
+    if (!mounted) return;
+    _localLive = null;
+    liveAttempt = null;
+    setState(() {});
+    scheduleLive();
+  }
+
   Timer? liveTimer;
   String? liveAttempt;
   String get liveIdentity => '$profile|${texts.join("\u0000")}';
@@ -66,6 +76,7 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
   @override
   void dispose() {
     liveTimer?.cancel();
+    ComicImageToolsSettings.instance.removeListener(_settingsChanged);
     super.dispose();
   }
 
@@ -73,6 +84,8 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
   void initState() {
     super.initState();
     _texts = _uniqueTexts(widget.texts);
+    ComicImageToolsSettings.instance.addListener(_settingsChanged);
+    scheduleLive();
     unawaited(TextTranslationService.shared.boot());
   }
 
@@ -176,7 +189,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
         setState(() => busy = false);
         scheduleLive();
       }
-      if (mounted && selectedProfile == profile && listEquals(all, texts)) {
+      if (mounted &&
+          selectedProfile == profile &&
+          listEquals(all, texts) &&
+          (!live || failure != null)) {
         final values = {for (final text in all) text: service.lookup(text)};
         final complete = values.values.where((value) => value != null).length;
         final translated = values.entries
@@ -229,7 +245,7 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
       return IconButton(
         onLongPress: () {
           setState(() {
-            live = !live;
+            _localLive = !live;
             liveAttempt = null;
           });
           scheduleLive();

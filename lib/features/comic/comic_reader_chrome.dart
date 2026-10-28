@@ -2251,6 +2251,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
   }
 
   void _setTranslationScope(String scope) {
+    _translationScopeChosen = true;
     _liveTranslationTimer?.cancel();
     _liveTranslationAttempted.clear();
     _translationGeneration++;

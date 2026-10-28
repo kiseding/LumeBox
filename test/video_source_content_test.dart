@@ -282,8 +282,18 @@ void main() {
             sourceId: unknown.id,
             name: unknown.name,
             descriptor: unknown,
+            manager: manager,
           ),
         ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('source-content-setting-adult')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('source-content-setting-adult')),
       );
       await tester.pumpAndSettle();
       await tester.tap(

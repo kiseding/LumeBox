@@ -9,17 +9,21 @@ class SourceRouteEditor extends StatelessWidget {
     required this.route,
     required this.onChanged,
     this.error,
+    this.compact = false,
   });
   final String title;
   final SourceRoute route;
   final ValueChanged<SourceRoute> onChanged;
   final String? error;
+  final bool compact;
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(title, style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 8),
+      if (!compact) ...[
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+      ],
       if (route.urls.isNotEmpty)
         DropdownButtonFormField<String>(
           key: ValueKey('$title:${route.selectedUrl}'),
@@ -41,19 +45,38 @@ class SourceRouteEditor extends StatelessWidget {
           },
         )
       else
-        const Text('源未提供备选线路；可填写自定义地址供支持此设置的源使用。'),
+        Text(compact ? '$title：沿用默认线路' : '源未提供备选线路；可填写自定义地址供支持此设置的源使用。'),
       const SizedBox(height: 8),
-      TextFormField(
-        initialValue: route.custom,
-        decoration: InputDecoration(
-          labelText: '自定义$title地址（填了优先）',
-          hintText: 'https://cdn.example.com/资源路径',
-          errorText: error,
+      if (compact)
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text('自定义$title地址'),
+          initiallyExpanded: route.custom.isNotEmpty || error != null,
+          children: [
+            TextFormField(
+              initialValue: route.custom,
+              decoration: InputDecoration(
+                labelText: '自定义$title地址（填了优先）',
+                hintText: 'https://cdn.example.com/资源路径',
+                errorText: error,
+              ),
+              onChanged: (v) => onChanged(route.copyWith(custom: v)),
+            ),
+          ],
+        )
+      else
+        TextFormField(
+          initialValue: route.custom,
+          decoration: InputDecoration(
+            labelText: '自定义$title地址（填了优先）',
+            hintText: 'https://cdn.example.com/资源路径',
+            errorText: error,
+          ),
+          onChanged: (v) => onChanged(route.copyWith(custom: v)),
         ),
-        onChanged: (v) => onChanged(route.copyWith(custom: v)),
-      ),
       const SizedBox(height: 6),
-      Text('当前生效：${route.resolved.isEmpty ? '沿用源默认地址' : route.resolved}'),
+      if (!compact || route.custom.isNotEmpty)
+        Text('当前生效：${route.resolved.isEmpty ? '沿用源默认地址' : route.resolved}'),
     ],
   );
 }

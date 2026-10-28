@@ -277,6 +277,20 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   bool _sharing = false;
   Future<List<(String, String)>>? _comicVoices;
   final _comicVoiceAnchor = GlobalKey(debugLabel: 'comic.speech.voice');
+  bool _translationScopeChosen = false;
+  void _globalTranslationChanged() {
+    if (!mounted || _translationScopeChosen) return;
+    setState(() {
+      _translationScope = ComicImageToolsSettings.instance.liveTranslation
+          ? 'live'
+          : 'off';
+      _translationGeneration++;
+      _translationBusy = false;
+      _liveTranslationAttempted.clear();
+    });
+    _scheduleLiveTranslation();
+  }
+
   Timer? _liveTranslationTimer;
   final Set<String> _liveTranslationAttempted = {};
   void _scheduleLiveTranslation() {
@@ -419,7 +433,11 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     widget.library.settingsRevision.addListener(_sharedReaderSettingsChanged);
     _translationScope = _annotations()['translation.scope'] == 'series'
         ? 'series'
+        : ComicImageToolsSettings.instance.liveTranslation
+        ? 'live'
         : 'off';
+    _translationScopeChosen = _translationScope == 'series';
+    ComicImageToolsSettings.instance.addListener(_globalTranslationChanged);
     if (widget.library.setting(ComicReaderPreferences.key) == null) {
       _preferences.flow = _readingMode == ComicReadingMode.waterfall
           ? 'webtoon'
@@ -508,6 +526,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   @override
   void dispose() {
     _liveTranslationTimer?.cancel();
+    ComicImageToolsSettings.instance.removeListener(_globalTranslationChanged);
     _volumeKeys.dispose();
     widget.library.settingsRevision.removeListener(
       _sharedReaderSettingsChanged,

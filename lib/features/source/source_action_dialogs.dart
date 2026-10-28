@@ -138,9 +138,11 @@ class SourceNetworkDialog extends StatefulWidget {
     super.key,
     required this.source,
     this.onSettingAction,
+    this.embedded = false,
   });
 
   final SourceDescriptor source;
+  final bool embedded;
   final Future<String> Function(
     SourceSetting,
     Map<String, Object?>,
@@ -150,10 +152,13 @@ class SourceNetworkDialog extends StatefulWidget {
   onSettingAction;
 
   @override
-  State<SourceNetworkDialog> createState() => _SourceNetworkDialogState();
+  State<SourceNetworkDialog> createState() => SourceNetworkDialogState();
 }
 
-class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
+class SourceNetworkDialogState extends State<SourceNetworkDialog>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => widget.embedded;
   late final TextEditingController _ua = TextEditingController(
     text: widget.source.network.userAgent,
   );
@@ -215,6 +220,7 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
   }
 
   /// 当前弹窗里的换网址 / 账号登入取值（未归一，保存前由调用方 / 模型归一）。
+  SourceSiteConfig get draftSite => _site;
   SourceSiteConfig get _site => widget.source.siteConfig.copyWith(
     mirrors: _mirrors,
     mirrorIndex: _mirrorIndex,
@@ -293,11 +299,11 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
     }
   }
 
-  void _save() {
+  SourceSettingsResult? readResult() {
     final issue = SourceSiteConfig.domainIssue(_domain.text);
     if (issue != null) {
       setState(() => _domainError = issue);
-      return;
+      return null;
     }
     _imageError =
         _images.custom.trim().isNotEmpty &&
@@ -323,273 +329,347 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
     }
     if (_imageError != null || _videoError != null || _extraError != null) {
       setState(() {});
-      return;
+      return null;
     }
-    Navigator.of(context).pop(
-      SourceSettingsResult(
-        network: NetworkProfile(
-          userAgent: _ua.text,
-          cookie: _cookie.text,
-          proxy: _proxy.text,
-          bridge: _bridge.text,
-          allowBadCertificate: _allowBadCertificate,
-        ),
-        site: _site,
+    return SourceSettingsResult(
+      network: NetworkProfile(
+        userAgent: _ua.text,
+        cookie: _cookie.text,
+        proxy: _proxy.text,
+        bridge: _bridge.text,
+        allowBadCertificate: _allowBadCertificate,
       ),
+      site: _site,
     );
+  }
+
+  int _resetRevision = 0;
+  void reset() {
+    setState(() {
+      for (final controller in [
+        _ua,
+        _cookie,
+        _proxy,
+        _bridge,
+        _domain,
+        _account,
+        _password,
+      ]) {
+        controller.clear();
+      }
+      _allowBadCertificate = false;
+      _mirrorIndex = 0;
+      _images = _images.copyWith(custom: '', selected: '');
+      _video = _video.copyWith(custom: '', selected: '');
+      _extra = {
+        for (final f in widget.source.siteConfig.sourceDefinitions)
+          f.key: f.fallback,
+      };
+      _common = {
+        for (final f in widget.source.siteConfig.commonDefinitions)
+          f.key: f.fallback,
+      };
+      _domainError = _imageError = _videoError = _extraError = null;
+      _resetRevision++;
+    });
+  }
+
+  void _save() {
+    final result = readResult();
+    if (result != null) Navigator.of(context).pop(result);
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _group(
+          '账号登录与会话',
+          '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
+          <Widget>[
+            if (!widget.embedded && widget.source.siteUrl.isNotEmpty)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.login),
+                label: const Text('打开站点网页登录 / 检查状态'),
+                onPressed: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SourceLoginPage(
+                      section: widget.source.section ?? Section.comic,
+                      sourceId: widget.source.id,
+                      name: widget.source.name,
+                      url: _site.resolvedDomain.isEmpty
+                          ? widget.source.siteUrl
+                          : _site.resolvedDomain,
+                      userAgent: widget.source.network.userAgent,
+                    ),
+                  ),
+                ),
+              ),
+            TextField(
+              controller: _account,
+              decoration: const InputDecoration(
+                labelText: '账号',
+                hintText: '手机号 / 邮箱 / 用户名',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              obscureText: !_showPassword,
+              decoration: InputDecoration(
+                labelText: '密码',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: _showPassword ? '隐藏' : '显示',
+                  icon: LumeIcon(
+                    _showPassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    slot: 'source_action_dialogs.2',
+                    variant: true,
+                  ),
+                  onPressed: () =>
+                      setState(() => _showPassword = !_showPassword),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _group(
+          '网络配置',
+          '留空即继承「设置 → 网络设置」里的全局值。这里的配置只作用于本源，'
+              'Cookie 不与其他源共享。',
+          <Widget>[
+            TextField(
+              controller: _ua,
+              minLines: 1,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'User-Agent',
+                hintText: '留空 = 用全局 UA',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _cookie,
+              minLines: 1,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Cookie',
+                hintText: '留空 = 不带 Cookie',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _proxy,
+              decoration: const InputDecoration(
+                labelText: '代理',
+                hintText: 'http://127.0.0.1:7890；留空 = 用全局代理',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // 「桥接服务地址」（用户口径 2.2）：个别站点（OKooK-CDN +
+            // reCAPTCHA v3 那类）的放行绑浏览器会话与 IP 信誉，导不出可复用
+            // Cookie、普通代理也没用——只能把请求转给一个「已过验证的无头
+            // 浏览器桥」（Playwright / Puppeteer）。脚本读 LumeSource.bridge。
+            TextField(
+              controller: _bridge,
+              decoration: const InputDecoration(
+                labelText: '桥接服务地址',
+                hintText: 'http://192.168.1.5:8787；留空 = 不用桥接',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 「忽略证书错误」（用户口径）：站点证书过期时系统会直接拒连
+            // （CERTIFICATE_VERIFY_FAILED），这是唯一出路。**按源开放、默认关**，
+            // 并把风险写在旁边——不能让它看起来像个普通开关。
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _allowBadCertificate,
+              onChanged: (value) =>
+                  setState(() => _allowBadCertificate = value == true),
+              title: const Text('忽略证书错误'),
+              subtitle: const Text(
+                '站点证书过期 / 链不完整时才需要开。开启后该源的请求不再校验证书，'
+                '存在被中间人冒充的风险；证书修好后请立刻关闭。',
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _group('换网址', '自定义域名 > 选中镜像 > 主站；脚本没声明镜像时用脚本自带的默认地址。', <Widget>[
+          if (widget.embedded && _mirrors.isNotEmpty)
+            DropdownButtonFormField<int>(
+              key: ValueKey('mirror-$_resetRevision'),
+              initialValue: _mirrorIndex,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: '站点线路'),
+              items: [
+                for (var i = 0; i < _mirrors.length; i++)
+                  DropdownMenuItem(
+                    value: i,
+                    child: Text(
+                      '${i == 0 ? "主站 · " : ""}${SourceSiteConfig.hostOf(_mirrors[i])}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _mirrorIndex = value);
+              },
+            )
+          else if (_mirrors.isEmpty)
+            const _MirrorTile(label: '默认（脚本未声明镜像）', selected: true)
+          else
+            for (var index = 0; index < _mirrors.length && index < 3; index++)
+              _MirrorTile(
+                label: SourceSiteConfig.hostOf(_mirrors[index]),
+                subtitle: _mirrors[index],
+                primary: index == 0,
+                selected: index == _mirrorIndex,
+                onTap: () => setState(() => _mirrorIndex = index),
+              ),
+          if (!widget.embedded && _mirrors.length > 3)
+            ExpansionTile(
+              title: Text('更多镜像（${_mirrors.length - 3}）'),
+              initiallyExpanded: _mirrorIndex >= 3,
+              children: [
+                for (var index = 3; index < _mirrors.length; index++)
+                  _MirrorTile(
+                    label: SourceSiteConfig.hostOf(_mirrors[index]),
+                    subtitle: _mirrors[index],
+                    selected: index == _mirrorIndex,
+                    onTap: () => setState(() => _mirrorIndex = index),
+                  ),
+              ],
+            ),
+          Text(
+            '当前生效：${_site.resolvedDomain.isEmpty ? '沿用源默认地址' : _site.resolvedDomain}',
+          ),
+          if (_domain.text.trim().isNotEmpty)
+            const Text('自定义站点优先；保留自定义地址时，镜像选择暂不生效。'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _domain,
+            decoration: InputDecoration(
+              labelText: '自定义域名（填了优先）',
+              hintText: 'example.com 或 https://m.example.com',
+              border: const OutlineInputBorder(),
+              errorText: _domainError,
+              suffixIcon: _domain.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清除',
+                      icon: const LumeIcon(
+                        Icons.clear,
+                        slot: 'source_action_dialogs.1',
+                      ),
+                      onPressed: () => setState(() {
+                        _domain.clear();
+                        _domainError = null;
+                      }),
+                    ),
+            ),
+            onChanged: (_) {
+              // 清除按钮的出现 / 消失跟着输入走，因此这里也要重建。
+              if (_domainError != null) {
+                setState(() => _domainError = null);
+              } else {
+                setState(() {});
+              }
+            },
+          ),
+        ]),
+        const SizedBox(height: 12),
+        _group('资源线路', '图床与视频 CDN 独立选择，只替换源明确声明可互换的地址。', [
+          SourceRouteEditor(
+            key: ValueKey('images-$_resetRevision'),
+            compact: widget.embedded,
+            title: '图床',
+            route: _images,
+            error: _imageError,
+            onChanged: (v) => setState(() => _images = v),
+          ),
+          const SizedBox(height: 16),
+          SourceRouteEditor(
+            key: ValueKey('video-$_resetRevision'),
+            compact: widget.embedded,
+            title: '视频 CDN',
+            route: _video,
+            error: _videoError,
+            onChanged: (v) => setState(() => _video = v),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        _group('App 通用设置', 'App 定义规则和优先级；用户选择优先于源建议。', [
+          SourceExtensionEditor(
+            key: ValueKey('common-$_resetRevision'),
+            definitions: [
+              ...widget.source.siteConfig.commonDefinitions,
+              ...SourceSettingsPolicy.hostActions.where(
+                (f) => !widget.embedded || f.action == 'testConnection',
+              ),
+            ],
+            initialValues: _common,
+            onChanged: (v) => _common = v,
+            onAction: _runSettingAction,
+          ),
+          if (_extraError != null)
+            Text(
+              _extraError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+        ]),
+        if (widget.source.siteConfig.sourceDefinitions.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _group('源扩展功能', '由此源提供；只对当前源生效。', [
+            SourceExtensionEditor(
+              key: ValueKey('extra-$_resetRevision'),
+              definitions: widget.source.siteConfig.sourceDefinitions
+                  .where(
+                    (f) =>
+                        !widget.embedded ||
+                        ![
+                          'login',
+                          'openWebsite',
+                          'clearCache',
+                        ].contains(f.action),
+                  )
+                  .toList(),
+              initialValues: _extra,
+              onChanged: (v) => _extra = v,
+              onAction: _runSettingAction,
+            ),
+          ]),
+        ],
+        const SizedBox(height: 12),
+      ],
+    );
+    if (widget.embedded) {
+      final items = content.children.where((w) => w is! SizedBox).toList();
+      // Put website and route controls before the less frequently used fields.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [...items.skip(2), ...items.take(2)],
+      );
+    }
     return AlertDialog(
       title: Text('源设置 · ${widget.source.name}'),
       content: SizedBox(
         width: 460,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              _group(
-                '账号登录与会话',
-                '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
-                <Widget>[
-                  if (widget.source.siteUrl.isNotEmpty)
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.login),
-                      label: const Text('打开站点网页登录 / 检查状态'),
-                      onPressed: () => Navigator.push<void>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SourceLoginPage(
-                            section: widget.source.section ?? Section.comic,
-                            sourceId: widget.source.id,
-                            name: widget.source.name,
-                            url: _site.resolvedDomain.isEmpty
-                                ? widget.source.siteUrl
-                                : _site.resolvedDomain,
-                            userAgent: widget.source.network.userAgent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  TextField(
-                    controller: _account,
-                    decoration: const InputDecoration(
-                      labelText: '账号',
-                      hintText: '手机号 / 邮箱 / 用户名',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _password,
-                    obscureText: !_showPassword,
-                    decoration: InputDecoration(
-                      labelText: '密码',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        tooltip: _showPassword ? '隐藏' : '显示',
-                        icon: LumeIcon(
-                          _showPassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          slot: 'source_action_dialogs.2',
-                          variant: true,
-                        ),
-                        onPressed: () =>
-                            setState(() => _showPassword = !_showPassword),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _group(
-                '网络配置',
-                '留空即继承「设置 → 网络设置」里的全局值。这里的配置只作用于本源，'
-                    'Cookie 不与其他源共享。',
-                <Widget>[
-                  TextField(
-                    controller: _ua,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'User-Agent',
-                      hintText: '留空 = 用全局 UA',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _cookie,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Cookie',
-                      hintText: '留空 = 不带 Cookie',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _proxy,
-                    decoration: const InputDecoration(
-                      labelText: '代理',
-                      hintText: 'http://127.0.0.1:7890；留空 = 用全局代理',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // 「桥接服务地址」（用户口径 2.2）：个别站点（OKooK-CDN +
-                  // reCAPTCHA v3 那类）的放行绑浏览器会话与 IP 信誉，导不出可复用
-                  // Cookie、普通代理也没用——只能把请求转给一个「已过验证的无头
-                  // 浏览器桥」（Playwright / Puppeteer）。脚本读 LumeSource.bridge。
-                  TextField(
-                    controller: _bridge,
-                    decoration: const InputDecoration(
-                      labelText: '桥接服务地址',
-                      hintText: 'http://192.168.1.5:8787；留空 = 不用桥接',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  // 「忽略证书错误」（用户口径）：站点证书过期时系统会直接拒连
-                  // （CERTIFICATE_VERIFY_FAILED），这是唯一出路。**按源开放、默认关**，
-                  // 并把风险写在旁边——不能让它看起来像个普通开关。
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _allowBadCertificate,
-                    onChanged: (value) =>
-                        setState(() => _allowBadCertificate = value == true),
-                    title: const Text('忽略证书错误'),
-                    subtitle: const Text(
-                      '站点证书过期 / 链不完整时才需要开。开启后该源的请求不再校验证书，'
-                      '存在被中间人冒充的风险；证书修好后请立刻关闭。',
-                    ),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    dense: true,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _group('换网址', '自定义域名 > 选中镜像 > 主站；脚本没声明镜像时用脚本自带的默认地址。', <Widget>[
-                if (_mirrors.isEmpty)
-                  const _MirrorTile(label: '默认（脚本未声明镜像）', selected: true)
-                else
-                  for (
-                    var index = 0;
-                    index < _mirrors.length && index < 3;
-                    index++
-                  )
-                    _MirrorTile(
-                      label: SourceSiteConfig.hostOf(_mirrors[index]),
-                      subtitle: _mirrors[index],
-                      primary: index == 0,
-                      selected: index == _mirrorIndex,
-                      onTap: () => setState(() => _mirrorIndex = index),
-                    ),
-                if (_mirrors.length > 3)
-                  ExpansionTile(
-                    title: Text('更多镜像（${_mirrors.length - 3}）'),
-                    initiallyExpanded: _mirrorIndex >= 3,
-                    children: [
-                      for (var index = 3; index < _mirrors.length; index++)
-                        _MirrorTile(
-                          label: SourceSiteConfig.hostOf(_mirrors[index]),
-                          subtitle: _mirrors[index],
-                          selected: index == _mirrorIndex,
-                          onTap: () => setState(() => _mirrorIndex = index),
-                        ),
-                    ],
-                  ),
-                Text(
-                  '当前生效：${_site.resolvedDomain.isEmpty ? '沿用源默认地址' : _site.resolvedDomain}',
-                ),
-                if (_domain.text.trim().isNotEmpty)
-                  const Text('自定义站点优先；保留自定义地址时，镜像选择暂不生效。'),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _domain,
-                  decoration: InputDecoration(
-                    labelText: '自定义域名（填了优先）',
-                    hintText: 'example.com 或 https://m.example.com',
-                    border: const OutlineInputBorder(),
-                    errorText: _domainError,
-                    suffixIcon: _domain.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: '清除',
-                            icon: const LumeIcon(
-                              Icons.clear,
-                              slot: 'source_action_dialogs.1',
-                            ),
-                            onPressed: () => setState(() {
-                              _domain.clear();
-                              _domainError = null;
-                            }),
-                          ),
-                  ),
-                  onChanged: (_) {
-                    // 清除按钮的出现 / 消失跟着输入走，因此这里也要重建。
-                    if (_domainError != null) {
-                      setState(() => _domainError = null);
-                    } else {
-                      setState(() {});
-                    }
-                  },
-                ),
-              ]),
-              const SizedBox(height: 12),
-              _group('资源线路', '图床与视频 CDN 独立选择，只替换源明确声明可互换的地址。', [
-                SourceRouteEditor(
-                  title: '图床',
-                  route: _images,
-                  error: _imageError,
-                  onChanged: (v) => setState(() => _images = v),
-                ),
-                const SizedBox(height: 16),
-                SourceRouteEditor(
-                  title: '视频 CDN',
-                  route: _video,
-                  error: _videoError,
-                  onChanged: (v) => setState(() => _video = v),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              _group('App 通用设置', 'App 定义规则和优先级；用户选择优先于源建议。', [
-                SourceExtensionEditor(
-                  definitions: [
-                    ...widget.source.siteConfig.commonDefinitions,
-                    ...SourceSettingsPolicy.hostActions,
-                  ],
-                  initialValues: _common,
-                  onChanged: (v) => _common = v,
-                  onAction: _runSettingAction,
-                ),
-                if (_extraError != null)
-                  Text(
-                    _extraError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-              ]),
-              if (widget.source.siteConfig.sourceDefinitions.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _group('源扩展功能', '由此源提供；只对当前源生效。', [
-                  SourceExtensionEditor(
-                    definitions: widget.source.siteConfig.sourceDefinitions,
-                    initialValues: _extra,
-                    onChanged: (v) => _extra = v,
-                    onAction: _runSettingAction,
-                  ),
-                ]),
-              ],
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
+        child: SingleChildScrollView(child: content),
       ),
       actions: <Widget>[
         TextButton(
@@ -609,6 +689,39 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
 
   /// 一组设置：卡片 + 组标题 + 一句话说明。
   Widget _group(String title, String? hint, List<Widget> children) {
+    if (widget.embedded) {
+      final advanced = title == '网络配置' || title == '账号登录与会话';
+      final body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final child in children.where((item) => item is! SizedBox))
+            Padding(padding: const EdgeInsets.only(bottom: 6), child: child),
+        ],
+      );
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: GlassCard(
+          padding: const EdgeInsets.all(12),
+          child: advanced
+              ? ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(title == '网络配置' ? '高级网络设置' : '账号与密码'),
+                  children: [body],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title == 'App 通用设置' ? '常用参数' : title,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    body,
+                  ],
+                ),
+        ),
+      );
+    }
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

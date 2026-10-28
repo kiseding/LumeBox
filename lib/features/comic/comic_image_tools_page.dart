@@ -426,6 +426,16 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       padding: const EdgeInsets.all(16),
       children: widget.translation
           ? [
+              NativeSwitchListTile.adaptive(
+                key: const ValueKey('global-live-translation'),
+                title: const Text('实时翻译'),
+                subtitle: const Text('自动翻译新加载的标题、搜索结果与漫画当前页'),
+                value: settings.liveTranslation,
+                onChanged: (value) {
+                  setState(() => settings.liveTranslation = value);
+                  save();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.file_open_outlined),
                 title: const Text('导入翻译配置文件'),

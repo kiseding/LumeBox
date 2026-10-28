@@ -644,6 +644,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('全局实时翻译开启后漫画无需手动开启', (tester) async {
+    final settings = ComicImageToolsSettings.instance;
+    settings.liveTranslation = true;
+    addTearDown(() => settings.liveTranslation = false);
+    final tools = _CountingTranslationTools();
+    await pumpReader(tester, tools: tools, imageCount: 2);
+    await tester.pump(const Duration(milliseconds: 700));
+    await settle(tester);
+    expect(tools.calls, 1);
+    tester.widget<Slider>(find.byKey(const Key('comic.pageSlider'))).onChanged!(
+      1,
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await settle(tester);
+    expect(tools.calls, 2);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('实时翻译当前页并在翻页后继续，关闭后停止', (tester) async {
     final tools = _CountingTranslationTools();
     await pumpReader(tester, tools: tools, imageCount: 3);

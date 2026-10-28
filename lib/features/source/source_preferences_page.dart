@@ -1,4 +1,5 @@
 import 'source_action_dialogs.dart';
+import '../../core/source/source_manager.dart';
 import '../../core/source/lume_sources.dart';
 import 'source_login_page.dart';
 
@@ -28,6 +29,7 @@ class SourcePreferencesPage extends StatefulWidget {
     this.showChapterOrder,
     this.showWidgetParameters = false,
     this.descriptor,
+    this.manager,
   });
   final Section section;
   final String sourceId, name, siteUrl;
@@ -35,6 +37,7 @@ class SourcePreferencesPage extends StatefulWidget {
   final bool? showChapterOrder;
   final bool showWidgetParameters;
   final SourceDescriptor? descriptor;
+  final SourceManager? manager;
   @override
   State<SourcePreferencesPage> createState() => _SourcePreferencesPageState();
 }
@@ -56,6 +59,10 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   );
   late final custom = TextEditingController(text: prefs.customOrigin);
   String? error;
+  bool _saving = false;
+  final _siteEditor = GlobalKey<SourceNetworkDialogState>();
+  SourceManager get _manager =>
+      widget.manager ?? LumeSources.manager(widget.section);
   final _widgetParameters = GlobalKey<RexWidgetParametersState>();
   @override
   void dispose() {
@@ -67,9 +74,11 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
 
   Future<String> _activeAddress() async {
     if (_unifiedSite) {
-      final fresh = (await LumeSources.manager(
-        widget.section,
-      ).list()).where((s) => s.id == widget.sourceId).firstOrNull;
+      final draft = _siteEditor.currentState?.draftSite.resolvedDomain;
+      if (draft != null && draft.isNotEmpty) return draft;
+      final fresh = (await _manager.list())
+          .where((s) => s.id == widget.sourceId)
+          .firstOrNull;
       final site = fresh ?? widget.descriptor!;
       if (site.siteConfig.resolvedDomain.isNotEmpty) {
         return site.siteConfig.resolvedDomain;
@@ -80,6 +89,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   }
 
   Future<void> save() async {
+    if (_saving) return;
     final domain = custom.text.trim(),
         from = original.text.trim(),
         url = icon.text.trim();
@@ -106,145 +116,209 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
       setState(() => error = e.message);
       return;
     }
-    final current = SourcePreferences.read(widget.section, widget.sourceId);
-    await prefs
-        .copyWith(
-          iconUrl: url,
-          originalOrigin: _unifiedSite ? current.originalOrigin : from,
-          customOrigin: _unifiedSite ? current.customOrigin : domain,
-        )
-        .save(widget.section, widget.sourceId);
-    if (mounted) Navigator.pop(context, true);
+    if (!mounted) return;
+    final site = _siteEditor.currentState?.readResult();
+    if (_unifiedSite && site == null) {
+      setState(() => error = '请检查站点地址、资源线路与参数');
+      final editorContext = _siteEditor.currentContext;
+      if (editorContext != null && editorContext.mounted) {
+        await Scrollable.ensureVisible(editorContext);
+      }
+      return;
+    }
+    setState(() {
+      _saving = true;
+      error = null;
+    });
+    try {
+      if (site != null) {
+        await _manager.setNetwork(
+          widget.sourceId,
+          userAgent: site.network.userAgent,
+          cookie: site.network.cookie,
+          proxy: site.network.proxy,
+          bridge: site.network.bridge,
+          allowBadCertificate: site.network.allowBadCertificate,
+        );
+        await _manager.setSiteConfig(widget.sourceId, site.site);
+      }
+      final current = SourcePreferences.read(widget.section, widget.sourceId);
+      await prefs
+          .copyWith(
+            iconUrl: url,
+            originalOrigin: _unifiedSite ? current.originalOrigin : from,
+            customOrigin: _unifiedSite ? current.customOrigin : domain,
+          )
+          .save(widget.section, widget.sourceId);
+      if (mounted) Navigator.pop(context, true);
+    } catch (_) {
+      if (mounted) setState(() => error = '保存失败，请重试');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.sources,
     title: '${widget.name} · 源设置',
-    actions: [TextButton(onPressed: save, child: const Text('保存'))],
-    child: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (widget.descriptor != null)
-          ListTile(
-            title: const Text('源版本'),
-            trailing: Text(widget.descriptor!.version),
-          ),
-        if (widget.descriptor != null)
-          ListTile(
-            leading: Icon(
-              widget.descriptor!.networkMode == 'proxy'
-                  ? Icons.vpn_lock_outlined
-                  : Icons.wifi_tethering,
-            ),
-            title: const Text('站点网络'),
-            subtitle: Text(_networkHint(widget.descriptor!.networkMode)),
-          ),
-        if (widget.siteUrl.isNotEmpty)
-          ListTile(
-            leading: const Icon(Icons.login),
-            title: const Text('站点账号登录'),
-            subtitle: const Text('打开站点网页登录，检查状态并同步会话'),
-            onTap: () async {
-              final address = await _activeAddress();
-              if (!context.mounted) return;
-              await Navigator.push<void>(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SourceLoginPage(
-                    section: widget.section,
-                    sourceId: widget.sourceId,
-                    name: widget.name,
-                    url: address,
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : save,
+        child: Text(_saving ? '保存中…' : '保存'),
+      ),
+    ],
+    child: ListTileTheme(
+      dense: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+        children: [
+          if (widget.descriptor != null)
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: Text('版本 ${widget.descriptor!.version}'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('置顶'),
+                  Switch(
+                    value: prefs.pinned,
+                    onChanged: (v) =>
+                        setState(() => prefs = prefs.copyWith(pinned: v)),
                   ),
-                ),
-              );
-            },
-          ),
-
-        if (_jsContent)
-          GlassCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('内容分类'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final group in [
-                      ('', '自动'),
-                      for (final category in SourceContentCategory.groups)
-                        (category.id, category.label),
-                    ])
-                      ChoiceChip(
-                        key: ValueKey('source-content-setting-${group.$1}'),
-                        label: Text(group.$2),
-                        selected: prefs.contentCategory == group.$1,
-                        onSelected: (_) => setState(
-                          () =>
-                              prefs = prefs.copyWith(contentCategory: group.$1),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '自动识别：${SourceContentCategories.automatic(widget.descriptor!).label}；手动分类在更新源后保留。',
-                ),
-              ],
-            ),
-          ),
-        if (widget.section != Section.cat && !_jsContent)
-          GlassCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('源抽屉分类'),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final group in [
-                      ('', '自动'),
-                      ...SourcePickerGroups.forSection(widget.section),
-                    ])
-                      ChoiceChip(
-                        label: Text(group.$2),
-                        selected: prefs.pickerGroup == group.$1,
-                        onSelected: (_) => setState(
-                          () => prefs = prefs.copyWith(pickerGroup: group.$1),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-        GlassCard(
-          child: Column(
-            children: [
-              SwitchListTile(
-                title: const Text('置顶此源'),
-                value: prefs.pinned,
-                onChanged: (v) =>
-                    setState(() => prefs = prefs.copyWith(pinned: v)),
+                ],
               ),
-              if (widget.showChapterOrder ?? (widget.section == Section.comic))
-                SwitchListTile(
-                  title: const Text('新章节在前'),
-                  subtitle: const Text('只改变目录的展示顺序'),
-                  value: prefs.newestFirst,
-                  onChanged: (v) =>
-                      setState(() => prefs = prefs.copyWith(newestFirst: v)),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        GlassCard(
-          child: Column(
+              subtitle: Text(_networkHint(widget.descriptor!.networkMode)),
+            ),
+          if (widget.siteUrl.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.login),
+              title: const Text('站点账号登录'),
+              subtitle: const Text('网页登录与会话同步'),
+              onTap: () async {
+                final address = await _activeAddress();
+                if (!context.mounted) return;
+                await Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SourceLoginPage(
+                      section: widget.section,
+                      sourceId: widget.sourceId,
+                      name: widget.name,
+                      url: address,
+                    ),
+                  ),
+                );
+              },
+            ),
+
+          if (_unifiedSite)
+            SourceNetworkDialog(
+              key: _siteEditor,
+              source: widget.descriptor!,
+              embedded: true,
+            )
+          else if (widget.onNetwork != null)
+            ListTile(
+              leading: const Icon(Icons.tune),
+              title: const Text('站点设置与账号配置'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: widget.onNetwork,
+            ),
+          if (_jsContent)
+            GlassCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('内容分类'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final group in [
+                        ('', '自动'),
+                        for (final category in SourceContentCategory.groups)
+                          (category.id, category.label),
+                      ])
+                        ChoiceChip(
+                          key: ValueKey('source-content-setting-${group.$1}'),
+                          visualDensity: VisualDensity.compact,
+                          label: Text(group.$2),
+                          selected: prefs.contentCategory == group.$1,
+                          onSelected: (_) => setState(
+                            () => prefs = prefs.copyWith(
+                              contentCategory: group.$1,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '自动：${SourceContentCategories.automatic(widget.descriptor!).label}',
+                  ),
+                ],
+              ),
+            ),
+          if (widget.section != Section.cat && !_jsContent)
+            GlassCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('源抽屉分类'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final group in [
+                        ('', '自动'),
+                        ...SourcePickerGroups.forSection(widget.section),
+                      ])
+                        ChoiceChip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text(group.$2),
+                          selected: prefs.pickerGroup == group.$1,
+                          onSelected: (_) => setState(
+                            () => prefs = prefs.copyWith(pickerGroup: group.$1),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+          if (widget.descriptor == null ||
+              (widget.showChapterOrder ?? widget.section == Section.comic))
+            GlassCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  if (widget.descriptor == null)
+                    SwitchListTile(
+                      title: const Text('置顶此源'),
+                      value: prefs.pinned,
+                      onChanged: (v) =>
+                          setState(() => prefs = prefs.copyWith(pinned: v)),
+                    ),
+                  if (widget.showChapterOrder ??
+                      (widget.section == Section.comic))
+                    SwitchListTile(
+                      title: const Text('新章节在前'),
+                      subtitle: const Text('只改变目录的展示顺序'),
+                      value: prefs.newestFirst,
+                      onChanged: (v) => setState(
+                        () => prefs = prefs.copyWith(newestFirst: v),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 12),
+          ExpansionTile(
+            title: const Text('图标与外观'),
             children: [
               TextField(
                 controller: icon,
@@ -273,112 +347,66 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
                 ),
             ],
           ),
-        ),
-        if (widget.section == Section.video && widget.showWidgetParameters)
-          RexWidgetParametersEditor(
-            key: _widgetParameters,
-            section: widget.section,
-            sourceId: widget.sourceId,
-          ),
-        if (widget.onNetwork != null || _unifiedSite)
+          if (widget.section == Section.video && widget.showWidgetParameters)
+            RexWidgetParametersEditor(
+              key: _widgetParameters,
+              section: widget.section,
+              sourceId: widget.sourceId,
+            ),
           ListTile(
             leading: const LumeIcon(
-              Icons.tune,
-              slot: 'source_preferences_page.1',
+              Icons.cleaning_services_outlined,
+              slot: 'source_preferences_page.3',
             ),
-            title: Text(
-              widget.section == Section.cat
-                  ? '站点设置与账号配置'
-                  : '源设置（站点 / 图床 / 视频 CDN / 参数）',
-            ),
-            trailing: const LumeIcon(
-              Icons.chevron_right,
-              slot: 'source_preferences_page.2',
-            ),
-            onTap:
-                widget.onNetwork ??
-                () async {
-                  final manager = LumeSources.manager(widget.section);
-                  final fresh = (await manager.list())
-                      .where((s) => s.id == widget.sourceId)
-                      .firstOrNull;
-                  if (!context.mounted || fresh == null) return;
-                  final result = await showDialog<SourceSettingsResult>(
-                    context: context,
-                    builder: (_) => SourceNetworkDialog(source: fresh),
-                  );
-                  if (result == null) return;
-                  await manager.setNetwork(
-                    widget.sourceId,
-                    userAgent: result.network.userAgent,
-                    cookie: result.network.cookie,
-                    proxy: result.network.proxy,
-                    bridge: result.network.bridge,
-                    allowBadCertificate: result.network.allowBadCertificate,
-                  );
-                  await manager.setSiteConfig(widget.sourceId, result.site);
-                  if (mounted) {
-                    setState(
-                      () => prefs = SourcePreferences.read(
-                        widget.section,
-                        widget.sourceId,
-                      ),
-                    );
-                  }
-                },
-          ),
-        ListTile(
-          leading: const LumeIcon(
-            Icons.cleaning_services_outlined,
-            slot: 'source_preferences_page.3',
-          ),
-          title: const Text('清理此源的浏览缓存'),
-          subtitle: const Text('保留下载内容、书架与阅读进度'),
-          onTap: () {
-            final count = SectionMemoryCache.instance.removeSource(
-              widget.section,
-              widget.sourceId,
-            );
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text('已清理 $count 条浏览缓存')));
-          },
-        ),
-        if (widget.siteUrl.isNotEmpty)
-          ListTile(
-            leading: const LumeIcon(
-              Icons.copy_outlined,
-              slot: 'source_preferences_page.4',
-            ),
-            title: const Text('复制站点地址'),
-            onTap: () async {
-              final address = await _activeAddress();
-              await Clipboard.setData(ClipboardData(text: address));
-              if (context.mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('站点地址已复制')));
-              }
+            title: const Text('清理此源的浏览缓存'),
+            subtitle: const Text('保留下载内容、书架与阅读进度'),
+            onTap: () {
+              final count = SectionMemoryCache.instance.removeSource(
+                widget.section,
+                widget.sourceId,
+              );
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text('已清理 $count 条浏览缓存')));
             },
           ),
-        ListTile(
-          leading: const LumeIcon(
-            Icons.restart_alt,
-            slot: 'source_preferences_page.5',
+          if (widget.siteUrl.isNotEmpty)
+            ListTile(
+              leading: const LumeIcon(
+                Icons.copy_outlined,
+                slot: 'source_preferences_page.4',
+              ),
+              title: const Text('复制站点地址'),
+              onTap: () async {
+                final address = await _activeAddress();
+                await Clipboard.setData(ClipboardData(text: address));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('站点地址已复制')));
+                }
+              },
+            ),
+          ListTile(
+            leading: const LumeIcon(
+              Icons.restart_alt,
+              slot: 'source_preferences_page.5',
+            ),
+            title: const Text('恢复默认源设置'),
+            onTap: () {
+              setState(() {
+                prefs = const SourcePreferences();
+                icon.clear();
+                custom.clear();
+                original.text = widget.siteUrl;
+                error = null;
+                _widgetParameters.currentState?.reset();
+                _siteEditor.currentState?.reset();
+              });
+            },
           ),
-          title: const Text('恢复默认源设置'),
-          onTap: () {
-            setState(() {
-              prefs = const SourcePreferences();
-              icon.clear();
-              custom.clear();
-              original.text = widget.siteUrl;
-              error = null;
-              _widgetParameters.currentState?.reset();
-            });
-          },
-        ),
-        if (error != null)
-          Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
-      ],
+          if (error != null)
+            Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
+        ],
+      ),
     ),
   );
 }
