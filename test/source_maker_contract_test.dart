@@ -19,7 +19,8 @@ import 'package:lume_box/core/web/html_home_import.dart';
 
 import 'js_sandbox/support/js_sandbox_support.dart';
 
-// Exported bytes come from the desktop tool, not hand-copied JS fixtures.
+// Frozen exports come from the desktop tool. App CI validates these bytes without
+// invoking the local-only SourceMaker toolchain or its Python dependencies.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final available = installBridge();
@@ -28,16 +29,7 @@ void main() {
   late Map<String, dynamic> pages;
   setUpAll(() async {
     root = await Directory.systemTemp.createTemp('lumebox-maker-contract-');
-    exports = Directory('${root.path}/exports');
-    final generated = await Process.run('python', [
-      'tools/source_maker/make_fixtures.py',
-      exports.path,
-    ]);
-    expect(
-      generated.exitCode,
-      0,
-      reason: '${generated.stdout}\n${generated.stderr}',
-    );
+    exports = Directory('test/fixtures/source_maker_exports');
     pages = jsonDecode(
       File('${exports.path}/pages.json').readAsStringSync(),
     ) as Map<String, dynamic>;
@@ -195,29 +187,48 @@ void main() {
     final rendered = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'render') {
-        final args = Map<String, dynamic>.from(call.arguments as Map);
-        final url = args['url'] as String;
-        rendered.add(url);
-        expect(args['script'], contains('document.contentType'));
-        final html = pages[Uri.parse(url).path] as String;
-        return {'url': url, 'html': html, 'result': html};
-      }
-      return null;
-    });
-    addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null));
-    final engine = await LumeJsEngine.create(sourceId: 'maker-browser', section: Section.video,
-      http: LumeHttp(client: MockClient((_) async => throw StateError('动态源应调用网页渲染桥'))));
+          if (call.method == 'render') {
+            final args = Map<String, dynamic>.from(call.arguments as Map);
+            final url = args['url'] as String;
+            rendered.add(url);
+            expect(args['script'], contains('document.contentType'));
+            final html = pages[Uri.parse(url).path] as String;
+            return {'url': url, 'html': html, 'result': html};
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final engine = await LumeJsEngine.create(
+      sourceId: 'maker-browser',
+      section: Section.video,
+      http: LumeHttp(
+        client: MockClient((_) async => throw StateError('动态源应调用网页渲染桥')),
+      ),
+    );
     addTearDown(engine.dispose);
     final script = File('${exports.path}/browser.js').readAsStringSync();
-    expect(await engine.loadScript(script), isTrue, reason: '${engine.lastLoadFailure}');
-    final source = JsDataSource(id: 'maker-browser', name: '动态测试', section: Section.video, runtime: _Runtime(engine));
+    expect(
+      await engine.loadScript(script),
+      isTrue,
+      reason: '${engine.lastLoadFailure}',
+    );
+    final source = JsDataSource(
+      id: 'maker-browser',
+      name: '动态测试',
+      section: Section.video,
+      runtime: _Runtime(engine),
+    );
     final item = (await source.list()).items.single;
     expect(item.title, '测试作品');
     expect((await source.detail(item.id))!.title, '作品详情');
     final chapter = (await source.chapters(item.id)).first;
-    final content = await source.content(itemId: item.id, chapterId: chapter.id) as VideoContent;
+    final content = await source.content(
+      itemId: item.id,
+      chapterId: chapter.id,
+    ) as VideoContent;
     expect(content.url.toString(), 'https://media.invalid/movie.mp4');
     expect(rendered, contains('https://fixture.invalid/chapter/1'));
   }, skip: available ? false : 'QuickJS 原生桥不可用');
@@ -231,7 +242,9 @@ void main() {
 
   test('桌面导出猫源：真实 ZIP 解析器与 MD5 校验', () {
     final bundle = CatLocalBundle.fromZip(
-      File('${exports.path}/cat.zip').readAsBytesSync(),
+      base64Decode(
+        File('${exports.path}/cat.zip.base64').readAsStringSync().trim(),
+      ),
     );
     expect(utf8.decode(bundle.index), contains('module.exports.start='));
     expect(utf8.decode(bundle.config), contains('module.exports'));

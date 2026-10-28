@@ -36,8 +36,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install source importer fixture dependency
-        run: python -m pip install beautifulsoup4==4.15.0
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
       - name: Static analysis and complete regression suite with native source runtime
