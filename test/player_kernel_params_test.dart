@@ -36,6 +36,7 @@ void main() {
       expect(platform.created.single.viewType, VideoViewType.platformView);
       await player.seek(const Duration(seconds: 42));
       await player.play();
+      await player.selectAudioTrack('en');
       await player.applySettings(
         const PlayerSettings(
           presentation: PlaybackPresentation(hdrEnabled: false),
@@ -45,6 +46,10 @@ void main() {
       expect(platform.created.last.viewType, VideoViewType.textureView);
       expect(platform.positions.values, contains(const Duration(seconds: 42)));
       expect(player.snapshot.value.playing, true);
+      expect(
+        (await player.audioTracks()).singleWhere((t) => t.selected).id,
+        'en',
+      );
       await player.applySettings(
         const PlayerSettings(
           presentation: PlaybackPresentation(hdrEnabled: false),
@@ -243,6 +248,24 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) => _streams[playerId]!.stream;
+
+  final selectedAudio = <int, String>{};
+  @override
+  bool isAudioTrackSupportAvailable() => true;
+  @override
+  Future<List<VideoAudioTrack>> getAudioTracks(int playerId) async => [
+    for (final language in ['zh', 'en'])
+      VideoAudioTrack(
+        id: language,
+        label: language,
+        language: language,
+        isSelected: (selectedAudio[playerId] ?? 'zh') == language,
+      ),
+  ];
+  @override
+  Future<void> selectAudioTrack(int playerId, String trackId) async {
+    selectedAudio[playerId] = trackId;
+  }
 
   @override
   Future<void> setLooping(int playerId, bool looping) async {}

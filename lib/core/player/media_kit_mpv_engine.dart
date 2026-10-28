@@ -196,6 +196,7 @@ class MediaKitMpvEngine
       await _highestHls.close();
       return;
     }
+    _pendingAudioPreference = true;
     _appliedPresentation.clear();
     _rejectedPresentation.clear();
     _resetMediaState();
@@ -440,6 +441,7 @@ class MediaKitMpvEngine
   @override
   Future<void> selectAudioTrack(String id) async {
     if (_disposed) return;
+    _pendingAudioPreference = false;
     try {
       await _player.setAudioTrack(AudioTrack(id, null, null));
     } catch (error, stackTrace) {
@@ -659,12 +661,16 @@ class MediaKitMpvEngine
       }
     }
     if (subtitleModeChanged && !_disposed) _styleRevision.value++;
-    if (audioChanged) await _preferAudio();
+    if (audioChanged) {
+      _pendingAudioPreference = true;
+      await _preferAudio();
+    }
     await _readPresentationStatus();
   }
 
+  bool _pendingAudioPreference = true;
   Future<void> _preferAudio() async {
-    if (_disposed) return;
+    if (_disposed || !_pendingAudioPreference) return;
     final tracks = _player.state.tracks.audio.where(
       (t) => t.id != 'auto' && t.id != 'no',
     );
@@ -673,6 +679,8 @@ class MediaKitMpvEngine
       return ['ac3', 'eac3', 'ac4', 'truehd'].contains(codec) ==
           _presentation.dolbyAudio;
     }).firstOrNull;
+    if (tracks.isEmpty) return;
+    _pendingAudioPreference = false;
     if (preferred != null) await _player.setAudioTrack(preferred);
   }
 
@@ -940,6 +948,7 @@ class MediaKitMpvEngine
 
   /// HUD 参数来自 libmpv 的轨道列表：编码 / 帧率 / 码率（bps → kbps）。
   void _applyTracks(Tracks tracks) {
+    if (_pendingAudioPreference) unawaited(_preferAudio());
     final video = tracks.video.isEmpty ? null : tracks.video.first;
     final audio =
         tracks.audio

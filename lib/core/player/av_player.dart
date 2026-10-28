@@ -372,11 +372,36 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       final subtitles = _externalSubtitles;
       final label = _externalLabel;
       final external = _externalSelected;
-      await _loadMedia(_retryMedia!);
+      final media = _retryMedia!;
+      final audio = (await audioTracks()).where((t) => t.selected).firstOrNull;
+      final subtitle = (await subtitleTracks())
+          .where((t) => t.selected)
+          .firstOrNull;
+      await _loadMedia(media);
       _externalSubtitles = subtitles;
       _externalLabel = label;
       _externalSelected = external;
-      if (_disposed) return;
+      if (_disposed || !identical(media, _retryMedia)) return;
+      if (audio != null &&
+          old.presentation.dolbyAudio == settings.presentation.dolbyAudio) {
+        final tracks = await audioTracks();
+        final match = tracks
+            .where(
+              (t) => t.label == audio.label && t.language == audio.language,
+            )
+            .firstOrNull;
+        if (match != null) await selectAudioTrack(match.id);
+      }
+      if (subtitle != null && !external) {
+        final tracks = await subtitleTracks();
+        final match = tracks
+            .where(
+              (t) =>
+                  t.label == subtitle.label && t.language == subtitle.language,
+            )
+            .firstOrNull;
+        if (match != null) await selectSubtitleTrack(match.id);
+      }
       await seek(position);
       if (playing) await play();
     }
