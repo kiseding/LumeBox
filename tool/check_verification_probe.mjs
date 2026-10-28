@@ -26,6 +26,8 @@ const fixtures = [
   ['yidun',{nodes:[node('[id],[class]',{className:'yidun-captcha'})]}],
   ['imageCaptcha',{text:'请输入图中文字',nodes:[node('img[src*="captcha"]'),node('input:not([type="hidden"])')]}],
   ['unknown',{text:'安全验证，点击完成验证',nodes:[node('button')]}],
+  ['unknown',{text:'访问验证',nodes:[node('cap-widget[data-cap-api-endpoint]')]}],
+  ['unknown',{nodes:[node('cap-widget[data-cap-api-endpoint]')]}],
   ['unknown',{status:419}],['unknown',{status:428}],['unknown',{status:520}],
   ['arkose',{text:'Just a moment',nodes:[node('iframe',{src:'https://arkoselabs.com/1'})]}],
   ['datadome',{text:'DataDome bot protection'}],['blocked',{text:'Access denied'}],

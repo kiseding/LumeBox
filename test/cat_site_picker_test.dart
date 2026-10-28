@@ -15,7 +15,7 @@ import 'package:lume_box/shared/widgets/source_card_metrics.dart';
 import 'package:lume_box/shared/widgets/source_icon.dart';
 
 /// 猫源「选择站点」面板的专用外观：
-/// - 单列 / 双列统一 51 高；
+/// - 单列 / 双列统一 55 高；
 /// - 全局柔和阴影；未选中 1px 浅灰描边，选中态动态主题色描边；
 /// - 没有左侧字母图标、没有右侧三点；
 /// - 文字单行居中，双列再窄也只省略、不折行；
@@ -108,7 +108,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('猫源选择面板：16pt 基线、51 高、主题色描边、居中与左滑菜单', (tester) async {
+  testWidgets('猫源选择面板：16pt 基线、55 高、主题色描边、居中与左滑菜单', (tester) async {
     await pumpPicker(tester);
 
     final tiles = find.byType(CatSiteTile);
@@ -116,7 +116,7 @@ void main() {
 
     for (final element in tiles.evaluate()) {
       final tile = find.byWidget(element.widget);
-      expect(tester.getSize(tile).height, 51, reason: '单列 / 双列统一 51 高');
+      expect(tester.getSize(tile).height, 55, reason: '单列 / 双列统一 55 高');
       final card = find.descendant(
         of: tile,
         matching: find.byKey(const ValueKey('cat-site-card')),
@@ -191,8 +191,8 @@ void main() {
                 .first,
           )
           .height,
-      51,
-      reason: '单列卡片 51 高',
+      55,
+      reason: '单列卡片 55 高',
     );
 
     // 双列：两列同一行，长日期仍然单行。
@@ -210,8 +210,8 @@ void main() {
                 .first,
           )
           .height,
-      51,
-      reason: '双列卡片同样 51 高，只由列数决定宽度',
+      55,
+      reason: '双列卡片同样 55 高，只由列数决定宽度',
     );
 
     // 左滑露出菜单；长按拖拽由 SourceDragTile 负责（布局测试另有用例）。

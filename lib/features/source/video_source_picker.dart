@@ -765,7 +765,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         descriptor != null && SourceContentCategories.appliesTo(descriptor);
     return SourceSwipeTile(
       key: ValueKey('video-picker-swipe-$id'),
-      height: js ? SourceCardMetrics.jsHeight : SourceCardMetrics.height,
+      height: SourceCardMetrics.height,
       actions: [
         SourceSwipeAction(
           label: '删除',
@@ -778,7 +778,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         tapKey: ValueKey('video-picker-source-$id'),
         title: name,
         titleMaxLines: js ? 2 : 1,
-        height: js ? SourceCardMetrics.jsHeight : SourceCardMetrics.height,
+        height: SourceCardMetrics.height,
         subtitle: Row(
           children: [
             Flexible(
@@ -994,10 +994,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
       initialOffset =
           44 +
           (index < 0 ? 0 : index ~/ 2) *
-              ((type == VideoSourceType.ordinary
-                      ? SourceCardMetrics.jsHeight
-                      : SourceCardMetrics.height) +
-                  SourceCardMetrics.rowGap);
+              (SourceCardMetrics.height + SourceCardMetrics.rowGap);
     }
     final empty =
         (!showOrdinary || ordinary.isEmpty) &&

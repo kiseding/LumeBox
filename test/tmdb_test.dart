@@ -14,6 +14,33 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('内置密钥可直接请求，自定义覆盖且关闭后停止请求', () async {
+    final settings = TmdbSettings()..enabled = true;
+    final credentials = <String?>[];
+    final client = TmdbClient(
+      settings,
+      client: MockClient((request) async {
+        credentials.add(request.url.queryParameters['api_key']);
+        return http.Response('{"images":{}}', 200);
+      }),
+    );
+    expect(settings.usesBuiltInKey, isTrue);
+    await client.testApi();
+    settings.apiKey = 'custom-fixture';
+    await client.testApi();
+    settings.apiKey = '';
+    await client.testApi();
+    expect(credentials, [
+      TmdbSettings.builtInApiKey,
+      'custom-fixture',
+      TmdbSettings.builtInApiKey,
+    ]);
+    await settings.disconnect();
+    await expectLater(client.testApi(), throwsStateError);
+    expect(credentials, hasLength(3));
+    client.dispose();
+  });
+
   test('TMDB 真实网络客户端继承全局 HTTP 代理', () async {
     final original = LumeNet.settings;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -128,7 +155,7 @@ void main() {
     expect((await client.lookup('测试剧'))!.recommendations.single.title, '相似剧');
     client.dispose();
   });
-  test('缺省关闭且不内置 Key，关闭和空 Key 时不产生请求', () async {
+  test('缺省关闭，内置密钥不会绕过停用开关', () async {
     final settings = TmdbSettings();
     var calls = 0;
     final client = TmdbClient(
@@ -144,9 +171,7 @@ void main() {
     expect(calls, 0);
     await expectLater(client.testApi(), throwsStateError);
     expect(calls, 0);
-    settings.enabled = true;
-    expect(await client.lookup('影片'), isNull);
-    expect(calls, 0);
+
     client.dispose();
   });
   test('本地配置重开与断开连接', () async {

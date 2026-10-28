@@ -353,7 +353,7 @@ void main() {
     await tester.pumpAndSettle();
     final card = find.byKey(const ValueKey('picker-source-c1'));
     final second = find.byKey(const ValueKey('picker-source-c2'));
-    expect(tester.getSize(card).height, 51, reason: '单列卡片统一 51 高');
+    expect(tester.getSize(card).height, 55, reason: '单列卡片统一 55 高');
     // 默认单列：卡片铺满 390 - 32 = 358，且左缘与搜索框同基线。
     expect(tester.getSize(card).width, 358);
     expect(tester.getTopLeft(card).dx, 16);
@@ -427,14 +427,14 @@ void main() {
     await longPressDrag(tester, card, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(card).dy));
 
-    // 切到双列：两列各 (390 - 32 - 8) / 2 = 175，高度同样 51；
+    // 切到双列：两列各 (390 - 32 - 8) / 2 = 175，高度同样 55；
     // 名称仍然居中。
     await tester.tap(find.byTooltip('切换为双列'));
     await tester.pumpAndSettle();
     expect(tester.getSize(card).width, 175);
     expect(tester.getSize(second).width, 175);
-    expect(tester.getSize(card).height, 51);
-    expect(tester.getSize(second).height, 51);
+    expect(tester.getSize(card).height, 55);
+    expect(tester.getSize(second).height, 55);
     // 单列拖动后 c2 在前，双列里应落在左侧。
     expect(tester.getTopLeft(second).dx, lessThan(tester.getTopLeft(card).dx));
     expect(tester.getTopLeft(second).dy, tester.getTopLeft(card).dy);
@@ -495,7 +495,7 @@ void main() {
     await longPressDrag(tester, first, second);
     expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
   });
-  testWidgets('固定 50 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
+  testWidgets('固定 55 高：18 角标不撑高，窄屏两列不溢出', (tester) async {
     await SourcePreferences(pinned: true).save(Section.video, 'plain');
     await tester.runAsync(() => PrivacySettings.instance.setShowAdult(true));
     final manager = FakeSourceManager(
@@ -555,7 +555,7 @@ void main() {
     for (final id in ['plain', 'adult']) {
       expect(
         tester.getSize(find.byKey(ValueKey('picker-source-$id'))).height,
-        50,
+        55,
       );
     }
     expect(find.text('18+'), findsOneWidget);
@@ -566,8 +566,20 @@ void main() {
   testWidgets('长按源可设置分类并保存；固定双栏与搜索可用', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
-        SourceDescriptor(id: 'a', name: '甲源', version: '1', enabled: true),
-        SourceDescriptor(id: 'b', name: '乙源', version: '1', enabled: true),
+        SourceDescriptor(
+          id: 'a',
+          name: '甲源',
+          version: '1',
+          enabled: true,
+          runtimeKind: 'module',
+        ),
+        SourceDescriptor(
+          id: 'b',
+          name: '乙源',
+          version: '1',
+          enabled: true,
+          runtimeKind: 'module',
+        ),
       ],
     );
     await showBar(tester, Section.video, manager, (_) {});
@@ -575,7 +587,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.widgetWithText(ChoiceChip, '影视'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, '影视'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '影视'));
+    FocusManager.instance.primaryFocus?.unfocus();
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
     expect(SourcePreferences.read(Section.video, 'b').pickerGroup, 'movie');
@@ -681,7 +701,13 @@ void main() {
   testWidgets('关闭抽屉不重复刷新首页；源设置保存后只刷新一次', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
-        SourceDescriptor(id: 'a', name: '甲源', version: '1', enabled: true),
+        SourceDescriptor(
+          id: 'a',
+          name: '甲源',
+          version: '1',
+          enabled: true,
+          runtimeKind: 'module',
+        ),
       ],
     );
     var refreshes = 0;
@@ -713,7 +739,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.widgetWithText(ChoiceChip, '影视'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, '影视'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '影视'));
+    FocusManager.instance.primaryFocus?.unfocus();
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭'));

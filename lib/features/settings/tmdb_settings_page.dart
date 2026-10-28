@@ -175,7 +175,8 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
             onChanged: (_) => save(),
             decoration: InputDecoration(
               labelText: 'API Key',
-              helperText: '支持 v3 API Key 或 v4 Read Access Token',
+              hintText: '留空使用内置密钥',
+              helperText: '已内置默认密钥；可填写自己的 v3 Key 或 v4 Token',
               suffixIcon: IconButton(
                 tooltip: '清除 API Key',
                 icon: const LumeIcon(

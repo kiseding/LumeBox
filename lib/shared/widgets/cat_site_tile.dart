@@ -6,7 +6,7 @@ import 'source_card_metrics.dart';
 /// 猫源专用极简卡片：没有左侧图标、没有右侧菜单，文字单行居中。
 ///
 /// 高度 / 圆角 / 描边与漫画 / 视频的源卡片共用
-/// [SourceCardMetrics]：四个板块固定 51 高、10 圆角、1px 描边。
+/// [SourceCardMetrics]：所有源选择卡片统一 55 高、10 圆角、1px 描边。
 /// 长名字（例如「日期:20261017」）只允许省略号，不允许折行把卡片撑高；
 /// 左右各留 16 的内边距，给省略号一点落点；上下由 [Center] 保持等距呼吸空间。
 ///
@@ -26,8 +26,8 @@ class CatSiteTile extends StatelessWidget {
     this.height = defaultHeight,
   });
 
-  /// 旧猫源极简面板保持原有高度；漫画和视频统一卡片另用 50。
-  static const double compactHeight = 51;
+  /// 猫源与其他源选择卡片共用同一高度。
+  static const double compactHeight = SourceCardMetrics.height;
   static const double defaultHeight = compactHeight;
 
   final double height;

@@ -904,7 +904,7 @@ void main() {
     expect(find.text('选择视频源'), findsNothing);
   });
 
-  testWidgets('JS源卡片支持双行名称，保留32图标、14留白、8列距和5行距', (tester) async {
+  testWidgets('JS源卡片支持双行名称，保留33图标、14留白、8列距和5行距', (tester) async {
     manager.sources.addAll([
       for (final id in ['b', 'c', 'd'])
         SourceDescriptor(id: id, name: '视频源$id', version: '1.0', enabled: true),
@@ -916,7 +916,7 @@ void main() {
     final first = tester.getRect(a),
         second = tester.getRect(b),
         third = tester.getRect(c);
-    expect(first.height, 66);
+    expect(first.height, 55);
     expect(first.width, 177);
     expect(first.left, 14);
     expect(second.right, 376);
@@ -924,7 +924,7 @@ void main() {
     expect(third.top - first.bottom, 5);
     expect(
       tester.getSize(find.descendant(of: a, matching: find.byType(SourceIcon))),
-      const Size(32, 32),
+      const Size(33, 33),
     );
     expect(tester.takeException(), isNull);
   });

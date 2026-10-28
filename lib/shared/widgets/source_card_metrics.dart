@@ -2,8 +2,7 @@ import 'package:flutter/widgets.dart';
 
 /// 漫画与视频源选择面板共用的卡片度量。
 abstract final class SourceCardMetrics {
-  static const double height = 50;
-  static const double jsHeight = 66;
+  static const double height = 55;
   static const double horizontalPadding = 14;
   static const double columnGap = 8;
   static const double rowGap = 5;
@@ -12,7 +11,7 @@ abstract final class SourceCardMetrics {
   static const double radius = 10;
 
   /// 左侧图标的边长。
-  static const double iconSize = 32;
+  static const double iconSize = 33;
 
   /// 未选中态描边：浅灰 #E5E5EA。
   static const Color unselectedBorder = Color(0xFFE5E5EA);

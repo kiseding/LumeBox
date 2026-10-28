@@ -29,6 +29,10 @@ enum TmdbImageKind {
 class TmdbSettings extends ChangeNotifier {
   TmdbSettings();
   static final instance = TmdbSettings();
+  static const builtInApiKey = String.fromEnvironment(
+    'TMDB_API_KEY',
+    defaultValue: 'e8cb17a07eb5091739aaceb3ab2e7120',
+  );
   bool enabled = false;
   bool detailBackdropEnabled = true;
   TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
@@ -222,13 +226,15 @@ class TmdbSettings extends ChangeNotifier {
     return save();
   }
 
-  bool get configured => enabled && apiKey.trim().isNotEmpty;
-  String get credential => apiKey.trim().replaceFirst(
+  bool get usesBuiltInKey => apiKey.trim().isEmpty;
+  String get _effectiveKey => usesBuiltInKey ? builtInApiKey : apiKey.trim();
+  bool get configured => enabled && credential.isNotEmpty;
+  String get credential => _effectiveKey.replaceFirst(
     RegExp(r'^Bearer\s+', caseSensitive: false),
     '',
   );
   bool get usesBearer =>
-      apiKey.trim().toLowerCase().startsWith('bearer ') ||
+      _effectiveKey.toLowerCase().startsWith('bearer ') ||
       (credential.startsWith('eyJ') && credential.split('.').length == 3);
   static Uri address(String raw, String fallback) {
     var value = raw.trim();
@@ -495,7 +501,7 @@ class TmdbClient {
   }
 
   Future<void> testApi() async {
-    if (!settings.configured) throw StateError('请先启用 TMDB 并填写 API Key');
+    if (!settings.configured) throw StateError('请先启用 TMDB');
     final revision = settings.revision;
     final base = await _resolvedBase(revision);
     final data = await _json('configuration', revision, base);
