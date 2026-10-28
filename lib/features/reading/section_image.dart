@@ -30,9 +30,12 @@ class SectionImage extends StatefulWidget {
     this.borderRadius,
     this.headers = const {},
     this.placeholder,
+    this.onLoaded,
+    this.onFailed,
   });
 
   final Widget? placeholder;
+  final VoidCallback? onLoaded, onFailed;
   final SectionImagePipeline pipeline;
   final Map<String, String> headers;
 
@@ -251,6 +254,7 @@ class _SectionImageState extends State<SectionImage> {
     }
     if (image == null) {
       setState(() => _failed = true);
+      widget.onFailed?.call();
       // 自动重试：只在页面还在、且没超过次数时排队。
       if (_retries < _maxRetries && pipeline.canRetry(url)) {
         final delay = _retryDelays[_retries];
@@ -272,6 +276,7 @@ class _SectionImageState extends State<SectionImage> {
       _image = image;
       _failed = false;
     });
+    widget.onLoaded?.call();
   }
 
   @override

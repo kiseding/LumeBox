@@ -19,6 +19,117 @@ import 'package:lume_box/shared/widgets/source_icon.dart';
 /// 换成 PNG、或只写在首页 `<link rel=icon>` 里，都要能走到真图标；
 /// 全都拿不到时必须老实回退首字母，不许把 HTML 当图片画出来。
 void main() {
+  test('主动获取比较网页和 manifest 实际像素，替换低清缓存并持久保存高清图标', () async {
+    final root = Directory.systemTemp.createTempSync('best-source-icon-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    var calls = 0;
+    final client = MockClient((request) async {
+      calls++;
+      final path = request.url.path;
+      if (path == '/') {
+        return http.Response(
+          '''
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple.png">
+        <link rel="icon" sizes="2048x2048" href="/claimed-large.png">
+        <link rel="manifest" href="/app/manifest.json">
+      ''',
+          200,
+          headers: {'content-type': 'text/html'},
+        );
+      }
+      if (path == '/app/manifest.json') {
+        return http.Response(
+          jsonEncode({
+            'icons': [
+              {'src': 'icon512.png', 'sizes': '512x512'},
+              {'src': 'icon192.png', 'sizes': '48x48 192x192'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      final size = {
+        '/favicon.ico': 16,
+        '/apple.png': 180,
+        '/claimed-large.png': 32,
+        '/app/icon512.png': 512,
+        '/app/icon192.png': 192,
+      }[path];
+      if (size == null) return http.Response('not found', 404);
+      return http.Response.bytes(
+        img.encodePng(img.Image(width: size, height: size)),
+        200,
+        headers: {'content-type': 'image/png'},
+      );
+    });
+    addTearDown(client.close);
+    final resolver = SourceFavicon(
+      http: LumeHttp(client: client),
+      cacheDirectory: () async => root,
+    );
+    final small = await resolver.load(origin: 'https://fixture.test');
+    expect(img.decodePng(small!)!.width, 16);
+    final large = await resolver.loadBest(origin: 'https://fixture.test');
+    expect(
+      img.decodePng(large!)!.width,
+      512,
+      reason: '按实际像素，而不是不可信的 sizes=2048',
+    );
+    final after = calls;
+    expect(
+      img
+          .decodePng((await resolver.load(origin: 'https://fixture.test'))!)!
+          .width,
+      512,
+    );
+    final restarted = SourceFavicon(
+      http: LumeHttp(client: client),
+      cacheDirectory: () async => root,
+    );
+    expect(
+      img
+          .decodePng((await restarted.load(origin: 'https://fixture.test'))!)!
+          .width,
+      512,
+    );
+    expect(calls, after, reason: '高清结果复用内存与磁盘缓存，不重复扫站点');
+  });
+
+  test('高清候选不可用时保留已有小图，重复点击共用一次解析', () async {
+    final gate = Completer<void>(), homeStarted = Completer<void>();
+    var homeCalls = 0;
+    var findingBest = false;
+    final png = img.encodePng(img.Image(width: 32, height: 32));
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        client: MockClient((request) async {
+          if (request.url.path == '/') {
+            homeCalls++;
+            homeStarted.complete();
+            await gate.future;
+          }
+          if (!findingBest) {
+            return http.Response.bytes(
+              png,
+              200,
+              headers: {'content-type': 'image/png'},
+            );
+          }
+          return http.Response('not found', 404);
+        }),
+      ),
+    );
+    await resolver.load(origin: 'https://fixture.test');
+    findingBest = true;
+    final a = resolver.loadBest(origin: 'https://fixture.test');
+    await homeStarted.future;
+    final b = resolver.loadBest(origin: 'https://fixture.test');
+    gate.complete();
+    expect(identical(a, b), true);
+    expect(img.decodePng((await a)!)!.width, 32);
+    expect(homeCalls, 1);
+  });
   test('图标路径按网页目录和 base 解析，处理实体并排除伪 rel 与凭据地址', () {
     expect(
       SourceFavicon.iconLinksFromHtml('''

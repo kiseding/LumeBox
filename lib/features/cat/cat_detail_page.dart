@@ -61,6 +61,12 @@ class _CatDetailPageState extends State<CatDetailPage>
     decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
   );
   late final tmdb = TmdbDetailController(widget.item.title);
+  late final tmdbImagePipeline = SectionImagePipeline(
+    cacheDir: '${widget.library.imageCacheDir}/tmdb',
+    memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
+    cacheOriginalBytes: true,
+    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
+  );
   SourceDetail? detail;
   List<SourceChapter> chapters = [];
   String? error;
@@ -87,6 +93,7 @@ class _CatDetailPageState extends State<CatDetailPage>
   @override
   void dispose() {
     tmdb.dispose();
+    tmdbImagePipeline.dispose();
     pipeline.dispose();
     super.dispose();
   }
@@ -333,6 +340,7 @@ class _CatDetailPageState extends State<CatDetailPage>
 
   Widget image({int? width, BorderRadius? radius}) => TmdbPosterGallery(
     controller: tmdb,
+    imagePipeline: tmdbImagePipeline,
     fallback: SectionImage(
       pipeline: pipeline,
       placeholder: MissingCover(

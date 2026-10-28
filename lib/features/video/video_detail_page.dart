@@ -134,6 +134,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         decodeTransform: (bytes) =>
             automaticUpscale(bytes, UpscaleSurface.videoPoster),
       );
+  // TMDB 图片按自己的代理地址获取，不继承源站 Cookie/代理配置。
+  late final tmdbImagePipeline = SectionImagePipeline(
+    cacheDir: '${widget.library.imageCacheDir}/tmdb',
+    memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
+    cacheOriginalBytes: true,
+    decodeTransform: (bytes) =>
+        automaticUpscale(bytes, UpscaleSurface.videoPoster),
+  );
   @override
   void initState() {
     super.initState();
@@ -152,6 +160,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   void dispose() {
     _scroll.dispose();
     tmdb.dispose();
+    tmdbImagePipeline.dispose();
     if (widget.imagePipeline == null) pipeline.dispose();
     super.dispose();
   }
@@ -492,60 +501,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Future<ui.Image?> _displayedPosterSample(String url) async {
-    // The gallery has already decoded this NetworkImage. Reuse Flutter's image
-    // cache rather than downloading the same poster again through the source.
-    final ImageProvider provider =
-        url == tmdb.metadata?.backdrops.firstOrNull || url == detail?.backdrop
-        ? ResizeImage.resizeIfNeeded(
-            384,
-            null,
-            NetworkImage(
-              url,
-              headers: url == detail?.backdrop ? detail?.coverHeaders : null,
-            ),
-          )
-        : NetworkImage(url);
-    final stream = provider.resolve(ImageConfiguration.empty);
-    final ready = Completer<ui.Image?>();
-    late final ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (info, _) {
-        if (!ready.isCompleted) ready.complete(info.image.clone());
-      },
-      onError: (Object _, StackTrace? _) {
-        if (!ready.isCompleted) ready.complete(null);
-      },
-    );
-    stream.addListener(listener);
-    ui.Image? original;
-    try {
-      original = await ready.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => null,
-      );
-      if (original == null) return null;
-      final recorder = ui.PictureRecorder();
-      Canvas(recorder).drawImageRect(
-        original,
-        Rect.fromLTWH(
-          0,
-          0,
-          original.width.toDouble(),
-          original.height.toDouble(),
-        ),
-        const Rect.fromLTWH(0, 0, 48, 48),
-        Paint(),
-      );
-      final picture = recorder.endRecording();
-      try {
-        return await picture.toImage(48, 48);
-      } finally {
-        picture.dispose();
-      }
-    } finally {
-      stream.removeListener(listener);
-      original?.dispose();
-    }
+    // 与显示共用原始字节缓存，取色不再另下图片，也不触发第二次超分。
+    return tmdbImagePipeline.colorSample(url);
   }
 
   Future<void> updatePalette() async {
@@ -607,6 +564,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           keyword: keyword ?? detail?.title ?? widget.item.title,
           mode: SearchMode.aggregate,
           manager: widget.manager,
+          pipeline: pipeline,
           onOpenItem: (ExploreSelection selection) async {
             await Navigator.push(
               context,
@@ -734,6 +692,16 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 searchCurrentVideo();
               case 'resource-info':
                 showSourceResourceInfo();
+              case 'image-info':
+                showImageProcessingInfo(
+                  context,
+                  pipeline: _displayedPoster == null
+                      ? pipeline
+                      : tmdbImagePipeline,
+                  url: _displayedPoster ?? sourceCover,
+                  surface: UpscaleSurface.videoPoster,
+                  origin: _displayedPoster == null ? '源站海报' : 'TMDB 海报',
+                );
               case 'bangumi':
                 openBangumi();
               case 'original':
@@ -763,6 +731,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 child: Text('网盘资源详情'),
               ),
             const PopupMenuItem(value: 'search', child: Text('其他源找这部')),
+            const PopupMenuItem(
+              value: 'image-info',
+              child: Text('图片信息 / 超分状态'),
+            ),
             const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
             const PopupMenuDivider(),
             CheckedPopupMenuItem(
@@ -2201,6 +2173,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       key: const Key('video-detail-compact-banner'),
                       child: IgnorePointer(
                         child: TmdbPosterGallery(
+                          imagePipeline: tmdbImagePipeline,
                           onArtworkDisplayed: _artworkDisplayed,
                           controller: tmdb,
                           fit: BoxFit.cover,
@@ -2447,6 +2420,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     ? const Key('video-detail-gradient')
                                     : null,
                                 child: TmdbPosterGallery(
+                                  imagePipeline: tmdbImagePipeline,
                                   onArtworkDisplayed: _artworkDisplayed,
                                   controller: tmdb,
                                   fit: BoxFit.cover,

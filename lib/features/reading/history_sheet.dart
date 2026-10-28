@@ -106,7 +106,12 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
     cacheDir: widget.library.imageCacheDir,
     memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
     diskCache: SectionImagePipeline.diskCacheFor(widget.section),
-    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
+    decodeTransform: (bytes) => automaticUpscale(
+      bytes,
+      widget.section == Section.video
+          ? UpscaleSurface.videoPoster
+          : UpscaleSurface.cover,
+    ),
   );
   @override
   void dispose() {

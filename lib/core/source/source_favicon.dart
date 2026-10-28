@@ -91,15 +91,28 @@ class SourceFavicon {
     required List<String> explicit,
     Section? section,
     String? sourceId,
+    bool bestQuality = false,
   }) async {
     if (_activeResolutions >= 2) {
       final ready = Completer<void>();
-      _waitingResolutions.add(ready);
+      if (bestQuality) {
+        _waitingResolutions.addFirst(ready);
+      } else {
+        _waitingResolutions.add(ready);
+      }
       await ready.future;
     } else {
       _activeResolutions++;
     }
     try {
+      if (bestQuality) {
+        return await _resolveBest(
+          origin: origin,
+          explicit: explicit,
+          section: section,
+          sourceId: sourceId,
+        );
+      }
       return await _resolve(
         origin: origin,
         explicit: explicit,
@@ -131,6 +144,59 @@ class SourceFavicon {
   int _cacheGeneration = 0;
   final Map<String, Future<Uint8List?>> _inflight =
       <String, Future<Uint8List?>>{};
+  final Map<String, Future<Uint8List?>> _bestInflight = {};
+
+  /// 主动获取时比较真实像素；列表自动加载仍走快速缓存，避免逐卡扫描网站。
+  Future<Uint8List?> loadBest({
+    required String origin,
+    List<String> explicit = const [],
+    Section? section,
+    String? sourceId,
+  }) {
+    final key = _key(origin, explicit);
+    if (key.isEmpty) return Future.value();
+    final running = _bestInflight[key];
+    if (running != null) return running;
+    final generation = _cacheGeneration;
+    final task =
+        () async {
+          // 快速请求先结束，避免其稍后把高清缓存覆盖成小图。
+          final pending = _inflight[key];
+          if (pending != null) {
+            try {
+              await pending;
+            } catch (_) {}
+          }
+          final bytes = await _resolveBounded(
+            origin: origin,
+            explicit: explicit,
+            section: section,
+            sourceId: sourceId,
+            bestQuality: true,
+          );
+          if (bytes != null && generation == _cacheGeneration) {
+            _remember(key, bytes);
+            try {
+              final directory = await cacheDirectory?.call();
+              if (directory != null && generation == _cacheGeneration) {
+                await directory.create(recursive: true);
+                if (generation == _cacheGeneration) {
+                  File(
+                    '${directory.path}/${sha256.convert(utf8.encode(key))}.png',
+                  ).writeAsBytesSync(bytes, flush: true);
+                }
+              }
+            } catch (_) {
+              /* 缓存失败不影响本次预览。 */
+            }
+          }
+          return bytes;
+        }().whenComplete(() {
+          _bestInflight.remove(key);
+        });
+    _bestInflight[key] = task;
+    return task;
+  }
 
   /// 取图标字节；拿不到返回 null（调用方回退首字母占位）。
   ///
@@ -148,6 +214,8 @@ class SourceFavicon {
     if (_cache.containsKey(key)) {
       return Future<Uint8List?>.value(_cache[key]);
     }
+    final bestRunning = _bestInflight[key];
+    if (bestRunning != null) return bestRunning;
     final failedUntil = _failedUntil[key];
     if (failedUntil != null && _now().isBefore(failedUntil)) {
       return Future<Uint8List?>.value();
@@ -313,7 +381,120 @@ class SourceFavicon {
     return null;
   }
 
-  /// 候选地址：源声明的图标在前，站点约定名在后（都不带 SVG——Flutter 画不出来）。
+  static int _pixelQuality(Uint8List bytes) {
+    try {
+      final info = img.findDecoderForData(bytes)?.startDecode(bytes);
+      if (info == null ||
+          info.width <= 0 ||
+          info.height <= 0 ||
+          info.width * info.height > 4 * 1024 * 1024) {
+        return 0;
+      }
+      return info.width < info.height ? info.width : info.height;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<Uint8List?> _resolveBest({
+    required String origin,
+    required List<String> explicit,
+    Section? section,
+    String? sourceId,
+  }) async {
+    Uint8List? best = _cache[_key(origin, explicit)];
+    var quality = best == null ? 0 : await compute(_pixelQuality, best);
+    final candidates = <String>{};
+    var referer = origin;
+    final site = _originOf(origin);
+    for (final value in explicit.take(4)) {
+      final url = _absolute(value, site);
+      if (_isUsableUrl(url)) candidates.add(url);
+    }
+    if (fetchHtmlHomepage && site.isNotEmpty) {
+      final home = await _fetchText(
+        '$site/',
+        section: section,
+        sourceId: sourceId,
+      );
+      if (home != null) {
+        referer = home.url;
+        final document = html_parser.parse(home.text);
+        final base = document.querySelector('base[href]')?.attributes['href'];
+        final htmlBase = base == null ? home.url : _absolute(base, home.url);
+        final manifests = document
+            .querySelectorAll('link[rel]')
+            .where(
+              (tag) => (tag.attributes['rel'] ?? '')
+                  .toLowerCase()
+                  .split(RegExp(r'\s+'))
+                  .contains('manifest'),
+            );
+        for (final tag in manifests.take(2)) {
+          final url = _absolute(tag.attributes['href'] ?? '', htmlBase);
+          if (!_isUsableUrl(url)) continue;
+          final manifest = await _fetchText(
+            url,
+            section: section,
+            sourceId: sourceId,
+          );
+          try {
+            final value = manifest == null ? null : jsonDecode(manifest.text);
+            if (value is Map && value['icons'] is List) {
+              final icons = (value['icons'] as List).whereType<Map>().toList()
+                ..sort(
+                  (a, b) =>
+                      _declaredSize('${b['sizes'] ?? ''}') -
+                      _declaredSize('${a['sizes'] ?? ''}'),
+                );
+              for (final icon in icons.take(4)) {
+                final src = _absolute('${icon['src'] ?? ''}', manifest!.url);
+                if (_isUsableUrl(src)) candidates.add(src);
+              }
+            }
+          } catch (_) {
+            /* manifest 失效时继续找网页和约定路径。 */
+          }
+        }
+        candidates.addAll(iconLinksFromHtml(home.text, home.url).take(5));
+      }
+    }
+    candidates.addAll(_candidates(origin, explicit));
+    final deadline = _now().add(const Duration(seconds: 30));
+    for (final url in candidates.take(16)) {
+      if (_now().isAfter(deadline)) break;
+      final attempt = await _fetch(
+        url,
+        section: section,
+        sourceId: sourceId,
+        referer: referer,
+      );
+      final bytes = attempt.bytes;
+      if (bytes == null) continue;
+      final score = await compute(_pixelQuality, bytes);
+      if (score > quality) {
+        best = bytes;
+        quality = score;
+      }
+    }
+    return quality > 0 ? best : null;
+  }
+
+  static int _declaredSize(String sizes) {
+    var largest = 0;
+    for (final pair in RegExp(
+      r'(\d+)x(\d+)',
+      caseSensitive: false,
+    ).allMatches(sizes)) {
+      final width = int.tryParse(pair[1]!) ?? 0,
+          height = int.tryParse(pair[2]!) ?? 0;
+      final side = width < height ? width : height;
+      if (side > largest) largest = side;
+    }
+    return largest;
+  }
+
+  /// 快速候选：源声明在前，约定路径在后；主动获取另外比较实际像素。
   static List<String> _candidates(String origin, List<String> explicit) {
     final out = <String>[];
     for (final url in explicit) {
@@ -378,8 +559,7 @@ class SourceFavicon {
       final url = _absolute(href, site);
       if (!_isUsableUrl(url)) continue;
       final sizes = tag.attributes['sizes'] ?? '';
-      final side =
-          int.tryParse(RegExp(r'(\d+)').firstMatch(sizes)?.group(1) ?? '') ?? 0;
+      final side = _declaredSize(sizes);
       found.add((url: url, size: side, apple: rel.contains('apple') ? 1 : 0));
     }
     found.sort((a, b) {

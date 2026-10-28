@@ -2,6 +2,8 @@ import 'source_action_dialogs.dart';
 import '../../core/source/source_manager.dart';
 import '../../core/source/lume_sources.dart';
 import 'source_login_page.dart';
+import '../../core/source/source_favicon.dart';
+import '../../shared/widgets/source_icon.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -30,6 +32,7 @@ class SourcePreferencesPage extends StatefulWidget {
     this.showWidgetParameters = false,
     this.descriptor,
     this.manager,
+    this.favicon,
   });
   final Section section;
   final String sourceId, name, siteUrl;
@@ -38,6 +41,7 @@ class SourcePreferencesPage extends StatefulWidget {
   final bool showWidgetParameters;
   final SourceDescriptor? descriptor;
   final SourceManager? manager;
+  final SourceFavicon? favicon;
   @override
   State<SourcePreferencesPage> createState() => _SourcePreferencesPageState();
 }
@@ -60,6 +64,10 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   late final custom = TextEditingController(text: prefs.customOrigin);
   String? error;
   bool _saving = false;
+  bool _fetchingIcon = false;
+  String? _iconStatus;
+  late String _iconOrigin = widget.siteUrl;
+  int _iconRevision = 0;
   final _siteEditor = GlobalKey<SourceNetworkDialogState>();
   SourceManager get _manager =>
       widget.manager ?? LumeSources.manager(widget.section);
@@ -86,6 +94,53 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
       if (site.siteUrl.isNotEmpty) return site.siteUrl;
     }
     return custom.text.trim().isNotEmpty ? custom.text.trim() : widget.siteUrl;
+  }
+
+  Future<void> _getSiteIcon() async {
+    if (_fetchingIcon) return;
+    setState(() {
+      _fetchingIcon = true;
+      _iconStatus = null;
+    });
+    try {
+      final address = await _activeAddress();
+      final uri = Uri.tryParse(address);
+      if (uri == null ||
+          !['http', 'https'].contains(uri.scheme) ||
+          uri.host.isEmpty) {
+        throw const FormatException('源还没有站点地址，请先填写站点地址');
+      }
+      final bytes = await (widget.favicon ?? SourceFavicon.instance).loadBest(
+        origin: uri.origin,
+        explicit: [
+          if (widget.descriptor?.iconUrl.isNotEmpty == true)
+            widget.descriptor!.iconUrl,
+        ],
+        section: widget.section,
+        sourceId: widget.sourceId,
+      );
+      if (!mounted) return;
+      if (bytes == null) {
+        setState(() => _iconStatus = '暂未找到可用图标，已保留原设置；留空时会显示默认字母图标');
+      } else {
+        icon.clear();
+        setState(() {
+          _iconOrigin = uri.origin;
+          _iconRevision++;
+          _iconStatus = '已获取站点图标，点右上角「保存」后使用';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _iconStatus = e is FormatException
+              ? e.message
+              : '图标获取失败，原设置已保留，请稍后重试',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _fetchingIcon = false);
+    }
   }
 
   Future<void> save() async {
@@ -320,13 +375,47 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
           ExpansionTile(
             title: const Text('图标与外观'),
             children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  '不用自己找图标：一键获取会比较网页、Apple Touch、manifest 和 favicon 的实际像素，优先高清版本。留空自动使用站点图标，找不到时显示站点名字的首字。',
+                ),
+              ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: icon,
+                builder: (_, value, _) => Row(
+                  children: [
+                    SourceIcon(
+                      key: ValueKey('icon-preview-$_iconRevision'),
+                      name: widget.name,
+                      siteUrl: _iconOrigin,
+                      iconUrl: value.text,
+                      siteIcon: widget.descriptor?.iconUrl ?? '',
+                      size: 33,
+                      section: widget.section,
+                      sourceId: widget.sourceId,
+                      favicon: widget.favicon,
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed: _fetchingIcon ? null : _getSiteIcon,
+                      child: Text(_fetchingIcon ? '正在获取…' : '一键获取站点图标'),
+                    ),
+                  ],
+                ),
+              ),
               TextField(
                 controller: icon,
                 decoration: const InputDecoration(
                   labelText: '自定义源图标',
-                  hintText: '留空使用站点图标',
+                  hintText: '可留空，无需填写',
                 ),
               ),
+              if (_iconStatus != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(_iconStatus!),
+                ),
               if (widget.section != Section.cat && !_unifiedSite)
                 TextField(
                   controller: original,

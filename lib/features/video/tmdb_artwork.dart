@@ -7,6 +7,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../../core/tmdb/tmdb.dart';
+import '../../core/reading/reading.dart';
+import '../reading/section_image.dart';
 
 class TmdbDetailController extends ChangeNotifier {
   TmdbDetailController(
@@ -393,11 +395,13 @@ class TmdbPosterGallery extends StatefulWidget {
     required this.fallback,
     this.fit = BoxFit.cover,
     this.onArtworkDisplayed,
+    this.imagePipeline,
   });
   final TmdbDetailController controller;
   final Widget fallback;
   final BoxFit fit;
   final ValueChanged<String?>? onArtworkDisplayed;
+  final SectionImagePipeline? imagePipeline;
   @override
   State<TmdbPosterGallery> createState() => _TmdbPosterGalleryState();
 }
@@ -429,21 +433,40 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
         urls[widget.controller.index.clamp(0, urls.length - 1)] == url;
   }
 
-  Widget poster(String url) => Image.network(
-    url,
-    fit: widget.fit,
-    filterQuality: FilterQuality.high,
-    frameBuilder: (_, child, frame, synchronouslyLoaded) {
-      if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
-        reportArtwork(url);
-      }
-      return frame == null && !synchronouslyLoaded ? widget.fallback : child;
-    },
-    errorBuilder: (_, _, _) {
-      if (isCurrent(url)) reportArtwork(null);
-      return widget.fallback;
-    },
-  );
+  Widget poster(String url) {
+    final pipeline = widget.imagePipeline;
+    if (pipeline != null) {
+      return SectionImage(
+        pipeline: pipeline,
+        url: url,
+        fit: widget.fit,
+        targetWidth: 1600,
+        placeholder: widget.fallback,
+        onLoaded: () {
+          if (isCurrent(url)) reportArtwork(url);
+        },
+        onFailed: () {
+          if (isCurrent(url)) reportArtwork(null);
+        },
+      );
+    }
+    return Image.network(
+      url,
+      fit: widget.fit,
+      filterQuality: FilterQuality.high,
+      frameBuilder: (_, child, frame, synchronouslyLoaded) {
+        if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
+          reportArtwork(url);
+        }
+        return frame == null && !synchronouslyLoaded ? widget.fallback : child;
+      },
+      errorBuilder: (_, _, _) {
+        if (isCurrent(url)) reportArtwork(null);
+        return widget.fallback;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,

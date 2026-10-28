@@ -38,6 +38,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
   String endpoint = '';
   String model = '';
   String colorizeEndpoint = '';
+  String colorizeProtocol = 'openai';
   String colorizeModel = '';
   String colorizePrompt = defaultColorizePrompt;
 
@@ -93,6 +94,9 @@ class ComicImageToolsSettings extends ChangeNotifier {
       colorizeModel = data['colorizeModel'] is String
           ? data['colorizeModel'] as String
           : '';
+      colorizeProtocol = data['colorizeProtocol'] == 'seedream'
+          ? 'seedream'
+          : 'openai';
       final prompt = data['colorizePrompt'];
       if (prompt is String && prompt.trim().isNotEmpty) {
         colorizePrompt = prompt;
@@ -124,6 +128,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'endpoint': endpoint,
       'model': model,
       'colorizeEndpoint': colorizeEndpoint,
+      'colorizeProtocol': colorizeProtocol,
       'colorizeModel': colorizeModel,
       'colorizePrompt': colorizePrompt,
     });

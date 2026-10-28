@@ -28,6 +28,7 @@ import 'reading_store.dart';
 import 'image_bytes_decoder.dart';
 import 'image_strip_restorer.dart';
 import 'cover_byte_cache.dart';
+import 'image_upscale_report.dart';
 
 /// 图片管线：网络 → 板块磁盘缓存 → 解码 → 内存缓存。
 ///
@@ -90,6 +91,10 @@ class SectionImagePipeline {
   /// Optional reader-local enhancement; raw exports and disk bytes stay original.
   final Future<Uint8List> Function(Uint8List)? decodeTransform;
   final bool cacheOriginalBytes;
+  final processingRevision = ValueNotifier<int>(0);
+  final _processingReports = <String, ImageUpscaleReport>{};
+  ImageUpscaleReport? processingReport(String url) =>
+      _processingReports[upgradeToHttps(normalizeTransform(url))];
   static final _coverBytes = _createCoverByteCache();
   static CoverByteCache _createCoverByteCache() {
     final cache = CoverByteCache();
@@ -552,6 +557,8 @@ class SectionImagePipeline {
     _failures.clear();
     _verificationTargets.clear();
     verificationRevision.dispose();
+    processingRevision.dispose();
+    _processingReports.clear();
     // 取消在飞请求：关闭客户端是 package:http 提供的取消入口。
     try {
       _client.close();
@@ -609,9 +616,16 @@ class SectionImagePipeline {
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
+        ImageUpscaleReport? processingReport;
         final decodeData = decodeTransform == null
             ? data
-            : await decodeTransform!(data);
+            : await runZoned(
+                () => decodeTransform!(data!),
+                zoneValues: {
+                  ImageUpscaleReport.zoneKey: (ImageUpscaleReport report) =>
+                      processingReport = report,
+                },
+              );
         if (_disposed) return null;
         final codec = await ui.instantiateImageCodec(
           decodeData,
@@ -636,6 +650,15 @@ class SectionImagePipeline {
         }
         _failures.remove(upgradeToHttps(normalizeTransform(url)));
         _memory.put(cacheKey, image);
+        if (processingReport != null) {
+          final normalized = upgradeToHttps(normalizeTransform(url));
+          _processingReports.remove(normalized);
+          _processingReports[normalized] = processingReport!;
+          while (_processingReports.length > 128) {
+            _processingReports.remove(_processingReports.keys.first);
+          }
+          processingRevision.value++;
+        }
         return image;
       } catch (error) {
         final normalized = upgradeToHttps(normalizeTransform(url));

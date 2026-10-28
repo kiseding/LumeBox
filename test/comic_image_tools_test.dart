@@ -507,6 +507,7 @@ void main() {
         ..concurrency = 9
         ..colorizeEndpoint = 'https://image.example/v1/images/edits'
         ..colorizeModel = 'image-model'
+        ..colorizeProtocol = 'seedream'
         ..colorizePrompt = 'colorize'
         ..serverTranslation = true
         ..imageTranslationEndpoint = 'https://manga.example'
@@ -519,6 +520,7 @@ void main() {
       expect(reloaded.upscaleCovers, isTrue);
       expect(reloaded.upscaleVideoPosters, isTrue);
       expect(reloaded.concurrency, 4);
+      expect(reloaded.colorizeProtocol, 'seedream');
       expect(
         reloaded.colorizeEndpoint,
         'https://image.example/v1/images/edits',
@@ -572,6 +574,69 @@ void main() {
     );
     addTearDown(bad.dispose);
     await expectLater(bad.colorize(bytes), throwsFormatException);
+  });
+
+  test('Seedream 使用 JSON 原图上色，只生成一张图并读取 base64', () async {
+    final settings = ComicImageToolsSettings()
+      ..colorizeProtocol = 'seedream'
+      ..colorizeEndpoint =
+          'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+      ..colorizeModel = 'doubao-seedream-4-0-250828';
+    final client = MockClient((request) async {
+      expect(request.headers['Content-Type'], contains('application/json'));
+      final body = jsonDecode(request.body) as Map;
+      expect(body['model'], 'doubao-seedream-4-0-250828');
+      expect(body['image'], 'data:image/png;base64,${base64Encode(bytes)}');
+      expect(body['response_format'], 'b64_json');
+      expect(body['sequential_image_generation'], 'disabled');
+      expect(body['stream'], false);
+      expect(body['size'], '2K');
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+  });
+
+  test('Seedream Flash 使用自己的密钥且不发送旧模型专有的组图参数', () async {
+    final slots = <String>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      final slot = (call.arguments as Map)['slot'] as String;
+      slots.add(slot);
+      return slot == 'colorizeSeedream' ? 'ark-secret' : '';
+    });
+    final settings = ComicImageToolsSettings()
+      ..colorizeProtocol = 'seedream'
+      ..colorizeEndpoint =
+          'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+      ..colorizeModel = 'doubao-seedream-5-0-flash-260915';
+    final client = MockClient((request) async {
+      expect(request.headers['Authorization'], 'Bearer ark-secret');
+      final body = jsonDecode(request.body) as Map;
+      expect(body, isNot(contains('sequential_image_generation')));
+      expect(body['image'], startsWith('data:image/png;base64,'));
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+    expect(slots, ['colorizeSeedream']);
   });
 
   test('closing reader cancels native jobs and rejects stale result', () async {

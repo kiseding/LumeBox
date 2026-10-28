@@ -1292,6 +1292,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                 ],
               ),
               const SizedBox(height: 14),
+              TextButton(
+                onPressed: () => showImageProcessingInfo(
+                  context,
+                  pipeline: _pipeline,
+                  url: detail?.cover ?? widget.target.cover,
+                ),
+                child: const Text('图片信息 / 超分状态'),
+              ),
               Row(
                 children: <Widget>[
                   Expanded(

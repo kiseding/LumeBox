@@ -82,6 +82,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
   );
   final keyInput = TextEditingController();
   final colorizeKeyInput = TextEditingController();
+  late String colorizeProtocol = settings.colorizeProtocol;
   final serverKeyInput = TextEditingController();
   ComicImageTools? probe;
   bool busy = false;
@@ -282,10 +283,13 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       if (colorizeKeyInput.text.trim().isNotEmpty) {
         await ComicImageTools.channel.invokeMethod<void>('setKey', {
           'key': colorizeKeyInput.text.trim(),
-          'slot': 'colorize',
+          'slot': colorizeProtocol == 'seedream'
+              ? 'colorizeSeedream'
+              : 'colorize',
         });
       }
       settings.colorizeEndpoint = colorizeEndpoint.text.trim();
+      settings.colorizeProtocol = colorizeProtocol;
       settings.colorizeModel = colorizeModel.text.trim();
       settings.colorizePrompt = colorizePrompt.text.trim().isEmpty
           ? ComicImageToolsSettings.defaultColorizePrompt
@@ -822,6 +826,39 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Column(
                   children: <Widget>[
+                    DropdownButtonFormField<String>(
+                      initialValue: colorizeProtocol,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: '上色服务'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'openai',
+                          child: Text('通用图片编辑（OpenAI 兼容）'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'seedream',
+                          child: Text('火山方舟 · Seedream（国内）'),
+                        ),
+                      ],
+                      onChanged: busy
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setState(() {
+                                colorizeProtocol = value;
+                                colorizeEndpoint.text = value == 'seedream'
+                                    ? 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+                                    : 'https://api.openai.com/v1/images/edits';
+                                colorizeModel.text = value == 'seedream'
+                                    ? 'doubao-seedream-5-0-flash-260915'
+                                    : 'gpt-image-1-mini';
+                                colorizeKeyInput.clear();
+                              });
+                            },
+                    ),
+                    const SettingsFooterNote(
+                      '选择服务后自动填写接口和模型，再填该服务的 API Key。需要先在服务商控制台开通对应模型；每次上色只请求一张图。',
+                    ),
                     TextField(
                       controller: colorizeEndpoint,
                       decoration: const InputDecoration(
@@ -855,7 +892,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                       ),
                     ),
                     const SettingsFooterNote(
-                      '使用不同服务时，请填写上色服务自己的密钥，不会改动 AI 翻译密钥。未单独保存过上色密钥时，沿用原来的翻译密钥。上色提示词可保留默认内容。',
+                      '填写所选服务的密钥。Seedream、通用上色和 AI 翻译的密钥分别保存，互不覆盖。通用上色兼容旧版共用的翻译密钥；上色提示词可保留默认内容。',
                     ),
                     const SizedBox(height: 12),
                     FilledButton(
@@ -982,7 +1019,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
             enhanced = result;
             colorized = null;
             regions = [];
-            message = '超分完成，可切回原图对照或保存结果';
+            message = tools.lastUpscaleReport?.summary ?? '超分完成，可切回原图对照或保存结果';
           });
         }
       }

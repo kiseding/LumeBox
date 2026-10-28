@@ -1,5 +1,7 @@
 import '../translation/ai_text_translation.dart';
 import 'comic_image_tools_settings.dart';
+import 'image_upscale_report.dart';
+export 'image_upscale_report.dart';
 export 'comic_image_tools_settings.dart';
 
 import 'dart:async';
@@ -119,6 +121,36 @@ class ComicImageTools {
   bool _disposed = false;
   ComicTranslationReport? lastTranslationReport;
   String? lastTranslationWarning;
+  ImageUpscaleReport? lastUpscaleReport;
+
+  Uint8List _upscaleResult(Object? value, Uint8List original) {
+    final bytes = value is Map ? value['bytes'] : value;
+    if (bytes is! Uint8List || bytes.isEmpty) throw StateError('超分未返回图片');
+    final map = value is Map ? value : const {};
+    final report = ImageUpscaleReport(
+      map['status'] as String? ??
+          (listEquals(bytes, original) ? 'skipped' : 'processed'),
+      width: map['width'] as int?,
+      height: map['height'] as int?,
+      outputWidth: map['outputWidth'] as int?,
+      outputHeight: map['outputHeight'] as int?,
+      reason: map['reason'] as String? ?? '',
+    );
+    lastUpscaleReport = report;
+    report.publish();
+    return bytes;
+  }
+
+  void _upscaleFailed(Object error) {
+    final report = ImageUpscaleReport(
+      'failed',
+      reason: error is PlatformException
+          ? error.message ?? '设备端处理失败'
+          : '图片处理失败',
+    );
+    lastUpscaleReport = report;
+    report.publish();
+  }
 
   /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
   // Readers and cover pipelines share one device budget, rather than each
@@ -153,13 +185,15 @@ class ComicImageTools {
   Future<Uint8List> superResolve(Uint8List bytes) async {
     if (!await _acquireAutomaticSlot()) throw StateError('图片处理已取消');
     try {
-      final result = await _invoke<Uint8List>('superResolve', {
+      final result = await _invoke<Object?>('superResolve', {
         'bytes': bytes,
         'noise': preferences.noise,
         'imageStyle': imageStyle ?? preferences.imageStyle,
       });
-      if (result == null || result.isEmpty) throw StateError('超分未返回图片');
-      return result;
+      return _upscaleResult(result, bytes);
+    } catch (error) {
+      _upscaleFailed(error);
+      rethrow;
     } finally {
       _releaseAutomaticSlot();
     }
@@ -200,14 +234,15 @@ class ComicImageTools {
           completer.complete(bytes);
           return;
         }
-        final result = await _invoke<Uint8List>('superResolve', {
+        final result = await _invoke<Object?>('superResolve', {
           'bytes': bytes,
           'noise': preferences.noise,
           'imageStyle': imageStyle ?? preferences.imageStyle,
           'threshold': preferences.threshold,
         });
-        completer.complete(result == null || result.isEmpty ? bytes : result);
-      } catch (_) {
+        completer.complete(_upscaleResult(result, bytes));
+      } catch (error) {
+        if (!_disposed) _upscaleFailed(error);
         // A failed optional enhancement cannot break the original image.
         completer.complete(bytes);
       } finally {
@@ -477,7 +512,7 @@ class ComicImageTools {
     }
   }
 
-  /// 云端 AI 上色（OpenAI 兼容的图片编辑接口）。
+  /// 云端 AI 上色（通用图片编辑或 Seedream 图生图接口）。
   ///
   /// 设备端上色模型不在本仓库内；这里把图片以 multipart 发到用户自填的
   /// `/v1/images/edits` 类接口，并要求返回 `data[0].b64_json`。图片会上传到
@@ -490,11 +525,17 @@ class ComicImageTools {
       throw const FormatException('图片为空或超过 20MB');
     }
     var key =
-        await channel.invokeMethod<String>('getKey', {'slot': 'colorize'}) ??
+        await channel.invokeMethod<String>('getKey', {
+          'slot': preferences.colorizeProtocol == 'seedream'
+              ? 'colorizeSeedream'
+              : 'colorize',
+        }) ??
         '';
     // 保留旧版共用密钥的配置；单独填写后不再受翻译密钥影响。
-    if (key.isEmpty) key = await channel.invokeMethod<String>('getKey') ?? '';
-    if (key.isEmpty) throw const FormatException('请先保存 AI API Key');
+    if (key.isEmpty && preferences.colorizeProtocol != 'seedream') {
+      key = await channel.invokeMethod<String>('getKey') ?? '';
+    }
+    if (key.isEmpty) throw const FormatException('请先保存当前上色服务的 API Key');
     final owned = client == null;
     final transport = client ?? http.Client();
     if (_disposed) {
@@ -506,27 +547,46 @@ class ComicImageTools {
       final prompt = preferences.colorizePrompt.trim().isEmpty
           ? ComicImageToolsSettings.defaultColorizePrompt
           : preferences.colorizePrompt.trim();
-      final request = http.MultipartRequest('POST', uri)
-        ..headers['Authorization'] = 'Bearer $key'
-        ..fields['model'] = model
-        ..fields['prompt'] = prompt;
-      final gptImage =
-          model.startsWith('gpt-image-') || model == 'chatgpt-image-latest';
-      if (gptImage) {
-        // GPT Image 默认返回 base64，不接受旧版 response_format 参数。
-        request.fields['output_format'] = 'png';
-      } else {
-        request.fields['response_format'] = 'b64_json';
-      }
       final imageType = _imageType(bytes);
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          gptImage ? 'image[]' : 'image',
-          bytes,
-          filename: imageType.$1,
-          contentType: imageType.$2,
-        ),
-      );
+      final http.BaseRequest request;
+      if (preferences.colorizeProtocol == 'seedream') {
+        request = http.Request('POST', uri)
+          ..headers['Content-Type'] = 'application/json'
+          ..body = jsonEncode({
+            'model': model,
+            'prompt': prompt,
+            'image': 'data:${imageType.$2};base64,${base64Encode(bytes)}',
+            'size': '2K',
+            'response_format': 'b64_json',
+            if (model.contains('seedream-4-') ||
+                model.contains('seedream-5-0-lite'))
+              'sequential_image_generation': 'disabled',
+            'stream': false,
+            'watermark': true,
+          });
+      } else {
+        final multipart = http.MultipartRequest('POST', uri)
+          ..fields['model'] = model
+          ..fields['prompt'] = prompt;
+        final gptImage =
+            model.startsWith('gpt-image-') || model == 'chatgpt-image-latest';
+        if (gptImage) {
+          // GPT Image 默认返回 base64，不接受旧版 response_format 参数。
+          multipart.fields['output_format'] = 'png';
+        } else {
+          multipart.fields['response_format'] = 'b64_json';
+        }
+        multipart.files.add(
+          http.MultipartFile.fromBytes(
+            gptImage ? 'image[]' : 'image',
+            bytes,
+            filename: imageType.$1,
+            contentType: imageType.$2,
+          ),
+        );
+        request = multipart;
+      }
+      request.headers['Authorization'] = 'Bearer $key';
       final response = await transport
           .send(request)
           .timeout(const Duration(seconds: 120));

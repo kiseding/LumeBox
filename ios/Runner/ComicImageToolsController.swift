@@ -113,7 +113,7 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     }
     if call.method == "getKey" || call.method == "setKey" {
       let requestedSlot = args["slot"] as? String ?? "apiKey"
-      let keySlot = ["imageServer", "colorize"].contains(requestedSlot) ? requestedSlot : "apiKey"
+      let keySlot = ["imageServer", "colorize", "colorizeSeedream"].contains(requestedSlot) ? requestedSlot : "apiKey"
       let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "lumebox.comicTranslation", kSecAttrAccount as String: keySlot]
       if call.method == "getKey" {
         var read = query; read[kSecReturnData as String] = true
@@ -200,8 +200,11 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
               return try self.recognizeSource(source, width: width, height: height,
                 sourceLanguage: args["source"] as? String ?? "auto", id: id)
             }
-            guard width * height <= 8_000_000 else { throw self.failure("图片超过超分内存限制，原图保留") }
-            if call.method == "superResolve", let threshold = args["threshold"] as? Int, width >= threshold { return bytes }
+            if call.method == "superResolve", let threshold = args["threshold"] as? Int, width >= threshold {
+              return ["bytes": bytes, "status": "skipped", "width": width, "height": height,
+                "reason": "原图宽度已达到 \(threshold)px 阈值"] as [String: Any]
+            }
+            guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
             guard let decoded = UIImage(data: bytes.data) else { throw self.failure("图片解码失败") }
             let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
             let normalized = UIGraphicsImageRenderer(size: CGSize(width: CGFloat(width), height: CGFloat(height)), format: format).image { context in
@@ -209,8 +212,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
               decoded.draw(in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
             }
             guard let image = normalized.cgImage else { throw self.failure("图片解码失败") }
-            guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
-            return FlutterStandardTypedData(bytes: try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id))
+            let enlarged = try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id)
+            return ["bytes": FlutterStandardTypedData(bytes: enlarged), "status": "processed",
+              "width": width, "height": height, "outputWidth": width * 2, "outputHeight": height * 2] as [String: Any]
           }
         }
         self.end(id)
