@@ -19,6 +19,147 @@ import 'package:lume_box/shared/widgets/source_icon.dart';
 /// 换成 PNG、或只写在首页 `<link rel=icon>` 里，都要能走到真图标；
 /// 全都拿不到时必须老实回退首字母，不许把 HTML 当图片画出来。
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('SVG 图标转为静态 PNG，自动加载与主动获取均可持久缓存', (tester) async {
+    await tester.runAsync(() async {
+      const svg =
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#ff3300"/></svg>';
+      final root = Directory.systemTemp.createTempSync('source-svg-');
+      try {
+        var calls = 0;
+        final resolver = SourceFavicon(
+          cacheDirectory: () async => root,
+          http: LumeHttp(
+            client: MockClient((request) async {
+              calls++;
+              if (request.url.path == '/') {
+                return http.Response(
+                  '<link rel="icon" href="/images/favicon.svg">',
+                  200,
+                  headers: {'content-type': 'text/html; charset=utf-8'},
+                );
+              }
+              if (request.url.path.endsWith('.svg')) {
+                return http.Response(
+                  svg,
+                  200,
+                  headers: {'content-type': 'image/svg+xml'},
+                );
+              }
+              return http.Response('not found', 404);
+            }),
+          ),
+        );
+        final bytes = await resolver.load(origin: 'https://svg.test');
+        final image = img.decodePng(bytes!);
+        expect(image!.width, 192);
+        expect(image.getPixel(96, 96).r, 255);
+        expect(image.numFrames, 1);
+        expect(await resolver.loadBest(origin: 'https://svg.test'), isNotNull);
+        final after = calls;
+        final restarted = SourceFavicon(
+          cacheDirectory: () async => root,
+          http: LumeHttp(
+            client: MockClient((_) async {
+              calls++;
+              return http.Response('offline', 503);
+            }),
+          ),
+        );
+        expect(await restarted.load(origin: 'https://svg.test'), isNotNull);
+        expect(calls, after);
+      } finally {
+        root.deleteSync(recursive: true);
+      }
+    });
+  });
+
+  testWidgets('SVG 1.1 内嵌 PNG 图标可转换，支持站点实际使用的格式', (tester) async {
+    await tester.runAsync(() async {
+      final image = img.Image(width: 2, height: 2)
+        ..setPixelRgba(0, 0, 255, 51, 0, 255);
+      final encoded = base64Encode(img.encodePng(image));
+      final svg =
+          '<?xml version="1.0"?>'
+          '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'
+          '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2" height="2" viewBox="0 0 2 2">'
+          '<image width="2" height="2" xlink:href="data:image/png;base64,$encoded"/></svg>';
+      final resolver = SourceFavicon(
+        fetchHtmlHomepage: false,
+        http: LumeHttp(
+          client: MockClient(
+            (_) async => http.Response(
+              svg,
+              200,
+              headers: {'content-type': 'image/svg+xml'},
+            ),
+          ),
+        ),
+      );
+      final png = await resolver.load(origin: 'https://embedded.test');
+      expect(png, isNotNull);
+      expect(img.decodePng(png!)!.width, 192);
+    });
+  });
+
+  testWidgets('SVG 外链图片不产生隐式网络请求', (tester) async {
+    await tester.runAsync(() async {
+      final resolver = SourceFavicon(
+        fetchHtmlHomepage: false,
+        http: LumeHttp(
+          client: MockClient(
+            (_) async => http.Response(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><image href="https://external.test/tracker.png"/></svg>',
+              200,
+              headers: {'content-type': 'image/svg+xml'},
+            ),
+          ),
+        ),
+      );
+      expect(await resolver.load(origin: 'https://svg.test'), isNull);
+    });
+  });
+
+  for (final logo in [false, true]) {
+    test('首页图标失效时回退到${logo ? "站点 logo" : "本站同路径"}，不抓内容封面', () async {
+      final asked = <String>[];
+      final png = img.encodePng(img.Image(width: 64, height: 64));
+      final resolver = SourceFavicon(
+        http: LumeHttp(
+          client: MockClient((request) async {
+            asked.add(request.url.toString());
+            if (request.url.path == '/') {
+              return http.Response(
+                logo
+                    ? '<link rel="icon" href="/missing.ico"><a href="/"><img src="/theme/picture/logo.png" alt="站名"></a><img src="/cover.png">'
+                    : '<link rel="icon" href="https://old.test/theme/favicon.png">',
+                200,
+                headers: {'content-type': 'text/html; charset=utf-8'},
+              );
+            }
+            if (request.url.host == 'site.test' &&
+                request.url.path ==
+                    (logo ? '/theme/picture/logo.png' : '/theme/favicon.png')) {
+              return http.Response.bytes(
+                png,
+                200,
+                headers: {'content-type': 'image/png'},
+              );
+            }
+            return http.Response(
+              '<html>not an icon</html>',
+              200,
+              headers: {'content-type': 'text/html; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      expect(await resolver.load(origin: 'https://site.test'), isNotNull);
+      expect(asked.any((url) => url.endsWith('/cover.png')), isFalse);
+    });
+  }
+
   test('主动获取比较网页和 manifest 实际像素，替换低清缓存并持久保存高清图标', () async {
     final root = Directory.systemTemp.createTempSync('best-source-icon-');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -34,7 +175,7 @@ void main() {
         <link rel="manifest" href="/app/manifest.json">
       ''',
           200,
-          headers: {'content-type': 'text/html'},
+          headers: {'content-type': 'text/html; charset=utf-8'},
         );
       }
       if (path == '/app/manifest.json') {
@@ -336,7 +477,7 @@ void main() {
     'AAAAAElFTkSuQmCC',
   );
 
-  test('首页解析：apple-touch-icon 优先、相对地址补全、SVG 直接跳过', () {
+  test('首页解析：apple-touch-icon 优先、相对地址补全、保留 SVG 候选', () {
     final html = '''
 <html><head>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -345,10 +486,11 @@ void main() {
 <link rel="shortcut icon" href="favicon.ico">
 </head></html>''';
     final links = SourceFavicon.iconLinksFromHtml(html, 'https://a.com');
-    // apple-touch-icon 排第一（浏览器也是这个优先级）；SVG 那条被丢掉。
+    // apple-touch-icon 排第一；SVG 留给下载后的静态 PNG 转换。
     expect(links.first, 'https://a.com/img/logo256.png');
-    expect(links.first, isNot(contains('.svg')));
+    expect(links, contains('https://a.com/favicon.svg'));
     expect(links.toSet(), <String>{
+      'https://a.com/favicon.svg',
       'https://a.com/img/logo256.png',
       'https://a.com/img/icon32.png',
       'https://a.com/favicon.ico',
@@ -426,7 +568,7 @@ void main() {
     expect(asked.last, 'https://a.com/img/logo256.png');
   });
 
-  test('内容不是图片就当没有：HTML / SVG / 空响应都不算图标', () async {
+  test('内容不是图片就当没有：HTML / 无效 SVG / 空响应都不算图标', () async {
     Future<Uint8List?> load(http.Response Function(http.Request) respond) {
       final resolver = SourceFavicon(
         http: LumeHttp(

@@ -5,6 +5,10 @@ import '../net/lume_net.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:ui' as ui;
+
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:xml/xml.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -33,7 +37,7 @@ import '../util/lume_log.dart';
 ///
 /// 因此这里的顺序是：候选地址（源声明的 icon → /favicon.ico → /favicon.png →
 /// /apple-touch-icon.png）→ 全都不行就抓首页解析 `<link rel=icon>` → 逐个取字节
-/// （经全局网络队列，带该源会话）→ 校验**确实是图片**（不认 SVG：Flutter 画不了）
+/// （经全局网络队列，带该源会话）→ 校验**确实是图片**（SVG 转为静态 PNG）
 /// → 缓存成功结果。取不到就老实回退首字母，绝不假装有图标。
 class SourceFavicon {
   SourceFavicon({
@@ -369,7 +373,7 @@ class SourceFavicon {
       sourceId: sourceId,
     );
     if (home == null) return null;
-    for (final url in iconLinksFromHtml(home.text, home.url)) {
+    for (final url in _htmlCandidates(home.text, home.url)) {
       final attempt = await _fetch(
         url,
         section: section,
@@ -456,7 +460,7 @@ class SourceFavicon {
             /* manifest 失效时继续找网页和约定路径。 */
           }
         }
-        candidates.addAll(iconLinksFromHtml(home.text, home.url).take(5));
+        candidates.addAll(_htmlCandidates(home.text, home.url).take(10));
       }
     }
     candidates.addAll(_candidates(origin, explicit));
@@ -529,13 +533,13 @@ class SourceFavicon {
       return false;
     }
     if (!const <String>{'http', 'https'}.contains(uri.scheme)) return false;
-    return !uri.path.toLowerCase().endsWith('.svg');
+    return true;
   }
 
   /// 从首页 HTML 里挑图标地址（纯函数，单独可验证）。
   ///
   /// 规则照着浏览器那一套来：`apple-touch-icon` 优先（几乎都是方正的 PNG），
-  /// 其余 `rel=icon` 按 `sizes` 从大到小排；`.svg` 直接跳过（Flutter 解不了）。
+  /// 其余 `rel=icon` 按 `sizes` 从大到小排；SVG 在下载后转为 PNG。
   @visibleForTesting
   static List<String> iconLinksFromHtml(String html, String origin) {
     final document = html_parser.parse(html);
@@ -573,6 +577,99 @@ class SourceFavicon {
     return out;
   }
 
+  static List<String> _htmlCandidates(String html, String home) {
+    final icons = iconLinksFromHtml(html, home);
+    final origin = Uri.parse(home).origin;
+    // 迁站后页面可能还引用旧域名图标；先尝试声明地址，再尝试本站同路径。
+    final local = <String>[
+      for (final icon in icons)
+        if (Uri.parse(icon).origin != origin)
+          Uri.parse(origin).resolve(Uri.parse(icon).path).toString(),
+    ];
+    final document = html_parser.parse(html);
+    final base = document.querySelector('base[href]')?.attributes['href'];
+    final htmlBase = base == null ? home : _absolute(base, home);
+    final logos = <String>[];
+    // 只认明确的站点 logo，不把封面、广告或文章图片当图标。
+    for (final tag in document.querySelectorAll(
+      'img.logo, img[id*="logo"], img[class*="logo"], '
+      '.logo img, .site-logo img, .logo-site img, header img[alt], '
+      'img[src*="logo"], img[data-src*="logo"]',
+    )) {
+      final label =
+          '${tag.attributes['alt'] ?? ''} ${tag.attributes['class'] ?? ''} ${tag.attributes['id'] ?? ''} ${tag.attributes['src'] ?? ''} ${tag.attributes['data-src'] ?? ''}';
+      if (tag.parent?.classes.any((name) => name.contains('logo')) != true &&
+          !label.toLowerCase().contains('logo')) {
+        continue;
+      }
+      final url = _absolute(
+        tag.attributes['src'] ?? tag.attributes['data-src'] ?? '',
+        htmlBase,
+      );
+      if (_isUsableUrl(url)) logos.add(url);
+    }
+    return {...icons, ...local, ...logos.take(3)}.toList();
+  }
+
+  /// 在 UI isolate 光栅化一次；列表、持久设置和磁盘缓存仍统一读取 PNG。
+  static Future<Uint8List?> _svgPng(Uint8List bytes) async {
+    try {
+      final text = utf8.decode(bytes);
+      if (text.toUpperCase().contains('<!ENTITY')) return null;
+      final document = XmlDocument.parse(text);
+      if (document.rootElement.name.local != 'svg') return null;
+      for (final element in document.descendants.whereType<XmlElement>()) {
+        for (final attribute in element.attributes) {
+          if (attribute.name.local == 'href' &&
+              !attribute.value.trim().startsWith('#') &&
+              !RegExp(
+                r'^data:image/(?:png|jpeg|gif|webp);base64,',
+                caseSensitive: false,
+              ).hasMatch(attribute.value.trim())) {
+            return null;
+          }
+        }
+      }
+      final info = await vg.loadPicture(SvgStringLoader(text), null);
+      try {
+        final size = info.size;
+        if (!size.width.isFinite ||
+            !size.height.isFinite ||
+            size.width <= 0 ||
+            size.height <= 0) {
+          return null;
+        }
+        final scale =
+            192 / (size.width > size.height ? size.width : size.height);
+        final recorder = ui.PictureRecorder();
+        final canvas = ui.Canvas(recorder)..scale(scale);
+        canvas.drawPicture(info.picture);
+        final picture = recorder.endRecording();
+        try {
+          final image = await picture.toImage(
+            (size.width * scale).round().clamp(1, 192),
+            (size.height * scale).round().clamp(1, 192),
+          );
+          try {
+            final png = await image.toByteData(format: ui.ImageByteFormat.png);
+            return png?.buffer.asUint8List(
+              png.offsetInBytes,
+              png.lengthInBytes,
+            );
+          } finally {
+            image.dispose();
+          }
+        } finally {
+          picture.dispose();
+        }
+      } finally {
+        info.picture.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
   static String _absolute(String href, String site) {
     final text = href.trim();
     if (text.isEmpty) return '';
@@ -606,11 +703,18 @@ class SourceFavicon {
       if (response.statusCode != 200) {
         return (bytes: null, reachable: true);
       }
+      final type = response.headers['content-type'] ?? '';
+      final prefix = utf8
+          .decode(response.body.take(512).toList(), allowMalformed: true)
+          .trimLeft();
+      final svg =
+          type.toLowerCase().contains('svg') ||
+          prefix.startsWith('<svg') ||
+          (prefix.startsWith('<?xml') && prefix.contains('<svg'));
       return (
-        bytes: await compute(_decodeIcon, (
-          bytes: response.body,
-          type: response.headers['content-type'],
-        )),
+        bytes: svg
+            ? await _svgPng(response.body)
+            : await compute(_decodeIcon, (bytes: response.body, type: type)),
         reachable: true,
       );
     } on Object catch (error) {

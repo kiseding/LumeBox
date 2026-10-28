@@ -73,11 +73,13 @@ dependencies:
   pointycastle: ^4.0.0
   sherpa_onnx: ^1.13.8
   tflite_flutter: ^0.12.1
-  xml: ^7.1.0
+  # flutter_svg 的编译器目前支持到 xml 7.0.1；朗读 SSML 与图标解析共用。
+  xml: 7.0.1
   lume_cat_node:
     path: third_party/lume_cat_node
   cupertino_http: 3.1.0
   palette_generator: 0.3.3+7
+  flutter_svg: ^2.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
