@@ -261,12 +261,21 @@ class JsDataSource
           throw const FormatException('网页解析地址无效');
         }
         final headers = value['headers'];
+        final options = value['webPlayerOptions'];
+        final selector = options is Map ? options['episodeSelector'] : null;
+        if (selector != null &&
+            (selector is! String ||
+                selector.trim().isEmpty ||
+                selector.length > 256)) {
+          throw const FormatException('网页选集按钮规则无效');
+        }
         throw CatWebParseRequired(
           uri,
           headers is Map ? headers.map((k, v) => MapEntry('$k', '$v')) : {},
           webPlayer:
               value['webPlayer'] == true ||
               '${value['kind']}'.toLowerCase() == 'webplayer',
+          episodeSelector: selector as String?,
         );
       }
       return ChapterContent.parse(value);

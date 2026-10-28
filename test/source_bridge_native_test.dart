@@ -15,6 +15,7 @@ import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/cat/cat_web_parse.dart';
+import 'package:lume_box/core/source/web_player_episode.dart';
 
 /// 真实引擎下的桥接验证（用户反馈的 Bug2）：
 ///
@@ -105,7 +106,7 @@ void main() {
             await LumeSource.http.post('https://api.example.com/search','original',{headers:{'x-original':'keep'}});
             return {items:[],hasMore:false};
           },
-          content: async function() { return {webPlayer:true,url:'blob:https://site.example/internal',pageUrl:'https://site.example/play/1',headers:{Referer:'https://site.example/'}}; }
+          content: async function() { return {webPlayer:true,url:'blob:https://site.example/internal',pageUrl:'https://site.example/play/1',headers:{Referer:'https://site.example/'},webPlayerOptions:{episodeSelector:'button.playbtn[data-id="74596"]'}}; }
         };
       ''');
       await source.list();
@@ -118,11 +119,57 @@ void main() {
           isA<CatWebParseRequired>()
               .having((e) => e.webPlayer, 'webPlayer', true)
               .having(
+                (e) => e.episodeSelector,
+                'episodeSelector',
+                'button.playbtn[data-id="74596"]',
+              )
+              .having(
                 (e) => e.page.toString(),
                 'page',
                 'https://site.example/play/1',
               ),
         ),
+      );
+    });
+
+    test('网页选集脚本只点击当前作品的唯一可见按钮，选择器作为数据传入', () async {
+      await boot('var LumeSource = {};');
+      await sandbox.eval(r'''
+        var clicked=0, nodes=[], location={origin:'https://site.example',pathname:'/play/1'};
+        var document={readyState:'complete',querySelectorAll:function(s){globalThis.seenSelector=s;return nodes;}};
+        var button={tagName:'BUTTON',type:'button',disabled:false,getClientRects:function(){return [1];},click:function(){clicked++;}};
+        nodes=[button];
+      ''');
+      final script = webPlayerEpisodeScript(
+        Uri.parse('https://site.example/play/1'),
+        'button[data-id="2"]',
+      );
+      expect((await sandbox.eval(script)).value, 'selected');
+      expect((await sandbox.eval('clicked')).value, 1);
+      await sandbox.eval("location.pathname='/play/other';");
+      expect((await sandbox.eval(script)).value, 'wrong-page');
+      await sandbox.eval("location.pathname='/play/1';nodes=[button,button];");
+      expect((await sandbox.eval(script)).value, 'waiting');
+      await sandbox.eval('nodes=[button];button.type="submit";');
+      expect((await sandbox.eval(script)).value, 'waiting');
+      final literal = 'button[data-id="2"];clicked=99;//';
+      await sandbox.eval(
+        webPlayerEpisodeScript(
+          Uri.parse('https://site.example/play/1'),
+          literal,
+        ),
+      );
+      expect((await sandbox.eval('seenSelector')).value, literal);
+      expect((await sandbox.eval('clicked')).value, 1);
+    });
+
+    test('网页选集参数过长时报告契约错误', () async {
+      final source = await boot(
+        'var LumeSource={content:async function(){return {kind:"webplayer",pageUrl:"https://site.example/play/1",webPlayerOptions:{episodeSelector:"x".repeat(257)}};}};',
+      );
+      await expectLater(
+        source.content(itemId: 'one', chapterId: 'two'),
+        throwsA(isA<SourceException>()),
       );
     });
 

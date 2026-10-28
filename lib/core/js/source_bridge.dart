@@ -216,7 +216,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
       segment:function(url,index,options){return invoke('media',Object.assign({},options,{operation:'segment',url:String(url),index:index}));}
     },
     fs: fs,
-    web: {render: function (options) { return invoke('web.render', options || {}); },bridge:{
+    web: {episodeSelection: true, render: function (options) { return invoke('web.render', options || {}); },bridge:{
       configure:function(options){return invoke('web.bridge.configure',options||{});},
       request:function(options){return invoke('web.bridge.request',options||{});}
     }},
