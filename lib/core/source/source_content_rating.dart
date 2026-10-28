@@ -79,7 +79,6 @@ class SourceContentRating {
     'uncams_video',
     'mfc_video',
     'lu320_video',
-    'tmrj37_video',
     'x8x8_video',
     'yunlaopo_video',
     'hipeng_video',
@@ -154,6 +153,8 @@ class SourceContentRating {
     'theavporn_video',
     // 618 影院（618<码>.xyz 站群，入口 618208.xyz；文字 XOR 0x80 混淆）。
     's618_video',
+    // KKAV（www.73tfhk.com，原 37tmrj 换域名目标；接口 XOR2 加密）。
+    'kkav_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -315,6 +316,7 @@ class SourceContentRating {
     "ReddXXX",
     "TheAVPorn",
     "618影院",
+    "KKAV",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
