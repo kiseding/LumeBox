@@ -27,7 +27,6 @@ void main() {
       'yuxiu_video',
       'tianlula_video',
       'tianlula_photo',
-      'tianlula_novel',
       'haijiaoqing_video',
       'aiboaibo_video',
       'jizeyy_video',

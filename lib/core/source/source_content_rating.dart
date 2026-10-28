@@ -138,10 +138,8 @@ class SourceContentRating {
     'resao_video',
     // 玉羞园（yhh.yxy881p.icu，xvideos 镜像站；媒体直连 xvideos CDN）。
     'yuxiu_video',
-    // 天撸啦（ttbd067.top:51000）综合站：视频 / 图集 / 小说拆成三个源，共用一套 AES 解密。
     'tianlula_video',
     'tianlula_photo',
-    'tianlula_novel',
     // 海角情（haijiaolove.xyz，WordPress 站，正文内嵌 player.abyssplayer.com）与爱播爱播（994555.xyz，SSR 直给 m3u8）。
     'haijiaoqing_video',
     'aiboaibo_video',
@@ -312,7 +310,6 @@ class SourceContentRating {
     "玉羞园",
     "天撸啦",
     "天撸啦图集",
-    "天撸啦小说",
     "海角情",
     "爱播爱播",
     "AV仓库",
