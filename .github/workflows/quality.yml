@@ -5,10 +5,14 @@ on:
     paths-ignore:
       - 'ipa/**'
       - '**.md'
+      - 'sources/**'
+      - 'docs/**'
   pull_request:
     paths-ignore:
       - 'ipa/**'
       - '**.md'
+      - 'sources/**'
+      - 'docs/**'
   workflow_call:
   workflow_dispatch:
 permissions:
