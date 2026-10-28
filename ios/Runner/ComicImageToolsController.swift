@@ -3,6 +3,7 @@ import UIKit
 import Vision
 import ImageIO
 import CoreML
+import CryptoKit
 import Security
 import SwiftUI
 import NaturalLanguage
@@ -85,11 +86,12 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     attributes: .concurrent
   )
   private let lock = NSLock()
-  // Core ML 模型加载/编译不是并发安全的；只锁模型表，不锁推理。
+  // 模型加载、编译和磁盘替换串行化；不锁推理。
   private let modelLock = NSLock()
   private var cancelled = Set<String>()
   private var active = Set<String>()
   private var models: [String: MLModel] = [:]
+  private var modelOrder: [String] = []
   private var translationID: String?
   private var translationResult: FlutterResult?
   private var translationHost: UIViewController?
@@ -110,7 +112,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       result(nil); return
     }
     if call.method == "getKey" || call.method == "setKey" {
-      let keySlot = args["slot"] as? String == "imageServer" ? "imageServer" : "apiKey"
+      let requestedSlot = args["slot"] as? String ?? "apiKey"
+      let keySlot = ["imageServer", "colorize"].contains(requestedSlot) ? requestedSlot : "apiKey"
       let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "lumebox.comicTranslation", kSecAttrAccount as String: keySlot]
       if call.method == "getKey" {
         var read = query; read[kSecReturnData as String] = true
@@ -163,20 +166,25 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
             defer { try? FileManager.default.removeItem(at: compiled) }
             let configuration = MLModelConfiguration()
             _ = try MLModel(contentsOf: compiled, configuration: configuration)
+            self.modelLock.lock()
+            defer { self.modelLock.unlock() }
             let directory = try self.modelDirectory()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let target = directory.appendingPathComponent(String(name.dropLast(8)) + ".mlmodelc")
             try bytes.data.write(to: directory.appendingPathComponent(name), options: .atomic)
-            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
+            self.models.removeAll(); self.modelOrder.removeAll()
             if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: compiled) }
             else { try FileManager.default.copyItem(at: compiled, to: target) }
+            try self.modelFingerprint(bytes.data).write(to: directory.appendingPathComponent(String(name.dropLast(8)) + ".sha256"), atomically: true, encoding: .utf8)
             return nil
           case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime"); return nil
           case "clearModels":
-            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
+            self.modelLock.lock()
+            defer { self.modelLock.unlock() }
+            self.models.removeAll(); self.modelOrder.removeAll()
             let directory = try self.modelDirectory()
             if FileManager.default.fileExists(atPath: directory.path) {
-              for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "mlmodelc" {
+              for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where ["mlmodelc", "sha256"].contains(file.pathExtension) {
                 try FileManager.default.removeItem(at: file)
               }
             }
@@ -218,6 +226,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private func check(_ id: String) throws { lock.lock(); let stop = cancelled.contains(id); lock.unlock(); if stop { throw failure("处理已取消") } }
   private func end(_ id: String) { lock.lock(); cancelled.remove(id); active.remove(id); lock.unlock() }
   private func modelDirectory() throws -> URL { try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("comic-super-resolution", isDirectory: true) }
+  private func modelFingerprint(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
 
   private func model(_ noise: Int, style: String = "anime") throws -> MLModel {
     // 并发推理时可能同时请求同一个/不同模型：加载与字典访问串行化。
@@ -226,21 +237,50 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     guard ["anime", "photo"].contains(style) else { throw failure("模型类型无效") }
     let modelKey = "\(style == "photo" ? "photo" : "noise")\(noise)"
     guard (0...3).contains(noise) else { throw failure("降噪级别无效") }
-    if let loaded = models[modelKey] { return loaded }
+    if let loaded = models[modelKey] {
+      modelOrder.removeAll { $0 == modelKey }; modelOrder.append(modelKey)
+      return loaded
+    }
     let directory = try modelDirectory()
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let compiled = directory.appendingPathComponent("\(modelKey).mlmodelc")
-    if !FileManager.default.fileExists(atPath: compiled.path) {
-      let source = directory.appendingPathComponent("\(modelKey).mlmodel")
-      guard FileManager.default.fileExists(atPath: source.path) else { throw failure("请先在设置中安装内置模型，或从本地导入对应的超分模型") }
+    let custom = directory.appendingPathComponent("\(modelKey).mlmodel")
+    let assetKey = FlutterDartProject.lookupKey(forAsset: "assets/models/waifu2x/\(modelKey).mlmodel")
+    let source: URL
+    if FileManager.default.fileExists(atPath: custom.path) {
+      source = custom
+    } else if let bundledPath = Bundle.main.path(forResource: assetKey, ofType: nil) {
+      source = URL(fileURLWithPath: bundledPath)
+    } else {
+      throw failure("App 内置模型文件缺失，请重新安装完整安装包")
+    }
+    let fingerprint = modelFingerprint(try Data(contentsOf: source))
+    let stamp = directory.appendingPathComponent("\(modelKey).sha256")
+    func compile() throws {
       let temporary = try MLModel.compileModel(at: source)
       defer { try? FileManager.default.removeItem(at: temporary) }
+      if FileManager.default.fileExists(atPath: compiled.path) {
+        try FileManager.default.removeItem(at: compiled)
+      }
       try FileManager.default.copyItem(at: temporary, to: compiled)
+      try fingerprint.write(to: stamp, atomically: true, encoding: .utf8)
+    }
+    if !FileManager.default.fileExists(atPath: compiled.path) ||
+        (try? String(contentsOf: stamp, encoding: .utf8)) != fingerprint {
+      try compile()
     }
     let config = MLModelConfiguration(); config.computeUnits = .all
-    let loaded = try MLModel(contentsOf: compiled, configuration: config)
-    // Keep only the current variant resident.
-    models = [modelKey: loaded]
+    let loaded: MLModel
+    do { loaded = try MLModel(contentsOf: compiled, configuration: config) }
+    catch {
+      // 系统升级或缓存损坏时自动重新准备一次，不要求用户重新安装模型。
+      try compile()
+      loaded = try MLModel(contentsOf: compiled, configuration: config)
+    }
+    // 漫画正文和照片海报常交替使用；最多留两个，避免反复加载且不常驻全部八个。
+    models[modelKey] = loaded
+    modelOrder.append(modelKey)
+    while modelOrder.count > 2 { models.removeValue(forKey: modelOrder.removeFirst()) }
     return loaded
   }
 
