@@ -425,20 +425,26 @@ private enum LumePresentation {
         let description = format as! CMFormatDescription
         let codec = fourCC(CMFormatDescriptionGetMediaSubType(description))
         let transfer = CMFormatDescriptionGetExtension(description, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String ?? ""
-        let hdr = track.hasMediaCharacteristic(.containsHDRVideo)
+        let hdr: Bool
+        if #available(iOS 14.0, *) { hdr = track.hasMediaCharacteristic(.containsHDRVideo) }
+        else { hdr = transfer.contains("2084") || transfer.contains("HLG") }
         let atoms = CMFormatDescriptionGetExtension(description, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any] ?? [:]
         let dolby = ["dvh1", "dvhe"].contains(codec) || atoms["dvcC"] != nil || atoms["dvvC"] != nil
         let type = dolby ? "Dolby Vision" : transfer.contains("2084") ? "HDR（PQ）" : transfer.contains("HLG") ? "HLG" : hdr ? "HDR" : "SDR"
         status.append("片源：\(type) · \(codec.uppercased())")
       }
-      status.append(AVPlayer.eligibleForHDRPlayback ? "设备：具备 HDR 播放条件" : "设备：当前无 HDR 播放条件")
+      if #available(iOS 13.4, *) {
+        status.append(AVPlayer.eligibleForHDRPlayback ? "设备：具备 HDR 播放条件" : "设备：当前无 HDR 播放条件")
+      } else { status.append("设备：当前系统无法查询 HDR 播放条件") }
       if let audio = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible),
          let selected = item.currentMediaSelection.selectedMediaOption(in: audio) {
         status.append("音轨：\(selected.displayName) · \(audioCodecs(selected).joined(separator: "/"))")
       }
       let route = AVAudioSession.sharedInstance().currentRoute.outputs
       status.append("输出设备：\(route.map { $0.portName }.joined(separator: " / "))")
-      status.append(route.contains { $0.isSpatialAudioEnabled } ? "系统空间音频：可用且用户已允许（不代表 Atmos 音轨）" : "系统空间音频：当前未启用")
+      if #available(iOS 15.0, *) {
+        status.append(route.contains { $0.isSpatialAudioEnabled } ? "系统空间音频：可用且用户已允许（不代表 Atmos 音轨）" : "系统空间音频：当前未启用")
+      } else { status.append("系统空间音频：当前系统无法查询") }
       result(status)
     default: result(FlutterMethodNotImplemented)
     }

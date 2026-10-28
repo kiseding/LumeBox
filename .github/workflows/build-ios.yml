@@ -44,6 +44,9 @@ jobs:
       - name: 拉取依赖
         run: flutter pub get --enforce-lockfile
 
+      - name: 检查播放器原生通道（匹配插件 iOS 13 最低目标）
+        run: bash tool/check_ios_player_presentation.sh
+
       - name: 准备并校验片头片尾本地模型
         if: ${{ inputs.typecheck_only != true }}
         run: python3 tool/prepare_intro_models.py

@@ -80,3 +80,8 @@ accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffe
 宿主 `AvPlayer` 根据 HDR 偏好选择上游现有的 `VideoViewType.platformView`（AVPlayerLayer）或 SDR 纹理；切换时恢复播放进度。插件新增 `lumebox/av_presentation` 通道，根据 playerId 操作既有播放器，读取片源动态范围 / 音轨 / 输出设备 / 空间音频条件、选择内封字幕，并按偏好选择杜比或普通音轨。状态信息不把播放条件等同于实际 HDR / Atmos 输出。
 
 外挂 SRT / VTT 在宿主的文字字幕层呈现；ASS 原样式由 MPV libass 提供。详细能力及验证方式见 [播放器展示说明](../../docs/player-presentation.md)。原生 helper 的 Swift 类型检查由 `tool/check_ios_player_presentation.sh` 完成；实际输出需真机验证。
+
+
+### iOS 最低目标兼容
+
+App 的最低版本是 iOS 15，插件自身的 Pod / Swift Package 目标为 iOS 13。HDR 内容标识、HDR 播放条件与空间音频查询分别按 iOS 14、13.4、15 添加 availability 判断；较旧目标返回可解释的查询状态。`check_ios_player_presentation.sh` 按插件的 iOS 13 目标检查，并在 IPA 编译前运行，避免只按 App 目标检查而遗漏插件编译错误。

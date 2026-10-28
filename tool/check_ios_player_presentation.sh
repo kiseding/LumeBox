@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+flutter precache --ios
 FLUTTER_ROOT=$(dirname "$(dirname "$(command -v flutter)")")
 FRAMEWORKS="$FLUTTER_ROOT/bin/cache/artifacts/engine/ios/Flutter.xcframework/ios-arm64_x86_64-simulator"
 test -d "$FRAMEWORKS"
@@ -15,5 +16,5 @@ assert source.count(marker) == 1
 Path(sys.argv[1]).write_text('import AVFoundation\nimport Flutter\n' + source[source.index(marker):])
 PY
 xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
-  -target arm64-apple-ios15.0-simulator -F "$FRAMEWORKS" "$CHECK_DIR/PlayerPresentation.swift"
+  -target arm64-apple-ios13.0-simulator -F "$FRAMEWORKS" "$CHECK_DIR/PlayerPresentation.swift"
 echo "AVFoundation presentation channel typecheck passed"
