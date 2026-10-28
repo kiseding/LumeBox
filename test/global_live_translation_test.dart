@@ -53,44 +53,60 @@ void main() {
       }
     }
 
-    Future<void> persist() async {
+    Future<void> waitForIo(Future<void> operation) async {
       var done = false;
-      settings.save().then((_) => done = true);
-      for (var i = 0; i < 50 && !done; i++) {
+      Object? failure;
+      operation.then<void>(
+        (_) {
+          done = true;
+        },
+        onError: (Object error, StackTrace _) {
+          failure = error;
+          done = true;
+        },
+      );
+      final watch = Stopwatch()..start();
+      // Keep widget notifications and debounce timers in FakeAsync while
+      // allowing the real filesystem to finish on slower Windows runners.
+      while (!done && watch.elapsed < const Duration(seconds: 30)) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 15)),
         );
         await tester.pump();
       }
-      expect(done, isTrue);
+      expect(
+        done,
+        isTrue,
+        reason:
+            'The actual file write must finish before assertions or cleanup',
+      );
+      expect(failure, isNull);
     }
 
-    await tester.pumpWidget(app(['Global first']));
-    await settle();
-    expect(calls, 1);
-    settings.liveTranslation = false;
-    await persist();
-    await tester.pumpWidget(app(['Global next']));
-    await settle();
-    expect(calls, 1);
-    settings.liveTranslation = true;
-    await persist();
-    await settle();
-    expect(calls, 2);
-    final restored = ComicImageToolsSettings();
-    await tester.runAsync(() => restored.boot());
-    expect(restored.liveTranslation, isTrue);
-    settings.liveTranslation = false;
-    await persist();
-    await tester.pumpWidget(const SizedBox.shrink());
-    var flushed = false;
-    TextTranslationService.shared.flush().then((_) => flushed = true);
-    for (var i = 0; i < 50 && !flushed; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
-      );
-      await tester.pump();
+    Future<void> persist() => waitForIo(settings.save());
+
+    try {
+      await tester.pumpWidget(app(['Global first']));
+      await settle();
+      expect(calls, 1);
+      settings.liveTranslation = false;
+      await persist();
+      await tester.pumpWidget(app(['Global next']));
+      await settle();
+      expect(calls, 1);
+      settings.liveTranslation = true;
+      await persist();
+      await settle();
+      expect(calls, 2);
+      final restored = ComicImageToolsSettings();
+      await tester.runAsync(() => restored.boot());
+      expect(restored.liveTranslation, isTrue);
+      settings.liveTranslation = false;
+      await persist();
+    } finally {
+      settings.liveTranslation = false;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await waitForIo(TextTranslationService.shared.flush());
     }
-    expect(flushed, isTrue);
   });
 }
