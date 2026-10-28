@@ -94,10 +94,11 @@ void main() {
       expect(avplayer.subtitleStyle, isFalse);
       expect(mdk.subtitleStyle, isFalse);
 
-      // 外挂字幕：MPV / MDK 有通路，AVPlayer 没有。
+      // 外挂字幕：AVPlayer 的文字字幕层支持 SRT / VTT；MPV / MDK 走内核。
       expect(mpv.externalSubtitle, isTrue);
       expect(mdk.externalSubtitle, isTrue);
-      expect(avplayer.externalSubtitle, isFalse);
+      expect(avplayer.externalSubtitle, isTrue);
+      expect(avplayer.subtitleTracks, isTrue);
 
       // 延迟与硬解：只有 MPV 两项俱全（libmpv 属性通道）。
       expect(mpv.subtitleDelay, isTrue);

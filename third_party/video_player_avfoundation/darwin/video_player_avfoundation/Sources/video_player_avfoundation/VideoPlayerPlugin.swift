@@ -96,6 +96,14 @@ public final class VideoPlayerPlugin: NSObject, FlutterPlugin, AVFoundationVideo
         guard !valid.isEmpty else { result(nil); return }
         result(valid.reduce(Int64(0)) { $0 + $1.numberOfBytesTransferred })
       }
+      let presentation = FlutterMethodChannel(name: "lumebox/av_presentation", binaryMessenger: registrar.messenger())
+      presentation.setMethodCallHandler { [weak instance] call, result in
+        guard let args = call.arguments as? [String: Any],
+              let identifier = args["playerId"] as? NSNumber,
+              let video = instance?.playersByIdentifier[identifier.int64Value], !video.disposed,
+              let item = video.player.currentItem else { result(nil); return }
+        LumePresentation.handle(call.method, args: args, player: video.player, item: item, result: result)
+      }
       let pip = FlutterMethodChannel(name: "lumebox/av_pip", binaryMessenger: registrar.messenger())
       pip.setMethodCallHandler { [weak instance] call, result in
         guard call.method == "prepare" else { result(FlutterMethodNotImplemented); return }
@@ -354,4 +362,86 @@ public final class VideoPlayerPlugin: NSObject, FlutterPlugin, AVFoundationVideo
 
     try? session.setCategory(finalCategory, with: newOptions)
   }
+#endif
+
+#if os(iOS)
+/// Operates on the existing player; it never opens a second playback session.
+private enum LumePresentation {
+  static func fourCC(_ value: FourCharCode) -> String {
+    String(bytes: [UInt8((value >> 24) & 255), UInt8((value >> 16) & 255), UInt8((value >> 8) & 255), UInt8(value & 255)], encoding: .ascii) ?? "unknown"
+  }
+  static func audioCodecs(_ option: AVMediaSelectionOption) -> [String] {
+    option.mediaSubTypes.map { fourCC($0.uint32Value) }
+  }
+  static func handle(_ method: String, args: [String: Any], player: AVPlayer, item: AVPlayerItem, result: FlutterResult) {
+    let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .legible)
+    switch method {
+    case "subtitleTracks":
+      guard let group = group else { result([]); return }
+      let selected = item.currentMediaSelection.selectedMediaOption(in: group)
+      result(group.options.enumerated().map { index, option -> [String: Any] in
+        ["id": String(index), "label": option.displayName,
+         "language": option.extendedLanguageTag ?? option.locale?.identifier ?? "",
+         "selected": selected == option]
+      })
+    case "selectSubtitle":
+      guard let group = group else { result(nil); return }
+      let index = (args["id"] as? String).flatMap(Int.init)
+      if let index = index, group.options.indices.contains(index) { item.select(group.options[index], in: group) }
+      else { item.select(nil, in: group) }
+      result(nil)
+    case "configure":
+      if let group = group {
+        if args["subtitlesEnabled"] as? Bool == false { item.select(nil, in: group) }
+        else if item.currentMediaSelection.selectedMediaOption(in: group) == nil {
+          item.select(group.defaultOption ?? group.options.first, in: group)
+        }
+      }
+      if args["originalStyle"] as? Bool == false {
+        let color = (args["color"] as? NSNumber)?.uint32Value ?? 0xffffffff
+        let rgba: [Double] = [Double((color >> 16) & 255) / 255, Double((color >> 8) & 255) / 255, Double(color & 255) / 255, Double((color >> 24) & 255) / 255]
+        var attributes: [String: Any] = [
+          kCMTextMarkupAttribute_ForegroundColorARGB as String: [rgba[3], rgba[0], rgba[1], rgba[2]],
+          kCMTextMarkupAttribute_BackgroundColorARGB as String: [(args["background"] as? Double) ?? 0.45, 0, 0, 0],
+          kCMTextMarkupAttribute_RelativeFontSize as String: ((args["fontSize"] as? Double) ?? 24) / 24 * 100
+        ]
+        if let font = args["font"] as? String, !font.isEmpty { attributes[kCMTextMarkupAttribute_FontFamilyName as String] = font }
+        item.textStyleRules = AVTextStyleRule(textMarkupAttributes: attributes).map { [$0] } ?? []
+      } else { item.textStyleRules = [] }
+      if args["selectAudio"] as? Bool == true,
+         let audio = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+        let preferDolby = args["dolbyAudio"] as? Bool != false
+        let option = audio.options.first { option in
+          let dolby = audioCodecs(option).contains { ["ac-3", "ec-3", "ac-4"].contains($0) }
+          return dolby == preferDolby
+        }
+        if let option = option { item.select(option, in: audio) }
+      }
+      result(nil)
+    case "status":
+      var status: [String] = []
+      if let track = item.asset.tracks(withMediaType: .video).first,
+         let format = track.formatDescriptions.first {
+        let description = format as! CMFormatDescription
+        let codec = fourCC(CMFormatDescriptionGetMediaSubType(description))
+        let transfer = CMFormatDescriptionGetExtension(description, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String ?? ""
+        let hdr = track.hasMediaCharacteristic(.containsHDRVideo)
+        let atoms = CMFormatDescriptionGetExtension(description, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any] ?? [:]
+        let dolby = ["dvh1", "dvhe"].contains(codec) || atoms["dvcC"] != nil || atoms["dvvC"] != nil
+        let type = dolby ? "Dolby Vision" : transfer.contains("2084") ? "HDR（PQ）" : transfer.contains("HLG") ? "HLG" : hdr ? "HDR" : "SDR"
+        status.append("片源：\(type) · \(codec.uppercased())")
+      }
+      status.append(AVPlayer.eligibleForHDRPlayback ? "设备：具备 HDR 播放条件" : "设备：当前无 HDR 播放条件")
+      if let audio = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible),
+         let selected = item.currentMediaSelection.selectedMediaOption(in: audio) {
+        status.append("音轨：\(selected.displayName) · \(audioCodecs(selected).joined(separator: "/"))")
+      }
+      let route = AVAudioSession.sharedInstance().currentRoute.outputs
+      status.append("输出设备：\(route.map { $0.portName }.joined(separator: " / "))")
+      status.append(route.contains { $0.isSpatialAudioEnabled } ? "系统空间音频：可用且用户已允许（不代表 Atmos 音轨）" : "系统空间音频：当前未启用")
+      result(status)
+    default: result(FlutterMethodNotImplemented)
+    }
+  }
+}
 #endif

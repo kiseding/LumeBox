@@ -1,3 +1,6 @@
+import 'av_presentation_channel.dart';
+import 'text_subtitles.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -30,7 +33,14 @@ import 'player_stats.dart';
 /// video_player_avfoundation 在建播放器时应用——详见 `third_party/
 /// video_player_avfoundation/PATCHES.md`。写入只做一次：原生侧的参数一旦落定就
 /// 对之后创建的每个播放器生效（[setBuffering] 改了参数则重写一次）。
-class AvPlayer extends AbstractPlayer {
+class AvPlayer extends AbstractPlayer implements PresentationEngine {
+  final _presentationStatus = ValueNotifier<List<String>>(const ['正在读取播放信息']);
+  @override
+  ValueListenable<List<String>> get presentationStatus => _presentationStatus;
+  TextSubtitles? _externalSubtitles;
+  String? _externalLabel;
+  bool _externalSelected = false;
+  List<String> _nativeStatus = const [];
   AvPlayer({BufferingBackend? buffering})
     : _buffering = buffering ?? createPlatformBufferingBackend();
 
@@ -98,8 +108,18 @@ class AvPlayer extends AbstractPlayer {
 
   /// 能力矩阵：见 [PlayerCapabilities.of] 的唯一声明处（AVPlayer 那一栏）。
   @override
-  PlayerCapabilities get capabilities =>
-      PlayerCapabilities.of(PlayerKernel.avplayer);
+  PlayerCapabilities get capabilities => _externalSelected
+      ? const PlayerCapabilities(
+          audioTracks: true,
+          subtitleTracks: true,
+          externalSubtitle: true,
+          subtitleStyle: true,
+          subtitleDelay: true,
+          backgroundAudio: true,
+          nowPlaying: true,
+          bufferingParams: true,
+        )
+      : PlayerCapabilities.of(PlayerKernel.avplayer);
 
   /// 可选音轨（video_player 在 iOS 上支持；不支持时如实返回空表）。
   @override
@@ -171,7 +191,15 @@ class AvPlayer extends AbstractPlayer {
     final cancelled = Completer<void>();
     _loadCancelled = cancelled;
     final generation = ++_loadGeneration;
-    final uri = await _highestHls.resolve(media.uri, media.headers);
+    _externalSubtitles = null;
+    _externalLabel = null;
+    _externalSelected = false;
+    _nativeStatus = const [];
+    final uri = await _highestHls.resolve(
+      media.uri,
+      media.headers,
+      presentation: _settings.presentation,
+    );
     if (_disposed) {
       await _highestHls.close();
       return;
@@ -188,6 +216,9 @@ class AvPlayer extends AbstractPlayer {
         ? VideoPlayerController.networkUrl(
             uri,
             httpHeaders: media.headers ?? const <String, String>{},
+            viewType: _settings.presentation.wantsHdr
+                ? VideoViewType.platformView
+                : VideoViewType.textureView,
             // 后台音频继续播放：切到后台时画面停、声音不停（用户在听内容）。
             // `allowBackgroundPlayback` 是插件暴露的唯一后台开关，它顺带把
             // 音画会话设成播放类，与另一条原生通道（锁屏控制）配合工作。
@@ -197,6 +228,9 @@ class AvPlayer extends AbstractPlayer {
           )
         : VideoPlayerController.file(
             File.fromUri(media.uri),
+            viewType: _settings.presentation.wantsHdr
+                ? VideoViewType.platformView
+                : VideoViewType.textureView,
             videoPlayerOptions: VideoPlayerOptions(
               allowBackgroundPlayback: true,
             ),
@@ -215,6 +249,7 @@ class AvPlayer extends AbstractPlayer {
         return;
       }
       await _applySpeed();
+      await _configurePresentation();
       await controller.setVolume(_volume);
       if (_disposed ||
           generation != _loadGeneration ||
@@ -224,6 +259,7 @@ class AvPlayer extends AbstractPlayer {
       _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
         _sync();
         unawaited(_sampleNetwork(controller));
+        unawaited(_refreshPresentation());
       });
       _sync();
     } catch (error, stackTrace) {
@@ -315,10 +351,40 @@ class AvPlayer extends AbstractPlayer {
   double get volume => _volume;
 
   @override
-  Future<void> applySettings(PlayerSettings settings) async {
+  Future<void> applySettings(PlayerSettings settings) {
+    final operation = _settingsQueue.then((_) => _applySettingsNow(settings));
+    _settingsQueue = operation.catchError((Object error, StackTrace stack) {
+      LumeLog.error(error, stack);
+    });
+    return operation;
+  }
+
+  Future<void> _settingsQueue = Future.value();
+  Future<void> _applySettingsNow(PlayerSettings settings) async {
     if (_disposed) return;
+    final old = _settings;
     _settings = settings;
+    if (old.presentation.wantsHdr != settings.presentation.wantsHdr &&
+        _controller?.value.isInitialized == true &&
+        _retryMedia != null) {
+      final position = _snapshot.value.position;
+      final playing = _snapshot.value.playing;
+      final subtitles = _externalSubtitles;
+      final label = _externalLabel;
+      final external = _externalSelected;
+      await _loadMedia(_retryMedia!);
+      _externalSubtitles = subtitles;
+      _externalLabel = label;
+      _externalSelected = external;
+      if (_disposed) return;
+      await seek(position);
+      if (playing) await play();
+    }
     await _applySpeed();
+    await _configurePresentation(
+      selectAudio:
+          old.presentation.dolbyAudio != settings.presentation.dolbyAudio,
+    );
   }
 
   /// 把倍速挂到当前控制器；控制器未就绪时静默跳过（加载完成后会补挂）。
@@ -334,6 +400,99 @@ class AvPlayer extends AbstractPlayer {
   }
 
   @override
+  Future<void> applyPresentation(PlaybackPresentation settings) =>
+      applySettings(_settings.copyWith(presentation: settings));
+
+  Future<void> _configurePresentation({bool selectAudio = true}) async {
+    if (!Platform.isIOS || _controller?.value.isInitialized != true) return;
+    await AvPresentationChannel.invoke<Object?>(nativePlayerId, 'configure', {
+      'dolbyAudio': _settings.presentation.dolbyAudio,
+      'selectAudio': selectAudio,
+      'subtitlesEnabled': _settings.subtitlesEnabled && !_externalSelected,
+      'originalStyle': _settings.presentation.originalSubtitleStyle,
+      'fontSize': 24 * _settings.subtitleSize.scale,
+      'color': _settings.subtitleColor.argb,
+      'font': _settings.subtitleFont,
+      'background': _settings.subtitleBackground,
+    });
+    await _refreshPresentation();
+  }
+
+  bool _readingPresentation = false;
+  Future<void> _refreshPresentation() async {
+    if (_disposed || !Platform.isIOS || _readingPresentation) return;
+    _readingPresentation = true;
+    final id = nativePlayerId;
+    try {
+      final result = await AvPresentationChannel.invoke<List<Object?>>(
+        id,
+        'status',
+      );
+      if (_disposed || id != nativePlayerId) return;
+      if (result != null) _nativeStatus = result.whereType<String>().toList();
+      _presentationStatus.value = [
+        ..._nativeStatus,
+        _settings.presentation.wantsHdr
+            ? '显示：原生 AVPlayerLayer；HDR 实际输出需设备验证'
+            : '显示：SDR 兼容纹理',
+        if (_settings.presentation.enhancementEnabled) '画质增强：当前内核不支持，请切换 MPV',
+        if (_externalSelected) '字幕：$_externalLabel（外挂）',
+      ];
+    } finally {
+      _readingPresentation = false;
+    }
+  }
+
+  @override
+  Future<List<PlayerTrack>> subtitleTracks() async {
+    final result = await AvPresentationChannel.invoke<List<Object?>>(
+      nativePlayerId,
+      'subtitleTracks',
+    );
+    return [
+      for (final value in result ?? const [])
+        if (value is Map)
+          PlayerTrack(
+            id: '${value['id']}',
+            label: '${value['label']}',
+            language: value['language'] as String?,
+            selected: !_externalSelected && value['selected'] == true,
+          ),
+      if (_externalLabel != null)
+        PlayerTrack(
+          id: 'external',
+          label: _externalLabel!,
+          selected: _externalSelected,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> selectSubtitleTrack(String? id) async {
+    _externalSelected = id == 'external';
+    await AvPresentationChannel.invoke<Object?>(
+      nativePlayerId,
+      'selectSubtitle',
+      {'id': _externalSelected ? null : id},
+    );
+    await _refreshPresentation();
+  }
+
+  @override
+  Future<bool> loadSubtitleFile(String path) async {
+    try {
+      final document = await TextSubtitles.load(path);
+      if (document == null || _disposed) return false;
+      _externalSubtitles = document;
+      _externalLabel = Uri.tryParse(path)?.pathSegments.lastOrNull ?? '外挂字幕';
+      await selectSubtitleTrack('external');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Widget buildView() {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
@@ -341,7 +500,68 @@ class AvPlayer extends AbstractPlayer {
     }
     return AspectRatio(
       aspectRatio: controller.value.aspectRatio,
-      child: VideoPlayer(controller),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          VideoPlayer(controller),
+          ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              final text = _externalSelected && _settings.subtitlesEnabled
+                  ? _externalSubtitles?.at(
+                          value.position - _settings.subtitleDelay,
+                        ) ??
+                        ''
+                  : '';
+              if (text.isEmpty) return const SizedBox.shrink();
+              return IgnorePointer(
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      0,
+                      16,
+                      (24 + _settings.subtitleOffsetY * 120).clamp(0, 160),
+                    ),
+                    child: Text(
+                      text,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 24 * _settings.subtitleSize.scale,
+                        color: Color(_settings.subtitleColor.argb),
+                        fontFamily: _settings.subtitleFont.isEmpty
+                            ? null
+                            : _settings.subtitleFont,
+                        backgroundColor: Color(
+                          (_settings.subtitleBackground * 255).round() << 24,
+                        ),
+                        shadows: [
+                          for (final offset in [
+                            const Offset(-1, 0),
+                            const Offset(1, 0),
+                            const Offset(0, -1),
+                            const Offset(0, 1),
+                          ])
+                            Shadow(
+                              color: const Color(0xff000000),
+                              offset: offset * _settings.subtitleOutline.width,
+                            ),
+                          if (_settings.subtitleShadow > 0)
+                            Shadow(
+                              color: const Color(0xff000000),
+                              blurRadius: _settings.subtitleShadow * 6,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -359,6 +579,7 @@ class AvPlayer extends AbstractPlayer {
     _ticker?.cancel();
     _ticker = null;
     await _releaseController();
+    _presentationStatus.dispose();
     _snapshot.dispose();
     _stats.dispose();
   }

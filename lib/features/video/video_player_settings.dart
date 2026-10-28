@@ -88,6 +88,7 @@ class VideoPlayerSettingsStore {
 
     return PlayerSettings(
       kernel: kernel,
+      presentation: _readPresentation(),
       backgroundSourceValidation:
           _library.setting(keyBackgroundSourceValidation) != 'false',
       rememberManualQuality:
@@ -113,6 +114,16 @@ class VideoPlayerSettingsStore {
     );
   }
 
+  PlaybackPresentation _readPresentation() {
+    try {
+      return PlaybackPresentation.fromJson(
+        jsonDecode(_library.setting('video.player.presentation') ?? '{}'),
+      );
+    } catch (_) {
+      return const PlaybackPresentation();
+    }
+  }
+
   PlayerGestureOptions _readGestures() {
     try {
       return PlayerGestureOptions.fromJson(
@@ -130,6 +141,10 @@ class VideoPlayerSettingsStore {
   /// 之后一直在用 AVPlayer」的情况下，MPV 那一格要等下次选中它才被写到，
   /// 中间重启就丢了。
   void save(PlayerSettings settings) {
+    _library.setSetting(
+      'video.player.presentation',
+      jsonEncode(settings.presentation.toJson()),
+    );
     _library.setSetting(
       'video.player.defaultQuality',
       settings.defaultQuality.name,

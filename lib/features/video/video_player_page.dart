@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../core/player/playback_diagnostics.dart';
 import 'video_episode_catalog.dart';
 import 'player_settings_panel.dart';
@@ -1426,6 +1428,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 设置变更：落库并立即生效；换内核走重建，其余项直接应用到当前内核。
   Future<void> _applySettings(PlayerSettings next) async {
+    final subtitlePreferenceChanged =
+        next.presentation.subtitleLanguage !=
+            _settings.presentation.subtitleLanguage ||
+        next.presentation.rememberSubtitle !=
+            _settings.presentation.rememberSubtitle;
+    if (subtitlePreferenceChanged) _preferredSubtitleApplied = false;
     final kernelChanged = next.kernel != _settings.kernel;
     _nextEpisodeBuffer.discard();
     if (!mounted) return;
@@ -1452,6 +1460,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     } else {
       _store?.save(next);
       await _player?.applySettings(next);
+      if (subtitlePreferenceChanged) unawaited(_applyPreferredSubtitle());
     }
   }
 
@@ -2966,6 +2975,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
             ),
             const SizedBox(height: 8),
+            if (_player case final PresentationEngine engine)
+              ValueListenableBuilder<List<String>>(
+                valueListenable: engine.presentationStatus,
+                builder: (context, lines, _) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    lines.join('\n'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const LumeIcon(
@@ -3122,11 +3142,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (mounted) _showToast('已切换音轨');
   }
 
+  String? get _subtitleMemoryKey {
+    final target = _target ?? widget.target;
+    return target == null ? null : 'video.subtitle.work.${target.identity}';
+  }
+
   /// 按设置里的“字幕语言”自动选一次字幕；用户手动选过就不再覆盖。
   Future<void> _applyPreferredSubtitle() async {
-    if (_preferredSubtitleApplied) return;
-    final preference = PlayerExperienceStore.current.subtitleLanguage;
-    if (preference == 'source') {
+    if (_preferredSubtitleApplied || !_settings.subtitlesEnabled) return;
+    var preference = _settings.presentation.subtitleLanguage;
+    Map? remembered;
+    final memoryKey = _subtitleMemoryKey;
+    if (_settings.presentation.rememberSubtitle && memoryKey != null) {
+      try {
+        final raw = jsonDecode(_library?.setting(memoryKey) ?? 'null');
+        if (raw is Map) remembered = raw;
+      } catch (_) {}
+      if (remembered?['off'] == true) preference = 'off';
+    }
+    if (preference == 'source' && remembered == null) {
+      preference = PlayerExperienceStore.current.subtitleLanguage;
+    }
+    if (preference == 'source' && remembered == null) {
       _preferredSubtitleApplied = true;
       return;
     }
@@ -3151,7 +3188,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     if (!mounted || !identical(player, _player)) return;
     _preferredSubtitleApplied = true;
-    final id = PlaybackPreferenceWiring.chooseSubtitleTrack(tracks, preference);
+    final rememberedTrack = remembered == null
+        ? null
+        : tracks
+              .where(
+                (t) =>
+                    (remembered!['language'] is String &&
+                        (remembered['language'] as String).isNotEmpty &&
+                        t.language == remembered['language']) ||
+                    t.label == remembered['label'],
+              )
+              .firstOrNull;
+    final id =
+        rememberedTrack?.id ??
+        PlaybackPreferenceWiring.chooseSubtitleTrack(tracks, preference);
     if (id == null) return;
     if (!_settings.subtitlesEnabled) {
       _settings = _settings.copyWith(subtitlesEnabled: true);
@@ -3181,9 +3231,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     if (selected == null || !mounted) return;
     _preferredSubtitleApplied = true;
-    await player.selectSubtitleTrack(
-      selected == _TrackSheet.offId ? null : selected,
-    );
+    final off = selected == _TrackSheet.offId;
+    if (_settings.subtitlesEnabled == off) {
+      await _applySettings(_settings.copyWith(subtitlesEnabled: !off));
+    }
+    await player.selectSubtitleTrack(off ? null : selected);
+    final key = _subtitleMemoryKey;
+    if (_settings.presentation.rememberSubtitle && key != null) {
+      final track = tracks.where((t) => t.id == selected).firstOrNull;
+      _library?.setSetting(
+        key,
+        jsonEncode({
+          'off': off,
+          'language': track?.language,
+          'label': track?.label,
+        }),
+      );
+    }
     if (mounted) _showToast('已切换字幕轨');
   }
 
@@ -3197,19 +3261,97 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _unsupported();
       return;
     }
+    final source = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('导入外挂字幕'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'file'),
+            child: const Text('选择本地文件'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'url'),
+            child: const Text('从字幕链接导入'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || source == null) return;
+    if (source == 'url') {
+      await _pickSubtitleUrl(player);
+      return;
+    }
     final file = await openFile(acceptedTypeGroups: _subtitleTypes);
     if (file == null || !mounted) return;
     _preferredSubtitleApplied = true;
     final ok = await player.loadSubtitleFile(file.path);
     if (!mounted) return;
     if (!ok) {
-      _showToast('这个内核加载外挂字幕失败，可以换个内核再试');
+      _showToast('字幕导入失败：AVPlayer 支持 SRT / VTT，ASS 请使用 MPV');
       return;
     }
     if (!_settings.subtitlesEnabled) {
       await _applySettings(_settings.copyWith(subtitlesEnabled: true));
     }
-    if (mounted) _showToast('已加载字幕：${file.name}');
+    if (mounted) {
+      setState(() {});
+      _showToast('已加载字幕：${file.name}');
+    }
+  }
+
+  Future<void> _pickSubtitleUrl(AbstractPlayer player) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('字幕链接'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(hintText: 'https://…/subtitle.srt'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    // The dialog's route may still be animating out; its field owns the controller until then.
+    Future<void>.delayed(const Duration(seconds: 1), controller.dispose);
+    if (!mounted || value == null) return;
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      _showToast('请输入有效的 HTTP(S) 字幕链接');
+      return;
+    }
+    _preferredSubtitleApplied = true;
+    bool loaded;
+    try {
+      loaded = await player.loadSubtitleFile(value);
+    } catch (_) {
+      loaded = false;
+    }
+    if (!mounted || !identical(player, _player)) return;
+    if (!loaded) {
+      _showToast('字幕导入失败：AVPlayer 支持 SRT / VTT，ASS 请使用 MPV');
+      return;
+    }
+    await _applySettings(_settings.copyWith(subtitlesEnabled: true));
+    if (mounted) {
+      setState(() {});
+      _showToast('已导入字幕链接');
+    }
   }
 
   /// 字幕文件类型（iOS 走系统文档选择器，这里按扩展名过滤）。

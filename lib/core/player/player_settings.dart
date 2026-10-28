@@ -12,6 +12,9 @@
 /// 「硬件解码」这三项：它们的内核语义本来就不同，共享会误导。
 library;
 
+import 'playback_presentation.dart';
+export 'playback_presentation.dart';
+
 import 'player_gesture_options.dart';
 export 'player_gesture_options.dart';
 
@@ -308,6 +311,9 @@ class KernelPrefs {
     'subtitleColor': subtitleColor.id,
     'subtitleOutline': subtitleOutline.id,
     'subtitleBackground': subtitleBackground,
+    'subtitleFont': subtitleFont,
+    'subtitleShadow': subtitleShadow,
+    'subtitleOffsetY': subtitleOffsetY,
     'subtitleDelayMs': subtitleDelay.inMilliseconds,
     'audioDelayMs': audioDelay.inMilliseconds,
   };
@@ -327,7 +333,20 @@ class KernelPrefs {
     }
 
     return KernelPrefs(
-      speed: number(json['speed']) ?? PlayerSettings.defaultSpeed,
+      speed: PlayerSettings.normalizeSpeed(number(json['speed'])),
+      subtitleFont: text(json['subtitleFont']) ?? '',
+      subtitleShadow:
+          (number(json['subtitleShadow'])?.isFinite == true
+                  ? number(json['subtitleShadow'])!
+                  : 0)
+              .clamp(0.0, 1.0)
+              .toDouble(),
+      subtitleOffsetY:
+          (number(json['subtitleOffsetY'])?.isFinite == true
+                  ? number(json['subtitleOffsetY'])!
+                  : 0)
+              .clamp(-1.0, 1.0)
+              .toDouble(),
       zoom: ZoomMode.fromId(text(json['zoom'])),
       rotation: RotationMode.fromId(text(json['rotation'])),
       mirrored: json['mirrored'] == true,
@@ -400,6 +419,7 @@ enum PlayerControlStyle { text, icons }
 class PlayerSettings {
   const PlayerSettings({
     this.kernel = PlayerKernel.avplayer,
+    this.presentation = const PlaybackPresentation(),
     this.subtitlesEnabled = true,
     this.hardwareDecoding = true,
     this.autoHideControls = true,
@@ -482,6 +502,7 @@ class PlayerSettings {
   static const Duration maxSubtitleDelay = Duration(seconds: 10);
 
   /// 播放内核。
+  final PlaybackPresentation presentation;
   final PlayerKernel kernel;
 
   /// 字幕总开关。
@@ -563,6 +584,7 @@ class PlayerSettings {
   /// 记住的倍速——「按内核分别记住」这条约束是在这里落地，而不是在页面上。
   PlayerSettings copyWith({
     PlayerKernel? kernel,
+    PlaybackPresentation? presentation,
     double? speed,
     bool? subtitlesEnabled,
     bool? autoHideControls,
@@ -630,6 +652,7 @@ class PlayerSettings {
         : source;
     return PlayerSettings(
       kernel: target,
+      presentation: presentation ?? this.presentation,
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
@@ -684,7 +707,8 @@ class PlayerSettings {
   @override
   bool operator ==(Object other) {
     if (other is! PlayerSettings) return false;
-    if (other.kernel != kernel ||
+    if (other.presentation != presentation ||
+        other.kernel != kernel ||
         other.subtitlesEnabled != subtitlesEnabled ||
         other.hardwareDecoding != hardwareDecoding ||
         other.autoHideControls != autoHideControls ||
@@ -711,6 +735,7 @@ class PlayerSettings {
 
   @override
   int get hashCode => Object.hash(
+    presentation,
     kernel,
     subtitlesEnabled,
     hardwareDecoding,

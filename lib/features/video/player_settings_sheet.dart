@@ -1,3 +1,4 @@
+import 'presentation_settings_card.dart';
 import '../../shared/widgets/video_glass_surface.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 
@@ -319,6 +320,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         widget.extraControls!,
         const SizedBox(height: 20),
       ],
+      PresentationSettingsCard(settings: settings, onChanged: _update),
+      const SizedBox(height: 20),
       _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
       _pictureCard(context),
       const SizedBox(height: 20),
@@ -732,6 +735,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             ],
           ),
           const SizedBox(height: 12),
+          if (settings.kernel == PlayerKernel.mpv &&
+              settings.presentation.originalSubtitleStyle)
+            const Text('ASS 原始样式优先；需要统一字号、底色与位置时，请关闭「保留 ASS 原始样式」。'),
           _label('字号', dim: !enabled),
           const SizedBox(height: 8),
           _gated(

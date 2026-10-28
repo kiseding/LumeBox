@@ -28,6 +28,32 @@ void main() {
       VideoPlayerPlatform.instance = platform;
     });
 
+    test('HDR display switches retain playback and position while subtitle changes do not reload video', () async {
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/video.mp4')),
+      );
+      expect(platform.created.single.viewType, VideoViewType.platformView);
+      await player.seek(const Duration(seconds: 42));
+      await player.play();
+      await player.applySettings(
+        const PlayerSettings(
+          presentation: PlaybackPresentation(hdrEnabled: false),
+        ),
+      );
+      expect(platform.created.length, 2);
+      expect(platform.created.last.viewType, VideoViewType.textureView);
+      expect(platform.positions.values, contains(const Duration(seconds: 42)));
+      expect(player.snapshot.value.playing, true);
+      await player.applySettings(
+        const PlayerSettings(
+          presentation: PlaybackPresentation(hdrEnabled: false),
+        ).copyWith(subtitleColor: SubtitleColor.yellow),
+      );
+      expect(platform.created.length, 2);
+      await player.dispose();
+    });
+
     test('旧媒体初始化未完成时换内容，新加载成功且旧Future收尾', () async {
       platform.holdFirst = true;
       final player = AvPlayer(buffering: _RecordingBufferingBackend());
@@ -177,6 +203,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final List<VideoCreationOptions> created = <VideoCreationOptions>[];
   final Map<int, StreamController<VideoEvent>> _streams =
       <int, StreamController<VideoEvent>>{};
+  final positions = <int, Duration>{};
   int _nextId = 0;
   bool holdFirst = false;
 
@@ -230,13 +257,16 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Future<void> setVolume(int playerId, double volume) async {}
 
   @override
-  Future<void> seekTo(int playerId, Duration position) async {}
+  Future<void> seekTo(int playerId, Duration position) async {
+    positions[playerId] = position;
+  }
 
   @override
   Future<void> setPlaybackSpeed(int playerId, double speed) async {}
 
   @override
-  Future<Duration> getPosition(int playerId) async => Duration.zero;
+  Future<Duration> getPosition(int playerId) async =>
+      positions[playerId] ?? Duration.zero;
 
   @override
   Widget buildView(int playerId) => const SizedBox.shrink();
