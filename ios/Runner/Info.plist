@@ -48,6 +48,15 @@
 				<key>NSIncludesSubdomains</key>
 				<true/>
 			</dict>
+			<!-- 320lu 的移动线只有明文 HTTP：http://www.fawu110.com:66（备用 http://218.11.5.233）。
+			     IP 无法做域名例外，域名镜像放行后 App 内可直接切。 -->
+			<key>fawu110.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
 		</dict>
 	</dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
