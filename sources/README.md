@@ -97,7 +97,10 @@ sources/video/
 ├── hsex.js        好色TV（hsex.men）列表可直连、详情 CF 挑战 → content 走 webplayer
 ├── reddxxx.js     ReddXXX（reddxxx.com）列表取 sitemap 视频索引、播放走 webplayer
 ├── theavporn.js   TheAVPorn（theavporn.com）KVS；播放地址由 id 推导（bytt.jb-aiwei.cc，去掉 ttl/dsc 仍 200）
-└── s618.js        618影院（618208.xyz 地址表 → 618<码>.xyz 站群）；文字 XOR 0x80，列表 href 的 ?v= 即 m3u8
+├── s618.js        618影院（618208.xyz 地址表 → 618<码>.xyz 站群）；文字 XOR 0x80，列表 href 的 ?v= 即 m3u8
+├── ptt-drama.js   蝴蝶影院（ptt01.com 站群）线上看；系列页给分集，单集页内嵌整集 m3u8
+├── huangguo-duanju.js 黄果短剧（huangguoai.com）AI 短剧，**需代理**；播放页直给签名 m3u8
+└── juzhi.js       橘汁 - 影视（juziapp.hzhcbkj.cn，从橘汁 APK 里挖出的官方后端）；开放 JSON 端点 + 换流接口
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -166,6 +169,9 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | TheAVPorn | 否 | 3 块 | 3 栏目 | 24 | 无 | ok | 1 | **video（`bytt.jb-aiwei.cc/contents/videos/{dir}/{id}/index.m3u8` 免登录，探活 200 + #EXTM3U 1382B）** |
 | 618影院 | 否 | 3 块 | 10 个区 | 20 | 无 | ok | 1 | **video（列表 href 的 `?v=` 即 m3u8，探活 200 + #EXTM3U 1080x1922；二/三区是 webplayer）** |
 | Hentai2W（18+） | **是** | 4 板块 | 24 | 24 | 24 | ok | 1 | **video（m3u8 直链）** |
+| 蝴蝶影院 | 否 | 1 块 | 8 分类 | 48 | 本地索引过滤（站点搜索接口 503） | ok | 47 | **video（单集页 `<source>` m3u8，实测 200 + mpegurl，1080x608）** |
+| 黄果 - 短剧（18+） | **是** | 1 块 | 6 分类 | 47 | 30（`/search/video/<词>/`） | ok | 1~3 | **video（m3u8，实测 200 + `#EXTM3U`，AES-128 key）** |
+| 橘汁 - 影视 | 否 | 3 块 | 8 分类 | 24 | 本地索引过滤 | ok | 1 | **video（`videoParse/test/videoUsableUrl` 换流，实测 200 + `#EXTM3U` 59 KB）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。
@@ -243,6 +249,9 @@ dart run tools/site_reachability.dart
 | 探花视频 / 91大神 | SSR 无接口：首页 `/index-{cat}-{N}.html`、详情 `/content-{id}.html`；分类导航随域名不同（探花=题材，91大神=大神名） | 详情页 DPlayer 配置里直接写 `url: '…index.m3u8'`（`2609.sysl2026.com` / `voddadaizi2.com:52866` / `vostrely.com` / `play2.laoyacdn.com` 等历史 CDN 轮换），实测 200 + `#EXTM3U`。**两个域名同 id 同 m3u8**，做成一个源 + mirrors。 |
 | 91热爆 | KVS：`/latest-updates/`、`/most-popular/`、`/private/`（VIP专享）、`/categories/{slug}/`，翻页 `{path}N/`；详情 `/videos/{id}/{slug}/`（**必须带 slug**，无 slug 会 404） | **播放地址不吃页面**：`https://delivery.douyinpaly.com/hls/contents/videos/{dir}/{id}/{id}.mp4/index.m3u8`，`dir=floor(id/1000)*1000`；页面里的 `?k=&t=` 签名是装饰，去掉照样 200，`_720p` 变体也在。所以游客限流与 VIP 锁都影响不到播放。 |
 | 在线影院 / 91吃瓜 | hash slug 站：首页 `/`+`/page/N/`、分类 `/{slug}/`+`/{slug}/page/N/`、详情 `/{slug}/{2字母}/{10字母}.html`；搜索是站点自带 Meilisearch：`POST /search/indexes/indexes/articles/search`（`Authorization: Bearer <search-config.js 里的 apiKey>`，路径里 host 段出现两次） | `<video poster>` + 页面内直给 m3u8（`hsm3.hwzcfz.com`、`lsbbf11.com`…）。**B(在线影院) 是超集、A(91吃瓜) 是子集**：A 的条目在 B 上 16/20 命中，B 的条目在 A 上 0/20，同路径同 m3u8；A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失并回落到 B。 |
+| 蝴蝶影院 | 列表 `/?page=N`、分类 `/?category_id=NN&page=N`（19 大陆 / 20 香港 / 81 台湾 / 83 日本 / 82 韩国 / 22 欧美 / 92 泰国 / 23 其他）、系列页 `/v/<id>`、单集页 `/<id>/<集数>`；站点首页有「继续访问」门（只写 `x-index-auth=authed`），脚本每个请求自带该 Cookie | 单集页 `<source src="…/index.m3u8">`，实测 200 + `application/vnd.apple.mpegurl`（1080x608 master）。`/node/search` 对脚本环境一律 503 ⇒ 搜索用本地索引（浏览时累积）过滤 |
+| 黄果 - 短剧 | 分类 `/{ai-duanju\|ai-manju\|ai-mogai\|ai-huanlian}/`、`?page=N`、热榜 `/ranks/hot/`、搜索 `/search/video/<词>/`；卡片 `.hg-drama-card`（`data-src` 封面）；详情 = 第 1 集 `/video/<id>/`，后续集 `/video/<id>/ep-N/`（总数在 `data-track-total-episode`） | 播放页内联签好名的 `yd-hls.hzjvlo.cn/videos5/…/index.m3u8?auth_key=…`（AES-128 key 在 `tp4.drleao.cn`），实测 200 + `#EXTM3U`；`auth_key` 有时效，`content()` 每次现取 |
+| 橘汁 - 影视 | APP 后端 `juziapp.hzhcbkj.cn`：`/api/v3/drama/treeCategory`（分类）、`/api/v3/debug/drama/list?page&pagesize&typeId`（列表，含 `videos[].path/source`）、`/api/ex/v3/videoParse/test/videoUsableUrl?vodPlayFrom=&playUrl=`（换流）；OpenAPI 在 `/v3/api-docs` | 换流接口返回真实 m3u8（实测 200 + `#EXTM3U` 59 KB）。**正式接口 `/api/proto/v5/*`、`/api/ex/v3/security/*` 要「公共参数」签名头**，未签名时只有每部作品第 1 集可播 |
 
 三个「苹果CMS」系源都自带纯 JS 版 base64 / 百分号解码（沙箱没有 `atob`/`unescape`），
 所以 `encrypt=1/2` 的站点换了编码也不用改脚本。
@@ -271,6 +280,10 @@ dart run tools/site_reachability.dart
 - **玉羞园是 xvideos 镜像**：内容就是 xvideos 公共库，媒体走 `hls-cdn77` / `mp4-cdn77`，`secure=` token 约 1 小时失效 → 每次现取详情页；分页是 0 基（`/new/{页码-1}`、`/c/{slug}/{页码-1}`、搜索 `&p={页码}` 从 1 起），两套卡片版式（`<img data-src>` 与 `<picture><source data-srcset>`）都要兼容。
 - **91热爆的 VIP 不是绕过，是 CDN 裸奔**：`/private/` 的 VIP 片页面只给 `no-player` 占位（游客还有观看次数上限），但视频文件路径可预测且签名不校验，`content()` 只用 id 拼 CDN 就拿到整片；`delivery.douyinpaly.com` 换域时改脚本顶部 `CDN_HOSTS`。
 - **在线影院 / 91吃瓜 是包含关系**：J(`bb.f016video.com`) 是超集、A(`ss.99utv.com`) 是子集（A 的条目 16/20 能在 B 上取到，B 的条目 0/20 能在 A 上取到）。所以只做一个源（`f016_video`），B 做默认、A 做镜像，并且**详情 404 自动回落**——A 的 404 是「HTTP 200 + 标题 404」的软 404，脚本按标题判缺失，不能只看状态码。列表最多 100 页，更早内容靠站内 Meilisearch 搜索。
+
+- **橘汁只拿到第 1 集**：`/api/proto/v5/*`、`/api/ex/v3/security/*` 要「公共参数」签名头（无头时 `code 500 公共参数请求头不能为空`），开放 JSON 端点里 `videos[]` 只有一条，所以长剧只能播首集。签名算法未破前，这一点改不了；列表/封面/简介/取流都是真实数据。
+- **黄果直连不通**：`huangguoai.com` 在国内直连超时（实测 `fetch failed`，走代理 200），本机复验用 `node --use-env-proxy tools/lume-source-check.mjs …`。App 里要给这个源配代理。
+- **蝴蝶影院的搜索接口对脚本 503**：`/node/search` 只对带完整浏览器上下文的请求放行，`list({keyword})` 改为本地索引过滤（列表/详情访问过的条目才能被搜到），索引为空时先抓第 1 页。
 
 ## 七、免责
 
