@@ -127,6 +127,7 @@ class MdkEngine extends AbstractPlayer
 
   /// 字幕状态（MDK 只能写延迟，见类文档）。
   bool _subtitlesEnabled = true;
+  List<int> _subtitleSelection = const [-1];
   Duration _subtitleDelay = Duration.zero;
 
   double _volume = 1.0;
@@ -251,7 +252,9 @@ class MdkEngine extends AbstractPlayer
           id: '${stream.index}',
           label: _trackLabel(stream, '字幕', streams.indexOf(stream)),
           language: _metadata(stream.metadata, 'language'),
-          selected: active.isEmpty
+          selected: _subtitleSelection.isEmpty || !_subtitlesEnabled
+              ? false
+              : active.isEmpty || active.contains(-1)
               ? stream.index == streams.first.index
               : active.contains(stream.index),
         ),
@@ -264,11 +267,13 @@ class MdkEngine extends AbstractPlayer
     try {
       if (id == null) {
         // 空列表 = 不选任何字幕轨（关闭字幕）。
+        _subtitleSelection = const [];
         _player.activeSubtitleTracks = const <int>[];
         return;
       }
       final index = int.tryParse(id);
       if (index == null) return;
+      _subtitleSelection = [index];
       _player.activeSubtitleTracks = <int>[index];
     } catch (error) {
       LumeLog.warn('[mdk] 切字幕轨失败（$id）：$error');
@@ -284,6 +289,7 @@ class MdkEngine extends AbstractPlayer
       final uri = ['http', 'https', 'file'].contains(scheme)
           ? path
           : Uri.file(path).toString();
+      _subtitleSelection = const [-1];
       _player.setMedia(uri, mdk.MediaType.subtitle);
       LumeLog.info('[mdk] 已加载外挂字幕：$path');
       return true;
@@ -331,6 +337,7 @@ class MdkEngine extends AbstractPlayer
       await _highestHls.close();
       return;
     }
+    _subtitleSelection = const [-1];
     _emit(error: null, clearError: true);
     _applyNetworkProperties();
     _applyHeaders(media.headers);
@@ -514,7 +521,7 @@ class MdkEngine extends AbstractPlayer
     try {
       // 空列表 = 不选任何字幕轨；[-1] = 交给内核自动选（MDK 的默认行为）。
       _player.activeSubtitleTracks = _subtitlesEnabled
-          ? const <int>[-1]
+          ? _subtitleSelection
           : const <int>[];
     } catch (error) {
       LumeLog.warn('[mdk] 切字幕轨失败：$error');

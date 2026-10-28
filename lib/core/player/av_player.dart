@@ -40,6 +40,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   TextSubtitles? _externalSubtitles;
   String? _externalLabel;
   bool _externalSelected = false;
+  bool _subtitleSuppressed = false;
   List<String> _nativeStatus = const [];
   AvPlayer({BufferingBackend? buffering})
     : _buffering = buffering ?? createPlatformBufferingBackend();
@@ -194,6 +195,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     _externalSubtitles = null;
     _externalLabel = null;
     _externalSelected = false;
+    _subtitleSuppressed = false;
     _nativeStatus = const [];
     final uri = await _highestHls.resolve(
       media.uri,
@@ -364,6 +366,9 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     if (_disposed) return;
     final old = _settings;
     _settings = settings;
+    if (!old.subtitlesEnabled && settings.subtitlesEnabled) {
+      _subtitleSuppressed = false;
+    }
     if (old.presentation.wantsHdr != settings.presentation.wantsHdr &&
         _controller?.value.isInitialized == true &&
         _retryMedia != null) {
@@ -372,6 +377,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       final subtitles = _externalSubtitles;
       final label = _externalLabel;
       final external = _externalSelected;
+      final suppressed = _subtitleSuppressed;
       final media = _retryMedia!;
       final audio = (await audioTracks()).where((t) => t.selected).firstOrNull;
       final subtitle = (await subtitleTracks())
@@ -381,6 +387,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       _externalSubtitles = subtitles;
       _externalLabel = label;
       _externalSelected = external;
+      _subtitleSuppressed = suppressed;
       if (_disposed || !identical(media, _retryMedia)) return;
       if (audio != null &&
           old.presentation.dolbyAudio == settings.presentation.dolbyAudio) {
@@ -433,7 +440,10 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     await AvPresentationChannel.invoke<Object?>(nativePlayerId, 'configure', {
       'dolbyAudio': _settings.presentation.dolbyAudio,
       'selectAudio': selectAudio,
-      'subtitlesEnabled': _settings.subtitlesEnabled && !_externalSelected,
+      'subtitlesEnabled':
+          _settings.subtitlesEnabled &&
+          !_externalSelected &&
+          !_subtitleSuppressed,
       'originalStyle': _settings.presentation.originalSubtitleStyle,
       'fontSize': 24 * _settings.subtitleSize.scale,
       'color': _settings.subtitleColor.argb,
@@ -495,6 +505,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   @override
   Future<void> selectSubtitleTrack(String? id) async {
     _externalSelected = id == 'external';
+    _subtitleSuppressed = id == null;
     await AvPresentationChannel.invoke<Object?>(
       nativePlayerId,
       'selectSubtitle',

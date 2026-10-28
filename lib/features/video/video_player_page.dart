@@ -3171,10 +3171,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (player == null) return;
     if (preference == 'off') {
       _preferredSubtitleApplied = true;
-      if (_settings.subtitlesEnabled) {
-        _settings = _settings.copyWith(subtitlesEnabled: false);
-        _store?.save(_settings);
-      }
       await player.selectSubtitleTrack(null);
       return;
     }
@@ -3232,8 +3228,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (selected == null || !mounted) return;
     _preferredSubtitleApplied = true;
     final off = selected == _TrackSheet.offId;
-    if (_settings.subtitlesEnabled == off) {
-      await _applySettings(_settings.copyWith(subtitlesEnabled: !off));
+    if (!off && !_settings.subtitlesEnabled) {
+      await _applySettings(_settings.copyWith(subtitlesEnabled: true));
     }
     await player.selectSubtitleTrack(off ? null : selected);
     final key = _subtitleMemoryKey;

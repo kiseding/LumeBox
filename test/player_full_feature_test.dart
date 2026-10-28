@@ -309,6 +309,40 @@ void main() {
       return created;
     }
 
+    testWidgets('同剧关闭字幕只记作品偏好，不关闭全局字幕开关', (tester) async {
+      const target = VideoPlayTarget(
+        sourceId: 'fixture',
+        itemId: 'subtitles',
+        title: '字幕测试',
+        chapterIndex: 0,
+        chapterId: '1',
+        chapterTitle: '第一集',
+      );
+      final library = await ReadingLibrary.open(Section.video);
+      library.setSetting(
+        'video.subtitle.work.${target.identity}',
+        '{"off":true}',
+      );
+      final player = _FakePlayer();
+      await pump(tester, target: target, player: player);
+      expect(player.subtitleSelections, contains(null));
+      expect(VideoPlayerSettingsStore(library).load().subtitlesEnabled, true);
+    });
+
+    testWidgets('字幕总开关关闭时语言偏好不得自动打开字幕', (tester) async {
+      final library = await ReadingLibrary.open(Section.video);
+      VideoPlayerSettingsStore(library).save(
+        const PlayerSettings(
+          subtitlesEnabled: false,
+          presentation: PlaybackPresentation(subtitleLanguage: 'en'),
+        ),
+      );
+      final player = _FakePlayer();
+      await pump(tester, player: player);
+      expect(player.subtitleSelections, isEmpty);
+      expect(VideoPlayerSettingsStore(library).load().subtitlesEnabled, false);
+    });
+
     {
       testWidgets('播放器使用设置页当前凭证加载弹幕，修改后立即重载', (tester) async {
         var stored = <String, String>{};
@@ -1922,6 +1956,12 @@ class _FakePlayer extends AbstractPlayer {
   final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
     PlayerStats(engineLabel: 'fake'),
   );
+
+  final subtitleSelections = <String?>[];
+  @override
+  Future<void> selectSubtitleTrack(String? id) async {
+    subtitleSelections.add(id);
+  }
 
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
