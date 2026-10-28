@@ -12,7 +12,12 @@ import '../../core/net/waf.dart';
 import '../../core/session/section.dart';
 import '../../core/cache/section_memory_cache.dart';
 
-/// Login happens on the site's own page; saving credentials is not a login.
+class SourceLoginCredentials {
+  const SourceLoginCredentials(this.account, this.password);
+  final String account, password;
+}
+
+/// 一个站点登录流程：网页登录自动同步，源所需账号资料也在此编辑。
 class SourceLoginPage extends StatefulWidget {
   const SourceLoginPage({
     super.key,
@@ -22,11 +27,15 @@ class SourceLoginPage extends StatefulWidget {
     required this.url,
     this.userAgent,
     this.loginMode = true,
+    this.credentials,
+    this.onCredentialsChanged,
   });
   final Section section;
   final String sourceId, name, url;
   final String? userAgent;
   final bool loginMode;
+  final SourceLoginCredentials? credentials;
+  final ValueChanged<SourceLoginCredentials>? onCredentialsChanged;
   static String status(Map evidence, Map<String, String> cookies) {
     if (evidence['blocked'] == true) return '站点拒绝访问或等待验证，请先在网页中处理';
     if (evidence['loggedIn'] == true) {
@@ -52,6 +61,63 @@ class _SourceLoginPageState extends State<SourceLoginPage>
   Timer? _autoSync;
   String? _lastSession;
   Future<void> _sessionQueue = Future.value();
+  late SourceLoginCredentials _credentials =
+      widget.credentials ?? const SourceLoginCredentials('', '');
+
+  Future<void> _editCredentials() async {
+    final account = TextEditingController(text: _credentials.account);
+    final password = TextEditingController(text: _credentials.password);
+    final route = DialogRoute<SourceLoginCredentials>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('本站账号资料'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('仅在源要求保存账号资料时填写。网页登录仍在本站网页完成，返回源设置后点保存生效。'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: account,
+                decoration: const InputDecoration(labelText: '账号'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: password,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(labelText: '密码'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(
+              context,
+              SourceLoginCredentials(account.text.trim(), password.text),
+            ),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    final result = await Navigator.of(context, rootNavigator: true).push(route);
+    unawaited(
+      route.completed.then((_) {
+        account.dispose();
+        password.dispose();
+      }),
+    );
+    if (!mounted || result == null) return;
+    _credentials = result;
+    widget.onCredentialsChanged?.call(result);
+  }
 
   void _startAutoSync() {
     _autoSync?.cancel();
@@ -217,6 +283,12 @@ class _SourceLoginPageState extends State<SourceLoginPage>
       appBar: AppBar(
         title: Text('${widget.name} · ${widget.loginMode ? '登录' : '作品网页'}'),
         actions: [
+          if (widget.loginMode && widget.onCredentialsChanged != null)
+            IconButton(
+              tooltip: '账号资料',
+              onPressed: _editCredentials,
+              icon: const Icon(Icons.manage_accounts_outlined),
+            ),
           IconButton(
             tooltip: '刷新网页',
             onPressed: controller.reload,

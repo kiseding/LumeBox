@@ -136,7 +136,10 @@ void main() {
     }
   }
 
-  Future<void> open(WidgetTester tester) async {
+  Future<void> open(
+    WidgetTester tester, {
+    ValueChanged<SourceLoginCredentials>? onCredentialsChanged,
+  }) async {
     await tester.runAsync(() => ReadingLibrary.open(Section.video));
     await tester.pumpWidget(
       MaterialApp(
@@ -146,11 +149,16 @@ void main() {
               onPressed: () => Navigator.push<void>(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const SourceLoginPage(
+                  builder: (_) => SourceLoginPage(
                     section: Section.video,
                     sourceId: 'fixture',
                     name: '测试源',
                     url: 'https://login.example/',
+                    credentials: const SourceLoginCredentials(
+                      'saved-user',
+                      'saved-password',
+                    ),
+                    onCredentialsChanged: onCredentialsChanged,
                   ),
                 ),
               ),
@@ -206,6 +214,33 @@ void main() {
       WafSessions.cookiesFor(Section.video, 'fixture'),
       isNot(contains('foreign')),
     );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await flush(tester);
+  });
+  testWidgets('同一登录页编辑账号资料，确定更新草稿、取消保留原值', (tester) async {
+    final changes = <SourceLoginCredentials>[];
+    await open(tester, onCredentialsChanged: changes.add);
+    await tester.tap(find.byTooltip('账号资料'));
+    await tester.pumpAndSettle();
+    final account = find.widgetWithText(TextField, '账号');
+    final password = find.widgetWithText(TextField, '密码');
+    expect(tester.widget<TextField>(account).controller!.text, 'saved-user');
+    expect(tester.widget<TextField>(password).obscureText, isTrue);
+    await tester.enterText(account, 'new-user');
+    await tester.enterText(password, 'new-password');
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(changes.single.account, 'new-user');
+    expect(changes.single.password, 'new-password');
+    await tester.tap(find.byTooltip('账号资料'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(account).controller!.text, 'new-user');
+    await tester.enterText(account, 'cancelled-user');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(changes, hasLength(1));
+    expect(tester.takeException(), isNull);
     await tester.pageBack();
     await tester.pumpAndSettle();
     await flush(tester);

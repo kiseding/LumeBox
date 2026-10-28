@@ -17,54 +17,63 @@ class SourceRouteEditor extends StatelessWidget {
   final String? error;
   final bool compact;
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      if (!compact) ...[
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-      ],
-      if (route.urls.isNotEmpty)
-        DropdownButtonFormField<String>(
-          key: ValueKey('$title:${route.selectedUrl}'),
-          initialValue: route.selectedUrl,
-          isExpanded: true,
-          decoration: InputDecoration(labelText: '$title线路'),
-          items: [
-            for (var i = 0; i < route.urls.length; i++)
-              DropdownMenuItem(
-                value: route.urls[i],
-                child: Text(
-                  '${i == 0 ? '默认 · ' : ''}${route.labels[route.urls[i]] ?? route.urls[i]}',
-                  overflow: TextOverflow.ellipsis,
+  Widget build(BuildContext context) {
+    if (compact) {
+      final summary = route.custom.isNotEmpty
+          ? '自定义地址'
+          : route.resolved.isEmpty
+          ? '默认线路'
+          : route.labels[route.selectedUrl] ?? route.selectedUrl;
+      return ExpansionTile(
+        key: ValueKey(error != null),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Text(
+          '$title · $summary',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        initiallyExpanded: route.custom.isNotEmpty || error != null,
+        children: [
+          SourceRouteEditor(
+            title: title,
+            route: route,
+            onChanged: onChanged,
+            error: error,
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!compact) ...[
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+        ],
+        if (route.urls.isNotEmpty)
+          DropdownButtonFormField<String>(
+            key: ValueKey('$title:${route.selectedUrl}'),
+            initialValue: route.selectedUrl,
+            isExpanded: true,
+            decoration: InputDecoration(labelText: '$title线路'),
+            items: [
+              for (var i = 0; i < route.urls.length; i++)
+                DropdownMenuItem(
+                  value: route.urls[i],
+                  child: Text(
+                    '${i == 0 ? '默认 · ' : ''}${route.labels[route.urls[i]] ?? route.urls[i]}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-          ],
-          onChanged: (v) {
-            if (v != null) onChanged(route.copyWith(selected: v));
-          },
-        )
-      else
-        Text(compact ? '$title：沿用默认线路' : '源未提供备选线路；可填写自定义地址供支持此设置的源使用。'),
-      const SizedBox(height: 8),
-      if (compact)
-        ExpansionTile(
-          tilePadding: EdgeInsets.zero,
-          title: Text('自定义$title地址'),
-          initiallyExpanded: route.custom.isNotEmpty || error != null,
-          children: [
-            TextFormField(
-              initialValue: route.custom,
-              decoration: InputDecoration(
-                labelText: '自定义$title地址（填了优先）',
-                hintText: 'https://cdn.example.com/资源路径',
-                errorText: error,
-              ),
-              onChanged: (v) => onChanged(route.copyWith(custom: v)),
-            ),
-          ],
-        )
-      else
+            ],
+            onChanged: (v) {
+              if (v != null) onChanged(route.copyWith(selected: v));
+            },
+          )
+        else
+          const Text('源未提供备选线路；可填写自定义地址供支持此设置的源使用。'),
+        const SizedBox(height: 8),
         TextFormField(
           initialValue: route.custom,
           decoration: InputDecoration(
@@ -74,11 +83,11 @@ class SourceRouteEditor extends StatelessWidget {
           ),
           onChanged: (v) => onChanged(route.copyWith(custom: v)),
         ),
-      const SizedBox(height: 6),
-      if (!compact || route.custom.isNotEmpty)
+        const SizedBox(height: 6),
         Text('当前生效：${route.resolved.isEmpty ? '沿用源默认地址' : route.resolved}'),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class SourceExtensionEditor extends StatefulWidget {
@@ -88,10 +97,14 @@ class SourceExtensionEditor extends StatefulWidget {
     required this.initialValues,
     required this.onChanged,
     this.onAction,
+    this.actionHeading,
   });
   final List<SourceSetting> definitions;
   final Map<String, Object?> initialValues;
   final ValueChanged<Map<String, Object?>> onChanged;
+
+  /// A single host action can share a compact row with its section heading.
+  final String? actionHeading;
   final Future<String> Function(
     SourceSetting,
     Map<String, Object?>,
@@ -207,7 +220,9 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
           ),
         Padding(
           key: ValueKey(widget.definitions[i].key),
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: EdgeInsets.only(
+            bottom: widget.actionHeading == null ? 12 : 0,
+          ),
           child: field(widget.definitions[i]),
         ),
       ],
@@ -266,17 +281,28 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
           subtitle: Text(d.description),
         );
       case 'action':
+        final button = OutlinedButton(
+          onPressed: busy != null || widget.onAction == null
+              ? null
+              : () => act(d),
+          child: Text(busy == d.key ? '处理中…' : d.title),
+        );
+        if (widget.actionHeading != null) {
+          return Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.actionHeading!,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Tooltip(message: d.description, child: button),
+            ],
+          );
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            OutlinedButton(
-              onPressed: busy != null || widget.onAction == null
-                  ? null
-                  : () => act(d),
-              child: Text(busy == d.key ? '处理中…' : d.title),
-            ),
-            if (d.description.isNotEmpty) Text(d.description),
-          ],
+          children: [button, if (d.description.isNotEmpty) Text(d.description)],
         );
       default:
         return const SizedBox.shrink();

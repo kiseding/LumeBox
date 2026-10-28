@@ -28,6 +28,8 @@ void main() {
           enabled: true,
           siteConfig: SourceSiteConfig(
             mirrors: <String>[main, mirror1, mirror2],
+            account: 'reader@example.com',
+            password: 'saved-password',
           ),
         ),
       ],
@@ -69,7 +71,7 @@ void main() {
     expect(find.text('m2.example'), findsOneWidget);
     expect(find.text('主站'), findsOneWidget);
     // 优先级说明固定出现在这一组里。
-    expect(find.textContaining('自定义域名 > 选中镜像 > 主站'), findsOneWidget);
+    expect(find.textContaining('填写自定义域名后优先使用自定义地址'), findsOneWidget);
 
     await tapVisible(tester, find.text('m1.example'));
     await tapVisible(tester, find.widgetWithText(FilledButton, '保存'));
@@ -119,31 +121,18 @@ void main() {
     expect(find.textContaining('自定义域名只能是域名或 http(s) 地址'), findsOneWidget);
   });
 
-  testWidgets('账号登入：账号与密码保存，密码默认遮蔽且可切换显示', (tester) async {
+  testWidgets('账号登入：设置只有一个登录入口，保存其他配置保留账号资料', (tester) async {
     final manager = await pumpPage(tester);
     await openSettings(tester);
 
-    expect(find.textContaining('保存账号密码不代表已经登录'), findsOneWidget);
-
-    final password = find.widgetWithText(TextField, '密码');
-    final field = tester.widget<TextField>(password);
-    expect(field.obscureText, isTrue, reason: '密码默认遮蔽');
-
-    await tester.enterText(
-      find.widgetWithText(TextField, '账号'),
-      'reader@example.com',
-    );
-    await tester.enterText(password, 'hunter2');
-    await tester.pumpAndSettle();
-
-    // 显示 / 隐藏切换只影响输入框，不改值。
-    await tapVisible(tester, find.byTooltip('显示'));
-    expect(tester.widget<TextField>(password).obscureText, isFalse);
+    expect(find.text('登录站点'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '账号'), findsNothing);
+    expect(find.widgetWithText(TextField, '密码'), findsNothing);
 
     await tapVisible(tester, find.widgetWithText(FilledButton, '保存'));
     final saved = manager.siteConfigs.single.$2;
     expect(saved.account, 'reader@example.com');
-    expect(saved.password, 'hunter2');
+    expect(saved.password, 'saved-password');
   });
 
   testWidgets('脚本没声明镜像时：列表只剩「默认」一项，自定义域名照样能用', (tester) async {
@@ -163,7 +152,7 @@ void main() {
     await tester.pumpAndSettle();
     await openSettings(tester);
 
-    expect(find.text('默认（脚本未声明镜像）'), findsOneWidget);
+    expect(find.text('使用源默认站点'), findsOneWidget);
 
     await tester.enterText(
       find.widgetWithText(TextField, '自定义域名（填了优先）'),

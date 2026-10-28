@@ -10,6 +10,8 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_extension_settings.dart';
 import 'package:lume_box/core/source/source_preferences.dart';
 import 'package:lume_box/features/source/source_preferences_page.dart';
+import 'package:lume_box/features/source/source_action_dialogs.dart';
+import 'package:lume_box/features/source/source_extension_editor.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -42,6 +44,8 @@ void main() {
       siteUrl: 'https://old.example',
       siteConfig: SourceSiteConfig(
         mirrors: ['https://old.example'],
+        account: 'fixture-user',
+        password: 'fixture-password',
         settingDefinitions: [
           SourceSetting(
             key: 'more',
@@ -79,25 +83,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.widgetWithText(TextField, '账号'), findsNothing);
-    await tester.ensureVisible(find.text('账号密码（可选）'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('账号密码（可选）'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, '账号'),
-      'fixture-user',
-    );
-    final password = find.widgetWithText(TextField, '密码');
-    await tester.ensureVisible(password);
-    await tester.enterText(password, 'fixture-password');
-    expect(tester.widget<TextField>(password).obscureText, isTrue);
-    tester.testTextInput.hide();
-    await tester.ensureVisible(find.text('账号密码（可选）'));
-    await tester.ensureVisible(find.text('账号密码（可选）'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('账号密码（可选）'));
-    await tester.pumpAndSettle();
-    expect(manager.siteConfigs, isEmpty, reason: '展开与折叠不自动保存或登录');
+    expect(find.text('账号密码（可选）'), findsNothing);
+    expect(find.text('此源只提供主站，暂无备用镜像。'), findsOneWidget);
     final domain = find.widgetWithText(TextField, '自定义域名（填了优先）');
     await tester.ensureVisible(domain);
     await tester.enterText(domain, 'https://new.example');
@@ -109,6 +96,8 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('source-extensions-entry')),
     );
+    final common = find.byType(SourceExtensionEditor).first;
+    expect(tester.getSize(common).height, lessThanOrEqualTo(60));
     await tester.tap(find.byKey(const ValueKey('source-extensions-entry')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(SwitchListTile, '额外开关'));
@@ -141,6 +130,86 @@ void main() {
       SourcePreferences.read(Section.video, source.id).customOrigin,
       isEmpty,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('镜像可切换，自定义地址优先；无扩展的源也能找到说明', (tester) async {
+    final editor = GlobalKey<SourceNetworkDialogState>();
+    const source = SourceDescriptor(
+      id: 'mirror-fixture',
+      name: '测试源',
+      version: '1',
+      enabled: true,
+      section: Section.video,
+      siteUrl: 'https://main.example',
+      siteConfig: SourceSiteConfig(
+        mirrors: ['https://main.example', 'https://backup.example'],
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SourceNetworkDialog(
+              key: editor,
+              source: source,
+              embedded: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    final dropdown = find.byType(DropdownButtonFormField<int>);
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('backup.example').last);
+    await tester.pumpAndSettle();
+    expect(
+      editor.currentState!.readResult()!.site.resolvedDomain,
+      'https://backup.example',
+    );
+    final domain = find.widgetWithText(TextField, '自定义域名（填了优先）');
+    await tester.enterText(domain, 'https://custom.example');
+    expect(
+      editor.currentState!.readResult()!.site.resolvedDomain,
+      'https://custom.example',
+    );
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('主站 · main.example').last);
+    await tester.pumpAndSettle();
+    expect(
+      editor.currentState!.readResult()!.site.resolvedDomain,
+      'https://custom.example',
+    );
+    await tester.enterText(domain, '');
+    expect(
+      editor.currentState!.readResult()!.site.resolvedDomain,
+      'https://main.example',
+    );
+    final imageRoute = find.widgetWithText(ExpansionTile, '图床 · 默认线路');
+    await tester.ensureVisible(imageRoute);
+    expect(tester.getSize(imageRoute).height, lessThanOrEqualTo(60));
+    await tester.tap(imageRoute);
+    await tester.pumpAndSettle();
+    final imageDomain = find.widgetWithText(TextFormField, '自定义图床地址（填了优先）');
+    await tester.ensureVisible(imageDomain);
+    await tester.enterText(imageDomain, 'https://images.example');
+    await tester.pumpAndSettle();
+    final customRoute = find.widgetWithText(ExpansionTile, '图床 · 自定义地址');
+    await tester.ensureVisible(customRoute);
+    await tester.tap(customRoute);
+    await tester.pumpAndSettle();
+    expect(
+      editor.currentState!.readResult()!.site.images.resolved,
+      'https://images.example',
+    );
+    final entry = find.byKey(const ValueKey('source-extensions-entry'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('此源暂无扩展功能'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

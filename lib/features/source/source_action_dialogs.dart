@@ -196,9 +196,6 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
   );
   String? _imageError, _videoError, _extraError;
 
-  /// 密码是否明文显示（默认遮蔽）。
-  bool _showPassword = false;
-
   /// 「忽略证书错误」：按源开放，默认关闭（值从该源当前配置读，不会自己变开）。
   late bool _allowBadCertificate = widget.source.network.allowBadCertificate;
 
@@ -404,47 +401,18 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
           name: widget.source.name,
           url: address,
           userAgent: _ua.text,
+          credentials: SourceLoginCredentials(_account.text, _password.text),
+          onCredentialsChanged: (value) {
+            if (!mounted) return;
+            setState(() {
+              _account.text = value.account;
+              _password.text = value.password;
+            });
+          },
         ),
       ),
     );
   }
-
-  Widget _credentialFields() => Column(
-    children: [
-      const Padding(
-        padding: EdgeInsets.only(bottom: 12),
-        child: Text('保存账号密码不代表已经登录；仅供支持账号登录的源使用。'),
-      ),
-      TextField(
-        controller: _account,
-        decoration: const InputDecoration(
-          labelText: '账号',
-          hintText: '手机号 / 邮箱 / 用户名',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _password,
-        obscureText: !_showPassword,
-        decoration: InputDecoration(
-          labelText: '密码',
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            tooltip: _showPassword ? '隐藏' : '显示',
-            icon: LumeIcon(
-              _showPassword
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              slot: 'source_action_dialogs.2',
-              variant: true,
-            ),
-            onPressed: () => setState(() => _showPassword = !_showPassword),
-          ),
-        ),
-      ),
-    ],
-  );
 
   List<SourceSetting> get _extensionFields => widget
       .source
@@ -471,15 +439,21 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
-              SourceExtensionEditor(
-                definitions: _extensionFields,
-                initialValues: _extra,
-                onChanged: (values) {
-                  if (mounted) setState(() => _extra = values);
-                },
-                onAction: _runSettingAction,
-              ),
-              const Text('修改后返回源设置，点“保存”生效。'),
+              if (_extensionFields.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text('此源暂无扩展功能。源作者提供的额外开关和操作会显示在这里。'),
+                )
+              else
+                SourceExtensionEditor(
+                  definitions: _extensionFields,
+                  initialValues: _extra,
+                  onChanged: (values) {
+                    if (mounted) setState(() => _extra = values);
+                  },
+                  onAction: _runSettingAction,
+                ),
+              if (_extensionFields.isNotEmpty) const Text('修改后返回源设置，点“保存”生效。'),
             ],
           ),
         ),
@@ -495,29 +469,36 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _group('站点账号', null, <Widget>[
-          if (widget.source.siteUrl.isNotEmpty ||
-              _site.resolvedDomain.isNotEmpty)
-            FilledButton.tonalIcon(
-              key: const ValueKey('source-account-web-login'),
-              icon: const Icon(Icons.login),
-              label: const Text('登录站点'),
-              onPressed: _openLogin,
-            ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 6),
-            child: Text('登录后自动同步，完成后直接返回即可。'),
+          Row(
+            children: [
+              if (widget.embedded)
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '站点账号',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text('登录后自动同步', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              if (widget.source.siteUrl.isNotEmpty ||
+                  _site.resolvedDomain.isNotEmpty)
+                FilledButton.tonalIcon(
+                  key: const ValueKey('source-account-web-login'),
+                  icon: const Icon(Icons.login),
+                  label: const Text('登录站点'),
+                  onPressed: _openLogin,
+                ),
+            ],
           ),
-          if (widget.embedded)
-            ExpansionTile(
-              key: const ValueKey('source-account-credentials'),
-              tilePadding: EdgeInsets.zero,
-              title: const Text('账号密码（可选）'),
-              initiallyExpanded:
-                  _account.text.isNotEmpty || _password.text.isNotEmpty,
-              children: [_credentialFields()],
-            )
-          else
-            _credentialFields(),
+          if (!widget.embedded)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('登录后自动同步，完成后直接返回即可。'),
+            ),
         ]),
         const SizedBox(height: 12),
         _group(
@@ -588,8 +569,8 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
           ],
         ),
         const SizedBox(height: 12),
-        _group('换网址', '自定义域名 > 选中镜像 > 主站；脚本没声明镜像时用脚本自带的默认地址。', <Widget>[
-          if (widget.embedded && _mirrors.isNotEmpty)
+        _group('换网址', '源提供多个地址时可在此切换；填写自定义域名后优先使用自定义地址。', <Widget>[
+          if (widget.embedded && _mirrors.length > 1)
             DropdownButtonFormField<int>(
               key: ValueKey('mirror-$_resetRevision'),
               initialValue: _mirrorIndex,
@@ -609,8 +590,10 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
                 if (value != null) setState(() => _mirrorIndex = value);
               },
             )
+          else if (widget.embedded && _mirrors.length == 1)
+            Text('主站 · ${SourceSiteConfig.hostOf(_mirrors.first)}')
           else if (_mirrors.isEmpty)
-            const _MirrorTile(label: '默认（脚本未声明镜像）', selected: true)
+            const _MirrorTile(label: '使用源默认站点', selected: true)
           else
             for (var index = 0; index < _mirrors.length && index < 3; index++)
               _MirrorTile(
@@ -634,8 +617,16 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
                   ),
               ],
             ),
+          if (_mirrors.length <= 1)
+            Text(
+              _mirrors.isEmpty ? '此源未提供镜像列表，可在下方填写已知的备用地址。' : '此源只提供主站，暂无备用镜像。',
+            ),
           Text(
-            '当前生效：${_site.resolvedDomain.isEmpty ? '沿用源默认地址' : _site.resolvedDomain}',
+            '当前生效：${_site.resolvedDomain.isNotEmpty
+                ? _site.resolvedDomain
+                : widget.source.siteUrl.isNotEmpty
+                ? widget.source.siteUrl
+                : '沿用源默认地址'}',
           ),
           if (_domain.text.trim().isNotEmpty)
             const Text('自定义站点优先；保留自定义地址时，镜像选择暂不生效。'),
@@ -695,6 +686,11 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
         _group('App 通用设置', 'App 定义规则和优先级；用户选择优先于源建议。', [
           SourceExtensionEditor(
             key: ValueKey('common-$_resetRevision'),
+            actionHeading:
+                widget.embedded &&
+                    widget.source.siteConfig.commonDefinitions.isEmpty
+                ? '常用参数'
+                : null,
             definitions: [
               ...widget.source.siteConfig.commonDefinitions,
               ...SourceSettingsPolicy.hostActions.where(
@@ -711,18 +707,23 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
         ]),
-        if (_extensionFields.isNotEmpty) ...[
+        if (widget.embedded || _extensionFields.isNotEmpty) ...[
           const SizedBox(height: 12),
           if (widget.embedded)
-            ListTile(
-              key: const ValueKey('source-extensions-entry'),
-              leading: const Icon(Icons.extension_outlined),
-              title: const Text('源扩展功能'),
-              subtitle: Text(
-                '${_extensionFields.length} 项 · ${_extensionFields.take(2).map((field) => field.title).join('、')}',
+            GlassCard(
+              padding: EdgeInsets.zero,
+              child: ListTile(
+                key: const ValueKey('source-extensions-entry'),
+                leading: const Icon(Icons.extension_outlined),
+                title: const Text('源扩展功能'),
+                subtitle: Text(
+                  _extensionFields.isEmpty
+                      ? '本源暂未提供额外功能'
+                      : '${_extensionFields.length} 项 · ${_extensionFields.take(2).map((field) => field.title).join('、')}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openExtensions,
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _openExtensions,
             )
           else
             _group('源扩展功能', '由此源提供；只对当前源生效。', [
@@ -772,11 +773,18 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
   Widget _group(String title, String? hint, List<Widget> children) {
     if (widget.embedded) {
       final advanced = title == '网络配置';
+      final inlineAction =
+          title == 'App 通用设置' &&
+          widget.source.siteConfig.commonDefinitions.isEmpty;
+      final inlineHeading = inlineAction || title == '站点账号';
       final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (final child in children.where((item) => item is! SizedBox))
-            Padding(padding: const EdgeInsets.only(bottom: 6), child: child),
+            Padding(
+              padding: EdgeInsets.only(bottom: inlineAction ? 0 : 6),
+              child: child,
+            ),
         ],
       );
       return Padding(
@@ -792,11 +800,12 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title == 'App 通用设置' ? '常用参数' : title,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
+                    if (!inlineHeading)
+                      Text(
+                        title == 'App 通用设置' ? '常用参数' : title,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    if (!inlineHeading) const SizedBox(height: 8),
                     body,
                   ],
                 ),
