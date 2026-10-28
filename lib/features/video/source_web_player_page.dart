@@ -36,6 +36,7 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
   int _document = 0;
   bool _selecting = false;
   bool _foreground = true;
+  bool _episodePending = false;
 
   void _stopSelection() {
     _document++;
@@ -53,6 +54,7 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
         loaded.origin != widget.request.page.origin) {
       return;
     }
+    _episodePending = true;
     if (!_foreground) return;
     _stopSelection();
     final document = _document;
@@ -71,6 +73,7 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
       if (!mounted || document != _document) return;
       _selecting = false;
       if (result == 'selected') {
+        _episodePending = false;
         setState(() => _error = null);
         return;
       }
@@ -179,7 +182,7 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
       );
     } else if (state == AppLifecycleState.resumed) {
       _foreground = true;
-      if (widget.request.episodeSelector != null && mounted) {
+      if (_episodePending && mounted) {
         setState(() => _error = '已暂停自动选集，可点击“重试选集”继续。');
       }
     }

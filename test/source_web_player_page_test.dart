@@ -197,6 +197,23 @@ void main() {
     await tester.pump();
     expect(platform.controller.loads.last.toString(), 'about:blank');
   });
+  testWidgets('已选中集数回前台不提示重选，等待验证时回前台显示重试', (tester) async {
+    await open(tester, selector: 'button.playbtn[data-id="74596"]');
+    platform.delegate.finished('https://play.example/watch/1');
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.text('重试选集'), findsNothing);
+    platform.controller.result = 'waiting';
+    platform.delegate.finished('https://play.example/watch/1');
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.text('重试选集'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('进入后台暂停媒体，恢复前台不自动播放，退出停止页面', (tester) async {
     await open(tester);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
