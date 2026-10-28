@@ -17,6 +17,7 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/cat/cat_web_parse.dart';
 import 'package:lume_box/core/source/web_player_episode.dart';
 import 'package:lume_box/core/source/source_extension_settings.dart';
+import 'package:lume_box/core/source/source_settings_policy.dart';
 
 /// 真实引擎下的桥接验证（用户反馈的 Bug2）：
 ///
@@ -229,9 +230,26 @@ void main() {
         settingDefinitions: SourceSetting.parseAll([
           {'key': 'quality', 'title': '画质', 'type': 'text', 'default': 'hd'},
         ]),
+        commonDefinitions: SourceSettingsPolicy.parseCommon([
+          {'key': 'pageSize', 'default': 20},
+        ]),
+        appSettingValues: const {'pageSize': 42},
       );
       final injected = jsonEncode(jsonEncode(config.toScriptJson(cookie: '')));
       await sandbox.eval('__lumeApplyConfig($injected)');
+      final capabilities = await sandbox.eval(r'''JSON.stringify((function(){
+        try{LumeSource.config.commonSettings.pageSize=999;}catch(_){}
+        try{LumeSource.config.sourceSettings.quality='bad';}catch(_){}
+        try{LumeSource.capabilities.settingsFeatures.push('bad');}catch(_){}
+        LumeSource={capabilities:{settingsApiVersion:99}};
+        return [LumeSource.capabilities.settingsApiVersion,
+          LumeSource.capabilities.settingsFeatures.indexOf('actionInputs')>=0,
+          Object.isFrozen(LumeSource.capabilities),
+          Object.isFrozen(LumeSource.capabilities.settingTypes),
+          LumeSource.config.commonSettings.pageSize,
+          LumeSource.config.sourceSettings.quality];
+      })())''');
+      expect(capabilities.value, [2, true, true, true, 42, 'hd']);
       final result = await source.list();
       expect(
         result.items.single.id,

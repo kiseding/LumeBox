@@ -1,4 +1,7 @@
 import 'source_result_routes.dart';
+import 'source_site_config.dart';
+import 'source_extension_settings.dart';
+import 'source_settings_policy.dart';
 import '../cache/section_memory_cache.dart';
 import '../net/waf.dart';
 import '../net/network_cancellation.dart';
@@ -99,6 +102,7 @@ class JsDataSource
     required this.runtime,
     this.cache,
     this.rewriteUrl,
+    this.sourceConfiguration,
   });
 
   @override
@@ -116,15 +120,70 @@ class JsDataSource
   /// 读缓存（可选，按板块隔离）。为空表示不做任何缓存。
   final SourceReadCache? cache;
   final SourceUrlRouter? rewriteUrl;
+  final SourceSiteConfig Function()? sourceConfiguration;
   Future<Object?> settingsAction(
     String key, {
     Map<String, Object?> settings = const {},
     Map<String, Object?> config = const {},
-  }) => _invoke('settingsAction', {
-    'key': key,
-    'settings': settings,
-    'config': config,
-  });
+    Map<String, Object?> inputs = const {},
+  }) async {
+    final site = sourceConfiguration?.call();
+    var parameters = inputs, values = settings, preview = config;
+    if (site != null) {
+      final action = site.sourceDefinitions
+          .where(
+            (f) => f.key == key && f.type == 'action' && f.action == 'source',
+          )
+          .firstOrNull;
+      if (action == null) {
+        throw const SourceException(
+          SourceErrorKind.callFailed,
+          '该操作未由当前源声明，或由 App 管理',
+        );
+      }
+      parameters = _validateFields(action.inputs, inputs);
+      final proposedCommon = config['commonSettings'];
+      final common = SourceSettingsPolicy.resolve(site.commonDefinitions, {
+        ...site.resolvedCommonSettings,
+        if (proposedCommon is Map)
+          ...proposedCommon.map((k, v) => MapEntry('$k', v)),
+      });
+      final extra = _validateFields(site.sourceDefinitions, {
+        ...site.resolvedSourceSettings,
+        ...settings,
+      });
+      values = {...extra, ...common};
+      preview = {
+        ...config,
+        'settings': values,
+        'commonSettings': common,
+        'sourceSettings': extra,
+      };
+    }
+    return _invoke('settingsAction', {
+      'key': key,
+      'settings': values,
+      'config': preview,
+      'inputs': parameters,
+    });
+  }
+
+  static Map<String, Object?> _validateFields(
+    List<SourceSetting> fields,
+    Map<String, Object?> raw,
+  ) {
+    final values = <String, Object?>{};
+    for (final f in fields) {
+      if ({'info', 'action'}.contains(f.type)) continue;
+      final value = raw.containsKey(f.key) ? raw[f.key] : f.fallback;
+      final issue = f.valueIssue(value);
+      if (issue != null) {
+        throw SourceException(SourceErrorKind.callFailed, '${f.title}：$issue');
+      }
+      values[f.key] = value;
+    }
+    return values;
+  }
 
   @override
   Future<String?> refreshImage(String url, String page) async {
@@ -256,10 +315,43 @@ class JsDataSource
     required String itemId,
     required String chapterId,
   }) async {
-    final value = await _invoke(JsSourceContract.content, <String, Object?>{
+    var value = await _invoke(JsSourceContract.content, <String, Object?>{
       'id': itemId,
       'chapterId': chapterId,
     });
+    final mode = sourceConfiguration
+        ?.call()
+        .resolvedCommonSettings['playbackMode'];
+    final isWeb =
+        value is Map &&
+        (value['webParse'] == true ||
+            value['webPlayer'] == true ||
+            '${value['kind']}'.toLowerCase() == 'webplayer');
+    if (mode == 'native' && isWeb) {
+      throw const SourceException(
+        SourceErrorKind.callFailed,
+        'App 已选择原生播放，该源当前只提供网页线路；请更换线路或播放方式',
+      );
+    }
+    if (mode == 'webpage' && value is Map && !isWeb) {
+      final raw = '${value['pageUrl'] ?? itemId}';
+      final page = Uri.tryParse(raw);
+      if (page == null ||
+          !{'http', 'https'}.contains(page.scheme) ||
+          page.host.isEmpty ||
+          page.userInfo.isNotEmpty) {
+        throw const SourceException(
+          SourceErrorKind.callFailed,
+          'App 已选择网页播放，但源未提供有效作品页地址',
+        );
+      }
+      value = {
+        ...value,
+        'kind': 'webplayer',
+        'webPlayer': true,
+        'pageUrl': rewriteUrl?.call(raw, kind: 'site') ?? raw,
+      };
+    }
     try {
       if (value is Map &&
           (value['webParse'] == true ||

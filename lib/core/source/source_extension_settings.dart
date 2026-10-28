@@ -13,12 +13,25 @@ class SourceSetting {
     this.defaultValue,
     this.options = const {},
     this.action = 'source',
+    this.group = '',
+    this.placeholder = '',
+    this.minValue,
+    this.maxValue,
+    this.maxLength = 4096,
+    this.inputs = const [],
+    this.appOwned = false,
+    this.requiredValue = false,
+    this.integerOnly = false,
   });
-  final String key, title, type, description, action;
+  final String key, title, type, description, action, group, placeholder;
+  final num? minValue, maxValue;
+  final int maxLength;
+  final List<SourceSetting> inputs;
+  final bool appOwned, requiredValue, integerOnly;
   final Object? defaultValue;
   final Map<String, String> options;
   static const types = {'toggle', 'select', 'text', 'number', 'info', 'action'};
-  static List<SourceSetting> parseAll(Object? raw) {
+  static List<SourceSetting> parseAll(Object? raw, {bool allowActions = true}) {
     if (raw is! List) return const [];
     if (raw.length > 32) {
       throw const SourceSettingsFormatException('源专用设置最多 32 项');
@@ -35,6 +48,37 @@ class SourceSetting {
           title.trim().isEmpty ||
           title.length > 100) {
         throw const SourceSettingsFormatException('源设置的 key、标题或类型无效');
+      }
+      if (!allowActions && {'action', 'info'}.contains(type)) {
+        throw const SourceSettingsFormatException('操作参数不能包含按钮或说明项');
+      }
+      final min = item['min'],
+          max = item['max'],
+          length = item['maxLength'] ?? 4096;
+      if (min != null && (min is! num || !min.isFinite) ||
+          max != null && (max is! num || !max.isFinite) ||
+          min is num && max is num && min > max ||
+          length is! int ||
+          length < 1 ||
+          length > 4096) {
+        throw const SourceSettingsFormatException('设置范围或长度限制无效');
+      }
+      if (item['inputs'] != null &&
+          (type != 'action' ||
+              !allowActions ||
+              item['inputs'] is! List ||
+              (item['inputs'] as List).length > 8)) {
+        throw const SourceSettingsFormatException('操作最多允许 8 个输入参数');
+      }
+      final inputs = item['inputs'] == null
+          ? const <SourceSetting>[]
+          : parseAll(item['inputs'], allowActions: false);
+      if (type == 'number' &&
+          item['integer'] == true &&
+          min is num &&
+          max is num &&
+          min.ceil() > max.floor()) {
+        throw const SourceSettingsFormatException('整数设置的范围内没有有效整数');
       }
       final options = <String, String>{};
       if (type == 'select') {
@@ -76,6 +120,20 @@ class SourceSetting {
         defaultValue: item['default'],
         options: Map.unmodifiable(options),
         action: action,
+        group: '${item['group'] ?? ''}'.substring(
+          0,
+          '${item['group'] ?? ''}'.length.clamp(0, 60),
+        ),
+        placeholder: '${item['placeholder'] ?? ''}'.substring(
+          0,
+          '${item['placeholder'] ?? ''}'.length.clamp(0, 200),
+        ),
+        minValue: min as num?,
+        maxValue: max as num?,
+        maxLength: length,
+        inputs: inputs,
+        requiredValue: item['required'] == true,
+        integerOnly: item['integer'] == true,
       );
       if (item.containsKey('default') &&
           field.valueIssue(item['default']) != null) {
@@ -90,7 +148,14 @@ class SourceSetting {
       defaultValue ??
       switch (type) {
         'toggle' => false,
-        'number' => 0,
+        'number' => (0).clamp(
+          integerOnly
+              ? minValue?.ceil() ?? -double.maxFinite
+              : minValue ?? -double.maxFinite,
+          integerOnly
+              ? maxValue?.floor() ?? double.maxFinite
+              : maxValue ?? double.maxFinite,
+        ),
         'select' => options.keys.first,
         _ => '',
       };
@@ -98,8 +163,22 @@ class SourceSetting {
     'toggle' => value is bool ? null : '请选择开关状态',
     'select' =>
       value is String && options.containsKey(value) ? null : '请选择有效选项',
-    'number' => value is num && value.isFinite ? null : '请输入有效数字',
-    'text' => value is String && value.length <= 4096 ? null : '输入不能超过 4096 字',
+    'number' =>
+      value is! num || !value.isFinite
+          ? '请输入有效数字'
+          : integerOnly && value % 1 != 0
+          ? '请输入整数'
+          : minValue != null && value < minValue!
+          ? '不能小于 $minValue'
+          : maxValue != null && value > maxValue!
+          ? '不能大于 $maxValue'
+          : null,
+    'text' =>
+      requiredValue && (value is! String || value.trim().isEmpty)
+          ? '此项必填'
+          : value is String && value.length <= maxLength
+          ? null
+          : '输入不能超过 $maxLength 字',
     _ => null,
   };
   Map<String, Object?> toJson() => {
@@ -113,6 +192,14 @@ class SourceSetting {
         for (final o in options.entries) {'value': o.key, 'title': o.value},
       ],
     if (type == 'action') 'action': action,
+    if (group.isNotEmpty) 'group': group,
+    if (placeholder.isNotEmpty) 'placeholder': placeholder,
+    if (minValue != null) 'min': minValue,
+    if (maxValue != null) 'max': maxValue,
+    if (maxLength != 4096) 'maxLength': maxLength,
+    if (requiredValue) 'required': true,
+    if (integerOnly) 'integer': true,
+    if (inputs.isNotEmpty) 'inputs': inputs.map((f) => f.toJson()).toList(),
   };
 }
 

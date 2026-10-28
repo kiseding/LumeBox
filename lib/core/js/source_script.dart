@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../session/section.dart';
 import '../source/source_site_config.dart';
 import '../source/source_extension_settings.dart';
+import '../source/source_settings_policy.dart';
 
 /// 去掉脚本文本开头的 UTF-8 BOM（`\uFEFF`）。
 ///
@@ -39,6 +40,9 @@ class SourceMetadata {
     this.images = const SourceRoute(),
     this.video = const SourceRoute(),
     this.settings = const [],
+    this.commonSettings = const [],
+    this.settingsApiVersion = 1,
+    this.requiredSettingsFeatures = const [],
   });
 
   final String id;
@@ -68,7 +72,9 @@ class SourceMetadata {
   /// 不改变运行时的网络选择（那是 [NetworkProfile] 与全局设置的事）。
   final String network;
   final SourceRoute images, video;
-  final List<SourceSetting> settings;
+  final List<SourceSetting> settings, commonSettings;
+  final int settingsApiVersion;
+  final List<String> requiredSettingsFeatures;
 
   /// 头部声明注释的匹配式：`//` 行注释与 `/* */` 块注释，分隔符 `:` / `=`，
   /// 前缀允许 `@`。第三个式子是 `key=value` 列表写法（`{` 开头的不走这条）。
@@ -216,6 +222,10 @@ class SourceMetadata {
     final name = '${json['name'] ?? ''}'.trim();
     if (id.isEmpty || name.isEmpty) return null;
     if (!_idPattern.hasMatch(id)) return null;
+    SourceSettingsPolicy.validateProtocol(
+      json['settingsApiVersion'],
+      json['requiresSettings'],
+    );
     return SourceMetadata(
       id: id,
       name: name,
@@ -233,6 +243,11 @@ class SourceMetadata {
         json['endpoints'] is Map ? (json['endpoints'] as Map)['video'] : null,
       ),
       settings: SourceSetting.parseAll(json['settings']),
+      commonSettings: SourceSettingsPolicy.parseCommon(json['commonSettings']),
+      settingsApiVersion: json['settingsApiVersion'] as int? ?? 1,
+      requiredSettingsFeatures: json['requiresSettings'] is List
+          ? List<String>.from(json['requiresSettings'])
+          : const [],
       network: '${json['network'] ?? ''}'.trim(),
     );
   }
@@ -259,6 +274,18 @@ class SourceMetadata {
       images: header.images.urls.isEmpty ? runtime.images : header.images,
       video: header.video.urls.isEmpty ? runtime.video : header.video,
       settings: header.settings.isEmpty ? runtime.settings : header.settings,
+      commonSettings: header.commonSettings.isEmpty
+          ? runtime.commonSettings
+          : header.commonSettings,
+      settingsApiVersion: header.settingsApiVersion > runtime.settingsApiVersion
+          ? header.settingsApiVersion
+          : runtime.settingsApiVersion,
+      requiredSettingsFeatures: [
+        ...{
+          ...header.requiredSettingsFeatures,
+          ...runtime.requiredSettingsFeatures,
+        },
+      ],
     );
   }
 
@@ -320,5 +347,9 @@ class SourceMetadata {
       'video': video.toJson()['urls'],
     },
     'settings': settings.map((f) => f.toJson()).toList(),
+    'commonSettings': commonSettings.map((f) => f.toJson()).toList(),
+    'settingsApiVersion': settingsApiVersion,
+    if (requiredSettingsFeatures.isNotEmpty)
+      'requiresSettings': requiredSettingsFeatures,
   });
 }

@@ -343,6 +343,7 @@ class SourceRegistry {
         images: metadata.images,
         video: metadata.video,
         settings: metadata.settings,
+        commonSettings: metadata.commonSettings,
       );
       // 订阅来源：记在库里供「更新订阅源」重新拉取；本地导入留空。
       // 覆盖导入（更新）时也照写——来源地址属于用户配置，不随脚本内容丢失。

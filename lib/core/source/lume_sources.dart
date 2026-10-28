@@ -271,6 +271,8 @@ class LumeSources {
       section: section,
       runtime: _EngineRuntime(registry, sourceId),
       cache: cached ? SectionMemoryCache.instance : null,
+      sourceConfiguration: () =>
+          registry.source(sourceId)?.siteConfig ?? SourceSiteConfig.none,
       rewriteUrl: (url, {kind}) =>
           registry.rewriteSourceUrl(sourceId, url, kind: kind),
     );

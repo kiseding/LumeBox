@@ -17,6 +17,7 @@
 library;
 
 import 'source_extension_settings.dart';
+import 'source_settings_policy.dart';
 
 /// 单图源的换网址 / 登录配置。
 class SourceSiteConfig {
@@ -31,6 +32,8 @@ class SourceSiteConfig {
     this.video = const SourceRoute(),
     this.settingDefinitions = const [],
     this.settingValues = const {},
+    this.commonDefinitions = const [],
+    this.appSettingValues = const {},
   });
 
   /// 每组最多 20 条；设置页折叠展示较长的站点列表。
@@ -57,14 +60,20 @@ class SourceSiteConfig {
   final SourceRoute images, video;
   final List<SourceSetting> settingDefinitions;
   final Map<String, Object?> settingValues;
+  final List<SourceSetting> commonDefinitions;
+  final Map<String, Object?> appSettingValues;
+  List<SourceSetting> get sourceDefinitions =>
+      SourceSettingsPolicy.sourceFields(commonDefinitions, settingDefinitions);
+  Map<String, Object?> get resolvedSourceSettings =>
+      SourceSettingsPolicy.resolve(sourceDefinitions, settingValues);
+  Map<String, Object?> get resolvedCommonSettings =>
+      SourceSettingsPolicy.resolve(commonDefinitions, {
+        ...settingValues,
+        ...appSettingValues,
+      });
   Map<String, Object?> get resolvedSettings => {
-    for (final field in settingDefinitions)
-      if (!{'info', 'action'}.contains(field.type))
-        field.key:
-            settingValues.containsKey(field.key) &&
-                field.valueIssue(settingValues[field.key]) == null
-            ? settingValues[field.key]
-            : field.fallback,
+    ...resolvedSourceSettings,
+    ...resolvedCommonSettings,
   };
 
   SourceSiteConfig redeclare({
@@ -72,6 +81,7 @@ class SourceSiteConfig {
     required SourceRoute images,
     required SourceRoute video,
     required List<SourceSetting> settings,
+    List<SourceSetting>? common,
   }) {
     final previous = selectedMirror;
     final index = previous == null ? 0 : mirrors.indexOf(previous);
@@ -81,6 +91,7 @@ class SourceSiteConfig {
       images: this.images.redeclare(images),
       video: this.video.redeclare(video),
       settingDefinitions: settings,
+      commonDefinitions: common ?? commonDefinitions,
     ).normalized();
   }
 
@@ -151,6 +162,8 @@ class SourceSiteConfig {
     SourceRoute? video,
     List<SourceSetting>? settingDefinitions,
     Map<String, Object?>? settingValues,
+    List<SourceSetting>? commonDefinitions,
+    Map<String, Object?>? appSettingValues,
   }) => SourceSiteConfig(
     mirrors: mirrors ?? this.mirrors,
     mirrorIndex: mirrorIndex ?? this.mirrorIndex,
@@ -162,6 +175,8 @@ class SourceSiteConfig {
     video: video ?? this.video,
     settingDefinitions: settingDefinitions ?? this.settingDefinitions,
     settingValues: settingValues ?? this.settingValues,
+    commonDefinitions: commonDefinitions ?? this.commonDefinitions,
+    appSettingValues: appSettingValues ?? this.appSettingValues,
   );
 
   /// 归一：镜像合法化 + 下标收敛。从库里读出来、或从脚本声明读进来时都过一遍，
@@ -180,6 +195,8 @@ class SourceSiteConfig {
       images: images,
       video: video,
       settingDefinitions: settingDefinitions,
+      commonDefinitions: commonDefinitions,
+      appSettingValues: _cleanValues(appSettingValues),
       settingValues: Map.unmodifiable(
         Map.fromEntries(
           settingValues.entries
@@ -283,6 +300,8 @@ class SourceSiteConfig {
     'video': video.toJson(),
     'settings': settingDefinitions.map((f) => f.toJson()).toList(),
     'settingValues': settingValues,
+    'commonSettings': commonDefinitions.map((f) => f.toJson()).toList(),
+    'appSettingValues': appSettingValues,
   };
 
   /// 从落库 JSON 还原；缺失 / 非法项一律回落到默认（老库照常读得出来）。
@@ -298,6 +317,10 @@ class SourceSiteConfig {
       images: SourceRoute.fromJson(json['images']),
       video: SourceRoute.fromJson(json['video']),
       settingDefinitions: _savedDefinitions(json['settings']),
+      commonDefinitions: _savedCommon(json['commonSettings']),
+      appSettingValues: json['appSettingValues'] is Map
+          ? (json['appSettingValues'] as Map).map((k, v) => MapEntry('$k', v))
+          : const {},
       settingValues: json['settingValues'] is Map
           ? (json['settingValues'] as Map).map((k, v) => MapEntry('$k', v))
           : const {},
@@ -322,7 +345,32 @@ class SourceSiteConfig {
         'videoDomain': video.resolved,
         'videoMirrors': video.urls,
         'settings': resolvedSettings,
+        'commonSettings': resolvedCommonSettings,
+        'sourceSettings': resolvedSourceSettings,
       };
+
+  static Map<String, Object?> _cleanValues(Map<String, Object?> raw) =>
+      Map.unmodifiable(
+        Map.fromEntries(
+          raw.entries
+              .where(
+                (e) =>
+                    RegExp(r'^[A-Za-z][A-Za-z0-9_]{0,63}$').hasMatch(e.key) &&
+                    (e.value is bool ||
+                        e.value is num && (e.value as num).isFinite ||
+                        e.value is String &&
+                            (e.value as String).length <= 4096),
+              )
+              .take(128),
+        ),
+      );
+  static List<SourceSetting> _savedCommon(Object? raw) {
+    try {
+      return SourceSettingsPolicy.parseCommon(raw);
+    } on FormatException {
+      return const [];
+    }
+  }
 
   static List<SourceSetting> _savedDefinitions(Object? raw) {
     try {

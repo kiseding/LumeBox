@@ -1,3 +1,4 @@
+import '../../core/source/source_settings_policy.dart';
 import '../../core/cache/section_memory_cache.dart';
 import 'source_extension_editor.dart';
 import '../../core/source/source_extension_settings.dart';
@@ -144,6 +145,7 @@ class SourceNetworkDialog extends StatefulWidget {
     SourceSetting,
     Map<String, Object?>,
     SourceSiteConfig,
+    Map<String, Object?>,
   )?
   onSettingAction;
 
@@ -182,7 +184,10 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
   late SourceRoute _images = widget.source.siteConfig.images,
       _video = widget.source.siteConfig.video;
   late Map<String, Object?> _extra = Map.of(
-    widget.source.siteConfig.resolvedSettings,
+    widget.source.siteConfig.resolvedSourceSettings,
+  );
+  late Map<String, Object?> _common = Map.of(
+    widget.source.siteConfig.resolvedCommonSettings,
   );
   String? _imageError, _videoError, _extraError;
 
@@ -219,14 +224,29 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
     images: _images,
     video: _video,
     settingValues: {...widget.source.siteConfig.settingValues, ..._extra},
+    appSettingValues: {
+      ...widget.source.siteConfig.appSettingValues,
+      ..._common,
+    },
   );
 
   Future<String> _runSettingAction(
     SourceSetting field,
     Map<String, Object?> values,
+    Map<String, Object?> inputs,
   ) async {
+    values = {..._extra, ...values, ..._common};
+    for (final definition in [
+      ...widget.source.siteConfig.commonDefinitions,
+      ...widget.source.siteConfig.sourceDefinitions,
+    ]) {
+      final error = definition.valueIssue(
+        values[definition.key] ?? definition.fallback,
+      );
+      if (error != null) return '${definition.title}：$error';
+    }
     if (widget.onSettingAction != null) {
-      return widget.onSettingAction!(field, values, _site);
+      return widget.onSettingAction!(field, values, _site, inputs);
     }
     final section = widget.source.section;
     if (section == null) return '当前源没有可用板块';
@@ -261,6 +281,7 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
         final result = await source.settingsAction(
           field.key,
           settings: values,
+          inputs: inputs,
           config: _site.toScriptJson(cookie: _cookie.text),
         );
         final message = result is String
@@ -289,10 +310,14 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
         ? '请填写有效的 HTTP(S) 视频 CDN 地址'
         : null;
     _extraError = null;
-    for (final field in widget.source.siteConfig.settingDefinitions) {
-      final error = field.valueIssue(_extra[field.key] ?? field.fallback);
-      if (error != null) {
-        _extraError = '${field.title}：$error';
+    for (final field in [
+      ...widget.source.siteConfig.sourceDefinitions,
+      ...widget.source.siteConfig.commonDefinitions,
+    ]) {
+      final raw = field.appOwned ? _common[field.key] : _extra[field.key];
+      final actual = field.valueIssue(raw ?? field.fallback);
+      if (actual != null) {
+        _extraError = '${field.title}：$actual';
         break;
       }
     }
@@ -531,22 +556,34 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                   onChanged: (v) => setState(() => _video = v),
                 ),
               ]),
-              if (widget.source.siteConfig.settingDefinitions.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _group('App 通用设置', 'App 定义规则和优先级；用户选择优先于源建议。', [
+                SourceExtensionEditor(
+                  definitions: [
+                    ...widget.source.siteConfig.commonDefinitions,
+                    ...SourceSettingsPolicy.hostActions,
+                  ],
+                  initialValues: _common,
+                  onChanged: (v) => _common = v,
+                  onAction: _runSettingAction,
+                ),
+                if (_extraError != null)
+                  Text(
+                    _extraError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+              ]),
+              if (widget.source.siteConfig.sourceDefinitions.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _group('源专用设置', '由此源提供；只对当前源生效。', [
+                _group('源扩展功能', '由此源提供；只对当前源生效。', [
                   SourceExtensionEditor(
-                    definitions: widget.source.siteConfig.settingDefinitions,
+                    definitions: widget.source.siteConfig.sourceDefinitions,
                     initialValues: _extra,
                     onChanged: (v) => _extra = v,
                     onAction: _runSettingAction,
                   ),
-                  if (_extraError != null)
-                    Text(
-                      _extraError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
                 ]),
               ],
               const SizedBox(height: 12),

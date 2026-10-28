@@ -10,6 +10,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source_site_config.dart';
 import 'package:lume_box/core/source/source_extension_settings.dart';
+import 'package:lume_box/core/source/source_settings_policy.dart';
 
 /// 板块库与注册表的归属校验。
 ///
@@ -55,6 +56,9 @@ void main() {
           mirrors: mirrors,
           images: images,
           settings: fields,
+          commonSettings: SourceSettingsPolicy.parseCommon([
+            {'key': 'pageSize', 'default': 20},
+          ]),
         );
     put(
       ['https://main.example', 'https://mirror.example'],
@@ -79,6 +83,7 @@ void main() {
                   custom: 'https://images-custom.example',
                 ),
             settingValues: {'quality': 'sd'},
+            appSettingValues: {'pageSize': 42},
           ),
     );
     put(
@@ -94,6 +99,7 @@ void main() {
     expect(stored.resolvedDomain, 'https://custom.example');
     expect(stored.account, 'account');
     expect(stored.resolvedSettings['quality'], 'sd');
+    expect(stored.resolvedCommonSettings['pageSize'], 42);
     db.upsertSource(
       id: 'routes',
       name: '新名字',
@@ -110,6 +116,10 @@ void main() {
     SectionDatabase.disposeAll();
     await SectionScope.closeAll();
     final reopened = await openDatabase(Section.video);
+    expect(
+      reopened.source('routes')!.siteConfig.resolvedCommonSettings['pageSize'],
+      42,
+    );
     expect(
       reopened.source('routes')!.siteConfig.images.resolved,
       'https://images-custom.example',

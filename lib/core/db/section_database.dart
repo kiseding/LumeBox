@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS section_setting (
     SourceRoute? images,
     SourceRoute? video,
     List<SourceSetting>? settings,
+    List<SourceSetting>? commonSettings,
     bool rememberPrevious = true,
     String? rejectedScript,
   }) {
@@ -221,6 +222,7 @@ CREATE TABLE IF NOT EXISTS section_setting (
       images: images ?? previous.images,
       video: video ?? previous.video,
       settings: settings ?? previous.settingDefinitions,
+      common: commonSettings ?? previous.commonDefinitions,
     );
     _db.execute('BEGIN IMMEDIATE');
     try {
@@ -311,7 +313,9 @@ CREATE TABLE IF NOT EXISTS section_setting (
         config.video.urls.isEmpty &&
         config.video.custom.isEmpty &&
         config.settingDefinitions.isEmpty &&
-        config.settingValues.isEmpty) {
+        config.settingValues.isEmpty &&
+        config.commonDefinitions.isEmpty &&
+        config.appSettingValues.isEmpty) {
       return '';
     }
     return jsonEncode(config.toJson());

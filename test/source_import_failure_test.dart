@@ -75,6 +75,49 @@ void main() {
     return SourceRegistry.open(section);
   }
 
+  test('v2 运行时声明经过真实导入落库，更新保留 App 选择，未来协议拒绝覆盖', () async {
+    final registry = await openRegistry(Section.video);
+    String script(int api, int count) =>
+        '''
+var LumeSource = {
+  id:'settings-v2', name:'设置协议验证', category:'video',
+  settingsApiVersion:$api, requiresSettings:['commonSettings','actionInputs'],
+  commonSettings:[{key:'pageSize',default:$count}],
+  settings:[{key:'refresh',title:'刷新',type:'action',group:'维护',inputs:[
+    {key:'count',title:'数量',type:'number',integer:true,min:1,max:5,default:2}
+  ]}],
+  list:async function(){return {items:[]};},
+  settingsAction:async function(a){return {message:String(a.inputs.count)};}
+};
+''';
+    expect((await registry.import(script(2, 20))).isSuccess, true);
+    final original = registry.source('settings-v2')!.siteConfig;
+    expect(original.commonDefinitions.single.title, '每页数量');
+    expect(original.sourceDefinitions.single.inputs.single.integerOnly, true);
+    registry.setSourceSiteConfig(
+      'settings-v2',
+      original.copyWith(appSettingValues: {'pageSize': 42}),
+    );
+    expect((await registry.import(script(2, 30))).isSuccess, true);
+    expect(
+      registry
+          .source('settings-v2')!
+          .siteConfig
+          .resolvedCommonSettings['pageSize'],
+      42,
+    );
+    final unsupported = await registry.import(script(3, 10));
+    expect(unsupported.isSuccess, false);
+    expect(unsupported.message, contains('版本不受支持'));
+    expect(
+      registry
+          .source('settings-v2')!
+          .siteConfig
+          .resolvedCommonSettings['pageSize'],
+      42,
+    );
+  }, skip: skipReason);
+
   test('overwrite and subscription updates preserve personal settings and report versions', () async {
     final registry = await openRegistry(Section.video);
     await ReadingLibrary.open(Section.video);

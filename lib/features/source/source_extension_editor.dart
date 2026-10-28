@@ -69,7 +69,12 @@ class SourceExtensionEditor extends StatefulWidget {
   final List<SourceSetting> definitions;
   final Map<String, Object?> initialValues;
   final ValueChanged<Map<String, Object?>> onChanged;
-  final Future<String> Function(SourceSetting, Map<String, Object?>)? onAction;
+  final Future<String> Function(
+    SourceSetting,
+    Map<String, Object?>,
+    Map<String, Object?>,
+  )?
+  onAction;
   @override
   State<SourceExtensionEditor> createState() => _SourceExtensionEditorState();
 }
@@ -96,7 +101,11 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
       status = null;
     });
     try {
-      final message = await widget.onAction!(field, Map.of(values));
+      final inputs = field.inputs.isEmpty
+          ? <String, Object?>{}
+          : await _requestInputs(field);
+      if (inputs == null || !mounted) return;
+      final message = await widget.onAction!(field, Map.of(values), inputs);
       if (mounted) setState(() => status = message);
     } catch (_) {
       if (mounted) setState(() => status = '操作失败，请检查源设置和网络后重试');
@@ -105,12 +114,80 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
     }
   }
 
+  Future<Map<String, Object?>?> _requestInputs(SourceSetting action) async {
+    var input = <String, Object?>{
+      for (final f in action.inputs) f.key: f.fallback,
+    };
+    String? error;
+    return showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text(action.title),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SourceExtensionEditor(
+                  definitions: action.inputs,
+                  initialValues: input,
+                  onChanged: (v) => input = v,
+                ),
+                if (error != null)
+                  Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                for (final f in action.inputs) {
+                  final issue = f.valueIssue(input[f.key]);
+                  if (issue != null) {
+                    update(() => error = '${f.title}：$issue');
+                    return;
+                  }
+                }
+                Navigator.pop(context, input);
+              },
+              child: const Text('执行'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      for (final d in widget.definitions)
-        Padding(padding: const EdgeInsets.only(bottom: 12), child: field(d)),
+      for (var i = 0; i < widget.definitions.length; i++) ...[
+        if (widget.definitions[i].group.isNotEmpty &&
+            (i == 0 ||
+                widget.definitions[i - 1].group != widget.definitions[i].group))
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              widget.definitions[i].group,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+        Padding(
+          key: ValueKey(widget.definitions[i].key),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: field(widget.definitions[i]),
+        ),
+      ],
       if (status != null) Text(status!),
     ],
   );
@@ -131,6 +208,7 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
           isExpanded: true,
           decoration: InputDecoration(
             labelText: d.title,
+            hintText: d.placeholder.isEmpty ? null : d.placeholder,
             helperText: d.description.isEmpty ? null : d.description,
           ),
           items: [
@@ -145,6 +223,7 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
           initialValue: '$value',
           decoration: InputDecoration(
             labelText: d.title,
+            hintText: d.placeholder.isEmpty ? null : d.placeholder,
             helperText: d.description.isEmpty ? null : d.description,
           ),
           keyboardType: d.type == 'number'
@@ -153,7 +232,7 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
                   signed: true,
                 )
               : TextInputType.text,
-          maxLength: d.type == 'text' ? 4096 : null,
+          maxLength: d.type == 'text' ? d.maxLength : null,
           onChanged: (v) =>
               changed(d, d.type == 'number' ? num.tryParse(v) ?? v : v),
         );

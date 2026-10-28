@@ -3,9 +3,109 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_extension_settings.dart';
+import 'package:lume_box/core/source/source_settings_policy.dart';
 import 'package:lume_box/features/source/source_action_dialogs.dart';
 
 void main() {
+  testWidgets('App 通用设置裁决冲突，动作参数校验、取消与保存互不影响', (tester) async {
+    SourceSettingsResult? saved;
+    Map<String, Object?>? inputs, values;
+    final config = SourceSiteConfig(
+      commonDefinitions: SourceSettingsPolicy.parseCommon([
+        {'key': 'pageSize', 'default': 20},
+      ]),
+      settingDefinitions: SourceSetting.parseAll([
+        {'key': 'pageSize', 'title': '源伪造数量', 'type': 'text'},
+        {
+          'key': 'refresh',
+          'title': '更新索引',
+          'type': 'action',
+          'group': '索引维护',
+          'inputs': [
+            {'key': 'path', 'title': '目录', 'type': 'text', 'required': true},
+            {
+              'key': 'count',
+              'title': '抽样数量',
+              'type': 'number',
+              'min': 1,
+              'max': 5,
+              'integer': true,
+              'default': 2,
+            },
+          ],
+        },
+      ]),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              child: const Text('打开'),
+              onPressed: () async {
+                saved = await showDialog<SourceSettingsResult>(
+                  context: context,
+                  builder: (_) => SourceNetworkDialog(
+                    source: SourceDescriptor(
+                      id: 'test',
+                      name: '测试',
+                      version: '1',
+                      enabled: true,
+                      section: Section.video,
+                      siteConfig: config,
+                    ),
+                    onSettingAction: (field, current, site, parameters) async {
+                      inputs = parameters;
+                      values = current;
+                      return '完成';
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    Future<void> tap(Finder finder) async {
+      tester.testTextInput.hide();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    await tap(find.text('打开'));
+    expect(find.text('源伪造数量'), findsNothing);
+    final page = find.widgetWithText(TextFormField, '每页数量');
+    await tester.ensureVisible(page);
+    await tester.enterText(page, '42');
+    await tap(find.text('更新索引'));
+    await tap(find.widgetWithText(FilledButton, '执行'));
+    expect(find.text('目录：此项必填'), findsOneWidget);
+    expect(inputs, isNull);
+    await tap(find.widgetWithText(TextButton, '取消').last);
+    expect(inputs, isNull);
+    await tap(find.text('更新索引'));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '目录'),
+      '/catalog',
+    );
+    await tester.enterText(find.widgetWithText(TextFormField, '抽样数量'), '9');
+    await tap(find.widgetWithText(FilledButton, '执行'));
+    expect(find.text('抽样数量：不能大于 5'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, '抽样数量'), '3');
+    await tap(find.widgetWithText(FilledButton, '执行'));
+    expect(inputs, {'path': '/catalog', 'count': 3});
+    expect(values?['pageSize'], 42);
+    expect(saved, isNull);
+    await tap(find.widgetWithText(FilledButton, '保存'));
+    expect(saved?.site.appSettingValues['pageSize'], 42);
+    expect(saved?.site.settingValues.containsKey('path'), false);
+    expect(config.appSettingValues, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('多镜像、独立 CDN、自定义优先、专用设置和操作完整保存，取消不提交', (tester) async {
     SourceSettingsResult? saved;
     Map<String, Object?>? preview;
@@ -38,7 +138,7 @@ void main() {
                       section: Section.video,
                       siteConfig: config,
                     ),
-                    onSettingAction: (field, values, site) async {
+                    onSettingAction: (field, values, site, inputs) async {
                       preview = {...values, 'domain': site.resolvedDomain};
                       return '分类已刷新';
                     },
@@ -52,6 +152,7 @@ void main() {
       ),
     );
     Future<void> tap(Finder finder) async {
+      await tester.pumpAndSettle();
       await tester.ensureVisible(finder);
       await tester.pumpAndSettle();
       await tester.tap(finder);
@@ -73,7 +174,11 @@ void main() {
       find.widgetWithText(TextFormField, '自定义视频 CDN地址（填了优先）'),
       'https://custom-v.example',
     );
-    await tap(find.text('自动翻页'));
+    tester.testTextInput.hide();
+    await tap(find.widgetWithText(SwitchListTile, '自动翻页'));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(TextFormField, '每页数量'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '每页数量'), '30');
     await tap(find.text('刷新分类'));
     expect(preview?['autoNext'], true);
