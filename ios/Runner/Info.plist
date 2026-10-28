@@ -39,6 +39,15 @@
 				<key>NSIncludesSubdomains</key>
 				<false/>
 			</dict>
+			<!-- 320lu 小视频整站只有明文 HTTP（http://yd.kmuan.com:66），
+			     iOS ATS 会直接把 Dart 侧的请求拦成 -1022 transport_security。 -->
+			<key>kmuan.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
 		</dict>
 	</dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
