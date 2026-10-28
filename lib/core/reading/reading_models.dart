@@ -11,6 +11,7 @@ library;
 import 'package:sqlite3/sqlite3.dart';
 
 import '../session/section.dart';
+import 'reading_identity.dart';
 
 /// 由稳定 id 反查板块；未知 id 返回 null。
 Section? sectionFromId(String id) {
@@ -35,6 +36,7 @@ class ReadingTarget {
 
   /// 所属图源 id（本板块内）。
   final String sourceId;
+  String get identity => ReadingIdentity.key(sourceId, itemId);
 
   /// 作品在图源内的 id。
   final String itemId;
@@ -69,6 +71,7 @@ class LibraryItem {
 
   /// 加入书架时所用的图源 id。
   final String sourceId;
+  String get identity => ReadingIdentity.key(sourceId, itemId);
 
   final String title;
   final String? cover;
@@ -153,6 +156,7 @@ class LibraryItem {
 /// 反之亦然。
 sealed class ReadingProgress {
   const ReadingProgress({
+    this.sourceId = '',
     required this.section,
     required this.itemId,
     required this.chapterIndex,
@@ -162,6 +166,7 @@ sealed class ReadingProgress {
   });
 
   final Section section;
+  final String sourceId;
   final String itemId;
 
   /// 章节序号（0 起）。
@@ -187,6 +192,7 @@ sealed class ReadingProgress {
 /// 漫画进度：章节序号 + 当前页面位置。
 final class ComicProgress extends ReadingProgress {
   const ComicProgress({
+    super.sourceId,
     required super.section,
     required super.itemId,
     required super.chapterIndex,
@@ -213,6 +219,7 @@ final class ComicProgress extends ReadingProgress {
     return ComicProgress(
       section: section,
       itemId: itemId,
+      sourceId: sourceId,
       chapterIndex: chapterIndex,
       chapterId: chapterId,
       chapterTitle: chapterTitle,
@@ -232,6 +239,7 @@ final class ComicProgress extends ReadingProgress {
 /// 剧集序号沿用 [chapterIndex]：视频的「章」就是剧集，选集列表的下标即它。
 final class VideoProgress extends ReadingProgress {
   const VideoProgress({
+    super.sourceId,
     required super.section,
     required super.itemId,
     required super.chapterIndex,
@@ -288,6 +296,7 @@ final class VideoProgress extends ReadingProgress {
     return VideoProgress(
       section: section,
       itemId: itemId,
+      sourceId: sourceId,
       chapterIndex: chapterIndex,
       chapterId: chapterId,
       chapterTitle: chapterTitle,

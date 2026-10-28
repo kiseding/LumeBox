@@ -1,3 +1,4 @@
+import '../../core/reading/reading_identity.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -23,6 +24,7 @@ Future<void> showBangumiMatchSheet({
   required ReadingLibrary library,
   required SourceItem item,
   required String initialTitle,
+  String sourceId = '',
 }) => showGlassModalBottomSheet<void>(
   context: context,
   videoGlass: true,
@@ -32,6 +34,7 @@ Future<void> showBangumiMatchSheet({
     library: library,
     item: item,
     initialTitle: initialTitle,
+    sourceId: sourceId,
   ),
 );
 
@@ -41,11 +44,13 @@ class BangumiMatchSheet extends StatefulWidget {
     required this.library,
     required this.item,
     required this.initialTitle,
+    this.sourceId = '',
   });
 
   final ReadingLibrary library;
   final SourceItem item;
   final String initialTitle;
+  final String sourceId;
 
   @override
   State<BangumiMatchSheet> createState() => _BangumiMatchSheetState();
@@ -81,7 +86,14 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
       }
     }
     final saved = BangumiBinding.decode(
-      widget.library.setting(BangumiBinding.keyFor(widget.item.id)),
+      widget.library.setting(
+        widget.library.itemSettingKey(
+          'bangumi.binding.',
+          widget.sourceId.isEmpty
+              ? widget.item.id
+              : ReadingIdentity.key(widget.sourceId, widget.item.id),
+        ),
+      ),
     );
     if (!mounted) return;
     setState(() {
@@ -157,10 +169,18 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
         episodes: episodes,
       );
       widget.library.setSetting(
-        BangumiBinding.keyFor(widget.item.id),
+        widget.library.itemSettingKey(
+          'bangumi.binding.',
+          widget.sourceId.isEmpty
+              ? widget.item.id
+              : ReadingIdentity.key(widget.sourceId, widget.item.id),
+        ),
         value.encode(),
       );
-      BangumiSyncService.instance.forget(widget.item.id);
+      BangumiSyncService.instance.forget(
+        widget.item.id,
+        sourceId: widget.sourceId,
+      );
       if (mounted) setState(() => binding = value);
       final progress = _currentProgress();
       if (progress != null) {
@@ -210,8 +230,19 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
   }
 
   Future<void> _unbind() async {
-    widget.library.setSetting(BangumiBinding.keyFor(widget.item.id), '');
-    BangumiSyncService.instance.forget(widget.item.id);
+    widget.library.setSetting(
+      widget.library.itemSettingKey(
+        'bangumi.binding.',
+        widget.sourceId.isEmpty
+            ? widget.item.id
+            : ReadingIdentity.key(widget.sourceId, widget.item.id),
+      ),
+      '',
+    );
+    BangumiSyncService.instance.forget(
+      widget.item.id,
+      sourceId: widget.sourceId,
+    );
     if (mounted) {
       setState(() {
         binding = null;
@@ -221,7 +252,10 @@ class _BangumiMatchSheetState extends State<BangumiMatchSheet> {
   }
 
   VideoProgress? _currentProgress() {
-    final saved = widget.library.progress(widget.item.id);
+    final saved = widget.library.progress(
+      widget.item.id,
+      sourceId: widget.sourceId,
+    );
     return saved is VideoProgress ? saved : null;
   }
 

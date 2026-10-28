@@ -117,7 +117,13 @@ void main() {
 
   Future<void> chooseFlow(WidgetTester tester, String label) async {
     await openToolbar(tester);
-    await tester.tap(find.byTooltip('阅读方向'));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('阅读模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('阅读方向'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(label));
     await tester.pumpAndSettle();
     await tester.tap(find.text(label));
     await tester.pumpAndSettle();

@@ -155,11 +155,11 @@ class SectionCacheService {
     var cacheBytes = 0;
     var cacheFiles = 0;
     for (final dir in _clearableDirs(scope)) {
-      final measured = _measure(dir);
+      final measured = await _measure(dir);
       cacheBytes += measured.bytes;
       cacheFiles += measured.files;
     }
-    final saved = _measure(_exportDir(scope));
+    final saved = await _measure(_exportDir(scope));
     return SectionCacheStats(
       section: section,
       cacheBytes: cacheBytes,
@@ -175,11 +175,15 @@ class SectionCacheService {
     var freed = 0;
     for (final path in _clearableDirs(scope)) {
       final dir = Directory(path);
-      if (!dir.existsSync()) continue;
-      for (final entity in dir.listSync(followLinks: false)) {
+      if (await FileSystemEntity.type(path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        continue;
+      }
+      await for (final entity in dir.list(followLinks: false)) {
         try {
-          freed += _measure(entity.path).bytes;
-          entity.deleteSync(recursive: true);
+          final size = await _measure(entity.path);
+          await entity.delete(recursive: true);
+          freed += size.bytes;
         } catch (error, stackTrace) {
           // 单个文件删不掉不阻断其余清理；原因写进日志，页面按剩余量重算。
           LumeLog.error(error, stackTrace);
@@ -204,11 +208,17 @@ class SectionCacheService {
 
     for (final path in _clearableDirs(scope)) {
       final dir = Directory(path);
-      if (!dir.existsSync()) continue;
-      for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+      if (await FileSystemEntity.type(path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        continue;
+      }
+      await for (final entity in dir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (entity is! File) continue;
         try {
-          final stat = entity.statSync();
+          final stat = await entity.stat();
           files.add((
             file: entity,
             // 访问时间不可靠（部分平台不更新）时退回修改时间：
@@ -235,7 +245,7 @@ class SectionCacheService {
       );
       for (final item in files.toList(growable: false)) {
         if (item.accessed.isAfter(deadline)) continue;
-        if (_delete(item.file)) {
+        if (await _delete(item.file)) {
           removedFiles++;
           freedBytes += item.bytes;
           remainingBytes -= item.bytes;
@@ -249,7 +259,7 @@ class SectionCacheService {
       files.sort((a, b) => a.accessed.compareTo(b.accessed));
       for (final item in files) {
         if (remainingBytes <= policy.maxBytes) break;
-        if (_delete(item.file)) {
+        if (await _delete(item.file)) {
           removedFiles++;
           freedBytes += item.bytes;
           remainingBytes -= item.bytes;
@@ -261,12 +271,13 @@ class SectionCacheService {
   }
 
   /// 删一个文件（顺带清掉空目录），失败只记日志。
-  static bool _delete(File file) {
+  static Future<bool> _delete(File file) async {
     try {
-      file.deleteSync();
+      await file.delete();
       final parent = file.parent;
-      if (parent.existsSync() && parent.listSync(followLinks: false).isEmpty) {
-        parent.deleteSync();
+      if (await parent.exists() &&
+          await parent.list(followLinks: false).isEmpty) {
+        await parent.delete();
       }
       return true;
     } catch (error, stackTrace) {
@@ -288,19 +299,22 @@ class SectionCacheService {
       scope.resolve(p.join(readingCacheRoot, 'exports'));
 
   /// 统计一个路径：文件算它自己，目录递归算里面的文件；不存在算 0。
-  static ({int bytes, int files}) _measure(String path) {
-    final type = FileSystemEntity.typeSync(path);
-    if (type == FileSystemEntityType.notFound) return (bytes: 0, files: 0);
+  static Future<({int bytes, int files})> _measure(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound ||
+        type == FileSystemEntityType.link) {
+      return (bytes: 0, files: 0);
+    }
     if (type == FileSystemEntityType.file) {
-      return (bytes: File(path).lengthSync(), files: 1);
+      return (bytes: await File(path).length(), files: 1);
     }
     var bytes = 0;
     var files = 0;
-    for (final entity in Directory(
+    await for (final entity in Directory(
       path,
-    ).listSync(recursive: true, followLinks: false)) {
+    ).list(recursive: true, followLinks: false)) {
       if (entity is File) {
-        bytes += entity.lengthSync();
+        bytes += await entity.length();
         files += 1;
       }
     }

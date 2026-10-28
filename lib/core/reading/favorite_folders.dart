@@ -11,7 +11,13 @@ class FavoriteFolders {
       final raw = library.setting(key);
       if (raw == null) return {};
       return (jsonDecode(raw) as Map).map(
-        (name, ids) => MapEntry('$name', (ids as List).cast<String>()),
+        (name, ids) => MapEntry(
+          '$name',
+          (ids as List)
+              .cast<String>()
+              .map((id) => library.item(id)?.identity ?? id)
+              .toList(),
+        ),
       );
     } catch (_) {
       return {};
@@ -35,6 +41,7 @@ class FavoriteFolders {
   }
 
   void move(String itemId, String? name) {
+    itemId = library.item(itemId)?.identity ?? itemId;
     final folders = load();
     for (final ids in folders.values) {
       ids.remove(itemId);

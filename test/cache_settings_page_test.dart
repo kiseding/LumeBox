@@ -1,3 +1,5 @@
+import 'support/pump_io.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -24,11 +26,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_cache_page');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     SectionMemoryCache.instance.clearAll();
     // 阅读库在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     for (final section in Section.values) {
@@ -48,19 +50,24 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MaterialApp(
-        theme: LumeTheme.build(),
-        home: const CacheSettingsPage(),
-      ),
+      MaterialApp(theme: LumeTheme.build(), home: const CacheSettingsPage()),
     );
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
   }
 
   testWidgets('按板块展示内存缓存占用，清空只作用本板块', (tester) async {
-    SectionMemoryCache.instance
-        .write(Section.video, 'demo', 'categories', <String>['abcd']);
-    SectionMemoryCache.instance
-        .write(Section.comic, 'demo', 'categories', <String>['abcd']);
+    SectionMemoryCache.instance.write(
+      Section.video,
+      'demo',
+      'categories',
+      <String>['abcd'],
+    );
+    SectionMemoryCache.instance.write(
+      Section.comic,
+      'demo',
+      'categories',
+      <String>['abcd'],
+    );
     await pumpPage(tester);
 
     // 四个板块各一行：小说 / 漫画有 1 项，视频 / 猫源为空。
@@ -77,7 +84,7 @@ void main() {
     expect(clears[2].onPressed, isNull, reason: '视频是空的');
 
     await tester.tap(find.widgetWithText(TextButton, '清空').at(0));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
 
     // 只清掉了小说：漫画的条目原样在。
     expect(SectionMemoryCache.instance.usageOf(Section.comic).isEmpty, isTrue);

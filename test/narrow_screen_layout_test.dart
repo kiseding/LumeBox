@@ -1,3 +1,5 @@
+import 'support/pump_io.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -65,11 +67,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_narrow');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     for (final section in Section.values) {
       await SectionScope.open(section);
     }
@@ -92,18 +94,18 @@ void main() {
   /// 刻意把「所有标记同时出现」造出来——单看每个标记都不宽，六个叠在一起才是
   /// 320pt 下溢出的真实成因（实测板块源管理溢出 121px）。
   List<SourceDescriptor> crowdedSources() => <SourceDescriptor>[
-        for (var i = 0; i < 6; i++)
-          SourceDescriptor(
-            id: 's$i',
-            name: '一个相当长的图源名称用于验证窄屏省略号 $i',
-            version: '1.0.$i',
-            enabled: i.isEven,
-            originUrl: i.isEven ? 'https://example.com/$i.js' : '',
-            group: i.isEven ? '主力' : '',
-            failureCount: i == 0 ? 3 : 0,
-            broken: i == 0,
-          ),
-      ];
+    for (var i = 0; i < 6; i++)
+      SourceDescriptor(
+        id: 's$i',
+        name: '一个相当长的图源名称用于验证窄屏省略号 $i',
+        version: '1.0.$i',
+        enabled: i.isEven,
+        originUrl: i.isEven ? 'https://example.com/$i.js' : '',
+        group: i.isEven ? '主力' : '',
+        failureCount: i == 0 ? 3 : 0,
+        broken: i == 0,
+      ),
+  ];
 
   /// 扫描一个页面在指定宽度 / 亮度下是否有布局错误。
   ///
@@ -131,7 +133,7 @@ void main() {
           home: page,
         ),
       );
-      await tester.pumpAndSettle();
+      await pumpIoAndSettle(tester);
     } finally {
       FlutterError.onError = previous;
     }
@@ -155,7 +157,8 @@ void main() {
               expect(
                 errors,
                 isEmpty,
-                reason: '${entry.key} 在 ${width.toInt()}pt / ${brightness.name} 下'
+                reason:
+                    '${entry.key} 在 ${width.toInt()}pt / ${brightness.name} 下'
                     '出现布局错误（真机表现为黄黑条纹或内容被裁）：\n'
                     '${errors.join('\n')}',
               );
@@ -172,19 +175,20 @@ void main() {
   // 320pt 下最容易挤爆的就是这一排；播放器页的控制栏也是一排图标。
   sweep('板块与播放器', <String, Widget Function()>{
     '视频浏览页（四枚图标）': () => const VideoPage(catalog: _NoKernelCatalog()),
-    '漫画板块': () => ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
+    '漫画板块': () =>
+        ComicPage(runtimeAvailable: true, manager: FakeSourceManager()),
     '播放器页': () => VideoPlayerPage(
-          fullscreenOnly: false,
-          media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
-          catalog: const _NoKernelCatalog(),
-        ),
+      fullscreenOnly: false,
+      media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+      catalog: const _NoKernelCatalog(),
+    ),
     '历史抽屉（视频）': () => _SheetHost(
-          builder: (context) => ReadingHistorySheet(
-            section: Section.video,
-            library: ReadingLibrary.find(Section.video)!,
-            onResume: (_, _) {},
-          ),
-        ),
+      builder: (context) => ReadingHistorySheet(
+        section: Section.video,
+        library: ReadingLibrary.find(Section.video)!,
+        onResume: (_, _) {},
+      ),
+    ),
   });
 
   // 本轮新增页面。
@@ -193,10 +197,10 @@ void main() {
     '调试面板': () => const DebugPanelPage(),
     '设置页': () => const SettingsPage(runtimeAvailable: true),
     '播放器设置': () => PlayerSettingsPage(
-          settings: const PlayerSettings(),
-          catalog: const PlatformPlayerKernelCatalog(),
-          onChanged: (_) {},
-        ),
+      settings: const PlayerSettings(),
+      catalog: const PlatformPlayerKernelCatalog(),
+      onChanged: (_) {},
+    ),
     '底部导航栏管理': () => const TabBarSettingsPage(),
     // 「只剩 1 个页签」时管理页会多出「不能关掉」提示行，一并扫到。
     '底部导航栏管理（剩 1 个）': () {
@@ -215,12 +219,12 @@ void main() {
     '运行日志': () => LogViewerPage(exporter: const LogExporter()),
     '错误报告': () => LogReportPage(exporter: const LogExporter()),
     '源总管理': () => GlobalSourcePage(
-          managerFactory: (_) => FakeSourceManager(sources: crowdedSources()),
-        ),
+      managerFactory: (_) => FakeSourceManager(sources: crowdedSources()),
+    ),
     '板块源管理': () => SourceSectionPage(
-          section: Section.video,
-          manager: FakeSourceManager(sources: crowdedSources()),
-        ),
+      section: Section.video,
+      manager: FakeSourceManager(sources: crowdedSources()),
+    ),
   });
 }
 
@@ -232,11 +236,8 @@ class _SheetHost extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: Align(
-          alignment: Alignment.bottomCenter,
-          child: builder(context),
-        ),
-      );
+    body: Align(alignment: Alignment.bottomCenter, child: builder(context)),
+  );
 }
 
 /// 三套内核都不可用的目录：播放器页走骨架分支，窄屏扫描照样覆盖。

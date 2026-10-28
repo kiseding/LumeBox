@@ -39,6 +39,24 @@ void main() {
     messenger.setMockMethodCallHandler(PrivacySettings.channel, null);
   });
 
+  test(
+    'concurrent privacy writes merge preferences without temporary-file races',
+    () async {
+      await settings.setMethod(AppUnlockMethod.face);
+      await Future.wait([
+        settings.setAppLock(true),
+        settings.setShowAdult(false),
+        settings.setShowAdult(true),
+      ]);
+      final restored = PrivacySettings();
+      await restored.boot(directory: root);
+      expect(restored.appLock, true);
+      expect(restored.method, AppUnlockMethod.face);
+      expect(restored.showAdult, true);
+      restored.dispose();
+    },
+  );
+
   test('new defaults, persisted options and failed authorization', () async {
     expect(settings.appLock, false);
     expect(settings.showAdult, false);
@@ -138,6 +156,14 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(settings.showAdult, true);
+    // Drain the chained persistence future before leaving this widget test's fake clock.
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    await tester.pumpAndSettle();
   });
 
   testWidgets(

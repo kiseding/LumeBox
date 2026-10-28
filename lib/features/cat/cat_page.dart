@@ -933,8 +933,10 @@ class _CatPageState extends State<CatPage>
                 : rawTime(historyMatch);
             if (fromHistory != null) return fromHistory;
             final itemId = catText(entry['id']);
-            return lib.progress(itemId)?.updatedAt ??
-                lib.item(itemId)?.updatedAt ??
+            return lib
+                    .progress(itemId, sourceId: catText(entry['site']))
+                    ?.updatedAt ??
+                lib.item(itemId, sourceId: catText(entry['site']))?.updatedAt ??
                 DateTime.now();
           }
 
@@ -945,7 +947,7 @@ class _CatPageState extends State<CatPage>
           /// 只为渲染服务：收藏状态与删除仍由 [CatService] 负责，这里不写库。
           LibraryItem libraryItem(Map<String, dynamic> entry) {
             final itemId = catText(entry['id']);
-            final saved = lib.item(itemId);
+            final saved = lib.item(itemId, sourceId: catText(entry['site']));
             final time = entryTime(entry);
             return LibraryItem(
               section: Section.cat,
@@ -976,9 +978,9 @@ class _CatPageState extends State<CatPage>
           void removeEntry(Map<String, dynamic> entry) {
             final itemId = catText(entry['id']);
             if (favorites) {
-              lib.removeFavorite(itemId);
+              lib.removeFavorite(itemId, sourceId: catText(entry['site']));
             } else {
-              lib.removeHistory(itemId);
+              lib.removeHistory(itemId, sourceId: catText(entry['site']));
             }
             unawaited(
               service.removeCollection({id(entry)}, favorites: favorites),
@@ -1242,10 +1244,12 @@ class _CatPageState extends State<CatPage>
                                     if (favorites) {
                                       library?.removeFavorite(
                                         catText(entry['id']),
+                                        sourceId: catText(entry['site']),
                                       );
                                     } else {
                                       library?.removeHistory(
                                         catText(entry['id']),
+                                        sourceId: catText(entry['site']),
                                       );
                                     }
                                   }
@@ -1271,7 +1275,10 @@ class _CatPageState extends State<CatPage>
                                           ) ==
                                           'true',
                                       item: item,
-                                      progress: lib.progress(item.itemId),
+                                      progress: lib.progress(
+                                        item.itemId,
+                                        sourceId: item.sourceId,
+                                      ),
                                       now: now,
                                       removeLabel: favorites ? '取消收藏' : '删除记录',
                                       onRemove: () => removeEntry(entry),
@@ -1289,7 +1296,10 @@ class _CatPageState extends State<CatPage>
                                         : null,
                                     child: HistoryGridTile(
                                       item: item,
-                                      progress: lib.progress(item.itemId),
+                                      progress: lib.progress(
+                                        item.itemId,
+                                        sourceId: item.sourceId,
+                                      ),
                                       pipeline: pipeline,
                                       headers: coverHeaders(entry),
                                       updated:

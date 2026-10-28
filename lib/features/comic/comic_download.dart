@@ -344,7 +344,7 @@ class ComicDownloader extends ChangeNotifier {
     try {
       final fileName = comicImageFileName(url, index);
       final file = File(p.join(library.exportDir, folder, fileName));
-      if (file.existsSync() && file.lengthSync() > 0) {
+      if (await file.exists() && await file.length() > 0) {
         _progress = _progress.copyWith(
           imageSkipped: _progress.imageSkipped + 1,
         );
@@ -354,7 +354,7 @@ class ComicDownloader extends ChangeNotifier {
       // 取消或页面已关闭时不要把「没取到」记成失败——是这一批不下了。
       if (_cancelled || _disposed) return _ImageOutcome.aborted;
       if (bytes == null || bytes.isEmpty) return _ImageOutcome.failed;
-      library.saveDownload(folder, fileName, bytes);
+      await library.saveDownloadAsync(folder, fileName, bytes);
       _progress = _progress.copyWith(imageSaved: _progress.imageSaved + 1);
       return _ImageOutcome.saved;
     } catch (error, stackTrace) {

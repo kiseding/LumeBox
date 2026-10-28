@@ -194,10 +194,34 @@ class SourceSubscriptionSync {
     return service;
   }
 
+  static Map<String, dynamic> validateDocument(Object? data) {
+    if (data is! Map || data['subscriptions'] is! List) {
+      throw const FormatException('订阅配置必须包含 subscriptions 数组');
+    }
+    for (final row in data['subscriptions'] as List) {
+      if (row is! Map ||
+          row['url'] is! String ||
+          !SubscriptionCatalog.validUrl(row['url'] as String) ||
+          row['enabled'] != null && row['enabled'] is! bool ||
+          row['error'] != null && row['error'] is! String ||
+          row['excludedIds'] != null &&
+              (row['excludedIds'] is! List ||
+                  (row['excludedIds'] as List).any((v) => v is! String)) ||
+          row['members'] != null &&
+              (row['members'] is! Map ||
+                  (row['members'] as Map).entries.any(
+                    (e) => e.key is! String || e.value is! String,
+                  ))) {
+        throw const FormatException('订阅记录的地址、启用状态、成员或排除列表格式错误');
+      }
+    }
+    return Map<String, dynamic>.from(data);
+  }
+
   Future<void> load() async {
     subscriptions.clear();
     if (!file.existsSync()) return;
-    final data = jsonDecode(file.readAsStringSync()) as Map;
+    final data = validateDocument(jsonDecode(file.readAsStringSync()));
     _migrated = data['migrationVersion'] == 3;
     var normalized = false;
     for (final raw in (data['subscriptions'] as List? ?? [])) {

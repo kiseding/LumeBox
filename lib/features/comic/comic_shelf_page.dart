@@ -53,7 +53,10 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
     final items = widget.library.shelf();
     final progress = <String, ReadingProgress>{};
     for (final item in items) {
-      final saved = widget.library.progress(item.itemId);
+      final saved = widget.library.progress(
+        item.itemId,
+        sourceId: item.sourceId,
+      );
       if (saved != null) progress[item.itemId] = saved;
     }
     setState(() {
@@ -103,7 +106,7 @@ class _ComicShelfPageState extends State<ComicShelfPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    widget.library.unshelve(item.itemId);
+    widget.library.unshelve(item.itemId, sourceId: item.sourceId);
     _reload();
   }
 

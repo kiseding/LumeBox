@@ -1,3 +1,7 @@
+import 'cat_configuration_backup.dart';
+import '../reading/reading_store.dart';
+import '../media/media_library.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,9 +15,14 @@ import 'section_scope.dart';
 import 'section.dart';
 
 class ConfigurationBackup {
+  ConfigurationBackup({CatService? catService})
+    : _catService = catService ?? CatService.instance;
+  final CatService _catService;
   static Future<File>? _automatic;
+  final List<String> warnings = [];
   static const files = <String>{
     'app_preferences.json',
+    'media_library.json',
     'audio_book_settings.json',
     'media_preload.json',
     'tmdb_settings.json',
@@ -31,32 +40,63 @@ class ConfigurationBackup {
   };
   Future<String> export() async {
     final base = await getApplicationSupportDirectory();
+    warnings.clear();
+    final settings = <String, Object?>{};
+    for (final name in files) {
+      final file = File('${base.path}/$name');
+      if (!await file.exists()) continue;
+      try {
+        final value = jsonDecode(await file.readAsString());
+        _validateFile(name, value);
+        settings[name] = value;
+      } catch (_) {
+        warnings.add('$name 损坏，已跳过；其他数据仍已备份');
+      }
+    }
+    final savedSubscriptions = <String, Object?>{};
+    for (final section in [Section.comic, Section.video]) {
+      await SourceSubscriptionSync.waitForIdle(section);
+      final file = File(
+        '${base.path}/sections/${section.id}/subscriptions.json',
+      );
+      if (!await file.exists()) continue;
+      try {
+        savedSubscriptions[section.id] =
+            SourceSubscriptionSync.validateDocument(
+              jsonDecode(await file.readAsString()),
+            );
+      } catch (_) {
+        warnings.add('${section.id} 订阅配置损坏，已跳过');
+      }
+    }
+    List<Map<String, Object?>> cats = [];
+    try {
+      cats = await _exportCatSubscriptions(base);
+    } catch (_) {
+      warnings.add('猫源订阅损坏，已跳过');
+    }
+    final catData = await CatConfigurationBackup.export(base, warnings);
     return jsonEncode({
       'format': 'lumebox-configuration',
-      'version': 1,
+      'version': 2,
       'createdAt': DateTime.now().toIso8601String(),
-      'files': {
-        for (final name in files)
-          if (File('${base.path}/$name').existsSync())
-            name: jsonDecode(File('${base.path}/$name').readAsStringSync()),
+      'files': settings,
+      'readingData': {
+        for (final section in Section.values)
+          section.id: (await ReadingStore.open(section))
+              .cloudRecords(includeSettings: false),
       },
       'sections': {
         for (final section in Section.values)
           section.id: (await ReadingLibrary.open(section)).exportSettings(),
       },
       'sources': jsonDecode((await SourceBackupService().export()).encode()),
-      'subscriptions': {
-        for (final section in Section.values.where(
-          (section) => section != Section.cat,
-        ))
-          if (File('${base.path}/sections/${section.id}/subscriptions.json')
-              .existsSync())
-            section.id: jsonDecode(
-              File('${base.path}/sections/${section.id}/subscriptions.json')
-                  .readAsStringSync(),
-            ),
-      },
-      'catSubscriptions': await _exportCatSubscriptions(base),
+      'subscriptions': savedSubscriptions,
+      'catSubscriptions': cats
+          .where((s) => !'${s['url']}'.startsWith('local:'))
+          .toList(),
+      'catData': catData,
+      'warnings': warnings,
     });
   }
 
@@ -64,7 +104,7 @@ class ConfigurationBackup {
     final data = jsonDecode(text);
     if (data is! Map ||
         data['format'] != 'lumebox-configuration' ||
-        data['version'] != 1 ||
+        ![1, 2].contains(data['version']) ||
         data['files'] is! Map ||
         data['sections'] is! Map) {
       throw const FormatException('不是支持的 LumeBox 配置备份');
@@ -72,6 +112,22 @@ class ConfigurationBackup {
     final incomingFiles = (data['files'] as Map).cast<String, dynamic>();
     if (incomingFiles.keys.any((name) => !files.contains(name))) {
       throw const FormatException('备份包含未知配置文件');
+    }
+    for (final e in incomingFiles.entries) {
+      _validateFile(e.key, e.value);
+    }
+    final readingData = data['readingData'] ?? {};
+    if (readingData is! Map ||
+        readingData.keys.any((k) => !Section.values.any((s) => s.id == k))) {
+      throw const FormatException('阅读备份板块无效');
+    }
+    for (final section in Section.values) {
+      final rows = readingData[section.id];
+      if (rows == null) continue;
+      if (rows is! Map) throw const FormatException('阅读数据格式无效');
+      (await ReadingStore.open(
+        section,
+      )).applyCloudRecords(Map<String, Object?>.from(rows), validateOnly: true);
     }
     final sections = <Section, Map<String, String>>{};
     for (final section in Section.values) {
@@ -100,6 +156,12 @@ class ConfigurationBackup {
         )) {
       throw const FormatException('订阅配置格式错误');
     }
+    for (final value in subscriptions.values) {
+      SourceSubscriptionSync.validateDocument(value);
+    }
+    final catData = data['catData'] == null
+        ? null
+        : CatConfigurationBackup.validate(data['catData']);
     final catSubscriptions = data['catSubscriptions'] ?? [];
     if (catSubscriptions is! List) throw const FormatException('猫源订阅格式错误');
     final cats = <CatSubscription>[];
@@ -120,6 +182,13 @@ class ConfigurationBackup {
       );
     }
     final base = await getApplicationSupportDirectory();
+    // Keep an independently readable recovery snapshot before the first mutation.
+    final recovery = File(
+      '${base.path}/configuration_backups/before-restore-${DateTime.now().microsecondsSinceEpoch}.json',
+    );
+    await recovery.parent.create(recursive: true);
+    await recovery.writeAsString(await export(), flush: true);
+    warnings.clear();
     for (final entry in incomingFiles.entries) {
       final temp = File('${base.path}/${entry.key}.restore');
       temp.writeAsStringSync(jsonEncode(entry.value), flush: true);
@@ -147,19 +216,45 @@ class ConfigurationBackup {
         temporary.renameSync(file.path);
       });
     }
-    if (data.containsKey('catSubscriptions')) {
-      final service = CatService.instance;
+    if (catData != null) {
+      await CatConfigurationBackup.restore(_catService, catData);
+    } else if (data.containsKey('catSubscriptions')) {
+      final service = _catService;
       await service.boot();
       service.subscriptions
         ..clear()
         ..addAll(cats);
       await service.save();
     }
+    for (final section in Section.values) {
+      final rows = readingData[section.id];
+      if (rows is Map) {
+        (await ReadingStore.open(section))
+            .applyCloudRecords(Map<String, Object?>.from(rows));
+      }
+    }
     if (sourceBackup != null) {
       final result = await SourceBackupService().restore(sourceBackup);
+      if (result.skipped > 0) warnings.add('${result.skipped} 个源因板块或运行时不支持未恢复');
       if (result.failed > 0) {
         throw StateError('配置已恢复，部分源恢复失败：${result.failed} 项');
       }
+    }
+  }
+
+  static void _validateFile(String name, Object? value) {
+    if (name == 'media_library.json') {
+      if (value is! List) throw const FormatException('媒体备份应为数组');
+      for (final row in value) {
+        if (row is! Map) throw const FormatException('媒体条目无效');
+        MediaResource.fromJson(row);
+      }
+    } else if (name == 'source_content_visibility.json') {
+      if (value is! List || value.any((v) => v is! String)) {
+        throw const FormatException('内容分类格式错误');
+      }
+    } else if (value is! Map) {
+      throw FormatException('$name 应为配置对象');
     }
   }
 

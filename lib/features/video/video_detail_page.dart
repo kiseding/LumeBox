@@ -234,7 +234,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         }
       }
       if (!mounted) return;
-      final saved = widget.library.videoProgress(widget.item.id);
+      // 查看详情只写历史（favorite = 0）；收藏只能由心形按钮触发。
+      if (widget.recordHistory) {
+        widget.library.recordHistoryItem(
+          sourceId: source.id,
+          itemId: widget.item.id,
+          title: metadata?.title ?? widget.item.title,
+          cover: sourceCover,
+          subtitle: metadata?.subtitle ?? widget.item.subtitle,
+          chapterCount: episodes.length,
+        );
+      }
+      final saved = widget.library.videoProgress(
+        widget.item.id,
+        sourceId: _source?.id ?? widget.sourceId,
+      );
       final grouped = VideoEpisodeCatalog.group(episodes);
       final resumed = episodes
           .where((e) => e.id == saved?.chapterId)
@@ -256,17 +270,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         compactEpisodeStart = index ~/ 10 * 10;
         loading = false;
       });
-      // 查看详情只写历史（favorite = 0）；收藏只能由心形按钮触发。
-      if (widget.recordHistory) {
-        widget.library.recordHistoryItem(
-          sourceId: source.id,
-          itemId: widget.item.id,
-          title: metadata?.title ?? widget.item.title,
-          cover: sourceCover,
-          subtitle: metadata?.subtitle ?? widget.item.subtitle,
-          chapterCount: activeEpisodes.length,
-        );
-      }
     } catch (failure) {
       if (NetworkCancellation.current?.isCancelled ?? false) return;
       if (mounted) {
@@ -336,6 +339,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         final saved = lineResume!;
         widget.library.saveProgress(
           VideoProgress(
+            sourceId: _source!.id,
             section: widget.library.section,
             itemId: widget.item.id,
             chapterIndex: selected,
@@ -403,7 +407,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       );
       widget.library.refresh();
       if (mounted) {
-        final last = widget.library.videoProgress(widget.item.id);
+        final last = widget.library.videoProgress(
+          widget.item.id,
+          sourceId: _source?.id ?? widget.sourceId,
+        );
         for (final entry in lines.entries) {
           final index = entry.value.indexWhere(
             (chapter) => chapter.id == last?.chapterId,
@@ -446,8 +453,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   void favorite() {
-    if (widget.library.onShelf(widget.item.id)) {
-      widget.library.removeFavorite(widget.item.id);
+    if (widget.library.onShelf(
+      widget.item.id,
+      sourceId: _source?.id ?? widget.sourceId,
+    )) {
+      widget.library.removeFavorite(
+        widget.item.id,
+        sourceId: _source?.id ?? widget.sourceId,
+      );
     } else {
       widget.library.shelve(
         sourceId: _source!.id,
@@ -639,10 +652,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       ),
       IconButton(
         key: const Key('video-detail-favorite'),
-        tooltip: widget.library.onShelf(widget.item.id) ? '已收藏' : '收藏',
+        tooltip:
+            widget.library.onShelf(
+              widget.item.id,
+              sourceId: _source?.id ?? widget.sourceId,
+            )
+            ? '已收藏'
+            : '收藏',
         onPressed: _source == null || !widget.recordHistory ? null : favorite,
         icon: Icon(
-          widget.library.onShelf(widget.item.id)
+          widget.library.onShelf(
+                widget.item.id,
+                sourceId: _source?.id ?? widget.sourceId,
+              )
               ? Icons.favorite
               : Icons.favorite_border,
         ),
@@ -1193,6 +1215,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Future<void> openBangumi() async {
     await showBangumiMatchSheet(
+      sourceId: _source?.id ?? widget.sourceId ?? '',
       context: context,
       library: widget.library,
       item: widget.item,
@@ -1202,7 +1225,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   VideoProgress? episodeProgress(int index) {
     final chapter = chapters[index];
-    return widget.library.videoEpisodeProgress(widget.item.id, chapter.id) ??
+    return widget.library.videoEpisodeProgress(
+          widget.item.id,
+          chapter.id,
+          sourceId: _source?.id ?? widget.sourceId,
+        ) ??
         (index == selected ? lineResume : null);
   }
 

@@ -18,10 +18,8 @@ import 'support/fake_source_manager.dart';
 /// 以及覆盖确认、结果弹窗与失败口径。
 ///
 /// 测试用：文本 → 订阅拉取结果（字节按 UTF-8 编码，供 `.md5` 校验）。
-SourceFetchResult entity(String text) => SourceFetchResult(
-      bytes: Uint8List.fromList(utf8.encode(text)),
-      text: text,
-    );
+SourceFetchResult entity(String text) =>
+    SourceFetchResult(bytes: Uint8List.fromList(utf8.encode(text)), text: text);
 
 void main() {
   late FakeSourceManager manager;
@@ -68,11 +66,11 @@ void main() {
   void mockClipboard(String text) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.getData') {
-        return <String, Object?>{'text': text};
-      }
-      return null;
-    });
+          if (call.method == 'Clipboard.getData') {
+            return <String, Object?>{'text': text};
+          }
+          return null;
+        });
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null),
@@ -86,7 +84,8 @@ void main() {
         readLocalScripts: () async => <({String name, String text})>[
           (
             name: 'demo.js',
-            text: '\uFEFF// LumeSource: {"id":"demo","name":"演示源","version":"1.0.0"}\n'
+            text:
+                '\uFEFF// LumeSource: {"id":"demo","name":"演示源","version":"1.0.0"}\n'
                 'var LumeSource = {id: "demo"};',
           ),
         ],
@@ -107,11 +106,7 @@ void main() {
       expect(imported.startsWith('\uFEFF'), isFalse, reason: 'BOM 必须在导入前剥掉');
       expect(imported, contains('LumeSource'));
       expect(find.text('已导入：新图源'), findsOneWidget, reason: '本地导入不带订阅标记');
-      expect(
-        manager.importedOrigins.single,
-        isEmpty,
-        reason: '本地导入没有订阅来源地址',
-      );
+      expect(manager.importedOrigins.single, isEmpty, reason: '本地导入没有订阅来源地址');
       expect(importedCount, <int>[1]);
     });
 
@@ -152,7 +147,9 @@ void main() {
         ],
         fetchSubscription: (url) async {
           fetched.add(url);
-          return entity('var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};');
+          return entity(
+            'var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};',
+          );
         },
       );
 
@@ -172,7 +169,8 @@ void main() {
       expect(
         manager.importedOrigins,
         <String>['https://example.com/a.js', 'https://example.com/b.js'],
-        reason: '清单里每一份记**自己**的地址（不是清单地址）：'
+        reason:
+            '清单里每一份记**自己**的地址（不是清单地址）：'
             '「更新订阅源」各更各的，记清单地址只会拿到第一条',
       );
     });
@@ -210,7 +208,8 @@ void main() {
         readLocalScripts: () async => <({String name, String text})>[
           (
             name: 'lumesources.json',
-            text: '{"format":"lume.sources","version":1,"createdAt":"2026-10-06T00:00:00.000",'
+            text:
+                '{"format":"lume.sources","version":1,"createdAt":"2026-10-06T00:00:00.000",'
                 '"sections":{"novel":[{"id":"a","name":"甲","version":"1.0.0",'
                 '"script":"var LumeSource = {id: \\"a\\", name: \\"甲\\"};","enabled":true}]}}',
           ),
@@ -322,7 +321,10 @@ void main() {
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/sub.js');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/sub.js',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pumpAndSettle();
 
@@ -343,16 +345,23 @@ void main() {
         fetchSubscription: (url) async {
           fetched.add(url);
           if (url == 'https://example.com/sub.txt') {
-            return entity('https://example.com/a.js\n# 注释行\nhttps://example.com/b.js\n');
+            return entity(
+              'https://example.com/a.js\n# 注释行\nhttps://example.com/b.js\n',
+            );
           }
-          return entity('var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};');
+          return entity(
+            'var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};',
+          );
         },
       );
 
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/sub.txt');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/sub.txt',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pumpAndSettle();
 
@@ -367,7 +376,8 @@ void main() {
       expect(
         manager.importedOrigins,
         <String>['https://example.com/a.js', 'https://example.com/b.js'],
-        reason: '清单导入时每条记自己那一行地址：记用户填的清单地址会让'
+        reason:
+            '清单导入时每条记自己那一行地址：记用户填的清单地址会让'
             '「更新订阅源」只能更新到清单里的第一条（第二个源永远更新不了）',
       );
     });
@@ -378,7 +388,9 @@ void main() {
         tester,
         fetchSubscription: (url) async {
           fetched.add(url);
-          return entity('var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};');
+          return entity(
+            'var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};',
+          );
         },
       );
 
@@ -479,7 +491,10 @@ void main() {
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/list.txt');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/list.txt',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pumpAndSettle();
 
@@ -494,13 +509,17 @@ void main() {
     testWidgets('订阅链接导入：清单里互相引用不会死循环', (tester) async {
       await pumpButton(
         tester,
-        fetchSubscription: (url) async => entity('https://example.com/loop.txt\n'),
+        fetchSubscription: (url) async =>
+            entity('https://example.com/loop.txt\n'),
       );
 
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/loop.txt');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/loop.txt',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pumpAndSettle();
 
@@ -517,7 +536,10 @@ void main() {
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/x.js');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/x.js',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pumpAndSettle();
 
@@ -555,7 +577,10 @@ void main() {
       await openDialog(tester);
       await tester.tap(find.text('订阅链接'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'https://example.com/a.js');
+      await tester.enterText(
+        find.byType(TextField),
+        'https://example.com/a.js',
+      );
       await tester.tap(find.text('拉取并导入'));
       await tester.pump();
 
@@ -566,13 +591,15 @@ void main() {
       expect(manager.imported.single, contains('LumeSource'));
     });
 
-    testWidgets('订阅链接导入：清单超过上限时说明只处理前 N 条', (tester) async {
+    testWidgets('订阅链接导入：超过旧版 20 条限制的合法清单完整导入', (tester) async {
       final fetched = <String>[];
       await pumpButton(
         tester,
         fetchSubscription: (url) async {
           fetched.add(url);
-          return entity('var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};');
+          return entity(
+            'var LumeSource = {id: "s${fetched.length}", name: "源${fetched.length}"};',
+          );
         },
       );
 
@@ -589,10 +616,11 @@ void main() {
 
       expect(
         fetched.length,
-        20,
-        reason: '一条订阅 + 19 个地址就到上限（防地址风暴）',
+        26,
+        reason: '当前上限由 source_import_limits_test 单独覆盖，这份清单不能被旧版限制截断',
       );
-      expect(find.textContaining('清单较长，本次只处理前 20 条地址'), findsOneWidget);
+      expect(manager.imported.length, 26);
+      expect(find.textContaining('本次只处理前'), findsNothing);
     });
   });
 
@@ -600,22 +628,30 @@ void main() {
     testWidgets('同 id 已存在：先确认，取消则零写入', (tester) async {
       // id 用不含点的写法：真实解析器的 id 白名单只收字母数字与 - _，
       // 带点的 id 连头部元信息都读不出来，覆盖确认也就无从谈起。
-      manager = FakeSourceManager(
-        sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'lume-new', name: '新图源', version: '1.0.0', enabled: true),
-        ],
-      )..importDescriptor = const SourceDescriptor(
-          id: 'lume-new',
-          name: '新图源',
-          version: '2.0.0',
-          enabled: true,
-        );
+      manager =
+          FakeSourceManager(
+              sources: const <SourceDescriptor>[
+                SourceDescriptor(
+                  id: 'lume-new',
+                  name: '新图源',
+                  version: '1.0.0',
+                  enabled: true,
+                ),
+              ],
+            )
+            ..importDescriptor = const SourceDescriptor(
+              id: 'lume-new',
+              name: '新图源',
+              version: '2.0.0',
+              enabled: true,
+            );
       await pumpButton(
         tester,
         readLocalScripts: () async => <({String name, String text})>[
           (
             name: 'next.js',
-            text: '// LumeSource: {"id":"lume-new","name":"新图源","version":"2.0.0"}\n'
+            text:
+                '// LumeSource: {"id":"lume-new","name":"新图源","version":"2.0.0"}\n'
                 'var LumeSource = {id: "lume-new", name: "新图源"};',
           ),
         ],
@@ -639,16 +675,23 @@ void main() {
     });
 
     testWidgets('同 id 已存在：确认后覆盖，结论写成「已覆盖」', (tester) async {
-      manager = FakeSourceManager(
-        sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'lume-new', name: '新图源', version: '1.0.0', enabled: true),
-        ],
-      )..importDescriptor = const SourceDescriptor(
-          id: 'lume-new',
-          name: '新图源',
-          version: '2.0.0',
-          enabled: true,
-        );
+      manager =
+          FakeSourceManager(
+              sources: const <SourceDescriptor>[
+                SourceDescriptor(
+                  id: 'lume-new',
+                  name: '新图源',
+                  version: '1.0.0',
+                  enabled: true,
+                ),
+              ],
+            )
+            ..importDescriptor = const SourceDescriptor(
+              id: 'lume-new',
+              name: '新图源',
+              version: '2.0.0',
+              enabled: true,
+            );
       await pumpButton(
         tester,
         readLocalScripts: () async => <({String name, String text})>[
@@ -668,21 +711,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(manager.imported.single, contains('2.0.0'));
-      expect(find.text('已覆盖：新图源'), findsOneWidget);
+      expect(find.textContaining('已覆盖：新图源\n'), findsOneWidget);
       expect(importedCount, <int>[1]);
     });
 
     testWidgets('新 id 不弹确认：直接导入', (tester) async {
-      manager = FakeSourceManager(
-        sources: const <SourceDescriptor>[
-          SourceDescriptor(id: 'other', name: '别的源', version: '1.0.0', enabled: true),
-        ],
-      )..importDescriptor = const SourceDescriptor(
-          id: 'lume-new',
-          name: '新图源',
-          version: '1.0.0',
-          enabled: true,
-        );
+      manager =
+          FakeSourceManager(
+              sources: const <SourceDescriptor>[
+                SourceDescriptor(
+                  id: 'other',
+                  name: '别的源',
+                  version: '1.0.0',
+                  enabled: true,
+                ),
+              ],
+            )
+            ..importDescriptor = const SourceDescriptor(
+              id: 'lume-new',
+              name: '新图源',
+              version: '1.0.0',
+              enabled: true,
+            );
       await pumpButton(
         tester,
         readLocalScripts: () async => <({String name, String text})>[
@@ -716,10 +766,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('导入结果'), findsOneWidget, reason: '有失败就给能看清的弹窗');
-      expect(
-        find.text('导入失败：bad.js — 脚本载入失败：语法错误或运行异常'),
-        findsOneWidget,
-      );
+      expect(find.text('导入失败：bad.js — 脚本载入失败：语法错误或运行异常'), findsOneWidget);
       expect(importedCount, isEmpty);
     });
 

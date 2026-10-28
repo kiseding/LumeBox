@@ -1515,9 +1515,8 @@ Future<void> tapWithDetailPlay(
       matching: find.byWidgetPredicate(
         (widget) =>
             widget.key is ValueKey<String> &&
-            (widget.key as ValueKey<String>).value.startsWith(
-              'video-detail-episode-',
-            ),
+            RegExp(r'^video-detail-episode-[0-9]+$')
+                .hasMatch((widget.key as ValueKey<String>).value),
       ),
     );
     if (chapter || history || chips.evaluate().length <= 1) {
@@ -1548,7 +1547,7 @@ Future<void> backToBrowse(WidgetTester tester) async {
   });
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
-    await tester.pageBack();
+    Navigator.of(tester.element(find.byType(VideoDetailPage))).pop();
     await tester.pump();
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(milliseconds: 30));

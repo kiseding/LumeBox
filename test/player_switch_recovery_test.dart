@@ -108,7 +108,7 @@ void main() {
     created.last.emit(error: 'HTTP 403');
     await tester.pumpAndSettle();
     expect(created.length, 2);
-    expect(find.text('视频服务器拒绝访问'), findsOneWidget);
+    expect(find.text('源站拒绝了访问'), findsOneWidget);
   });
 
   group('控制栏在任何状态下都在', () {

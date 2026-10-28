@@ -37,29 +37,34 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final top = tester.widget<Material>(
+    final top = tester.widget<FrostedGlassWidget>(
       find
           .descendant(
             of: find.byType(GlassPanel),
-            matching: find.byType(Material),
+            matching: find.byType(FrostedGlassWidget),
           )
           .first,
     );
-    expect(top.color!.a, closeTo(.35, .005));
+    expect(top.opacity, closeTo(.35, .005));
     final handle = find.byType(DockHandleButton);
     expect(tester.getSize(handle), const Size(86, 86));
     final surface = tester.widget<Material>(
       find.descendant(of: handle, matching: find.byType(Material)).first,
     );
-    expect(surface.color!.a, closeTo(.4, .005));
-    expect(surface.color!.r, 1);
-    expect(surface.color!.g, 1);
-    expect(surface.color!.b, 1);
+    expect(surface.type, MaterialType.transparency);
     expect(find.byType(DockNativeGlass), findsNothing);
-    final glass = tester.widget<FrostedGlassWidget>(
+    expect(
       find.descendant(of: handle, matching: find.byType(FrostedGlassWidget)),
+      findsNothing,
     );
-    expect(glass.border, isFalse);
+    expect(
+      tester
+          .widget<Opacity>(
+            find.descendant(of: handle, matching: find.byType(Opacity)).first,
+          )
+          .opacity,
+      1,
+    );
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

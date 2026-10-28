@@ -1,3 +1,5 @@
+import 'playback_diagnostics.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show mapEquals;
@@ -74,6 +76,11 @@ class PlayerKernelLauncher {
       return null;
     }
     _markFailed(kernel);
+    PlaybackDiagnostics.record(
+      'kernel-fallback',
+      kernel: fallback.name,
+      error: '${kernel.name} unavailable',
+    );
     final fallbackPlayer = await _createWithin(fallback);
     if (fallbackPlayer == null) return null;
     return PlayerLaunch(
@@ -87,11 +94,17 @@ class PlayerKernelLauncher {
   /// 限时创建：超时或抛错都丢弃实例、返回 null（不向调用方抛异常）。
   Future<AbstractPlayer?> _createWithin(PlayerKernel kernel) async {
     final started = DateTime.now();
+    PlaybackDiagnostics.record('kernel-create', kernel: kernel.name);
     AbstractPlayer? created;
     try {
       created = await Future<AbstractPlayer?>(() => _factory(kernel))
           .timeout(timeout);
     } on TimeoutException {
+      PlaybackDiagnostics.record(
+        'kernel-timeout',
+        kernel: kernel.name,
+        elapsedMs: DateTime.now().difference(started).inMilliseconds,
+      );
       LumeLog.warn(
         '[player] ${kernel.label} 初始化超时（${timeout.inSeconds}s），丢弃该实例',
       );
@@ -102,6 +115,11 @@ class PlayerKernelLauncher {
       return null;
     }
     if (created == null) return null;
+    PlaybackDiagnostics.record(
+      'kernel-created',
+      kernel: kernel.name,
+      elapsedMs: DateTime.now().difference(started).inMilliseconds,
+    );
 
     // 耗时复核：原生初始化是同步阻塞调用，Dart 无法抢占式中断它——那种情况下
     // `.timeout` 的定时器要等阻塞结束才有机会跑，甚至会被已完成的 future 抢先。

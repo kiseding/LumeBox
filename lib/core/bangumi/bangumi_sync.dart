@@ -1,3 +1,5 @@
+import '../reading/reading_identity.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -137,7 +139,8 @@ class BangumiBinding {
   final String name;
   final List<int> episodes;
 
-  static String keyFor(String itemId) => 'bangumi.binding.$itemId';
+  static String keyFor(String itemId, {String sourceId = ''}) =>
+      'bangumi.binding.${sourceId.isEmpty ? itemId : ReadingIdentity.key(sourceId, itemId)}';
 
   BangumiBinding withEpisodes(List<int> value) =>
       BangumiBinding(subjectId: subjectId, name: name, episodes: value);
@@ -195,20 +198,38 @@ class BangumiSyncService {
       // 手动同步（force）不受自动同步开关限制；开关只控制播放中的自动写入。
       if (!settings.autoSync && !force) return;
       if (!force) {
-        final last = _lastAttempt[progress.itemId];
+        final last =
+            _lastAttempt[ReadingIdentity.key(
+              progress.sourceId,
+              progress.itemId,
+            )];
         if (last != null &&
             DateTime.now().difference(last) < const Duration(seconds: 10)) {
           return;
         }
-        if (_lastChapter[progress.itemId] == progress.chapterIndex) return;
+        if (_lastChapter[ReadingIdentity.key(
+              progress.sourceId,
+              progress.itemId,
+            )] ==
+            progress.chapterIndex) {
+          return;
+        }
       }
       final token = await settings.token();
       if (token.isEmpty) return;
       final binding = BangumiBinding.decode(
-        library.setting(BangumiBinding.keyFor(progress.itemId)),
+        library.setting(
+          library.itemSettingKey(
+            'bangumi.binding.',
+            progress.sourceId.isEmpty
+                ? progress.itemId
+                : ReadingIdentity.key(progress.sourceId, progress.itemId),
+          ),
+        ),
       );
       if (binding == null) return;
-      _lastAttempt[progress.itemId] = DateTime.now();
+      _lastAttempt[ReadingIdentity.key(progress.sourceId, progress.itemId)] =
+          DateTime.now();
       final client = _clientFactory(token);
       try {
         var episodes = binding.episodes;
@@ -217,7 +238,10 @@ class BangumiSyncService {
           episodes = [for (final episode in list) episode.id];
           if (episodes.isNotEmpty) {
             library.setSetting(
-              BangumiBinding.keyFor(progress.itemId),
+              BangumiBinding.keyFor(
+                progress.itemId,
+                sourceId: progress.sourceId,
+              ),
               binding.withEpisodes(episodes).encode(),
             );
           }
@@ -234,7 +258,8 @@ class BangumiSyncService {
             watched >= episodes.length &&
             progress.isFinished;
         await client.updateCollection(binding.subjectId, finished ? 2 : 3);
-        _lastChapter[progress.itemId] = progress.chapterIndex;
+        _lastChapter[ReadingIdentity.key(progress.sourceId, progress.itemId)] =
+            progress.chapterIndex;
       } finally {
         client.close();
       }
@@ -245,7 +270,8 @@ class BangumiSyncService {
   }
 
   /// 重新绑定 / 解绑后清掉节流状态，下一次进度写入立即同步。
-  void forget(String itemId) {
+  void forget(String itemId, {String sourceId = ''}) {
+    itemId = ReadingIdentity.key(sourceId, itemId);
     _lastChapter.remove(itemId);
     _lastAttempt.remove(itemId);
   }

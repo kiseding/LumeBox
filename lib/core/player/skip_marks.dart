@@ -31,16 +31,20 @@ class SkipMarks {
   bool get hasIntro => intro != null;
   bool get hasOutro => outro != null;
 
-  SkipMarks copyWith({Duration? intro, Duration? outro, bool clearIntro = false, bool clearOutro = false}) =>
-      SkipMarks(
-        intro: clearIntro ? null : (intro ?? this.intro),
-        outro: clearOutro ? null : (outro ?? this.outro),
-      );
+  SkipMarks copyWith({
+    Duration? intro,
+    Duration? outro,
+    bool clearIntro = false,
+    bool clearOutro = false,
+  }) => SkipMarks(
+    intro: clearIntro ? null : (intro ?? this.intro),
+    outro: clearOutro ? null : (outro ?? this.outro),
+  );
 
   Map<String, Object?> toJson() => <String, Object?>{
-        if (intro != null) 'introMs': intro!.inMilliseconds,
-        if (outro != null) 'outroMs': outro!.inMilliseconds,
-      };
+    if (intro != null) 'introMs': intro!.inMilliseconds,
+    if (outro != null) 'outroMs': outro!.inMilliseconds,
+  };
 
   /// 宽容解析：坏值只影响那一项。
   static SkipMarks fromJson(Object? json) {
@@ -79,7 +83,7 @@ class SkipMarksStore {
   static String keyFor(String itemId) => '$keyPrefix$itemId';
 
   SkipMarks load(String itemId) {
-    final raw = library.setting(keyFor(itemId));
+    final raw = library.setting(library.itemSettingKey(keyPrefix, itemId));
     if (raw == null || raw.trim().isEmpty) return SkipMarks.none;
     try {
       return SkipMarks.fromJson(jsonDecode(raw));
@@ -91,12 +95,13 @@ class SkipMarksStore {
 
   void save(String itemId, SkipMarks marks) {
     library.setSetting(
-      keyFor(itemId),
+      library.itemSettingKey(keyPrefix, itemId),
       marks.isEmpty ? '' : jsonEncode(marks.toJson()),
     );
   }
 
-  void clear(String itemId) => library.setSetting(keyFor(itemId), '');
+  void clear(String itemId) =>
+      library.setSetting(library.itemSettingKey(keyPrefix, itemId), '');
 }
 
 /// 跳过的动作。
@@ -117,7 +122,8 @@ class SkipOutcome {
   const SkipOutcome._(this.action, [this.position]);
 
   const SkipOutcome.none() : this._(SkipAction.none);
-  const SkipOutcome.seekTo(Duration position) : this._(SkipAction.seek, position);
+  const SkipOutcome.seekTo(Duration position)
+    : this._(SkipAction.seek, position);
   const SkipOutcome.advance() : this._(SkipAction.advance);
 
   final SkipAction action;

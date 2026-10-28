@@ -9,6 +9,7 @@ import '../session/section.dart';
 import '../session/section_scope.dart';
 import '../util/lume_log.dart';
 import 'reading_models.dart';
+import 'reading_identity.dart';
 
 /// 板块独占的阅读库：书架、阅读进度、阅读设置。
 ///
@@ -29,7 +30,7 @@ class ReadingStore {
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
 
-  static const int _schemaVersion = 4;
+  static const int _schemaVersion = 5;
 
   /// 板块内阅读数据根目录（相对板块根）。
   static const String cacheRootName = 'reading_cache';
@@ -165,11 +166,151 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         "INSERT OR IGNORE INTO video_episode_progress SELECT * FROM reading_progress WHERE progress_kind = 'video'",
       );
     }
+    if (version < 5) _migrateIdentity();
     if (version < _schemaVersion) {
       _db.execute('PRAGMA user_version = $_schemaVersion');
     }
     _claimSection();
+    _db.execute(
+      'CREATE INDEX IF NOT EXISTS library_item_recent ON library_item(section, updated_at DESC)',
+    );
   }
+
+  void _migrateIdentity() {
+    // A separate SQLite snapshot remains available if migration is interrupted.
+    final backup = File('${_readingDbPath(_scope)}.before-identity-v5');
+    if (!backup.existsSync()) {
+      _db.execute("VACUUM INTO '${backup.path.replaceAll("'", "''")}'");
+    }
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final table in [
+        'library_item',
+        'reading_progress',
+        'video_episode_progress',
+      ]) {
+        final info = _db.select('PRAGMA table_info($table)');
+        if (info.any((r) => r['name'] == 'source_id' && (r['pk'] as int) > 0)) {
+          continue;
+        }
+        var sql =
+            _db.select(
+                  'SELECT sql FROM sqlite_master WHERE type = ? AND name = ?',
+                  ['table', table],
+                ).first['sql']
+                as String;
+        _db.execute('ALTER TABLE $table RENAME TO ${table}_legacy_v4');
+        sql = sql.replaceFirst(
+          RegExp(
+            r'CREATE TABLE\s+(?:IF NOT EXISTS\s+)?"?' + table + r'"?',
+            caseSensitive: false,
+          ),
+          'CREATE TABLE $table',
+        );
+        sql = sql.replaceFirst(
+          RegExp(r'item_id\s+TEXT\s+PRIMARY KEY', caseSensitive: false),
+          'item_id TEXT NOT NULL',
+        );
+        if (!info.any((r) => r['name'] == 'source_id')) {
+          sql = sql.replaceFirst('(', "(source_id TEXT NOT NULL DEFAULT '',");
+        }
+        final end = sql.lastIndexOf(')');
+        sql =
+            '${sql.substring(0, end)}, PRIMARY KEY(source_id,item_id${table == 'video_episode_progress' ? ',chapter_id' : ''})${sql.substring(end)}';
+        _db.execute(sql);
+        final columns = _db
+            .select('PRAGMA table_info(${table}_legacy_v4)')
+            .map((r) => r['name'] as String)
+            .toList();
+        if (columns.contains('source_id')) {
+          _db.execute(
+            'INSERT INTO $table (${columns.join(',')}) SELECT ${columns.join(',')} FROM ${table}_legacy_v4',
+          );
+        } else {
+          _db.execute(
+            "INSERT INTO $table (source_id,${columns.join(',')}) SELECT COALESCE((SELECT source_id FROM library_item WHERE item_id = old.item_id),''),${columns.map((c) => 'old.$c').join(',')} FROM ${table}_legacy_v4 old",
+          );
+        }
+      }
+      for (final table in [
+        'video_episode_progress',
+        'reading_progress',
+        'library_item',
+      ]) {
+        _db.execute('DROP TABLE IF EXISTS ${table}_legacy_v4');
+        _db.execute(
+          'CREATE INDEX IF NOT EXISTS ${table}_lookup ON $table(item_id)',
+        );
+      }
+      final owners = _db.select('SELECT item_id, source_id FROM library_item');
+      final folders = setting('favorites.folders');
+      if (folders != null) {
+        try {
+          final data = jsonDecode(folders) as Map;
+          final updated = data.map(
+            (name, ids) => MapEntry(
+              name,
+              (ids as List).map((id) {
+                final match = owners.where((r) => r['item_id'] == id).toList();
+                return match.length == 1
+                    ? ReadingIdentity.key(
+                        match.single['source_id'] as String,
+                        '$id',
+                      )
+                    : id;
+              }).toList(),
+            ),
+          );
+          setSetting('favorites.folders', jsonEncode(updated));
+        } catch (_) {
+          /* A damaged folder cannot block progress migration. */
+        }
+      }
+      for (final row in owners) {
+        final item = row['item_id'] as String;
+        if (owners.where((r) => r['item_id'] == item).length != 1) continue;
+        final id = ReadingIdentity.key(row['source_id'] as String, item);
+        for (final prefix in [
+          'favorite.updated.',
+          'bangumi.binding.',
+          'skip.marks.',
+          'comic.bookmarks.',
+          'comic.annotations.',
+        ]) {
+          final value = setting('$prefix$item');
+          if (value != null) {
+            setSetting('$prefix$id', value);
+            _db.execute('DELETE FROM reading_setting WHERE key = ?', [
+              '$prefix$item',
+            ]);
+          }
+        }
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  /// Legacy callers may resolve an ID only when ownership is unambiguous.
+  String? sourceFor(String itemId, [String? sourceId]) {
+    if (_closed) return sourceId;
+    final identity = ReadingIdentity.decode(itemId);
+    if (identity != null) return identity[0];
+    if (sourceId != null) return sourceId;
+    final rows = _db.select(
+      'SELECT DISTINCT source_id FROM library_item WHERE item_id = ? UNION SELECT DISTINCT source_id FROM reading_progress WHERE item_id = ?',
+      [itemId, itemId],
+    );
+    return rows.length == 1
+        ? rows.single['source_id'] as String
+        : rows.isEmpty
+        ? ''
+        : null;
+  }
+
+  String rawId(String id) => ReadingIdentity.decode(id)?[1] ?? id;
 
   /// 库文件自证：库内声明所属板块，缺失则落记号，不符即拒绝打开。
   void _claimSection() {
@@ -200,27 +341,39 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     return List<LibraryItem>.unmodifiable(items);
   }
 
-  bool isFavorite(String itemId) =>
+  /// Filter history in one indexed query instead of querying twice per item.
+  List<LibraryItem> historyItems() {
+    if (_closed) return [];
+    return [
+      for (final row in _db.select(
+        "SELECT l.* FROM library_item l WHERE l.section = ? AND (l.favorite = 0 OR EXISTS (SELECT 1 FROM reading_progress p WHERE p.source_id = l.source_id AND p.item_id = l.item_id AND p.section = l.section AND (l.section != 'cat' OR p.progress_kind IN ('comic','video')))) ORDER BY l.updated_at DESC",
+        [section.id],
+      ))
+        ?_itemFromRow(row),
+    ];
+  }
+
+  bool isFavorite(String itemId, {String? sourceId}) =>
       !_closed &&
       _db.select(
-        'SELECT 1 FROM library_item WHERE item_id = ? AND section = ? AND favorite = 1',
-        [itemId, section.id],
+        'SELECT 1 FROM library_item WHERE item_id = ? AND section = ? AND source_id = ? AND favorite = 1',
+        [rawId(itemId), section.id, sourceFor(itemId, sourceId)],
       ).isNotEmpty;
 
-  void removeFavorite(String itemId) {
+  void removeFavorite(String itemId, {String? sourceId}) {
     if (_closed) return;
     _db.execute(
-      'UPDATE library_item SET favorite = 0 WHERE item_id = ? AND section = ?',
-      [itemId, section.id],
+      'UPDATE library_item SET favorite = 0 WHERE item_id = ? AND section = ? AND source_id = ?',
+      [rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
   }
 
   /// 单条书架条目。不存在或归属不符时返回 null。
-  LibraryItem? item(String itemId) {
+  LibraryItem? item(String itemId, {String? sourceId}) {
     if (_closed) return null;
     final rows = _db.select(
-      'SELECT * FROM library_item WHERE item_id = ?',
-      <Object?>[itemId],
+      'SELECT * FROM library_item WHERE item_id = ? AND source_id = ?',
+      <Object?>[rawId(itemId), sourceFor(itemId, sourceId)],
     );
     return rows.isEmpty ? null : _itemFromRow(rows.first);
   }
@@ -229,14 +382,31 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   ///
   /// 更新语义刻意保守：章节总数只在拿到非零值时覆盖（图源偶发少返章节时
   /// 不缩水，未读角标才不会乱跳），已读章节序号与加入时间都不被触碰。
+  void _adoptLegacyProgress(LibraryItem item) {
+    if (item.sourceId.isEmpty ||
+        _db.select(
+          'SELECT 1 FROM library_item WHERE item_id = ? AND source_id != ?',
+          [item.itemId, item.sourceId],
+        ).isNotEmpty) {
+      return;
+    }
+    for (final table in ['reading_progress', 'video_episode_progress']) {
+      _db.execute(
+        'UPDATE OR IGNORE $table SET source_id = ? WHERE item_id = ? AND source_id = ?',
+        [item.sourceId, item.itemId, ''],
+      );
+    }
+  }
+
   void upsertItem(LibraryItem item) {
     if (_closed) return;
     _requireOwn(item.section);
+    _adoptLegacyProgress(item);
     _db.execute(
       'INSERT INTO library_item (item_id, section, source_id, title, cover, '
       'subtitle, chapter_count, read_chapter_index, added_at, updated_at) '
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
-      'ON CONFLICT(item_id) DO UPDATE SET '
+      'ON CONFLICT(source_id,item_id) DO UPDATE SET '
       'favorite = 1, source_id = excluded.source_id, '
       'title = excluded.title, '
       'cover = excluded.cover, '
@@ -266,12 +436,13 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   void ensureHistoryItem(LibraryItem item) {
     if (_closed) return;
     _requireOwn(item.section);
+    _adoptLegacyProgress(item);
     _db.execute(
       'INSERT INTO library_item (item_id, section, source_id, title, cover, '
       'subtitle, chapter_count, read_chapter_index, added_at, updated_at, '
       'favorite) '
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0) '
-      'ON CONFLICT(item_id) DO UPDATE SET '
+      'ON CONFLICT(source_id,item_id) DO UPDATE SET '
       'source_id = excluded.source_id, '
       'title = excluded.title, '
       'cover = excluded.cover, '
@@ -294,37 +465,48 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     );
   }
 
-  void removeItem(String itemId) {
+  void removeItem(String itemId, {String? sourceId}) {
     if (_closed) return;
     _db.execute(
-      'DELETE FROM library_item WHERE item_id = ? AND section = ?',
-      <Object?>[itemId, section.id],
+      'DELETE FROM library_item WHERE item_id = ? AND section = ? AND source_id = ?',
+      <Object?>[rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
   }
 
   /// 同步章节总数（详情页拿到章节列表时调用）。
-  void setChapterCount(String itemId, int chapterCount) {
+  void setChapterCount(String itemId, int chapterCount, {String? sourceId}) {
     if (_closed || chapterCount <= 0) return;
     _db.execute(
       'UPDATE library_item SET chapter_count = ? WHERE item_id = ? '
-      'AND section = ?',
-      <Object?>[chapterCount, itemId, section.id],
+      'AND section = ? AND source_id = ?',
+      <Object?>[
+        chapterCount,
+        rawId(itemId),
+        section.id,
+        sourceFor(itemId, sourceId),
+      ],
     );
   }
 
   /// 记「已读到第几章」。只前进不回退：回翻旧章节不会让未读角标重新涨起来，
   /// 同时刷新排序时间，让它回到书架最前。
-  void markChapterRead(String itemId, int chapterIndex, {DateTime? at}) {
+  void markChapterRead(
+    String itemId,
+    int chapterIndex, {
+    DateTime? at,
+    String? sourceId,
+  }) {
     if (_closed || chapterIndex < 0) return;
     _db.execute(
       'UPDATE library_item SET '
       'read_chapter_index = MAX(read_chapter_index, ?), updated_at = ? '
-      'WHERE item_id = ? AND section = ?',
+      'WHERE item_id = ? AND section = ? AND source_id = ?',
       <Object?>[
         chapterIndex,
         (at ?? DateTime.now()).millisecondsSinceEpoch,
-        itemId,
+        rawId(itemId),
         section.id,
+        sourceFor(itemId, sourceId),
       ],
     );
   }
@@ -332,21 +514,21 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   // ------------------------------------------------------------------ 进度
 
   /// 阅读进度。没有记录时返回 null。
-  ReadingProgress? progress(String itemId) {
+  ReadingProgress? progress(String itemId, {String? sourceId}) {
     if (_closed) return null;
     final rows = _db.select(
-      'SELECT * FROM reading_progress WHERE item_id = ? AND section = ?',
-      <Object?>[itemId, section.id],
+      'SELECT * FROM reading_progress WHERE item_id = ? AND section = ? AND source_id = ?',
+      <Object?>[rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
     return rows.isEmpty ? null : _progressFromRow(rows.first);
   }
 
-  Map<String, VideoProgress> videoEpisodes(String itemId) {
+  Map<String, VideoProgress> videoEpisodes(String itemId, {String? sourceId}) {
     if (_closed) return {};
     final result = <String, VideoProgress>{};
     for (final row in _db.select(
-      'SELECT * FROM video_episode_progress WHERE item_id = ? AND section = ?',
-      [itemId, section.id],
+      'SELECT * FROM video_episode_progress WHERE item_id = ? AND section = ? AND source_id = ?',
+      [rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     )) {
       final progress = _progressFromRow(row);
       if (progress is VideoProgress) result[progress.chapterId] = progress;
@@ -354,11 +536,15 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     return result;
   }
 
-  VideoProgress? videoEpisode(String itemId, String chapterId) {
+  VideoProgress? videoEpisode(
+    String itemId,
+    String chapterId, {
+    String? sourceId,
+  }) {
     if (_closed) return null;
     final rows = _db.select(
-      'SELECT * FROM video_episode_progress WHERE item_id = ? AND chapter_id = ? AND section = ?',
-      [itemId, chapterId, section.id],
+      'SELECT * FROM video_episode_progress WHERE item_id = ? AND chapter_id = ? AND section = ? AND source_id = ?',
+      [rawId(itemId), chapterId, section.id, sourceFor(itemId, sourceId)],
     );
     final progress = rows.isEmpty ? null : _progressFromRow(rows.first);
     return progress is VideoProgress ? progress : null;
@@ -366,6 +552,12 @@ CREATE TABLE IF NOT EXISTS reading_setting (
 
   /// 保存阅读进度（同一作品一条，覆盖写）。
   void saveProgress(ReadingProgress progress) {
+    if (_closed) return;
+    final owner = sourceFor(
+      progress.itemId,
+      progress.sourceId.isEmpty ? null : progress.sourceId,
+    );
+    if (owner == null) throw StateError('进度缺少源身份');
     if (_closed) return;
     _requireOwn(progress.section);
     final (position, fraction, chapterLength) = switch (progress) {
@@ -385,10 +577,10 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       VideoProgress() => 'video',
     };
     _db.execute(
-      'INSERT INTO reading_progress (item_id, section, chapter_index, '
+      'INSERT INTO reading_progress (item_id, section, source_id, chapter_index, '
       'chapter_id, chapter_title, position, fraction, chapter_length, '
-      'progress_kind, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
-      'ON CONFLICT(item_id) DO UPDATE SET '
+      'progress_kind, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'ON CONFLICT(source_id,item_id) DO UPDATE SET '
       'section = excluded.section, '
       'chapter_index = excluded.chapter_index, '
       'chapter_id = excluded.chapter_id, '
@@ -399,8 +591,9 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       'progress_kind = excluded.progress_kind, '
       'updated_at = excluded.updated_at',
       <Object?>[
-        progress.itemId,
+        rawId(progress.itemId),
         progress.section.id,
+        owner,
         progress.chapterIndex,
         progress.chapterId,
         progress.chapterTitle,
@@ -414,27 +607,27 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     if (progress is VideoProgress) {
       _db.execute(
         'INSERT OR REPLACE INTO video_episode_progress '
-        '(item_id, section, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at) '
-        'SELECT item_id, section, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at '
-        'FROM reading_progress WHERE item_id = ? AND section = ?',
-        [progress.itemId, section.id],
+        '(item_id, section, source_id, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at) '
+        'SELECT item_id, section, source_id, chapter_index, chapter_id, chapter_title, position, fraction, chapter_length, progress_kind, updated_at '
+        'FROM reading_progress WHERE item_id = ? AND section = ? AND source_id = ?',
+        [rawId(progress.itemId), section.id, owner],
       );
     }
   }
 
-  void clearProgress(String itemId) {
+  void clearProgress(String itemId, {String? sourceId}) {
     if (_closed) return;
     _db.execute(
-      'DELETE FROM video_episode_progress WHERE item_id = ? AND section = ?',
-      [itemId, section.id],
+      'DELETE FROM video_episode_progress WHERE item_id = ? AND section = ? AND source_id = ?',
+      [rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
     _db.execute(
-      'DELETE FROM reading_progress WHERE item_id = ? AND section = ?',
-      <Object?>[itemId, section.id],
+      'DELETE FROM reading_progress WHERE item_id = ? AND section = ? AND source_id = ?',
+      <Object?>[rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
     _db.execute(
-      'UPDATE library_item SET read_chapter_index = -1 WHERE item_id = ? AND section = ?',
-      [itemId, section.id],
+      'UPDATE library_item SET read_chapter_index = -1 WHERE item_id = ? AND section = ? AND source_id = ?',
+      [rawId(itemId), section.id, sourceFor(itemId, sourceId)],
     );
   }
 
@@ -477,11 +670,15 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   /// Cloud sync reads rows through this store, never copies a live SQLite file.
   Map<String, Object?> cloudRecords({required bool includeSettings}) {
     final result = <String, Object?>{};
-    for (final table in ['library_item', 'reading_progress']) {
+    for (final table in [
+      'library_item',
+      'reading_progress',
+      'video_episode_progress',
+    ]) {
       for (final row in _db.select('SELECT * FROM $table WHERE section = ?', [
         section.id,
       ])) {
-        result[jsonEncode([section.id, table, row['item_id']])] =
+        result[jsonEncode([section.id, table, cloudIdentity(table, row)])] =
             Map<String, Object?>.from(row);
       }
     }
@@ -509,10 +706,89 @@ CREATE TABLE IF NOT EXISTS reading_setting (
           key.startsWith('reader.') ||
           key.startsWith('browse.'));
 
+  static String cloudIdentity(String table, Map row) =>
+      table == 'video_episode_progress'
+      ? 'lume:item:${jsonEncode([row['source_id'], row['item_id'], row['chapter_id']])}'
+      : ReadingIdentity.key('${row['source_id']}', '${row['item_id']}');
+
+  /// Upgrade legacy raw-ID cloud records before comparing baselines or merging.
+  Map<String, Object?> normalizeCloudRecords(Map<String, Object?> records) {
+    final result = <String, Object?>{};
+    final owners = <String, Set<String>>{};
+    for (final value in records.values) {
+      if (value is Map &&
+          value['source_id'] is String &&
+          value['item_id'] is String) {
+        owners
+            .putIfAbsent('${value['item_id']}', () => {})
+            .add(value['source_id'] as String);
+      }
+    }
+    for (final entry in records.entries) {
+      final key = jsonDecode(entry.key);
+      if (key is! List ||
+          key.length != 3 ||
+          key[0] != section.id ||
+          key[2] is! String) {
+        throw const FormatException('阅读记录身份无效');
+      }
+      if (key[1] == 'reading_setting') {
+        result[entry.key] = entry.value;
+        continue;
+      }
+      final identity = ReadingIdentity.decode(key[2]);
+      final row = entry.value == null
+          ? null
+          : Map<String, Object?>.from(entry.value as Map);
+      final item =
+          row?['item_id'] as String? ?? identity?[1] ?? key[2] as String;
+      final owner =
+          row?['source_id'] as String? ??
+          identity?[0] ??
+          (owners[item]?.length == 1 ? owners[item]!.single : null) ??
+          sourceFor(item) ??
+          '';
+      if (identity != null &&
+          row != null &&
+          (row['item_id'] != identity[1] ||
+              row['source_id'] != null && row['source_id'] != identity[0] ||
+              key[1] == 'video_episode_progress' &&
+                  (identity.length != 3 || row['chapter_id'] != identity[2]))) {
+        throw const FormatException('阅读记录内容与身份不一致');
+      }
+      if (row != null) row['source_id'] = owner;
+      final id = row == null
+          ? identity == null
+                ? ReadingIdentity.key(owner, item)
+                : key[2]
+          : cloudIdentity('${key[1]}', row);
+      // Legacy raw keys must still agree with the payload before migration.
+      if (identity == null && row != null && row['item_id'] != key[2]) {
+        throw const FormatException('阅读记录内容与身份不一致');
+      }
+      result[jsonEncode([section.id, key[1], id])] = row;
+    }
+    return result;
+  }
+
   void applyCloudRecords(
     Map<String, Object?> records, {
     bool validateOnly = false,
+    bool allowAllSettings = false,
   }) {
+    const progressColumns = [
+      'item_id',
+      'section',
+      'source_id',
+      'chapter_index',
+      'chapter_id',
+      'chapter_title',
+      'position',
+      'fraction',
+      'chapter_length',
+      'progress_kind',
+      'updated_at',
+    ];
     const columns = {
       'library_item': [
         'item_id',
@@ -527,96 +803,112 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         'updated_at',
         'favorite',
       ],
-      'reading_progress': [
-        'item_id',
-        'section',
-        'chapter_index',
-        'chapter_id',
-        'chapter_title',
-        'position',
-        'fraction',
-        'chapter_length',
-        'progress_kind',
-        'updated_at',
-      ],
+      'reading_progress': progressColumns,
+      'video_episode_progress': progressColumns,
       'reading_setting': ['key', 'value'],
     };
-    final operations = <(String, String, Map<String, Object?>?)>[];
-    for (final entry in records.entries) {
-      final key = jsonDecode(entry.key);
-      if (key is! List ||
-          key.length != 3 ||
-          key[0] != section.id ||
-          !columns.containsKey(key[1]) ||
-          key[2] is! String) {
-        throw const FormatException('云端阅读记录无效');
+    final operations = <(String, List<String>, Map<String, Object?>?)>[];
+    for (final entry in normalizeCloudRecords(records).entries) {
+      final key = (jsonDecode(entry.key) as List).cast<String>();
+      final table = key[1];
+      if (!columns.containsKey(table)) {
+        throw const FormatException('云端阅读记录类型无效');
       }
-      final table = key[1] as String;
-      if (table == 'reading_setting' && !cloudSettingAllowed(key[2])) {
+      if (table == 'reading_setting' &&
+          !allowAllSettings &&
+          !cloudSettingAllowed(key[2])) {
         throw const FormatException('云端设置不在允许范围');
       }
       final row = entry.value == null
           ? null
           : Map<String, Object?>.from(entry.value as Map);
+      final identity = table == 'reading_setting'
+          ? [key[2]]
+          : ReadingIdentity.decode(key[2]);
+      if (identity == null ||
+          (table == 'video_episode_progress'
+              ? identity.length != 3
+              : table != 'reading_setting' && identity.length != 2)) {
+        throw const FormatException('云端身份无效');
+      }
       if (row != null) {
-        if (row.keys.any((name) => !columns[table]!.contains(name)) ||
-            columns[table]!.any((name) => !row.containsKey(name)) ||
-            row.values.any(
-              (value) => value != null && value is! String && value is! num,
-            ) ||
-            row.values.whereType<num>().any((number) => !number.isFinite) ||
-            (table == 'reading_setting'
-                ? row['key'] != key[2] || row['value'] is! String
-                : row['section'] != section.id || row['item_id'] != key[2])) {
+        final names = columns[table]!;
+        if (row.length != names.length ||
+            names.any((n) => !row.containsKey(n)) ||
+            row.values.any((v) => v != null && v is! String && v is! num) ||
+            row.values.whereType<num>().any((v) => !v.isFinite)) {
           throw const FormatException('云端记录结构不兼容');
         }
-      }
-      if (row != null && table != 'reading_setting') {
-        final text = table == 'library_item'
-            ? ['item_id', 'section', 'source_id', 'title']
-            : [
-                'item_id',
-                'section',
-                'chapter_id',
-                'chapter_title',
-                'progress_kind',
-              ];
-        final integers = table == 'library_item'
-            ? [
-                'chapter_count',
-                'read_chapter_index',
-                'added_at',
-                'updated_at',
-                'favorite',
-              ]
-            : ['chapter_index', 'position', 'chapter_length', 'updated_at'];
-        if (text.any((name) => row[name] is! String) ||
-            integers.any((name) => row[name] is! int) ||
-            table == 'library_item' &&
-                (['cover', 'subtitle'].any(
-                      (name) => row[name] != null && row[name] is! String,
-                    ) ||
-                    ![0, 1].contains(row['favorite'])) ||
-            table == 'reading_progress' && row['fraction'] is! num) {
-          throw const FormatException('云端字段类型不兼容');
+        if (table == 'reading_setting') {
+          if (row['key'] != key[2] || row['value'] is! String) {
+            throw const FormatException('设置格式无效');
+          }
+        } else {
+          if (row['section'] != section.id ||
+              row['source_id'] != identity[0] ||
+              row['item_id'] != identity[1] ||
+              table == 'video_episode_progress' &&
+                  row['chapter_id'] != identity[2]) {
+            throw const FormatException('云端身份与内容不一致');
+          }
+          final strings = table == 'library_item'
+              ? ['item_id', 'section', 'source_id', 'title']
+              : [
+                  'item_id',
+                  'section',
+                  'source_id',
+                  'chapter_id',
+                  'chapter_title',
+                  'progress_kind',
+                ];
+          final integers = table == 'library_item'
+              ? [
+                  'chapter_count',
+                  'read_chapter_index',
+                  'added_at',
+                  'updated_at',
+                  'favorite',
+                ]
+              : ['chapter_index', 'position', 'chapter_length', 'updated_at'];
+          if (strings.any((n) => row[n] is! String) ||
+              integers.any((n) => row[n] is! int) ||
+              table == 'library_item' &&
+                  (!const [0, 1].contains(row['favorite']) ||
+                      [
+                        'cover',
+                        'subtitle',
+                      ].any((n) => row[n] != null && row[n] is! String)) ||
+              table != 'library_item' && row['fraction'] is! num) {
+            throw const FormatException('云端字段类型不兼容');
+          }
         }
       }
-      operations.add((table, key[2] as String, row));
+      operations.add((table, identity, row));
     }
     if (validateOnly) return;
     _db.execute('BEGIN IMMEDIATE');
     try {
       for (final (table, id, row) in operations) {
-        final names = columns[table]!;
         if (row == null) {
-          _db.execute(
-            'DELETE FROM $table WHERE ${table == 'reading_setting' ? 'key' : 'item_id'} = ?',
-            [id],
-          );
+          if (table == 'reading_setting') {
+            _db.execute('DELETE FROM reading_setting WHERE key = ?', id);
+          } else {
+            _db.execute(
+              'DELETE FROM $table WHERE source_id = ? AND item_id = ?${table == 'video_episode_progress' ? ' AND chapter_id = ?' : ''}',
+              id,
+            );
+            if (table == 'reading_progress') {
+              _db.execute(
+                'DELETE FROM video_episode_progress WHERE source_id = ? AND item_id = ?',
+                id,
+              );
+            }
+          }
         } else {
+          final names = columns[table]!;
           _db.execute(
             'INSERT OR REPLACE INTO $table (${names.join(',')}) VALUES (${List.filled(names.length, '?').join(',')})',
-            [for (final name in names) row[name]],
+            [for (final n in names) row[n]],
           );
         }
       }
@@ -688,6 +980,43 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     }
     target.createSync(recursive: true);
     target.writeAsBytesSync(bytes, flush: true);
+    return target;
+  }
+
+  Future<File> _exportWriting = Future.value(File(''));
+  Future<File> writeExportAsync(String fileName, Uint8List bytes) {
+    final task = _exportWriting.catchError((Object _) => File('')).then((
+      _,
+    ) async {
+      final safe = safeName(fileName);
+      var target = File(p.join(exportDir, safe));
+      var index = 1;
+      while (await target.exists()) {
+        target = File(
+          p.join(
+            exportDir,
+            '${p.basenameWithoutExtension(safe)}_${index++}${p.extension(safe)}',
+          ),
+        );
+      }
+      await target.parent.create(recursive: true);
+      await target.writeAsBytes(bytes, flush: true);
+      return target;
+    });
+    _exportWriting = task;
+    return task;
+  }
+
+  Future<File> writeDownloadAsync(
+    String folder,
+    String name,
+    Uint8List bytes,
+  ) async {
+    final target = File(
+      p.join(exportDir, safeRelativeDir(folder), safeName(name)),
+    );
+    await target.parent.create(recursive: true);
+    await target.writeAsBytes(bytes, flush: true);
     return target;
   }
 
@@ -808,6 +1137,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       Section.comic => ComicProgress(
         section: section,
         itemId: common.itemId,
+        sourceId: row['source_id'] as String,
         chapterIndex: common.chapterIndex,
         chapterId: common.chapterId,
         chapterTitle: common.chapterTitle,
@@ -818,6 +1148,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       Section.video => VideoProgress(
         section: section,
         itemId: common.itemId,
+        sourceId: row['source_id'] as String,
         chapterIndex: common.chapterIndex,
         chapterId: common.chapterId,
         chapterTitle: common.chapterTitle,

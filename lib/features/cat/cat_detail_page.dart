@@ -121,7 +121,10 @@ class _CatDetailPageState extends State<CatDetailPage>
           chapters = episodes;
           raw = metadata;
           lines = CatDataSource.episodeLines(episodes);
-          final progress = widget.library.videoProgress(widget.item.id);
+          final progress = widget.library.videoProgress(
+            widget.item.id,
+            sourceId: widget.source.id,
+          );
           lastChapterId = progress?.chapterId;
           selectedChapterId = lastChapterId;
           final resumed = episodes
@@ -278,7 +281,9 @@ class _CatDetailPageState extends State<CatDetailPage>
         setState(() {
           playing = false;
           lastChapterId =
-              widget.library.videoProgress(widget.item.id)?.chapterId ??
+              widget.library
+                  .videoProgress(widget.item.id, sourceId: widget.source.id)
+                  ?.chapterId ??
               lastChapterId;
           if (openedPlayer && lastChapterId != null) {
             selectedChapterId = lastChapterId;

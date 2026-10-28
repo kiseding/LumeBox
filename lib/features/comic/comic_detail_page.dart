@@ -191,8 +191,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _detail = detail;
         _loading = false;
         _chaptersLoading = true;
-        _onShelf = widget.library.onShelf(widget.target.itemId);
-        _progress = widget.library.progress(widget.target.itemId);
+        _onShelf = widget.library.onShelf(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
+        _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
       });
       final chapters = await networkRequests.run(
         'chapters',
@@ -210,8 +216,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _chapters = chapters;
         _loading = false;
         _chaptersLoading = false;
-        _onShelf = widget.library.onShelf(widget.target.itemId);
-        _progress = widget.library.progress(widget.target.itemId);
+        _onShelf = widget.library.onShelf(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
+        _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
       });
       if (_compact && _isGallery) unawaited(_loadGalleryPreview());
       // 「查看详情」本身也是历史：只写 favorite = 0 的历史行；收藏必须等
@@ -224,9 +236,20 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         subtitle: detail?.subtitle ?? widget.target.subtitle,
         chapterCount: chapters.length,
       );
+      // Recording ownership can adopt an older checkpoint without source metadata.
+      setState(
+        () => _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        ),
+      );
       // 已在书架：同步章节总数，未读角标才有准确口径。
       if (_onShelf) {
-        widget.library.syncChapters(widget.target.itemId, chapters.length);
+        widget.library.syncChapters(
+          widget.target.itemId,
+          chapters.length,
+          sourceId: widget.target.sourceId,
+        );
       }
     } on SourceException catch (error) {
       LumeLog.warn('[${widget.target.itemId}] 详情获取失败: $error');
@@ -259,7 +282,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     );
     setState(() {
       _onShelf = true;
-      _progress = widget.library.progress(widget.target.itemId);
+      _progress = widget.library.progress(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
     });
     if (!silent) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -287,7 +313,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       ),
     );
     if (confirmed != true || !mounted) return;
-    widget.library.unshelve(widget.target.itemId);
+    widget.library.unshelve(
+      widget.target.itemId,
+      sourceId: widget.target.sourceId,
+    );
     setState(() {
       _onShelf = false;
       _progress = null;
@@ -318,8 +347,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     // 返回后主动通知历史抽屉 / 书架重新取数；不能只靠切换 Tab 刷新。
     widget.library.refresh();
     setState(() {
-      _onShelf = widget.library.onShelf(widget.target.itemId);
-      _progress = widget.library.progress(widget.target.itemId);
+      _onShelf = widget.library.onShelf(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
+      _progress = widget.library.progress(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
     });
   }
 

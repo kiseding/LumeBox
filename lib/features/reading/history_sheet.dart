@@ -154,7 +154,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
   }
 
   Future<void> moveToFolder(LibraryItem item) async {
-    await chooseFavoriteFolder(context, folders, item.itemId);
+    await chooseFavoriteFolder(context, folders, item.identity);
     if (mounted) setState(() {});
   }
 
@@ -184,10 +184,17 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
         }
         final chapters = await source.chapters(item.itemId);
         if (chapters.length > item.chapterCount && item.chapterCount > 0) {
-          widget.library.setSetting('favorite.updated.${item.itemId}', 'true');
+          widget.library.setSetting(
+            'favorite.updated.${item.identity}',
+            'true',
+          );
           changed++;
         }
-        widget.library.syncChapters(item.itemId, chapters.length);
+        widget.library.syncChapters(
+          item.itemId,
+          chapters.length,
+          sourceId: item.sourceId,
+        );
       } catch (_) {
         failed++;
       }
@@ -220,14 +227,17 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
               (item) =>
                   item.title.toLowerCase().contains(query.toLowerCase()) &&
                   (folder == null ||
-                      (folders.load()[folder] ?? []).contains(item.itemId)),
+                      (folders.load()[folder] ?? []).contains(item.identity)),
             )
             .toList();
     final now = (widget.clock ?? DateTime.now)();
     final title = favorites ? '收藏' : '历史';
     void open(LibraryItem item) {
-      widget.library.setSetting('favorite.updated.${item.itemId}', 'false');
-      final progress = widget.library.progress(item.itemId);
+      widget.library.setSetting('favorite.updated.${item.identity}', 'false');
+      final progress = widget.library.progress(
+        item.itemId,
+        sourceId: item.sourceId,
+      );
       if (progress != null) {
         widget.onResume(item, progress);
       } else {
@@ -288,7 +298,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                     isLabelVisible: widget.library.shelf().any(
                                       (item) =>
                                           widget.library.setting(
-                                            'favorite.updated.${item.itemId}',
+                                            'favorite.updated.${item.identity}',
                                           ) ==
                                           'true',
                                     ),
@@ -388,7 +398,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                     Expanded(
                       child: CollectionPanel(
                         title: title,
-                        ids: items.map((e) => e.itemId).toList(),
+                        ids: items.map((e) => e.identity).toList(),
                         library: widget.library,
                         storageKey:
                             'collection.${favorites ? 'favorites' : 'history'}.layout',
@@ -412,16 +422,25 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                               pipeline: pipeline,
                               updated:
                                   widget.library.setting(
-                                    'favorite.updated.${item.itemId}',
+                                    'favorite.updated.${item.identity}',
                                   ) ==
                                   'true',
                               item: item,
-                              progress: widget.library.progress(item.itemId),
+                              progress: widget.library.progress(
+                                item.itemId,
+                                sourceId: item.sourceId,
+                              ),
                               now: now,
                               removeLabel: favorites ? '取消收藏' : '删除记录',
                               onRemove: () => favorites
-                                  ? widget.library.removeFavorite(item.itemId)
-                                  : widget.library.removeHistory(item.itemId),
+                                  ? widget.library.removeFavorite(
+                                      item.itemId,
+                                      sourceId: item.sourceId,
+                                    )
+                                  : widget.library.removeHistory(
+                                      item.itemId,
+                                      sourceId: item.sourceId,
+                                    ),
                               onResume: () => open(item),
                             ),
                           );
@@ -434,7 +453,10 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
                                 : null,
                             child: HistoryGridTile(
                               item: item,
-                              progress: widget.library.progress(item.itemId),
+                              progress: widget.library.progress(
+                                item.itemId,
+                                sourceId: item.sourceId,
+                              ),
                               pipeline: pipeline,
                               onTap: () => open(item),
                             ),

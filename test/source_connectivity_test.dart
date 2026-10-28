@@ -402,7 +402,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(manager.updatedIds, <String>['sub-1']);
-      expect(find.textContaining('已更新到最新脚本'), findsOneWidget);
+      expect(find.textContaining('已更新：'), findsOneWidget);
     });
 
     testWidgets('本地导入的源：菜单项置灰，点了不会去更新', (tester) async {

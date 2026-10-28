@@ -1,3 +1,5 @@
+import 'package:lume_box/core/reading/reading_identity.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -1368,7 +1370,7 @@ void main() {
       createdAt: DateTime.now(),
     );
     library.setSetting(
-      ComicBookmarks.keyFor('item-1'),
+      ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
       ComicBookmarks.encode([bookmark]),
     );
     const key = 'comic.annotations.fake-src.item-1';
@@ -1412,7 +1414,11 @@ void main() {
     await settle(tester);
     expect(find.text('修改后的远章备注'), findsNothing);
     expect(
-      ComicBookmarks.decode(library.setting(ComicBookmarks.keyFor('item-1'))),
+      ComicBookmarks.decode(
+        library.setting(
+          ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
+        ),
+      ),
       hasLength(1),
     );
     await tester.tap(find.text(bookmark.describe()));
@@ -1427,7 +1433,11 @@ void main() {
     await tester.tap(find.byTooltip('删除书签'));
     await settle(tester);
     expect(
-      ComicBookmarks.decode(library.setting(ComicBookmarks.keyFor('item-1'))),
+      ComicBookmarks.decode(
+        library.setting(
+          ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
+        ),
+      ),
       isEmpty,
     );
   });

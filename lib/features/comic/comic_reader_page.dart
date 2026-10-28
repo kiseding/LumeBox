@@ -458,7 +458,12 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     // 模块设置（手势阈值 / 控件尺寸 / 间距）：与全局「漫画设置」同一份数据。
     _module = SectionModuleSettings.load(widget.library);
     _bookmarks = ComicBookmarks.decode(
-      widget.library.setting(ComicBookmarks.keyFor(widget.target.itemId)),
+      widget.library.setting(
+        widget.library.itemSettingKey(
+          ComicBookmarks.keyPrefix,
+          widget.target.identity,
+        ),
+      ),
     );
     _speechSettings = SpeechSettings.decode(
       widget.library.setting(SpeechSettings.settingKey) ??
@@ -713,6 +718,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final chapter = _chapters[_chapterIndex];
     widget.library.saveProgress(
       ComicProgress(
+        sourceId: widget.target.sourceId,
         section: widget.library.section,
         itemId: widget.target.itemId,
         chapterIndex: _chapterIndex,
@@ -1124,7 +1130,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   void _writeBookmarks(List<ComicBookmark> next) {
     setState(() => _bookmarks = next);
     widget.library.setSetting(
-      ComicBookmarks.keyFor(widget.target.itemId),
+      widget.library.itemSettingKey(
+        ComicBookmarks.keyPrefix,
+        widget.target.identity,
+      ),
       ComicBookmarks.encode(next),
     );
   }
@@ -1293,7 +1302,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         messenger.showSnackBar(const SnackBar(content: Text('保存失败：图片未能取到')));
         return;
       }
-      final file = widget.library.saveImage(_fileNameFor(url, index), bytes);
+      final file = await widget.library.saveImageAsync(
+        _fileNameFor(url, index),
+        bytes,
+      );
       messenger.showSnackBar(SnackBar(content: Text('已保存到 ${file.path}')));
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);

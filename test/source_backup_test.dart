@@ -1,3 +1,5 @@
+import 'package:lume_box/core/source/source_extension_settings.dart';
+
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -215,6 +217,68 @@ async function getList(page) { return { list: [] }; }
   }, skip: skipReason);
 
   group('恢复备份', () {
+    test('empty-device restore retains source routes, user choices and names without credentials', () async {
+      final registry = await seed(Section.video, 'configured', 'original');
+      registry.rename('configured', 'custom name');
+      registry.setSourceSiteConfig(
+        'configured',
+        const SourceSiteConfig(
+          mirrors: ['https://a.example', 'https://b.example'],
+          mirrorIndex: 1,
+          domainOverride: 'https://custom.example',
+          account: 'private-account',
+          password: 'private-password',
+          images: SourceRoute(
+            urls: ['https://img.example'],
+            custom: 'https://custom-img.example',
+          ),
+          video: SourceRoute(
+            urls: ['https://cdn.example'],
+            custom: 'https://custom-cdn.example',
+          ),
+          settingDefinitions: [
+            SourceSetting(key: 'quality', title: 'quality', type: 'text'),
+            SourceSetting(
+              key: 'apiToken',
+              title: 'token',
+              type: 'text',
+              defaultValue: 'private-default',
+            ),
+          ],
+          settingValues: {'quality': '1080p', 'apiToken': 'private-value'},
+        ),
+      );
+      final text = (await service().export()).encode();
+      for (final secret in [
+        'private-account',
+        'private-password',
+        'private-default',
+        'private-value',
+      ]) {
+        expect(text, isNot(contains(secret)));
+      }
+      for (final section in Section.values) {
+        SourceRegistry.close(section);
+      }
+      await SectionScope.closeAll();
+      final old = root;
+      addTearDown(() => old.deleteSync(recursive: true));
+      root = Directory.systemTemp.createTempSync('lumebox-blank-source-');
+      final result = await service().restore(SourceBackup.decode(text));
+      expect(result.imported, 1);
+      expect(result.failed, 0);
+      final record = (await SourceRegistry.open(Section.video))
+          .source('configured')!;
+      expect(record.name, 'custom name');
+      expect(record.siteConfig.selectedMirror, 'https://b.example');
+      expect(record.siteConfig.domainOverride, 'https://custom.example');
+      expect(record.siteConfig.images.custom, 'https://custom-img.example');
+      expect(record.siteConfig.video.custom, 'https://custom-cdn.example');
+      expect(record.siteConfig.settingValues['quality'], '1080p');
+      expect(record.siteConfig.password, isEmpty);
+      expect(record.siteConfig.settingValues.containsKey('apiToken'), false);
+    });
+
     test('新导入与覆盖分别计数', () async {
       // 空库恢复：算「新增」。
       final backup = SourceBackup(

@@ -1,3 +1,4 @@
+import '../../core/player/playback_diagnostics.dart';
 import 'video_episode_catalog.dart';
 import 'player_settings_panel.dart';
 import '../../shared/widgets/native_glass_controls.dart';
@@ -1350,6 +1351,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     PlayerMedia media, {
     bool alreadyLoaded = false,
   }) async {
+    PlaybackDiagnostics.record(
+      'media-load',
+      source: _target?.sourceId,
+      kernel: _settings.kernel.name,
+      uri: media.uri,
+    );
+    final loadWatch = Stopwatch()..start();
     _nextEpisodeBuffer.discard();
     // 浏览器 UA：片源/会话自带的 User-Agent 优先，否则补上全局偏好。
     final requestMedia = PlaybackPreferenceWiring.applyUserAgent(
@@ -1384,15 +1392,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         return;
       }
       _playbackRequestHeaders = headers ?? const {};
-      await player.load(
-        PlayerMedia(uri: media.uri, title: media.title, headers: headers),
-      );
+      try {
+        await player.load(
+          PlayerMedia(uri: media.uri, title: media.title, headers: headers),
+        );
+      } catch (error) {
+        PlaybackDiagnostics.record(
+          'media-failed',
+          source: _target?.sourceId,
+          kernel: _settings.kernel.name,
+          uri: media.uri,
+          elapsedMs: loadWatch.elapsedMilliseconds,
+          error: '$error',
+        );
+        rethrow;
+      }
     }
     if (!mounted || !identical(player, _player) || !identical(media, _media)) {
       return;
     }
     // 起播那几秒里同一个 CDN 域名上多一条 256KB 探测，就是和首帧缓冲抢带宽。
     if (!mounted) return;
+    PlaybackDiagnostics.record(
+      'media-ready',
+      source: _target?.sourceId,
+      kernel: _settings.kernel.name,
+      uri: media.uri,
+      elapsedMs: loadWatch.elapsedMilliseconds,
+      error: player.snapshot.value.error,
+    );
     setState(() => _loaded = player.snapshot.value.error == null);
   }
 
@@ -2231,7 +2259,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final library = _library;
     if (target == null || player == null || library == null) return;
 
-    final saved = library.videoEpisodeProgress(target.itemId, target.chapterId);
+    final saved = library.videoEpisodeProgress(
+      target.itemId,
+      target.chapterId,
+      sourceId: target.sourceId,
+    );
     if (saved == null) return;
     if (saved.position <= Duration.zero) return;
     // 已播完的不自动跳回结尾（用户重看时从头开始更自然）。
@@ -2260,7 +2292,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _skipMarks = SkipMarks.none;
       return;
     }
-    _skipMarks = SkipMarksStore(library).load(target.itemId);
+    _skipMarks = SkipMarksStore(library).load(target.identity);
   }
 
   /// 记片头 / 记片尾（用户口径：播到那个位置点一下，下次自动跳过）。
@@ -2280,7 +2312,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final next = intro
         ? _skipMarks.copyWith(intro: position)
         : _skipMarks.copyWith(outro: position);
-    SkipMarksStore(library).save(target.itemId, next);
+    SkipMarksStore(library).save(target.identity, next);
     unawaited(
       rememberPlayerSkip(
         target,
@@ -2307,7 +2339,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final target = _target;
     final library = _library;
     if (target == null || library == null) return;
-    SkipMarksStore(library).clear(target.itemId);
+    SkipMarksStore(library).clear(target.identity);
     unawaited(
       rememberPlayerSkip(
         target,
@@ -2467,7 +2499,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final position = snapshot.position;
     if (position <= Duration.zero &&
         (!_loaded || snapshot.duration <= Duration.zero)) {
-      final saved = library.videoProgress(target.itemId);
+      final saved = library.videoProgress(
+        target.itemId,
+        sourceId: target.sourceId,
+      );
       if (saved?.chapterIndex == target.chapterIndex &&
           saved!.position > Duration.zero) {
         return;
@@ -2491,6 +2526,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       chapterCount: 0,
     );
     final progress = VideoProgress(
+      sourceId: target.sourceId,
       section: library.section,
       itemId: target.itemId,
       chapterIndex: target.chapterIndex,
@@ -4507,6 +4543,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final previous = _library?.videoEpisodeProgress(
         target.itemId,
         target.chapterId,
+        sourceId: target.sourceId,
       );
       final position = snapshot != null && snapshot.position > Duration.zero
           ? snapshot.position
