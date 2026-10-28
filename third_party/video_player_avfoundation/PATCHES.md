@@ -82,6 +82,6 @@ accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffe
 外挂 SRT / VTT 在宿主的文字字幕层呈现；ASS 原样式由 MPV libass 提供。详细能力及验证方式见 [播放器展示说明](../../docs/player-presentation.md)。原生 helper 的 Swift 类型检查由 `tool/check_ios_player_presentation.sh` 完成；实际输出需真机验证。
 
 
-### iOS 最低目标兼容
+### iOS 最低目标统一为 16
 
-App 的最低版本是 iOS 15，插件自身的 Pod / Swift Package 目标为 iOS 13。HDR 内容标识、HDR 播放条件与空间音频查询分别按 iOS 14、13.4、15 添加 availability 判断；较旧目标返回可解释的查询状态。`check_ios_player_presentation.sh` 按插件的 iOS 13 目标检查，并在 IPA 编译前运行，避免只按 App 目标检查而遗漏插件编译错误。
+用户要求从 2026-10-29 起最低支持 iOS 16.0。App、自维护插件的 Pod / Swift Package 声明与原生检查脚本统一为 iOS 16；不再按 iOS 13 / 14 / 15 编译或维护兼容分支。HDR 内容标识、HDR 播放条件和空间音频查询在此最低版本直接可用。`check_ios_player_presentation.sh` 在 IPA 编译前按 iOS 16 检查，避免插件目标与 App 目标不一致。
