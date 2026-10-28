@@ -155,6 +155,10 @@ class SourceContentRating {
     's618_video',
     // KKAV（www.73tfhk.com，原 37tmrj 换域名目标；接口 XOR2 加密）。
     'kkav_video',
+    // 逆ACG（www.niacg.com 二次元 COS 图集；Cloudflare 校验，需网页视图过校验）。
+    'niacg_photo',
+    // TwittHub（www.twitthub.com，X 公开视频聚合；Vercel 校验）。
+    'twitthub_video',
     // BetaTok（betareel.com）：竖屏成人短片 Feed。
     'betareel_video',
   };
@@ -317,6 +321,8 @@ class SourceContentRating {
     "TheAVPorn",
     "618影院",
     "KKAV",
+    "逆ACG",
+    "TwittHub",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
