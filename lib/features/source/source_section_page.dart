@@ -433,6 +433,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   /// 不会出现「改了配置还在用旧 Cookie」的错觉。换网址 / 账号登入只落库：
   /// 它在**每次调用前**注入脚本（`LumeSource.config`），因此下一次浏览就用新值。
   Future<void> _editNetwork(SourceDescriptor source) async {
+    source =
+        (await _manager.list()).where((s) => s.id == source.id).firstOrNull ??
+        source;
+    if (!mounted) return;
     final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),

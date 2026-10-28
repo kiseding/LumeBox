@@ -153,6 +153,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   }
 
   Future<void> network(SourceDescriptor source) async {
+    source =
+        (await manager.list()).where((s) => s.id == source.id).firstOrNull ??
+        source;
+    if (!mounted) return;
     final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),

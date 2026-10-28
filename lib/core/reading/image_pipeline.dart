@@ -1,6 +1,6 @@
+import '../js/source_registry.dart';
 import '../net/network_cancellation.dart';
 import '../cache/media_preload.dart';
-import '../source/source_preferences.dart';
 
 import 'dart:async';
 import 'dart:collection';
@@ -1005,11 +1005,14 @@ class SectionImagePipeline {
       );
       // 图片同样走全局网络队列：单域名并发（2~3）保护图床，429/503 自动退避。
       // 队列管「什么时候发」，这里只管「拿到字节后怎么用」。
-      final prefs = SourcePreferences.read(
+
+      String route(String value) => SourceRegistry.rewriteExisting(
         section,
         bound?.id ?? _sessionSourceId ?? '',
+        value,
+        kind: 'image',
       );
-      final target = prefs.rewrite(url);
+      final target = route(url);
       final outgoingHeaders = <String, String>{
         ...imageRequestHeaders(url, withReferer: withReferer),
         if (network.userAgent.trim().isNotEmpty)
@@ -1033,7 +1036,12 @@ class SectionImagePipeline {
             .where((key) => key.toLowerCase() == 'referer')
             .firstOrNull;
         if (refKey != null) {
-          outgoingHeaders[refKey] = prefs.rewrite(outgoingHeaders[refKey]!);
+          outgoingHeaders[refKey] = SourceRegistry.rewriteExisting(
+            section,
+            bound?.id ?? _sessionSourceId ?? '',
+            outgoingHeaders[refKey]!,
+            kind: 'site',
+          );
         }
       }
       // Image hosts can require a normal domain cookie issued by the HTML page

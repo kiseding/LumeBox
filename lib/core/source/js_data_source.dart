@@ -1,3 +1,4 @@
+import 'source_result_routes.dart';
 import '../cache/section_memory_cache.dart';
 import '../net/waf.dart';
 import '../net/network_cancellation.dart';
@@ -97,6 +98,7 @@ class JsDataSource
     required this.section,
     required this.runtime,
     this.cache,
+    this.rewriteUrl,
   });
 
   @override
@@ -113,6 +115,16 @@ class JsDataSource
 
   /// 读缓存（可选，按板块隔离）。为空表示不做任何缓存。
   final SourceReadCache? cache;
+  final SourceUrlRouter? rewriteUrl;
+  Future<Object?> settingsAction(
+    String key, {
+    Map<String, Object?> settings = const {},
+    Map<String, Object?> config = const {},
+  }) => _invoke('settingsAction', {
+    'key': key,
+    'settings': settings,
+    'config': config,
+  });
 
   @override
   Future<String?> refreshImage(String url, String page) async {
@@ -349,7 +361,16 @@ class JsDataSource
   }
 
   Future<Object?> _invoke(String method, [Object? argument]) async {
-    return _invokeOnce(method, argument, retriedWaf: false);
+    final value = await _invokeOnce(method, argument, retriedWaf: false);
+    final route = rewriteUrl;
+    if (route == null) return value;
+    return routeSourceResult(
+      value,
+      route,
+      kind: method == 'refreshImage' || method == 'content' && value is List
+          ? 'image'
+          : null,
+    );
   }
 
   /// 调一次脚本方法；被 WAF 拦下时**自动过校验并重试一次**（用户口径 2 / 3）。

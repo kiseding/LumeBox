@@ -1,0 +1,183 @@
+import 'package:flutter/material.dart';
+
+import '../../core/source/source_extension_settings.dart';
+
+class SourceRouteEditor extends StatelessWidget {
+  const SourceRouteEditor({
+    super.key,
+    required this.title,
+    required this.route,
+    required this.onChanged,
+    this.error,
+  });
+  final String title;
+  final SourceRoute route;
+  final ValueChanged<SourceRoute> onChanged;
+  final String? error;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 8),
+      if (route.urls.isNotEmpty)
+        DropdownButtonFormField<String>(
+          key: ValueKey('$title:${route.selectedUrl}'),
+          initialValue: route.selectedUrl,
+          isExpanded: true,
+          decoration: InputDecoration(labelText: '$title线路'),
+          items: [
+            for (var i = 0; i < route.urls.length; i++)
+              DropdownMenuItem(
+                value: route.urls[i],
+                child: Text(
+                  '${i == 0 ? '默认 · ' : ''}${route.labels[route.urls[i]] ?? route.urls[i]}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (v) {
+            if (v != null) onChanged(route.copyWith(selected: v));
+          },
+        )
+      else
+        const Text('源未提供备选线路；可填写自定义地址供支持此设置的源使用。'),
+      const SizedBox(height: 8),
+      TextFormField(
+        initialValue: route.custom,
+        decoration: InputDecoration(
+          labelText: '自定义$title地址（填了优先）',
+          hintText: 'https://cdn.example.com/资源路径',
+          errorText: error,
+        ),
+        onChanged: (v) => onChanged(route.copyWith(custom: v)),
+      ),
+      const SizedBox(height: 6),
+      Text('当前生效：${route.resolved.isEmpty ? '沿用源默认地址' : route.resolved}'),
+    ],
+  );
+}
+
+class SourceExtensionEditor extends StatefulWidget {
+  const SourceExtensionEditor({
+    super.key,
+    required this.definitions,
+    required this.initialValues,
+    required this.onChanged,
+    this.onAction,
+  });
+  final List<SourceSetting> definitions;
+  final Map<String, Object?> initialValues;
+  final ValueChanged<Map<String, Object?>> onChanged;
+  final Future<String> Function(SourceSetting, Map<String, Object?>)? onAction;
+  @override
+  State<SourceExtensionEditor> createState() => _SourceExtensionEditorState();
+}
+
+class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
+  late final values = Map<String, Object?>.of(widget.initialValues);
+  String? busy, status;
+  void changed(SourceSetting field, Object? value) {
+    setState(() => values[field.key] = value);
+    widget.onChanged(Map.of(values));
+  }
+
+  Future<void> act(SourceSetting field) async {
+    if (busy != null) return;
+    for (final d in widget.definitions) {
+      final error = d.valueIssue(values[d.key] ?? d.fallback);
+      if (error != null) {
+        setState(() => status = '${d.title}：$error');
+        return;
+      }
+    }
+    setState(() {
+      busy = field.key;
+      status = null;
+    });
+    try {
+      final message = await widget.onAction!(field, Map.of(values));
+      if (mounted) setState(() => status = message);
+    } catch (_) {
+      if (mounted) setState(() => status = '操作失败，请检查源设置和网络后重试');
+    } finally {
+      if (mounted) setState(() => busy = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (final d in widget.definitions)
+        Padding(padding: const EdgeInsets.only(bottom: 12), child: field(d)),
+      if (status != null) Text(status!),
+    ],
+  );
+  Widget field(SourceSetting d) {
+    final value = values[d.key] ?? d.fallback;
+    switch (d.type) {
+      case 'toggle':
+        return SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(d.title),
+          subtitle: d.description.isEmpty ? null : Text(d.description),
+          value: value == true,
+          onChanged: (v) => changed(d, v),
+        );
+      case 'select':
+        return DropdownButtonFormField<String>(
+          initialValue: '$value',
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: d.title,
+            helperText: d.description.isEmpty ? null : d.description,
+          ),
+          items: [
+            for (final o in d.options.entries)
+              DropdownMenuItem(value: o.key, child: Text(o.value)),
+          ],
+          onChanged: (v) => changed(d, v),
+        );
+      case 'number':
+      case 'text':
+        return TextFormField(
+          initialValue: '$value',
+          decoration: InputDecoration(
+            labelText: d.title,
+            helperText: d.description.isEmpty ? null : d.description,
+          ),
+          keyboardType: d.type == 'number'
+              ? const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                )
+              : TextInputType.text,
+          maxLength: d.type == 'text' ? 4096 : null,
+          onChanged: (v) =>
+              changed(d, d.type == 'number' ? num.tryParse(v) ?? v : v),
+        );
+      case 'info':
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(d.title),
+          subtitle: Text(d.description),
+        );
+      case 'action':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OutlinedButton(
+              onPressed: busy != null || widget.onAction == null
+                  ? null
+                  : () => act(d),
+              child: Text(busy == d.key ? '处理中…' : d.title),
+            ),
+            if (d.description.isNotEmpty) Text(d.description),
+          ],
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+}

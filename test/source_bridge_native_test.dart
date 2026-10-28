@@ -16,6 +16,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/cat/cat_web_parse.dart';
 import 'package:lume_box/core/source/web_player_episode.dart';
+import 'package:lume_box/core/source/source_extension_settings.dart';
 
 /// 真实引擎下的桥接验证（用户反馈的 Bug2）：
 ///
@@ -206,6 +207,61 @@ void main() {
       ''');
       expect((await source.list()).items.single.title, '动态结果');
       expect(calls.map((call) => call.method), ['render', 'extract']);
+    });
+
+    test('资源线路和专用设置进入冻结快照，解析地址与操作参数真实可用', () async {
+      final source = await boot(r'''
+        var LumeSource={
+          list:async function(){
+            try{LumeSource.config.settings.quality='changed';}catch(_){}
+            return {items:[{id:LumeSource.resolveUrl('https://images.example/a.jpg?sig=x%2Fy','image'),title:LumeSource.config.settings.quality}]};
+          },
+          settingsAction:async function(a){return {message:a.key+':'+a.settings.quality+':'+a.config.domain};}
+        };
+      ''');
+      final config = SourceSiteConfig(
+        mirrors: const ['https://site.example'],
+        domainOverride: 'https://custom.example',
+        images: SourceRoute.parse(['https://images.example'])
+            .copyWith(custom: 'https://new-images.example/cdn'),
+        video: SourceRoute.parse(['https://video.example'])
+            .copyWith(custom: 'https://new-video.example'),
+        settingDefinitions: SourceSetting.parseAll([
+          {'key': 'quality', 'title': '画质', 'type': 'text', 'default': 'hd'},
+        ]),
+      );
+      final injected = jsonEncode(jsonEncode(config.toScriptJson(cookie: '')));
+      await sandbox.eval('__lumeApplyConfig($injected)');
+      final result = await source.list();
+      expect(
+        result.items.single.id,
+        'https://new-images.example/cdn/a.jpg?sig=x%2Fy',
+      );
+      expect(result.items.single.title, 'hd');
+      expect(
+        (await sandbox.eval('Object.isFrozen(LumeSource.config.settings)'))
+            .value,
+        true,
+      );
+      expect(
+        (await sandbox.eval(
+          'LumeSource.resolveUrl("https://video.example/1.m3u8","video")',
+        )).value,
+        'https://new-video.example/1.m3u8',
+      );
+      expect(
+        (await source.settingsAction(
+          'refresh',
+          settings: {'quality': 'sd'},
+          config: {'domain': 'https://preview.example'},
+        ) as Map)['message'],
+        'refresh:sd:https://preview.example',
+      );
+      expect(
+        (await sandbox.eval('LumeSource.config.domain')).value,
+        'https://custom.example',
+        reason: '操作预览参数不修改持久配置',
+      );
     });
 
     test('用户验证脚本：顶层 getList(page) 直接跑通', () async {

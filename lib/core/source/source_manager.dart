@@ -62,7 +62,7 @@ abstract interface class SourceManager {
   /// 保存单图源的「换网址 / 账号登入」（镜像选择、自定义域名、登录账号密码）。
   ///
   /// 与 [setNetwork] 的区别：这份配置是**交给脚本**的（脚本读
-  /// `LumeSource.config`），不改变宿主怎么发请求。图源不存在或跨板块时无操作。
+  /// `LumeSource.config`），并用于已声明线路的地址映射。图源不存在或跨板块时无操作。
   Future<void> setSiteConfig(String sourceId, SourceSiteConfig config);
 
   /// 导出图源脚本原文（备份 / 迁移用）；不存在或跨板块时返回 null。

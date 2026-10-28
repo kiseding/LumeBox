@@ -1,3 +1,6 @@
+import '../../core/cache/section_memory_cache.dart';
+import 'source_extension_editor.dart';
+import '../../core/source/source_extension_settings.dart';
 import 'source_login_page.dart';
 import '../../core/session/section.dart';
 
@@ -127,12 +130,22 @@ class SourceSettingsResult {
 /// 账号登入（账号 / 密码）。
 ///
 /// 三组都是**按源**的配置，落本板块库，互不跨源、不跨板块。换网址与账号登入这两组
-/// 是**给脚本看的**（脚本读 `LumeSource.config`）：宿主不替脚本做登录、也不改写
-/// 脚本里的地址——脚本拿到的只是「用户选了哪个站、填了谁的账号」。
+/// 由脚本读取 `LumeSource.config`；宿主按源声明映射站点与资源线路，
+/// 账号登录业务仍由源实现，网页登录使用当前生效站点。
 class SourceNetworkDialog extends StatefulWidget {
-  const SourceNetworkDialog({super.key, required this.source});
+  const SourceNetworkDialog({
+    super.key,
+    required this.source,
+    this.onSettingAction,
+  });
 
   final SourceDescriptor source;
+  final Future<String> Function(
+    SourceSetting,
+    Map<String, Object?>,
+    SourceSiteConfig,
+  )?
+  onSettingAction;
 
   @override
   State<SourceNetworkDialog> createState() => _SourceNetworkDialogState();
@@ -166,6 +179,12 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
 
   /// 选中的镜像下标（初值取库里那份，越界由模型收敛）。
   late int _mirrorIndex = widget.source.siteConfig.safeMirrorIndex;
+  late SourceRoute _images = widget.source.siteConfig.images,
+      _video = widget.source.siteConfig.video;
+  late Map<String, Object?> _extra = Map.of(
+    widget.source.siteConfig.resolvedSettings,
+  );
+  String? _imageError, _videoError, _extraError;
 
   /// 密码是否明文显示（默认遮蔽）。
   bool _showPassword = false;
@@ -191,18 +210,94 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
   }
 
   /// 当前弹窗里的换网址 / 账号登入取值（未归一，保存前由调用方 / 模型归一）。
-  SourceSiteConfig get _site => SourceSiteConfig(
+  SourceSiteConfig get _site => widget.source.siteConfig.copyWith(
     mirrors: _mirrors,
     mirrorIndex: _mirrorIndex,
     domainOverride: _domain.text,
     account: _account.text.trim(),
     password: _password.text,
+    images: _images,
+    video: _video,
+    settingValues: {...widget.source.siteConfig.settingValues, ..._extra},
   );
+
+  Future<String> _runSettingAction(
+    SourceSetting field,
+    Map<String, Object?> values,
+  ) async {
+    if (widget.onSettingAction != null) {
+      return widget.onSettingAction!(field, values, _site);
+    }
+    final section = widget.source.section;
+    if (section == null) return '当前源没有可用板块';
+    final manager = LumeSources.manager(section);
+    switch (field.action) {
+      case 'login':
+      case 'openWebsite':
+        final address = _site.resolvedDomain.isEmpty
+            ? widget.source.siteUrl
+            : _site.resolvedDomain;
+        if (SourceRoute.normalizeBase(address) == null) return '请先填写有效的站点地址';
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SourceLoginPage(
+              section: section,
+              sourceId: widget.source.id,
+              name: widget.source.name,
+              url: address,
+              userAgent: _ua.text,
+            ),
+          ),
+        );
+        return '已返回源设置';
+      case 'testConnection':
+        return (await manager.testConnectivity(widget.source.id)).message;
+      case 'clearCache':
+        return '已清理 ${SectionMemoryCache.instance.removeSource(section, widget.source.id)} 条浏览缓存';
+      default:
+        final source = await manager.open(widget.source.id);
+        if (source is! JsDataSource) return '当前源不支持自定义设置操作';
+        final result = await source.settingsAction(
+          field.key,
+          settings: values,
+          config: _site.toScriptJson(cookie: _cookie.text),
+        );
+        final message = result is String
+            ? result
+            : result is Map
+            ? '${result['message'] ?? '操作已完成'}'
+            : '操作已完成';
+        return message.substring(0, message.length.clamp(0, 2000));
+    }
+  }
 
   void _save() {
     final issue = SourceSiteConfig.domainIssue(_domain.text);
     if (issue != null) {
       setState(() => _domainError = issue);
+      return;
+    }
+    _imageError =
+        _images.custom.trim().isNotEmpty &&
+            SourceRoute.normalizeBase(_images.custom) == null
+        ? '请填写有效的 HTTP(S) 图床地址'
+        : null;
+    _videoError =
+        _video.custom.trim().isNotEmpty &&
+            SourceRoute.normalizeBase(_video.custom) == null
+        ? '请填写有效的 HTTP(S) 视频 CDN 地址'
+        : null;
+    _extraError = null;
+    for (final field in widget.source.siteConfig.settingDefinitions) {
+      final error = field.valueIssue(_extra[field.key] ?? field.fallback);
+      if (error != null) {
+        _extraError = '${field.title}：$error';
+        break;
+      }
+    }
+    if (_imageError != null || _videoError != null || _extraError != null) {
+      setState(() {});
       return;
     }
     Navigator.of(context).pop(
@@ -245,14 +340,9 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                             section: widget.source.section ?? Section.comic,
                             sourceId: widget.source.id,
                             name: widget.source.name,
-                            url:
-                                widget
-                                    .source
-                                    .siteConfig
-                                    .domainOverride
-                                    .isNotEmpty
-                                ? widget.source.siteConfig.domainOverride
-                                : widget.source.siteUrl,
+                            url: _site.resolvedDomain.isEmpty
+                                ? widget.source.siteUrl
+                                : _site.resolvedDomain,
                             userAgent: widget.source.network.userAgent,
                           ),
                         ),
@@ -362,7 +452,11 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                 if (_mirrors.isEmpty)
                   const _MirrorTile(label: '默认（脚本未声明镜像）', selected: true)
                 else
-                  for (var index = 0; index < _mirrors.length; index++)
+                  for (
+                    var index = 0;
+                    index < _mirrors.length && index < 3;
+                    index++
+                  )
                     _MirrorTile(
                       label: SourceSiteConfig.hostOf(_mirrors[index]),
                       subtitle: _mirrors[index],
@@ -370,6 +464,25 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                       selected: index == _mirrorIndex,
                       onTap: () => setState(() => _mirrorIndex = index),
                     ),
+                if (_mirrors.length > 3)
+                  ExpansionTile(
+                    title: Text('更多镜像（${_mirrors.length - 3}）'),
+                    initiallyExpanded: _mirrorIndex >= 3,
+                    children: [
+                      for (var index = 3; index < _mirrors.length; index++)
+                        _MirrorTile(
+                          label: SourceSiteConfig.hostOf(_mirrors[index]),
+                          subtitle: _mirrors[index],
+                          selected: index == _mirrorIndex,
+                          onTap: () => setState(() => _mirrorIndex = index),
+                        ),
+                    ],
+                  ),
+                Text(
+                  '当前生效：${_site.resolvedDomain.isEmpty ? '沿用源默认地址' : _site.resolvedDomain}',
+                ),
+                if (_domain.text.trim().isNotEmpty)
+                  const Text('自定义站点优先；保留自定义地址时，镜像选择暂不生效。'),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _domain,
@@ -402,6 +515,40 @@ class _SourceNetworkDialogState extends State<SourceNetworkDialog> {
                   },
                 ),
               ]),
+              const SizedBox(height: 12),
+              _group('资源线路', '图床与视频 CDN 独立选择，只替换源明确声明可互换的地址。', [
+                SourceRouteEditor(
+                  title: '图床',
+                  route: _images,
+                  error: _imageError,
+                  onChanged: (v) => setState(() => _images = v),
+                ),
+                const SizedBox(height: 16),
+                SourceRouteEditor(
+                  title: '视频 CDN',
+                  route: _video,
+                  error: _videoError,
+                  onChanged: (v) => setState(() => _video = v),
+                ),
+              ]),
+              if (widget.source.siteConfig.settingDefinitions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _group('源专用设置', '由此源提供；只对当前源生效。', [
+                  SourceExtensionEditor(
+                    definitions: widget.source.siteConfig.settingDefinitions,
+                    initialValues: _extra,
+                    onChanged: (v) => _extra = v,
+                    onAction: _runSettingAction,
+                  ),
+                  if (_extraError != null)
+                    Text(
+                      _extraError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                ]),
+              ],
               const SizedBox(height: 12),
             ],
           ),

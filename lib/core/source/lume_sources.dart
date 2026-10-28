@@ -1,3 +1,4 @@
+import 'source_preferences.dart';
 import 'source_presentation_cache.dart';
 
 import '../net/network_cancellation.dart';
@@ -184,6 +185,17 @@ class LumeSources {
     if (!runtimeAvailableFor(section)) return;
     final registry = await SourceRegistry.open(section);
     registry.setSourceSiteConfig(sourceId, config);
+    final legacy = SourcePreferences.read(section, sourceId);
+    if (legacy.customOrigin.isNotEmpty || legacy.originalOrigin.isEmpty) {
+      await legacy
+          .copyWith(
+            customOrigin: '',
+            originalOrigin: legacy.originalOrigin.isEmpty
+                ? siteUrlFromScript(registry.source(sourceId)?.script ?? '')
+                : legacy.originalOrigin,
+          )
+          .save(section, sourceId);
+    }
   }
 
   /// 重命名图源：只改本板块库里的展示名（脚本与运行时保持原样）。
@@ -259,6 +271,8 @@ class LumeSources {
       section: section,
       runtime: _EngineRuntime(registry, sourceId),
       cache: cached ? SectionMemoryCache.instance : null,
+      rewriteUrl: (url, {kind}) =>
+          registry.rewriteSourceUrl(sourceId, url, kind: kind),
     );
   }
 
@@ -452,7 +466,14 @@ class LumeSources {
       version: record.version,
       enabled: record.enabled,
       network: record.network,
-      siteConfig: record.siteConfig,
+      siteConfig: record.siteConfig.hasCustomDomain
+          ? record.siteConfig
+          : record.siteConfig.copyWith(
+              domainOverride: SourcePreferences.read(
+                Section.values.firstWhere((s) => s.id == record.section),
+                record.id,
+              ).customOrigin,
+            ),
       originUrl: record.originUrl,
       siteUrl: info.siteUrl,
       iconUrl: info.iconUrl,

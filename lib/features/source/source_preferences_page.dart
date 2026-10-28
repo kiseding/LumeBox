@@ -1,3 +1,5 @@
+import 'source_action_dialogs.dart';
+import '../../core/source/lume_sources.dart';
 import 'source_login_page.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -38,6 +40,8 @@ class SourcePreferencesPage extends StatefulWidget {
 }
 
 class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
+  bool get _unifiedSite =>
+      widget.descriptor != null && widget.section != Section.cat;
   bool get _jsContent =>
       widget.section == Section.video &&
       widget.descriptor != null &&
@@ -61,11 +65,26 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
     super.dispose();
   }
 
+  Future<String> _activeAddress() async {
+    if (_unifiedSite) {
+      final fresh = (await LumeSources.manager(
+        widget.section,
+      ).list()).where((s) => s.id == widget.sourceId).firstOrNull;
+      final site = fresh ?? widget.descriptor!;
+      if (site.siteConfig.resolvedDomain.isNotEmpty) {
+        return site.siteConfig.resolvedDomain;
+      }
+      if (site.siteUrl.isNotEmpty) return site.siteUrl;
+    }
+    return custom.text.trim().isNotEmpty ? custom.text.trim() : widget.siteUrl;
+  }
+
   Future<void> save() async {
     final domain = custom.text.trim(),
         from = original.text.trim(),
         url = icon.text.trim();
-    if (domain.isNotEmpty &&
+    if (!_unifiedSite &&
+        domain.isNotEmpty &&
         (!SourcePreferences.validOrigin(domain) ||
             !SourcePreferences.validOrigin(from))) {
       setState(() => error = '请填写完整站点地址，如 https://example.com，不含路径或账号密码');
@@ -87,8 +106,13 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
       setState(() => error = e.message);
       return;
     }
+    final current = SourcePreferences.read(widget.section, widget.sourceId);
     await prefs
-        .copyWith(iconUrl: url, originalOrigin: from, customOrigin: domain)
+        .copyWith(
+          iconUrl: url,
+          originalOrigin: _unifiedSite ? current.originalOrigin : from,
+          customOrigin: _unifiedSite ? current.customOrigin : domain,
+        )
         .save(widget.section, widget.sourceId);
     if (mounted) Navigator.pop(context, true);
   }
@@ -121,19 +145,21 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             leading: const Icon(Icons.login),
             title: const Text('站点账号登录'),
             subtitle: const Text('打开站点网页登录，检查状态并同步会话'),
-            onTap: () => Navigator.push<void>(
-              context,
-              MaterialPageRoute(
-                builder: (_) => SourceLoginPage(
-                  section: widget.section,
-                  sourceId: widget.sourceId,
-                  name: widget.name,
-                  url: custom.text.trim().isNotEmpty
-                      ? custom.text.trim()
-                      : widget.siteUrl,
+            onTap: () async {
+              final address = await _activeAddress();
+              if (!context.mounted) return;
+              await Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SourceLoginPage(
+                    section: widget.section,
+                    sourceId: widget.sourceId,
+                    name: widget.name,
+                    url: address,
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
 
         if (_jsContent)
@@ -227,12 +253,12 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
                   hintText: '留空使用站点图标',
                 ),
               ),
-              if (widget.section != Section.cat)
+              if (widget.section != Section.cat && !_unifiedSite)
                 TextField(
                   controller: original,
                   decoration: const InputDecoration(labelText: '原站点地址'),
                 ),
-              if (widget.section != Section.cat)
+              if (widget.section != Section.cat && !_unifiedSite)
                 TextField(
                   controller: custom,
                   decoration: const InputDecoration(
@@ -240,7 +266,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
                     hintText: '留空沿用源脚本',
                   ),
                 ),
-              if (widget.section != Section.cat)
+              if (widget.section != Section.cat && !_unifiedSite)
                 const Padding(
                   padding: EdgeInsets.only(top: 12),
                   child: Text('地址替换只作用于这个站点；独立图床与播放 CDN 保持原地址。'),
@@ -254,7 +280,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             section: widget.section,
             sourceId: widget.sourceId,
           ),
-        if (widget.onNetwork != null)
+        if (widget.onNetwork != null || _unifiedSite)
           ListTile(
             leading: const LumeIcon(
               Icons.tune,
@@ -263,13 +289,43 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             title: Text(
               widget.section == Section.cat
                   ? '站点设置与账号配置'
-                  : '源设置（网络 / 换网址 / 账号）',
+                  : '源设置（站点 / 图床 / 视频 CDN / 参数）',
             ),
             trailing: const LumeIcon(
               Icons.chevron_right,
               slot: 'source_preferences_page.2',
             ),
-            onTap: widget.onNetwork,
+            onTap:
+                widget.onNetwork ??
+                () async {
+                  final manager = LumeSources.manager(widget.section);
+                  final fresh = (await manager.list())
+                      .where((s) => s.id == widget.sourceId)
+                      .firstOrNull;
+                  if (!context.mounted || fresh == null) return;
+                  final result = await showDialog<SourceSettingsResult>(
+                    context: context,
+                    builder: (_) => SourceNetworkDialog(source: fresh),
+                  );
+                  if (result == null) return;
+                  await manager.setNetwork(
+                    widget.sourceId,
+                    userAgent: result.network.userAgent,
+                    cookie: result.network.cookie,
+                    proxy: result.network.proxy,
+                    bridge: result.network.bridge,
+                    allowBadCertificate: result.network.allowBadCertificate,
+                  );
+                  await manager.setSiteConfig(widget.sourceId, result.site);
+                  if (mounted) {
+                    setState(
+                      () => prefs = SourcePreferences.read(
+                        widget.section,
+                        widget.sourceId,
+                      ),
+                    );
+                  }
+                },
           ),
         ListTile(
           leading: const LumeIcon(
@@ -295,13 +351,8 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             ),
             title: const Text('复制站点地址'),
             onTap: () async {
-              await Clipboard.setData(
-                ClipboardData(
-                  text: custom.text.trim().isEmpty
-                      ? widget.siteUrl
-                      : custom.text.trim(),
-                ),
-              );
+              final address = await _activeAddress();
+              await Clipboard.setData(ClipboardData(text: address));
               if (context.mounted) {
                 ScaffoldMessenger.of(context)
                     .showSnackBar(const SnackBar(content: Text('站点地址已复制')));

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../session/section.dart';
 import '../source/source_site_config.dart';
+import '../source/source_extension_settings.dart';
 
 /// 去掉脚本文本开头的 UTF-8 BOM（`\uFEFF`）。
 ///
@@ -35,6 +36,9 @@ class SourceMetadata {
     this.category = '',
     this.mirrors = const <String>[],
     this.network = '',
+    this.images = const SourceRoute(),
+    this.video = const SourceRoute(),
+    this.settings = const [],
   });
 
   final String id;
@@ -49,13 +53,13 @@ class SourceMetadata {
   /// [sectionMismatch]）：跨板块混用图源是被严格禁止的。
   final String category;
 
-  /// 脚本声明的站点镜像（最多 3 个，下标 0 视为主站）。
+  /// 脚本声明的站点镜像（最多 20 个，下标 0 视为主站）。
   ///
   /// 与 id / name 同源的两种写法：头部注释 JSON 里的 `mirrors` 数组，
   /// 或运行时 `LumeSource.mirrors` 数组。**只认 JSON 数组**——头部注释的
   /// `key=value` 简写表达不了一个列表，硬塞进来只会得到半份数据。
   /// 落库时会**整体替换**脚本上次声明的镜像（见 `SourceRegistry.import`），
-  /// 用户自己选的下标与手填域名不受影响。
+  /// 用户选择按网址保留，手填域名不受影响。
   final List<String> mirrors;
 
   /// 站点网络要求（**可选**）：`direct` 直连可访问 / `proxy` 需要代理 / 空串未标注。
@@ -63,6 +67,8 @@ class SourceMetadata {
   /// 写在头部注释 JSON 的 `network` 字段里，只用于设置页提示与排错，
   /// 不改变运行时的网络选择（那是 [NetworkProfile] 与全局设置的事）。
   final String network;
+  final SourceRoute images, video;
+  final List<SourceSetting> settings;
 
   /// 头部声明注释的匹配式：`//` 行注释与 `/* */` 块注释，分隔符 `:` / `=`，
   /// 前缀允许 `@`。第三个式子是 `key=value` 列表写法（`{` 开头的不走这条）。
@@ -183,6 +189,8 @@ class SourceMetadata {
     if (trimmed.startsWith('{')) {
       try {
         return parse(jsonDecode(trimmed));
+      } on SourceSettingsFormatException {
+        rethrow;
       } catch (_) {
         return null;
       }
@@ -193,8 +201,9 @@ class SourceMetadata {
   static Map<String, Object?>? _parseKeyValues(String text) {
     final values = <String, Object?>{};
     for (final pair in text.split(RegExp(r'[,;]'))) {
-      final match = RegExp(r'^\s*(id|name|version|category|network)\s*[:=]\s*(.+?)\s*$')
-          .firstMatch(pair);
+      final match = RegExp(
+        r'^\s*(id|name|version|category|network)\s*[:=]\s*(.+?)\s*$',
+      ).firstMatch(pair);
       if (match == null) continue;
       values[match.group(1)!] = match.group(2)!;
     }
@@ -212,7 +221,18 @@ class SourceMetadata {
       name: name,
       version: '${json['version'] ?? ''}'.trim(),
       category: '${json['category'] ?? ''}'.trim(),
-      mirrors: SourceSiteConfig.normalizeMirrors(json['mirrors']),
+      mirrors: SourceSiteConfig.normalizeMirrors(
+        json['endpoints'] is Map
+            ? (json['endpoints'] as Map)['site'] ?? json['mirrors']
+            : json['mirrors'],
+      ),
+      images: SourceRoute.parse(
+        json['endpoints'] is Map ? (json['endpoints'] as Map)['images'] : null,
+      ),
+      video: SourceRoute.parse(
+        json['endpoints'] is Map ? (json['endpoints'] as Map)['video'] : null,
+      ),
+      settings: SourceSetting.parseAll(json['settings']),
       network: '${json['network'] ?? ''}'.trim(),
     );
   }
@@ -235,6 +255,10 @@ class SourceMetadata {
       version: header.version.isEmpty ? runtime.version : header.version,
       category: header.category.isEmpty ? runtime.category : header.category,
       mirrors: header.mirrors.isEmpty ? runtime.mirrors : header.mirrors,
+      network: header.network.isEmpty ? runtime.network : header.network,
+      images: header.images.urls.isEmpty ? runtime.images : header.images,
+      video: header.video.urls.isEmpty ? runtime.video : header.video,
+      settings: header.settings.isEmpty ? runtime.settings : header.settings,
     );
   }
 
@@ -290,5 +314,11 @@ class SourceMetadata {
     'version': version,
     'category': category,
     if (mirrors.isNotEmpty) 'mirrors': mirrors,
+    if (network.isNotEmpty) 'network': network,
+    'endpoints': {
+      'images': images.toJson()['urls'],
+      'video': video.toJson()['urls'],
+    },
+    'settings': settings.map((f) => f.toJson()).toList(),
   });
 }

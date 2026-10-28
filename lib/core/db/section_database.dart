@@ -1,3 +1,5 @@
+import '../source/source_extension_settings.dart';
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -200,6 +202,9 @@ CREATE TABLE IF NOT EXISTS section_setting (
     required String section,
     required String script,
     List<String> mirrors = const <String>[],
+    SourceRoute? images,
+    SourceRoute? video,
+    List<SourceSetting>? settings,
     bool rememberPrevious = true,
     String? rejectedScript,
   }) {
@@ -211,7 +216,12 @@ CREATE TABLE IF NOT EXISTS section_setting (
     // 新脚本不该把用户配好的登录账号抹掉。
     final old = source(id);
     final previous = old?.siteConfig ?? SourceSiteConfig.none;
-    final site = previous.copyWith(mirrors: mirrors).normalized();
+    final site = previous.redeclare(
+      mirrors: mirrors,
+      images: images ?? previous.images,
+      video: video ?? previous.video,
+      settings: settings ?? previous.settingDefinitions,
+    );
     _db.execute('BEGIN IMMEDIATE');
     try {
       if (rememberPrevious && old != null && old.script != script) {
@@ -295,7 +305,13 @@ CREATE TABLE IF NOT EXISTS section_setting (
         config.mirrorIndex == 0 &&
         config.domainOverride.trim().isEmpty &&
         config.account.isEmpty &&
-        config.password.isEmpty) {
+        config.password.isEmpty &&
+        config.images.urls.isEmpty &&
+        config.images.custom.isEmpty &&
+        config.video.urls.isEmpty &&
+        config.video.custom.isEmpty &&
+        config.settingDefinitions.isEmpty &&
+        config.settingValues.isEmpty) {
       return '';
     }
     return jsonEncode(config.toJson());
