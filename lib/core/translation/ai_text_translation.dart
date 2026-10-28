@@ -7,6 +7,10 @@ import 'package:flutter/services.dart';
 import '../net/network_cancellation.dart';
 import 'translation_result.dart';
 
+class _AiOutputFailure extends FormatException {
+  const _AiOutputFailure(super.message);
+}
+
 class _AiRequestFailure extends FormatException {
   const _AiRequestFailure(this.status)
     : super('AI 翻译请求失败（HTTP $status），请检查接口、模型和额度');
@@ -50,7 +54,7 @@ abstract final class AiTextTranslation {
       }
       final batch = texts.sublist(start, end);
       try {
-        final values = await _request(
+        final values = await _recover(
           transport,
           batch,
           uri: uri,
@@ -70,15 +74,26 @@ abstract final class AiTextTranslation {
         }
         // Retry only unresolved entries once; never resend successful titles.
         if (retry.isNotEmpty) {
-          final recovered = await _request(
-            transport,
-            [for (final i in retry) batch[i]],
-            uri: uri,
-            model: model,
-            key: key,
-            language: language,
-            retry: true,
-          );
+          late final List<String> recovered;
+          try {
+            recovered = await _recover(
+              transport,
+              [for (final i in retry) batch[i]],
+              uri: uri,
+              model: model,
+              key: key,
+              language: language,
+              retry: true,
+            );
+          } on PlatformException catch (error) {
+            if (error.code != 'translation_partial' ||
+                error.details is! List ||
+                (error.details as List).length != retry.length) {
+              rethrow;
+            }
+            recovered = (error.details as List).cast<String>();
+            failure = error;
+          }
           for (var i = 0; i < retry.length; i++) {
             final original = batch[retry[i]], value = recovered[i];
             if (value.trim().isNotEmpty &&
@@ -92,6 +107,19 @@ abstract final class AiTextTranslation {
         rethrow;
       } catch (error) {
         failure = error;
+        if (error is PlatformException &&
+            error.code == 'translation_partial' &&
+            error.details is List &&
+            (error.details as List).length == batch.length) {
+          final values = (error.details as List).cast<String>();
+          for (var i = 0; i < values.length; i++) {
+            if (values[i].trim().isNotEmpty &&
+                !(target != null &&
+                    unresolvedTranslation(batch[i], values[i], target))) {
+              output[start + i] = values[i];
+            }
+          }
+        }
         if (error is _AiRequestFailure &&
             [400, 401, 403, 404, 429].contains(error.status)) {
           break;
@@ -114,6 +142,65 @@ abstract final class AiTextTranslation {
       );
     }
     return output;
+  }
+
+  static Future<List<String>> _recover(
+    http.Client transport,
+    List<String> texts, {
+    required Uri uri,
+    required String model,
+    required String key,
+    required String language,
+    bool retry = false,
+  }) async {
+    try {
+      return await _request(
+        transport,
+        texts,
+        uri: uri,
+        model: model,
+        key: key,
+        language: language,
+        retry: retry,
+      );
+    } on _AiOutputFailure {
+      if (texts.length <= 1) rethrow;
+      final output = <String>[];
+      Object? failure;
+      final middle = texts.length ~/ 2;
+      for (final part in [texts.sublist(0, middle), texts.sublist(middle)]) {
+        try {
+          output.addAll(
+            await _recover(
+              transport,
+              part,
+              uri: uri,
+              model: model,
+              key: key,
+              language: language,
+              retry: retry,
+            ),
+          );
+        } on NetworkCancelled {
+          rethrow;
+        } catch (error) {
+          failure = error;
+          if (error is PlatformException && error.details is List<String>) {
+            output.addAll(error.details as List<String>);
+          } else {
+            output.addAll(List.filled(part.length, ''));
+          }
+        }
+      }
+      if (failure != null) {
+        throw PlatformException(
+          code: 'translation_partial',
+          message: 'AI 分批恢复仍有未完成内容：$failure',
+          details: output,
+        );
+      }
+      return output;
+    }
   }
 
   static Future<List<String>> _request(
@@ -177,7 +264,7 @@ abstract final class AiTextTranslation {
       throw const FormatException('AI 服务未接受这批翻译内容，可更换支持的翻译服务');
     }
     if (choice['finish_reason'] == 'length') {
-      throw const FormatException('AI 译文被接口截断，请检查模型输出额度');
+      throw const _AiOutputFailure('AI 译文被接口截断，请检查模型输出额度');
     }
     if (message['content'] is! String) {
       throw const FormatException('AI 接口返回空译文，请检查模型配置');
@@ -187,11 +274,16 @@ abstract final class AiTextTranslation {
         .trim()
         .replaceFirst(RegExp(r'^```(?:json)?\s*'), '')
         .replaceFirst(RegExp(r'\s*```$'), '');
-    final values = jsonDecode(content);
+    dynamic values;
+    try {
+      values = jsonDecode(content);
+    } on FormatException {
+      throw const _AiOutputFailure('AI 译文 JSON 格式不正确');
+    }
     if (values is! List ||
         values.length != texts.length ||
-        values.any((item) => item is! String || item.length > 4096)) {
-      throw const FormatException('AI 译文格式不正确，请重试');
+        values.any((item) => item is! String || item.length > 100000)) {
+      throw const _AiOutputFailure('AI 译文格式不正确，请重试');
     }
     return values.cast<String>();
   }

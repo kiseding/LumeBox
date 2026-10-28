@@ -445,8 +445,19 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         : AnyView(ComicTranslationTaskView(texts: texts, source: source, target: target, completion: completion))
       let host = UIHostingController(rootView: view)
       translationHost = host
-      host.presentationController?.delegate = self
-      root.present(host, animated: true) { [weak self, weak host] in host?.presentationController?.delegate = self }
+      if preparing {
+        root.present(host, animated: true) { [weak self, weak host] in host?.presentationController?.delegate = self }
+      } else {
+        // Keep SwiftUI's translation task attached without a blocking sheet.
+        root.addChild(host)
+        host.view.backgroundColor = .clear
+        host.view.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        host.view.clipsToBounds = true
+        host.view.isUserInteractionEnabled = false
+        host.view.accessibilityElementsHidden = true
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+      }
       return
     }
     #endif
@@ -469,7 +480,12 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     }
     if let host = host, host.presentingViewController != nil {
       host.dismiss(animated: true, completion: complete)
-    } else { complete() }
+    } else {
+      host?.willMove(toParent: nil)
+      host?.view.removeFromSuperview()
+      host?.removeFromParent()
+      complete()
+    }
   }
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finishTranslation(nil, error: "翻译已取消") }
 }
@@ -605,7 +621,10 @@ private struct ComicTranslationBatchView: View {
             await MainActor.run { completion(nil, "系统不支持 \(source) → \(target) 翻译，可更换原文语言或使用 AI 翻译") }
             return
           }
-          if case .supported = status { try await session.prepareTranslation() }
+          if case .supported = status {
+            await MainActor.run { completion(nil, "请先在翻译设置下载 \(source) → \(target) 语言包，或选择 AI 翻译") }
+            return
+          }
           var translated = [String](repeating: "", count: texts.count)
           var failed = 0
           for (index, text) in texts.enumerated() {

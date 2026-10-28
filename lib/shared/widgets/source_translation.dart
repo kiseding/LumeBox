@@ -38,7 +38,7 @@ class SourceText extends StatelessWidget {
   );
 }
 
-/// User starts the system translation sheet explicitly. Browsing never opens it.
+/// Translation is manual by default; long press enables live updates on this page.
 class SourceTranslationAction extends StatefulWidget {
   const SourceTranslationAction({super.key, required this.texts});
   final List<String> texts;
@@ -49,6 +49,26 @@ class SourceTranslationAction extends StatefulWidget {
 
 class _SourceTranslationActionState extends State<SourceTranslationAction> {
   bool busy = false;
+  bool live = false;
+  Timer? liveTimer;
+  String? liveAttempt;
+  String get liveIdentity => '$profile|${texts.join("\u0000")}';
+  void scheduleLive() {
+    liveTimer?.cancel();
+    if (!live || busy || liveAttempt == liveIdentity || texts.isEmpty) return;
+    liveTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted || !live || busy) return;
+      liveAttempt = liveIdentity;
+      unawaited(translate(retryOnly: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    liveTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +94,7 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
     if (!listEquals(oldWidget.texts, widget.texts)) {
       attempted = false;
       _texts = _uniqueTexts(widget.texts);
+      scheduleLive();
     }
   }
 
@@ -151,7 +172,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
     } catch (error) {
       failure = error;
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+        scheduleLive();
+      }
       if (mounted && selectedProfile == profile && listEquals(all, texts)) {
         final values = {for (final text in all) text: service.lookup(text)};
         final complete = values.values.where((value) => value != null).length;
@@ -203,6 +227,20 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
           .length;
       final cached = texts.isNotEmpty && remaining == 0;
       return IconButton(
+        onLongPress: () {
+          setState(() {
+            live = !live;
+            liveAttempt = null;
+          });
+          scheduleLive();
+          ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(live ? '实时翻译已开启，新加载文字会自动翻译；长按关闭' : '实时翻译已关闭'),
+              ),
+            );
+        },
         tooltip: busy
             ? '正在翻译… 已完成 $processed/${texts.length}'
             : cached && !service.displayOriginal
@@ -222,7 +260,10 @@ class _SourceTranslationActionState extends State<SourceTranslationAction> {
                 isLabelVisible:
                     attempted && attemptedProfile == profile && remaining > 0,
                 label: Text('$remaining'),
-                child: const Icon(Icons.translate, size: 18),
+                child: Icon(
+                  live ? Icons.auto_awesome : Icons.translate,
+                  size: 18,
+                ),
               ),
       );
     },

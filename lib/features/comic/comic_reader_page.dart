@@ -277,6 +277,20 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   bool _sharing = false;
   Future<List<(String, String)>>? _comicVoices;
   final _comicVoiceAnchor = GlobalKey(debugLabel: 'comic.speech.voice');
+  Timer? _liveTranslationTimer;
+  final Set<String> _liveTranslationAttempted = {};
+  void _scheduleLiveTranslation() {
+    _liveTranslationTimer?.cancel();
+    if (_translationScope != 'live' || _images.isEmpty) return;
+    final url = _images[_page];
+    if (_liveTranslationAttempted.contains(url)) return;
+    _liveTranslationTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted || _translationScope != 'live' || _translationBusy) return;
+      _liveTranslationAttempted.add(url);
+      unawaited(_translatePages(false));
+    });
+  }
+
   bool _translationBusy = false;
   String _translationScope = 'off';
   int _wideHalf = 0;
@@ -364,6 +378,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       if (layoutChanged) _rebuildControllers();
       _configureVolumeKeys();
       _primeWindow();
+      _scheduleLiveTranslation();
       if (_runtimeAvailable) unawaited(_applyOrientation());
     });
     WidgetsBinding.instance.ensureVisualUpdate();
@@ -492,6 +507,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   @override
   void dispose() {
+    _liveTranslationTimer?.cancel();
     _volumeKeys.dispose();
     widget.library.settingsRevision.removeListener(
       _sharedReaderSettingsChanged,
@@ -574,6 +590,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           });
           _rebuildControllers();
           _primeWindow();
+          _scheduleLiveTranslation();
           // 进章即记一次进度：书架的「未读角标」与「继续阅读」都靠这条记录，
           // 不能等到翻页或退出才写。
           _saveProgress();
@@ -828,6 +845,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           });
           _scheduleSave();
           _primeWindow();
+          _scheduleLiveTranslation();
         }
       }
     }
@@ -989,6 +1007,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     _rebuildControllers();
     _scheduleSave();
     _primeWindow();
+    _scheduleLiveTranslation();
   }
 
   void _onPageChanged(int page) {
@@ -1014,6 +1033,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     });
     _scheduleSave();
     _primeWindow();
+    _scheduleLiveTranslation();
   }
 
   void _updateSettings(ComicReaderSettings next) {
@@ -1128,7 +1148,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     _autoLastFrame = null;
     _translationBusy = false;
     _translations.clear();
-    if (_translationScope != 'series') _translationScope = 'off';
+    _liveTranslationAttempted.clear();
+    if (!['series', 'live'].contains(_translationScope)) {
+      _translationScope = 'off';
+    }
     _speechContinuous = false;
     _speechCursor.value = null;
     _speechText = null;

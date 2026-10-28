@@ -164,6 +164,30 @@ void main() {
     expect(result, ['你好', '您好', '世界']);
   });
 
+  test('AI partial fallback retains both native and AI successes', () async {
+    await expectLater(
+      translateWithPolicy(
+        ['Hello', 'World', 'Title'],
+        mode: TextTranslationMode.fallback,
+        native: (_) async => throw PlatformException(
+          code: 'translation_partial',
+          details: ['你好', '', ''],
+        ),
+        ai: (_) async => throw PlatformException(
+          code: 'translation_partial',
+          details: ['世界', ''],
+        ),
+      ),
+      throwsA(
+        isA<PlatformException>().having((e) => e.details, 'retained', [
+          '你好',
+          '世界',
+          '',
+        ]),
+      ),
+    );
+  });
+
   test('系统不可用时整批交AI，系统全部成功时不联网', () async {
     expect(
       await translateWithPolicy(

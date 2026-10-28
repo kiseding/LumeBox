@@ -35,6 +35,58 @@ List<String> inputs(http.Request request) => (jsonDecode(
 
 void main() {
   test(
+    'truncated batch recovers in smaller requests with original order',
+    () async {
+      final sizes = <int>[];
+      final client = MockClient((request) async {
+        final texts = inputs(request);
+        sizes.add(texts.length);
+        if (texts.length > 1) {
+          return http.Response(
+            jsonEncode({
+              'choices': [
+                {
+                  'finish_reason': 'length',
+                  'message': {'content': '["'},
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return reply(['译${texts.single}']);
+      });
+      expect(await translate(client, ['Hello', 'World', 'Title']), [
+        '译Hello',
+        '译World',
+        '译Title',
+      ]);
+      expect(sizes, [3, 1, 2, 1, 1]);
+    },
+  );
+
+  test(
+    'malformed batch recovers successes while a single entry fails',
+    () async {
+      final client = MockClient((request) async {
+        final texts = inputs(request);
+        if (texts.length > 1) return reply(['数量错误']);
+        if (texts.single == 'World') return http.Response('unavailable', 503);
+        return reply(['你好']);
+      });
+      await expectLater(
+        translate(client, ['Hello', 'World']),
+        throwsA(
+          isA<PlatformException>().having((e) => e.details, 'retained', [
+            '你好',
+            '',
+          ]),
+        ),
+      );
+    },
+  );
+
+  test(
     'empty, truncated and rejected responses report a useful reason',
     () async {
       for (final entry in <(Map<String, Object?>, String)>[

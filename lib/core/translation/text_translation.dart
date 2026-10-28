@@ -478,7 +478,16 @@ Future<List<String>> translateWithPolicy(
       values[missing[i]] = translated[i];
     }
     return values;
-  } catch (_) {
+  } catch (error) {
+    if (error is PlatformException &&
+        error.code == 'translation_partial' &&
+        error.details is List &&
+        (error.details as List).length == missing.length) {
+      final recovered = error.details as List;
+      for (var i = 0; i < missing.length; i++) {
+        if (recovered[i] is String) values[missing[i]] = recovered[i] as String;
+      }
+    }
     if (values.any((v) => v.trim().isNotEmpty)) {
       throw PlatformException(
         code: 'translation_partial',
