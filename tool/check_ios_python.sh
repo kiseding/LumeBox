@@ -34,10 +34,15 @@ DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d
 xcrun simctl boot "$DEVICE" || true
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl install "$DEVICE" "$APP"
-python3 - "$DEVICE" <<'PY'
-import subprocess,sys
+DATA=$(xcrun simctl get_app_container "$DEVICE" com.lumebox.python-smoke data)
+python3 - "$DEVICE" "$DATA" <<'PY'
+import json,pathlib,subprocess,sys
+status = pathlib.Path(sys.argv[2])/'Documents/python-smoke-status.json'
+status.unlink(missing_ok=True)
 result=subprocess.run(['xcrun','simctl','launch','--console',sys.argv[1],'com.lumebox.python-smoke'],capture_output=True,text=True,timeout=90)
 output=result.stdout+result.stderr
 print(output[-12000:])
-assert 'LUME_PYTHON_SMOKE_OK' in output, 'Packaged iOS CPython smoke test failed'
+detail = json.loads(status.read_text()) if status.exists() else {'phase':'missing','detail':'No native test result file'}
+print(json.dumps(detail,ensure_ascii=False),flush=True)
+assert detail.get('phase') == 'passed', 'Packaged iOS CPython smoke test failed: '+detail.get('detail','')
 PY
