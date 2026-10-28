@@ -15,36 +15,45 @@ import 'package:flutter/material.dart';
 Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
-}) => showGlassModalBottomSheet<T>(
-  context: context,
-  videoGlass: false,
-  isScrollControlled: true,
-  useSafeArea: true,
-  backgroundColor: Colors.transparent,
-  constraints: const BoxConstraints(maxWidth: double.infinity),
-  barrierColor: Colors.black.withValues(alpha: .22),
-  builder: (context) => Stack(
-    children: [
-      Positioned.fill(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => Navigator.of(context).pop(),
-          child: const SizedBox.expand(),
+}) {
+  // 路由的 SafeArea 会移除子树中的横向 inset，先保留屏幕安全边距。
+  final screenPadding = MediaQuery.viewPaddingOf(context);
+  return showGlassModalBottomSheet<T>(
+    context: context,
+    videoGlass: false,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    constraints: const BoxConstraints(maxWidth: double.infinity),
+    barrierColor: Colors.black.withValues(alpha: .22),
+    builder: (context) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.of(context).pop(),
+            child: const SizedBox.expand(),
+          ),
         ),
-      ),
-      DanmakuPanelFrame(child: builder(context)),
-    ],
-  ),
-);
+        DanmakuPanelFrame(
+          screenPadding: screenPadding,
+          child: builder(context),
+        ),
+      ],
+    ),
+  );
+}
 
 class DanmakuPanelFrame extends StatelessWidget {
-  const DanmakuPanelFrame({super.key, required this.child});
+  const DanmakuPanelFrame({super.key, required this.child, this.screenPadding});
   final Widget child;
+  final EdgeInsets? screenPadding;
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
     final keyboard = media.viewInsets.bottom;
+    final safe = screenPadding ?? media.viewPadding;
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(
@@ -59,9 +68,9 @@ class DanmakuPanelFrame extends StatelessWidget {
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.fromLTRB(
-        media.viewPadding.left + 8,
+        math.max(media.viewPadding.left, safe.left) + 8,
         keyboard > 0 ? 8 : media.viewPadding.top + 8,
-        media.viewPadding.right + 8,
+        math.max(media.viewPadding.right, safe.right) + (landscape ? 24 : 8),
         keyboard > 0 ? keyboard + 8 : math.max(media.viewPadding.bottom, 8.0),
       ),
       child: Align(

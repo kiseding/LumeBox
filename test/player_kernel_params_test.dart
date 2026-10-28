@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
@@ -56,6 +57,61 @@ void main() {
         ).copyWith(subtitleColor: SubtitleColor.yellow),
       );
       expect(platform.created.length, 2);
+      await player.dispose();
+    });
+
+    test('首播网络瞬断自动恢复并继续播放，不显示终止错误', () async {
+      platform.failures = 1;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      final errors = <String>[];
+      player.snapshot.addListener(() {
+        final error = player.snapshot.value.error;
+        if (error != null) errors.add(error);
+      });
+      final loading = player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/video.mp4')),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await loading;
+      await player.play();
+      expect(player.snapshot.value.buffering, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      for (var i = 0; i < 20 && platform.created.length < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.created, hasLength(2));
+      expect(player.snapshot.value.error, isNull);
+      expect(player.snapshot.value.playing, isTrue);
+      expect(errors, isEmpty);
+      await player.dispose();
+    });
+
+    test('连续失败最多重连三次，之后显示错误', () async {
+      platform.failures = 10;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/fail.mp4')),
+      );
+      await player.play();
+      await Future<void>.delayed(const Duration(milliseconds: 7400));
+      expect(platform.created, hasLength(4));
+      expect(player.snapshot.value.error, isNotNull);
+      expect(player.snapshot.value.buffering, isFalse);
+      await player.dispose();
+    });
+
+    test('重连等待中暂停取消自动起播', () async {
+      platform.failures = 1;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/pause.mp4')),
+      );
+      await player.play();
+      await player.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(platform.created, hasLength(1));
+      expect(player.snapshot.value.playing, isFalse);
       await player.dispose();
     });
 
@@ -211,6 +267,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final positions = <int, Duration>{};
   int _nextId = 0;
   bool holdFirst = false;
+  int failures = 0;
 
   /// 创建播放器时的钩子（用来断言「缓冲参数已经写过了」）。
   void Function()? onCreated;
@@ -231,6 +288,15 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     // 事件必须在 controller 订阅之后再推，否则首帧状态会丢。
     scheduleMicrotask(() {
       if (holdFirst && id == 0) return;
+      if (id < failures) {
+        stream.addError(
+          PlatformException(
+            code: 'VideoError',
+            message: 'Network connection lost -1005',
+          ),
+        );
+        return;
+      }
       stream.add(
         VideoEvent(
           eventType: VideoEventType.initialized,

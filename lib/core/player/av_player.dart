@@ -70,6 +70,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   int _networkRetries = 0;
   bool _recoveringNetwork = false;
   bool _retryAllowed = true;
+  bool _wantsPlay = false;
   static bool retryableNetworkError(String message) =>
       !RegExp(
         r'403|401|404|410|DRM|decrypt|certificate|证书|验证码',
@@ -271,7 +272,9 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         return;
       }
       LumeLog.error(error, stackTrace);
-      _emit(_snapshot.value, error: PlayerErrorText.describe(error));
+      if (_retryTimer == null && !_recoveringNetwork) {
+        _emit(_snapshot.value, error: PlayerErrorText.describe(error));
+      }
     }
   }
 
@@ -309,12 +312,15 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   @override
   Future<void> play() async {
     _retryAllowed = true;
+    _wantsPlay = true;
+    if (_retryTimer != null) return;
     await _controller?.play();
   }
 
   @override
   Future<void> pause() async {
     _retryAllowed = false;
+    _wantsPlay = false;
     _retryTimer?.cancel();
     _retryTimer = null;
     await _controller?.pause();
@@ -325,6 +331,8 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
 
   @override
   Future<void> stop() async {
+    _wantsPlay = false;
+    _retryAllowed = false;
     _retryTimer?.cancel();
     _retryTimer = null;
     _retryMedia = null;
@@ -677,7 +685,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         retryableNetworkError(value.errorDescription ?? '')) {
       final media = _retryMedia!;
       final position = _snapshot.value.position;
-      final resume = _snapshot.value.playing;
+      // 首次失败时尚未进入 playing；恢复后遵循用户的播放意图。
       final generation = _loadGeneration;
       _retryTimer = Timer(Duration(seconds: 1 << _networkRetries++), () async {
         _retryTimer = null;
@@ -691,13 +699,15 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
           await _loadMedia(media);
           if (_disposed || !identical(media, _retryMedia)) return;
           await seek(position);
-          if (resume && _retryAllowed) await play();
+          if (_wantsPlay && _retryAllowed) await play();
         } finally {
           _recoveringNetwork = false;
+          if (!_disposed && identical(media, _retryMedia)) _sync();
         }
       });
     }
-    if (value.hasError && _snapshot.value.error == null) {
+    final retrying = _retryTimer != null || _recoveringNetwork;
+    if (value.hasError && !retrying && _snapshot.value.error == null) {
       // Preserve the native reason; the UI below receives a short translation.
       LumeLog.warn('[avplayer] 播放失败: ${value.errorDescription}');
     }
@@ -706,8 +716,8 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         position: value.position,
         duration: value.duration,
         playing: value.isPlaying,
-        buffering: value.isBuffering,
-        error: value.hasError
+        buffering: value.isBuffering || retrying,
+        error: value.hasError && !retrying
             ? PlayerErrorText.describe(value.errorDescription)
             : null,
       ),

@@ -9,6 +9,7 @@ class SourcePreferences {
   const SourcePreferences({
     this.pinned = false,
     this.iconUrl = '',
+    this.iconData = '',
     this.originalOrigin = '',
     this.customOrigin = '',
     this.newestFirst = false,
@@ -16,6 +17,9 @@ class SourcePreferences {
     this.contentCategory = '',
   });
   final bool pinned, newestFirst;
+
+  /// 主动获取的图标独立保存，不依赖可清理的网络缓存。
+  final String iconData;
   final String iconUrl, originalOrigin, customOrigin;
   final String pickerGroup;
   final String contentCategory;
@@ -28,6 +32,7 @@ class SourcePreferences {
       return SourcePreferences(
         pinned: map['pinned'] == true,
         iconUrl: '${map['iconUrl'] ?? ''}',
+        iconData: '${map['iconData'] ?? ''}',
         originalOrigin: '${map['originalOrigin'] ?? ''}',
         customOrigin: '${map['customOrigin'] ?? ''}',
         newestFirst: map['newestFirst'] == true,
@@ -62,6 +67,7 @@ class SourcePreferences {
       jsonEncode({
         'pinned': pinned,
         'iconUrl': iconUrl,
+        'iconData': iconData,
         'originalOrigin': originalOrigin,
         'customOrigin': customOrigin,
         'newestFirst': newestFirst,
@@ -75,6 +81,7 @@ class SourcePreferences {
     bool? pinned,
     bool? newestFirst,
     String? iconUrl,
+    String? iconData,
     String? originalOrigin,
     String? customOrigin,
     String? pickerGroup,
@@ -85,6 +92,7 @@ class SourcePreferences {
     pickerGroup: pickerGroup ?? this.pickerGroup,
     contentCategory: contentCategory ?? this.contentCategory,
     iconUrl: iconUrl ?? this.iconUrl,
+    iconData: iconData ?? this.iconData,
     originalOrigin: originalOrigin ?? this.originalOrigin,
     customOrigin: customOrigin ?? this.customOrigin,
   );

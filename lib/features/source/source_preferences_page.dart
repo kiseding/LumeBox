@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'source_action_dialogs.dart';
 import '../../core/source/source_manager.dart';
 import '../../core/source/lume_sources.dart';
@@ -66,6 +68,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
   bool _saving = false;
   bool _fetchingIcon = false;
   String? _iconStatus;
+  String? _fetchedIconData;
   late String _iconOrigin = widget.siteUrl;
   int _iconRevision = 0;
   final _siteEditor = GlobalKey<SourceNetworkDialogState>();
@@ -124,6 +127,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
         setState(() => _iconStatus = '暂未找到可用图标，已保留原设置；留空时会显示默认字母图标');
       } else {
         icon.clear();
+        _fetchedIconData = base64Encode(bytes);
         setState(() {
           _iconOrigin = uri.origin;
           _iconRevision++;
@@ -201,6 +205,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
       await prefs
           .copyWith(
             iconUrl: url,
+            iconData: url.isEmpty ? (_fetchedIconData ?? prefs.iconData) : '',
             originalOrigin: _unifiedSite ? current.originalOrigin : from,
             customOrigin: _unifiedSite ? current.customOrigin : domain,
           )
@@ -395,6 +400,9 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
                       section: widget.section,
                       sourceId: widget.sourceId,
                       favicon: widget.favicon,
+                      iconData: value.text.trim().isEmpty
+                          ? (_fetchedIconData ?? prefs.iconData)
+                          : '',
                     ),
                     const SizedBox(width: 12),
                     TextButton(
@@ -483,6 +491,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
             onTap: () {
               setState(() {
                 prefs = const SourcePreferences();
+                _fetchedIconData = null;
                 icon.clear();
                 custom.clear();
                 original.text = widget.siteUrl;

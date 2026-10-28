@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,9 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_favicon.dart';
 import 'package:lume_box/features/source/source_preferences_page.dart';
+
+import 'package:lume_box/core/source/source_preferences.dart';
+import 'package:lume_box/shared/widgets/source_icon.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -111,6 +115,32 @@ void main() {
     expect(tester.widget<TextField>(input).controller!.text, isEmpty);
     expect(find.text('已获取站点图标，点右上角「保存」后使用'), findsOneWidget);
     expect(icons.requestedOrigin, 'https://fixture.example');
+    await tester.tap(find.text('保存').first);
+    await tester.pumpAndSettle();
+    final saved = SourcePreferences.read(Section.video, source.id);
+    expect(saved.iconUrl, isEmpty);
+    expect(base64Decode(saved.iconData), isNotEmpty);
+    await tester.pumpWidget(const SizedBox());
+    // 模拟重启：丢弃解析缓存，站点地址也与获取时的 origin 不同。
+    ReadingLibrary.disposeAll();
+    ReadingStore.disposeAll();
+    await tester.runAsync(() => ReadingLibrary.open(Section.video));
+    icons.available = false;
+    icons.requestedOrigin = null;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceIcon(
+          name: source.name,
+          siteUrl: '${source.siteUrl}/changed/path',
+          section: Section.video,
+          sourceId: source.id,
+          favicon: icons,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsOneWidget);
+    expect(icons.requestedOrigin, isNull, reason: '已保存的图标无需再次联网获取');
     expect(tester.takeException(), isNull);
   });
 }
