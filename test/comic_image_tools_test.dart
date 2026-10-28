@@ -623,6 +623,7 @@ void main() {
       final body = jsonDecode(request.body) as Map;
       expect(body, isNot(contains('sequential_image_generation')));
       expect(body['image'], startsWith('data:image/png;base64,'));
+      expect(body['output_format'], 'png');
       return http.Response(
         jsonEncode({
           'data': [

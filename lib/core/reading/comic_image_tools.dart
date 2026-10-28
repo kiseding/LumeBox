@@ -558,6 +558,7 @@ class ComicImageTools {
             'image': 'data:${imageType.$2};base64,${base64Encode(bytes)}',
             'size': '2K',
             'response_format': 'b64_json',
+            if (model.contains('seedream-5-')) 'output_format': 'png',
             if (model.contains('seedream-4-') ||
                 model.contains('seedream-5-0-lite'))
               'sequential_image_generation': 'disabled',
