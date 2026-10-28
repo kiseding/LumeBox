@@ -190,7 +190,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
               ),
               subtitle: Text(_networkHint(widget.descriptor!.networkMode)),
             ),
-          if (widget.siteUrl.isNotEmpty)
+          if (!_unifiedSite && widget.siteUrl.isNotEmpty)
             ListTile(
               leading: const Icon(Icons.login),
               title: const Text('站点账号登录'),

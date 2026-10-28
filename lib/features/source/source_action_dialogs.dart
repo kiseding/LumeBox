@@ -379,6 +379,73 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
     if (result != null) Navigator.of(context).pop(result);
   }
 
+  Future<void> _openLogin() async {
+    final issue = SourceSiteConfig.domainIssue(_domain.text);
+    if (issue != null) {
+      setState(() => _domainError = issue);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(issue)));
+      return;
+    }
+    final address = _site.resolvedDomain.isEmpty
+        ? widget.source.siteUrl
+        : _site.resolvedDomain;
+    if (SourceRoute.normalizeBase(address) == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先填写有效的站点地址')));
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SourceLoginPage(
+          section: widget.source.section ?? Section.comic,
+          sourceId: widget.source.id,
+          name: widget.source.name,
+          url: address,
+          userAgent: _ua.text,
+        ),
+      ),
+    );
+  }
+
+  Widget _credentialFields() => Column(
+    children: [
+      const Padding(
+        padding: EdgeInsets.only(bottom: 12),
+        child: Text('保存账号密码不代表已经登录；仅供支持账号登录的源使用。'),
+      ),
+      TextField(
+        controller: _account,
+        decoration: const InputDecoration(
+          labelText: '账号',
+          hintText: '手机号 / 邮箱 / 用户名',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _password,
+        obscureText: !_showPassword,
+        decoration: InputDecoration(
+          labelText: '密码',
+          border: const OutlineInputBorder(),
+          suffixIcon: IconButton(
+            tooltip: _showPassword ? '隐藏' : '显示',
+            icon: LumeIcon(
+              _showPassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              slot: 'source_action_dialogs.2',
+              variant: true,
+            ),
+            onPressed: () => setState(() => _showPassword = !_showPassword),
+          ),
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -386,60 +453,31 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _group(
-          '账号登录与会话',
-          '保存账号密码不代表已经登录，只有支持账号登录的脚本才会使用。也可以打开下方站点网页登录，完成后检查并同步会话。',
-          <Widget>[
-            if (!widget.embedded && widget.source.siteUrl.isNotEmpty)
-              OutlinedButton.icon(
-                icon: const Icon(Icons.login),
-                label: const Text('打开站点网页登录 / 检查状态'),
-                onPressed: () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SourceLoginPage(
-                      section: widget.source.section ?? Section.comic,
-                      sourceId: widget.source.id,
-                      name: widget.source.name,
-                      url: _site.resolvedDomain.isEmpty
-                          ? widget.source.siteUrl
-                          : _site.resolvedDomain,
-                      userAgent: widget.source.network.userAgent,
-                    ),
-                  ),
-                ),
-              ),
-            TextField(
-              controller: _account,
-              decoration: const InputDecoration(
-                labelText: '账号',
-                hintText: '手机号 / 邮箱 / 用户名',
-                border: OutlineInputBorder(),
-              ),
+        _group('站点账号', null, <Widget>[
+          if (widget.source.siteUrl.isNotEmpty ||
+              _site.resolvedDomain.isNotEmpty)
+            FilledButton.tonalIcon(
+              key: const ValueKey('source-account-web-login'),
+              icon: const Icon(Icons.login),
+              label: const Text('网页登录 / 检查登录'),
+              onPressed: _openLogin,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _password,
-              obscureText: !_showPassword,
-              decoration: InputDecoration(
-                labelText: '密码',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  tooltip: _showPassword ? '隐藏' : '显示',
-                  icon: LumeIcon(
-                    _showPassword
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    slot: 'source_action_dialogs.2',
-                    variant: true,
-                  ),
-                  onPressed: () =>
-                      setState(() => _showPassword = !_showPassword),
-                ),
-              ),
-            ),
-          ],
-        ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Text('在站点网页完成登录后检查并同步会话。'),
+          ),
+          if (widget.embedded)
+            ExpansionTile(
+              key: const ValueKey('source-account-credentials'),
+              tilePadding: EdgeInsets.zero,
+              title: const Text('账号密码（可选）'),
+              initiallyExpanded:
+                  _account.text.isNotEmpty || _password.text.isNotEmpty,
+              children: [_credentialFields()],
+            )
+          else
+            _credentialFields(),
+        ]),
         const SizedBox(height: 12),
         _group(
           '网络配置',
@@ -659,10 +697,10 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
     );
     if (widget.embedded) {
       final items = content.children.where((w) => w is! SizedBox).toList();
-      // Put website and route controls before the less frequently used fields.
+      // Keep one account area first, with advanced network fields last.
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [...items.skip(2), ...items.take(2)],
+        children: [items.first, ...items.skip(2), items[1]],
       );
     }
     return AlertDialog(
@@ -690,7 +728,7 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
   /// 一组设置：卡片 + 组标题 + 一句话说明。
   Widget _group(String title, String? hint, List<Widget> children) {
     if (widget.embedded) {
-      final advanced = title == '网络配置' || title == '账号登录与会话';
+      final advanced = title == '网络配置';
       final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -705,7 +743,7 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
           child: advanced
               ? ExpansionTile(
                   tilePadding: EdgeInsets.zero,
-                  title: Text(title == '网络配置' ? '高级网络设置' : '账号与密码'),
+                  title: const Text('高级网络设置'),
                   children: [body],
                 )
               : Column(

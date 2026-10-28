@@ -69,6 +69,33 @@ void main() {
     expect(find.text('源设置（站点 / 图床 / 视频 CDN / 参数）'), findsNothing);
     expect(find.text('打开当前站点'), findsNothing);
     expect(find.text('打开站点网页登录 / 检查状态'), findsNothing);
+    expect(find.text('站点账号'), findsOneWidget);
+    expect(find.text('站点账号登录'), findsNothing);
+    expect(find.text('账号与密码'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('source-account-web-login')),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(TextField, '账号'), findsNothing);
+    await tester.ensureVisible(find.text('账号密码（可选）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账号密码（可选）'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, '账号'),
+      'fixture-user',
+    );
+    final password = find.widgetWithText(TextField, '密码');
+    await tester.ensureVisible(password);
+    await tester.enterText(password, 'fixture-password');
+    expect(tester.widget<TextField>(password).obscureText, isTrue);
+    tester.testTextInput.hide();
+    await tester.ensureVisible(find.text('账号密码（可选）'));
+    await tester.ensureVisible(find.text('账号密码（可选）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账号密码（可选）'));
+    await tester.pumpAndSettle();
+    expect(manager.siteConfigs, isEmpty, reason: '展开与折叠不自动保存或登录');
     final domain = find.widgetWithText(TextField, '自定义域名（填了优先）');
     await tester.ensureVisible(domain);
     await tester.enterText(domain, 'https://new.example');
@@ -89,6 +116,8 @@ void main() {
     }
     expect(manager.siteConfigs, hasLength(1));
     expect(manager.siteConfigs.single.$2.resolvedDomain, 'https://new.example');
+    expect(manager.siteConfigs.single.$2.account, 'fixture-user');
+    expect(manager.siteConfigs.single.$2.password, 'fixture-password');
     expect(manager.networks, hasLength(1));
     expect(
       SourcePreferences.read(Section.video, source.id).customOrigin,
