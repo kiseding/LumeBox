@@ -39,6 +39,9 @@ Future<void> showPlayerSettingsSheet({
   ValueChanged<DanmakuSettings>? onDanmakuChanged,
   int? danmakuCount,
   Widget? extraControls,
+  Widget? audioControls,
+  Widget? connectionControls,
+  Widget? danmakuControls,
 }) {
   final glass = ValueNotifier(settings.playbackGlass);
   return showDanmakuPanel<void>(
@@ -66,6 +69,9 @@ Future<void> showPlayerSettingsSheet({
           onDanmakuChanged: onDanmakuChanged,
           danmakuCount: danmakuCount,
           extraControls: extraControls,
+          audioControls: audioControls,
+          connectionControls: connectionControls,
+          danmakuControls: danmakuControls,
         ),
       ),
     ),
@@ -104,6 +110,9 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.showDanmakuPanel = true,
     this.embedded = false,
     this.extraControls,
+    this.audioControls,
+    this.connectionControls,
+    this.danmakuControls,
   });
 
   /// 当前设置（受控）。
@@ -155,7 +164,10 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 是否作为**内嵌内容**使用（全局设置页）：不画拖拽把手与关闭按钮，
   /// 也不限高（由外层滚动容器负责）。
   final bool embedded;
-  final Widget? extraControls;
+  final Widget? extraControls,
+      audioControls,
+      connectionControls,
+      danmakuControls;
 
   @override
   State<PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
@@ -166,7 +178,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   /// （尤其是「切内核后倍速跟着换」——那正是按内核分别记住的证据）。
   late PlayerSettings _settings = widget.settings;
 
-  PlayerCapabilities get capabilities => widget.capabilities;
+  PlayerCapabilities get capabilities =>
+      settings.kernel == widget.settings.kernel
+      ? widget.capabilities
+      : PlayerCapabilities.of(settings.kernel);
 
   PlayerKernelCatalog get catalog => widget.catalog;
 
@@ -206,201 +221,234 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final children = <Widget>[
-      NativeSwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('避让底部字幕'),
-        value: _danmaku?.avoidSubtitles ?? true,
-        onChanged: _danmaku == null
-            ? null
-            : (value) =>
-                  _updateDanmaku(_danmaku!.copyWith(avoidSubtitles: value)),
-      ),
-      _section('播放内核', '切换播放内核；倍速、画面与字幕设置分别保存'),
-      PlayerKernelPicker(
-        selected: settings.kernel,
-        catalog: catalog,
-        onChanged: (kernel) => _update(settings.copyWith(kernel: kernel)),
-        retryKernel: PlayerFactory.mpvInitFailed ? PlayerKernel.mpv : null,
-        onRetry: () {
-          PlayerFactory.clearMpvInitFailure();
-          // 列表重新评估：宿主在下一帧重建面板。
-          _update(settings);
-        },
-      ),
-      const SizedBox(height: 20),
-      _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
-      NativeSwitchListTile.adaptive(
-        title: const Text('启用播放器手势'),
-        subtitle: const Text('控制下列滑动和长按手势；不影响按钮与进度条操作'),
-        value: settings.gestures.enabled,
-        onChanged: (v) => _update(
-          settings.copyWith(gestures: settings.gestures.copyWith(enabled: v)),
+    final groups = <Widget>[
+      _group('playback', '播放与选集', Icons.play_circle_outline, [
+        _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
+        _speedSlider(context),
+        const SizedBox(height: 20),
+        if (widget.extraControls != null) widget.extraControls!,
+        _section('清晰度偏好', '起播与切集时使用的画质选择'),
+        DropdownButtonFormField<DefaultQuality>(
+          initialValue: settings.defaultQuality,
+          decoration: const InputDecoration(labelText: '默认清晰度'),
+          items: [
+            for (final value in DefaultQuality.values)
+              DropdownMenuItem(value: value, child: Text(value.label)),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              _update(settings.copyWith(defaultQuality: value));
+            }
+          },
         ),
-      ),
-      for (final item in [
-        ('左侧上下滑调亮度', settings.gestures.brightness, 'brightness'),
-        ('右侧上下滑调音量', settings.gestures.volume, 'volume'),
-        ('横向滑动调进度', settings.gestures.seek, 'seek'),
-        ('长按临时倍速', settings.gestures.boost, 'boost'),
-      ])
         NativeSwitchListTile.adaptive(
-          title: Text(item.$1),
-          value: item.$2,
-          onChanged: !settings.gestures.enabled
+          contentPadding: EdgeInsets.zero,
+          title: const Text('记住手动选择的清晰度'),
+          subtitle: const Text(
+            '下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。',
+          ),
+          value: settings.rememberManualQuality,
+          onChanged: (value) =>
+              _update(settings.copyWith(rememberManualQuality: value)),
+        ),
+        const SizedBox(height: 20),
+      ]),
+      _group('picture', '画面与显示', Icons.aspect_ratio, [
+        _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
+        _pictureCard(context),
+        const SizedBox(height: 20),
+        if (widget.onOrientationChanged != null) ...<Widget>[
+          _section(
+            '方向锁定',
+            '全屏时的屏幕方向：自动 = 按视频比例判断'
+                '（竖屏短剧竖屏全屏、横片横屏全屏）',
+          ),
+          _orientationCard(context),
+          const SizedBox(height: 20),
+        ],
+        PresentationSettingsCard(
+          settings: settings,
+          onChanged: _update,
+          showSubtitles: false,
+          showAudio: false,
+        ),
+      ]),
+      _group('audio', '声音与字幕', Icons.subtitles_outlined, [
+        if (widget.audioControls != null) widget.audioControls!,
+        _section(
+          '字幕',
+          '开关 / 字号 / 颜色 / 描边 / 底色 / 延迟；'
+              '外挂字幕与内置字幕轨',
+        ),
+        _subtitleCard(context),
+        const SizedBox(height: 20),
+        _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
+        _audioCard(context),
+        PresentationSettingsCard(
+          settings: settings,
+          onChanged: _update,
+          showPicture: false,
+        ),
+      ]),
+      if (_danmaku != null || widget.danmakuControls != null)
+        _group('danmaku', '弹幕与匹配', Icons.chat_bubble_outline, [
+          if (widget.danmakuControls != null) widget.danmakuControls!,
+          NativeSwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('避让底部字幕'),
+            value: _danmaku?.avoidSubtitles ?? true,
+            onChanged: _danmaku == null
+                ? null
+                : (value) =>
+                      _updateDanmaku(_danmaku!.copyWith(avoidSubtitles: value)),
+          ),
+          if (_danmaku != null && widget.showDanmakuPanel) ...<Widget>[
+            const SizedBox(height: 20),
+            _section(
+              '弹幕',
+              '开关 / 不透明度 / 字号 / 显示区域 / 速度 / 描边 / '
+                  '同屏上限 / 屏蔽词',
+            ),
+            DanmakuSettingsPanel(
+              settings: _danmaku!,
+              danmakuCount: widget.danmakuCount,
+              // 外层已经有「弹幕」这一节标题，面板不再重复。
+              showTitle: false,
+              showAvoidSubtitles: false,
+              onChanged: _updateDanmaku,
+            ),
+          ],
+          const SizedBox(height: 20),
+        ]),
+      _group('controls', '手势与外观', Icons.touch_app_outlined, [
+        _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
+        SegmentedButton<PlayerControlStyle>(
+          segments: const [
+            ButtonSegment(value: PlayerControlStyle.text, label: Text('文字')),
+            ButtonSegment(value: PlayerControlStyle.icons, label: Text('图标')),
+          ],
+          selected: {settings.controlStyle},
+          onSelectionChanged: (values) =>
+              _update(settings.copyWith(controlStyle: values.first)),
+        ),
+        const SizedBox(height: 20),
+        _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
+        NativeSwitchListTile.adaptive(
+          title: const Text('启用播放器手势'),
+          subtitle: const Text('控制下列滑动和长按手势；不影响按钮与进度条操作'),
+          value: settings.gestures.enabled,
+          onChanged: (v) => _update(
+            settings.copyWith(gestures: settings.gestures.copyWith(enabled: v)),
+          ),
+        ),
+        for (final item in [
+          ('左侧上下滑调亮度', settings.gestures.brightness, 'brightness'),
+          ('右侧上下滑调音量', settings.gestures.volume, 'volume'),
+          ('横向滑动调进度', settings.gestures.seek, 'seek'),
+          ('长按临时倍速', settings.gestures.boost, 'boost'),
+        ])
+          NativeSwitchListTile.adaptive(
+            title: Text(item.$1),
+            value: item.$2,
+            onChanged: !settings.gestures.enabled
+                ? null
+                : (v) => _update(
+                    settings.copyWith(
+                      gestures: settings.gestures.copyWith(
+                        brightness: item.$3 == 'brightness' ? v : null,
+                        volume: item.$3 == 'volume' ? v : null,
+                        seek: item.$3 == 'seek' ? v : null,
+                        boost: item.$3 == 'boost' ? v : null,
+                      ),
+                    ),
+                  ),
+          ),
+        _label('上下滑动灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
+        NativeGlassSlider(
+          value: settings.gestureSensitivity,
+          min: PlayerSettings.minGestureSensitivity,
+          max: PlayerSettings.maxGestureSensitivity,
+          divisions: 6,
+          onChanged:
+              !settings.gestures.enabled ||
+                  !(settings.gestures.brightness || settings.gestures.volume)
+              ? null
+              : (v) => _update(settings.copyWith(gestureSensitivity: v)),
+        ),
+        _label('横滑一屏跨度 ${settings.gestures.seekSeconds} 秒'),
+        NativeGlassSlider(
+          value: settings.gestures.seekSeconds.toDouble(),
+          min: 30,
+          max: 180,
+          divisions: 10,
+          onChanged: !settings.gestures.enabled || !settings.gestures.seek
               ? null
               : (v) => _update(
                   settings.copyWith(
                     gestures: settings.gestures.copyWith(
-                      brightness: item.$3 == 'brightness' ? v : null,
-                      volume: item.$3 == 'volume' ? v : null,
-                      seek: item.$3 == 'seek' ? v : null,
-                      boost: item.$3 == 'boost' ? v : null,
+                      seekSeconds: v.round(),
                     ),
                   ),
                 ),
         ),
-      _label('上下滑动灵敏度 ${settings.gestureSensitivity.toStringAsFixed(1)}×'),
-      NativeGlassSlider(
-        value: settings.gestureSensitivity,
-        min: PlayerSettings.minGestureSensitivity,
-        max: PlayerSettings.maxGestureSensitivity,
-        divisions: 6,
-        onChanged:
-            !settings.gestures.enabled ||
-                !(settings.gestures.brightness || settings.gestures.volume)
-            ? null
-            : (v) => _update(settings.copyWith(gestureSensitivity: v)),
-      ),
-      _label('横滑一屏跨度 ${settings.gestures.seekSeconds} 秒'),
-      NativeGlassSlider(
-        value: settings.gestures.seekSeconds.toDouble(),
-        min: 30,
-        max: 180,
-        divisions: 10,
-        onChanged: !settings.gestures.enabled || !settings.gestures.seek
-            ? null
-            : (v) => _update(
-                settings.copyWith(
-                  gestures: settings.gestures.copyWith(seekSeconds: v.round()),
+        _label(
+          '长按播放速度 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×',
+        ),
+        NativeGlassSlider(
+          value: settings.gestures.boostMultiplier,
+          min: 1.5,
+          max: 4,
+          divisions: 10,
+          onChanged: !settings.gestures.enabled || !settings.gestures.boost
+              ? null
+              : (v) => _update(
+                  settings.copyWith(
+                    gestures: settings.gestures.copyWith(boostMultiplier: v),
+                  ),
                 ),
-              ),
-      ),
-      _label('长按播放速度 ${settings.gestures.boostMultiplier.toStringAsFixed(2)}×'),
-      NativeGlassSlider(
-        value: settings.gestures.boostMultiplier,
-        min: 1.5,
-        max: 4,
-        divisions: 10,
-        onChanged: !settings.gestures.enabled || !settings.gestures.boost
-            ? null
-            : (v) => _update(
-                settings.copyWith(
-                  gestures: settings.gestures.copyWith(boostMultiplier: v),
-                ),
-              ),
-      ),
-      const Text('长按使用所选速度，松手恢复原速度；不会降低当前已设置的更高倍速。亮度不可由系统调整时使用画面遮罩。'),
-      const SizedBox(height: 20),
-      _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
-      SegmentedButton<PlayerControlStyle>(
-        segments: const [
-          ButtonSegment(value: PlayerControlStyle.text, label: Text('文字')),
-          ButtonSegment(value: PlayerControlStyle.icons, label: Text('图标')),
-        ],
-        selected: {settings.controlStyle},
-        onSelectionChanged: (values) =>
-            _update(settings.copyWith(controlStyle: values.first)),
-      ),
-      const SizedBox(height: 20),
-      _section('播放倍速', '0.25x ~ 4x，步长 0.25x；切换立即生效'),
-      _speedSlider(context),
-      const SizedBox(height: 20),
-      if (widget.extraControls != null) ...[
-        widget.extraControls!,
+        ),
+        const Text('长按使用所选速度，松手恢复原速度；不会降低当前已设置的更高倍速。亮度不可由系统调整时使用画面遮罩。'),
         const SizedBox(height: 20),
-      ],
-      PresentationSettingsCard(settings: settings, onChanged: _update),
-      const SizedBox(height: 20),
-      _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
-      _pictureCard(context),
-      const SizedBox(height: 20),
-      if (widget.onOrientationChanged != null) ...<Widget>[
-        _section(
-          '方向锁定',
-          '全屏时的屏幕方向：自动 = 按视频比例判断'
-              '（竖屏短剧竖屏全屏、横片横屏全屏）',
+      ]),
+      _group('advanced', '内核与网络', Icons.settings_input_component_outlined, [
+        _section('播放内核', '切换播放内核；倍速、画面与字幕设置分别保存'),
+        PlayerKernelPicker(
+          selected: settings.kernel,
+          catalog: catalog,
+          onChanged: (kernel) => _update(settings.copyWith(kernel: kernel)),
+          retryKernel: PlayerFactory.mpvInitFailed ? PlayerKernel.mpv : null,
+          onRetry: () {
+            PlayerFactory.clearMpvInitFailure();
+            // 列表重新评估：宿主在下一帧重建面板。
+            _update(settings);
+          },
         ),
-        _orientationCard(context),
         const SizedBox(height: 20),
-      ],
-      _section(
-        '字幕',
-        '开关 / 字号 / 颜色 / 描边 / 底色 / 延迟；'
-            '外挂字幕与内置字幕轨',
-      ),
-      _subtitleCard(context),
-      const SizedBox(height: 20),
-      _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
-      _audioCard(context),
-      if (_danmaku != null && widget.showDanmakuPanel) ...<Widget>[
+        _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
+        _decodingCard(context),
         const SizedBox(height: 20),
-        _section(
-          '弹幕',
-          '开关 / 不透明度 / 字号 / 显示区域 / 速度 / 描边 / '
-              '同屏上限 / 屏蔽词',
+        if (widget.connectionControls != null) widget.connectionControls!,
+        NativeSwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('后台静默校验播放源'),
+          value: settings.backgroundSourceValidation,
+          onChanged: (value) =>
+              _update(settings.copyWith(backgroundSourceValidation: value)),
         ),
-        DanmakuSettingsPanel(
-          settings: _danmaku!,
-          danmakuCount: widget.danmakuCount,
-          // 外层已经有「弹幕」这一节标题，面板不再重复。
-          showTitle: false,
-          showAvoidSubtitles: false,
-          onChanged: _updateDanmaku,
+        Text(
+          '起播后在后台检查链接，失效时提示；不会自动切换线路。关闭后不做后台检查。',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: LumeTypography.descriptionSize,
+            height: 1.4,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
-      ],
-      const SizedBox(height: 20),
-      _section('解码', '硬件解码（部分设备硬解 HEVC 花屏时可切软解）'),
-      _decodingCard(context),
-      const SizedBox(height: 20),
-      _section('播放启动', '直接起播，不自动切换播放线路或升降清晰度'),
-      DropdownButtonFormField<DefaultQuality>(
-        initialValue: settings.defaultQuality,
-        decoration: const InputDecoration(labelText: '默认清晰度'),
-        items: [
-          for (final value in DefaultQuality.values)
-            DropdownMenuItem(value: value, child: Text(value.label)),
-        ],
-        onChanged: (value) {
-          if (value != null) _update(settings.copyWith(defaultQuality: value));
-        },
-      ),
-      NativeSwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('后台静默校验播放源'),
-        value: settings.backgroundSourceValidation,
-        onChanged: (value) =>
-            _update(settings.copyWith(backgroundSourceValidation: value)),
-      ),
-      Text(
-        '开启：视频会立刻开始播放，播放启动后在后台悄悄检查当前播放源是否可用。如果检测发现链接失效，仅弹出提示，不会自动帮你切换线路。\n'
-        '关闭：跳过全部后台源检测，拿到播放地址直接交给播放器，启动速度更快。如果播放链接已经失效，则不会提前提示，需要自己手动更换线路。',
-        style: TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: LumeTypography.descriptionSize,
-          height: 1.4,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-      NativeSwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('记住手动选择的清晰度'),
-        subtitle: const Text('下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。'),
-        value: settings.rememberManualQuality,
-        onChanged: (value) =>
-            _update(settings.copyWith(rememberManualQuality: value)),
-      ),
-      const SizedBox(height: 20),
+      ]),
+    ];
+    final children = <Widget>[
+      if (widget.embedded) _categoryNavigation(),
+      ...groups,
     ];
 
     // 内嵌模式（全局设置页）：**返回 Column 而不是 ListView**。
@@ -419,10 +467,12 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
       );
     }
 
-    final list = ListView(
-      shrinkWrap: true,
+    final list = SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      children: children,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
     );
 
     final content = SafeArea(
@@ -435,6 +485,10 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             _handle(context),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _categoryNavigation(),
+            ),
             Flexible(child: list),
           ],
         ),
@@ -451,6 +505,84 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     );
     return legacy;
   }
+
+  final _categoryKeys = <String, GlobalKey>{};
+  final _navigationKey = GlobalKey();
+  static const _categories = [
+    ('playback', '播放'),
+    ('picture', '画面'),
+    ('audio', '音频字幕'),
+    ('danmaku', '弹幕'),
+    ('controls', '操作外观'),
+    ('advanced', '内核网络'),
+  ];
+
+  Future<void> _jumpTo(GlobalKey key) async {
+    final target = key.currentContext;
+    if (target != null) {
+      await Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 240),
+        alignment: 0,
+      );
+    }
+  }
+
+  Widget _categoryNavigation() => Padding(
+    key: _navigationKey,
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final category in _categories)
+          if (category.$1 != 'danmaku' ||
+              _danmaku != null ||
+              widget.danmakuControls != null)
+            ActionChip(
+              key: ValueKey('player-category-${category.$1}'),
+              label: Text(category.$2),
+              onPressed: () => _jumpTo(_categoryKeys[category.$1]!),
+            ),
+      ],
+    ),
+  );
+
+  Widget _group(
+    String id,
+    String title,
+    IconData icon,
+    List<Widget> children,
+  ) => Padding(
+    key: _categoryKeys.putIfAbsent(id, GlobalKey.new),
+    padding: const EdgeInsets.only(top: 8, bottom: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            if (widget.embedded)
+              IconButton(
+                tooltip: '回到分类',
+                onPressed: () => _jumpTo(_navigationKey),
+                icon: const Icon(Icons.vertical_align_top, size: 18),
+              ),
+          ],
+        ),
+        const Divider(),
+        ...children,
+      ],
+    ),
+  );
 
   Widget _handle(BuildContext context) {
     return Padding(

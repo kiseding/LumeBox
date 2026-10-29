@@ -816,6 +816,22 @@ void main() {
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
     });
 
+    testWidgets('横屏快捷按钮按选集、片头尾、画质倍速弹幕归组，保留入口', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(932, 430));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      double x(String tooltip) => tester.getCenter(find.byTooltip(tooltip)).dx;
+      expect(x('线路 / 选集'), lessThan(x('片头片尾设置')));
+      expect(x('片头片尾设置'), lessThan(x('清晰度')));
+      expect(x('清晰度'), lessThan(x('播放速度（1.0x）')));
+      expect(x('播放速度（1.0x）'), lessThan(x('弹幕：开')));
+      expect(find.byTooltip('记片头（长按清除标记）'), findsOneWidget);
+      expect(find.byTooltip('播放器设置'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('设置弹窗：不支持的字幕样式项照旧显示，点了弹统一提示', (tester) async {
       // AVPlayer：字幕样式不支持（能力矩阵里为 false）。
       await pump(tester, catalog: const _AvPlayerOnlyCatalog());
@@ -847,7 +863,7 @@ void main() {
 
       // AVPlayer 上调 1.5x。
       await tester.dragUntilVisible(
-        find.text('1.5x'),
+        find.widgetWithText(ChoiceChip, '1.5x').first,
         find.byType(PlayerSettingsSheet),
         const Offset(0, -120),
       );
@@ -863,27 +879,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('1.5x'), findsWidgets);
 
-      // 切到 MPV：显示的是 MPV 自己的 1x（按内核分别记住）。
-      await tester.dragUntilVisible(
-        find.text('MPV'),
-        find.byType(PlayerSettingsSheet),
-        const Offset(0, 200),
-      );
-      await Scrollable.ensureVisible(
-        tester.element(find.text('MPV')),
-        alignment: .5,
-      );
+      // 分类跳转到内核，再回到播放分类，验证各内核独立倍速。
+      await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
-      await tester.dragUntilVisible(
-        find.descendant(
-          of: find.byType(PlayerSettingsSheet),
-          matching: find.byType(Slider),
-        ),
-        find.byType(PlayerSettingsSheet),
-        const Offset(0, -120),
-      );
+      await tester.tap(find.byKey(const ValueKey('player-category-playback')));
       await tester.pumpAndSettle();
       // 倍速滑杆在弹窗里（控制栏的进度条也是 Slider，因此先限定在弹窗内）。
       final slider = tester.widget<Slider>(

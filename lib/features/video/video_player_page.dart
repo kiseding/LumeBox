@@ -2955,11 +2955,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       // 控制栏那颗 tune 仍保留为快捷入口。
       danmaku: _danmakuSettings,
       onDanmakuChanged: _applyDanmakuSettings,
-      extraControls: _buildPlaybackSettings(),
+      extraControls: _buildPlaybackSettings('playback'),
+      audioControls: _buildPlaybackSettings('audio'),
+      connectionControls: _buildPlaybackSettings('connection'),
+      danmakuControls: ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('弹幕显示与匹配'),
+        subtitle: const Text('显示样式、来源匹配与屏蔽词'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          Navigator.of(context).pop();
+          await _openDanmakuSettings();
+        },
+      ),
     );
   }
 
-  Widget _buildPlaybackSettings() => StatefulBuilder(
+  Widget _buildPlaybackSettings(String group) => StatefulBuilder(
     builder: (context, update) {
       final buffer = _buffering.forwardBuffer.inSeconds;
       final supported = _player?.capabilities.bufferingParams ?? false;
@@ -2967,117 +2979,119 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              '播放与连接',
-              style: TextStyle(
-                fontSize: LumeTypography.sectionTitleSize,
-                fontWeight: FontWeight.w600,
+            if (group == 'connection' && _player is PresentationEngine)
+              Builder(
+                builder: (context) {
+                  final engine = _player! as PresentationEngine;
+                  return ValueListenableBuilder<List<String>>(
+                    valueListenable: engine.presentationStatus,
+                    builder: (context, lines, _) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        lines.join('\n'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 8),
-            if (_player case final PresentationEngine engine)
-              ValueListenableBuilder<List<String>>(
-                valueListenable: engine.presentationStatus,
-                builder: (context, lines, _) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    lines.join('\n'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+            if (group == 'playback')
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const LumeIcon(
+                  Icons.skip_next,
+                  slot: 'video_player_page.1',
                 ),
+                title: const Text('片头片尾与同剧记忆'),
+                subtitle: const Text('记一次，后续各集自动沿用；无需作品 ID'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await _openOriginalIntro();
+                },
               ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const LumeIcon(
-                Icons.skip_next,
-                slot: 'video_player_page.1',
+            if (group == 'audio') ...[
+              SwitchListTile(
+                title: const Text('静音'),
+                value: _muted,
+                onChanged: (value) {
+                  setState(() => _muted = value);
+                  update(() {});
+                  _savePlaybackPreferences();
+                  unawaited(_player?.setVolume(_effectiveVolume));
+                },
               ),
-              title: const Text('片头片尾与同剧记忆'),
-              subtitle: const Text('记一次，后续各集自动沿用；无需作品 ID'),
-              onTap: () async {
-                Navigator.of(context).pop();
-                await _openOriginalIntro();
-              },
-            ),
-            SwitchListTile(
-              title: const Text('静音'),
-              value: _muted,
-              onChanged: (value) {
-                setState(() => _muted = value);
-                update(() {});
-                _savePlaybackPreferences();
-                unawaited(_player?.setVolume(_effectiveVolume));
-              },
-            ),
-            SwitchListTile(
-              title: const Text('音乐模式'),
-              subtitle: const Text('隐藏画面，保留音频和播放控制'),
-              value: _musicMode,
-              onChanged: (value) {
-                setState(() => _musicMode = value);
-                update(() {});
-                _savePlaybackPreferences();
-              },
-            ),
-            Text('音量 ${(_gesture.volume * 100).round()}%'),
-            NativeGlassSlider(
-              value: _gesture.volume,
-              min: 0,
-              max: 1,
-              onChanged: _player == null
-                  ? null
-                  : (value) {
-                      setState(
-                        () => _gesture = _gesture.copyWith(volume: value),
-                      );
-                      update(() {});
-                      _muted = false;
-                      _savePlaybackPreferences();
-                      unawaited(_player!.setVolume(value));
-                    },
-            ),
-            Text(
-              supported
-                  ? '前向缓冲 ${buffer == 0 ? '自动' : '$buffer 秒'}'
-                  : '当前内核未提供缓冲参数',
-            ),
-            NativeGlassSlider(
-              value: buffer.toDouble().clamp(
-                0,
-                SectionModuleSettings.maxBufferSeconds.toDouble(),
+              SwitchListTile(
+                title: const Text('音乐模式'),
+                subtitle: const Text('隐藏画面，保留音频和播放控制'),
+                value: _musicMode,
+                onChanged: (value) {
+                  setState(() => _musicMode = value);
+                  update(() {});
+                  _savePlaybackPreferences();
+                },
               ),
-              min: 0,
-              max: SectionModuleSettings.maxBufferSeconds.toDouble(),
-              divisions: SectionModuleSettings.maxBufferSeconds,
-              onChanged: !supported
-                  ? null
-                  : (value) {
-                      final seconds = value.round();
-                      setState(
-                        () => _buffering = BufferingConfig.forForwardBuffer(
-                          Duration(seconds: seconds),
-                        ),
-                      );
-                      update(() {});
-                      final library = _library;
-                      if (library != null) {
-                        SectionModuleSettings.load(library)
-                            .copyWith(bufferSeconds: seconds)
-                            .save(library);
-                      }
-                      unawaited(_player?.setBuffering(_buffering));
-                    },
-            ),
-
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('自动连播'),
-              value: _autoNext,
-              onChanged: (value) {
-                _setAutoNext(value);
-                update(() {});
-              },
-            ),
+              Text('音量 ${(_gesture.volume * 100).round()}%'),
+              NativeGlassSlider(
+                value: _gesture.volume,
+                min: 0,
+                max: 1,
+                onChanged: _player == null
+                    ? null
+                    : (value) {
+                        setState(
+                          () => _gesture = _gesture.copyWith(volume: value),
+                        );
+                        update(() {});
+                        _muted = false;
+                        _savePlaybackPreferences();
+                        unawaited(_player!.setVolume(value));
+                      },
+              ),
+            ],
+            if (group == 'connection') ...[
+              Text(
+                supported
+                    ? '前向缓冲 ${buffer == 0 ? '自动' : '$buffer 秒'}'
+                    : '当前内核未提供缓冲参数',
+              ),
+              NativeGlassSlider(
+                value: buffer.toDouble().clamp(
+                  0,
+                  SectionModuleSettings.maxBufferSeconds.toDouble(),
+                ),
+                min: 0,
+                max: SectionModuleSettings.maxBufferSeconds.toDouble(),
+                divisions: SectionModuleSettings.maxBufferSeconds,
+                onChanged: !supported
+                    ? null
+                    : (value) {
+                        final seconds = value.round();
+                        setState(
+                          () => _buffering = BufferingConfig.forForwardBuffer(
+                            Duration(seconds: seconds),
+                          ),
+                        );
+                        update(() {});
+                        final library = _library;
+                        if (library != null) {
+                          SectionModuleSettings.load(library)
+                              .copyWith(bufferSeconds: seconds)
+                              .save(library);
+                        }
+                        unawaited(_player?.setBuffering(_buffering));
+                      },
+              ),
+            ],
+            if (group == 'playback')
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('自动连播'),
+                value: _autoNext,
+                onChanged: (value) {
+                  _setAutoNext(value);
+                  update(() {});
+                },
+              ),
           ],
         ),
       );
@@ -4068,6 +4082,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 : _markSkipFromQuick(snapshot),
             longPress: _clearSkipMarksFromQuick,
           ),
+          action(
+            '选集',
+            '线路 / 选集',
+            Icons.playlist_play_outlined,
+            _openSourceSheet,
+          ),
+          const SizedBox(width: 4),
           action('片头尾', '片头片尾设置', Icons.skip_next_outlined, _openOriginalIntro),
           const Spacer(),
           action(
@@ -4078,10 +4099,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ),
           const SizedBox(width: 4),
           action(
-            '选集',
-            '线路 / 选集',
-            Icons.playlist_play_outlined,
-            _openSourceSheet,
+            '${_settings.speed}x',
+            '播放速度（${_settings.speed}x）',
+            Icons.speed,
+            _showSpeedPicker,
           ),
           const SizedBox(width: 4),
           action(
@@ -4091,12 +4112,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             _openDanmakuSettings,
           ),
           const SizedBox(width: 4),
-          action(
-            '${_settings.speed}x',
-            '播放速度（${_settings.speed}x）',
-            Icons.speed,
-            _showSpeedPicker,
-          ),
         ],
       );
     },
@@ -4107,8 +4122,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 文字按钮与图标按钮走同一个 [VideoPlayerPage.controlBox] 触达盒、同一个 13 号字，
   /// 因此一排看上去是等高等宽的方块，而不是「文字比图标大一号」。
   List<Widget> _essentialActions() => <Widget>[
-    if (_media != null) _actionLabel('画质', '清晰度', _openQualityMenu),
     _actionLabel('选集', '线路 / 选集', _openSourceSheet),
+    _skipQuickButton(),
+    _actionLabel('片头尾', '片头片尾设置', _openOriginalIntro),
+    if (_media != null) _actionLabel('画质', '清晰度', _openQualityMenu),
     _actionLabel(
       '弹',
       _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
@@ -4116,8 +4133,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       onLongPress: _toggleDanmaku,
       highlighted: _danmakuSettings.enabled,
     ),
-    _skipQuickButton(),
-    _actionLabel('片头尾', '片头片尾设置', _openOriginalIntro),
     _buildPipButton(),
     // 播放内核：与全屏那颗同一图标（用户口径：换个好看的图标）。
     _compactIcon(
@@ -4959,12 +4974,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 传输类按钮（后退 / 播放暂停 / 停止 / 倍速 / 前进）：常规面板与全屏浮层
+  /// 传输类按钮（停止 / 后退 / 播放暂停 / 前进 / 倍速）：常规面板与全屏浮层
   /// 中间那一组都用它，图标尺寸统一 [VideoPlayerPage.controlIconSize]。
   List<Widget> _primaryActions(PlayerSnapshot snapshot) {
     final player = _player;
     final playing = snapshot.playing && snapshot.error == null;
     return <Widget>[
+      IconButton(
+        iconSize: _iconSize + 5,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        padding: EdgeInsets.zero,
+        color: _fullscreen
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
+        tooltip: '停止',
+        icon: LumeIcon(
+          Icons.stop_circle,
+          slot: 'video_player_page.10',
+          shadows: _fullscreen ? _controlShadows : null,
+        ),
+        onPressed: player?.stop,
+      ),
       IconButton(
         iconSize: _iconSize + 5,
         visualDensity: VisualDensity.compact,
@@ -5013,13 +5044,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         color: _fullscreen
             ? Colors.white
             : Theme.of(context).colorScheme.onSurface,
-        tooltip: '停止',
+        tooltip: '前进 10 秒',
         icon: LumeIcon(
-          Icons.stop_circle,
-          slot: 'video_player_page.10',
+          Icons.forward_10,
+          slot: 'video_player_page.12',
           shadows: _fullscreen ? _controlShadows : null,
         ),
-        onPressed: player?.stop,
+        onPressed: player == null
+            ? null
+            : () => _seekBy(const Duration(seconds: 10)),
       ),
       IconButton(
         tooltip: '播放速度（${_settings.speed}x）',
@@ -5036,24 +5069,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ? Colors.white
             : Theme.of(context).colorScheme.onSurface,
         onPressed: _showSpeedPicker,
-      ),
-      IconButton(
-        iconSize: _iconSize + 5,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        padding: EdgeInsets.zero,
-        color: _fullscreen
-            ? Colors.white
-            : Theme.of(context).colorScheme.onSurface,
-        tooltip: '前进 10 秒',
-        icon: LumeIcon(
-          Icons.forward_10,
-          slot: 'video_player_page.12',
-          shadows: _fullscreen ? _controlShadows : null,
-        ),
-        onPressed: player == null
-            ? null
-            : () => _seekBy(const Duration(seconds: 10)),
       ),
     ].map((button) => button).toList();
   }
