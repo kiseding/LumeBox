@@ -42,4 +42,19 @@ void main() {
       expect(SubscriptionCatalog.migrateUrl(url), url);
     }
   });
+  test('官方 CDN 旧清单地址转到 CDN 专用清单，不受旧 raw 清单缓存影响', () {
+    for (final name in ['all.json', 'video.txt', 'movie.txt', 'photo.txt']) {
+      expect(
+        SubscriptionCatalog.migrateUrl(
+          '${SubscriptionCatalog.cdnBase}subscriptions/$name',
+        ),
+        '${SubscriptionCatalog.cdnBase}subscriptions/cdn/$name',
+      );
+    }
+    for (final suffix in ['?token=test', '#private']) {
+      final url =
+          '${SubscriptionCatalog.cdnBase}subscriptions/video.txt$suffix';
+      expect(SubscriptionCatalog.migrateUrl(url), url);
+    }
+  });
 }

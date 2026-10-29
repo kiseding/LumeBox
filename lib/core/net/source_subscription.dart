@@ -196,16 +196,18 @@ class SourceSubscription {
         (parts[3] == 'heads' || parts[3] == 'tags')) {
       parts.removeRange(2, 4);
     }
-    return Uri(
-      scheme: 'https',
-      host: 'cdn.jsdelivr.net',
-      pathSegments: [
-        'gh',
-        parts[0],
-        '${parts[1]}@${parts[2]}',
-        ...parts.skip(3),
-      ],
-    ).toString();
+    return SubscriptionCatalog.migrateUrl(
+      Uri(
+        scheme: 'https',
+        host: 'cdn.jsdelivr.net',
+        pathSegments: [
+          'gh',
+          parts[0],
+          '${parts[1]}@${parts[2]}',
+          ...parts.skip(3),
+        ],
+      ).toString(),
+    );
   }
 
   /// 地址清单 → 脚本清单。

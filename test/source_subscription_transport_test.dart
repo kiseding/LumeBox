@@ -73,4 +73,26 @@ void main() {
       'https://cdn.jsdelivr.net/gh/a/b@main/file',
     );
   });
+  test('官方 GitHub 清单网络失败时使用当前 CDN 专用清单', () async {
+    final calls = <Uri>[];
+    final client = LumeHttp(
+      client: MockClient((request) async {
+        calls.add(request.url);
+        if (request.url.host == 'raw.githubusercontent.com') {
+          throw const SocketException('offline');
+        }
+        return http.Response('# empty authoritative list', 200);
+      }),
+      settings: const NetworkSettings(maxRetries: 0),
+    );
+    addTearDown(client.dispose);
+    await SourceSubscription.fetchSubscription(
+      client,
+      'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/subscriptions/video.txt',
+    );
+    expect(
+      calls.last.path,
+      '/gh/teng662858/LumeBox-Sources@main/subscriptions/cdn/video.txt',
+    );
+  });
 }

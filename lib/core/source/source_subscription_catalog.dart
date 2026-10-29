@@ -56,6 +56,12 @@ class SubscriptionCatalog {
       } on ArgumentError {
         return url;
       }
+      if (prefix == cdnBase &&
+          RegExp(
+            r'^subscriptions/(?:all\.json|(?:comic|comics|photo|movie|video|videos|audiobook)\.txt)$',
+          ).hasMatch(path)) {
+        return '$prefix${path.replaceFirst('subscriptions/', 'subscriptions/cdn/')}';
+      }
       final target = legacyPaths[path];
       if (target != null) {
         if (prefix == cdnBase && target.startsWith('subscriptions/')) {
