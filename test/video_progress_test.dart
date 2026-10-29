@@ -154,7 +154,10 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(players.last.media!.uri.path, '/e1-1080.mp4');
-      await tapWithDetailPlay(tester, find.byTooltip('清晰度'));
+      await tapWithDetailPlay(tester, find.byTooltip('播放器设置'));
+      final qualityEntry = find.widgetWithText(ListTile, '画质');
+      await tester.ensureVisible(qualityEntry);
+      await tapWithDetailPlay(tester, qualityEntry);
       await tester.pump();
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(milliseconds: 30));

@@ -749,7 +749,8 @@ void main() {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-      expect(find.text('选集'), findsNothing);
+      expect(find.text('选集'), findsOneWidget);
+      expect(find.text('暂停'), findsNothing);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -767,6 +768,7 @@ void main() {
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
       expect(find.text('选集'), findsOneWidget);
+      expect(find.text('暂停'), findsOneWidget);
       expect(find.text('上集'), findsNothing);
       expect(players.length, 1);
       await tester.tap(find.byTooltip('暂停'));
@@ -976,7 +978,7 @@ void main() {
       });
     }
 
-    testWidgets('横屏选集和画质各自打开独立内容，移除上一集按钮', (tester) async {
+    testWidgets('横屏选集独立，画质从设置进入，移除上一集按钮', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -995,7 +997,7 @@ void main() {
       );
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('清晰度'));
+      await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
       expect(
         find.descendant(
@@ -1005,7 +1007,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('选集与线路'), findsNothing);
-      expect(find.text('选集'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.text('选集'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('横屏按钮外移后左右边距为系统安全区加8，点击框至少44', (tester) async {
@@ -1027,10 +1035,10 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpAndSettle();
       final play = tester.getRect(find.byTooltip('暂停'));
-      final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
+      final episodes = tester.getRect(find.byTooltip('线路 / 选集'));
       final rotation = tester.getRect(find.byTooltip('横竖屏切换'));
       expect(play.left, closeTo(44 + 8, .01));
-      expect(932 - danmaku.right, closeTo(24 + 8, .01));
+      expect(932 - episodes.right, closeTo(24 + 8, .01));
       expect(932 - rotation.right, closeTo(24 + 8, .01));
       expect(
         932 - tester.getRect(find.byTooltip('播放器设置')).right,
@@ -1041,16 +1049,20 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('横屏快捷按钮按选集、片头尾、画质倍速弹幕归组，保留入口', (tester) async {
+    testWidgets('横屏右侧文字入口按弹幕、倍速、选集排列，画质与内核收进设置', (tester) async {
       await tester.binding.setSurfaceSize(const Size(932, 430));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       double x(String tooltip) => tester.getCenter(find.byTooltip(tooltip)).dx;
-      expect(x('线路 / 选集'), lessThan(x('清晰度')));
-      expect(x('清晰度'), lessThan(x('播放速度（1.0x）')));
-      expect(x('播放速度（1.0x）'), lessThan(x('弹幕：开')));
+      expect(x('弹幕：开'), lessThan(x('播放速度（1.0x）')));
+      expect(x('播放速度（1.0x）'), lessThan(x('线路 / 选集')));
+      expect(find.text('弹幕'), findsOneWidget);
+      expect(find.text('1.0×'), findsOneWidget);
+      expect(find.text('选集'), findsOneWidget);
+      expect(find.byTooltip('清晰度'), findsNothing);
+      expect(find.byTooltip('播放内核'), findsNothing);
       expect(find.byTooltip('记片头（长按清除标记）'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -1155,7 +1167,7 @@ void main() {
       expect(find.byTooltip('暂停'), findsOneWidget, reason: '控制栏显示为「正在播放」');
     });
 
-    testWidgets('全屏：画质高度与速率，跟着控制浮层一起出现 / 收起', (tester) async {
+    testWidgets('全屏：完整分辨率与速率，跟着控制浮层一起出现 / 收起', (tester) async {
       final players = await pump(tester);
       players.single.pushStats(
         const PlayerStats(
@@ -1166,19 +1178,19 @@ void main() {
       );
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
-      // 唤出状态：片名后面那一排有分辨率与速率，速率**不带「网速」字样**。
-      expect(find.text('1080P'), findsOneWidget);
+      // 顶部显示分辨率，底部显示速率，二者一起收起与唤回。
+      expect(find.text('1920×1080'), findsOneWidget);
       expect(find.text('125.0MB/s'), findsOneWidget);
       expect(find.textContaining('网速'), findsNothing);
       // 自动收起：浮层连同这一排一起走，画面上不再压着参数。
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
-      expect(find.text('1080P'), findsNothing);
+      expect(find.text('1920×1080'), findsNothing);
       expect(find.text('125.0MB/s'), findsNothing);
       // 点画面唤回。
       await tester.tap(find.text('fake-view'));
       await tester.pump();
-      expect(find.text('1080P'), findsOneWidget);
+      expect(find.text('1920×1080'), findsOneWidget);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
@@ -1486,8 +1498,8 @@ void main() {
       // 音轨入口已按用户口径从播放页拿掉（设置弹窗里仍可切）。
       expect(find.byTooltip('音轨'), findsNothing);
       expect(find.byTooltip('字幕'), findsNothing);
-      // 播放内核做进控制栏了（用户口径），底部那一排就有它。
-      expect(find.byTooltip('播放内核'), findsOneWidget);
+      // 低频的内核选择收进播放器设置。
+      expect(find.byTooltip('播放内核'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       expect(find.byTooltip('横竖屏切换'), findsOneWidget);
       await tester.tap(find.byTooltip('横竖屏切换'));
@@ -1760,11 +1772,11 @@ void main() {
       await tester.pumpAndSettle();
       final slider = tester.getRect(find.byType(Slider));
       final play = tester.getCenter(find.byTooltip('暂停'));
-      final quality = tester.getCenter(find.byTooltip('清晰度'));
+      final episodes = tester.getCenter(find.byTooltip('线路 / 选集'));
       expect(play.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('后退 10 秒'), findsNothing);
       expect(find.byTooltip('前进 10 秒'), findsNothing);
-      expect(quality.dy, greaterThan(slider.bottom));
+      expect(episodes.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.byTooltip('记片头（长按清除标记）'), findsNothing);
@@ -1821,20 +1833,9 @@ void main() {
           find.byKey(const Key('fullscreen-control-gradient')),
         );
         expect(gradient.size, size, reason: '渐变覆盖全画面，安全区边缘不形成矩形边界');
-        final settings = tester.getRect(find.byTooltip('播放器设置'));
-        if (size.width >= 580) {
-          final kernel = tester.getRect(find.byTooltip('播放内核'));
-          expect(settings.left - kernel.right, closeTo(4, .1));
-          expect(settings.center.dy, closeTo(kernel.center.dy, .1));
-        } else {
-          expect(find.byTooltip('播放内核'), findsNothing);
-          expect(find.byTooltip('上一集'), findsNothing);
-          expect(find.byTooltip('清晰度'), findsNothing);
-        }
-        expect(
-          find.text(size.width >= 580 ? '1080P' : '1920×1080'),
-          findsOneWidget,
-        );
+        expect(find.byTooltip('播放内核'), findsNothing);
+        expect(find.byTooltip('清晰度'), findsNothing);
+        expect(find.text('1920×1080'), findsOneWidget);
         final slider = tester.getRect(find.byType(Slider));
         final time = tester.getRect(find.text('15:00'));
         expect(time.center.dy, closeTo(slider.center.dy, 2));
@@ -1842,36 +1843,82 @@ void main() {
       });
     }
 
-    testWidgets('横屏分辨率移至画质按钮，顶栏仅保留速率且随媒体更新', (tester) async {
+    testWidgets('完整分辨率恢复片名旁，速率在进度条上方且随媒体更新', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       players.single.pushStats(
         const PlayerStats(
           width: 1920,
-          height: 1080,
+          height: 800,
           downloadBytesPerSecond: 125000000,
         ),
       );
       await tester.pumpAndSettle();
-
-      final width = tester.getSize(find.byType(Scaffold).first).width;
-      final stats = tester.getRect(find.text('1080P'));
+      final stats = tester.getRect(find.text('1920×800'));
       final speed = tester.getRect(find.text('125.0MB/s'));
-      expect(stats.center.dy, greaterThan(120), reason: '分辨率属于底部画质按钮');
-      expect(stats.left, greaterThan(width * .5));
-      expect(speed.center.dy, lessThan(120), reason: '速率继续显示在顶部');
-      expect(
-        find.descendant(
-          of: find.byTooltip('清晰度'),
-          matching: find.text('1080P'),
-        ),
-        findsOneWidget,
+      final top = tester.getRect(find.byKey(const Key('fullscreen-topbar')));
+      final slider = tester.getRect(find.byType(Slider));
+      final actions = tester.getRect(
+        find.byKey(const Key('fullscreen-actions')),
       );
+      expect(top.contains(stats.center), isTrue);
+      expect(speed.bottom, lessThanOrEqualTo(slider.top));
+      expect(speed.right, closeTo(actions.right, .1));
+      expect(find.byTooltip('清晰度'), findsNothing);
+      expect(find.text('800P'), findsNothing);
       players.single.pushStats(const PlayerStats(width: 1280, height: 720));
       await tester.pumpAndSettle();
-      expect(find.text('720P'), findsOneWidget);
-      expect(find.text('1080P'), findsNothing);
+      expect(find.text('1280×720'), findsOneWidget);
+      expect(find.text('1920×800'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('关闭全屏速率显示会保存偏好，重新进入仍生效且保留分辨率', (tester) async {
+      final players = await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      players.single.pushStats(
+        const PlayerStats(
+          width: 1920,
+          height: 800,
+          downloadBytesPerSecond: 1250000,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('1.3MB/s'), findsOneWidget);
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.text('显示播放速率'),
+        find.byType(PlayerSettingsSheet),
+        const Offset(0, -160),
+      );
+      await tester.tap(find.text('显示播放速率'));
+      await tester.pumpAndSettle();
+      expect(
+        PlayerExperienceStore.current.flag('showNetworkSpeed', true),
+        isFalse,
+      );
+      Navigator.of(tester.element(find.byType(PlayerSettingsSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('1.3MB/s'), findsNothing);
+      expect(find.text('1920×800'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      final reopened = await pump(tester);
+      reopened.single.pushStats(
+        const PlayerStats(
+          width: 1920,
+          height: 800,
+          downloadBytesPerSecond: 1250000,
+        ),
+      );
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('fullscreen-network-speed')), findsNothing);
+      expect(find.text('1920×800'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -2319,6 +2366,14 @@ class _CountingClient extends http.BaseClient {
 }
 
 Future<void> openPlayerAction(WidgetTester tester, String action) async {
+  if (action == '清晰度' && find.byTooltip('清晰度').evaluate().isEmpty) {
+    await tester.tap(find.byTooltip('播放器设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(ListTile, '画质'));
+    await tester.tap(find.widgetWithText(ListTile, '画质'));
+    await tester.pumpAndSettle();
+    return;
+  }
   final tooltip = switch (action) {
     '播放源 / 更换线路' => '线路 / 选集',
     '清晰度' => '清晰度',

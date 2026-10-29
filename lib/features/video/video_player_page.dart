@@ -334,6 +334,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _unlockVisible = true;
   Timer? _unlockTimer;
   bool _muted = false, _musicMode = false;
+  bool _showNetworkSpeed = true;
   double get _effectiveVolume => _muted ? 0 : _gesture.volume;
 
   /// 全屏（沉浸）模式：顶栏与控制栏收起，点画面切换浮层控制栏。
@@ -1142,6 +1143,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final experience = PlayerExperienceStore.current;
       _muted = experience.flag('muted');
       _musicMode = experience.flag('musicMode');
+      _showNetworkSpeed = experience.flag('showNetworkSpeed', true);
       _gesture = _gesture.copyWith(
         volume: experience.number('volume', 1, 0, 1),
       );
@@ -3168,7 +3170,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             if (group == 'playback') ...[
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('选集与画质'),
+                title: const Text('画质'),
+                subtitle: const Text('切换当前片源提供的清晰度'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_openQualityMenu());
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('选集与线路'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.pop(context);
@@ -3234,6 +3246,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
             ],
             if (group == 'connection') ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示播放速率'),
+                subtitle: const Text('在全屏进度条右上方显示传输速率'),
+                value: _showNetworkSpeed,
+                onChanged: (value) {
+                  setState(() => _showNetworkSpeed = value);
+                  update(() {});
+                  _savePlaybackPreferences();
+                },
+              ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('播放信息'),
@@ -3911,6 +3934,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       'volume': _gesture.volume,
       'muted': _muted,
       'musicMode': _musicMode,
+      'showNetworkSpeed': _showNetworkSpeed,
     });
   }
 
@@ -4015,9 +4039,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       constraints: BoxConstraints(maxWidth: narrow ? 68 : 180),
                       child: PlayerStatsInline(
                         stats: _player!.stats,
-                        networkKbps: _networkSpeed.kbps,
                         stacked: narrow,
-                        showResolution: narrow,
+                        showSpeed: false,
                       ),
                     ),
                   ],
@@ -4031,12 +4054,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               _buildPipButton(),
               const SizedBox(width: 4),
             ],
-            if (!narrow)
-              _topIcon(
-                icon: VideoPlayerPage.playerKernelIcon,
-                tooltip: '播放内核',
-                onPressed: _openKernelPicker,
-              ),
             const SizedBox(width: 4),
             _topIcon(
               icon: Icons.more_horiz,
@@ -4215,6 +4232,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             builder: (context, snapshot, _) => Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                if (_showNetworkSpeed && _player != null)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 180),
+                      child: PlayerStatsInline(
+                        key: const Key('fullscreen-network-speed'),
+                        stats: _player!.stats,
+                        networkKbps: _networkSpeed.kbps,
+                        showResolution: false,
+                      ),
+                    ),
+                  ),
                 _buildProgress(snapshot),
                 // 两行（进度条行 / 按钮行）固定行距（用户口径）。
                 const SizedBox(height: VideoPlayerPage.controlRowGap),
@@ -4227,7 +4257,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 左侧播放与下集，右侧选集、实测分辨率、倍速、弹幕。
+  /// 左侧播放与下集，右侧文字入口依次为弹幕、倍速、选集。
   bool _compactFullscreenControls(double width) =>
       width < 580 ||
       width < _box * 6 + 96 ||
@@ -4237,7 +4267,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     builder: (context, constraints) {
       final target = _target;
       final compact = _compactFullscreenControls(constraints.maxWidth);
-      final resolution = _player?.stats.value.qualityResolutionText ?? '画质';
       Widget action(
         String label,
         String tooltip,
@@ -4305,29 +4334,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
           ],
           const Spacer(),
-          action('选集', '线路 / 选集', Icons.grid_view_rounded, _openSourceSheet),
-          if (!compact) ...[
-            const SizedBox(width: 4),
-            action(
-              resolution,
-              '清晰度',
-              Icons.high_quality_outlined,
-              _media == null ? null : _openQualityMenu,
-              forceText: true,
-              width: math.max(
-                _box,
-                math.min(104, resolution.length * 7.5 + 12),
-              ),
-            ),
-          ],
-          const SizedBox(width: 4),
-          action(
-            '${_settings.speed}x',
-            '播放速度（${_settings.speed}x）',
-            Icons.speed,
-            _showSpeedPicker,
-          ),
-          const SizedBox(width: 4),
           Semantics(
             toggled: _danmakuSettings.enabled,
             child: action(
@@ -4335,7 +4341,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
               Icons.forum_outlined,
               _openDanmakuSettings,
+              forceText: true,
             ),
+          ),
+          const SizedBox(width: 4),
+          action(
+            '${_settings.speed}×',
+            '播放速度（${_settings.speed}x）',
+            Icons.speed,
+            _showSpeedPicker,
+            forceText: true,
+          ),
+          const SizedBox(width: 4),
+          action(
+            '选集',
+            '线路 / 选集',
+            Icons.grid_view_rounded,
+            _openSourceSheet,
+            forceText: true,
           ),
         ],
       );
@@ -5050,13 +5073,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       useSafeArea: true,
       builder: (sheetContext) => PlayerSourceSheet(
         initialTab: initialTab,
-        includeQualityTab:
-            !_fullscreen ||
-            _compactFullscreenControls(
-              MediaQuery.sizeOf(context).width -
-                  MediaQuery.viewPaddingOf(context).horizontal -
-                  VideoPlayerPage.controlHorizontalPadding * 2,
-            ),
+        includeQualityTab: !_fullscreen,
         loadLines: target == null
             ? null
             : () async {

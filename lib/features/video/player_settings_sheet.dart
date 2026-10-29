@@ -342,7 +342,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           const SizedBox(height: 20),
         ]),
       _group('controls', '手势与外观', Icons.touch_app_outlined, [
-        _section('按钮样式', '横屏与竖屏共用，切换立即生效'),
+        _section('按钮样式', '切换立即生效；全屏弹幕、倍速、选集保留文字'),
         SegmentedButton<PlayerControlStyle>(
           segments: const [
             ButtonSegment(value: PlayerControlStyle.text, label: Text('文字')),

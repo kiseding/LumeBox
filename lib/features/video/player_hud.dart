@@ -64,7 +64,7 @@ class PlayerHud extends StatelessWidget {
   }
 }
 
-/// 顶栏参数位于片名后面；横屏分辨率交给画质按钮，只在窄屏回显尺寸，
+/// 紧凑参数：顶栏片名后显示实测尺寸，进度条上方显示传输速率。
 /// 跟着控制浮层一起出现 / 收起。
 ///
 /// 与左侧 [PlayerHud] 的区别：这里只要这两格，字色走顶栏那一套（白字 + 投影），
@@ -76,10 +76,12 @@ class PlayerStatsInline extends StatelessWidget {
     this.networkKbps,
     this.stacked = false,
     this.showResolution = true,
+    this.showSpeed = true,
   });
 
   final bool stacked;
   final bool showResolution;
+  final bool showSpeed;
 
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
@@ -110,7 +112,8 @@ class PlayerStatsInline extends StatelessWidget {
         final labels = <String>[
           if (showResolution && value.resolutionText != null)
             value.resolutionText!,
-          if (speedText(value, kbps) != null) speedText(value, kbps)!,
+          if (showSpeed && speedText(value, kbps) != null)
+            speedText(value, kbps)!,
         ];
         if (labels.isEmpty) return const SizedBox.shrink();
         final texts = labels
