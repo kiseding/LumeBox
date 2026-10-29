@@ -502,32 +502,29 @@ void main() {
     );
   });
 
-  test(
-    '候选顺序：源声明的图标 → /favicon.ico → /favicon.png → apple-touch-icon',
-    () async {
-      final asked = <String>[];
-      final resolver = SourceFavicon(
-        http: LumeHttp(
-          source: '测试',
-          client: MockClient((request) async {
-            asked.add(request.url.toString());
-            return http.Response.bytes(<int>[], 404);
-          }),
-        ),
-      );
-      await resolver.load(
-        origin: 'https://a.com',
-        explicit: <String>['https://cdn.example.com/my.png'],
-      );
-      expect(asked, <String>[
-        'https://cdn.example.com/my.png',
-        'https://a.com/favicon.ico',
-        'https://a.com/favicon.png',
-        'https://a.com/apple-touch-icon.png',
-        'https://a.com/',
-      ]);
-    },
-  );
+  test('候选顺序：声明图标失效先读网页，再回退约定路径', () async {
+    final asked = <String>[];
+    final resolver = SourceFavicon(
+      http: LumeHttp(
+        source: '测试',
+        client: MockClient((request) async {
+          asked.add(request.url.toString());
+          return http.Response.bytes(<int>[], 404);
+        }),
+      ),
+    );
+    await resolver.load(
+      origin: 'https://a.com',
+      explicit: <String>['https://cdn.example.com/my.png'],
+    );
+    expect(asked, <String>[
+      'https://cdn.example.com/my.png',
+      'https://a.com/',
+      'https://a.com/favicon.ico',
+      'https://a.com/favicon.png',
+      'https://a.com/apple-touch-icon.png',
+    ]);
+  });
 
   test('favicon.ico 是 404 页：继续找首页 <link rel=icon> 里的真图标', () async {
     final asked = <String>[];
@@ -563,6 +560,11 @@ void main() {
       ),
     );
     final bytes = await resolver.load(origin: 'https://a.com');
+    expect(asked, [
+      'https://a.com/favicon.ico',
+      'https://a.com/',
+      'https://a.com/img/logo256.png',
+    ], reason: '自动加载不再等待其余两个无效猜测路径');
     expect(bytes, isNotNull);
     expect(bytes!.length, png.length);
     expect(asked.last, 'https://a.com/img/logo256.png');

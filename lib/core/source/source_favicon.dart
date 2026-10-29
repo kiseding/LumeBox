@@ -35,8 +35,8 @@ import '../util/lume_log.dart';
 /// 3. **列表会反复打同一个站**：源列表一次渲染几十项，每项一个请求会重复拉同一个
 ///    域名，必须去重 + 缓存。
 ///
-/// 因此这里的顺序是：候选地址（源声明的 icon → /favicon.ico → /favicon.png →
-/// /apple-touch-icon.png）→ 全都不行就抓首页解析 `<link rel=icon>` → 逐个取字节
+/// 因此先尝试源声明图标（未声明时试 /favicon.ico），失效后马上解析首页的
+/// icon / logo，再回退其他约定路径，避免每个站等完多个无效路径。图标取字节
 /// （经全局网络队列，带该源会话）→ 校验**确实是图片**（SVG 转为静态 PNG）
 /// → 缓存成功结果。取不到就老实回退首字母，绝不假装有图标。
 class SourceFavicon {
@@ -354,7 +354,11 @@ class SourceFavicon {
     String? sourceId,
   }) async {
     var reachable = false;
-    for (final url in _candidates(origin, explicit)) {
+    var triedHomepage = false;
+    final candidates = _candidates(origin, explicit);
+    final declaredCount = _candidates('', explicit).length;
+    final fastCount = declaredCount == 0 ? 1 : declaredCount;
+    for (final (index, url) in candidates.indexed) {
       final attempt = await _fetch(
         url,
         section: section,
@@ -362,11 +366,36 @@ class SourceFavicon {
         referer: origin.isEmpty ? '' : '$origin/',
       );
       if (attempt.bytes != null) return attempt.bytes;
-      if (attempt.reachable) reachable = true;
+      reachable = reachable || attempt.reachable;
+      // 常规 favicon 失效后立即读网页声明，避免每个站先等完三个猜测路径。
+      if (index + 1 == fastCount &&
+          reachable &&
+          fetchHtmlHomepage &&
+          origin.isNotEmpty) {
+        triedHomepage = true;
+        final bytes = await _resolveHomepage(
+          origin: origin,
+          section: section,
+          sourceId: sourceId,
+        );
+        if (bytes != null) return bytes;
+      }
     }
-    // 一个候选都没能连上（DNS 不通 / 被墙）：再去抓首页只是白等一轮，
-    // 直接认「这个源没有图标」——首字母占位立刻出来，列表不跟着拖。
-    if (!fetchHtmlHomepage || origin.isEmpty || !reachable) return null;
+    if (triedHomepage || !fetchHtmlHomepage || origin.isEmpty || !reachable) {
+      return null;
+    }
+    return _resolveHomepage(
+      origin: origin,
+      section: section,
+      sourceId: sourceId,
+    );
+  }
+
+  Future<Uint8List?> _resolveHomepage({
+    required String origin,
+    Section? section,
+    String? sourceId,
+  }) async {
     final home = await _fetchText(
       '$origin/',
       section: section,
