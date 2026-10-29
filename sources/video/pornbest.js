@@ -366,7 +366,8 @@ var LumeSource = {
 
   async content(argument) {
     var args = argument || {};
-    var id = String(args.id || '').replace(/[^0-9]/g, '');
+    // itemId 是部分离线检查工具的叫法，App 传的是 id
+    var id = String(args.id || args.itemId || '').replace(/[^0-9]/g, '');
     if (!id) throw new Error('第一女優網：缺少视频 id');
     var pageUrl = base() + '/' + id;
     var html = verify(await request('/' + id));
