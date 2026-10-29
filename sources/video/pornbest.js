@@ -1,4 +1,4 @@
-// LumeSource: {"id":"pornbest_video","name":"第一女優網","version":"1.0.0","category":"video","contentCategory":"adult","settingsApiVersion":2,"mirrors":["https://www.pornbest.org","https://www.av01.org"],"network":"proxy","icon":"https://www.pornbest.org/favicon.ico","settings":[{"key":"note","type":"info","title":"站点说明","description":"第一女優網（PornBest）日本 AV 在线看：主站 www.pornbest.org，镜像 www.av01.org（实测同一套视频/同一播放地址）。站点对中国大陆 IP 会 302 到封锁页，必须在「源设置 → 站点网络」里配代理才能打开；封面和 HLS 播放地址在 CDN 上，不需要 Referer。分类 /c/<id> 每页约 40 条，搜索走 /q/<关键词>，分页都真实生效。"}]}
+// LumeSource: {"id":"pornbest_video","name":"第一女優網","version":"1.0.1","category":"video","contentCategory":"adult","settingsApiVersion":2,"mirrors":["https://www.pornbest.org","https://www.av01.org"],"network":"proxy","icon":"https://www.pornbest.org/favicon.ico","settings":[{"key":"note","type":"info","title":"站点说明","description":"第一女優網（PornBest）日本 AV 在线看：主站 www.pornbest.org，镜像 www.av01.org（实测同一套视频/同一播放地址）。站点对中国大陆 IP 会 302 到封锁页，必须在「源设置 → 站点网络」里配代理才能打开；封面和 HLS 播放地址在 CDN 上，不需要 Referer。分类 /c/<id> 每页约 40 条，搜索走 /q/<关键词>，分页都真实生效。"}]}
 // LumeRuntime: javascript
 //
 // 站点：第一女優網（PornBest，https://www.pornbest.org；镜像 https://www.av01.org）
@@ -272,7 +272,7 @@ function pagePath(categoryId, page, sort) {
 var LumeSource = {
   id: 'pornbest_video',
   name: '第一女優網',
-  version: '1.0.0',
+  version: '1.0.1',
   category: 'video',
   contentCategory: 'adult',
   settingsApiVersion: 2,
