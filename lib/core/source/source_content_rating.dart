@@ -167,6 +167,8 @@ class SourceContentRating {
     'pornbest_video',
     // 91PornPlus（91pornplus.com 站群；POST /js + AES(passphrase) 密文，接口域名国内直连）。
     'porn91plus_video',
+    // Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库；CDNLah WAF 的 PoW，源内纯 JS 解算）。
+    'pornlulu_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{

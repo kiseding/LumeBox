@@ -129,8 +129,9 @@ sources/video/
 ├── hqvod.js       点播-高清（hqvod.com）苹果CMS 站；列表走 ajax 数据接口，播放页有滑块 → webplayer
 ├── d9y1w.js       四色视频（www.d9y1w.top）maomi 模板站；标题 AES-256-CBC、卡片链接 base64 混淆，播放 m3u8 直链
 ├── x8x8.js        8x8x（8x8x.fun / 随机跳板域）SPA 外壳 + bodyRoot 内容页；频道/标签 SSR、推荐流 AES-256-GCM，播放三线路 HLS
-├── pornbest.js    第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org）Yii2 SSR + video.js；**大陆出口 302 到封锁页，需代理**；详情页 `<source>` 直给 m3u8
-└── 91pornplus.js  91PornPlus（91pornplus.com 站群）Angular SPA + 单入口 `POST /js`；响应 AES(passphrase=xxx) 密文（源内纯 JS MD5+AES-256-CBC），**接口域名国内直连**，匿名给 m3u8
+├── pornbest.js    第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org）Yii2 SSR + video.js；**需代理**；大陆出口 302 到封锁页，另有 CDNLah WAF 的 PoW（源内纯 JS SHA-256 自动解）；详情页 `<source>` 直给 m3u8
+├── 91pornplus.js  91PornPlus（91pornplus.com 站群）Angular SPA + 单入口 `POST /js`；响应 AES(passphrase=xxx) 密文（源内纯 JS MD5+AES-256-CBC），**接口域名国内直连**，匿名给 m3u8
+└── pornlulu.js    Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库）Yii2 SSR；**需代理**，CDNLah WAF 的 PoW 自动解；栏目 /cat/<id>、排序 sort、搜索 ?q=、播放 m3u8
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -207,6 +208,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 8x8x（18+） | **是** | 2 块 | 5 频道 + 12 组标签 | 23 | 28（`/api/search/video`） | ok | 3 线路 | **video（`data-route1..3` + `data-m3u8`，探活 200 + `#EXTM3U` 158 B master）** |
 | 第一女優網（18+） | **是** | 2 块 | 51 分类 | 48 | 24（`/q/<词>`） | ok | 1 | **video（详情页 `<source>` / ld+json `contentUrl` → `voddadaizi5.com:…/index.m3u8`，探活 200 + `#EXTM3U` 300 KB）** |
 | 91PornPlus（18+） | 否 | 2 块 | 12 栏目 | 24 | 24（`/searchSevenVideos`，time/views 两种排序） | ok | 1 | **video（`POST /js` 加密接口 → 详情 `m3u8s[0]` = `tm.pppsuccess.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
+| Pornlulu（18+） | **是** | 2 块 | 69（3 排序 + 66 分类） | 48 | 50（`/?q=<词>`；表单 name=q） | ok | 1 | **video（`<source>` → `2609.lajiao2026.com/…/index.m3u8`，探活 200 + `#EXTM3U`；WAF 弹 492 时自动解 PoW）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。

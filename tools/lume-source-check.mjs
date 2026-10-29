@@ -94,43 +94,102 @@ function makeHttp(opts) {
   const baseHeaders = {};
   if (opts.ua) baseHeaders['User-Agent'] = opts.ua;
 
+  // 与 App 的 SiteSessionPool 对齐：按 origin 记住 Set-Cookie（中间 302 也要收），
+  // 后续同源请求自动带上。用户显式给的 Cookie 头优先。
+  const jar = new Map();
+  const cookiesFor = (origin) => {
+    const store = jar.get(origin);
+    return store && store.size ? [...store].map(([k, v]) => `${k}=${v}`).join('; ') : '';
+  };
+  const absorbCookies = (origin, list) => {
+    if (!list || !list.length) return;
+    let store = jar.get(origin);
+    if (!store) {
+      store = new Map();
+      jar.set(origin, store);
+    }
+    for (const raw of list) {
+      const pair = String(raw).split(';')[0];
+      const at = pair.indexOf('=');
+      if (at <= 0) continue;
+      const name = pair.slice(0, at).trim();
+      const value = pair.slice(at + 1).trim();
+      if (!name) continue;
+      if (/max-age=0\b|expires=thu, 01 jan 1970/i.test(String(raw))) store.delete(name);
+      else store.set(name, value);
+    }
+  };
+
   async function request(options) {
     const url = String(options?.url ?? '');
     if (!url) throw new Error('LumeSource.http.request 缺少 url');
     const method = String(options.method || 'GET').toUpperCase();
     const headers = { ...baseHeaders, ...(options.headers || {}) };
-    if (config.cookie && !Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')) {
+    const callerCookie = Object.keys(headers).some((k) => k.toLowerCase() === 'cookie');
+    if (config.cookie && !callerCookie) {
       headers['Cookie'] = config.cookie;
     }
     const started = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS - 500);
-    let res;
+    let target = url;
+    let verb = method;
+    let payload = options.body == null ? undefined : String(options.body);
+    let status = 0;
+    let body = '';
+    let headersOut = {};
+    let finalUrl = url;
+    const setCookie = [];
     try {
-      res = await fetch(url, {
-        method,
-        headers,
-        body: options.body == null || method === 'GET' ? undefined : String(options.body),
-        redirect: 'follow',
-        signal: controller.signal,
-      });
+      for (let hop = 0; hop <= 10; hop++) {
+        const hopUrl = new URL(target);
+        const hopHeaders = { ...headers };
+        if (!callerCookie && !hopHeaders.Cookie) {
+          const jarCookie = cookiesFor(hopUrl.origin);
+          if (jarCookie) hopHeaders.Cookie = jarCookie;
+        }
+        const res = await fetch(target, {
+          method: verb,
+          headers: hopHeaders,
+          body: verb === 'GET' || verb === 'HEAD' ? undefined : payload,
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+        const hopCookies = res.headers.getSetCookie?.() ?? [];
+        absorbCookies(hopUrl.origin, hopCookies);
+        setCookie.push(...hopCookies);
+        status = res.status;
+        headersOut = Object.fromEntries(res.headers.entries());
+        finalUrl = target;
+        const location = res.headers.get('location');
+        if (![301, 302, 303, 307, 308].includes(status) || !location) {
+          body = await res.text();
+          break;
+        }
+        await res.arrayBuffer().catch(() => undefined);
+        if (hop === 10) throw new Error('redirect_limit：重定向超过 10 次');
+        const next = new URL(location, target);
+        if (!['http:', 'https:'].includes(next.protocol)) throw new Error('redirect_scheme：不支持的跳转地址');
+        if (status === 303) {
+          verb = 'GET';
+          payload = undefined;
+        }
+        target = next.toString();
+      }
     } finally {
       clearTimeout(timer);
     }
-    const body = await res.text();
-    trace.push({ url, method, status: res.status, ms: Date.now() - started, bytes: body.length });
-    const setCookie = res.headers.getSetCookie?.() ?? [];
-    const reply = {
-      url: res.url || url,
-      status: res.status,
-      headers: Object.fromEntries(res.headers.entries()),
+    trace.push({ url, method, status, ms: Date.now() - started, bytes: body.length });
+    return {
+      url: finalUrl,
+      status,
+      headers: headersOut,
       body,
       setCookie,
       text: () => body,
       json: () => JSON.parse(body),
-      ok: res.status >= 200 && res.status < 300,
+      ok: status >= 200 && status < 300,
     };
-    return reply;
   }
 
   return {

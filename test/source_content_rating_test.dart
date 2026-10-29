@@ -40,6 +40,7 @@ void main() {
       'd9y1w_video',
       'pornbest_video',
       'porn91plus_video',
+      'pornlulu_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
