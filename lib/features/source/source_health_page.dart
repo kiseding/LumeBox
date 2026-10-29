@@ -1,3 +1,10 @@
+import 'dart:convert';
+
+import '../../core/reading/reading.dart';
+import '../../core/source/source_preferences.dart';
+import 'source_login_page.dart';
+import 'source_preferences_page.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -25,10 +32,13 @@ class SourceHealthPage extends StatefulWidget {
 class _SourceHealthPageState extends State<SourceHealthPage> {
   SourceHealthCheck? _check;
   List<SourceHealthStep> _steps = [];
-  bool _running = true;
+  bool _running = true, _repairing = false;
+  String? _lastChecked;
+  String get _historyKey => 'source.health.last.${widget.source.id}';
   @override
   void initState() {
     super.initState();
+    _lastChecked = ReadingLibrary.find(widget.section)?.setting(_historyKey);
     unawaited(_run());
   }
 
@@ -56,6 +66,104 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
     });
     await check.run();
     if (mounted && identical(_check, check)) setState(() => _running = false);
+    if (!check.cancellation.isCancelled) unawaited(saveHistory(check));
+  }
+
+  Future<void> saveHistory(SourceHealthCheck check) async {
+    try {
+      final library = await ReadingLibrary.open(widget.section);
+      final record = jsonEncode({
+        'at': DateTime.now().toIso8601String(),
+        'issues': [for (final step in check.steps) step.issue.name],
+      });
+      library.setSetting(_historyKey, record);
+      if (mounted) setState(() => _lastChecked = record);
+    } catch (_) {
+      /* Reporting remains usable when history storage is unavailable. */
+    }
+  }
+
+  Future<void> repair(SourceHealthIssue issue) async {
+    if (_repairing || _running) return;
+    setState(() => _repairing = true);
+    try {
+      await repairAction(issue);
+    } finally {
+      if (mounted) setState(() => _repairing = false);
+    }
+  }
+
+  Future<void> repairAction(SourceHealthIssue issue) async {
+    if (issue == SourceHealthIssue.parsing && widget.source.subscribed) {
+      try {
+        final result = await widget.manager.updateFromSubscription(
+          widget.source.id,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('源更新：${result.versionChange}')));
+        await _run();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('更新失败：${SourceHealthCheck.safeMessage(e)}')),
+          );
+        }
+      }
+      return;
+    }
+    final prefs = SourcePreferences.read(widget.section, widget.source.id);
+    final url = prefs.customOrigin.isEmpty
+        ? widget.source.siteUrl
+        : prefs.customOrigin;
+    if ((issue == SourceHealthIssue.verification ||
+            issue == SourceHealthIssue.authentication) &&
+        Uri.tryParse(url)?.hasScheme == true) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => SourceLoginPage(
+            section: widget.section,
+            sourceId: widget.source.id,
+            name: widget.source.name,
+            url: url,
+          ),
+        ),
+      );
+      if (mounted) await _run();
+    } else {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => SourcePreferencesPage(
+            section: widget.section,
+            sourceId: widget.source.id,
+            name: widget.source.name,
+            siteUrl: widget.source.siteUrl,
+            descriptor: widget.source,
+            manager: widget.manager,
+          ),
+        ),
+      );
+    }
+  }
+
+  String repairLabel(SourceHealthIssue issue) => switch (issue) {
+    SourceHealthIssue.verification => '打开网页验证',
+    SourceHealthIssue.authentication => '登录站点',
+    SourceHealthIssue.parsing when widget.source.subscribed => '更新源并重测',
+    SourceHealthIssue.image => '检查图片与网络设置',
+    _ => '打开站点设置',
+  };
+  String get previousCheck {
+    try {
+      final data = jsonDecode(_lastChecked ?? '') as Map;
+      final at = DateTime.parse(data['at'] as String).toLocal();
+      return '上次检测：${at.year}-${at.month}-${at.day} ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return '尚无历史检测记录';
+    }
   }
 
   @override
@@ -65,7 +173,11 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
     behindBar: true,
     actions: [
       TextButton(
-        onPressed: _running ? () => _check?.cancel() : _run,
+        onPressed: _repairing
+            ? null
+            : _running
+            ? () => _check?.cancel()
+            : _run,
         child: Text(_running ? '停止' : '重新体检'),
       ),
     ],
@@ -82,6 +194,7 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
               ),
               const SizedBox(height: 8),
               Text(_running ? '正在逐项检查…' : '检查结束，请查看每项结果。'),
+              Text(previousCheck),
               const SizedBox(height: 8),
               const Text('检查实际接口和少量图片数据，不会起播视频或下载整本内容。退出页面会停止本次体检。'),
             ],
@@ -126,6 +239,15 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         Text(step.message),
+                        if (!_running &&
+                            step.issue != SourceHealthIssue.none &&
+                            step.issue != SourceHealthIssue.cancelled)
+                          TextButton(
+                            onPressed: _repairing
+                                ? null
+                                : () => repair(step.issue),
+                            child: Text(repairLabel(step.issue)),
+                          ),
                         if (step.issue.suggestion.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),

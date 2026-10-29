@@ -1,3 +1,8 @@
+import '../reading/section_toolbar.dart';
+import 'video_detail_page.dart';
+import 'video_resume_match.dart';
+import '../reading/search_results_page.dart';
+
 import 'dart:convert';
 
 import '../../core/player/playback_diagnostics.dart';
@@ -236,6 +241,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   PipSession? _session;
   PlayerMedia? _media;
   bool _preferredSubtitleApplied = false;
+  String? _savedKernelIdentity;
+  PlayerKernel? _activeKernel;
 
   /// 媒体是否已加载成功（画中画的就绪边界检查用它）。
   bool _loaded = false;
@@ -875,6 +882,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final snapshot = _player?.snapshot.value;
     if (snapshot != null) _syncOriginalIntro(snapshot);
     final playing = snapshot?.playing ?? false;
+    final work = _target;
+    if (playing &&
+        snapshot?.error == null &&
+        work != null &&
+        _library != null &&
+        _activeKernel != null) {
+      final identity = '${work.identity}:${_activeKernel?.name}';
+      if (_savedKernelIdentity != identity) {
+        _savedKernelIdentity = identity;
+        _library!.setSetting(
+          'video.kernel.work.${work.identity}',
+          _activeKernel!.name,
+        );
+      }
+    }
     if (snapshot != null &&
         snapshot.error == null &&
         !_recoveringPlayback &&
@@ -1088,6 +1110,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!mounted) return;
       _store = store;
       _settings = store.load();
+      final work = widget.target;
+      final rememberedKernel = work == null
+          ? null
+          : _library?.setting('video.kernel.work.${work.identity}');
+      final preferred = PlayerKernel.values
+          .where((k) => k.name == rememberedKernel && _catalog.isAvailable(k))
+          .firstOrNull;
+      if (preferred != null) _settings = _settings.copyWith(kernel: preferred);
       final experience = PlayerExperienceStore.current;
       _muted = experience.flag('muted');
       _musicMode = experience.flag('musicMode');
@@ -1267,6 +1297,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
 
     final player = launch.player;
+    _activeKernel = launch.kernel;
     try {
       _store?.save(_settings);
     } catch (error, stackTrace) {
@@ -1719,7 +1750,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _nextInlinePipAttempt = null;
     _suppressProgressSave = true;
     try {
-      setState(() => _player = player);
+      setState(() {
+        _player = player;
+        _activeKernel = _settings.kernel;
+      });
       player.snapshot.addListener(_onSnapshotChanged);
       player.stats.addListener(_onStatsChanged);
     } finally {
@@ -4292,12 +4326,80 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   onPressed: _openPlaybackVerification,
                   child: const Text('播放网页验证'),
                 ),
+              if (_target != null)
+                TextButton(
+                  onPressed: _findAlternativeSource,
+                  child: const Text('保持集数换源'),
+                ),
               TextButton(
                 onPressed: _offerAlternativeLines,
                 child: const Text('换线路继续看'),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _findAlternativeSource() async {
+    final target = _target, library = _library;
+    if (target == null || library == null) return;
+    _saveProgress(force: true);
+    final snapshot = _player?.snapshot.value;
+    final resume = VideoResumeRequest(
+      title: target.title,
+      chapterTitle: target.chapterTitle,
+      chapterIndex: target.chapterIndex,
+      position: snapshot?.error == null
+          ? snapshot?.position ?? _healthyPosition
+          : _healthyPosition,
+      duration: snapshot?.duration ?? Duration.zero,
+    );
+    await _player?.pause();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => SearchResultsPage(
+          section: Section.video,
+          keyword: target.title,
+          mode: SearchMode.aggregate,
+          manager: widget.sourceManager,
+          onOpenItem: (selection) async {
+            if (!mounted) return;
+            await Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => VideoDetailPage(
+                  sourceId: selection.sourceId,
+                  manager: widget.sourceManager,
+                  loadSource: () =>
+                      (widget.sourceManager ??
+                              LumeSources.manager(Section.video))
+                          .open(selection.sourceId),
+                  item: selection.item,
+                  library: library,
+                  resumeRequest: resume,
+                  onPlay: (media, next, qualities, prepared) async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => VideoPlayerPage(
+                          media: media,
+                          target: next,
+                          qualities: qualities,
+                          prelaunch: prepared,
+                          sourceManager: widget.sourceManager,
+                          library: library,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

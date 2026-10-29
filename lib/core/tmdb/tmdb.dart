@@ -70,6 +70,21 @@ class TmdbSettings extends ChangeNotifier {
   bool enabled = true;
   bool detailBackdropEnabled = true;
   final detailAppearance = ValueNotifier(const TmdbDetailAppearance());
+  final detailOverrides = ValueNotifier<Map<String, TmdbDetailAppearance>>({});
+  TmdbDetailAppearance appearanceFor(String? key) =>
+      detailOverrides.value[key] ?? detailAppearance.value;
+  void setAppearance(String? key, TmdbDetailAppearance value) {
+    if (key == null) {
+      detailAppearance.value = value;
+    } else {
+      detailOverrides.value = {...detailOverrides.value, key: value};
+    }
+  }
+
+  void clearAppearance(String key) {
+    detailOverrides.value = {...detailOverrides.value}..remove(key);
+  }
+
   TmdbPosterStyle posterStyle = TmdbPosterStyle.random;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
@@ -85,6 +100,7 @@ class TmdbSettings extends ChangeNotifier {
   Future<void> boot() async {
     _imageSizes.clear();
     detailAppearance.value = const TmdbDetailAppearance();
+    detailOverrides.value = {};
     try {
       _file = File(
         '${(await getApplicationSupportDirectory()).path}/tmdb_settings.json',
@@ -106,6 +122,14 @@ class TmdbSettings extends ChangeNotifier {
         }
         enabled = data['enabled'] != false;
         detailBackdropEnabled = data['detailBackdropEnabled'] != false;
+        final overrides = data['detailOverrides'];
+        if (overrides is Map) {
+          detailOverrides.value = {
+            for (final e in overrides.entries)
+              if (e.key is String && e.value is Map)
+                e.key as String: TmdbDetailAppearance.fromJson(e.value as Map),
+          };
+        }
         if (data['detailAppearance'] is Map) {
           detailAppearance.value = TmdbDetailAppearance.fromJson(
             data['detailAppearance'] as Map,
@@ -134,6 +158,9 @@ class TmdbSettings extends ChangeNotifier {
       'enabled': enabled,
       'detailBackdropEnabled': detailBackdropEnabled,
       'detailAppearance': detailAppearance.value.toJson(),
+      'detailOverrides': {
+        for (final e in detailOverrides.value.entries) e.key: e.value.toJson(),
+      },
       'apiKey': apiKey,
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,

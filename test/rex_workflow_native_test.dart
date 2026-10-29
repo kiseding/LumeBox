@@ -1,3 +1,6 @@
+@Tags(['rex-native-serial'])
+library;
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

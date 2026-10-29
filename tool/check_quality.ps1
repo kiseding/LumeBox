@@ -20,8 +20,12 @@ try {
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     Copy-Item -LiteralPath $bridge.FullName -Destination "$destination/quickjs_c_bridge_plugin.dll" -Force
   }
-  & flutter test --no-pub --reporter expanded
+  # Keep the native Rex/QuickJS hosts in a dedicated serial process batch.
+  # Both batches are mandatory: no native coverage is skipped.
+  & flutter test --no-pub --exclude-tags rex-native-serial --reporter expanded
   if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed; build blocked.' }
+  & flutter test --no-pub --tags rex-native-serial --concurrency=1 --reporter expanded
+  if ($LASTEXITCODE -ne 0) { throw 'Native Rex regression tests failed; build blocked.' }
 } finally {
   Pop-Location
 }

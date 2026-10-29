@@ -1,3 +1,4 @@
+import '../../core/util/frame_profile.dart';
 import '../../core/player/playback_diagnostics.dart';
 
 import 'dart:convert';
@@ -112,6 +113,7 @@ class DiagnosticExporter {
         'tmdb_settings.json',
         'network_settings.json',
         'floating_modules.json',
+        'performance_last.json',
         'frosted_settings.json',
       ]) {
         final file = File('${directory.path}/$name');
@@ -181,6 +183,7 @@ class DiagnosticExporter {
         'sections': sections,
         'configuration': configuration,
         'playback': PlaybackDiagnostics.snapshot,
+        'performance': FrameProfile.instance.lastReport,
       },
       logs: logs,
       previousLogs: LumeLog.previousSession,

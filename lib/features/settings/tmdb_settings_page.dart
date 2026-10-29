@@ -1,3 +1,7 @@
+import '../video/detail_poster_background.dart';
+
+import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../shared/widgets/native_glass_controls.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
@@ -13,7 +17,16 @@ import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
 
 class TmdbSettingsPage extends StatefulWidget {
-  const TmdbSettingsPage({super.key});
+  const TmdbSettingsPage({
+    super.key,
+    this.appearanceKey,
+    this.loadPreview,
+    this.focusAppearance,
+    this.previewColor,
+  });
+  final String? appearanceKey, focusAppearance;
+  final Color? previewColor;
+  final Future<Uint8List?> Function()? loadPreview;
   @override
   State<TmdbSettingsPage> createState() => _TmdbSettingsPageState();
 }
@@ -23,6 +36,27 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
   late final keyText = TextEditingController(text: settings.apiKey);
   late final api = TextEditingController(text: settings.apiProxy);
   late final image = TextEditingController(text: settings.imageProxy);
+  late bool workOnly =
+      widget.appearanceKey != null &&
+      settings.detailOverrides.value.containsKey(widget.appearanceKey);
+  late final Future<Uint8List?> preview =
+      widget.loadPreview?.call() ?? Future.value();
+  final focusKey = GlobalKey();
+  TmdbDetailAppearance get appearance =>
+      settings.appearanceFor(workOnly ? widget.appearanceKey : null);
+  void updateAppearance(TmdbDetailAppearance value) =>
+      settings.setAppearance(workOnly ? widget.appearanceKey : null, value);
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusAppearance != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = focusKey.currentContext;
+        if (target != null) Scrollable.ensureVisible(target, alignment: .4);
+      });
+    }
+  }
+
   bool testing = false;
   void save() {
     settings.apiKey = keyText.text;
@@ -105,8 +139,9 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
   }
 
   Widget appearanceSlider(String label, String field, double min, double max) {
-    final value = settings.detailAppearance.value.toJson()[field]!;
+    final value = appearance.toJson()[field]!;
     return ConstrainedBox(
+      key: widget.focusAppearance == field ? focusKey : null,
       constraints: const BoxConstraints(minHeight: 48),
       child: Row(
         children: [
@@ -127,10 +162,8 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
                 min: min,
                 max: max,
                 label: '${(value * 100).round()}%',
-                onChanged: (next) => settings.detailAppearance.value = settings
-                    .detailAppearance
-                    .value
-                    .withValue(field, next),
+                onChanged: (next) =>
+                    updateAppearance(appearance.withValue(field, next)),
                 onChangeEnd: (_) => settings.save(appearanceOnly: true),
               ),
             ),
@@ -150,11 +183,106 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
 
   Widget appearanceSection() => ExpansionTile(
     key: const Key('tmdb-appearance-section'),
+    initiallyExpanded: widget.focusAppearance != null,
     tilePadding: EdgeInsets.zero,
     childrenPadding: EdgeInsets.zero,
     title: const Text('详情页外观调节', style: TextStyle(fontSize: 14)),
     subtitle: const Text('背景 · 海报 · 渐变 · 标识', style: TextStyle(fontSize: 11)),
     children: [
+      if (widget.appearanceKey != null)
+        SwitchListTile.adaptive(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('仅此作品使用', style: TextStyle(fontSize: 12)),
+          value: workOnly,
+          onChanged: (value) {
+            if (value) {
+              settings.setAppearance(widget.appearanceKey, appearance);
+            } else {
+              settings.clearAppearance(widget.appearanceKey!);
+            }
+            setState(() => workOnly = value);
+            settings.save(appearanceOnly: true);
+          },
+        ),
+      if (widget.loadPreview != null)
+        FutureBuilder<Uint8List?>(
+          future: preview,
+          builder: (context, snapshot) {
+            final bytes = snapshot.data;
+            if (bytes == null) return const SizedBox.shrink();
+            final color = adjustDetailBackground(
+              widget.previewColor ?? const Color(0xff2c343d),
+              brightness: appearance.backgroundBrightness,
+              saturation: appearance.backgroundSaturation,
+            );
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 128,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(color: color),
+                    DetailPosterFade(
+                      brightness: appearance.posterBrightness,
+                      strength: appearance.fadeStrength,
+                      child: Image.memory(
+                        bytes,
+                        cacheWidth: 384,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      left: 12,
+                      child: Row(
+                        children: [
+                          const Text(
+                            '海报预览',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                          const SizedBox(width: 8),
+                          SvgPicture.asset(
+                            'assets/branding/tmdb.svg',
+                            width: 18 * appearance.logoScale,
+                            height: 13 * appearance.logoScale,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      Wrap(
+        spacing: 8,
+        children: [
+          for (final preset in {
+            '柔和': const TmdbDetailAppearance(
+              backgroundSaturation: .7,
+              posterBrightness: .95,
+              fadeStrength: 1.3,
+            ),
+            '明亮': const TmdbDetailAppearance(
+              backgroundBrightness: 1.5,
+              posterBrightness: 1.1,
+              fadeStrength: .8,
+            ),
+            '原图': const TmdbDetailAppearance(fadeStrength: 0),
+          }.entries)
+            ActionChip(
+              label: Text(preset.key),
+              onPressed: () {
+                updateAppearance(preset.value);
+                settings.save(appearanceOnly: true);
+              },
+            ),
+        ],
+      ),
       appearanceSlider('背景亮度', 'backgroundBrightness', .3, 2.5),
       appearanceSlider('背景色彩', 'backgroundSaturation', 0, 3),
       appearanceSlider('沉浸海报亮度', 'posterBrightness', .2, 1.8),
@@ -168,7 +296,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
           TextButton(
             key: const Key('tmdb-appearance-reset'),
             onPressed: () {
-              settings.detailAppearance.value = const TmdbDetailAppearance();
+              updateAppearance(const TmdbDetailAppearance());
               settings.save(appearanceOnly: true);
             },
             child: const Text('恢复默认', style: TextStyle(fontSize: 12)),
@@ -183,7 +311,11 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
     effectModule: GlassModule.settings,
     title: 'TMDB配置',
     child: ListenableBuilder(
-      listenable: Listenable.merge([settings, settings.detailAppearance]),
+      listenable: Listenable.merge([
+        settings,
+        settings.detailAppearance,
+        settings.detailOverrides,
+      ]),
       builder: (context, _) => ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [

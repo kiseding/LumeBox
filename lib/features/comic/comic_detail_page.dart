@@ -1,3 +1,5 @@
+import 'comic_download_center.dart';
+
 import 'dart:async';
 
 import '../../core/source/source_picker_groups.dart';
@@ -40,6 +42,7 @@ class ComicDetailPage extends StatefulWidget {
     required this.target,
     this.runtimeAvailable,
     this.imagePipeline,
+    this.downloadCenter,
   });
 
   final ReadingLibrary library;
@@ -53,6 +56,7 @@ class ComicDetailPage extends StatefulWidget {
   /// 与 `ComicPage` 的平台门同一口径，测试也靠它显式声明运行环境。
   final bool? runtimeAvailable;
   final SectionImagePipeline? imagePipeline;
+  final ComicDownloadCenter? downloadCenter;
 
   @override
   State<ComicDetailPage> createState() => _ComicDetailPageState();
@@ -127,7 +131,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   void dispose() {
     // 先停下载再释放管线：管线关闭会让在飞请求返回空，下载器据此
     // 判定「这一批不下了」，而不是把剩下的图逐张记成失败。
-    _downloader?.dispose();
+    // Downloads are owned by the global task center.
     _chapterSearch.dispose();
     _compactScroll.dispose();
     if (widget.imagePipeline == null) _pipeline.dispose();
@@ -382,14 +386,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   ComicDownloader? _ensureDownloader() {
     final source = _source;
     if (source == null || _chapters.isEmpty) return null;
-    return _downloader ??= ComicDownloader(
-      dataSource: source,
-      itemId: widget.target.itemId,
-      works: _detail?.title ?? widget.target.title,
-      library: widget.library,
-      fetch: _pipeline.fetch,
-      configureImageHeaders: _pipeline.configureImageHeaders,
-    );
+    return _downloader ??=
+        (widget.downloadCenter ?? ComicDownloadCenter.instance).attach(
+          source: source,
+          itemId: widget.target.itemId,
+          title: _detail?.title ?? widget.target.title,
+          library: widget.library,
+        );
   }
 
   /// 「批量下载」：先选范围（全部 / 未读 / 仅当前章），选完立即开始。
@@ -411,9 +414,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     );
     if (scope == null || !mounted) return;
     setState(() => _downloadCardHidden = false);
-    await downloader.start(
-      chapters: _chapters,
-      indices: scope.indices(
+    await (widget.downloadCenter ?? ComicDownloadCenter.instance).enqueue(
+      downloader,
+      _chapters,
+      scope.indices(
         chapterCount: _chapters.length,
         readChapterIndex: readChapterIndex,
         currentIndex: readChapterIndex,

@@ -1,3 +1,5 @@
+import 'core/util/frame_profile.dart';
+import 'features/comic/comic_download_center.dart';
 import 'core/session/startup_gate.dart';
 import 'core/media/media_library.dart';
 import 'core/tmdb/tmdb.dart';
@@ -31,6 +33,18 @@ void main() {
   runZonedGuarded<void>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      if (const bool.fromEnvironment('LUME_PROFILE_STARTUP')) {
+        FrameProfile.instance.start(
+          '冷启动',
+          refreshRate: WidgetsBinding
+              .instance
+              .platformDispatcher
+              .views
+              .first
+              .display
+              .refreshRate,
+        );
+      }
       await LumeLog.startPersistence()
           .timeout(const Duration(seconds: 3))
           .catchError((Object _) {});
@@ -65,6 +79,7 @@ void main() {
               ),
               StartupTask('搜索', () => SearchSettings.instance.boot()),
               StartupTask('影视资料', () => TmdbSettings.instance.boot()),
+              StartupTask('下载任务', () => ComicDownloadCenter.instance.boot()),
               StartupTask('预载缓存', () => MediaPreload.instance.boot()),
               StartupTask('外观', () => AppearanceController.instance.boot()),
               StartupTask('字体目录', () => UserFonts.instance.boot()),
@@ -86,7 +101,21 @@ void main() {
             return issues;
           },
           child: const LumeBoxApp(),
-          onReady: () => unawaited(_startupMaintenance()),
+          onReady: () {
+            if (const bool.fromEnvironment('LUME_PROFILE_STARTUP')) {
+              FrameProfile.instance.mark('startupReady');
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => FrameProfile.instance.mark('firstContentFrame'),
+              );
+              Future<void>.delayed(const Duration(seconds: 3), () {
+                if (FrameProfile.instance.recording) {
+                  FrameProfile.instance.stop();
+                  unawaited(FrameProfile.instance.save());
+                }
+              });
+            }
+            unawaited(_startupMaintenance());
+          },
         ),
       );
     },

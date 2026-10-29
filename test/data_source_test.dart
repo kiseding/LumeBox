@@ -30,6 +30,48 @@ class _FakeRuntime implements JsSourceRuntime {
 }
 
 void main() {
+  test('镜像耗尽属于可恢复网络错误，JS能力错误保留原分类', () async {
+    final source = JsDataSource(
+      id: 'network-test',
+      name: '测试',
+      section: Section.video,
+      runtime: _FakeRuntime(
+        (_, _) async => throw const SourceException(
+          SourceErrorKind.callFailed,
+          '跳板域都打不开了（站点可能又换域名）',
+        ),
+      ),
+    );
+    await expectLater(
+      source.list(),
+      throwsA(
+        isA<SourceException>()
+            .having((e) => e.kind, 'kind', SourceErrorKind.network)
+            .having((e) => e.message, 'message', contains('网络')),
+      ),
+    );
+    final syntax = JsDataSource(
+      id: 'syntax',
+      name: '测试',
+      section: Section.video,
+      runtime: _FakeRuntime(
+        (_, _) async => throw const SourceException(
+          SourceErrorKind.callFailed,
+          'ReferenceError: ENOTFOUND is not defined',
+        ),
+      ),
+    );
+    await expectLater(
+      syntax.list(),
+      throwsA(
+        isA<SourceException>().having(
+          (e) => e.kind,
+          'kind',
+          SourceErrorKind.callFailed,
+        ),
+      ),
+    );
+  });
   group('模拟实现：四个板块共用一套接口', () {
 
 

@@ -481,6 +481,23 @@ class JsDataSource
     } on NetworkCancelled {
       rethrow;
     } on SourceException catch (error) {
+      // Some adapters hide the original HTTP failure after exhausting mirrors.
+      // Preserve a recoverable network category instead of calling it a JS bug.
+      if (error.kind == SourceErrorKind.callFailed &&
+          wafKindOf(error.message) == null &&
+          !RegExp(
+            r'referenceerror|typeerror|is not defined',
+            caseSensitive: false,
+          ).hasMatch(error.message) &&
+          RegExp(
+            r'跳板域都打不开|所有镜像(?:均|都)?(?:连接失败|不可达)|ENOTFOUND|ECONNREFUSED|ECONNRESET',
+            caseSensitive: false,
+          ).hasMatch(error.message)) {
+        throw SourceException(
+          SourceErrorKind.network,
+          '网络连接失败：${error.message}',
+        );
+      }
       if (!retriedWaf && _needsWebView(error.message)) {
         // 地址同样走**统一兜底链**（不只是从报错文案里捞）：老脚本的标记文案里
         // 没有 URL，只靠文案会让这条自动路径静默不动（用户反馈的「弹不出来」）。

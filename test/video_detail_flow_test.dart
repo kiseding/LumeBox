@@ -1,3 +1,4 @@
+import 'package:lume_box/features/video/video_resume_match.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 import 'package:lume_box/core/media/media_library.dart';
@@ -190,6 +191,76 @@ void main() {
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
+  });
+
+  testWidgets('换源选择对应剧集，并把时间点写入目标源进度', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    VideoPlayTarget? played;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'resume-new', title: '详情测试片'),
+          library: library,
+          resumeRequest: const VideoResumeRequest(
+            title: '详情测试片',
+            chapterTitle: '第2集',
+            chapterIndex: 1,
+            position: Duration(seconds: 75),
+            duration: Duration(minutes: 40),
+          ),
+          onPlay: (_, target, _, _) async {
+            played = target;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.selected, 1);
+    expect(state.lineResume.position, const Duration(seconds: 75));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(played?.chapterId, 'e2');
+    expect(
+      library.videoProgress('resume-new', sourceId: source.id)?.position,
+      const Duration(seconds: 75),
+    );
+  });
+  testWidgets('换源存在多个相同集号时先确认，未选择前不解析播放', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final multi = MultiLineDetailSource();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: multi,
+          item: const SourceItem(id: 'ambiguous', title: '详情测试片'),
+          library: library,
+          resumeRequest: const VideoResumeRequest(
+            title: '详情测试片',
+            chapterTitle: '第1集',
+            chapterIndex: 0,
+            position: Duration(seconds: 60),
+            duration: Duration.zero,
+          ),
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('确认续播剧集'), findsOneWidget);
+    expect(multi.parses, 0);
+    await tester.tap(find.text('线路B · 第1集'));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.currentLine, '线路B');
+    expect(state.lineResume.position, const Duration(seconds: 60));
   });
 
   testWidgets('沉浸详情的TMDB小标和评分放在类型旁，不挤占年份行', (tester) async {

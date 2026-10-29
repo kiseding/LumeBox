@@ -1,3 +1,5 @@
+import 'package:lume_box/features/comic/comic_download_center.dart';
+
 import 'support/pump_io.dart';
 
 import 'dart:io';
@@ -30,9 +32,11 @@ void main() {
 
   late Directory root;
   late ReadingLibrary library;
+  late ComicDownloadCenter center;
 
   setUp(() async {
     root = Directory.systemTemp.createTempSync('lume_box_download');
+    center = ComicDownloadCenter(directory: () async => root);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -311,6 +315,7 @@ void main() {
         theme: LumeTheme.build(),
         home: ComicDetailPage(
           library: library,
+          downloadCenter: center,
           manager: FakeSourceManager(
             sources: const <SourceDescriptor>[
               SourceDescriptor(
@@ -366,7 +371,7 @@ void main() {
     await pumpIoAndSettle(tester);
     await tester.tap(find.text('仅当前章'));
     // 逐帧推进到下载结束：网络请求在真实异步里完成，pumpAndSettle 等不到它。
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 100; i++) {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -384,5 +389,14 @@ void main() {
     await tester.tap(find.text('关闭'));
     await pumpIoAndSettle(tester);
     expect(find.text('下载结束（有失败）'), findsNothing, reason: '关闭后卡片收起');
+    var flushed = false;
+    center.flush().then((_) => flushed = true);
+    for (var i = 0; i < 100 && !flushed; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(flushed, isTrue);
   });
 }

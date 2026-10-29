@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'video_resume_match.dart';
 import '../../shared/widgets/video_glass_surface.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 import 'video_source_metadata.dart';
@@ -91,8 +94,10 @@ class VideoDetailPage extends StatefulWidget {
     required this.onPlay,
     this.prelaunch,
     this.initialChapterId,
+    this.resumeRequest,
   });
   final String? initialChapterId;
+  final VideoResumeRequest? resumeRequest;
   final DataSource? source;
   final Future<DataSource?> Function()? loadSource;
   final String? sourceId;
@@ -254,16 +259,86 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         widget.item.id,
         sourceId: _source?.id ?? widget.sourceId,
       );
-      final initialChapter = _initialChapterApplied
+      var initialChapter = _initialChapterApplied
           ? null
           : widget.initialChapterId;
+      VideoProgress? transferredProgress;
+      SourceChapter? transferredChapter;
+      if (!_initialChapterApplied &&
+          widget.resumeRequest != null &&
+          episodes.isNotEmpty) {
+        final request = widget.resumeRequest!;
+        final matches = request.candidates(
+          episodes,
+          workTitle: metadata?.title ?? widget.item.title,
+        );
+        SourceChapter? chosen;
+        if (matches.length == 1 &&
+            request.confident(
+              matches.single,
+              workTitle: metadata?.title ?? widget.item.title,
+            )) {
+          chosen = matches.single;
+        } else if (mounted) {
+          chosen = await showGlassModalBottomSheet<SourceChapter>(
+            context: context,
+            showDragHandle: true,
+            builder: (context) => SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: const Text('确认续播剧集'),
+                    subtitle: Text(
+                      '原进度：${request.chapterTitle} · ${request.position.inMinutes} 分钟；请选择对应剧集',
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final chapter
+                            in matches.isEmpty ? episodes : matches)
+                          ListTile(
+                            title: Text(chapter.title),
+                            subtitle: Text(VideoEpisodeCatalog.lineOf(chapter)),
+                            onTap: () => Navigator.pop(context, chapter),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        if (!mounted) return;
+        if (chosen != null) {
+          transferredChapter = chosen;
+          initialChapter = chosen.id;
+          transferredProgress = request.progress(
+            source.id,
+            widget.item.id,
+            chosen,
+            episodes.indexOf(chosen),
+            widget.library.section,
+          );
+        }
+      }
       _initialChapterApplied = true;
       final grouped = VideoEpisodeCatalog.group(episodes);
-      final resumed = episodes
-          .where((e) => e.id == (initialChapter ?? saved?.chapterId))
-          .firstOrNull;
+      final resumed =
+          transferredChapter ??
+          episodes
+              .where((e) => e.id == (initialChapter ?? saved?.chapterId))
+              .firstOrNull;
+      final rememberedLine = widget.library.setting(
+        'video.line.work.${jsonEncode([source.id, widget.item.id])}',
+      );
       final line = resumed == null
-          ? grouped.keys.firstOrNull ?? ''
+          ? (grouped.containsKey(rememberedLine)
+                ? rememberedLine!
+                : grouped.keys.firstOrNull ?? '')
           : VideoEpisodeCatalog.lineOf(resumed);
       final activeEpisodes = grouped[line] ?? <SourceChapter>[];
       var index = activeEpisodes.indexWhere(
@@ -271,7 +346,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       );
       if (index < 0) index = 0;
       setState(() {
-        lineResume = null;
+        lineResume = transferredProgress;
         detail = metadata;
         lines = grouped;
         currentLine = line;
@@ -422,6 +497,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           widget.item.id,
           sourceId: _source?.id ?? widget.sourceId,
         );
+        if (last?.chapterId == chapter.id && last!.position > Duration.zero) {
+          widget.library.setSetting(
+            'video.line.work.${jsonEncode([_source!.id, widget.item.id])}',
+            currentLine,
+          );
+        }
         for (final entry in lines.entries) {
           final index = entry.value.indexWhere(
             (chapter) => chapter.id == last?.chapterId,
@@ -507,8 +588,27 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     unawaited(updatePalette());
   }
 
+  String get appearanceKey => jsonEncode([
+    widget.library.section.id,
+    _source?.id ?? widget.sourceId ?? '',
+    widget.item.id,
+  ]);
+  TmdbDetailAppearance get appearance =>
+      tmdb.settings.appearanceFor(appearanceKey);
+  Widget tmdbSettings() => TmdbSettingsPage(
+    appearanceKey: appearanceKey,
+    previewColor: _coverColor,
+    loadPreview: () {
+      final url = _displayedPoster ?? sourceCover;
+      return url == null
+          ? Future<Uint8List?>.value()
+          : (_displayedPoster == null ? pipeline : tmdbImagePipeline).fetch(
+              url,
+            );
+    },
+  );
   Color get _pageColor {
-    final appearance = tmdb.settings.detailAppearance.value;
+    final appearance = this.appearance;
     if (originalStyle) {
       return tmdb.settings.detailBackdropEnabled
           ? adjustDetailBackground(
@@ -589,6 +689,17 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Future<void> searchCurrentVideo([String? keyword]) async {
     final source = _source;
     if (source == null) return;
+    final chapter = chapters.isEmpty ? null : chapters[selected];
+    final progress = chapters.isEmpty ? null : episodeProgress(selected);
+    final resume = chapter == null
+        ? null
+        : VideoResumeRequest(
+            title: detail?.title ?? widget.item.title,
+            chapterTitle: VideoEpisodeCatalog.labelOf(chapter),
+            chapterIndex: selected,
+            position: progress?.position ?? Duration.zero,
+            duration: progress?.duration ?? Duration.zero,
+          );
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
@@ -603,6 +714,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               context,
               MaterialPageRoute<void>(
                 builder: (_) => VideoDetailPage(
+                  resumeRequest: resume,
                   sourceId: selection.sourceId,
                   manager: widget.manager,
                   loadSource: () =>
@@ -666,7 +778,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     return [
       IconButton(
         key: const Key('video-detail-search'),
-        tooltip: '其他源找这部',
+        tooltip: '保持集数换源',
         onPressed: _source == null ? null : () => searchCurrentVideo(),
         icon: const Icon(Icons.search),
       ),
@@ -755,11 +867,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               case 'poster':
                 showTmdbPosterPicker(context, tmdb);
               case 'settings':
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const TmdbSettingsPage(),
-                  ),
-                );
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute<void>(builder: (_) => tmdbSettings()));
             }
           },
           itemBuilder: (_) => videoGlassMenuEntries<String>([
@@ -772,7 +882,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 value: 'resource-info',
                 child: Text('网盘资源详情'),
               ),
-            const PopupMenuItem(value: 'search', child: Text('其他源找这部')),
+            const PopupMenuItem(value: 'search', child: Text('保持集数换源')),
             const PopupMenuItem(
               value: 'image-info',
               child: Text('图片信息 / 超分状态'),
@@ -900,13 +1010,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             padding: const EdgeInsets.all(4),
             tooltip:
                 'TMDB 已匹配${tmdb.metadata!.cast.isEmpty ? '' : ' · ${tmdb.metadata!.cast.length} 位演员'}',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
-            ),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
             icon: SvgPicture.asset(
               'assets/branding/tmdb.svg',
-              width: 28 * tmdb.settings.detailAppearance.value.logoScale,
-              height: 20 * tmdb.settings.detailAppearance.value.logoScale,
+              width: 28 * appearance.logoScale,
+              height: 20 * appearance.logoScale,
             ),
           ),
       ],
@@ -920,9 +1029,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       message: tmdbStatusLabel,
       child: TextButton(
         key: const Key('video-detail-tmdb-status'),
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
-        ),
+        onPressed: () =>
+            Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
         style: TextButton.styleFrom(
           foregroundColor: Colors.white,
           minimumSize: const Size(44, 32),
@@ -933,8 +1042,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           children: [
             SvgPicture.asset(
               'assets/branding/tmdb.svg',
-              width: 18 * tmdb.settings.detailAppearance.value.logoScale,
-              height: 13 * tmdb.settings.detailAppearance.value.logoScale,
+              width: 18 * appearance.logoScale,
+              height: 13 * appearance.logoScale,
               semanticsLabel: 'TMDB',
             ),
             if (data.rating > 0) ...[
@@ -2176,7 +2285,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Widget _buildCompact(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([tmdb, tmdb.settings.detailAppearance]),
+    listenable: Listenable.merge([
+      tmdb,
+      tmdb.settings.detailAppearance,
+      tmdb.settings.detailOverrides,
+    ]),
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
       final title = detail?.title ?? widget.item.title;
@@ -2360,8 +2473,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     if (!tmdb.settings.configured) {
                                       Navigator.of(context).push(
                                         MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              const TmdbSettingsPage(),
+                                          builder: (_) => tmdbSettings(),
                                         ),
                                       );
                                     } else {
@@ -2416,7 +2528,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           TextButton.icon(
                             onPressed: () => searchCurrentVideo(),
                             icon: const Icon(Icons.search),
-                            label: const Text('其他源找这部'),
+                            label: const Text('保持集数换源'),
                           ),
                         castSection(),
                       ],
@@ -2431,7 +2543,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     },
   );
   Widget _buildOriginal(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([tmdb, tmdb.settings.detailAppearance]),
+    listenable: Listenable.merge([
+      tmdb,
+      tmdb.settings.detailAppearance,
+      tmdb.settings.detailOverrides,
+    ]),
     builder: (context, _) {
       final dark = ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: _pageColor,
@@ -2683,7 +2799,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                 TextButton.icon(
                                   onPressed: () => searchCurrentVideo(),
                                   icon: const Icon(Icons.search),
-                                  label: const Text('其他源找这部'),
+                                  label: const Text('保持集数换源'),
                                 ),
                               if (loading)
                                 const Padding(

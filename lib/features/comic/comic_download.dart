@@ -167,9 +167,12 @@ class ComicDownloader extends ChangeNotifier {
     required this.fetch,
     this.configureImageHeaders,
     this.maxConcurrentImages = 4,
+    this.folderKey,
   });
 
   final DataSource dataSource;
+  final String? folderKey;
+  final List<int> failedChapterIndices = [];
 
   final String itemId;
 
@@ -194,8 +197,9 @@ class ComicDownloader extends ChangeNotifier {
   bool _disposed = false;
 
   /// 作品目录名（导出目录之内的单层目录名，清洗过）。
-  String get worksFolder =>
-      ReadingStore.safeFolderName(works.trim().isEmpty ? itemId : works);
+  String get worksFolder => ReadingStore.safeFolderName(
+    folderKey ?? (works.trim().isEmpty ? itemId : works),
+  );
 
   /// 作品目录的绝对路径。
   String get worksDir => p.join(library.exportDir, worksFolder);
@@ -225,6 +229,7 @@ class ComicDownloader extends ChangeNotifier {
         if (index >= 0 && index < chapters.length) index,
     ];
     _cancelled = false;
+    failedChapterIndices.clear();
     _progress = ComicDownloadProgress(
       status: ComicDownloadStatus.running,
       chapterTotal: planned.length,
@@ -233,7 +238,9 @@ class ComicDownloader extends ChangeNotifier {
     _notify();
     for (final index in planned) {
       if (_cancelled || _disposed) break;
+      final failures = _progress.chapterFailed;
       await _downloadChapter(chapters[index], index);
+      if (_progress.chapterFailed > failures) failedChapterIndices.add(index);
     }
     _progress = _progress.copyWith(
       status: _cancelled

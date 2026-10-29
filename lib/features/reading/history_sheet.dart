@@ -1,3 +1,4 @@
+import '../../core/reading/chapter_updates.dart';
 import '../../core/reading/browse_layout.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -183,7 +184,7 @@ class _ReadingHistorySheetState extends State<ReadingHistorySheet> {
           continue;
         }
         final chapters = await source.chapters(item.itemId);
-        if (chapters.length > item.chapterCount && item.chapterCount > 0) {
+        if (ChapterUpdates.check(widget.library, item, chapters)) {
           widget.library.setSetting(
             'favorite.updated.${item.identity}',
             'true',
