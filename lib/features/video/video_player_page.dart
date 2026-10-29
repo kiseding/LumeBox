@@ -4017,6 +4017,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                         stats: _player!.stats,
                         networkKbps: _networkSpeed.kbps,
                         stacked: narrow,
+                        showResolution: narrow,
                       ),
                     ),
                   ],
@@ -4223,23 +4224,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 左侧播放与片头标记、右侧选集与弹幕倍速；组内固定 4dp 间隔。
+  /// 左侧播放与下集，右侧选集、实测分辨率、倍速、弹幕。
+  bool _compactFullscreenControls(double width) =>
+      width < 580 ||
+      width < _box * 6 + 96 ||
+      MediaQuery.textScalerOf(context).scale(1) > 1.4;
+
   Widget _buildFloatingSplitControls(PlayerSnapshot snapshot) => LayoutBuilder(
     builder: (context, constraints) {
       final target = _target;
-      final compact =
-          constraints.maxWidth < 580 ||
-          constraints.maxWidth < _box * 7 + 48 ||
-          MediaQuery.textScalerOf(context).scale(1) > 1.4;
+      final compact = _compactFullscreenControls(constraints.maxWidth);
+      final resolution = _player?.stats.value.resolutionText ?? '画质';
       Widget action(
         String label,
         String tooltip,
         IconData icon,
-        VoidCallback? callback,
-      ) => Tooltip(
+        VoidCallback? callback, {
+        bool forceText = false,
+        double? width,
+      }) => Tooltip(
         message: tooltip,
         child: SizedBox(
-          width: _box,
+          width: width ?? _box,
           height: _box,
           child: TextButton(
             onPressed: callback,
@@ -4249,7 +4255,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               foregroundColor: const Color(0xFFF8F8F8),
               disabledForegroundColor: const Color(0x99F8F8F8),
             ),
-            child: _settings.controlStyle == PlayerControlStyle.text
+            child:
+                forceText || _settings.controlStyle == PlayerControlStyle.text
                 ? FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
@@ -4275,17 +4282,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       return Row(
         key: const Key('fullscreen-actions'),
         children: [
-          if (!compact) ...[
-            action(
-              '上集',
-              '上一集',
-              Icons.skip_previous,
-              target == null || target.chapterIndex <= 0 || _advancing
-                  ? null
-                  : () => _playEpisodeAt(target.chapterIndex - 1),
-            ),
-            const SizedBox(width: 4),
-          ],
           action(
             playing ? '暂停' : '播放',
             playing ? '暂停' : '播放',
@@ -4306,19 +4302,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             ),
           ],
           const Spacer(),
-          action(
-            '选集',
-            '线路 / 选集',
-            Icons.playlist_play_outlined,
-            _openSourceSheet,
-          ),
+          action('选集', '线路 / 选集', Icons.grid_view_rounded, _openSourceSheet),
           if (!compact) ...[
             const SizedBox(width: 4),
             action(
-              '画质',
+              resolution,
               '清晰度',
               Icons.high_quality_outlined,
               _media == null ? null : _openQualityMenu,
+              forceText: true,
+              width: math.max(
+                _box,
+                math.min(104, resolution.length * 7.5 + 12),
+              ),
             ),
           ],
           const SizedBox(width: 4),
@@ -4334,7 +4330,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             child: action(
               '弹幕',
               _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-              Icons.chat_bubble_outline,
+              Icons.forum_outlined,
               _openDanmakuSettings,
             ),
           ),
@@ -5051,6 +5047,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       useSafeArea: true,
       builder: (sheetContext) => PlayerSourceSheet(
         initialTab: initialTab,
+        includeQualityTab:
+            !_fullscreen ||
+            _compactFullscreenControls(
+              MediaQuery.sizeOf(context).width -
+                  MediaQuery.viewPaddingOf(context).horizontal -
+                  VideoPlayerPage.controlHorizontalPadding * 2,
+            ),
         loadLines: target == null
             ? null
             : () async {

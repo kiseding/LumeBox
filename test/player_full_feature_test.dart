@@ -767,7 +767,7 @@ void main() {
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
       expect(find.text('选集'), findsOneWidget);
-      expect(find.text('上集'), findsOneWidget);
+      expect(find.text('上集'), findsNothing);
       expect(players.length, 1);
       await tester.tap(find.byTooltip('暂停'));
       await tester.pump();
@@ -937,6 +937,67 @@ void main() {
         'https://example.com/720.mp4',
       );
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
+    });
+
+    testWidgets('横屏选集和画质各自打开独立内容，移除上一集按钮', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      await tester.binding.setSurfaceSize(const Size(932, 430));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('上一集'), findsNothing);
+      await tester.tap(find.byTooltip('线路 / 选集'));
+      await tester.pumpAndSettle();
+      expect(find.text('选集与线路'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.text('画质'),
+        ),
+        findsNothing,
+      );
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('清晰度'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.text('画质'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('选集与线路'), findsNothing);
+      expect(find.text('选集'), findsNothing);
+    });
+
+    testWidgets('横屏按钮左右边距为系统安全区加16，点击框至少44', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      await tester.binding.setSurfaceSize(const Size(932, 430));
+      final ratio = tester.view.devicePixelRatio;
+      tester.view.viewPadding = FakeViewPadding(
+        left: 44 * ratio,
+        right: 24 * ratio,
+        bottom: 21 * ratio,
+      );
+      tester.view.padding = FakeViewPadding(
+        left: 44 * ratio,
+        right: 24 * ratio,
+        bottom: 21 * ratio,
+      );
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+      final play = tester.getRect(find.byTooltip('暂停'));
+      final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
+      final rotation = tester.getRect(find.byTooltip('横竖屏切换'));
+      expect(play.left, closeTo(44 + 16, .01));
+      expect(932 - danmaku.right, closeTo(24 + 16, .01));
+      expect(932 - rotation.right, closeTo(24 + 16, .01));
+      expect(play.width, greaterThanOrEqualTo(44));
+      expect(play.height, greaterThanOrEqualTo(44));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('横屏快捷按钮按选集、片头尾、画质倍速弹幕归组，保留入口', (tester) async {
@@ -1737,7 +1798,7 @@ void main() {
       });
     }
 
-    testWidgets('全屏顶栏：分辨率与速率紧跟片名落在左上，不再被顶到画面中间', (tester) async {
+    testWidgets('横屏分辨率移至画质按钮，顶栏仅保留速率且随媒体更新', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -1753,9 +1814,20 @@ void main() {
       final width = tester.getSize(find.byType(Scaffold).first).width;
       final stats = tester.getRect(find.text('1920×1080'));
       final speed = tester.getRect(find.text('125.0MB/s'));
-      expect(stats.center.dy, lessThan(120), reason: '在顶部那一行里');
-      expect(stats.left, lessThan(width * .45), reason: '跟在片名后面（左上区域），不是画面中间');
-      expect(speed.left, greaterThanOrEqualTo(stats.right), reason: '两格横排');
+      expect(stats.center.dy, greaterThan(120), reason: '分辨率属于底部画质按钮');
+      expect(stats.left, greaterThan(width * .5));
+      expect(speed.center.dy, lessThan(120), reason: '速率继续显示在顶部');
+      expect(
+        find.descendant(
+          of: find.byTooltip('清晰度'),
+          matching: find.text('1920×1080'),
+        ),
+        findsOneWidget,
+      );
+      players.single.pushStats(const PlayerStats(width: 1280, height: 720));
+      await tester.pumpAndSettle();
+      expect(find.text('1280×720'), findsOneWidget);
+      expect(find.text('1920×1080'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 

@@ -35,6 +35,7 @@ class PlayerSourceSheet extends StatefulWidget {
     this.loadLines,
     this.onSelectLine,
     this.initialTab = PlayerSourceTab.episodes,
+    this.includeQualityTab = true,
   });
   final String address;
   final List<VideoQuality> qualities;
@@ -47,6 +48,7 @@ class PlayerSourceSheet extends StatefulWidget {
   final Future<List<PlayerSourceLine>> Function()? loadLines;
   final Future<bool> Function(String)? onSelectLine;
   final PlayerSourceTab initialTab;
+  final bool includeQualityTab;
 
   @override
   State<PlayerSourceSheet> createState() => _PlayerSourceSheetState();
@@ -62,6 +64,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   int? _pending;
   int _columns = 4, _segment = 0;
   List<SourceChapter> _chapters = [];
+  bool get _qualityOnly => widget.initialTab == PlayerSourceTab.quality;
 
   @override
   void dispose() {
@@ -448,10 +451,13 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  '选集与线路',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  _qualityOnly ? '画质' : '选集与线路',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               IconButton(
@@ -461,36 +467,37 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               ),
             ],
           ),
-          Row(
-            children: [
-              for (final entry in [
-                (PlayerSourceTab.episodes, '选集'),
-                (PlayerSourceTab.lines, '线路'),
-                (PlayerSourceTab.quality, '画质'),
-              ])
-                Expanded(
-                  child: TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() {
-                            _tab = entry.$1;
-                            _error = null;
-                          }),
-                    style: TextButton.styleFrom(
-                      foregroundColor: _tab == entry.$1
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                      backgroundColor: _tab == entry.$1
-                          ? Theme.of(context).colorScheme.primary
-                                .withValues(alpha: .1)
-                          : null,
-                      minimumSize: const Size(44, 44),
+          if (!_qualityOnly)
+            Row(
+              children: [
+                for (final entry in [
+                  (PlayerSourceTab.episodes, '选集'),
+                  (PlayerSourceTab.lines, '线路'),
+                  if (widget.includeQualityTab) (PlayerSourceTab.quality, '画质'),
+                ])
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _tab = entry.$1;
+                              _error = null;
+                            }),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _tab == entry.$1
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        backgroundColor: _tab == entry.$1
+                            ? Theme.of(context).colorScheme.primary
+                                  .withValues(alpha: .1)
+                            : null,
+                        minimumSize: const Size(44, 44),
+                      ),
+                      child: Text(entry.$2),
                     ),
-                    child: Text(entry.$2),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             Semantics(
@@ -510,27 +517,28 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               PlayerSourceTab.lines => _buildLines(),
             },
           ),
-          const Divider(height: 1),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: const Text('播放信息', style: TextStyle(fontSize: 12)),
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('播放地址'),
-                subtitle: Text(
-                  widget.address.isEmpty ? '尚未获取地址' : widget.address,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+          if (!_qualityOnly) const Divider(height: 1),
+          if (!_qualityOnly)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('播放信息', style: TextStyle(fontSize: 12)),
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('播放地址'),
+                  subtitle: Text(
+                    widget.address.isEmpty ? '尚未获取地址' : widget.address,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    tooltip: '复制地址',
+                    onPressed: widget.address.isEmpty ? null : _copy,
+                    icon: const Icon(Icons.copy, size: 20),
+                  ),
                 ),
-                trailing: IconButton(
-                  tooltip: '复制地址',
-                  onPressed: widget.address.isEmpty ? null : _copy,
-                  icon: const Icon(Icons.copy, size: 20),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     ),
