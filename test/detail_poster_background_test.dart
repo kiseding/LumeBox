@@ -7,6 +7,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 
 void main() {
+  test('背景明暗与色彩独立调节，默认保持当前取色', () {
+    const seed = Color(0xff2c3948);
+    expect(adjustDetailBackground(seed), seed);
+    expect(
+      adjustDetailBackground(seed, brightness: 2).computeLuminance(),
+      greaterThan(seed.computeLuminance()),
+    );
+    expect(
+      adjustDetailBackground(seed, saturation: 0).r,
+      closeTo(adjustDetailBackground(seed, saturation: 0).b, .001),
+    );
+  });
+  testWidgets('海报亮度可实时更新，关闭渐变保留图片，渐变末端露出原背景', (tester) async {
+    final key = GlobalKey();
+    Future<ByteData> capture(double brightness, double strength) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: SizedBox(
+                width: 100,
+                height: 100,
+                child: ColoredBox(
+                  color: Colors.blue,
+                  child: DetailPosterFade(
+                    brightness: brightness,
+                    strength: strength,
+                    child: const ColoredBox(color: Color(0xffff0000)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return (await tester.runAsync(() async {
+        final image =
+            await (key.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary)
+                .toImage();
+        final bytes = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        image.dispose();
+        return bytes;
+      }))!;
+    }
+
+    final bright = await capture(1, 0);
+    final dim = await capture(.5, 0);
+    final faded = await capture(.5, 3);
+    final top = (10 * 100 + 50) * 4;
+    final bottom = (99 * 100 + 50) * 4;
+    expect(bright.getUint8(top), greaterThan(250));
+    expect(dim.getUint8(top), inInclusiveRange(125, 130));
+    expect(dim.getUint8(bottom + 2), 0);
+    expect(faded.getUint8(bottom + 2), greaterThan(240));
+  });
   test('沉浸详情将蓝色布景和浅色海报收敛为深灰衬底，保留轻微冷暖差异', () {
     final surfaces = <Color>[];
     for (final seed in [

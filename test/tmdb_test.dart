@@ -14,6 +14,54 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('外观参数宽范围保存，外观变更不触发资料刷新或改变匹配缓存', () async {
+    final root = Directory.systemTemp.createTempSync('tmdb-appearance-');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => root.path,
+        );
+    try {
+      final settings = TmdbSettings();
+      await settings.boot();
+      var metadataNotifications = 0;
+      settings.addListener(() => metadataNotifications++);
+      final key = settings.cacheKey('示例');
+      final revision = settings.revision;
+      settings.detailAppearance.value = TmdbDetailAppearance.fromJson({
+        'backgroundBrightness': 2.5,
+        'backgroundSaturation': 3,
+        'posterBrightness': .2,
+        'fadeStrength': 0,
+        'logoScale': 2.5,
+      });
+      await settings.save(appearanceOnly: true);
+      expect(metadataNotifications, 0);
+      expect(settings.revision, revision);
+      expect(settings.cacheKey('示例'), key);
+      final restored = TmdbSettings();
+      await restored.boot();
+      expect(
+        restored.detailAppearance.value.toJson(),
+        settings.detailAppearance.value.toJson(),
+      );
+      expect(TmdbDetailAppearance.fromJson({'logoScale': 100}).logoScale, 2.5);
+      expect(
+        TmdbDetailAppearance.fromJson({'posterBrightness': double.nan})
+            .posterBrightness,
+        1,
+      );
+      settings.detailAppearance.value = const TmdbDetailAppearance();
+      await settings.save(appearanceOnly: true);
+      await restored.boot();
+      expect(
+        restored.detailAppearance.value.toJson(),
+        const TmdbDetailAppearance().toJson(),
+      );
+    } finally {
+      root.deleteSync(recursive: true);
+    }
+  });
   test('新安装默认启用内置密钥、模糊背景、随机海报及截图尺寸', () {
     final settings = TmdbSettings();
     expect(settings.enabled, true);

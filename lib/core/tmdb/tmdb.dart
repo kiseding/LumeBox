@@ -13,6 +13,40 @@ import '../net/lume_net.dart';
 
 enum TmdbPosterStyle { fixed, random, carousel }
 
+/// Appearance changes do not invalidate metadata or restart matching.
+@immutable
+class TmdbDetailAppearance {
+  const TmdbDetailAppearance({
+    this.backgroundBrightness = 1,
+    this.backgroundSaturation = 1,
+    this.posterBrightness = 1,
+    this.fadeStrength = 1,
+    this.logoScale = 1,
+  });
+  final double backgroundBrightness, backgroundSaturation;
+  final double posterBrightness, fadeStrength, logoScale;
+
+  static double bounded(Object? value, double min, double max) =>
+      value is num && value.isFinite ? value.toDouble().clamp(min, max) : 1;
+
+  factory TmdbDetailAppearance.fromJson(Map data) => TmdbDetailAppearance(
+    backgroundBrightness: bounded(data['backgroundBrightness'], .3, 2.5),
+    backgroundSaturation: bounded(data['backgroundSaturation'], 0, 3),
+    posterBrightness: bounded(data['posterBrightness'], .2, 1.8),
+    fadeStrength: bounded(data['fadeStrength'], 0, 3),
+    logoScale: bounded(data['logoScale'], .5, 2.5),
+  );
+  Map<String, double> toJson() => {
+    'backgroundBrightness': backgroundBrightness,
+    'backgroundSaturation': backgroundSaturation,
+    'posterBrightness': posterBrightness,
+    'fadeStrength': fadeStrength,
+    'logoScale': logoScale,
+  };
+  TmdbDetailAppearance withValue(String field, double value) =>
+      TmdbDetailAppearance.fromJson({...toJson(), field: value});
+}
+
 enum TmdbImageKind {
   backdrop('背景图', ['original', 'w1280', 'w780'], 'w1280'),
   logo('Logo', ['original', 'w500'], 'w500'),
@@ -35,6 +69,7 @@ class TmdbSettings extends ChangeNotifier {
   );
   bool enabled = true;
   bool detailBackdropEnabled = true;
+  final detailAppearance = ValueNotifier(const TmdbDetailAppearance());
   TmdbPosterStyle posterStyle = TmdbPosterStyle.random;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
@@ -49,6 +84,7 @@ class TmdbSettings extends ChangeNotifier {
   Future<void> _writes = Future.value();
   Future<void> boot() async {
     _imageSizes.clear();
+    detailAppearance.value = const TmdbDetailAppearance();
     try {
       _file = File(
         '${(await getApplicationSupportDirectory()).path}/tmdb_settings.json',
@@ -70,6 +106,11 @@ class TmdbSettings extends ChangeNotifier {
         }
         enabled = data['enabled'] != false;
         detailBackdropEnabled = data['detailBackdropEnabled'] != false;
+        if (data['detailAppearance'] is Map) {
+          detailAppearance.value = TmdbDetailAppearance.fromJson(
+            data['detailAppearance'] as Map,
+          );
+        }
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
         imageProxy = data['imageProxy'] as String? ?? '';
@@ -84,12 +125,15 @@ class TmdbSettings extends ChangeNotifier {
     }
   }
 
-  Future<void> save() async {
-    revision++;
-    notifyListeners();
+  Future<void> save({bool appearanceOnly = false}) async {
+    if (!appearanceOnly) {
+      revision++;
+      notifyListeners();
+    }
     final snapshot = jsonEncode({
       'enabled': enabled,
       'detailBackdropEnabled': detailBackdropEnabled,
+      'detailAppearance': detailAppearance.value.toJson(),
       'apiKey': apiKey,
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,

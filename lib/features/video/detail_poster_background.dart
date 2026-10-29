@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -32,6 +33,19 @@ Color compactPosterPageColor(Color poster, {required Brightness brightness}) {
       )
       .withLightness(dark ? .14 : .87)
       .withAlpha(1)
+      .toColor();
+}
+
+Color adjustDetailBackground(
+  Color color, {
+  double brightness = 1,
+  double saturation = 1,
+}) {
+  if (brightness == 1 && saturation == 1) return color;
+  final hsl = HSLColor.fromColor(color);
+  return hsl
+      .withLightness((hsl.lightness * brightness).clamp(.02, .95))
+      .withSaturation((hsl.saturation * saturation).clamp(0, 1))
       .toColor();
 }
 
@@ -86,36 +100,88 @@ class DetailPosterBackground extends StatelessWidget {
 /// Fade only the poster's alpha. A bounded saveLayer with dstIn avoids using
 /// ShaderMask and exposes the page colour underneath the poster.
 class DetailPosterFade extends SingleChildRenderObjectWidget {
-  const DetailPosterFade({super.key, required super.child});
+  const DetailPosterFade({
+    super.key,
+    required super.child,
+    this.strength = 1,
+    this.brightness = 1,
+  });
+  final double strength, brightness;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => _PosterFadeRender();
+  RenderObject createRenderObject(BuildContext context) =>
+      _PosterFadeRender(strength, brightness);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderObject renderObject,
+  ) {
+    (renderObject as _PosterFadeRender).update(strength, brightness);
+  }
 }
 
 class _PosterFadeRender extends RenderProxyBox {
+  _PosterFadeRender(this.strength, this.brightness);
+  double strength, brightness;
+  void update(double strength, double brightness) {
+    if (this.strength == strength && this.brightness == brightness) return;
+    this.strength = strength;
+    this.brightness = brightness;
+    markNeedsPaint();
+  }
+
   @override
   void paint(PaintingContext context, Offset offset) {
     if (child == null || size.isEmpty) return;
     final rect = offset & size;
     final canvas = context.canvas;
-    canvas.saveLayer(rect, Paint());
+    final paint = Paint();
+    if (brightness != 1) {
+      paint.colorFilter = ColorFilter.matrix([
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ]);
+    }
+    canvas.saveLayer(rect, paint);
     super.paint(context, offset);
-    canvas.drawRect(
-      rect,
-      Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [0, .55, .83, .98],
-          colors: [
-            Colors.white,
-            Colors.white,
-            Color(0x9affffff),
-            Colors.transparent,
-          ],
-        ).createShader(rect),
-    );
+    if (strength > 0) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: [0, .55, .83, .98],
+            colors: [
+              Colors.white,
+              Colors.white,
+              Colors.white.withAlpha(
+                (255 * math.pow(154 / 255, strength)).round(),
+              ),
+              Colors.transparent,
+            ],
+          ).createShader(rect),
+      );
+    }
     canvas.restore();
   }
 }

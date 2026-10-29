@@ -508,9 +508,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Color get _pageColor {
+    final appearance = tmdb.settings.detailAppearance.value;
     if (originalStyle) {
       return tmdb.settings.detailBackdropEnabled
-          ? (_coverColor ?? Colors.black)
+          ? adjustDetailBackground(
+              _coverColor ?? Colors.black,
+              brightness: appearance.backgroundBrightness,
+              saturation: appearance.backgroundSaturation,
+            )
           : const Color(0xff11131a);
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -518,9 +523,13 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (_coverColor == null || !tmdb.settings.detailBackdropEnabled) {
       return base;
     }
-    return compactPosterPageColor(
-      _coverColor!,
-      brightness: dark ? Brightness.dark : Brightness.light,
+    return adjustDetailBackground(
+      compactPosterPageColor(
+        _coverColor!,
+        brightness: dark ? Brightness.dark : Brightness.light,
+      ),
+      brightness: appearance.backgroundBrightness,
+      saturation: appearance.backgroundSaturation,
     );
   }
 
@@ -896,8 +905,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ),
             icon: SvgPicture.asset(
               'assets/branding/tmdb.svg',
-              width: 28,
-              height: 20,
+              width: 28 * tmdb.settings.detailAppearance.value.logoScale,
+              height: 20 * tmdb.settings.detailAppearance.value.logoScale,
             ),
           ),
       ],
@@ -924,8 +933,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           children: [
             SvgPicture.asset(
               'assets/branding/tmdb.svg',
-              width: 18,
-              height: 13,
+              width: 18 * tmdb.settings.detailAppearance.value.logoScale,
+              height: 13 * tmdb.settings.detailAppearance.value.logoScale,
               semanticsLabel: 'TMDB',
             ),
             if (data.rating > 0) ...[
@@ -2167,7 +2176,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Widget _buildCompact(BuildContext context) => ListenableBuilder(
-    listenable: tmdb,
+    listenable: Listenable.merge([tmdb, tmdb.settings.detailAppearance]),
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
       final title = detail?.title ?? widget.item.title;
@@ -2422,7 +2431,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     },
   );
   Widget _buildOriginal(BuildContext context) => ListenableBuilder(
-    listenable: tmdb,
+    listenable: Listenable.merge([tmdb, tmdb.settings.detailAppearance]),
     builder: (context, _) {
       final dark = ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: _pageColor,
@@ -2494,6 +2503,16 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             height: artworkHeight,
                             child: IgnorePointer(
                               child: DetailPosterFade(
+                                strength: tmdb
+                                    .settings
+                                    .detailAppearance
+                                    .value
+                                    .fadeStrength,
+                                brightness: tmdb
+                                    .settings
+                                    .detailAppearance
+                                    .value
+                                    .posterBrightness,
                                 key: tmdb.settings.detailBackdropEnabled
                                     ? const Key('video-detail-gradient')
                                     : null,
