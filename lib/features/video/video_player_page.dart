@@ -200,7 +200,7 @@ class VideoPlayerPage extends StatefulWidget {
 
   /// 全屏浮层的左右内边距（用户口径）：**顶栏、进度条、底部按钮三处必须一致**，
   /// 三处都读这一个值。
-  static const double controlHorizontalPadding = 16;
+  static const double controlHorizontalPadding = 8;
 
   /// 进度条行与按钮行之间的固定行距（用户口径：两行给一个固定值）。
   static const double controlRowGap = 10;
@@ -4025,7 +4025,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
             ),
             const SizedBox(width: 4),
-            if (!narrow) ...[_buildPipButton(), const SizedBox(width: 4)],
+            if (!narrow) ...[
+              const _PlayerClock(),
+              const SizedBox(width: 12),
+              _buildPipButton(),
+              const SizedBox(width: 4),
+            ],
             if (!narrow)
               _topIcon(
                 icon: VideoPlayerPage.playerKernelIcon,
@@ -4038,8 +4043,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               tooltip: '播放器设置',
               onPressed: _openSettings,
             ),
-            const SizedBox(width: 4),
-            if (!narrow) const SizedBox(width: 48, child: _PlayerClock()),
           ],
         ),
       );
@@ -4234,7 +4237,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     builder: (context, constraints) {
       final target = _target;
       final compact = _compactFullscreenControls(constraints.maxWidth);
-      final resolution = _player?.stats.value.resolutionText ?? '画质';
+      final resolution = _player?.stats.value.qualityResolutionText ?? '画质';
       Widget action(
         String label,
         String tooltip,
@@ -5583,7 +5586,8 @@ class _PlayerClockState extends State<_PlayerClock> {
 
   Future<void> _refreshBattery() async {
     try {
-      final value = await _batteryChannel.invokeMethod<int>('level');
+      final raw = await _batteryChannel.invokeMethod<int>('level');
+      final value = raw?.clamp(0, 100).toInt();
       if (mounted && value != _batteryPercent) {
         setState(() => _batteryPercent = value);
       }
@@ -5603,74 +5607,78 @@ class _PlayerClockState extends State<_PlayerClock> {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Row(
+    final time =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    const style = TextStyle(
+      color: Color(0xFFF8F8F8),
+      fontSize: LumeTypography.captionSize,
+      fontWeight: FontWeight.w600,
+      shadows: _VideoPlayerPageState._controlShadows,
+    );
+    return Semantics(
+      label:
+          '时间 $time${_batteryPercent == null ? '' : '，电量 $_batteryPercent%'}',
+      child: ExcludeSemantics(
+        child: Row(
+          key: const Key('player-status-row'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            _BatteryGlyph(percent: _batteryPercent),
-            const SizedBox(width: 3),
-            Text(
-              '${_batteryPercent ?? '--'}%',
-              style: const TextStyle(
-                color: Color(0xFFF8F8F8),
-                fontSize: LumeTypography.captionSize,
-                fontWeight: FontWeight.w600,
-                shadows: _VideoPlayerPageState._controlShadows,
+            Text(time, key: const Key('player-clock-text'), style: style),
+            if (_batteryPercent != null) ...[
+              const SizedBox(width: 8),
+              _BatteryGlyph(percent: _batteryPercent!),
+              const SizedBox(width: 4),
+              Text(
+                '$_batteryPercent%',
+                key: const Key('player-battery-text'),
+                style: style,
               ),
-            ),
+            ],
           ],
         ),
-        Text(
-          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-          style: const TextStyle(
-            color: Color(0xFFF8F8F8),
-            fontSize: LumeTypography.captionSize,
-            fontWeight: FontWeight.w600,
-            shadows: _VideoPlayerPageState._controlShadows,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
 class _BatteryGlyph extends StatelessWidget {
   const _BatteryGlyph({required this.percent});
-  final int? percent;
+  final int percent;
 
   @override
-  Widget build(BuildContext context) {
-    final value = percent;
-    return SizedBox(
-      width: 8,
-      height: 13,
-      child: DecoratedBox(
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 20,
+        height: 11,
+        padding: const EdgeInsets.all(1.5),
         decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFFF8F8F8), width: 2),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x59000000),
-              blurRadius: 3,
-              offset: Offset(0, 1),
-            ),
-          ],
+          border: Border.all(color: const Color(0xFFF8F8F8), width: 1),
           borderRadius: BorderRadius.circular(2),
         ),
         child: Align(
-          alignment: Alignment.bottomCenter,
+          alignment: Alignment.centerLeft,
           child: FractionallySizedBox(
-            heightFactor: value == null ? 0 : (value / 100).clamp(0.0, 1.0),
+            widthFactor: (percent / 100).clamp(0.0, 1.0),
+            heightFactor: 1,
             child: const DecoratedBox(
               decoration: BoxDecoration(color: Color(0xFFF8F8F8)),
             ),
           ),
         ),
       ),
-    );
-  }
+      const SizedBox(width: 1),
+      Container(
+        width: 2,
+        height: 5,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F8F8),
+          borderRadius: BorderRadius.circular(1),
+        ),
+      ),
+    ],
+  );
 }
 
 class _ResumePoint {

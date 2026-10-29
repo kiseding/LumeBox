@@ -33,6 +33,26 @@ void main() {
     expect(const PlayerStats(videoBitrateKbps: 0).bitrateText, isNull);
   });
 
+  test('画质标签只取真实高度，非标准宽银幕与竖屏均不改档位', () {
+    expect(
+      const PlayerStats(width: 1920, height: 800).qualityResolutionText,
+      '800P',
+    );
+    expect(
+      const PlayerStats(width: 1920, height: 1080).qualityResolutionText,
+      '1080P',
+    );
+    expect(
+      const PlayerStats(width: 1080, height: 1920).qualityResolutionText,
+      '1920P',
+    );
+    expect(const PlayerStats(width: 1920).qualityResolutionText, isNull);
+    expect(
+      const PlayerStats(width: 0, height: 1080).qualityResolutionText,
+      isNull,
+    );
+  });
+
   test('帧率：整数不带小数，非整数保留两位', () {
     expect(const PlayerStats(fps: 30).fpsText, '30FPS');
     expect(const PlayerStats(fps: 29.97).fpsText, '29.97FPS');

@@ -61,6 +61,11 @@ class PlayerStats {
     return '$w×$h';
   }
 
+  /// Compact quality label uses the actual video height, without rounding it
+  /// to a conventional tier (1920×800 is 800P, not 1080P).
+  String? get qualityResolutionText =>
+      resolutionText == null ? null : '${height}P';
+
   /// 码率文本：视频优先、其次音频；`1.8Mbps` / `320kbps`。
   String? get bitrateText {
     final kbps = videoBitrateKbps ?? audioBitrateKbps;

@@ -939,6 +939,43 @@ void main() {
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
     });
 
+    for (final percent in <int?>[95, 100, null]) {
+      testWidgets('时间电量横排对齐按钮，电量未知不显示占位百分比：$percent', (tester) async {
+        const channel = MethodChannel('lumebox/battery');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (_) async => percent);
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+        await pump(tester);
+        await tester.binding.setSurfaceSize(const Size(932, 430));
+        await tester.tap(find.byTooltip('全屏'));
+        await tester.pumpAndSettle();
+        final status = tester.getRect(
+          find.byKey(const Key('player-status-row')),
+        );
+        final clock = tester.getRect(
+          find.byKey(const Key('player-clock-text')),
+        );
+        final settings = tester.getRect(find.byTooltip('播放器设置'));
+        expect(status.center.dy, closeTo(settings.center.dy, .1));
+        expect(status.right, lessThan(settings.left));
+        expect(status.height, lessThan(24), reason: '时间和电量只占一行');
+        if (percent != null) {
+          final battery = tester.getRect(
+            find.byKey(const Key('player-battery-text')),
+          );
+          expect(clock.right, lessThan(battery.left));
+          expect(clock.center.dy, closeTo(battery.center.dy, .1));
+          expect(find.text('$percent%'), findsOneWidget);
+        } else {
+          expect(find.byKey(const Key('player-battery-text')), findsNothing);
+          expect(find.text('--%'), findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+
     testWidgets('横屏选集和画质各自打开独立内容，移除上一集按钮', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
@@ -971,7 +1008,7 @@ void main() {
       expect(find.text('选集'), findsNothing);
     });
 
-    testWidgets('横屏按钮左右边距为系统安全区加16，点击框至少44', (tester) async {
+    testWidgets('横屏按钮外移后左右边距为系统安全区加8，点击框至少44', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -992,9 +1029,13 @@ void main() {
       final play = tester.getRect(find.byTooltip('暂停'));
       final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
       final rotation = tester.getRect(find.byTooltip('横竖屏切换'));
-      expect(play.left, closeTo(44 + 16, .01));
-      expect(932 - danmaku.right, closeTo(24 + 16, .01));
-      expect(932 - rotation.right, closeTo(24 + 16, .01));
+      expect(play.left, closeTo(44 + 8, .01));
+      expect(932 - danmaku.right, closeTo(24 + 8, .01));
+      expect(932 - rotation.right, closeTo(24 + 8, .01));
+      expect(
+        932 - tester.getRect(find.byTooltip('播放器设置')).right,
+        closeTo(24 + 8, .01),
+      );
       expect(play.width, greaterThanOrEqualTo(44));
       expect(play.height, greaterThanOrEqualTo(44));
       expect(tester.takeException(), isNull);
@@ -1114,7 +1155,7 @@ void main() {
       expect(find.byTooltip('暂停'), findsOneWidget, reason: '控制栏显示为「正在播放」');
     });
 
-    testWidgets('全屏：分辨率与速率排在片名后面，跟着控制浮层一起出现 / 收起', (tester) async {
+    testWidgets('全屏：画质高度与速率，跟着控制浮层一起出现 / 收起', (tester) async {
       final players = await pump(tester);
       players.single.pushStats(
         const PlayerStats(
@@ -1126,18 +1167,18 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       // 唤出状态：片名后面那一排有分辨率与速率，速率**不带「网速」字样**。
-      expect(find.text('1920×1080'), findsOneWidget);
+      expect(find.text('1080P'), findsOneWidget);
       expect(find.text('125.0MB/s'), findsOneWidget);
       expect(find.textContaining('网速'), findsNothing);
       // 自动收起：浮层连同这一排一起走，画面上不再压着参数。
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
-      expect(find.text('1920×1080'), findsNothing);
+      expect(find.text('1080P'), findsNothing);
       expect(find.text('125.0MB/s'), findsNothing);
       // 点画面唤回。
       await tester.tap(find.text('fake-view'));
       await tester.pump();
-      expect(find.text('1920×1080'), findsOneWidget);
+      expect(find.text('1080P'), findsOneWidget);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
@@ -1790,7 +1831,10 @@ void main() {
           expect(find.byTooltip('上一集'), findsNothing);
           expect(find.byTooltip('清晰度'), findsNothing);
         }
-        expect(find.text('1920×1080'), findsOneWidget);
+        expect(
+          find.text(size.width >= 580 ? '1080P' : '1920×1080'),
+          findsOneWidget,
+        );
         final slider = tester.getRect(find.byType(Slider));
         final time = tester.getRect(find.text('15:00'));
         expect(time.center.dy, closeTo(slider.center.dy, 2));
@@ -1812,7 +1856,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final width = tester.getSize(find.byType(Scaffold).first).width;
-      final stats = tester.getRect(find.text('1920×1080'));
+      final stats = tester.getRect(find.text('1080P'));
       final speed = tester.getRect(find.text('125.0MB/s'));
       expect(stats.center.dy, greaterThan(120), reason: '分辨率属于底部画质按钮');
       expect(stats.left, greaterThan(width * .5));
@@ -1820,14 +1864,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byTooltip('清晰度'),
-          matching: find.text('1920×1080'),
+          matching: find.text('1080P'),
         ),
         findsOneWidget,
       );
       players.single.pushStats(const PlayerStats(width: 1280, height: 720));
       await tester.pumpAndSettle();
-      expect(find.text('1280×720'), findsOneWidget);
-      expect(find.text('1920×1080'), findsNothing);
+      expect(find.text('720P'), findsOneWidget);
+      expect(find.text('1080P'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 
