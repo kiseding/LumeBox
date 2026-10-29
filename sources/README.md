@@ -133,7 +133,7 @@ sources/video/
 ├── 91pornplus.js  91PornPlus（91pornplus.com 站群）Angular SPA + 单入口 `POST /js`；响应 AES(passphrase=xxx) 密文（源内纯 JS MD5+AES-256-CBC），**接口域名国内直连**，匿名给 m3u8
 ├── pornlulu.js    Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库）Yii2 SSR；**需代理**，CDNLah WAF 的 PoW 自动解；栏目 /cat/<id>、排序 sort、搜索 ?q=、播放 m3u8
 ├── 9188porn.js   9188色情网（www.9188porn.com）macCMS；**需代理**；列表直链播放页，player_aaaa 给 m3u8
-├── mtav.js       蜜桃视频（mtav.art，镜像 tmav.art）macCMS/TKTube；**需代理**；/vod/show/id/<N>/ 三区、搜索 /vod/search.html?wd=
+├── mtav.js       蜜桃视频（mtav.art）macCMS/TKTube；**需代理**；/vod/show/id/<N>/ 三区、搜索 /vod/search.html?wd=（导航里的 tmav.art 是天美AV，不同站，不作镜像）
 ├── heroero.js    HeroEro（heroero.com）KVS；**需代理**；/latest-updates/、/categories/<slug>/，详情 flashvars 直给 mp4（Range 1KB）
 └── qinav.js      Qinav（www.qinav.com）；**需代理**；/site/5/<N>-<P>.html 分类分页、/search.html?wd=，embed 页 const url 给 m3u8
 ```
