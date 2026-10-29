@@ -84,6 +84,23 @@ class SourceSettingsPolicy {
     }
   }
 
+  /// 源扩展功能里实际展示的项。
+  ///
+  /// 宿主已有入口的不重复展示：`login`（站点账号里统一登录）、`clearCache`（源设置底部）；
+  /// `openWebsite` 只有源带了 `url`（例如「打开发布页」）时才展示——不带 url 的等价于
+  /// 「打开当前站点」，宿主本来就提供。
+  static List<SourceSetting> visibleExtensions(
+    List<SourceSetting> fields, {
+    bool embedded = true,
+  }) {
+    if (!embedded) return fields;
+    return fields.where((field) {
+      if (field.action == 'login' || field.action == 'clearCache') return false;
+      if (field.action == 'openWebsite' && field.url.isEmpty) return false;
+      return true;
+    }).toList(growable: false);
+  }
+
   static List<SourceSetting> parseCommon(Object? raw) {
     if (raw == null) return const [];
     if (raw is! List || raw.length > titles.length) {

@@ -275,10 +275,11 @@ class _SourceExtensionEditorState extends State<SourceExtensionEditor> {
               changed(d, d.type == 'number' ? num.tryParse(v) ?? v : v),
         );
       case 'info':
+        // SelectableText：说明里常写发布页/备用地址，用户要能长按复制。
         return ListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(d.title),
-          subtitle: Text(d.description),
+          subtitle: SelectableText(d.description),
         );
       case 'action':
         final button = OutlinedButton(

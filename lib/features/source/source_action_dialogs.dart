@@ -420,16 +420,11 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
     );
   }
 
-  List<SourceSetting> get _extensionFields => widget
-      .source
-      .siteConfig
-      .sourceDefinitions
-      .where(
-        (field) =>
-            !widget.embedded ||
-            !['login', 'openWebsite', 'clearCache'].contains(field.action),
-      )
-      .toList();
+  List<SourceSetting> get _extensionFields => SourceSettingsPolicy
+      .visibleExtensions(
+        widget.source.siteConfig.sourceDefinitions,
+        embedded: widget.embedded,
+      );
 
   Future<void> _openExtensions() async {
     await Navigator.push<void>(

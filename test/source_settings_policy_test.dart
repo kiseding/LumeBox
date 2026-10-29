@@ -198,6 +198,30 @@ void main() {
       );
     }
   });
+  test('源扩展功能只展示源自己的项：openWebsite 带 url 才出现，info 可复制', () {
+    final fields = SourceSetting.parseAll([
+      {'key': 'login', 'type': 'action', 'action': 'login', 'title': '登录'},
+      {'key': 'clear', 'type': 'action', 'action': 'clearCache', 'title': '清缓存'},
+      {'key': 'site', 'type': 'action', 'action': 'openWebsite', 'title': '打开站点'},
+      {
+        'key': 'publish',
+        'type': 'action',
+        'action': 'openWebsite',
+        'title': '打开发布页',
+        'url': 'https://02.uno/',
+      },
+      {'key': 'note', 'type': 'info', 'title': '站点说明', 'description': 'https://02.uno/'},
+      {'key': 'auto', 'type': 'toggle', 'title': '开关'},
+    ]);
+    final shown = SourceSettingsPolicy.visibleExtensions(fields);
+    expect(shown.map((field) => field.key).toList(), <String>['publish', 'note', 'auto']);
+    expect(shown.first.url, 'https://02.uno/');
+    expect(
+      SourceSettingsPolicy.visibleExtensions(fields, embedded: false).length,
+      fields.length,
+      reason: '非内嵌（单独弹窗）模式不做过滤',
+    );
+  });
   test('自定义操作只执行当前声明，App 值覆盖源参数，输入不写回配置', () async {
     final runtime = _Runtime()..result = 'ok';
     final site = SourceSiteConfig(
