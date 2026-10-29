@@ -13,6 +13,7 @@ class SourceSetting {
     this.defaultValue,
     this.options = const {},
     this.action = 'source',
+    this.url = '',
     this.group = '',
     this.placeholder = '',
     this.minValue,
@@ -24,6 +25,10 @@ class SourceSetting {
     this.integerOnly = false,
   });
   final String key, title, type, description, action, group, placeholder;
+
+  /// 操作按钮的目标网址（目前只给 `action: openWebsite` 用：填了就打开它，
+  /// 不填仍打开源当前站点）。仅接受 http(s)。
+  final String url;
   final num? minValue, maxValue;
   final int maxLength;
   final List<SourceSetting> inputs;
@@ -99,6 +104,11 @@ class SourceSetting {
         }
       }
       final action = '${item['action'] ?? 'source'}';
+      final url = '${item['url'] ?? ''}'.trim();
+      if (url.isNotEmpty &&
+          (url.length > 2048 || !RegExp(r'^https?://', caseSensitive: false).hasMatch(url))) {
+        throw const SourceSettingsFormatException('设置里的网址必须是 http(s) 地址');
+      }
       if (type == 'action' &&
           !{
             'source',
@@ -120,6 +130,7 @@ class SourceSetting {
         defaultValue: item['default'],
         options: Map.unmodifiable(options),
         action: action,
+        url: url,
         group: '${item['group'] ?? ''}'.substring(
           0,
           '${item['group'] ?? ''}'.length.clamp(0, 60),

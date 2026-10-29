@@ -27,6 +27,7 @@ class SourceLoginPage extends StatefulWidget {
     required this.url,
     this.userAgent,
     this.loginMode = true,
+    this.title,
     this.credentials,
     this.onCredentialsChanged,
   });
@@ -34,6 +35,9 @@ class SourceLoginPage extends StatefulWidget {
   final String sourceId, name, url;
   final String? userAgent;
   final bool loginMode;
+
+  /// 自定义标题（例如「打开发布页」）；为空时按登录/作品网页自动生成。
+  final String? title;
   final SourceLoginCredentials? credentials;
   final ValueChanged<SourceLoginCredentials>? onCredentialsChanged;
   static String status(Map evidence, Map<String, String> cookies) {
@@ -281,7 +285,9 @@ class _SourceLoginPageState extends State<SourceLoginPage>
     },
     child: Scaffold(
       appBar: AppBar(
-        title: Text('${widget.name} · ${widget.loginMode ? '登录' : '作品网页'}'),
+        title: Text(
+          widget.title ?? '${widget.name} · ${widget.loginMode ? '登录' : '作品网页'}',
+        ),
         actions: [
           if (widget.loginMode && widget.onCredentialsChanged != null)
             IconButton(

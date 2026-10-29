@@ -171,6 +171,33 @@ void main() {
     expect(required.valueIssue(''), '此项必填');
     expect(required.valueIssue('x' * 13), '输入不能超过 12 字');
   });
+  test('操作按钮可带目标网址（发布页），只接受 http(s) 且不超过 2048 字', () {
+    final action = SourceSetting.parseAll([
+      {
+        'key': 'publishPage',
+        'type': 'action',
+        'action': 'openWebsite',
+        'title': '打开发布页',
+        'url': 'https://02.uno/',
+      },
+    ]).single;
+    expect(action.action, 'openWebsite');
+    expect(action.url, 'https://02.uno/');
+    for (final bad in <String>['x.uno', 'ftp://example.com/a', 'https://${'a' * 2100}']) {
+      expect(
+        () => SourceSetting.parseAll([
+          {
+            'key': 'publishPage',
+            'type': 'action',
+            'action': 'openWebsite',
+            'title': '打开发布页',
+            'url': bad,
+          },
+        ]),
+        throwsFormatException,
+      );
+    }
+  });
   test('自定义操作只执行当前声明，App 值覆盖源参数，输入不写回配置', () async {
     final runtime = _Runtime()..result = 'ok';
     final site = SourceSiteConfig(

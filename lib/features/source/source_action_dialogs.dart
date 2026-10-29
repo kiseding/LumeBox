@@ -257,7 +257,11 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
     switch (field.action) {
       case 'login':
       case 'openWebsite':
-        final address = _site.resolvedDomain.isEmpty
+        // 源给这个操作带了 url 就打开那个页面（例如发布页/公告页），否则仍打开当前站点。
+        final external = field.url.isNotEmpty;
+        final address = external
+            ? field.url
+            : _site.resolvedDomain.isEmpty
             ? widget.source.siteUrl
             : _site.resolvedDomain;
         if (SourceRoute.normalizeBase(address) == null) return '请先填写有效的站点地址';
@@ -270,6 +274,8 @@ class SourceNetworkDialogState extends State<SourceNetworkDialog>
               name: widget.source.name,
               url: address,
               userAgent: _ua.text,
+              loginMode: !external,
+              title: external ? field.title : null,
             ),
           ),
         );
