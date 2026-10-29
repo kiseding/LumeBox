@@ -987,8 +987,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             overflow: TextOverflow.ellipsis,
             textAlign: originalStyle ? TextAlign.center : TextAlign.left,
             style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+              fontSize: originalStyle ? 14 : 13,
+              fontWeight: originalStyle ? FontWeight.w600 : FontWeight.w500,
               height: 1.4,
               color: originalStyle
                   ? Colors.white
@@ -1028,7 +1028,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
         style: TextButton.styleFrom(
           foregroundColor: Colors.white,
-          minimumSize: const Size(44, 32),
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         ),
         child: Row(
@@ -1045,8 +1046,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
               Text(
                 data.rating.toStringAsFixed(1),
                 style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -1076,7 +1077,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             maxLines: descriptionExpanded ? null : 2,
             overflow: descriptionExpanded ? null : TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: originalStyle ? 15 : 14,
+              fontWeight: originalStyle ? FontWeight.w600 : null,
               height: 1.6,
               color: originalStyle
                   ? Colors.white
@@ -1245,8 +1247,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     builder: (context, bounds) {
       final width = (bounds.maxWidth - 20) / 3;
       final height = width * 9 / 16;
+      final labelSize = originalStyle ? 14.0 : 13.0;
       final extent =
-          height + 12 + MediaQuery.textScalerOf(context).scale(13) * 1.5;
+          height + 12 + MediaQuery.textScalerOf(context).scale(labelSize) * 1.5;
       Widget tile(int i) {
         final index = visible[i], chapter = chapters[index];
         final cover = chapter.cover?.trim().isNotEmpty == true
@@ -1340,7 +1343,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   VideoEpisodeCatalog.displayLabel(chapter, index),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
+                  style: TextStyle(
+                    fontSize: labelSize,
+                    fontWeight: originalStyle ? FontWeight.w600 : null,
+                  ),
                 ),
               ],
             ),
@@ -1450,6 +1456,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Widget castSection() {
     final metadata = tmdb.metadata;
+    final nameSize = originalStyle ? 13.0 : 12.0;
     final people = metadata?.cast.isNotEmpty == true
         ? [
             for (var i = 0; i < metadata!.cast.length; i++)
@@ -1465,17 +1472,22 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       return const SizedBox.shrink();
     }
     return Padding(
-      padding: EdgeInsets.only(top: originalStyle ? 24 : 20),
+      padding: EdgeInsets.only(
+        top: originalStyle ? (metadata != null ? 16 : 24) : 20,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             '演员',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontSize: originalStyle ? 18 : 17,
+              fontWeight: originalStyle ? FontWeight.w800 : FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 68 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
+            height: 68 + MediaQuery.textScalerOf(context).scale(nameSize) * 1.5,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: people.length,
@@ -1509,7 +1521,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       people[i].name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(
+                        fontSize: nameSize,
+                        height: 1.4,
+                        fontWeight: originalStyle ? FontWeight.w600 : null,
+                      ),
                     ),
                   ],
                 ),
@@ -2709,7 +2725,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                               ),
                               if (tmdb.metadata != null)
                                 Padding(
-                                  padding: const EdgeInsets.only(top: 2),
+                                  padding: EdgeInsets.zero,
                                   child: Wrap(
                                     key: const Key(
                                       'video-detail-genre-rating-row',
@@ -2725,8 +2741,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                           key: const Key('video-detail-genres'),
                                           textAlign: TextAlign.center,
                                           style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w500,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
                                             color: Colors.white,
                                           ),
                                         ),
@@ -2735,7 +2751,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   ),
                                 ),
                               resumeHint(),
-                              const SizedBox(height: 4),
+                              SizedBox(height: tmdb.metadata != null ? 0 : 4),
                               Center(
                                 child: FractionallySizedBox(
                                   widthFactor: .82,
