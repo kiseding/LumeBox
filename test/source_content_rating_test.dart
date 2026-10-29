@@ -41,6 +41,10 @@ void main() {
       'pornbest_video',
       'porn91plus_video',
       'pornlulu_video',
+      'porn9188_video',
+      'mtav_video',
+      'heroero_video',
+      'qinav_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

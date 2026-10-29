@@ -169,6 +169,11 @@ class SourceContentRating {
     'porn91plus_video',
     // Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库；CDNLah WAF 的 PoW，源内纯 JS 解算）。
     'pornlulu_video',
+    // 9188色情网（www.9188porn.com，macCMS；列表直链播放页，player_aaaa 给 m3u8），蜜桃视频（mtav.art，macCMS/TKTube），HeroEro（heroero.com，KVS），Qinav（www.qinav.com）。
+    'porn9188_video',
+    'mtav_video',
+    'heroero_video',
+    'qinav_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{

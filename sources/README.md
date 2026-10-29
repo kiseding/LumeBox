@@ -131,7 +131,11 @@ sources/video/
 ├── x8x8.js        8x8x（8x8x.fun / 随机跳板域）SPA 外壳 + bodyRoot 内容页；频道/标签 SSR、推荐流 AES-256-GCM，播放三线路 HLS
 ├── pornbest.js    第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org）Yii2 SSR + video.js；**需代理**；大陆出口 302 到封锁页，另有 CDNLah WAF 的 PoW（源内纯 JS SHA-256 自动解）；详情页 `<source>` 直给 m3u8
 ├── 91pornplus.js  91PornPlus（91pornplus.com 站群）Angular SPA + 单入口 `POST /js`；响应 AES(passphrase=xxx) 密文（源内纯 JS MD5+AES-256-CBC），**接口域名国内直连**，匿名给 m3u8
-└── pornlulu.js    Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库）Yii2 SSR；**需代理**，CDNLah WAF 的 PoW 自动解；栏目 /cat/<id>、排序 sort、搜索 ?q=、播放 m3u8
+├── pornlulu.js    Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库）Yii2 SSR；**需代理**，CDNLah WAF 的 PoW 自动解；栏目 /cat/<id>、排序 sort、搜索 ?q=、播放 m3u8
+├── 9188porn.js   9188色情网（www.9188porn.com）macCMS；**需代理**；列表直链播放页，player_aaaa 给 m3u8
+├── mtav.js       蜜桃视频（mtav.art，镜像 tmav.art）macCMS/TKTube；**需代理**；/vod/show/id/<N>/ 三区、搜索 /vod/search.html?wd=
+├── heroero.js    HeroEro（heroero.com）KVS；**需代理**；/latest-updates/、/categories/<slug>/，详情 flashvars 直给 mp4（Range 1KB）
+└── qinav.js      Qinav（www.qinav.com）；**需代理**；/site/5/<N>-<P>.html 分类分页、/search.html?wd=，embed 页 const url 给 m3u8
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -209,6 +213,10 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 第一女優網（18+） | **是** | 2 块 | 51 分类 | 48 | 24（`/q/<词>`） | ok | 1 | **video（详情页 `<source>` / ld+json `contentUrl` → `voddadaizi5.com:…/index.m3u8`，探活 200 + `#EXTM3U` 300 KB）** |
 | 91PornPlus（18+） | 否 | 2 块 | 12 栏目 | 24 | 24（`/searchSevenVideos`，time/views 两种排序） | ok | 1 | **video（`POST /js` 加密接口 → 详情 `m3u8s[0]` = `tm.pppsuccess.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
 | Pornlulu（18+） | **是** | 2 块 | 69（3 排序 + 66 分类） | 48 | 50（`/?q=<词>`；表单 name=q） | ok | 1 | **video（`<source>` → `2609.lajiao2026.com/…/index.m3u8`，探活 200 + `#EXTM3U`；WAF 弹 492 时自动解 PoW）** |
+| 9188色情网（18+） | **是** | 1 块 | 19 | 20 | 20（`/vod/search.html?wd=`） | ok | 1 | **video（播放页 `player_aaaa` → `2609.senlin2026.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
+| 蜜桃视频（18+） | **是** | 1 块 | 4（3 区 + 全部） | 12 | 12（`/vod/search.html?wd=`） | ok | 1 | **video（播放页 `var uul` → `t36.cdn2020.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
+| HeroEro（18+） | **是** | 2 块 | 23 | 40 | 55（`/search/<词>/`） | ok | 1 | **video（详情 `flashvars.video_url` → mp4 `/get_file/…`，Range 206 + video/mp4）** |
+| Qinav（18+） | **是** | 2 块 | 18（2 排序 + 16 分类） | 52 | 52（`/search.html?wd=`） | ok | 1 | **video（`/embed/<id>.html` 的 `const url` → `2609.lajiao2026.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。
