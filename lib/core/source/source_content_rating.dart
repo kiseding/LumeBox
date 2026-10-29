@@ -165,6 +165,8 @@ class SourceContentRating {
     'd9y1w_video',
     // 第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org；日本 AV 站，大陆出口 302 封锁页，需代理）。
     'pornbest_video',
+    // 91PornPlus（91pornplus.com 站群；POST /js + AES(passphrase) 密文，接口域名国内直连）。
+    'porn91plus_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
