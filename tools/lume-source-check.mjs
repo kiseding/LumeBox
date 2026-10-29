@@ -13,8 +13,12 @@
 // 用法：
 //   node tools/lume-source-check.mjs <脚本路径> [--keyword 关键词] [--page 1]
 //                                     [--json] [--call list,detail]
+//                                     [--category <分类id>] [--filter <组>=<选项>]
 //   node tools/lume-source-check.mjs sources/video/ysxq.js
 //   node tools/lume-source-check.mjs sources/video/*.js --json   ← 批量
+//
+//   `--category` / `--filter` 用来验「分类 / 筛选切换是否真的换内容」：
+//   分别跑两次，首条 id 相同就说明参数没被源用上（源约定第 3 条）。
 //
 // 退出码：0 = 全绿；1 = 有失败；2 = 用法错误。
 import fs from 'node:fs';
@@ -55,14 +59,20 @@ const RESERVED = new Set([
 
 // ------------------------------------------------------------------ 参数解析
 function parseArgs(argv) {
-  const out = { files: [], keyword: '', page: 1, json: false, calls: null };
+  const out = { files: [], keyword: '', page: 1, json: false, calls: null, category: null, filters: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--keyword') out.keyword = argv[++i] ?? '';
     else if (arg === '--page') out.page = Number(argv[++i] ?? 1) || 1;
     else if (arg === '--json') out.json = true;
     else if (arg === '--call') out.calls = String(argv[++i] ?? '').split(',').filter(Boolean);
-    else out.files.push(arg);
+    else if (arg === '--category') out.category = String(argv[++i] ?? '');
+    else if (arg === '--filter') {
+      const raw = String(argv[++i] ?? '');
+      const at = raw.indexOf('=');
+      if (at <= 0) throw new Error('--filter 需要 <组>=<选项>，收到：' + raw);
+      out.filters = { ...(out.filters || {}), [raw.slice(0, at)]: raw.slice(at + 1) };
+    } else out.files.push(arg);
   }
   return out;
 }
@@ -399,10 +409,14 @@ async function runSource(file, options) {
 
   const first = await doCall('categories', {});
   report.categoryCount = Array.isArray(first) ? first.length : 0;
-  const categoryId = Array.isArray(first) && first.length ? first[0].id : '';
+  const categoryId = options.category != null
+    ? options.category
+    : (Array.isArray(first) && first.length ? first[0].id : '');
 
   let items = null;
-  const listResult = await doCall('list', { page: options.page, categoryId });
+  const listArgument = { page: options.page, categoryId };
+  if (options.filters) listArgument.filters = options.filters;
+  const listResult = await doCall('list', listArgument);
   if (listResult && Array.isArray(listResult.items)) items = listResult.items;
 
   if (options.keyword) {

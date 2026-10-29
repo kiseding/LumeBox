@@ -12,8 +12,15 @@
    `filters()` 里每个 option 的 id 都要在 `list({filters})` 里被用上。做完用下面的办法自测：
    ```bash
    node tools/lume-source-check.mjs sources/video/xxx.js        # 五入口
-   # 再对比两个分类的返回：首条 id 相同 = 分类没生效
+   # 再对比两个分类 / 两个筛选的返回：首条 id 相同 = 分类（筛选）没生效
+   node tools/lume-source-check.mjs sources/video/xxx.js --call list --category ""
+   node tools/lume-source-check.mjs sources/video/xxx.js --call list --category <分类id>
+   node tools/lume-source-check.mjs sources/video/xxx.js --call list --category <分类id> --filter <组>=<选项>
    ```
+   顺手记两条真机上踩过的坑（2026-10-29，详见 `docs/2026-10-29_八源体检-失效封面分类修复.md`）：
+   - **video 类源的沙箱没有 `atob` / `Buffer`**：要解 base64 就自己写纯 JS 实现，
+     否则解码静默失败，很容易被误判成「站点改版」；
+   - **「解不出来」不能当「广告」**：判空后直接过滤会把整页清空。
 4. **列表页有内容就不要绕去详情页**：优先用列表里已经带出来的播放地址/封面，减少请求。
 5. **失败要如实报**：空分类返回空列表并说明原因，不要拿别的分类的内容顶替。
 
