@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lume_box/core/reading/image_bytes_decoder.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:pointycastle/export.dart'
     show
@@ -49,6 +50,60 @@ void main() {
     );
     expect(SectionImagePipeline.decodeDataUri('data:image/png;base64'), isNull);
     expect(SectionImagePipeline.decodeDataUri(''), isNull);
+  });
+
+  test('非标准的 data:png;base64 也要能解（9sex 解密后的封面）', () {
+    expect(
+      SectionImagePipeline.decodeDataUri('data:png;base64,$pngBase64'),
+      pngBytes,
+    );
+    expect(
+      SectionImagePipeline.decodeDataUri('data:webp;base64,$pngBase64'),
+      pngBytes,
+    );
+  });
+
+  test('reverse 编码还原逐字节反转的图片（爱豆的 .ttf 封面）', () {
+    final reversed = Uint8List.fromList(pngBytes.reversed.toList());
+    final decoded = decodeSourceImage(reversed, {
+      'x-lume-image-encoding': 'reverse',
+    });
+    expect(decoded, pngBytes);
+  });
+
+  test('strip-prefix-16 跳过杏吧图床的 16 字节头', () {
+    final prefixed = Uint8List(16 + pngBytes.length)
+      ..setAll(0, List<int>.generate(16, (i) => i + 1))
+      ..setAll(16, pngBytes);
+    final decoded = decodeSourceImage(prefixed, {
+      'x-lume-image-encoding': 'strip-prefix-16',
+    });
+    expect(decoded, pngBytes);
+    expect(
+      decodeSourceImage(pngBytes, {'x-lume-image-encoding': 'strip-prefix-16'}),
+      pngBytes,
+      reason: '明文图不能被误伤',
+    );
+  });
+
+  test('aes-cbc-pkcs7-ivprefix 用文件头 16 字节当 IV（月色的 .jpg.aes）', () {
+    final key = Uint8List.fromList(utf8.encode('yuese!niubia!666'));
+    final iv = Uint8List.fromList(utf8.encode('0123456789abcdef'));
+    final plain = pkcs7Pad(pngBytes);
+    final cipher = CBCBlockCipher(AESEngine())
+      ..init(true, ParametersWithIV(KeyParameter(key), iv));
+    final cipherBytes = Uint8List(plain.length);
+    for (var off = 0; off < plain.length; off += 16) {
+      cipher.processBlock(plain, off, cipherBytes, off);
+    }
+    final encoded = Uint8List(iv.length + cipherBytes.length)
+      ..setAll(0, iv)
+      ..setAll(iv.length, cipherBytes);
+    final decoded = decodeSourceImage(encoded, {
+      'x-lume-image-encoding': 'aes-cbc-pkcs7-ivprefix',
+      'x-lume-image-key': 'yuese!niubia!666',
+    });
+    expect(decoded, pngBytes);
   });
 
   test('AES 逐块解密往返：ECB / CBC 都能还原 data URI 明文', () {

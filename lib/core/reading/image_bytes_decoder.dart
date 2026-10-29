@@ -50,8 +50,26 @@ Uint8List? decodeImageDataUri(String url) {
   if (!text.startsWith('data:')) return null;
   final comma = text.indexOf(',');
   if (comma <= 0) return null;
-  final meta = text.substring(5, comma).toLowerCase();
-  if (!meta.startsWith('image/')) return null;
+  var meta = text.substring(5, comma).toLowerCase();
+  if (!meta.startsWith('image/')) {
+    // Some sites emit the short form `data:png;base64,…` (9sex's decrypted
+    // covers do). Accept only known image subtypes; do not turn `data:text/…`
+    // into an image by accident.
+    final subtype = meta.split(';').first;
+    const imageSubtypes = {
+      'png',
+      'jpeg',
+      'jpg',
+      'gif',
+      'webp',
+      'bmp',
+      'avif',
+    };
+    if (!imageSubtypes.contains(subtype)) return null;
+    meta =
+        'image/${subtype == 'jpg' ? 'jpeg' : subtype}'
+        '${meta.substring(subtype.length)}';
+  }
   final payload = text.substring(comma + 1);
   try {
     if (meta.contains('base64')) return base64Decode(payload);
@@ -94,18 +112,64 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     if (_isPlainImage(bytes)) return bytes;
     return _decodeFernetImage(bytes, field('x-lume-image-key'));
   }
+  // Some sites store each JPEG byte-reversed (aido8's `.ttf` covers). The
+  // reversal is a pure byte permutation, so it needs no key.
+  if (encoding == 'reverse') {
+    final reversed = Uint8List.fromList(bytes.reversed.toList());
+    if (!_isPlainImage(reversed)) {
+      throw const FormatException('Invalid reversed source image');
+    }
+    return reversed;
+  }
+  // 杏吧的图床在真图前面塞 16 字节随机头（其后才是 RIFF/JPEG）。
+  // 只在「跳过 16 字节后是合法图片」时跳过，明文图原样返回。
+  if (encoding == 'strip-prefix-16') {
+    if (_isPlainImage(bytes)) return bytes;
+    if (bytes.length > 20 && _isPlainImage(Uint8List.sublistView(bytes, 16))) {
+      return Uint8List.sublistView(bytes, 16);
+    }
+    throw const FormatException('Invalid prefixed source image');
+  }
   final noPadding = encoding == 'aes-cbc-nopadding';
-  if (encoding != 'aes-cbc-pkcs7' && !noPadding) {
+  final ivPrefixPadding = encoding == 'aes-cbc-pkcs7-ivprefix';
+  if (encoding != 'aes-cbc-pkcs7' && !noPadding && !ivPrefixPadding) {
     throw const FormatException('Unsupported source image encoding');
   }
   // The public reader mixes encrypted business images with plain images.
   if (_isPlainImage(bytes)) return bytes;
   final key = Uint8List.fromList(utf8.encode(field('x-lume-image-key')));
+  if (!{16, 24, 32}.contains(key.length) || bytes.isEmpty) {
+    throw const FormatException('Invalid source image encoding parameters');
+  }
+  // A few sites put the CBC IV in the first 16 bytes of every image instead of
+  // a fixed header (yuese's `.jpg.aes`). Both the IV and the ciphertext are
+  // per-file, so they cannot be described by `x-lume-image-iv`.
+  if (ivPrefixPadding) {
+    if (bytes.length <= 16 || (bytes.length - 16) % 16 != 0) {
+      throw const FormatException('Invalid iv-prefixed source image');
+    }
+    final iv = Uint8List.sublistView(bytes, 0, 16);
+    final cipher =
+        PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(AESEngine()))
+          ..init(
+            false,
+            PaddedBlockCipherParameters<ParametersWithIV<KeyParameter>, Null>(
+              ParametersWithIV(KeyParameter(key), iv),
+              null,
+            ),
+          );
+    try {
+      final plain = cipher.process(Uint8List.sublistView(bytes, 16));
+      if (!_isPlainImage(plain)) {
+        throw const FormatException('Invalid encoded source image');
+      }
+      return plain;
+    } on Object {
+      throw const FormatException('Invalid encoded source image');
+    }
+  }
   final iv = Uint8List.fromList(utf8.encode(field('x-lume-image-iv')));
-  if (!{16, 24, 32}.contains(key.length) ||
-      iv.length != 16 ||
-      bytes.isEmpty ||
-      bytes.length % 16 != 0) {
+  if (iv.length != 16 || bytes.length % 16 != 0) {
     throw const FormatException('Invalid source image encoding parameters');
   }
   if (noPadding) {
