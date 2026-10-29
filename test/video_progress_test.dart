@@ -818,11 +818,17 @@ void main() {
     // 播放中有常驻定时器在跑（进度落盘 / 弹幕节拍 / 跳过判定），
     // pumpAndSettle 永远等不到「无新帧」——按固定时长推进即可。
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('播放器设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('player-category-intro')));
+    await tester.pumpAndSettle();
     expect(find.text('记片头'), findsOneWidget, reason: '离片尾还远：快捷按钮显示「记片头」');
     await tapWithDetailPlay(tester, find.text('记片头'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('已记片头'), findsOneWidget);
     expect(created.last.seeks, isEmpty, reason: '记片头不会当场把当前片段跳走');
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
 
     // 播到片尾标记之后：这一部只有 1 集 → 跳到结尾（不走连播）。
     // 不先停在 44:00 那一刻，避免提前启动片尾倒计时。
@@ -867,6 +873,10 @@ void main() {
       playing: true,
     );
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('播放器设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('player-category-intro')));
+    await tester.pumpAndSettle();
     expect(find.text('记片尾'), findsOneWidget, reason: '剩余不到片尾窗口：显示记片尾');
     await tapWithDetailPlay(tester, find.text('记片尾'));
     await tester.pump(const Duration(milliseconds: 400));

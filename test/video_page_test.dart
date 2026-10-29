@@ -681,7 +681,7 @@ void main() {
       await tester.pump();
 
       expect(created.single.applied?.speed, 2.0, reason: '长按在 1.0x 基础上翻倍');
-      expect(find.textContaining('快进'), findsOneWidget);
+      expect(find.textContaining('临时 2.0x · 松手恢复 1.0x'), findsOneWidget);
 
       await gesture.up();
       await tester.pumpAndSettle();

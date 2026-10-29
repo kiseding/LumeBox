@@ -1,3 +1,5 @@
+import 'package:lume_box/features/video/player_source_sheet.dart';
+
 import 'support/fake_source_manager.dart';
 
 import 'package:lume_box/core/intro/intro_models.dart';
@@ -311,6 +313,48 @@ void main() {
       await tester.pumpAndSettle();
       return created;
     }
+
+    testWidgets('切集 load 抛错保留面板，恢复后可按原集序重试', (tester) async {
+      final source = DirectVideoSource(
+        id: 'episode-retry',
+        name: '测试',
+        title: '测试',
+        uri: Uri.parse('https://example.com/one.mp4'),
+        episodes: const [
+          SourceChapter(id: 'one', title: '第1集'),
+          SourceChapter(id: 'two', title: '第2集'),
+        ],
+        resolveEpisode: (_) async =>
+            VideoContent(url: Uri.parse('https://example.com/two.mp4')),
+      );
+      final player = _FakePlayer(kernel: PlayerKernel.avplayer);
+      await pump(
+        tester,
+        player: player,
+        source: source,
+        target: const VideoPlayTarget(
+          sourceId: 'episode-retry',
+          itemId: 'show',
+          title: '测试',
+          chapterIndex: 0,
+          chapterId: 'one',
+          chapterTitle: '第1集',
+        ),
+      );
+      player.loadError = StateError('fixture load failure');
+      await openPlayerAction(tester, '播放源 / 更换线路');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('第2集'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerSourceSheet), findsOneWidget);
+      expect(find.text('切集失败，请重试'), findsWidgets);
+      player.loadError = null;
+      await tester.tap(find.text('第2集'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerSourceSheet), findsNothing);
+      expect(player.media?.uri.toString(), 'https://example.com/two.mp4');
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('网页临时图源在播放器切下一集无需从源管理器重新打开', (tester) async {
       final parsed = <int>[];
@@ -800,6 +844,8 @@ void main() {
         findsNothing,
         reason: '当前地址只通过复制图标获取，不在面板上铺长链接',
       );
+      await tester.tap(find.text('播放信息'));
+      await tester.pumpAndSettle();
       expect(find.byTooltip('复制地址'), findsOneWidget);
       // 用户口径：手动贴地址的入口整条删除（面板里不再有输入框与播放按钮）。
       expect(find.text('手动地址'), findsNothing);
@@ -807,7 +853,14 @@ void main() {
       expect(find.byType(TextField), findsNothing);
 
       // 线路列表（与「清晰度」按钮同一份数据）：点一条即换源并从当前位置继续。
-      expect(find.text('切换线路后从当前位置继续'), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.text('画质'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('切换后恢复当前进度'), findsOneWidget);
       await tester.tap(find.text('720P'));
       await tester.pumpAndSettle();
       expect(
@@ -817,12 +870,39 @@ void main() {
       expect(find.textContaining('已切换到 720P'), findsOneWidget);
     });
 
-    testWidgets('单线路：点清晰度弹提示，不弹菜单（按钮仍在）', (tester) async {
+    testWidgets('单线路：画质面板显示真实空态，保留关闭出口', (tester) async {
       await pump(tester);
       await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
 
-      expect(find.text('当前图源不提供多清晰度选项'), findsOneWidget);
+      expect(find.text('当前片源未提供多画质选项'), findsOneWidget);
+    });
+
+    testWidgets('手动选择正在播放的画质仍记录偏好，不重新装载视频', (tester) async {
+      final players = await pump(
+        tester,
+        qualities: [
+          VideoQuality(
+            label: '1080P',
+            url: Uri.parse('https://example.com/1080.mp4'),
+          ),
+          VideoQuality(
+            label: '720P',
+            url: Uri.parse('https://example.com/720.mp4'),
+          ),
+        ],
+      );
+      final loads = players.single.loads;
+      await openPlayerAction(tester, '清晰度');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1080P'));
+      await tester.pumpAndSettle();
+      final library = await ReadingLibrary.open(Section.video);
+      expect(
+        library.setting(VideoPlayerSettingsStore.keyManualQualityLabel),
+        '1080P',
+      );
+      expect(players.single.loads, loads);
     });
 
     testWidgets('多线路：弹菜单，选中后换地址重载并提示', (tester) async {
@@ -866,11 +946,10 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       double x(String tooltip) => tester.getCenter(find.byTooltip(tooltip)).dx;
-      expect(x('线路 / 选集'), lessThan(x('片头片尾设置')));
-      expect(x('片头片尾设置'), lessThan(x('清晰度')));
+      expect(x('线路 / 选集'), lessThan(x('清晰度')));
       expect(x('清晰度'), lessThan(x('播放速度（1.0x）')));
       expect(x('播放速度（1.0x）'), lessThan(x('弹幕：开')));
-      expect(find.byTooltip('记片头（长按清除标记）'), findsOneWidget);
+      expect(find.byTooltip('记片头（长按清除标记）'), findsNothing);
       expect(find.byTooltip('播放器设置'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -1180,10 +1259,11 @@ void main() {
       expect(preferences.value.number('volume', 1, 0, 1), .35);
     });
 
-    testWidgets('缓冲提示为画面中下部的小型进度条', (tester) async {
+    testWidgets('缓冲延迟显示小型进度条，结束后收起', (tester) async {
       final players = await pump(tester);
       players.single.emit(buffering: true);
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
       final notice = find.byKey(const Key('player-buffering-notice'));
       expect(notice, findsOneWidget);
       expect(
@@ -1195,7 +1275,7 @@ void main() {
       );
       expect(
         tester.getCenter(notice).dy,
-        greaterThan(tester.getCenter(find.text('fake-view')).dy),
+        closeTo(tester.getCenter(find.text('fake-view')).dy, 1),
       );
       players.single.emit(buffering: false);
       await tester.pump();
@@ -1578,15 +1658,14 @@ void main() {
       await tester.pumpAndSettle();
       final slider = tester.getRect(find.byType(Slider));
       final play = tester.getCenter(find.byTooltip('暂停'));
-      final quality = tester.getCenter(find.byTooltip('记片头（长按清除标记）'));
+      final quality = tester.getCenter(find.byTooltip('清晰度'));
       expect(play.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('后退 10 秒'), findsNothing);
       expect(find.byTooltip('前进 10 秒'), findsNothing);
       expect(quality.dy, greaterThan(slider.bottom));
       expect(find.byTooltip('停止'), findsNothing);
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
-      expect(find.text('画质'), findsNothing);
-      expect(find.byTooltip('记片头（长按清除标记）'), findsOneWidget);
+      expect(find.byTooltip('记片头（长按清除标记）'), findsNothing);
       expect(find.byTooltip('弹幕：开'), findsOneWidget);
       expect(find.byTooltip('锁定（防误触）'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
@@ -1625,7 +1704,7 @@ void main() {
         for (final label in [
           '退出全屏',
           '播放器设置',
-          '记片头（长按清除标记）',
+          '播放速度（1.0x）',
           '线路 / 选集',
           '锁定（防误触）',
         ]) {
@@ -1636,10 +1715,20 @@ void main() {
           expect(rect.bottom, lessThanOrEqualTo(size.height));
         }
         expect(tester.takeException(), isNull);
+        final gradient = tester.getRect(
+          find.byKey(const Key('fullscreen-control-gradient')),
+        );
+        expect(gradient.size, size, reason: '渐变覆盖全画面，安全区边缘不形成矩形边界');
         final settings = tester.getRect(find.byTooltip('播放器设置'));
-        final kernel = tester.getRect(find.byTooltip('播放内核'));
-        expect(settings.left - kernel.right, closeTo(4, .1));
-        expect(settings.center.dy, closeTo(kernel.center.dy, .1));
+        if (size.width >= 580) {
+          final kernel = tester.getRect(find.byTooltip('播放内核'));
+          expect(settings.left - kernel.right, closeTo(4, .1));
+          expect(settings.center.dy, closeTo(kernel.center.dy, .1));
+        } else {
+          expect(find.byTooltip('播放内核'), findsNothing);
+          expect(find.byTooltip('上一集'), findsNothing);
+          expect(find.byTooltip('清晰度'), findsNothing);
+        }
         expect(find.text('1920×1080'), findsOneWidget);
         final slider = tester.getRect(find.byType(Slider));
         final time = tester.getRect(find.text('15:00'));
@@ -2010,6 +2099,7 @@ class _FakePlayer extends AbstractPlayer {
   PlayerMedia? media;
   final List<Duration> seeks = <Duration>[];
   Object? seekError;
+  Object? loadError;
   int plays = 0, pauses = 0, stops = 0, disposals = 0, loads = 0;
   double volume = 1;
   PlayerSettings? lastAppliedSettings;
@@ -2040,6 +2130,7 @@ class _FakePlayer extends AbstractPlayer {
 
   @override
   Future<void> load(PlayerMedia media) async {
+    if (loadError case final error?) throw error;
     loads++;
     this.media = media;
   }

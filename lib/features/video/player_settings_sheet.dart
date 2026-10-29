@@ -1,3 +1,5 @@
+import 'intro_settings_page.dart';
+import 'player_layout.dart';
 import 'presentation_settings_card.dart';
 import '../../shared/widgets/video_glass_surface.dart';
 import '../../shared/widgets/native_glass_controls.dart';
@@ -38,6 +40,7 @@ Future<void> showPlayerSettingsSheet({
   DanmakuSettings? danmaku,
   ValueChanged<DanmakuSettings>? onDanmakuChanged,
   int? danmakuCount,
+  Widget? introControls,
   Widget? extraControls,
   Widget? audioControls,
   Widget? connectionControls,
@@ -68,6 +71,7 @@ Future<void> showPlayerSettingsSheet({
           danmaku: danmaku,
           onDanmakuChanged: onDanmakuChanged,
           danmakuCount: danmakuCount,
+          introControls: introControls,
           extraControls: extraControls,
           audioControls: audioControls,
           connectionControls: connectionControls,
@@ -109,6 +113,7 @@ class PlayerSettingsSheet extends StatefulWidget {
     this.danmakuCount,
     this.showDanmakuPanel = true,
     this.embedded = false,
+    this.introControls,
     this.extraControls,
     this.audioControls,
     this.connectionControls,
@@ -164,6 +169,7 @@ class PlayerSettingsSheet extends StatefulWidget {
   /// 是否作为**内嵌内容**使用（全局设置页）：不画拖拽把手与关闭按钮，
   /// 也不限高（由外层滚动容器负责）。
   final bool embedded;
+  final Widget? introControls;
   final Widget? extraControls,
       audioControls,
       connectionControls,
@@ -229,6 +235,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         if (widget.extraControls != null) widget.extraControls!,
         _section('清晰度偏好', '起播与切集时使用的画质选择'),
         DropdownButtonFormField<DefaultQuality>(
+          isExpanded: true,
           initialValue: settings.defaultQuality,
           decoration: const InputDecoration(labelText: '默认清晰度'),
           items: [
@@ -252,6 +259,20 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               _update(settings.copyWith(rememberManualQuality: value)),
         ),
         const SizedBox(height: 20),
+      ]),
+      _group('intro', '片头片尾', Icons.skip_next_outlined, [
+        widget.introControls ??
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('片头片尾与同剧记忆'),
+              subtitle: const Text('自动识别、手动标记、跳过倒计时与取消'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const IntroSettingsPage(),
+                ),
+              ),
+            ),
       ]),
       _group('picture', '画面与显示', Icons.aspect_ratio, [
         _section('画面', '缩放 / 旋转 / 镜像（三套内核都支持）'),
@@ -278,7 +299,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         _section(
           '字幕',
           '开关 / 字号 / 颜色 / 描边 / 底色 / 延迟；'
-              '外挂字幕与内置字幕轨',
+              '外挂字幕与内置字幕轨；文字叠加字幕不随系统画中画显示',
         ),
         _subtitleCard(context),
         const SizedBox(height: 20),
@@ -510,6 +531,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   final _navigationKey = GlobalKey();
   static const _categories = [
     ('playback', '播放'),
+    ('intro', '片头片尾'),
     ('picture', '画面'),
     ('audio', '音频字幕'),
     ('danmaku', '弹幕'),
@@ -522,7 +544,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
     if (target != null) {
       await Scrollable.ensureVisible(
         target,
-        duration: const Duration(milliseconds: 240),
+        duration: PlayerLayout.motion(context, 240),
         alignment: 0,
       );
     }

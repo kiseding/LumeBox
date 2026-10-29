@@ -258,6 +258,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('https://example.com/demo.mp4'), findsNothing);
+    await tester.tap(find.text('播放信息'));
+    await tester.pumpAndSettle();
     expect(find.byTooltip('复制地址'), findsOneWidget);
   });
 

@@ -13,6 +13,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/tmdb/tmdb.dart';
+import '../../core/tmdb/tmdb_connection_failure.dart';
+import '../../core/net/lume_net.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
 
@@ -23,10 +25,12 @@ class TmdbSettingsPage extends StatefulWidget {
     this.loadPreview,
     this.focusAppearance,
     this.previewColor,
+    this.clientFactory,
   });
   final String? appearanceKey, focusAppearance;
   final Color? previewColor;
   final Future<Uint8List?> Function()? loadPreview;
+  final TmdbClient Function(TmdbSettings)? clientFactory;
   @override
   State<TmdbSettingsPage> createState() => _TmdbSettingsPageState();
 }
@@ -74,9 +78,10 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
   }
 
   Future<void> test(bool isApi) async {
+    if (testing) return;
     save();
     setState(() => testing = true);
-    final client = TmdbClient(settings);
+    final client = widget.clientFactory?.call(settings) ?? TmdbClient(settings);
     var message = '测试成功';
     try {
       if (isApi) {
@@ -89,9 +94,14 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
         codec.dispose();
       }
     } catch (error) {
-      message = error is StateError
-          ? '测试失败：${error.message}'
-          : '测试失败：请检查启用状态、Key、代理地址和网络连接。';
+      message = TmdbConnectionFailure.describe(
+        error,
+        api: isApi,
+        customEndpoint: (isApi ? settings.apiProxy : settings.imageProxy)
+            .trim()
+            .isNotEmpty,
+        globalProxy: LumeNet.settings.proxy.trim().isNotEmpty,
+      );
     } finally {
       client.dispose();
       if (mounted) setState(() => testing = false);
@@ -100,7 +110,11 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
       await showGlassDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(isApi ? '测试 API 代理' : '测试 图片代理'),
+          title: Text(
+            isApi
+                ? (settings.apiProxy.trim().isEmpty ? '测试 API 连接' : '测试 API 代理')
+                : (settings.imageProxy.trim().isEmpty ? '测试图片连接' : '测试 图片代理'),
+          ),
           content: Text(message),
           actions: [
             TextButton(
@@ -443,7 +457,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
             decoration: const InputDecoration(
               isDense: true,
               labelText: 'API代理地址',
-              hintText: '例如 shturl.cc/yyIaR0vTjCGrkbxM，留空使用官方地址',
+              hintText: 'HTTP(S) API 根地址，留空使用官方地址',
             ),
           ),
           const SizedBox(height: 10),
@@ -465,7 +479,11 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
                   onPressed: testing || !settings.configured
                       ? null
                       : () => test(true),
-                  child: const Text('测试 API 代理'),
+                  child: Text(
+                    settings.apiProxy.trim().isEmpty
+                        ? '测试 API 连接'
+                        : '测试 API 代理',
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -474,7 +492,9 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
                   onPressed: testing || !settings.enabled
                       ? null
                       : () => test(false),
-                  child: const Text('测试 图片代理'),
+                  child: Text(
+                    settings.imageProxy.trim().isEmpty ? '测试图片连接' : '测试 图片代理',
+                  ),
                 ),
               ),
             ],

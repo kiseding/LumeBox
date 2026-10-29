@@ -568,6 +568,19 @@ class TmdbClient {
       }
     }
     if (response.statusCode != 200) {
+      if (response.statusCode == 401) {
+        throw StateError(
+          settings.usesBuiltInKey
+              ? 'TMDB 鉴权失败（HTTP 401）。内置密钥未被当前服务接受，可填写自己的 v3 Key 或 v4 Token。'
+              : 'TMDB 鉴权失败（HTTP 401）。请检查自定义 v3 Key 或 v4 Token。',
+        );
+      }
+      if (response.statusCode == 403) {
+        throw StateError('TMDB 拒绝访问（HTTP 403），请检查服务权限、代理及网络出口。');
+      }
+      if (response.statusCode == 429) {
+        throw StateError('TMDB 请求过于频繁（HTTP 429），请稍后重试。');
+      }
       throw StateError('TMDB 请求失败（HTTP ${response.statusCode}）');
     }
     final data = jsonDecode(utf8.decode(response.bodyBytes));

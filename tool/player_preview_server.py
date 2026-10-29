@@ -9,10 +9,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.serve(True)
     def serve(self, body):
-        if self.path != '/player-fixture.mp4':
+        if self.path not in ('/player-fixture.mp4', '/player-portrait-fixture.mp4'):
             self.send_error(404)
             return
-        file = ROOT / 'player-fixture.mp4'
+        file = ROOT / self.path.lstrip('/')
         size = file.stat().st_size
         start, end = 0, size - 1
         match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))

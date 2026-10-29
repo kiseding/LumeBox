@@ -4,6 +4,8 @@ import '../../../shared/widgets/module_glass_scope.dart';
 
 import 'dart:math' as math;
 
+import '../player_layout.dart';
+
 import 'package:flutter/material.dart';
 
 /// Landscape: a compact right drawer. Portrait: a bottom panel.
@@ -44,16 +46,22 @@ Future<T?> showDanmakuPanel<T>({
   );
 }
 
-class DanmakuPanelFrame extends StatelessWidget {
+class DanmakuPanelFrame extends StatefulWidget {
   const DanmakuPanelFrame({super.key, required this.child, this.screenPadding});
   final Widget child;
   final EdgeInsets? screenPadding;
+  @override
+  State<DanmakuPanelFrame> createState() => _DanmakuPanelFrameState();
+}
+
+class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
+  bool _expanded = false;
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
     final keyboard = media.viewInsets.bottom;
-    final safe = screenPadding ?? media.viewPadding;
+    final safe = widget.screenPadding ?? media.viewPadding;
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(
@@ -65,7 +73,7 @@ class DanmakuPanelFrame extends StatelessWidget {
           16,
     );
     return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
+      duration: PlayerLayout.motion(context, 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.fromLTRB(
         math.max(media.viewPadding.left, safe.left) + 8,
@@ -77,15 +85,19 @@ class DanmakuPanelFrame extends StatelessWidget {
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
         child: SizedBox(
           key: const ValueKey('danmaku-panel-frame'),
-          width: landscape ? media.size.width / 3 : 560,
+          width: landscape
+              ? PlayerLayout.panelWidth(media.size.width - safe.horizontal - 32)
+              : 560,
           height: landscape
               ? math.min(available, media.size.height * .85)
-              : available * .92,
+              : available * (_expanded || keyboard > 0 ? .85 : .60),
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
             child: VideoGlassSurface(
-              radius: 28,
+              radius: 24,
+              dark: Theme.of(context).brightness == Brightness.dark,
+              materialOpacity: .78,
               child: MediaQuery.removeViewInsets(
                 context: context,
                 removeBottom: true,
@@ -93,7 +105,35 @@ class DanmakuPanelFrame extends StatelessWidget {
                   context: context,
                   removeTop: true,
                   removeBottom: true,
-                  child: child,
+                  child: Column(
+                    children: [
+                      if (!landscape)
+                        GestureDetector(
+                          onVerticalDragEnd: (details) => setState(
+                            () =>
+                                _expanded = (details.primaryVelocity ?? 0) < 0,
+                          ),
+                          child: SizedBox(
+                            height: 44,
+                            child: Center(
+                              child: IconButton(
+                                padding: EdgeInsets.zero,
+                                tooltip: _expanded ? '收起面板' : '展开面板',
+                                onPressed: () =>
+                                    setState(() => _expanded = !_expanded),
+                                icon: Icon(
+                                  _expanded
+                                      ? Icons.keyboard_arrow_down
+                                      : Icons.keyboard_arrow_up,
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Expanded(child: widget.child),
+                    ],
+                  ),
                 ),
               ),
             ),

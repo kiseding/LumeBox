@@ -50,7 +50,7 @@ void main() {
     expect(
       tester
           .widget<OutlinedButton>(
-            find.widgetWithText(OutlinedButton, '测试 API 代理'),
+            find.widgetWithText(OutlinedButton, '测试 API 连接'),
           )
           .onPressed,
       isNull,

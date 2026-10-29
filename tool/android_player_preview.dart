@@ -4,11 +4,16 @@ library;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/features/video/direct_video_source.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/core/intro/intro_backend.dart';
 import 'package:lume_box/core/intro/intro_models.dart';
 import 'package:lume_box/core/intro/intro_signals.dart';
 import 'package:lume_box/core/player/abstract_player.dart';
+import 'package:lume_box/core/player/av_player.dart';
 import 'package:lume_box/core/player/player_factory.dart';
+import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/app_preferences.dart';
@@ -47,6 +52,59 @@ class _Home extends StatefulWidget {
 class _HomeState extends State<_Home> {
   String _result = '测试媒体：原创测试画面／音调，含 OP、正片、ED 章节标记。';
   bool _busy = false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _open());
+  }
+
+  void _open({bool portrait = false}) {
+    final uri = portrait
+        ? Uri.parse(fixtureURL).resolve('player-portrait-fixture.mp4')
+        : Uri.parse(fixtureURL);
+    final qualities = [
+      VideoQuality(label: '原画', url: uri),
+      VideoQuality(label: '兼容线路', url: uri),
+    ];
+    final episodes = [
+      for (final line in ['直连线路', '备用线路'])
+        for (var i = 0; i < 120; i++)
+          SourceChapter(id: '$line-$i', title: '第${i + 1}集', line: line),
+    ];
+    final source = DirectVideoSource(
+      id: 'player-layout-preview',
+      name: '本地测试媒体',
+      title: '山海之间 · 播放器预览',
+      uri: uri,
+      episodes: episodes,
+      resolveEpisode: (_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        return VideoContent(url: uri, qualities: qualities);
+      },
+    );
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VideoPlayerPage(
+          catalog: const _AndroidPreviewCatalog(),
+          playerFactory: (_) => AvPlayer(),
+          media: PlayerMedia(uri: uri, title: '山海之间 · 第1集'),
+          title: '山海之间 · 播放器预览',
+          source: source,
+          qualities: qualities,
+          target: VideoPlayTarget(
+            sourceId: source.id,
+            itemId: portrait ? 'portrait-preview' : 'landscape-preview',
+            title: source.title,
+            chapterId: episodes.first.id,
+            chapterIndex: 0,
+            chapterTitle: '第1集',
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _smoke() async {
     if (_busy) return;
     setState(() {
@@ -91,22 +149,10 @@ class _HomeState extends State<_Home> {
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        FilledButton(
-          onPressed: () => Navigator.push<void>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => VideoPlayerPage(
-                playerFactory: (kernel) => PlayerFactory.create(kernel: kernel),
-                media: PlayerMedia(
-                  uri: Uri.parse(fixtureURL),
-                  title: 'LumeBox 测试影片',
-                ),
-                title: '播放器',
-                fullscreenOnly: false,
-              ),
-            ),
-          ),
-          child: const Text('打开播放器'),
+        FilledButton(onPressed: () => _open(), child: const Text('横屏播放器与选集')),
+        OutlinedButton(
+          onPressed: () => _open(portrait: true),
+          child: const Text('竖屏短剧播放器'),
         ),
         OutlinedButton(
           onPressed: () => Navigator.push<void>(
@@ -132,4 +178,15 @@ class _HomeState extends State<_Home> {
       ],
     ),
   );
+}
+
+/// Only the preview opts into Android's video_player backend. Shipping platform
+/// availability and the three iOS kernels remain governed by PlayerFactory.
+class _AndroidPreviewCatalog implements PlayerKernelCatalog {
+  const _AndroidPreviewCatalog();
+  @override
+  bool isAvailable(PlayerKernel kernel) => kernel == PlayerKernel.avplayer;
+  @override
+  String? unavailableReason(PlayerKernel kernel) =>
+      isAvailable(kernel) ? null : '此移动预览使用 Android 系统解码，内核效果请在 iPhone 验收';
 }
