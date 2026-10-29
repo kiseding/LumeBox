@@ -203,8 +203,9 @@ class SourceSubscription {
       'video.txt',
       'videos.txt',
       'audiobook.txt',
-    ].contains(name))
+    ].contains(name)) {
       return null;
+    }
     try {
       final response = await http.send(
         url: SubscriptionCatalog.totalCdnUrl,
@@ -215,8 +216,9 @@ class SourceSubscription {
       if (total is! Map ||
           total['format'] != 'lume.total-subscription' ||
           total['version'] != 1 ||
-          total['sections'] is! Map)
+          total['sections'] is! Map) {
         throw const FormatException('CDN 总订阅格式无效');
+      }
       final sections = total['sections'] as Map;
       if (name == 'comics.txt' || name == 'videos.txt') {
         final section = name == 'comics.txt' ? 'comic' : 'video';
@@ -225,8 +227,9 @@ class SourceSubscription {
             entries.isEmpty ||
             !entries.every(
               (entry) => entry is String && entry.startsWith(prefix),
-            ))
+            )) {
           throw const FormatException('CDN 分类清单无效');
+        }
         return LumeHttpResponse(
           statusCode: 200,
           headers: const {},
