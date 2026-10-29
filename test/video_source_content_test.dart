@@ -29,6 +29,26 @@ class ContentPickerService extends CatService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('截图中的四个旧源无需手动设置即可归类', () {
+    for (final entry in [
+      ('asmrba_video', SourceContentCategory.adult),
+      ('asmrhoney_video', SourceContentCategory.adult),
+      ('duboku_video', SourceContentCategory.movie),
+      ('ptt_drama', SourceContentCategory.movie),
+    ]) {
+      expect(
+        SourceContentCategories.automatic(
+          SourceDescriptor(
+            id: entry.$1,
+            name: '旧版源',
+            version: '1',
+            enabled: true,
+          ),
+        ),
+        entry.$2,
+      );
+    }
+  });
   late Directory root;
   late ContentPickerService service;
   late FakeSourceManager manager;

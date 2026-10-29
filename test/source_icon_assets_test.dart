@@ -10,12 +10,12 @@ import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/source/source_favicon.dart';
 
 void main() {
-  testWidgets('两段录屏的31个缺失图标离线可显示，真实图片均有来源和校验值', (tester) async {
+  testWidgets('两段录屏的34个缺失或浅色图标离线可显示，真实图片均有来源和校验值', (tester) async {
     await tester.runAsync(() async {
       final index = jsonDecode(
         await rootBundle.loadString('assets/source_icons/index.json'),
       ) as Map;
-      expect(index, hasLength(31));
+      expect(index, hasLength(34));
       var requests = 0;
       final resolver = SourceFavicon(
         http: LumeHttp(

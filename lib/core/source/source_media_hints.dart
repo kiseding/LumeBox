@@ -22,6 +22,7 @@ abstract final class SourceMediaHints {
           if (['audio', 'audiobook', 'audio-book'].contains(kind)) {
             return 'audio';
           }
+          if (kind.isEmpty && data['category'] == 'audiobook') return 'audio';
           if (kind == 'video') return 'video';
         }
       } catch (_) {

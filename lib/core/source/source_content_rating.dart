@@ -3,6 +3,8 @@ class SourceContentRating {
   // Synced from LumeBox-Sources/content-ratings.json (2026-10-26).
   // Unknown sources remain unclassified; these IDs also drive privacy hiding.
   static const adultIds = <String>{
+    'asmrba_video',
+    'asmrhoney_video',
     'p5mh_comic',
     'fxcomic_comic',
     'mmcg18_comic',

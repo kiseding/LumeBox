@@ -33,9 +33,9 @@ class TmdbSettings extends ChangeNotifier {
     'TMDB_API_KEY',
     defaultValue: 'e8cb17a07eb5091739aaceb3ab2e7120',
   );
-  bool enabled = false;
+  bool enabled = true;
   bool detailBackdropEnabled = true;
-  TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
+  TmdbPosterStyle posterStyle = TmdbPosterStyle.random;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
   String imageSize(TmdbImageKind kind) => _imageSizes[kind] ?? kind.defaultSize;
@@ -68,7 +68,7 @@ class TmdbSettings extends ChangeNotifier {
             imageSize(TmdbImageKind.poster) == 'w500') {
           _imageSizes[TmdbImageKind.poster] = 'w780';
         }
-        enabled = data['enabled'] == true;
+        enabled = data['enabled'] != false;
         detailBackdropEnabled = data['detailBackdropEnabled'] != false;
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
@@ -77,7 +77,7 @@ class TmdbSettings extends ChangeNotifier {
             TmdbPosterStyle.values
                 .where((e) => e.name == data['posterStyle'])
                 .firstOrNull ??
-            TmdbPosterStyle.fixed;
+            TmdbPosterStyle.random;
       }
     } catch (_) {
       enabled = false;
@@ -305,6 +305,7 @@ class TmdbMetadata {
     this.year = '',
     this.genres = const [],
     this.episodeCount = 0,
+    this.preferredPoster,
   });
   final String overview;
   final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
@@ -314,6 +315,7 @@ class TmdbMetadata {
   final String year;
   final List<String> genres;
   final int episodeCount;
+  final String? preferredPoster;
   Map<String, dynamic> toJson() => {
     'overview': overview,
     'posters': posters,
@@ -328,6 +330,7 @@ class TmdbMetadata {
     'year': year,
     'genres': genres,
     'episodeCount': episodeCount,
+    if (preferredPoster != null) 'preferredPoster': preferredPoster,
   };
   factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
     recommendations: (data['recommendations'] as List? ?? [])
@@ -351,6 +354,7 @@ class TmdbMetadata {
     year: data['year'] as String? ?? '',
     genres: (data['genres'] as List? ?? []).whereType<String>().toList(),
     episodeCount: (data['episodeCount'] as num?)?.toInt() ?? 0,
+    preferredPoster: data['preferredPoster'] as String?,
   );
 }
 

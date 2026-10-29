@@ -1,5 +1,6 @@
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
+import 'package:lume_box/core/tmdb/tmdb.dart';
 
 import 'dart:io';
 
@@ -57,6 +58,8 @@ void main() {
     kind: 'video',
   );
   setUp(() async {
+    // This fixture checks source layout without external metadata requests.
+    TmdbSettings.instance.enabled = false;
     root = Directory.systemTemp.createTempSync('cat_detail');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(

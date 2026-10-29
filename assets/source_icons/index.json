@@ -231,5 +231,28 @@
     "labels": [
       "爱豆"
     ]
+  },
+  "relamanhua_comic": {
+    "name": "熱辣漫畫",
+    "kind": "label",
+    "url": "",
+    "labels": [
+      "热辣",
+      "漫画"
+    ]
+  },
+  "h4dh3_video": {
+    "name": "hxc 18+",
+    "kind": "site",
+    "file": "h4dh3_video.png",
+    "url": "https://j04l.nasuiyile.com/pc/favicon1.ico",
+    "sha256": "232c2eac760eae604f9dd43352c0b272396b7cfaf220081b54583b6d0cbc2320"
+  },
+  "theavporn_video": {
+    "name": "TheAVPorn",
+    "kind": "site",
+    "file": "theavporn_video.png",
+    "url": "https://theavporn.com/favicon.ico",
+    "sha256": "00c064a110e56c552c7d96d142b842e103a0f9f98dd5682aa31c52cd4da27438"
   }
 }

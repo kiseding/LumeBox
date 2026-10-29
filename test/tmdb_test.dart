@@ -14,6 +14,18 @@ import 'package:lume_box/features/video/tmdb_artwork.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('新安装默认启用内置密钥、模糊背景、随机海报及截图尺寸', () {
+    final settings = TmdbSettings();
+    expect(settings.enabled, true);
+    expect(settings.configured, true);
+    expect(settings.usesBuiltInKey, true);
+    expect(settings.detailBackdropEnabled, true);
+    expect(settings.posterStyle, TmdbPosterStyle.random);
+    expect(
+      [for (final kind in TmdbImageKind.values) settings.imageSize(kind)],
+      ['w1280', 'w500', 'w780', 'w185', 'w300'],
+    );
+  });
   test('内置密钥可直接请求，自定义覆盖且关闭后停止请求', () async {
     final settings = TmdbSettings()..enabled = true;
     final credentials = <String?>[];
@@ -155,8 +167,8 @@ void main() {
     expect((await client.lookup('测试剧'))!.recommendations.single.title, '相似剧');
     client.dispose();
   });
-  test('缺省关闭，内置密钥不会绕过停用开关', () async {
-    final settings = TmdbSettings();
+  test('用户停用后，内置密钥不会绕过停用开关', () async {
+    final settings = TmdbSettings()..enabled = false;
     var calls = 0;
     final client = TmdbClient(
       settings,

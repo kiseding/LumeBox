@@ -6,11 +6,24 @@ import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/core/media/media_resource_service.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/source/source_media_hints.dart';
 
 import 'support/fake_reading_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('有声板块声明直接提供音频类型，显式媒体类型仍优先', () {
+    expect(
+      SourceMediaHints.fromScript('// LumeSource: {"category":"audiobook"}'),
+      'audio',
+    );
+    expect(
+      SourceMediaHints.fromScript(
+        '// LumeSource: {"category":"audiobook","mediaType":"video"}',
+      ),
+      'video',
+    );
+  });
   late Directory root;
   late MediaLibrary library;
   setUp(() async {

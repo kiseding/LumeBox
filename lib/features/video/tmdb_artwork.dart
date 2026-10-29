@@ -44,6 +44,7 @@ class TmdbDetailController extends ChangeNotifier {
     metadata = TmdbMetadata.fromJson({
       ...current.toJson(),
       'posters': [url, ...current.posters.where((poster) => poster != url)],
+      'preferredPoster': url,
     });
     index = 0;
     notifyListeners();
@@ -76,10 +77,15 @@ class TmdbDetailController extends ChangeNotifier {
     metadata = result;
     index = 0;
     final count = result.posters.length;
-    if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
+    final preferred = result.posters.indexOf(result.preferredPoster ?? '');
+    if (preferred >= 0) {
+      index = preferred;
+    } else if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
       index = Random().nextInt(count);
     }
-    if (count > 1 && settings.posterStyle == TmdbPosterStyle.carousel) {
+    if (preferred < 0 &&
+        count > 1 &&
+        settings.posterStyle == TmdbPosterStyle.carousel) {
       _timer = Timer.periodic(
         const Duration(seconds: 4),
         (_) => show((index + 1) % count),
@@ -161,10 +167,16 @@ class TmdbDetailController extends ChangeNotifier {
     loading = false;
     status = result == null ? (client.lastError ?? '未匹配到 TMDB 资料，保留源信息') : null;
     final count = result?.posters.length ?? 0;
-    if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
+    final preferred =
+        result?.posters.indexOf(result.preferredPoster ?? '') ?? -1;
+    if (preferred >= 0) {
+      index = preferred;
+    } else if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
       index = Random().nextInt(count);
     }
-    if (count > 1 && settings.posterStyle == TmdbPosterStyle.carousel) {
+    if (preferred < 0 &&
+        count > 1 &&
+        settings.posterStyle == TmdbPosterStyle.carousel) {
       _timer = Timer.periodic(
         const Duration(seconds: 4),
         (_) => show((index + 1) % count),
