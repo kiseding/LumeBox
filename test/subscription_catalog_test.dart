@@ -51,6 +51,13 @@ void main() {
         '${SubscriptionCatalog.cdnBase}subscriptions/cdn/$name',
       );
     }
+    expect(
+      SubscriptionCatalog.canonical(
+        '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.e861fbef.txt',
+        Section.video,
+      ),
+      '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.txt',
+    );
     for (final suffix in ['?token=test', '#private']) {
       final url =
           '${SubscriptionCatalog.cdnBase}subscriptions/video.txt$suffix';

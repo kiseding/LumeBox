@@ -56,6 +56,32 @@ void main() {
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
+  test('旧 CDN 快照订阅迁移并合并成员与用户排除项', () async {
+    const stable = '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.txt';
+    service.subscriptions.clear();
+    service.subscriptions.addAll([
+      SavedSourceSubscription(
+        '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.11111111.txt',
+        members: {'retired': '${SubscriptionCatalog.cdnBase}video/retired.js'},
+        excludedIds: {'excluded'},
+      ),
+      SavedSourceSubscription(
+        stable,
+        members: {'active': '${SubscriptionCatalog.cdnBase}video/active.js'},
+      ),
+    ]);
+    await service.save();
+    await service.load();
+    expect(service.subscriptions, hasLength(1));
+    expect(service.subscriptions.single.url, stable);
+    expect(
+      service.subscriptions.single.members.keys,
+      containsAll(['retired', 'active']),
+    );
+    expect(service.subscriptions.single.excludedIds, {'excluded'});
+    expect(service.subscriptions.single.checkedAt, isNull);
+  });
+
   test('旧版本成员表缺失时恢复官方归属并移除远端已下架源，保留手动与外部源', () async {
     final official = SubscriptionCatalog.sectionUrl(Section.video);
     service.subscriptions.clear();

@@ -56,6 +56,14 @@ class SubscriptionCatalog {
       } on ArgumentError {
         return url;
       }
+      if (prefix == cdnBase) {
+        final snapshot = RegExp(
+          r'^subscriptions/cdn/(comic|comics|photo|movie|video|videos|audiobook)\.[0-9a-f]{8}\.txt$',
+        ).firstMatch(path);
+        if (snapshot != null) {
+          return '${cdnBase}subscriptions/cdn/${snapshot[1]}.txt';
+        }
+      }
       if (prefix == cdnBase &&
           RegExp(
             r'^subscriptions/(?:all\.json|(?:comic|comics|photo|movie|video|videos|audiobook)\.txt)$',
