@@ -183,6 +183,9 @@ class SourceContentRating {
     'ogfap_video',
     'hstream_video',
     'p91pinse_video',
+    'rule34video_video',
+    'oreno3d_video',
+    'xcamtube_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{

@@ -57,6 +57,9 @@ void main() {
     'ogfap_video',
     'hstream_video',
     'p91pinse_video',
+    'rule34video_video',
+    'oreno3d_video',
+    'xcamtube_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
