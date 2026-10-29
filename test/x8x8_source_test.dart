@@ -172,7 +172,7 @@ void main() {
         video.url.toString(),
         'https://xn0cox.db9bmbe.com:32803/v/127a4c4e77eaf5fc09c89b1413aebe68/m3u8/index.m3u8',
       );
-      expect(video.headers['Referer'], 'https://1azm0i.qcsw2b5yf.com/');
+      expect(video.headers['Referer'], 'https://8x.vip/');
 
       final second = await source.data.content(itemId: '68005', chapterId: '2');
       expect(
