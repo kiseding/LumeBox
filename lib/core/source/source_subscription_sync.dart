@@ -323,6 +323,55 @@ class SourceSubscriptionSync {
     await save();
   }
 
+  Future<void> _recoverMembers() async {
+    final sources = await manager.list();
+    for (final source in sources) {
+      if (!source.subscribed ||
+          subscriptions.any((s) => s.members.containsKey(source.id))) {
+        continue;
+      }
+      final exact = subscriptions
+          .where(
+            (s) => SubscriptionCatalog.sameSourceUrl(s.url, source.originUrl),
+          )
+          .firstOrNull;
+      if (exact != null) {
+        exact.members[source.id] = source.originUrl;
+        continue;
+      }
+      final sourcePath = SubscriptionCatalog.officialPath(source.originUrl);
+      final folders = switch (section) {
+        Section.comic => ['comic/', 'photo/'],
+        Section.video => ['video/', 'movie/', 'audiobook/'],
+        _ => <String>[],
+      };
+      if (sourcePath == null || !folders.any(sourcePath.startsWith)) continue;
+      final owners = subscriptions.where((record) {
+        final path = SubscriptionCatalog.officialPath(record.url);
+        return path == SubscriptionCatalog.names[section] ||
+            path ==
+                SubscriptionCatalog.names[section]?.replaceFirst(
+                  'subscriptions/',
+                  'subscriptions/cdn/',
+                ) ||
+            path == 'subscriptions/all.json' ||
+            path == 'subscriptions/cdn/all.json';
+      }).toList();
+      if (owners.isEmpty) continue;
+      // 优先沿用原线路；只恢复明确属于官方完整订阅的旧源。
+      final owner =
+          owners
+              .where(
+                (s) =>
+                    s.url.startsWith(SubscriptionCatalog.cdnBase) ==
+                    source.originUrl.startsWith(SubscriptionCatalog.cdnBase),
+              )
+              .firstOrNull ??
+          owners.first;
+      owner.members[source.id] = source.originUrl;
+    }
+  }
+
   Future<SubscriptionSyncResult> sync({bool force = false}) async {
     final result = SubscriptionSyncResult();
     final changes = <Map<String, String>>[];
@@ -331,6 +380,7 @@ class SourceSubscriptionSync {
       return result..errors.add('当前平台无法运行 JS 源，订阅未同步');
     }
     await _migrate();
+    await _recoverMembers();
     if (!subscriptions.any((s) => s.enabled)) {
       return result..message = '没有已启用的订阅，请先添加订阅地址';
     }
@@ -394,7 +444,10 @@ class SourceSubscriptionSync {
               continue;
             }
             final old = before.values
-                .where((s) => s.originUrl == ref.url)
+                .where(
+                  (s) =>
+                      SubscriptionCatalog.sameSourceUrl(s.originUrl, ref.url),
+                )
                 .firstOrNull;
             if (old != null &&
                 await manager.exportScript(old.id) == ref.script) {
@@ -439,7 +492,17 @@ class SourceSubscriptionSync {
                 continue;
               }
               final existing = before[old.key];
-              if (existing == null || existing.originUrl != old.value) continue;
+              if (existing == null ||
+                  (!SubscriptionCatalog.sameSourceUrl(
+                        existing.originUrl,
+                        old.value,
+                      ) &&
+                      !SubscriptionCatalog.sameSourceUrl(
+                        existing.originUrl,
+                        record.url,
+                      ))) {
+                continue;
+              }
               await manager.remove(old.key);
               result.removed++;
               changes.add({

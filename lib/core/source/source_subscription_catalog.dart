@@ -76,6 +76,37 @@ class SubscriptionCatalog {
     return migrateUrl(url);
   }
 
+  /// 两条官方线路指向同一份仓库文件；比较时忽略 URL 编码差异。
+  static String? officialPath(String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || uri.userInfo.isNotEmpty || uri.scheme != 'https') {
+      return null;
+    }
+    final parts = uri.pathSegments;
+    if (parts.length < 4) return null;
+    final raw =
+        uri.host == 'raw.githubusercontent.com' &&
+        parts[0] == 'teng662858' &&
+        parts[1] == 'LumeBox-Sources' &&
+        parts[2] == 'main';
+    final cdn =
+        uri.host == 'cdn.jsdelivr.net' &&
+        parts[0] == 'gh' &&
+        parts[1] == 'teng662858' &&
+        parts[2] == 'LumeBox-Sources@main';
+    if (!raw && !cdn) return null;
+    final path = parts.skip(3).join('/');
+    return path.startsWith('subscriptions/cdn/')
+        ? path.replaceFirst('subscriptions/cdn/', 'subscriptions/')
+        : path;
+  }
+
+  static bool sameSourceUrl(String a, String b) {
+    if (a == b) return true;
+    final path = officialPath(a);
+    return path != null && path == officialPath(b);
+  }
+
   static bool validUrl(String url) {
     final uri = Uri.tryParse(url);
     return uri != null &&
