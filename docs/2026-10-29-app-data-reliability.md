@@ -42,9 +42,9 @@ flutter pub get --enforce-lockfile
 ./tool/check_quality.ps1 -PrepareNative
 ```
 
-脚本依次执行 `flutter analyze --no-pub --fatal-infos lib test`，准备 QuickJS 原生测试桥，然后运行完整 `flutter test --no-pub`。静态分析或测试失败会以非零状态阻断后续构建。
+脚本准备并校验离线资源，执行 `flutter analyze --no-pub --fatal-infos lib test`，准备 QuickJS 原生测试桥，然后运行完整 `flutter test --no-pub`。静态分析或测试失败会返回非零状态，供本地或独立手动检查使用。
 
-GitHub 的 `App quality gate` 在 main 推送和 PR 上运行；`Build unsigned IPA (iOS)` 依赖该门禁成功。推送不会自动发布 IPA，安装包仍由原有手动流程触发。
+GitHub 的 `App quality checks (manual)` 仅供手动运行，不随 main 推送或 PR 自动执行。`Build unsigned IPA (iOS)` 独立手动运行，不依赖全量分析与测试；Swift 检查及模型资源检查也不经过质量检查。推送不会自动发布 IPA。
 
 重点回归：
 

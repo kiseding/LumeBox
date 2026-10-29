@@ -1,19 +1,6 @@
-name: App quality gate
+name: App quality checks (manual)
+# 独立按需检查，不自动随推送、PR 或 iOS 构建运行。
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'ipa/**'
-      - '**.md'
-      - 'sources/**'
-      - 'docs/**'
-  pull_request:
-    paths-ignore:
-      - 'ipa/**'
-      - '**.md'
-      - 'sources/**'
-      - 'docs/**'
-  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read

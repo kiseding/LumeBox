@@ -33,12 +33,9 @@ jobs:
           name: intro-anchor-vectors
           path: out/anchor_vectors.json
           if-no-files-found: error
-  quality:
-    if: ${{ inputs.models_only != true }}
-    uses: ./.github/workflows/quality.yml
+  # 手动构建直接运行；全量分析与测试由 quality.yml 独立按需执行。
   build-ipa:
     if: ${{ inputs.models_only != true }}
-    needs: quality
     name: ${{ inputs.typecheck_only && 'Swift and simulator checks (no IPA)' || 'Build unsigned IPA' }}
     runs-on: macos-latest
     timeout-minutes: 60
