@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/source/source.dart';
 import '../../shared/widgets/video_glass_surface.dart';
 import 'player_layout.dart';
+import 'danmaku/danmaku_panel.dart';
 import 'video_episode_catalog.dart';
 
 class PlayerSourceLine {
@@ -152,7 +153,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   Future<void> _jump() async {
     final controller = TextEditingController();
-    final index = await showDialog<int>(
+    final index = await showPlayerDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('跳转集数'),

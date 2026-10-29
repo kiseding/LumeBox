@@ -10,7 +10,7 @@ import 'package:lume_box/features/video/danmaku/danmaku_match_sheet.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_panel.dart';
 
 void main() {
-  testWidgets('横屏弹层保留路由外安全边距，向左留出右侧黑边', (tester) async {
+  testWidgets('横屏弹层贴右占四成，安全边距位于面板内容内部', (tester) async {
     tester.view.physicalSize = const Size(932, 430);
     tester.view.devicePixelRatio = 1;
     tester.view.viewPadding = const FakeViewPadding(
@@ -44,7 +44,12 @@ void main() {
     final rect = tester.getRect(
       find.byKey(const ValueKey('danmaku-panel-frame')),
     );
-    expect(rect.right, lessThanOrEqualTo(932 - 62 - 24));
+    expect(rect.right, 932);
+    expect(rect.width, closeTo(932 * .4, .01));
+    expect(
+      tester.getRect(find.text('面板内容')).right,
+      lessThanOrEqualTo(932 - 62),
+    );
     expect(rect.left, greaterThanOrEqualTo(62));
     expect(tester.takeException(), isNull);
   });

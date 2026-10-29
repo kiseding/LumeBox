@@ -8,7 +8,7 @@ import '../player_layout.dart';
 
 import 'package:flutter/material.dart';
 
-/// Landscape: a compact right drawer. Portrait: a bottom panel.
+/// Landscape: a right-edge drawer occupying 40% of the screen. Portrait: a bottom panel.
 ///
 /// Uses a scroll-controlled modal sheet rather than a raw dialog so the whole
 /// panel is laid out above the software keyboard. The previous dialog needed a
@@ -17,18 +17,15 @@ import 'package:flutter/material.dart';
 Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
-  bool edgeDrawer = false,
+  bool edgeDrawer = true,
 }) {
-  // 路由的 SafeArea 会移除子树中的横向 inset，先保留屏幕安全边距。
-  final screenPadding = MediaQuery.viewPaddingOf(context);
   return showGlassModalBottomSheet<T>(
     context: context,
     videoGlass: false,
     isScrollControlled: true,
-    useSafeArea:
-        !(edgeDrawer &&
-            MediaQuery.sizeOf(context).width >
-                MediaQuery.sizeOf(context).height),
+    useRootNavigator: true,
+    // The frame owns safe areas inside the surface, including after rotation.
+    useSafeArea: false,
     backgroundColor: Colors.transparent,
     constraints: const BoxConstraints(maxWidth: double.infinity),
     barrierColor: Colors.black.withValues(alpha: .22),
@@ -42,9 +39,8 @@ Future<T?> showDanmakuPanel<T>({
           ),
         ),
         DanmakuPanelFrame(
-          screenPadding: screenPadding,
           edgeDrawer: edgeDrawer,
-          child: builder(context),
+          child: PlayerPanelScope(child: builder(context)),
         ),
       ],
     ),
@@ -56,7 +52,7 @@ class DanmakuPanelFrame extends StatefulWidget {
     super.key,
     required this.child,
     this.screenPadding,
-    this.edgeDrawer = false,
+    this.edgeDrawer = true,
   });
   final Widget child;
   final EdgeInsets? screenPadding;
@@ -72,41 +68,12 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
     final keyboard = media.viewInsets.bottom;
-    final safe = widget.screenPadding ?? media.viewPadding;
-    if (widget.edgeDrawer && landscape) {
-      return Padding(
-        padding: EdgeInsets.only(bottom: keyboard),
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: SizedBox(
-            key: const ValueKey('danmaku-panel-frame'),
-            width: media.size.width * .4,
-            height: math.max(0, media.size.height - keyboard),
-            child: ModuleGlassScope(
-              module: GlassModule.video,
-              part: GlassPart.panels,
-              child: VideoGlassSurface(
-                radius: 0,
-                dark: Theme.of(context).brightness == Brightness.dark,
-                materialOpacity: .78,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    top: safe.top,
-                    right: safe.right,
-                    bottom: safe.bottom,
-                  ),
-                  child: MediaQuery.removeViewInsets(
-                    context: context,
-                    removeBottom: true,
-                    child: widget.child,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+    final safe =
+        widget.screenPadding ??
+        MediaQuery.viewPaddingOf(
+          Navigator.of(context, rootNavigator: true).context,
+        );
+    final edge = widget.edgeDrawer && landscape;
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(
@@ -120,27 +87,36 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
     return AnimatedPadding(
       duration: PlayerLayout.motion(context, 180),
       curve: Curves.easeOutCubic,
-      padding: EdgeInsets.fromLTRB(
-        math.max(media.viewPadding.left, safe.left) + 8,
-        keyboard > 0 ? 8 : media.viewPadding.top + 8,
-        math.max(media.viewPadding.right, safe.right) + (landscape ? 24 : 8),
-        keyboard > 0 ? keyboard + 8 : math.max(media.viewPadding.bottom, 8.0),
-      ),
+      padding: edge
+          ? EdgeInsets.only(bottom: keyboard)
+          : EdgeInsets.fromLTRB(
+              math.max(media.viewPadding.left, safe.left) + 8,
+              keyboard > 0 ? 8 : media.viewPadding.top + 8,
+              math.max(media.viewPadding.right, safe.right) +
+                  (landscape ? 24 : 8),
+              keyboard > 0
+                  ? keyboard + 8
+                  : math.max(media.viewPadding.bottom, 8.0),
+            ),
       child: Align(
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
         child: SizedBox(
           key: const ValueKey('danmaku-panel-frame'),
-          width: landscape
+          width: edge
+              ? media.size.width * .4
+              : landscape
               ? PlayerLayout.panelWidth(media.size.width - safe.horizontal - 32)
               : 560,
-          height: landscape
+          height: edge
+              ? math.max(0, media.size.height - keyboard)
+              : landscape
               ? math.min(available, media.size.height * .85)
               : available * (_expanded || keyboard > 0 ? .85 : .60),
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
             child: VideoGlassSurface(
-              radius: 24,
+              radius: edge ? 0 : 24,
               dark: Theme.of(context).brightness == Brightness.dark,
               materialOpacity: .78,
               child: MediaQuery.removeViewInsets(
@@ -150,40 +126,164 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
                   context: context,
                   removeTop: true,
                   removeBottom: true,
-                  child: Column(
-                    children: [
-                      if (!landscape)
-                        GestureDetector(
-                          onVerticalDragEnd: (details) => setState(
-                            () =>
-                                _expanded = (details.primaryVelocity ?? 0) < 0,
-                          ),
-                          child: SizedBox(
-                            height: 44,
-                            child: Center(
-                              child: IconButton(
-                                padding: EdgeInsets.zero,
-                                tooltip: _expanded ? '收起面板' : '展开面板',
-                                onPressed: () =>
-                                    setState(() => _expanded = !_expanded),
-                                icon: Icon(
-                                  _expanded
-                                      ? Icons.keyboard_arrow_down
-                                      : Icons.keyboard_arrow_up,
-                                  size: 22,
+                  removeLeft: edge,
+                  removeRight: edge,
+                  child: Padding(
+                    padding: edge
+                        ? EdgeInsets.only(
+                            top: safe.top,
+                            right: safe.right,
+                            bottom: keyboard > 0 ? 0 : safe.bottom,
+                          )
+                        : EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        if (!landscape)
+                          GestureDetector(
+                            onVerticalDragEnd: (details) => setState(
+                              () => _expanded =
+                                  (details.primaryVelocity ?? 0) < 0,
+                            ),
+                            child: SizedBox(
+                              height: 44,
+                              child: Center(
+                                child: IconButton(
+                                  padding: EdgeInsets.zero,
+                                  tooltip: _expanded ? '收起面板' : '展开面板',
+                                  onPressed: () =>
+                                      setState(() => _expanded = !_expanded),
+                                  icon: Icon(
+                                    _expanded
+                                        ? Icons.keyboard_arrow_down
+                                        : Icons.keyboard_arrow_up,
+                                    size: 22,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      Expanded(child: widget.child),
-                    ],
+                        Expanded(child: widget.child),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Marks content opened from the player without changing global settings dialogs.
+class PlayerPanelScope extends InheritedWidget {
+  const PlayerPanelScope({super.key, required super.child});
+  static bool active(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PlayerPanelScope>() != null;
+  @override
+  bool updateShouldNotify(PlayerPanelScope oldWidget) => false;
+}
+
+/// Input and help dialogs use the same player frame as episode selection.
+Future<T?> showPlayerDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool onlyInPlayer = false,
+  bool useRootNavigator = true,
+}) {
+  if (onlyInPlayer && !PlayerPanelScope.active(context)) {
+    return showGlassDialog<T>(
+      context: context,
+      builder: builder,
+      useRootNavigator: useRootNavigator,
+    );
+  }
+  return showDanmakuPanel<T>(
+    context: context,
+    builder: (context) => _PlayerDialogBody(dialog: builder(context)),
+  );
+}
+
+/// Auxiliary popups in shared settings retain their global presentation elsewhere.
+Future<T?> showPlayerContextSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool useSafeArea = true,
+  bool showDragHandle = true,
+}) => PlayerPanelScope.active(context)
+    ? showDanmakuPanel<T>(context: context, builder: builder)
+    : showGlassModalBottomSheet<T>(
+        context: context,
+        builder: builder,
+        useSafeArea: useSafeArea,
+        showDragHandle: showDragHandle,
+      );
+
+class _PlayerDialogBody extends StatelessWidget {
+  const _PlayerDialogBody({required this.dialog});
+  final Widget dialog;
+  @override
+  Widget build(BuildContext context) {
+    final Widget? title, content;
+    final List<Widget> actions;
+    if (dialog is AlertDialog) {
+      final alert = dialog as AlertDialog;
+      title = alert.title;
+      content = alert.content;
+      actions = alert.actions ?? const [];
+    } else if (dialog is SimpleDialog) {
+      final simple = dialog as SimpleDialog;
+      title = simple.title;
+      content = ListView(
+        padding: EdgeInsets.zero,
+        children: simple.children ?? const [],
+      );
+      actions = const [];
+    } else {
+      return dialog;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  child: title ?? const SizedBox.shrink(),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, size: 22),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: content == null
+                ? const SizedBox.shrink()
+                : content is ScrollView || content is SingleChildScrollView
+                ? content
+                : SingleChildScrollView(child: content),
+          ),
+          if (actions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                children: actions,
+              ),
+            ),
+        ],
       ),
     );
   }

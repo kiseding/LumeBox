@@ -1639,7 +1639,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     Color? backgroundColor,
     bool isScrollControlled = false,
     bool useSafeArea = false,
-    bool edgeDrawer = false,
+    bool edgeDrawer = true,
   }) => showPlaybackMenu<T>(
     context: context,
     builder: builder,
@@ -3112,7 +3112,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _showGestureHelp() async {
     _cancelAutoHide();
-    await showDialog<void>(
+    await showPlayerDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('播放手势'),
@@ -3506,7 +3506,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _unsupported();
       return;
     }
-    final source = await showDialog<String>(
+    final source = await showPlayerDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const Text('导入外挂字幕'),
@@ -3547,7 +3547,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _pickSubtitleUrl(AbstractPlayer player) async {
     final controller = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await showPlayerDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('字幕链接'),
@@ -5076,7 +5076,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final target = _target;
     await _playbackMenu<void>(
       context: context,
-      edgeDrawer: initialTab != PlayerSourceTab.quality,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,

@@ -1,5 +1,5 @@
+import 'danmaku_panel.dart';
 import '../player_settings_panel.dart';
-import '../../../shared/widgets/native_glass_surfaces.dart';
 import 'builtin_danmaku_service.dart';
 
 import 'dart:io';
@@ -85,7 +85,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     }
   }
 
-  Future<void> _showBuiltin() => showGlassModalBottomSheet<void>(
+  Future<void> _showBuiltin() => showPlayerContextSheet<void>(
     context: context,
     useSafeArea: true,
     showDragHandle: true,
@@ -133,7 +133,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
   );
 
   Future<void> _chooseType() async {
-    final type = await showGlassModalBottomSheet<String>(
+    final type = await showPlayerContextSheet<String>(
       context: context,
       showDragHandle: true,
       useSafeArea: true,
@@ -163,7 +163,7 @@ class _DanmakuSourcesPageState extends State<DanmakuSourcesPage> {
     );
     if (!mounted || type == null) return;
     if (type == 'plugin') {
-      await showGlassModalBottomSheet<void>(
+      await showPlayerContextSheet<void>(
         context: context,
         showDragHandle: true,
         useSafeArea: true,
