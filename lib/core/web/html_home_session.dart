@@ -15,12 +15,21 @@ class HtmlHomePlayback {
     this.headers,
     this.shareLink, {
     this.password = '',
+    this.playlistId = '',
+    this.itemId = '',
+    this.episodes = const [],
+    this.selected = 0,
+    this.cover,
+    this.description = '',
   });
   final Uri uri;
   final String title;
   final Map<String, String> headers;
   final bool shareLink;
-  final String password;
+  final String password, playlistId, itemId, description;
+  final List<({String title, String line})> episodes;
+  final int selected;
+  final String? cover;
 
   static HtmlHomePlayback parse(Map args) {
     var url = '${args['url'] ?? ''}'.trim();
@@ -34,12 +43,43 @@ class HtmlHomePlayback {
       throw const FormatException('播放地址需为 HTTP(S)、网盘分享或磁力链接');
     }
     final options = args['options'];
+    final playlist = options is Map ? options['playlist'] : null;
+    final episodes = <({String title, String line})>[];
+    var selected = 0;
+    if (playlist != null) {
+      if (playlist is! Map ||
+          playlist['id'] is! String ||
+          (playlist['id'] as String).length > 96 ||
+          playlist['episodes'] is! List ||
+          (playlist['episodes'] as List).isEmpty ||
+          (playlist['episodes'] as List).length > 2000 ||
+          playlist['selected'] is! int) {
+        throw const FormatException('网页选集格式无效');
+      }
+      selected = playlist['selected'] as int;
+      for (final raw in playlist['episodes'] as List) {
+        if (raw is! Map) throw const FormatException('网页剧集格式无效');
+        episodes.add((
+          title: '${raw['title'] ?? ''}',
+          line: '${raw['line'] ?? ''}',
+        ));
+      }
+      if (selected < 0 || selected >= episodes.length) {
+        throw const FormatException('网页选集下标无效');
+      }
+    }
     return HtmlHomePlayback(
       uri,
       '${args['title'] ?? ''}',
       htmlHomeHeaders(options is Map ? options['headers'] : null),
       share,
       password: options is Map ? '${options['password'] ?? ''}' : '',
+      playlistId: playlist is Map ? '${playlist['id']}' : '',
+      itemId: playlist is Map ? '${playlist['itemId'] ?? ''}' : '',
+      episodes: List.unmodifiable(episodes),
+      selected: selected,
+      cover: playlist is Map ? '${playlist['cover'] ?? ''}' : null,
+      description: playlist is Map ? '${playlist['description'] ?? ''}' : '',
     );
   }
 }
@@ -86,6 +126,33 @@ class HtmlHomeSession {
   final Future<Map<String, dynamic>> Function(Map) onChrome;
   Map<String, dynamic> viewport;
   final String _token;
+  final _episodeRequests = <int, Completer<HtmlHomePlayback>>{};
+  int _episodeSequence = 0;
+  Future<HtmlHomePlayback> resolveEpisode(
+    String playlist,
+    int index,
+    Future<void> Function(String) evaluate,
+  ) async {
+    if (_closed) throw StateError('网页已关闭');
+    final job = ++_episodeSequence;
+    final pending = Completer<HtmlHomePlayback>();
+    _episodeRequests[job] = pending;
+    try {
+      unawaited(
+        Future<void>.sync(
+          () => evaluate(
+            'window.__lumeResolveHomeEpisode($job,${jsonEncode(playlist)},$index);',
+          ),
+        ).catchError((Object error, StackTrace stack) {
+          if (!pending.isCompleted) pending.completeError(error, stack);
+        }),
+      );
+      return await pending.future.timeout(const Duration(seconds: 30));
+    } finally {
+      _episodeRequests.remove(job);
+    }
+  }
+
   bool _closed = false;
   int _active = 0;
   static const maxResponseBytes = 8 * 1024 * 1024;
@@ -127,6 +194,9 @@ class HtmlHomeSession {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    for (final request in _episodeRequests.values) {
+      if (!request.isCompleted) request.completeError(StateError('网页已关闭'));
+    }
     _http.dispose();
     await _server.close(force: true);
   }
@@ -307,6 +377,19 @@ class HtmlHomeSession {
             'error': '$error',
           };
         }
+      case 'episode.result':
+        final pending = _episodeRequests[args['job']];
+        if (pending == null || pending.isCompleted) return false;
+        if (args['error'] != null) {
+          pending.completeError(StateError('${args['error']}'));
+        } else {
+          try {
+            pending.complete(HtmlHomePlayback.parse(args['value'] as Map));
+          } catch (error, stack) {
+            pending.completeError(error, stack);
+          }
+        }
+        return true;
       case 'play':
         await onPlay(HtmlHomePlayback.parse(args));
         return {'opened': true};

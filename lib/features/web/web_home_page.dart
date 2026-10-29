@@ -273,12 +273,41 @@ class _WebHomePageState extends State<WebHomePage> {
       title: request.title,
       uri: uri,
       headers: request.headers,
+      episodes: [
+        for (var i = 0; i < request.episodes.length; i++)
+          SourceChapter(
+            id: 'web-episode-$i',
+            title: request.episodes[i].title,
+            line: request.episodes[i].line,
+          ),
+      ],
+      selected: request.selected,
+      cover: request.cover,
+      description: request.description,
+      resolveEpisode: (index) async {
+        final session = _session;
+        if (session == null) throw StateError('网页会话已关闭');
+        final resolved = await session.resolveEpisode(
+          request.playlistId,
+          index,
+          _controller.runJavaScript,
+        );
+        if (resolved.shareLink) throw const FormatException('该剧集需要回到网页打开网盘解析');
+        return VideoContent(url: resolved.uri, headers: resolved.headers);
+      },
     );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => VideoDetailPage(
           source: source,
-          item: SourceItem(id: 'captured-video', title: request.title),
+          item: SourceItem(
+            id: request.itemId.isEmpty ? 'captured-video' : request.itemId,
+            title: request.title,
+            cover: request.cover,
+          ),
+          initialChapterId: request.episodes.isEmpty
+              ? null
+              : 'web-episode-${request.selected}',
           library: library,
           recordHistory: false,
           onPlay: (media, target, qualities, prelaunch) async {
@@ -289,6 +318,8 @@ class _WebHomePageState extends State<WebHomePage> {
                 builder: (_) => VideoPlayerPage(
                   media: media,
                   title: request.title,
+                  source: source,
+                  target: request.episodes.isEmpty ? null : target,
                   library: library,
                   qualities: qualities,
                   prelaunch: prelaunch,

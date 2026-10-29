@@ -131,7 +131,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
         setState(() {
           _iconOrigin = uri.origin;
           _iconRevision++;
-          _iconStatus = '已获取站点图标，点右上角「保存」后使用';
+          _iconStatus = '图标已准备好，点右上角「保存」后使用';
         });
       }
     } catch (e) {
@@ -383,7 +383,7 @@ class _SourcePreferencesPageState extends State<SourcePreferencesPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Text(
-                  '不用自己找图标：一键获取会比较网页、Apple Touch、manifest 和 favicon 的实际像素，优先高清版本。留空自动使用站点图标，找不到时显示站点名字的首字。',
+                  '一键获取会比较网页、Apple Touch、manifest 和 favicon，优先高清版本。部分源已内置图标备用；站点没有可用图标时使用本地源标识，避免只显示首字。自定义图标需点右上角保存。',
                 ),
               ),
               ValueListenableBuilder<TextEditingValue>(

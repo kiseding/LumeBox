@@ -523,6 +523,7 @@ void main() {
       'https://a.com/favicon.ico',
       'https://a.com/favicon.png',
       'https://a.com/apple-touch-icon.png',
+      'https://a.com/static/favicon.ico',
     ]);
   });
 

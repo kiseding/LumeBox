@@ -116,6 +116,7 @@ class VideoPlayerPage extends StatefulWidget {
     this.pipBackend,
     this.brightnessBackend,
     this.sourceManager,
+    this.source,
     this.library,
     this.playbackBackend,
     this.speedMeter,
@@ -159,6 +160,7 @@ class VideoPlayerPage extends StatefulWidget {
 
   /// 图源管理端口（连播 / 弹幕按 id 打开图源用）。为空时用正式实现。
   final SourceManager? sourceManager;
+  final DataSource? source;
 
   /// 本板块阅读库（进度与继续观看）；为空时按板块打开正式实现。
   final ReadingLibrary? library;
@@ -1849,6 +1851,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (existing != null) return existing;
     final sourceId = _target?.sourceId ?? widget.sourceId;
     if (sourceId == null) return null;
+    final provided = widget.source;
+    if (provided != null &&
+        provided.id == sourceId &&
+        provided.section == Section.video) {
+      return _source = provided;
+    }
     final manager =
         widget.sourceManager ??
         (_fallbackManager ??= LumeSources.manager(Section.video));

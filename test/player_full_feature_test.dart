@@ -33,6 +33,7 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/player_settings_sheet.dart';
 import 'package:lume_box/features/video/player_speed_meter.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
+import 'package:lume_box/features/video/direct_video_source.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 import 'package:lume_box/features/video/playback_source_validator.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
@@ -275,6 +276,7 @@ void main() {
       PlaybackSpeedMeter? speedMeter,
       VideoPlayTarget? target,
       SourceManager? sourceManager,
+      DataSource? source,
       PipBackend? pipBackend,
       PlaybackSourceValidator? validator,
       bool fullscreenOnly = false,
@@ -297,6 +299,7 @@ void main() {
             sourceValidator: validator,
             target: target,
             sourceManager: sourceManager,
+            source: source,
             playerFactory: (kernel) {
               final created_ = player ?? _FakePlayer(kernel: kernel);
               created.add(created_);
@@ -308,6 +311,46 @@ void main() {
       await tester.pumpAndSettle();
       return created;
     }
+
+    testWidgets('网页临时图源在播放器切下一集无需从源管理器重新打开', (tester) async {
+      final parsed = <int>[];
+      final source = DirectVideoSource(
+        id: 'web-playlist',
+        name: '网页',
+        title: '兰香如故',
+        uri: Uri.parse('https://fixture.invalid/12.m3u8'),
+        selected: 11,
+        episodes: List.generate(
+          47,
+          (i) => SourceChapter(id: 'e$i', title: '第${i + 1}集'),
+        ),
+        resolveEpisode: (index) async {
+          parsed.add(index);
+          return VideoContent(
+            url: Uri.parse('https://fixture.invalid/${index + 1}.m3u8'),
+          );
+        },
+      );
+      final players = await pump(
+        tester,
+        source: source,
+        target: const VideoPlayTarget(
+          sourceId: 'web-playlist',
+          itemId: 'drama',
+          title: '兰香如故',
+          chapterIndex: 11,
+          chapterId: 'e11',
+          chapterTitle: '第12集',
+        ),
+      );
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('下一集'));
+      await tester.pumpAndSettle();
+      expect(parsed, [12]);
+      expect(players.last.media!.uri.path, '/13.m3u8');
+      await tester.pumpWidget(const SizedBox());
+    });
 
     testWidgets('同剧关闭字幕只记作品偏好，不关闭全局字幕开关', (tester) async {
       const target = VideoPlayTarget(

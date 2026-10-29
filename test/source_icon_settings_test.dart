@@ -113,7 +113,7 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(input).controller!.text, isEmpty);
-    expect(find.text('已获取站点图标，点右上角「保存」后使用'), findsOneWidget);
+    expect(find.text('图标已准备好，点右上角「保存」后使用'), findsOneWidget);
     expect(icons.requestedOrigin, 'https://fixture.example');
     await tester.tap(find.text('保存').first);
     await tester.pumpAndSettle();

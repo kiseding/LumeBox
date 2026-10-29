@@ -24,6 +24,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
+import 'package:lume_box/features/video/direct_video_source.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
@@ -271,6 +272,45 @@ void main() {
     finish.complete();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+  testWidgets('网页47集详情保留目录并从网页选中的第12集开始播放', (tester) async {
+    final web = DirectVideoSource(
+      id: 'web',
+      name: '独狼影视聚合',
+      title: '兰香如故',
+      uri: Uri.parse('https://fixture.invalid/12.m3u8'),
+      selected: 11,
+      episodes: List.generate(
+        47,
+        (i) => SourceChapter(id: 'e$i', title: '第${i + 1}集'),
+      ),
+    );
+    VideoPlayTarget? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: web,
+          item: const SourceItem(id: 'drama47', title: '兰香如故'),
+          initialChapterId: 'e11',
+          library: library,
+          recordHistory: false,
+          onPlay: (_, target, _, _) async => opened = target,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.chapters, hasLength(47));
+    expect(state.selected, 11);
+    final play = find.byKey(const Key('video-detail-play'));
+    await tester.ensureVisible(play);
+    await tester.runAsync(() async {
+      await tester.tap(play);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(opened!.chapterId, 'e11');
+    expect(opened!.chapterIndex, 11);
   });
   testWidgets('网盘诊断不占据标题资料，限制保留且完整详情可以展开', (tester) async {
     await tester.pumpWidget(

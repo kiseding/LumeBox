@@ -55,6 +55,26 @@ String htmlHomeSdk(
       if(typeof url!=='string'||!url.trim())return Promise.reject(new Error('没有可播放的媒体地址'));
       return rpc('play',{url:url,title:title||'',options:options||{}});
     }
+    var playlists=Object.create(null), playlistSequence=0;
+    async function resolveEpisode(detail,episode,resolver){
+      var reference=Object.assign({},episode);
+      Object.defineProperty(reference,'toString',{value:function(){return this.url||this.pageUrl||'';}});
+      var resolved=episode.mediaUrl?{url:episode.mediaUrl}:
+        resolver&&episode.resolve!==false?await resolver(reference):episode;
+      if(typeof resolved==='string')resolved={url:resolved};
+      if(!resolved||!(resolved.mediaUrl||resolved.url))throw new Error('剧集解析未返回媒体地址，请重试或更换线路');
+      return {url:resolved.mediaUrl||resolved.url,
+        title:detail.vod_name||detail.title||episode.name||episode.label||episode.title||'',
+        options:mediaOptions(mediaOptions(detail,episode),resolved)};
+    }
+    window.__lumeResolveHomeEpisode=async function(job,playlist,index){
+      try{
+        var saved=playlists[playlist];
+        if(!saved||!saved.episodes[index])throw new Error('网页选集已失效，请重新打开作品');
+        var value=await resolveEpisode(saved.detail,saved.episodes[index],saved.resolver);
+        await rpc('episode.result',{job:job,value:value});
+      }catch(error){await rpc('episode.result',{job:job,error:String(error.message||error)});}
+    };
     var storageWrites=Promise.resolve();
     function persist(method,args){
       storageWrites=storageWrites.then(function(){return rpc(method,args);}).catch(function(){});
@@ -94,17 +114,16 @@ String htmlHomeSdk(
         var episode=episodes.find(function(e){return e.active;})||
           episodes.find(function(e){return (e.name||e.label||e.title)===detail.mark;})||episodes[0];
         if(!episode)throw new Error('没有可播放的剧集');
-        // Older WebHome resolvers call String(episode) to inspect a custom
-        // scheme, while newer resolvers read episode.url/pageUrl/headers.
-        var reference=Object.assign({},episode);
-        Object.defineProperty(reference,'toString',{value:function(){return this.url||this.pageUrl||'';}});
-        var resolved=episode.mediaUrl?{url:episode.mediaUrl}:
-          window.__fmWebHomeInlineResolver&&episode.resolve!==false?
-          await window.__fmWebHomeInlineResolver(reference):episode;
-        if(typeof resolved==='string')resolved={url:resolved};
-        if(!resolved||!(resolved.mediaUrl||resolved.url))throw new Error('剧集解析未返回媒体地址，请重试或更换线路');
-        return play(resolved.mediaUrl||resolved.url,detail.vod_name||detail.title||episode.name||episode.label||episode.title||'',
-          mediaOptions(mediaOptions(detail,episode),resolved));
+        var index=episodes.indexOf(episode), id='playlist-'+(++playlistSequence);
+        var resolver=window.__fmWebHomeInlineResolver;
+        var value=await resolveEpisode(detail,episode,resolver);
+        playlists[id]={detail:Object.assign({},detail),episodes:episodes,resolver:resolver};
+        value.options.playlist={id:id,selected:index,
+          itemId:String(detail.vod_id||detail.id||detail.vod_name||detail.title||id),
+          cover:detail.pic||detail.vod_pic||detail.wallPic||'',
+          description:detail.description||detail.vod_content||'',
+          episodes:episodes.map(function(e,i){return {title:e.name||e.label||e.title||('第'+(i+1)+'集'),line:e.line||e.flag||''};})};
+        return rpc('play',value);
       },
       cache:{
         get:function(key,scope){return rpc('cache.get',{key:String(key),scope:scope||''});},

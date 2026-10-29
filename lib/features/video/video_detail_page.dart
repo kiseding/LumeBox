@@ -88,7 +88,9 @@ class VideoDetailPage extends StatefulWidget {
     required this.library,
     required this.onPlay,
     this.prelaunch,
+    this.initialChapterId,
   });
+  final String? initialChapterId;
   final DataSource? source;
   final Future<DataSource?> Function()? loadSource;
   final String? sourceId;
@@ -106,6 +108,7 @@ class VideoDetailPage extends StatefulWidget {
 class _VideoDetailPageState extends State<VideoDetailPage>
     with NetworkOwnedState<VideoDetailPage> {
   late final tmdb = TmdbDetailController(widget.item.title, autoLoad: false);
+  bool _initialChapterApplied = false;
   DataSource? _source;
   DataSource? _updatedSource;
   Object? _playFailure;
@@ -249,15 +252,21 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         widget.item.id,
         sourceId: _source?.id ?? widget.sourceId,
       );
+      final initialChapter = _initialChapterApplied
+          ? null
+          : widget.initialChapterId;
+      _initialChapterApplied = true;
       final grouped = VideoEpisodeCatalog.group(episodes);
       final resumed = episodes
-          .where((e) => e.id == saved?.chapterId)
+          .where((e) => e.id == (initialChapter ?? saved?.chapterId))
           .firstOrNull;
       final line = resumed == null
           ? grouped.keys.firstOrNull ?? ''
           : VideoEpisodeCatalog.lineOf(resumed);
       final activeEpisodes = grouped[line] ?? <SourceChapter>[];
-      var index = activeEpisodes.indexWhere((e) => e.id == saved?.chapterId);
+      var index = activeEpisodes.indexWhere(
+        (e) => e.id == (initialChapter ?? saved?.chapterId),
+      );
       if (index < 0) index = 0;
       setState(() {
         lineResume = null;

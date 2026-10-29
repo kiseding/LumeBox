@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/services.dart';
 import 'package:xml/xml.dart';
 
 import 'package:crypto/crypto.dart';
@@ -89,6 +90,83 @@ class SourceFavicon {
 
   int _activeResolutions = 0;
   final _waitingResolutions = Queue<Completer<void>>();
+  static Future<Map<String, dynamic>>? _bundledIndex;
+
+  static Future<({Uint8List bytes, bool label})?> _bundled(String? id) async {
+    if (id == null) return null;
+    try {
+      final index = await (_bundledIndex ??= rootBundle
+          .loadString('assets/source_icons/index.json')
+          .then((text) => Map<String, dynamic>.from(jsonDecode(text) as Map)));
+      final entry = index[id];
+      if (entry is! Map) return null;
+      if (entry['kind'] == 'label') {
+        final labels = (entry['labels'] as List)
+            .whereType<String>()
+            .take(2)
+            .toList();
+        return (bytes: await _labelPng(labels), label: true);
+      }
+      final file = '${entry['file']}';
+      if (!RegExp(r'^[a-z0-9_-]+\.(png|svg)$').hasMatch(file)) return null;
+      final data = await rootBundle.load('assets/source_icons/$file');
+      final bytes = data.buffer.asUint8List(
+        data.offsetInBytes,
+        data.lengthInBytes,
+      );
+      final png = file.endsWith('.svg') ? await _svgPng(bytes) : bytes;
+      return png == null ? null : (bytes: png, label: entry['kind'] == 'label');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // A local source label is deliberately distinct from an acquired site logo.
+  // Draw text with the platform font so Chinese labels work on iOS as well.
+  static Future<Uint8List> _labelPng(List<String> labels) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        const ui.Rect.fromLTWH(0, 0, 192, 192),
+        const ui.Radius.circular(38),
+      ),
+      ui.Paint()..color = const ui.Color(0xFFEEEAFB),
+    );
+    for (var i = 0; i < labels.length; i++) {
+      final paragraph =
+          (ui.ParagraphBuilder(
+                  ui.ParagraphStyle(
+                    textAlign: ui.TextAlign.center,
+                    fontSize: labels[i].length > 4 ? 30 : 48,
+                    fontWeight: ui.FontWeight.w700,
+                  ),
+                )
+                ..pushStyle(ui.TextStyle(color: const ui.Color(0xFF6A52E5)))
+                ..addText(labels[i]))
+              .build()
+            ..layout(const ui.ParagraphConstraints(width: 192));
+      canvas.drawParagraph(
+        paragraph,
+        ui.Offset(
+          0,
+          labels.length == 1 ? (192 - paragraph.height) / 2 : 36.0 + i * 60,
+        ),
+      );
+    }
+    final picture = recorder.endRecording();
+    try {
+      final image = await picture.toImage(192, 192);
+      try {
+        final data = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      } finally {
+        image.dispose();
+      }
+    } finally {
+      picture.dispose();
+    }
+  }
 
   Future<Uint8List?> _resolveBounded({
     required String origin,
@@ -97,6 +175,10 @@ class SourceFavicon {
     String? sourceId,
     bool bestQuality = false,
   }) async {
+    final bundled = await _bundled(sourceId);
+    if (!bestQuality && explicit.isEmpty && bundled != null) {
+      return bundled.bytes;
+    }
     if (_activeResolutions >= 2) {
       final ready = Completer<void>();
       if (bestQuality) {
@@ -111,18 +193,24 @@ class SourceFavicon {
     try {
       if (bestQuality) {
         return await _resolveBest(
-          origin: origin,
-          explicit: explicit,
-          section: section,
-          sourceId: sourceId,
-        );
+              origin: origin,
+              explicit: explicit,
+              section: section,
+              sourceId: sourceId,
+              baseline: bundled?.label == false && explicit.isEmpty
+                  ? bundled?.bytes
+                  : null,
+              ignoreCache: bundled?.label == true,
+            ) ??
+            bundled?.bytes;
       }
       return await _resolve(
-        origin: origin,
-        explicit: explicit,
-        section: section,
-        sourceId: sourceId,
-      );
+            origin: origin,
+            explicit: explicit,
+            section: section,
+            sourceId: sourceId,
+          ) ??
+          bundled?.bytes;
     } finally {
       if (_waitingResolutions.isNotEmpty) {
         _waitingResolutions.removeFirst().complete();
@@ -157,7 +245,9 @@ class SourceFavicon {
     Section? section,
     String? sourceId,
   }) {
-    final key = _key(origin, explicit);
+    final key = _key(origin, explicit).isEmpty && sourceId != null
+        ? 'source:$sourceId'
+        : _key(origin, explicit);
     if (key.isEmpty) return Future.value();
     final running = _bestInflight[key];
     if (running != null) return running;
@@ -213,7 +303,9 @@ class SourceFavicon {
     Section? section,
     String? sourceId,
   }) {
-    final key = _key(origin, explicit);
+    final key = _key(origin, explicit).isEmpty && sourceId != null
+        ? 'source:$sourceId'
+        : _key(origin, explicit);
     if (key.isEmpty) return Future<Uint8List?>.value();
     if (_cache.containsKey(key)) {
       return Future<Uint8List?>.value(_cache[key]);
@@ -434,8 +526,11 @@ class SourceFavicon {
     required List<String> explicit,
     Section? section,
     String? sourceId,
+    Uint8List? baseline,
+    bool ignoreCache = false,
   }) async {
-    Uint8List? best = _cache[_key(origin, explicit)];
+    Uint8List? best =
+        baseline ?? (ignoreCache ? null : _cache[_key(origin, explicit)]);
     var quality = best == null ? 0 : await compute(_pixelQuality, best);
     final candidates = <String>{};
     var referer = origin;
@@ -541,6 +636,7 @@ class SourceFavicon {
         '/favicon.ico',
         '/favicon.png',
         '/apple-touch-icon.png',
+        '/static/favicon.ico',
       ]) {
         out.add('$site$path');
       }

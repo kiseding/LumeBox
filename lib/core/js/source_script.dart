@@ -317,6 +317,12 @@ class SourceMetadata {
   ///
   static String? _normalizeSection(String declared) {
     final value = declared.trim().toLowerCase();
+    // Repository content types share the existing reader/player sections;
+    // they do not create separate databases or bypass cross-section checks.
+    if (const ['photo', '美图'].contains(value)) return Section.comic.id;
+    if (const ['audiobook', '有声小说', '有声'].contains(value)) {
+      return Section.video.id;
+    }
     for (final section in Section.values) {
       if (section.id.toLowerCase() == value) return section.id;
       if (section.label == declared.trim()) return section.id;

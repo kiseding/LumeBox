@@ -3,6 +3,12 @@ param([switch]$PrepareNative)
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
+  & python tool/prepare_intro_models.py
+  if ($LASTEXITCODE -ne 0) { throw 'Intro model asset preparation failed.' }
+  & python tool/prepare_speech_assets.py
+  if ($LASTEXITCODE -ne 0) { throw 'Speech asset preparation failed.' }
+  & python tool/test_compact_assets.py
+  if ($LASTEXITCODE -ne 0) { throw 'Resource packing tests failed.' }
   & flutter analyze --no-pub --fatal-infos lib test
   if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed; build blocked.' }
   if ($PrepareNative) {

@@ -94,4 +94,49 @@ void main() {
     ) as VideoContent;
     expect(content.headers['Referer'], 'https://fixture.test/page');
   });
+
+  test('网页整剧保留全部选集，首播复用地址，切集与重试重新解析', () async {
+    final resolved = <int>[];
+    final source = DirectVideoSource(
+      id: 'web',
+      name: '网页',
+      title: '兰香如故',
+      uri: Uri.parse('https://fixture.test/12.m3u8'),
+      selected: 11,
+      episodes: List.generate(
+        47,
+        (i) => SourceChapter(id: 'e$i', title: '第${i + 1}集', line: '4K'),
+      ),
+      resolveEpisode: (index) async {
+        resolved.add(index);
+        return VideoContent(
+          url: Uri.parse('https://fixture.test/${index + 1}.m3u8'),
+        );
+      },
+    );
+    final chapters = await source.chapters('drama');
+    expect(chapters, hasLength(47));
+    expect(VideoEpisodeCatalog.forChapter(chapters, 'e11'), hasLength(47));
+    expect(
+      (await source.content(
+        itemId: 'drama',
+        chapterId: 'e11',
+      ) as VideoContent).url.path,
+      '/12.m3u8',
+    );
+    expect(resolved, isEmpty);
+    expect(
+      (await source.content(
+        itemId: 'drama',
+        chapterId: 'e12',
+      ) as VideoContent).url.path,
+      '/13.m3u8',
+    );
+    await source.content(itemId: 'drama', chapterId: 'e11');
+    expect(resolved, [12, 11]);
+    await expectLater(
+      source.content(itemId: 'drama', chapterId: 'missing'),
+      throwsFormatException,
+    );
+  });
 }

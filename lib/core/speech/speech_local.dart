@@ -86,6 +86,17 @@ class SpeechLocalModel extends ChangeNotifier {
       staging = await parent.createTemp('prepare-');
       final archive = File('${staging.path}/pack.tar.bz2');
       final manifest = await _manifest;
+      Map<String, dynamic>? bundled;
+      if (picked == null) {
+        bundled = jsonDecode(
+          await rootBundle.loadString('$assets/runtime/manifest.json'),
+        ) as Map<String, dynamic>;
+        if (bundled['sourceSha256'] != manifest['archiveSha256']) {
+          throw const FormatException('内置音色版本不匹配');
+        }
+      }
+      final expectedArchive =
+          bundled?['archiveSha256'] ?? manifest['archiveSha256'];
       if (picked != null) {
         await picked.saveTo(archive.path);
       } else {
@@ -93,10 +104,10 @@ class SpeechLocalModel extends ChangeNotifier {
         // rather than opening a file picker or downloading it again.
         final sink = archive.openWrite();
         try {
-          for (final part in manifest['parts'] as List) {
+          for (final part in bundled!['parts'] as List) {
             final ByteData bytes;
             try {
-              bytes = await rootBundle.load('$assets/${part['name']}');
+              bytes = await rootBundle.load('$assets/runtime/${part['name']}');
             } catch (_) {
               throw const FormatException('内置音色资源缺失，请选择从文件安装');
             }
@@ -119,7 +130,7 @@ class SpeechLocalModel extends ChangeNotifier {
       await Isolate.run(() async {
         if ((await sha256.bind(File('$path/pack.tar.bz2').openRead()).first)
                 .toString() !=
-            manifest['archiveSha256']) {
+            expectedArchive) {
           throw const FormatException('模型压缩包校验失败');
         }
         final input = InputFileStream('$path/pack.tar.bz2');
