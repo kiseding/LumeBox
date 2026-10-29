@@ -252,15 +252,13 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                   onPressed: _locateCurrent,
                   icon: const Icon(Icons.my_location, size: 20),
                 ),
-                TextButton(
+                IconButton(
+                  tooltip: _reverse ? '倒序' : '正序',
                   onPressed: () {
                     setState(() => _reverse = !_reverse);
                     _locateCurrent();
                   },
-                  child: Text(
-                    _reverse ? '倒序' : '正序',
-                    style: const TextStyle(fontSize: 13),
-                  ),
+                  icon: const Icon(Icons.swap_vert, size: 20),
                 ),
               ],
             ),
@@ -670,6 +668,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
           if (!_qualityOnly) const Divider(height: 1),
           if (!_qualityOnly)
             ExpansionTile(
+              minTileHeight: 40,
               tilePadding: EdgeInsets.zero,
               title: const Text('播放信息', style: TextStyle(fontSize: 13)),
               children: [

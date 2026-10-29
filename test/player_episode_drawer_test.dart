@@ -66,7 +66,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('第120集'), findsOneWidget);
-      await tester.tap(find.text('正序'));
+      await tester.tap(find.byTooltip('正序'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('第119集'));
       await tester.pumpAndSettle();
