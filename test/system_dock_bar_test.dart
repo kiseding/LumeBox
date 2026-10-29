@@ -128,11 +128,11 @@ void main() {
 
   test('导航默认值采用用户截图参数，明确保存的系统高度和零留白仍保留', () {
     const defaults = NativeNavigationSettings();
-    expect(defaults.barHeight, 90);
-    expect(defaults.iconSize, 24);
-    expect(defaults.horizontalMargin, 10);
-    expect(defaults.safeGap, -31);
-    expect(defaults.materialOpacity, .6);
+    expect(defaults.barHeight, 85);
+    expect(defaults.iconSize, 22);
+    expect(defaults.horizontalMargin, 3);
+    expect(defaults.safeGap, -36);
+    expect(defaults.materialOpacity, .62);
     expect(defaults.opaqueBackground, isFalse);
     expect(defaults.showLabels && defaults.followThemeColor, isTrue);
     expect(NativeNavigationSettings.fromJson({}), defaults);
@@ -195,8 +195,8 @@ void main() {
       'tintColor': -1,
       'showLabels': 'bad',
     });
-    expect(parsed.iconSize, 24);
-    expect(parsed.safeGap, -31);
+    expect(parsed.iconSize, 22);
+    expect(parsed.safeGap, -36);
     expect(parsed.horizontalMargin, 40);
     expect(parsed.tintColor, 0xFF7C5CFF);
     expect(parsed.showLabels, isTrue);
@@ -222,7 +222,7 @@ void main() {
     expect(value.heightFor(64), 88);
     expect(value.bottomFor(34), 0);
     expect(value.copyWith(safeGap: -12).bottomFor(34), 22);
-    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 90);
+    expect(NativeNavigationSettings.fromJson({}).heightFor(64), 85);
     final bounded = NativeNavigationSettings.fromJson({
       'barHeight': 999,
       'safeGap': -999,
@@ -240,7 +240,7 @@ void main() {
     );
     expect(
       NativeNavigationSettings.fromJson({'barHeight': double.nan}).barHeight,
-      90,
+      85,
     );
   });
 
@@ -400,9 +400,9 @@ void main() {
     expect(find.byType(SystemDockBar), findsOneWidget);
     final page = tester.element(find.text('page-comic'));
     final scope = ShellDockScope.maybeScopeOf(page)!;
-    expect(scope.navigationHeight, 90);
-    expect(scope.dockBottom, 3);
-    expect(scope.dockInset, 101);
+    expect(scope.navigationHeight, 85);
+    expect(scope.dockBottom, 0);
+    expect(scope.dockInset, 93);
     final creations = harness.created.length;
     ShellSettingsController.instance.updateNativeNavigation(
       const NativeNavigationSettings(safeGap: 12, horizontalMargin: 16),
@@ -685,6 +685,19 @@ void main() {
     expect(saved.barHeight, 88);
     expect(saved.safeGap, -50);
     expect(saved.enabled, isTrue);
+    final reset = find.byKey(const ValueKey('native-navigation-reset'));
+    await tester.ensureVisible(reset);
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+    expect(
+      controller.settings.nativeNavigation,
+      const NativeNavigationSettings(),
+    );
+    expect(FloatingModules.instance.style(FloatingModule.home).opacity, .95);
+    expect(
+      FloatingModules.instance.style(FloatingModule.navigation).opacity,
+      .95,
+    );
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('native-navigation-enabled')),
       -300,

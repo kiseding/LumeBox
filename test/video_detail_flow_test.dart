@@ -1090,6 +1090,10 @@ void main() {
           find.byKey(const Key('video-detail-poster-color-background')),
         )
         .color;
+    expect(
+      find.byKey(const Key('video-detail-surface-gradient')),
+      findsOneWidget,
+    );
     final tone = HSVColor.fromColor(background);
     expect(tone.hue < 15 || tone.hue > 345, isTrue);
     expect(tone.saturation, greaterThan(.5));
@@ -1102,7 +1106,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
+  testWidgets('详情使用同一海报色相渐变，不叠加另一张横版图，开关可关闭', (tester) async {
     final settings = TmdbSettings.instance;
     final oldEnabled = settings.enabled;
     final oldBackdrop = settings.detailBackdropEnabled;

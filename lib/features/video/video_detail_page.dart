@@ -1028,7 +1028,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
         style: TextButton.styleFrom(
           foregroundColor: Colors.white,
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(44, 40),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         ),
@@ -2619,6 +2619,30 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     child: Stack(
                       key: const Key('video-detail-immersive'),
                       children: [
+                        if (tmdb.settings.detailBackdropEnabled &&
+                            _coverColor != null)
+                          SizedBox(
+                            width: double.infinity,
+                            height: constraints.maxHeight,
+                          ),
+                        if (tmdb.settings.detailBackdropEnabled &&
+                            _coverColor != null)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: artworkHeight + constraints.maxWidth * .65,
+                            child: IgnorePointer(
+                              child: DecoratedBox(
+                                key: const Key('video-detail-surface-gradient'),
+                                decoration: BoxDecoration(
+                                  gradient: detailPosterSurfaceGradient(
+                                    _pageColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         Positioned(
                           top: 0,
                           left: 0,

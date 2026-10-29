@@ -40,7 +40,7 @@ class FloatingStyle {
       module == FloatingModule.dock
       ? dockDefault
       : module == FloatingModule.navigation || module == FloatingModule.home
-      ? const FloatingStyle(opacity: .9)
+      ? const FloatingStyle(opacity: .95)
       : const FloatingStyle();
 
   final double opacity, x, y, blur;
@@ -115,7 +115,9 @@ class FloatingModules extends ChangeNotifier {
               if ((module == FloatingModule.home ||
                       module == FloatingModule.navigation) &&
                   data['_topGlassVersion'] != 1) {
-                _styles[module] = _styles[module]!.copyWith(opacity: .9);
+                _styles[module] = _styles[module]!.copyWith(
+                  opacity: FloatingStyle.defaultFor(module).opacity,
+                );
               }
             }
           }

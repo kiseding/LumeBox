@@ -4,6 +4,21 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+/// Continue the poster tone through the synopsis into a deeper episode surface.
+/// The image is opaque above this layer; the tint becomes visible as it fades.
+LinearGradient detailPosterSurfaceGradient(Color color) {
+  final tone = HSLColor.fromColor(color);
+  final lifted = tone
+      .withLightness(tone.lightness + (1 - tone.lightness) * .08)
+      .toColor();
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    stops: const [0, .48, 1],
+    colors: [lifted, lifted, color],
+  );
+}
+
 /// Preserve the poster's hue in a quiet, readable page surface.
 Color compactPosterPageColor(Color poster, {required Brightness brightness}) {
   final tone = HSLColor.fromColor(poster);
@@ -151,14 +166,12 @@ class _PosterFadeRender extends RenderProxyBox {
           ..shader = LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            stops: [0, .55, .83, .98],
+            stops: const [0, .48, .64, .78, .90, .97, 1],
             colors: [
-              Colors.white,
-              Colors.white,
-              Colors.white.withAlpha(
-                (255 * math.pow(154 / 255, strength)).round(),
-              ),
-              Colors.transparent,
+              for (final alpha in [1.0, 1.0, .93, .72, .36, .08, 0.0])
+                Colors.white.withAlpha(
+                  (255 * math.pow(alpha, strength)).round(),
+                ),
             ],
           ).createShader(rect),
       );

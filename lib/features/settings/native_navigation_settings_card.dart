@@ -297,7 +297,23 @@ class _NativeNavigationSettingsCardState
           ),
           TextButton(
             key: const ValueKey('native-navigation-reset'),
-            onPressed: () => _change(const NativeNavigationSettings()),
+            onPressed: () {
+              _change(const NativeNavigationSettings());
+              for (final module in [
+                FloatingModule.navigation,
+                FloatingModule.home,
+              ]) {
+                FloatingModules.instance.set(
+                  module,
+                  FloatingModules.instance
+                      .style(module)
+                      .copyWith(
+                        opacity: FloatingStyle.defaultFor(module).opacity,
+                      ),
+                );
+              }
+              FloatingModules.instance.save();
+            },
             child: const Text('恢复原生导航默认参数'),
           ),
         ],

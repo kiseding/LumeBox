@@ -5,11 +5,11 @@ class NativeNavigationSettings {
     this.showLabels = true,
     this.followThemeColor = true,
     this.tintColor = 0xFF7C5CFF,
-    this.iconSize = 24,
-    this.horizontalMargin = 10,
-    this.safeGap = -31,
-    this.barHeight = 90,
-    this.materialOpacity = .6,
+    this.iconSize = 22,
+    this.horizontalMargin = 3,
+    this.safeGap = -36,
+    this.barHeight = 85,
+    this.materialOpacity = .62,
     this.opaqueBackground = false,
   });
 
@@ -91,11 +91,11 @@ class NativeNavigationSettings {
       tintColor: tint is int && tint >= 0 && tint <= 0xFFFFFFFF
           ? tint | 0xFF000000
           : 0xFF7C5CFF,
-      iconSize: number('iconSize', 24, 18, 30),
-      horizontalMargin: number('horizontalMargin', 10, 0, 40),
-      safeGap: number('safeGap', -31, -100, 100),
-      barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 90, 40, 120),
-      materialOpacity: number('materialOpacity', .6, 0, 1),
+      iconSize: number('iconSize', 22, 18, 30),
+      horizontalMargin: number('horizontalMargin', 3, 0, 40),
+      safeGap: number('safeGap', -36, -100, 100),
+      barHeight: value['barHeight'] == 0 ? 0 : number('barHeight', 85, 40, 120),
+      materialOpacity: number('materialOpacity', .62, 0, 1),
       opaqueBackground: value['opaqueBackground'] == true,
     );
   }

@@ -60,6 +60,13 @@ void main() {
     final bright = await capture(1, 0);
     final dim = await capture(.5, 0);
     final faded = await capture(.5, 3);
+    final gradual = await capture(1, 1);
+    int baseContribution(int y) => gradual.getUint8((y * 100 + 50) * 4 + 2);
+    expect(baseContribution(60), greaterThan(0));
+    expect(baseContribution(75), greaterThan(baseContribution(60)));
+    expect(baseContribution(90), greaterThan(baseContribution(75)));
+    expect(baseContribution(99), greaterThan(baseContribution(90)));
+    expect(baseContribution(99), greaterThanOrEqualTo(240));
     final top = (10 * 100 + 50) * 4;
     final bottom = (99 * 100 + 50) * 4;
     expect(bright.getUint8(top), greaterThan(250));
@@ -67,6 +74,59 @@ void main() {
     expect(dim.getUint8(bottom + 2), 0);
     expect(faded.getUint8(bottom + 2), greaterThan(240));
   });
+  testWidgets('正文底色沿同一色相逐步加深，末端衔接页面底色', (tester) async {
+    const base = Color(0xff542424);
+    final key = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: RepaintBoundary(
+            key: key,
+            child: SizedBox(
+              width: 100,
+              height: 200,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: detailPosterSurfaceGradient(base),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final bytes = (await tester.runAsync(() async {
+      final image =
+          await (key.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary)
+              .toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+      return bytes;
+    }))!;
+    Color pixel(int y) {
+      final i = (y * 100 + 50) * 4;
+      return Color.fromARGB(
+        255,
+        bytes.getUint8(i),
+        bytes.getUint8(i + 1),
+        bytes.getUint8(i + 2),
+      );
+    }
+
+    expect(
+      pixel(100).computeLuminance(),
+      greaterThan(pixel(150).computeLuminance()),
+    );
+    expect(
+      pixel(150).computeLuminance(),
+      greaterThan(pixel(199).computeLuminance()),
+    );
+    expect((pixel(199).r - base.r).abs(), lessThan(2 / 255));
+    expect((pixel(199).g - base.g).abs(), lessThan(2 / 255));
+    expect(pixel(150).r, greaterThan(pixel(150).b));
+  });
+
   test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
     final lightColors = <Color>{};
     for (final seed in [
