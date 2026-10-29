@@ -76,6 +76,30 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('重复分类只保留上排，不同 id 表达方式仍能切换，保留独立筛选', (tester) async {
+    final source = _DuplicateCategorySource();
+    await show(
+      tester,
+      FakeSourceManager(
+        sources: const [
+          SourceDescriptor(id: 'a', name: '图集', version: '1', enabled: true),
+        ],
+        opened: {'a': source},
+      ),
+    );
+    expect(find.text('亚洲色图'), findsOneWidget);
+    expect(find.text('欧美色图'), findsOneWidget);
+    expect(find.text('分类'), findsNothing);
+    expect(find.text('地区'), findsOneWidget);
+    await tester.tap(find.text('欧美色图'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('其他地区'));
+    await tester.pumpAndSettle();
+    expect(source.requests.last.$1, 'cid:23');
+    expect(source.requests.last.$2, {'region': 'other'});
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('源分类在筛选上方，选择原始 id 下发；滚动视口铺到最底边', (tester) async {
     final source = _FilterSource('a', '网站大分类', '网站地区', '网站选项');
     final manager = FakeSourceManager(
@@ -326,4 +350,30 @@ class _FilterSource extends FakeReadingDataSource implements FilterCapable {
       hasMore: false,
     );
   }
+}
+
+class _DuplicateCategorySource extends _FilterSource {
+  _DuplicateCategorySource() : super('a', '分类', '分类', '条件');
+  @override
+  Future<List<SourceCategory>> categories() async => const [
+    SourceCategory(id: 'cid:22', title: '亚洲色图'),
+    SourceCategory(id: 'cid:23', title: '欧美色图'),
+  ];
+  @override
+  Future<List<SourceFilterGroup>> filters() async => const [
+    SourceFilterGroup(
+      id: 'category',
+      title: '分类',
+      options: [
+        SourceFilterOption(id: '', title: '全部'),
+        SourceFilterOption(id: '22', title: '亚洲色图'),
+        SourceFilterOption(id: '23', title: '欧美色图'),
+      ],
+    ),
+    SourceFilterGroup(
+      id: 'region',
+      title: '地区',
+      options: [SourceFilterOption(id: 'other', title: '其他地区')],
+    ),
+  ];
 }

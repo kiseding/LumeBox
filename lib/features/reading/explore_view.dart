@@ -522,6 +522,20 @@ class _ExploreViewState extends State<ExploreView>
                     group.options.any((option) => option.id == value),
               ),
             );
+          for (final group in _filterGroups.where(_duplicatesCategories)) {
+            final selected = _facetFilters.remove(group.id);
+            final option = group.options
+                .where((o) => o.id == selected)
+                .firstOrNull;
+            if (_categoryId == null && option != null) {
+              _categoryId = _categories
+                  .where(
+                    (c) => sourceLabel(c.title) == sourceLabel(option.title),
+                  )
+                  .firstOrNull
+                  ?.id;
+            }
+          }
         });
       } catch (error) {
         if (error is! NetworkCancelled) {
@@ -531,11 +545,45 @@ class _ExploreViewState extends State<ExploreView>
     })();
   }
 
+  bool _duplicatesCategories(SourceFilterGroup group) {
+    String label(String text) => sourceLabel(text).trim().toLowerCase();
+    const all = {'全部', '不限', '所有', 'all'};
+    final categories = _categories
+        .map((c) => label(c.title))
+        .where((v) => !all.contains(v))
+        .toSet();
+    final options = group.options
+        .map((o) => label(o.title))
+        .where((v) => !all.contains(v))
+        .toSet();
+    // 站点常用 cid:22 做主分类、22 做筛选值，名称集合一致才认作重复。
+    return categories.isNotEmpty &&
+        categories.length == options.length &&
+        categories.containsAll(options);
+  }
+
+  Iterable<SourceFilterGroup> get _distinctFilterGroups =>
+      _filterGroups.where((group) => !_duplicatesCategories(group));
+
+  void _selectPrimaryCategory(String? id) {
+    setState(() {
+      _homeBrowseMode = null;
+      _categoryId = id;
+      _facetFilters = Map.of(_facetFilters)
+        ..remove('tid')
+        ..remove('class');
+      for (final group in _filterGroups.where(_duplicatesCategories)) {
+        _facetFilters.remove(group.id);
+      }
+    });
+    unawaited(_refresh());
+  }
+
   Future<void> _openCombinedFilters() async {
     final selected = await showBrowseFilters(
       context: context,
       categories: _categories,
-      groups: _filterGroups,
+      groups: _distinctFilterGroups.toList(),
       category: _categoryId,
       filters: _facetFilters,
     );
@@ -565,53 +613,30 @@ class _ExploreViewState extends State<ExploreView>
           choices: _categories,
           onOpen: _openCombinedFilters,
           selectedId: _categoryId,
-          onSelected: (id) {
-            setState(() {
-              _homeBrowseMode = null;
-              _categoryId = id;
-              _facetFilters = Map.of(_facetFilters)
-                ..remove('tid')
-                ..remove('class');
-            });
-            unawaited(_refresh());
-          },
+          onSelected: _selectPrimaryCategory,
           child: SizedBox(
             height: 34,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _facetChip('全部', _categoryId == null, () {
-                  setState(() {
-                    _homeBrowseMode = null;
-                    _categoryId = null;
-                    _facetFilters = Map.of(_facetFilters)
-                      ..remove('tid')
-                      ..remove('class');
-                  });
-                  unawaited(_refresh());
-                }),
+                _facetChip(
+                  '全部',
+                  _categoryId == null,
+                  () => _selectPrimaryCategory(null),
+                ),
                 for (final category in _categories.where(
                   (c) => c.title != '全部',
                 ))
                   _facetChip(
                     sourceLabel(category.title),
                     _categoryId == category.id,
-                    () {
-                      setState(() {
-                        _homeBrowseMode = null;
-                        _categoryId = category.id;
-                        _facetFilters = Map.of(_facetFilters)
-                          ..remove('tid')
-                          ..remove('class');
-                      });
-                      unawaited(_refresh());
-                    },
+                    () => _selectPrimaryCategory(category.id),
                   ),
               ],
             ),
           ),
         ),
-      for (final group in _filterGroups)
+      for (final group in _distinctFilterGroups)
         Row(
           children: [
             Padding(
