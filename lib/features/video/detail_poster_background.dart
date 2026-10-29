@@ -3,33 +3,23 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-/// Keep the bottom poster's natural tone instead of forcing every image dark.
+/// Dim the sampled poster tone into a neutral cinematic surface. Bright blue
+/// scenery should not turn the entire synopsis and episode area blue.
 Color? immersivePosterPageColor(
   List<(Color, int)> swatches, {
   Color? darkMuted,
   Color? dominant,
 }) {
-  final colored = swatches.where((entry) {
-    final tone = HSLColor.fromColor(entry.$1);
-    return tone.saturation >= .32 &&
-        tone.lightness >= .19 &&
-        tone.lightness <= .6;
-  }).toList()..sort((a, b) => b.$2.compareTo(a.$2));
-  final dominantTone = dominant == null ? null : HSLColor.fromColor(dominant);
-  final chosen = dominantTone != null && dominantTone.lightness >= .24
-      ? dominant
-      : colored.firstOrNull?.$1 ?? darkMuted ?? dominant;
+  final ranked = [...swatches]..sort((a, b) => b.$2.compareTo(a.$2));
+  final chosen = darkMuted ?? dominant ?? ranked.firstOrNull?.$1;
   if (chosen == null) return null;
   final tone = HSLColor.fromColor(chosen);
-  var surface = tone
-      .withSaturation(tone.saturation.clamp(0, .45))
-      .withLightness(tone.lightness.clamp(.24, .48))
-      .withAlpha(1);
-  // White detail labels still need contrast on bright yellow/green posters.
-  while (surface.toColor().computeLuminance() > .18) {
-    surface = surface.withLightness(surface.lightness - .005);
-  }
-  return surface.toColor();
+  final tint = tone
+      .withSaturation((tone.saturation * .25).clamp(0, .12))
+      .withLightness(.14)
+      .withAlpha(1)
+      .toColor();
+  return Color.alphaBlend(const Color(0xA624222C), tint);
 }
 
 /// Preserve the poster's hue in a quiet, readable page surface.

@@ -124,6 +124,7 @@ flutter:
     - assets/shaders/comic_glass.frag
   assets:
     - assets/source_icons/
+    - assets/branding/
     - assets/rex/lumebox_demo.js
     - assets/reference/
     - assets/js/

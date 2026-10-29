@@ -192,6 +192,44 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
+  testWidgets('沉浸详情的TMDB标识和评分居中放在播放按钮下，不挤占年份行', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'brand', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.tmdb.metadata = const TmdbMetadata(
+      overview: '',
+      posters: [],
+      rating: 8.7,
+      year: '2026',
+    );
+    state.tmdb.notifyListeners();
+    await tester.pumpAndSettle();
+    final badge = find.byKey(const Key('video-detail-tmdb-status'));
+    expect(badge, findsOneWidget);
+    expect(find.text('8.7'), findsOneWidget);
+    expect(find.textContaining('★ 8.7'), findsNothing);
+    expect(find.byIcon(Icons.verified_outlined), findsNothing);
+    expect(tester.getCenter(badge).dx, closeTo(220, 1));
+    expect(
+      tester.getTopLeft(badge).dy,
+      greaterThanOrEqualTo(
+        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全部超分范围开启且海报仍在处理中，详情选集和播放不等待超分', (tester) async {
     final started = Completer<void>(), finish = Completer<void>();
     final messenger =

@@ -12,6 +12,8 @@ import '../settings/tmdb_settings_page.dart';
 
 import 'dart:ui' as ui;
 
+import 'package:flutter_svg/flutter_svg.dart';
+
 import 'package:palette_generator/palette_generator.dart';
 
 import '../../shared/widgets/poster_gradient_scaffold.dart';
@@ -534,7 +536,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     final revision = ++_paletteRevision;
     try {
       final color = await PosterPaletteCache.resolve(
-        ('video-detail-poster-bottom-v5', cover),
+        ('video-detail-poster-bottom-v6', cover),
         () async {
           final sample = _displayedPoster == cover
               ? await _displayedPosterSample(cover)
@@ -865,7 +867,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   tmdb.metadata?.genres.isNotEmpty == true &&
                   !tmdb.metadata!.genres.any(subtitle.contains))
                 tmdb.metadata!.genres.join(' · '),
-              if ((tmdb.metadata?.rating ?? 0) > 0)
+              if (!originalStyle && (tmdb.metadata?.rating ?? 0) > 0)
                 '★ ${tmdb.metadata!.rating.toStringAsFixed(1)}',
             ].join(' · '),
             maxLines: 2,
@@ -881,7 +883,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ),
           ),
         ),
-        if (tmdb.metadata != null)
+        if (!originalStyle && tmdb.metadata != null)
           IconButton(
             key: const Key('video-detail-tmdb-status'),
             visualDensity: VisualDensity.compact,
@@ -892,13 +894,55 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
             ),
-            icon: Icon(
-              Icons.verified_outlined,
-              size: 18,
-              color: originalStyle ? Colors.white70 : null,
+            icon: SvgPicture.asset(
+              'assets/branding/tmdb.svg',
+              width: 28,
+              height: 20,
             ),
           ),
       ],
+    );
+  }
+
+  Widget tmdbRating() {
+    final data = tmdb.metadata;
+    if (data == null) return const SizedBox.shrink();
+    return Center(
+      child: Tooltip(
+        message: tmdbStatusLabel,
+        child: TextButton(
+          key: const Key('video-detail-tmdb-status'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
+          ),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.white,
+            minimumSize: const Size(44, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SvgPicture.asset(
+                'assets/branding/tmdb.svg',
+                width: 28,
+                height: 21,
+                semanticsLabel: 'TMDB',
+              ),
+              if (data.rating > 0) ...[
+                const SizedBox(width: 8),
+                Text(
+                  data.rating.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2596,6 +2640,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   ),
                                 ),
                               ),
+                              if (tmdb.metadata != null) ...[
+                                const SizedBox(height: 6),
+                                tmdbRating(),
+                              ],
                               const SizedBox(height: 12),
                               summaryBlock(
                                 detail?.title ?? widget.item.title,
