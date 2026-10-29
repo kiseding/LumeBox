@@ -203,8 +203,12 @@ var LumeSource = {
     } else if (categoryId === 'new' || categoryId === 'hot') {
       html = await get(categoryId === 'new' ? '/new.html' : '/hot.html');
     } else {
+      // 没给分类时回落到「最新」
       var digits = categoryId.replace(/[^0-9]/g, '');
-      if (!digits) throw new Error('Qinav：认不出这个分类（' + categoryId + '）');
+      if (!digits) {
+        html = await get('/new.html');
+        return { items: parseCards(html), hasMore: false };
+      }
       var path = page > 1 ? '/site/5/' + digits + '-' + page + '.html' : '/site/5/' + digits + '.html';
       html = await get(path);
       hasMore = page < maxPage(html, digits);

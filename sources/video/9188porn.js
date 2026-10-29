@@ -197,8 +197,8 @@ var LumeSource = {
     if (keyword) {
       path = '/vod/search.html?wd=' + encodeURIComponent(keyword) + (page > 1 ? '&page=' + page : '');
     } else {
-      var digits = categoryId.replace(/[^0-9]/g, '');
-      if (!digits) throw new Error('9188色情网：认不出这个栏目（' + categoryId + '）');
+      // 没给分类（或被传了空）时回落到第一个厂牌栏目
+      var digits = categoryId.replace(/[^0-9]/g, '') || FALLBACK_CATS[0][0];
       path = '/vod/type/id/' + digits + (page > 1 ? '/page/' + page : '') + '.html';
     }
     var html = await get(path);
