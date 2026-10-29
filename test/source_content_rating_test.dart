@@ -37,6 +37,7 @@ void main() {
       'kkav_video',
       'niacg_photo',
       'twitthub_video',
+      'd9y1w_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);

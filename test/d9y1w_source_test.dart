@@ -1,0 +1,313 @@
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:lume_box/core/js/lume_js_engine.dart';
+import 'package:lume_box/core/js/qjs_bindings.dart';
+import 'package:lume_box/core/js/sandbox/sandbox.dart';
+import 'package:lume_box/core/net/lume_http.dart';
+import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/source/source.dart';
+
+import 'support/source_scripts.dart';
+
+/// 四色视频（www.d9y1w.top）：maomi 模板成人站，用真站点快照在 **QuickJS 沙箱**里跑。
+///
+/// 站点两层编码，本源全靠脚本自己解（沙箱没有 atob / Buffer / crypto）：
+///   1. 标题 / 分类名 / 菜单链接是 AES-256-CBC（key、iv 在 `/assets/js/common/encrypt.js`，
+///      iv 只有 10 字节 + 固定后缀 `883346`）——这个用例跑的是纯 JS AES-256 实现，
+///      解出来必须是真中文，且首条要与快照一致；
+///   2. 卡片 href 是 `/cYc` + base64(明文路径)；解出来的明文路径脚本只用来取 id/channel，
+///      不再拼混淆链接；搜索打 `/search/<频道>-<词>-<页>.html` 三个频道各一次。
+///
+/// 还守着封面与线路：
+///   3. 封面不能用站点图片主机（`base4s.0827.la` 回的是 `data:image/...` 文本），
+///      要落到媒体 CDN（`www.0734.la`）上的真 JPEG；
+///   4. 线路二是死域名（`s5.sanheyiliao.xyz` 已 NXDOMAIN），`content()` 探不通要回落到线路一，
+///      不能把死地址交出去。
+void main() {
+  final bridge = _resolveBridge();
+  if (bridge != null) {
+    Qjs.overrideLibrary(bridge);
+    Qjs.reclaimRuntime = false;
+  }
+
+  String? skipUnless(List<String> names) => Qjs.isAvailable
+      ? _skipUnless(names)
+      : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
+
+  setUp(() => LumeJsEngine.debugSupportedOverride = true);
+  tearDown(() => LumeJsEngine.debugSupportedOverride = null);
+
+  const assets = <String>[
+    '四色视频.js',
+    'd9y1w_home.html',
+    'd9y1w_list.html',
+    'd9y1w_play.html',
+    'd9y1w_search_juqing.json',
+    'd9y1w_search_shipin.json',
+    'd9y1w_search_jingpin.json',
+  ];
+
+  const m3u8 =
+      'https://www.0734.la/videos/202610/27/6adfacfbce6d9f989852d8cc/40cg8f/index.m3u8';
+
+  test(
+    '四色视频：AES 标题 / 分类 / 列表 / 搜索 / 详情 / 双线路（站点快照）',
+    () async {
+      final http = _RouteHttp(<String, String>{
+        '/index/home.html': _read('d9y1w_home.html'),
+        '/juqing/lists.html': _read('d9y1w_list.html'),
+        '/juqing/play-438730.html': _read('d9y1w_play.html'),
+        '/search/juqing-%E9%BA%BB%E8%B1%86-1.html':
+            _read('d9y1w_search_juqing.json'),
+        '/search/shipin-%E9%BA%BB%E8%B1%86-1.html':
+            _read('d9y1w_search_shipin.json'),
+        '/search/jingpin-%E9%BA%BB%E8%B1%86-1.html':
+            _read('d9y1w_search_jingpin.json'),
+      });
+      final source = await _boot(
+        _script('四色视频.js'),
+        section: Section.video,
+        http: http,
+      );
+      addTearDown(source.dispose);
+
+      // ---- 首页：三个横滑板块，「更多」回自己的分类 id。
+      final home = await source.data.home();
+      expect(home.isBoards, isTrue);
+      expect(
+        home.boards.map((board) => board.title).toList(),
+        <String>['最新剧情', '最新电影', '最新精选'],
+      );
+      expect(home.boards.every((board) => board.items.length == 10), isTrue);
+      expect(
+        home.boards.map((board) => board.moreUrl).toList(),
+        <String>['juqing:', 'shipin:', 'jingpin:'],
+      );
+      final first = home.boards.first.items.first;
+      expect(first.id, 'juqing-438730');
+      expect(first.title, contains('URE-131-CN'), reason: 'AES-256 标题要解出真中文');
+      expect(first.cover, startsWith('https://www.0734.la/videos/'),
+          reason: '封面走媒体 CDN 的真 JPEG，不走站点 data URI 主机');
+
+      // ---- 分类：三个「全部」+ 菜单里 24 个视频标签（实时抓 + AES 解名）。
+      final categories = await source.data.categories();
+      expect(categories.length, 27);
+      expect(categories.take(3).map((category) => category.id).toList(),
+          <String>['juqing:', 'shipin:', 'jingpin:']);
+      expect(
+        categories.map((category) => category.id),
+        containsAll(<String>['juqing:麻豆传媒', 'shipin:日本av', 'jingpin:onlyfans']),
+      );
+      expect(
+        categories.map((category) => category.title),
+        containsAll(<String>['全部剧情', '剧情 · 麻豆传媒', '精品 · onlyfans']),
+      );
+
+      // ---- 列表：20 条/页，日期落在 subtitle。
+      final page1 = await source.data.list(categoryId: 'juqing:', page: 1);
+      expect(page1.items.length, 20);
+      expect(page1.hasMore, isTrue);
+      expect(page1.items.first.id, 'juqing-438730');
+      expect(page1.items.first.subtitle, '2026-10-29');
+
+      // ---- 搜索：三个频道各打一次，合并去重。
+      final searched = await source.data.list(keyword: '麻豆', page: 1);
+      expect(searched.items.length, 21);
+      expect(searched.items.map((item) => item.id).toSet().length, 21);
+      expect(
+        http.paths.where((path) => path.contains('/search/')).length,
+        3,
+        reason: '剧情/视频/精品三个频道都要搜',
+      );
+
+      // ---- 详情：标题来自详情页 AES，封面/日期来自列表缓存。
+      final detail = await source.data.detail('juqing-438730');
+      expect(detail, isNotNull);
+      expect(detail!.title, contains('URE-131-CN'));
+      expect(detail.cover, startsWith('https://www.0734.la/videos/'));
+      expect(detail.description, contains('剧情 · 中文字幕'));
+      expect(detail.description, contains('收录：2026-10-29'));
+
+      // ---- 选集：两条线路。
+      final chapters = await source.data.chapters('juqing-438730');
+      expect(chapters.map((chapter) => chapter.title).toList(),
+          <String>['线路一', '线路二（备用）']);
+
+      // ---- 播放：线路一直给；线路二是死域名，探不通要回落线路一。
+      final content = await source.data.content(
+        itemId: 'juqing-438730',
+        chapterId: '1',
+      );
+      expect(content, isA<VideoContent>());
+      final video = content! as VideoContent;
+      expect(video.url.toString(), m3u8);
+      expect(video.headers['Referer'], 'https://www.d9y1w.top/');
+
+      final backup = await source.data.content(
+        itemId: 'juqing-438730',
+        chapterId: '2',
+      );
+      expect((backup! as VideoContent).url.toString(), m3u8,
+          reason: '备用线路探不通时不能把死地址交出去');
+      expect(
+        http.paths.any((path) => path.contains('sanheyiliao.xyz')),
+        isTrue,
+        reason: '备用线路要先探一次再决定',
+      );
+    },
+    skip: skipUnless(assets),
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+}
+
+/// 按路径（含查询串前缀）匹配快照；未命中的地址回 404（例如备用线路的死域名）。
+class _RouteHttp extends LumeHttp {
+  _RouteHttp(this.routes) : super();
+
+  final Map<String, String> routes;
+
+  /// 每次请求的地址（断言路由用）。
+  final List<String> paths = <String>[];
+
+  @override
+  Future<LumeHttpResponse> send({
+    required String url,
+    String method = 'GET',
+    Map<String, String>? headers,
+    String? body,
+    int? maxBytes,
+    Duration? timeout,
+  }) async {
+    paths.add(url);
+    String? payload;
+    for (final entry in routes.entries) {
+      if (url.contains(entry.key)) {
+        payload = entry.value;
+        break;
+      }
+    }
+    if (payload == null) {
+      return LumeHttpResponse(
+        statusCode: 404,
+        body: Uint8List.fromList(utf8.encode('not found: $url')),
+        headers: const <String, String>{},
+      );
+    }
+    return LumeHttpResponse(
+      statusCode: 200,
+      body: Uint8List.fromList(utf8.encode(payload)),
+      headers: const <String, String>{'content-type': 'text/html; charset=utf-8'},
+    );
+  }
+}
+
+class _SandboxRuntime implements JsSourceRuntime {
+  _SandboxRuntime(this._sandbox);
+
+  final LumeSandbox _sandbox;
+
+  @override
+  Future<Set<String>> contractMethods() async => const <String>{
+        'categories',
+        'list',
+        'detail',
+        'chapters',
+        'content',
+        'home',
+      };
+
+  @override
+  Future<Object?> call(String method, [Object? argument]) async {
+    final result = await _sandbox.call('LumeSource.$method', argument);
+    if (result.isOk) return result.value;
+    throw SourceException(SourceErrorKind.callFailed, result.error!.toString());
+  }
+}
+
+String _read(String file) {
+  final direct = File(file);
+  if (direct.existsSync()) return direct.readAsStringSync();
+  final path = sourceAssetPath(file);
+  if (path == null) {
+    throw StateError('缓存里没有 $file（先跑 `dart run tool/fetch_sources.dart`）');
+  }
+  return File(path).readAsStringSync();
+}
+
+String _script(String name) => sourceScriptPath(name)!;
+
+String? _skipUnless(List<String> names) {
+  for (final name in names) {
+    if (sourceAssetPath(name) == null) return sourceScriptsSkipReason(name);
+  }
+  return null;
+}
+
+Future<_BootedSource> _boot(
+  String scriptPath, {
+  required Section section,
+  required LumeHttp http,
+}) async {
+  final script = _read(scriptPath);
+  final host = LumeSourceHost(
+    http,
+    timeout: const Duration(seconds: 10),
+    section: section,
+    sourceId: 'snapshot',
+  );
+  final sandbox = LumeSandbox.create(
+    id: host.expectedSandboxId,
+    policy: LumeJsEngine.policy.copyWith(allowHostAccess: true),
+    host: host,
+    polyfills: LumeSourcePolyfills.forSection(section),
+  );
+  final loaded = await sandbox.load(script);
+  expect(loaded.isOk, isTrue, reason: '脚本必须能载入: $scriptPath: ${loaded.error}');
+  return _BootedSource(
+    data: JsDataSource(
+      id: 'snapshot',
+      name: 'snapshot',
+      section: section,
+      runtime: _SandboxRuntime(sandbox),
+    ),
+    dispose: () {
+      sandbox.dispose();
+      host.dispose();
+    },
+  );
+}
+
+class _BootedSource {
+  _BootedSource({required this.data, required this.dispose});
+
+  final JsDataSource data;
+  final void Function() dispose;
+}
+
+DynamicLibrary? _resolveBridge() {
+  if (!Platform.isWindows) {
+    try {
+      return DynamicLibrary.process();
+    } catch (_) {
+      return null;
+    }
+  }
+  for (final config in <String>['Debug', 'Release', 'Profile']) {
+    final file = File(
+      '${Directory.current.path}/build/windows/x64/runner/$config/'
+      'quickjs_c_bridge_plugin.dll',
+    );
+    if (!file.existsSync()) continue;
+    try {
+      return DynamicLibrary.open(file.absolute.path);
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
+}

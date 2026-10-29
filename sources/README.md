@@ -108,7 +108,8 @@ sources/video/
 ├── ptt-drama.js   蝴蝶影院（ptt01.com 站群）线上看；系列页给分集，单集页内嵌整集 m3u8
 ├── huangguo-duanju.js 黄果短剧（huangguoai.com）AI 短剧，**需代理**；播放页直给签名 m3u8
 ├── juzhi.js       橘汁 - 影视（juziapp.hzhcbkj.cn，从橘汁 APK 里挖出的官方后端）；开放 JSON 端点 + 换流接口
-└── hqvod.js       点播-高清（hqvod.com）苹果CMS 站；列表走 ajax 数据接口，播放页有滑块 → webplayer
+├── hqvod.js       点播-高清（hqvod.com）苹果CMS 站；列表走 ajax 数据接口，播放页有滑块 → webplayer
+└── d9y1w.js       四色视频（www.d9y1w.top）maomi 模板站；标题 AES-256-CBC、卡片链接 base64 混淆，播放 m3u8 直链
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -181,6 +182,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 黄果 - 短剧（18+） | **是** | 1 块 | 6 分类 | 47 | 30（`/search/video/<词>/`） | ok | 1~3 | **video（m3u8，实测 200 + `#EXTM3U`，AES-128 key）** |
 | 橘汁 - 影视 | 否 | 3 块 | 8 分类 | 24 | 本地索引过滤 | ok | 1 | **video（`videoParse/test/videoUsableUrl` 换流，实测 200 + `#EXTM3U` 59 KB）** |
 | 点播 - 高清 | 否 | 1 块 | 5 分类 | 10 | 本地索引过滤 | ok | 5 线路 | **webplayer（播放页滑块人机校验，脚本 403 → App 网页视图过校验后播）** |
+| 四色视频（18+） | 否 | 3 块 | 27 分类 | 20 | 30（剧情/视频/精品三频道合并） | ok | 2 线路 | **video（m3u8 直链 + AES-128 key 与分片同域，实测 200 + `#EXTM3U` 79 KB）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。
@@ -295,6 +297,8 @@ dart run tools/site_reachability.dart
 - **点播高清是网页播放型**：`api.php` 关了、播放页有滑块，脚本拿不到 m3u8；列表/详情是真数据，播放要在 App 网页视图里过一次滑块。它按 IP 限流（实测连抓 5 页后整站 403，几分钟恢复），所以本源刻意只做单请求、不做预抓。
 - **黄果直连不通**：`huangguoai.com` 在国内直连超时（实测 `fetch failed`，走代理 200），本机复验用 `node --use-env-proxy tools/lume-source-check.mjs …`。App 里要给这个源配代理。
 - **蝴蝶影院的搜索接口对脚本 503**：`/node/search` 只对带完整浏览器上下文的请求放行，`list({keyword})` 改为本地索引过滤（列表/详情访问过的条目才能被搜到），索引为空时先抓第 1 页。
+- **四色视频的标题与链接都是站点自己的加密**：标题/分类名/菜单链接是 AES-256-CBC（key、iv 在 `/assets/js/common/encrypt.js`，**iv 只有 10 字节 + 固定后缀 `883346`**，见 `common.js` 的 `decodeString2`），卡片 href 是 `/cYc` + base64(明文路径)。明文路径（`/juqing/play-438649.html`、`/juqing/list-麻豆传媒.html`）直接可访问，所以源里**只解不拼**：链接先 base64 还原再取页，AES 用源内纯 JS 实现（沙箱没有 atob/Buffer/crypto）。站点换 key 时源会抛「标题一条都解不开（站点换加密 key 了？）」。
+- **四色视频的封面别用站点自己的图片主机**：卡片 `data-base64` 指到 `base4s.0827.la`，回来的是 `data:image/jpg;base64,…` **文本**，App 图片管线不吃文本 body；但**同一个路径在媒体 CDN（`www.0734.la` / `s4.dt188.site`）上就是真 JPEG**，所以封面改用 play 页 `m3u8_host` 拼，域名随站点轮换自动跟着换。它的 `m3u8_host1`（`s5.sanheyiliao.xyz`）已 NXDOMAIN，只作备用线路，`content()` 会先探一次再决定是否回落到线路一。
 
 ## 七、免责
 
