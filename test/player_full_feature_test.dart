@@ -356,6 +356,44 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('选集显示方式保存后重新打开仍保留', (tester) async {
+      final source = DirectVideoSource(
+        id: 'episode-view',
+        name: '测试',
+        title: '测试',
+        uri: Uri.parse('https://example.com/one.mp4'),
+        episodes: const [SourceChapter(id: 'one', title: '第1集')],
+      );
+      await pump(
+        tester,
+        source: source,
+        target: const VideoPlayTarget(
+          sourceId: 'episode-view',
+          itemId: 'show',
+          title: '测试',
+          chapterIndex: 0,
+          chapterId: 'one',
+          chapterTitle: '第1集',
+        ),
+      );
+      await openPlayerAction(tester, '播放源 / 更换线路');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('封面'));
+      await tester.pumpAndSettle();
+      expect(PlayerExperienceStore.current.text('episodeView'), 'cover');
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
+      await openPlayerAction(tester, '播放源 / 更换线路');
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<PlayerSourceSheet>(find.byType(PlayerSourceSheet))
+            .initialView,
+        PlayerEpisodeView.cover,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('网页临时图源在播放器切下一集无需从源管理器重新打开', (tester) async {
       final parsed = <int>[];
       final source = DirectVideoSource(

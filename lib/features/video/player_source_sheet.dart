@@ -18,6 +18,15 @@ class PlayerSourceLine {
   final bool current, available;
 }
 
+enum PlayerEpisodeView {
+  grid('网格'),
+  list('列表'),
+  cover('封面');
+
+  const PlayerEpisodeView(this.label);
+  final String label;
+}
+
 enum PlayerSourceTab { episodes, lines, quality }
 
 /// Chapters, source routes and media variants have distinct selection semantics.
@@ -36,6 +45,9 @@ class PlayerSourceSheet extends StatefulWidget {
     this.onSelectLine,
     this.initialTab = PlayerSourceTab.episodes,
     this.includeQualityTab = true,
+    this.initialView = PlayerEpisodeView.grid,
+    this.onViewChanged,
+    this.artworkBuilder,
   });
   final String address;
   final List<VideoQuality> qualities;
@@ -49,6 +61,9 @@ class PlayerSourceSheet extends StatefulWidget {
   final Future<bool> Function(String)? onSelectLine;
   final PlayerSourceTab initialTab;
   final bool includeQualityTab;
+  final PlayerEpisodeView initialView;
+  final ValueChanged<PlayerEpisodeView>? onViewChanged;
+  final Widget Function(BuildContext, SourceChapter, int)? artworkBuilder;
 
   @override
   State<PlayerSourceSheet> createState() => _PlayerSourceSheetState();
@@ -58,6 +73,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   Future<List<SourceChapter>>? _episodes;
   Future<List<PlayerSourceLine>>? _lines;
   late PlayerSourceTab _tab = widget.initialTab;
+  late PlayerEpisodeView _view = widget.initialView;
+  double _rowExtent = 52;
   final _scroll = ScrollController();
   bool _busy = false, _reverse = false, _located = false;
   String? _error;
@@ -119,7 +136,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
       _scroll.animateTo(
-        ((orderedIndex % 50) ~/ _columns * 52.0).clamp(
+        ((orderedIndex % 50) ~/ _columns * _rowExtent).clamp(
           0.0,
           _scroll.position.maxScrollExtent,
         ),
@@ -208,18 +225,42 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               children: [
                 Text(
                   '共 ${_chapters.length} 集',
-                  style: const TextStyle(fontSize: 12),
+                  style: const TextStyle(fontSize: 13),
                 ),
-                TextButton(
+                SegmentedButton<PlayerEpisodeView>(
+                  showSelectedIcon: false,
+                  style: SegmentedButton.styleFrom(
+                    minimumSize: const Size(36, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                  segments: [
+                    for (final view in PlayerEpisodeView.values)
+                      ButtonSegment(value: view, label: Text(view.label)),
+                  ],
+                  selected: {_view},
+                  onSelectionChanged: _busy
+                      ? null
+                      : (selection) {
+                          setState(() => _view = selection.single);
+                          widget.onViewChanged?.call(_view);
+                          _locateCurrent();
+                        },
+                ),
+                IconButton(
+                  tooltip: '定位当前',
                   onPressed: _locateCurrent,
-                  child: const Text('定位当前'),
+                  icon: const Icon(Icons.my_location, size: 20),
                 ),
                 TextButton(
                   onPressed: () {
                     setState(() => _reverse = !_reverse);
                     _locateCurrent();
                   },
-                  child: Text(_reverse ? '倒序' : '正序'),
+                  child: Text(
+                    _reverse ? '倒序' : '正序',
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
               ],
             ),
@@ -274,7 +315,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                     text: TextSpan(
                       text: longest,
                       style: Theme.of(context).textTheme.labelLarge
-                          ?.copyWith(fontSize: 12),
+                          ?.copyWith(fontSize: 13),
                     ),
                     textDirection: Directionality.of(context),
                     textScaler: MediaQuery.textScalerOf(context),
@@ -285,6 +326,115 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                     labelWidth: measure.width,
                   );
                   measure.dispose();
+                  if (_view != PlayerEpisodeView.grid) {
+                    _columns = 1;
+                    _rowExtent = _view == PlayerEpisodeView.cover ? 84 : 56;
+                    return ListView.builder(
+                      key: ValueKey(_view),
+                      controller: _scroll,
+                      padding: const EdgeInsets.only(bottom: 12),
+                      itemExtent: _rowExtent,
+                      itemCount: end - start,
+                      itemBuilder: (context, visibleIndex) {
+                        final orderedIndex = start + visibleIndex;
+                        final index = _reverse
+                            ? _chapters.length - 1 - orderedIndex
+                            : orderedIndex;
+                        final chapter = _chapters[index];
+                        final current = chapter.id == widget.currentChapterId;
+                        final colors = Theme.of(context).colorScheme;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Material(
+                            color: current
+                                ? colors.primary.withValues(alpha: .18)
+                                : colors.surface.withValues(alpha: .12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: current
+                                    ? colors.primary
+                                    : colors.outlineVariant.withValues(
+                                        alpha: .35,
+                                      ),
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: _busy ? null : () => _select(index),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                child: Row(
+                                  children: [
+                                    if (_view == PlayerEpisodeView.cover) ...[
+                                      SizedBox(
+                                        width: 94,
+                                        height: 56,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child:
+                                              widget.artworkBuilder?.call(
+                                                context,
+                                                chapter,
+                                                index,
+                                              ) ??
+                                              const ColoredBox(
+                                                color: Color(0x22222222),
+                                                child: Icon(
+                                                  Icons.movie_outlined,
+                                                ),
+                                              ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        VideoEpisodeCatalog.displayLabel(
+                                          chapter,
+                                          index,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: current
+                                              ? FontWeight.w700
+                                              : FontWeight.w500,
+                                          color: current
+                                              ? colors.primary
+                                              : colors.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                    if (_pending == index)
+                                      const SizedBox.square(
+                                        dimension: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    else if (current)
+                                      Icon(
+                                        Icons.play_arrow_rounded,
+                                        color: colors.primary,
+                                        semanticLabel: '播放中',
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  }
+                  _rowExtent = 52;
                   return GridView.builder(
                     controller: _scroll,
                     padding: const EdgeInsets.only(bottom: 12),
@@ -333,7 +483,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                             horizontal: 2,
                           ),
                           labelStyle: TextStyle(
-                            fontSize: 12,
+                            fontSize: 13,
                             color: current
                                 ? Theme.of(context).colorScheme.onPrimary
                                 : Theme.of(context).colorScheme.onSurface,
@@ -373,7 +523,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       children: [
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 12),
-          child: Text('按片源原始名称显示，切换后恢复当前进度', style: TextStyle(fontSize: 12)),
+          child: Text('按片源原始名称显示，切换后恢复当前进度', style: TextStyle(fontSize: 13)),
         ),
         for (var i = 0; i < widget.qualities.length; i++)
           ListTile(
@@ -455,7 +605,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                 child: Text(
                   _qualityOnly ? '画质' : '选集与线路',
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -521,7 +671,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
           if (!_qualityOnly)
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: const Text('播放信息', style: TextStyle(fontSize: 12)),
+              title: const Text('播放信息', style: TextStyle(fontSize: 13)),
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,

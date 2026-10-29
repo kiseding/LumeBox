@@ -1,3 +1,4 @@
+import '../reading/poster_card.dart';
 import '../reading/section_toolbar.dart';
 import 'video_detail_page.dart';
 import 'video_resume_match.dart';
@@ -203,7 +204,7 @@ class VideoPlayerPage extends StatefulWidget {
   static const double controlHorizontalPadding = 8;
 
   /// 进度条行与按钮行之间的固定行距（用户口径：两行给一个固定值）。
-  static const double controlRowGap = 10;
+  static const double controlRowGap = 0;
 
   /// 控制栏里图标按钮的统一尺寸（图标 21 / 触达盒至少 44）：顶部与底部、横屏与
   /// 竖屏都用它，尺寸与间距才一致（用户口径：图标尺寸统一、文字图标大小统一）。
@@ -757,6 +758,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _library?.settingsRevision.removeListener(_onSharedSettingsChanged);
     DanmakuSourcesStore.revision.removeListener(_danmakuServiceChanged);
     _introGeneration++;
+    _episodeImages?.dispose();
     _intro?.dispose();
     _nextEpisodeBuffer.dispose();
     _unlockTimer?.cancel();
@@ -1637,9 +1639,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     Color? backgroundColor,
     bool isScrollControlled = false,
     bool useSafeArea = false,
+    bool edgeDrawer = false,
   }) => showPlaybackMenu<T>(
     context: context,
     builder: builder,
+    edgeDrawer: edgeDrawer,
     glass: _settings.playbackGlass,
     backgroundColor: backgroundColor,
     isScrollControlled: isScrollControlled,
@@ -2520,7 +2524,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Text(
           _skipQuickLabel(snapshot),
           style: TextStyle(
-            fontSize: LumeTypography.bodySize,
+            fontSize: LumeTypography.bodySize + 1,
             fontWeight: FontWeight.w600,
             shadows: _fullscreen ? _controlShadows : null,
           ),
@@ -3998,7 +4002,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: LumeTypography.captionSize,
+            fontSize: LumeTypography.captionSize + 1,
             fontWeight: FontWeight.w600,
             color: Color(0xFFF8F8F8),
             shadows: _controlShadows,
@@ -4036,7 +4040,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: LumeTypography.titleSize,
+                          fontSize: LumeTypography.titleSize + 1,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFFF8F8F8),
                           shadows: _controlShadows,
@@ -4296,7 +4300,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     child: Text(
                       label,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                         shadows: _controlShadows,
                       ),
@@ -4421,7 +4425,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       child: Text(
         label,
         style: TextStyle(
-          fontSize: LumeTypography.bodySize,
+          fontSize: LumeTypography.bodySize + 1,
           fontWeight: FontWeight.w600,
           shadows: _fullscreen ? _controlShadows : null,
         ),
@@ -5062,6 +5066,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
+  SectionImagePipeline? _episodeImages;
+
   Future<void> _openSourceSheet({
     PlayerSourceTab initialTab = PlayerSourceTab.episodes,
   }) async {
@@ -5070,11 +5076,40 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final target = _target;
     await _playbackMenu<void>(
       context: context,
+      edgeDrawer: initialTab != PlayerSourceTab.quality,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (sheetContext) => PlayerSourceSheet(
         initialTab: initialTab,
+        initialView:
+            PlayerEpisodeView.values
+                .where(
+                  (v) =>
+                      v.name ==
+                      PlayerExperienceStore.current.text('episodeView'),
+                )
+                .firstOrNull ??
+            PlayerEpisodeView.grid,
+        onViewChanged: (view) {
+          final library = _library;
+          if (library != null) {
+            PlayerExperienceStore.forLibrary(library)
+                .update({'episodeView': view.name});
+          }
+        },
+        artworkBuilder: (context, chapter, index) {
+          final images = _episodeImages;
+          if (images == null) return const Icon(Icons.movie_outlined);
+          return PosterCover(
+            pipeline: images,
+            url: chapter.cover ?? target?.cover,
+            headers: chapter.coverHeaders,
+            width: 240,
+            title: chapter.title,
+            borderRadius: BorderRadius.zero,
+          );
+        },
         includeQualityTab: !_fullscreen,
         loadLines: target == null
             ? null
@@ -5125,6 +5160,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             : () async {
                 final source = await _openSource();
                 if (source == null) throw StateError('图源不可用，请稍后重试');
+                if (!mounted) return const <SourceChapter>[];
+                final library = _library;
+                if (library != null) {
+                  _episodeImages ??= SectionImagePipeline(
+                    cacheDir: library.imageCacheDir,
+                    memoryBudgetBytes:
+                        SectionImagePipeline.thumbnailBudgetBytes,
+                  );
+                  _episodeImages!.bindSource(source);
+                  _episodeImages!.bindSession(Section.video, target.sourceId);
+                }
                 return VideoEpisodeCatalog.forChapter(
                   await VideoEpisodeCatalog.load(source, target.itemId),
                   target.chapterId,
@@ -5215,7 +5261,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     if (_fullscreen) {
       final theme = SliderTheme.of(context).copyWith(
-        trackHeight: 3,
+        trackHeight: 4,
         disabledActiveTrackColor: const Color(0x80F8F8F8),
         disabledInactiveTrackColor: Colors.white24,
         disabledThumbColor: const Color(0xFFF8F8F8),
@@ -5239,7 +5285,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
                 color: Color(0xFFF8F8F8),
-                fontSize: LumeTypography.descriptionSize,
+                fontSize: LumeTypography.descriptionSize + 1,
                 shadows: _controlShadows,
               ),
             ),
@@ -5250,7 +5296,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: LumeTypography.descriptionSize,
+                  fontSize: LumeTypography.descriptionSize + 1,
                   shadows: _controlShadows,
                 ),
               ),
@@ -5267,7 +5313,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Color(0xFFF8F8F8),
-                  fontSize: LumeTypography.descriptionSize,
+                  fontSize: LumeTypography.descriptionSize + 1,
                   shadows: _controlShadows,
                 ),
               ),
@@ -5288,7 +5334,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 _format(shown),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: LumeTypography.descriptionSize,
+                  fontSize: LumeTypography.descriptionSize + 1,
                   shadows: _fullscreen ? _controlShadows : null,
                   // 拖动预览用高亮色：一眼能看出「这不是当前位置」。
                   color: _fullscreen
@@ -5303,7 +5349,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   '拖动到 ${_format(preview)} · ${PlayerLayout.seekDelta(snapshot.position, preview)}',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: LumeTypography.descriptionSize,
+                    fontSize: LumeTypography.descriptionSize + 1,
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
@@ -5313,7 +5359,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     : '时长未知',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: LumeTypography.descriptionSize,
+                  fontSize: LumeTypography.descriptionSize + 1,
                   shadows: _fullscreen ? _controlShadows : null,
                   color: _fullscreen
                       ? Colors.white
@@ -5630,7 +5676,7 @@ class _PlayerClockState extends State<_PlayerClock> {
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     const style = TextStyle(
       color: Color(0xFFF8F8F8),
-      fontSize: LumeTypography.captionSize,
+      fontSize: LumeTypography.captionSize + 1,
       fontWeight: FontWeight.w600,
       shadows: _VideoPlayerPageState._controlShadows,
     );
@@ -5768,7 +5814,7 @@ class _PlayerStageNotice extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: LumeTypography.titleSize,
+                  fontSize: LumeTypography.titleSize + 1,
                   fontWeight: FontWeight.w600,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
@@ -5779,7 +5825,7 @@ class _PlayerStageNotice extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: LumeTypography.descriptionSize,
+                  fontSize: LumeTypography.descriptionSize + 1,
                   height: 1.5,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -5829,7 +5875,7 @@ class _VideoSkeleton extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: LumeTypography.bodySize,
+                  fontSize: LumeTypography.bodySize + 1,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -5839,7 +5885,7 @@ class _VideoSkeleton extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: LumeTypography.bodySize,
+                  fontSize: LumeTypography.bodySize + 1,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -5903,7 +5949,7 @@ class _GestureHint extends StatelessWidget {
                     Text(
                       _label(),
                       style: const TextStyle(
-                        fontSize: LumeTypography.titleSize,
+                        fontSize: LumeTypography.titleSize + 1,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -5989,7 +6035,7 @@ class _TrackSheet extends StatelessWidget {
                   child: Text(
                     title,
                     style: TextStyle(
-                      fontSize: LumeTypography.titleSize,
+                      fontSize: LumeTypography.titleSize + 1,
                       fontWeight: FontWeight.w600,
                       color: Theme.of(context).colorScheme.onSurface,
                     ),
@@ -6046,7 +6092,7 @@ class _TrackSheet extends StatelessWidget {
                                 track.language!,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
-                                  fontSize: LumeTypography.descriptionSize,
+                                  fontSize: LumeTypography.descriptionSize + 1,
                                   color: Theme.of(context)
                                       .colorScheme
                                       .onSurfaceVariant,

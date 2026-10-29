@@ -506,18 +506,18 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       Wrap(
         spacing: 8,
         children: [
-          for (final domestic in [true, false])
+          for (final route in SubscriptionRoute.values)
             ActionChip(
-              label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+              label: Text(route.label),
               onPressed: _busy
                   ? null
                   : () => setState(() {
                       final audio = _url.text.contains('audiobook');
                       _url.text = audio
-                          ? '${domestic ? SubscriptionCatalog.cdnBase : SubscriptionCatalog.base}subscriptions/${domestic ? 'cdn/' : ''}audiobook.txt'
+                          ? SubscriptionCatalog.audiobookFor(route)
                           : SubscriptionCatalog.sectionUrl(
                               _section,
-                              cdn: domestic,
+                              route: route,
                             );
                     }),
             ),

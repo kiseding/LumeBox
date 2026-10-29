@@ -198,15 +198,15 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
             Wrap(
               spacing: 8,
               children: [
-                for (final domestic in [true, false])
+                for (final route in SubscriptionRoute.values)
                   ActionChip(
-                    label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+                    label: Text(route.label),
                     onPressed: _busy
                         ? null
                         : () => setState(() {
                             _url.text = SubscriptionCatalog.sectionUrl(
                               widget.section,
-                              cdn: domestic,
+                              route: route,
                             );
                           }),
                   ),

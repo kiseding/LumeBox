@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
+  bool edgeDrawer = false,
 }) {
   // 路由的 SafeArea 会移除子树中的横向 inset，先保留屏幕安全边距。
   final screenPadding = MediaQuery.viewPaddingOf(context);
@@ -24,7 +25,10 @@ Future<T?> showDanmakuPanel<T>({
     context: context,
     videoGlass: false,
     isScrollControlled: true,
-    useSafeArea: true,
+    useSafeArea:
+        !(edgeDrawer &&
+            MediaQuery.sizeOf(context).width >
+                MediaQuery.sizeOf(context).height),
     backgroundColor: Colors.transparent,
     constraints: const BoxConstraints(maxWidth: double.infinity),
     barrierColor: Colors.black.withValues(alpha: .22),
@@ -39,6 +43,7 @@ Future<T?> showDanmakuPanel<T>({
         ),
         DanmakuPanelFrame(
           screenPadding: screenPadding,
+          edgeDrawer: edgeDrawer,
           child: builder(context),
         ),
       ],
@@ -47,9 +52,15 @@ Future<T?> showDanmakuPanel<T>({
 }
 
 class DanmakuPanelFrame extends StatefulWidget {
-  const DanmakuPanelFrame({super.key, required this.child, this.screenPadding});
+  const DanmakuPanelFrame({
+    super.key,
+    required this.child,
+    this.screenPadding,
+    this.edgeDrawer = false,
+  });
   final Widget child;
   final EdgeInsets? screenPadding;
+  final bool edgeDrawer;
   @override
   State<DanmakuPanelFrame> createState() => _DanmakuPanelFrameState();
 }
@@ -62,6 +73,40 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
     final landscape = media.size.width > media.size.height;
     final keyboard = media.viewInsets.bottom;
     final safe = widget.screenPadding ?? media.viewPadding;
+    if (widget.edgeDrawer && landscape) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: keyboard),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            key: const ValueKey('danmaku-panel-frame'),
+            width: media.size.width * .4,
+            height: math.max(0, media.size.height - keyboard),
+            child: ModuleGlassScope(
+              module: GlassModule.video,
+              part: GlassPart.panels,
+              child: VideoGlassSurface(
+                radius: 0,
+                dark: Theme.of(context).brightness == Brightness.dark,
+                materialOpacity: .78,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: safe.top,
+                    right: safe.right,
+                    bottom: safe.bottom,
+                  ),
+                  child: MediaQuery.removeViewInsets(
+                    context: context,
+                    removeBottom: true,
+                    child: widget.child,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     // Keep a hard guarantee: subtract the keyboard inset even on iOS versions
     // where the modal sheet route does not resize its child on its own.
     final available = math.max(

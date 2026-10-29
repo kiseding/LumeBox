@@ -16,13 +16,19 @@ import 'package:lume_box/features/settings/total_subscription_page.dart';
 import 'support/fake_source_manager.dart';
 
 void main() {
-  testWidgets('总订阅可切换国内 CDN 与原站，地址跟随选择', (tester) async {
+  testWidgets('总订阅可切换 Cloudflare、国内 CDN 与原站，地址跟随选择', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: TotalSubscriptionPage()));
     await tester.tap(find.text('国内 CDN'));
     await tester.pump();
     expect(
       tester.widget<TextField>(find.byType(TextField).first).controller!.text,
       SubscriptionCatalog.totalCdnUrl,
+    );
+    await tester.tap(find.text('Cloudflare'));
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      SubscriptionCatalog.totalPagesUrl,
     );
     await tester.tap(find.text('GitHub 原站'));
     await tester.pump();

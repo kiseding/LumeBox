@@ -51,4 +51,9 @@ Future<T?> showPlaybackMenu<T>({
   Color? backgroundColor,
   bool isScrollControlled = false,
   bool useSafeArea = false,
-}) => showDanmakuPanel<T>(context: context, builder: builder);
+  bool edgeDrawer = false,
+}) => showDanmakuPanel<T>(
+  context: context,
+  builder: builder,
+  edgeDrawer: edgeDrawer,
+);
