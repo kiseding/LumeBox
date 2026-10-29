@@ -4,25 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-/// Dim the sampled poster tone into a neutral cinematic surface. Bright blue
-/// scenery should not turn the entire synopsis and episode area blue.
-Color? immersivePosterPageColor(
-  List<(Color, int)> swatches, {
-  Color? darkMuted,
-  Color? dominant,
-}) {
-  final ranked = [...swatches]..sort((a, b) => b.$2.compareTo(a.$2));
-  final chosen = dominant ?? darkMuted ?? ranked.firstOrNull?.$1;
-  if (chosen == null) return null;
-  final tone = HSLColor.fromColor(chosen);
-  final tint = tone
-      .withSaturation((tone.saturation * .35).clamp(0, .20))
-      .withLightness(.185)
-      .withAlpha(1)
-      .toColor();
-  return Color.alphaBlend(const Color(0x5930343D), tint);
-}
-
 /// Preserve the poster's hue in a quiet, readable page surface.
 Color compactPosterPageColor(Color poster, {required Brightness brightness}) {
   final tone = HSLColor.fromColor(poster);

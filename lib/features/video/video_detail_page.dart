@@ -10,14 +10,13 @@ import 'detail_poster_background.dart';
 import 'detail_artwork_motion.dart';
 import 'video_episode_catalog.dart';
 import '../../core/theme/lume_theme.dart';
+import '../../core/theme/cover_palette.dart';
 import '../../shared/widgets/lume_icon.dart';
 import '../settings/tmdb_settings_page.dart';
 
 import 'dart:ui' as ui;
 
 import 'package:flutter_svg/flutter_svg.dart';
-
-import 'package:palette_generator/palette_generator.dart';
 
 import '../../shared/widgets/poster_gradient_scaffold.dart';
 import '../../shared/widgets/source_translation.dart';
@@ -645,33 +644,28 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     final revision = ++_paletteRevision;
     try {
       final color = await PosterPaletteCache.resolve(
-        ('video-detail-poster-bottom-v7', cover),
+        ('video-detail-poster-lower-hue-v8', cover),
         () async {
           final sample = _displayedPoster == cover
               ? await _displayedPosterSample(cover)
               : await pipeline.colorSample(cover);
           if (sample == null) throw StateError('Poster unavailable');
           try {
-            // Reuse the decoded, downsampled poster and its existing session.
-            final palette = await PaletteGenerator.fromImage(
-              sample,
-              region: Rect.fromLTWH(
-                0,
-                sample.height * .6,
-                sample.width.toDouble(),
-                sample.height * .4,
+            final pixels = await sample.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            );
+            if (pixels == null) return null;
+            // Group related hues and weight the lower artwork, where it fades
+            // into the page, instead of letting grey scenery erase clothing.
+            final artwork = immersiveArtworkColor(
+              pixels.buffer.asUint8List(
+                pixels.offsetInBytes,
+                pixels.lengthInBytes,
               ),
-              maximumColorCount: 24,
-              filters: const [],
+              width: sample.width,
+              height: sample.height,
             );
-            return immersivePosterPageColor(
-              [
-                for (final swatch in palette.paletteColors)
-                  (swatch.color, swatch.population),
-              ],
-              darkMuted: palette.darkMutedColor?.color,
-              dominant: palette.dominantColor?.color,
-            );
+            return artwork == null ? null : immersiveCoverSurface(artwork);
           } finally {
             sample.dispose();
           }

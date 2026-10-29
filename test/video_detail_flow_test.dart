@@ -1032,6 +1032,76 @@ void main() {
     );
   });
 
+  testWidgets('详情实际取色保留海报下部暗红，不被大片灰蓝背景冲淡', (tester) async {
+    final settings = TmdbSettings.instance;
+    final oldEnabled = settings.enabled;
+    final oldBackdrop = settings.detailBackdropEnabled;
+    settings.enabled = false;
+    settings.detailBackdropEnabled = true;
+    addTearDown(() {
+      settings.enabled = oldEnabled;
+      settings.detailBackdropEnabled = oldBackdrop;
+    });
+    final poster = img.Image(width: 24, height: 32);
+    for (var y = 0; y < poster.height; y++) {
+      for (var x = 0; x < poster.width; x++) {
+        if (y < 22) {
+          poster.setPixelRgb(x, y, 140, 152, 175);
+        } else {
+          poster.setPixelRgb(x, y, 160, 40, 45);
+        }
+      }
+    }
+    final png = img.encodePng(poster);
+    final pipeline = SectionImagePipeline(
+      cacheDir: library.imageCacheDir,
+      diskCache: false,
+      requestSender: (_) async => NetworkResponse(
+        statusCode: 200,
+        body: png,
+        headers: const {'content-type': 'image/png'},
+      ),
+    );
+    addTearDown(pipeline.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(
+            id: 'poster-hue-regression',
+            title: '详情测试片',
+            cover: 'https://fixture.example/lower-red-poster.png',
+          ),
+          library: library,
+          imagePipeline: pipeline,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    final background = tester
+        .widget<ColoredBox>(
+          find.byKey(const Key('video-detail-poster-color-background')),
+        )
+        .color;
+    final tone = HSVColor.fromColor(background);
+    expect(tone.hue < 15 || tone.hue > 345, isTrue);
+    expect(tone.saturation, greaterThan(.5));
+    expect(tone.value, lessThan(.4));
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      background,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
     final settings = TmdbSettings.instance;
     final oldEnabled = settings.enabled;

@@ -32,7 +32,7 @@ void main() {
         width: 1,
         height: 1,
       ),
-      isNull,
+      Colors.white,
     );
   });
 
@@ -41,8 +41,55 @@ void main() {
       final original = HSVColor.fromColor(input);
       final surface = HSVColor.fromColor(immersiveCoverSurface(input));
       expect(surface.hue, closeTo(original.hue, 1));
-      expect(surface.saturation, greaterThanOrEqualTo(.21));
-      expect(surface.value, inInclusiveRange(.27, .53));
+      expect(surface.saturation, greaterThanOrEqualTo(.35));
+      expect(surface.value, inInclusiveRange(.28 - 1 / 255, .38 + 1 / 255));
+      expect(
+        1.05 / (immersiveCoverSurface(input).computeLuminance() + .05),
+        greaterThan(6),
+      );
+    }
+  });
+  test('灰阶与小面积彩色标记不会被放大成红色页面', () {
+    for (final value in [0, 80, 180, 255]) {
+      final rgba = Uint8List.fromList([
+        for (var i = 0; i < 64 * 64; i++) ...[value, value, value, 255],
+      ]);
+      // A tiny saturated red mark in otherwise neutral artwork.
+      rgba.setRange(0, 4, [255, 0, 0, 255]);
+      final color = immersiveArtworkColor(rgba, width: 64, height: 64)!;
+      final surface = immersiveCoverSurface(color);
+      expect((surface.r - surface.g).abs(), lessThan(.01));
+      expect((surface.g - surface.b).abs(), lessThan(.01));
+      expect(1.05 / (surface.computeLuminance() + .05), greaterThan(10));
+    }
+  });
+
+  test('不同明暗的同色衣服合并计权，蓝绿色仍保留各自色相', () {
+    for (final hue in [0.0, 120.0, 210.0]) {
+      final rgba = Uint8List.fromList([
+        for (var y = 0; y < 24; y++)
+          for (var x = 0; x < 24; x++)
+            ...y < 15
+                ? [140, 152, 175, 255]
+                : () {
+                    final color = HSVColor.fromAHSV(
+                      1,
+                      (hue + (x.isEven ? 358 : 2)) % 360,
+                      .75,
+                      x.isEven ? .35 : .65,
+                    ).toColor();
+                    return [
+                      (color.r * 255).round(),
+                      (color.g * 255).round(),
+                      (color.b * 255).round(),
+                      255,
+                    ];
+                  }(),
+      ]);
+      final color = immersiveArtworkColor(rgba, width: 24, height: 24)!;
+      final actual = HSVColor.fromColor(immersiveCoverSurface(color));
+      final delta = (actual.hue - hue + 180) % 360 - 180;
+      expect(delta.abs(), lessThan(4));
     }
   });
 }

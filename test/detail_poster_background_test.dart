@@ -67,28 +67,6 @@ void main() {
     expect(dim.getUint8(bottom + 2), 0);
     expect(faded.getUint8(bottom + 2), greaterThan(240));
   });
-  test('沉浸详情将蓝色布景和浅色海报收敛为深灰衬底，保留轻微冷暖差异', () {
-    final surfaces = <Color>[];
-    for (final seed in [
-      const Color(0xff2466aa),
-      const Color(0xff81776f),
-      const Color(0xff9b2727),
-      Colors.yellow,
-      Colors.green,
-      Colors.white,
-    ]) {
-      final surface = immersivePosterPageColor([(seed, 300)], dominant: seed)!;
-      surfaces.add(surface);
-      final tone = HSLColor.fromColor(surface);
-      expect(tone.lightness, inInclusiveRange(.17, .22));
-      expect(tone.saturation, lessThan(.24));
-      expect(1.05 / (surface.computeLuminance() + .05), greaterThan(10));
-    }
-    expect(surfaces.toSet().length, greaterThan(2));
-    final blue = surfaces.first;
-    expect((blue.b - blue.r).abs(), lessThan(.08), reason: '蓝海报不再铺成亮蓝底');
-    expect(immersivePosterPageColor([]), isNull);
-  });
   test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
     final lightColors = <Color>{};
     for (final seed in [

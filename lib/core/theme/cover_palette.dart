@@ -45,6 +45,7 @@ Color? immersiveArtworkColor(
     return null;
   }
   final buckets = <int, List<double>>{};
+  final neutral = <double>[0, 0, 0, 0];
   for (var y = 0; y < height; y++) {
     final position = y / height;
     final spatialWeight = .05 + position * position * position;
@@ -52,6 +53,10 @@ Color? immersiveArtworkColor(
       final i = (y * width + x) * 4;
       if (rgba[i + 3] < 180) continue;
       final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      neutral[0] += spatialWeight;
+      neutral[1] += r * spatialWeight;
+      neutral[2] += g * spatialWeight;
+      neutral[3] += b * spatialWeight;
       final hsv = HSVColor.fromColor(Color.fromARGB(255, r, g, b));
       if (hsv.saturation < .2 || hsv.value < .12) continue;
       final weight = hsv.saturation * hsv.saturation * spatialWeight;
@@ -64,8 +69,12 @@ Color? immersiveArtworkColor(
       bucket[3] += b * weight;
     }
   }
-  if (buckets.isEmpty) return dominantCoverColor(rgba);
-  final best = buckets.values.reduce((a, b) => a[0] >= b[0] ? a : b);
+  if (buckets.isEmpty && neutral[0] == 0) return null;
+  var best = buckets.isEmpty
+      ? neutral
+      : buckets.values.reduce((a, b) => a[0] >= b[0] ? a : b);
+  // A small logo or isolated coloured pixel should not tint a neutral poster.
+  if (best != neutral && best[0] < neutral[0] * .025) best = neutral;
   return Color.fromARGB(
     255,
     (best[1] / best[0]).round(),
@@ -77,8 +86,13 @@ Color? immersiveArtworkColor(
 /// Keep the displayed artwork's hue instead of blending every poster into grey-purple.
 Color immersiveCoverSurface(Color artwork) {
   final hsv = HSVColor.fromColor(artwork);
+  final neutral = hsv.saturation < .12;
   return hsv
-      .withSaturation(hsv.saturation.clamp(.35, .72))
-      .withValue((hsv.value * .65).clamp(.28, .38))
+      .withSaturation(neutral ? hsv.saturation : hsv.saturation.clamp(.35, .72))
+      .withValue(
+        neutral
+            ? (hsv.value * .4).clamp(.16, .24)
+            : (hsv.value * .65).clamp(.28, .38),
+      )
       .toColor();
 }
