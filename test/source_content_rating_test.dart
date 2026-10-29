@@ -35,7 +35,6 @@ void main() {
       'theavporn_video',
       's618_video',
       'kkav_video',
-      'niacg_photo',
       'twitthub_video',
       'd9y1w_video',
       'pornbest_video',

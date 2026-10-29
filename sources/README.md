@@ -40,7 +40,7 @@
 7. **站点有发布页/地址发布页时写进扩展功能**：用一条 `{"type":"action","action":"openWebsite",
    "url":"https://发布页/","title":"打开发布页"}`，再配一条 `info` 说明（发布页给出当前域名、邮箱、
    备用地址）。用户在 App 源设置里能一键打开或复制，站点换域名后不至于失联；发布页地址本身不要
-   当镜像写进 `mirrors`（它不是站点本体）。例：`photo/逆ACG.js`、`video/8x8x.js`。
+   当镜像写进 `mirrors`（它不是站点本体）。例：`comic/巴卡漫画.js`（发布页 bakamh.app）、`video/8x8x.js`。
 
 ## 已发布的订阅链接（推送到 LumeBox-Sources 仓库）
 
@@ -141,6 +141,7 @@ sources/video/
 **漫画 / 图片类图源**不在 video/ 下：
 - `comic/gamebus.js` —— 同一站绅游巴士的 H 漫（`/api/comic/{chapterId}/pages` 直接给整话图片）；
 - `photo/91cg1.js` —— 91吃瓜的图集（图片在帖子页 `data-xkrkllgl` 属性里）。
+- `comic/巴卡漫画.js` —— 巴卡漫画（Madara/WordPress）：分类页 `/manhwa/` 等、条目 `/manga/<slug>/`、章节正文 `reading-content`；发布页 bakamh.app，镜像 bakamh.com / bakamh.ru / baka3.cfd / baka1.cfd / baka2.cfd；Cloudflare 后面，需要网页验证时会给 `NEED_WEBVIEW_VERIFY`。
 
 ---
 
