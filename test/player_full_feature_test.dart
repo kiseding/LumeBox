@@ -942,7 +942,7 @@ void main() {
     });
 
     for (final percent in <int?>[95, 100, null]) {
-      testWidgets('时间电量横排对齐按钮，电量未知不显示占位百分比：$percent', (tester) async {
+      testWidgets('顶边时间靠左电量靠右，位于操作按钮上方：$percent', (tester) async {
         const channel = MethodChannel('lumebox/battery');
         final messenger =
             TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -959,13 +959,18 @@ void main() {
           find.byKey(const Key('player-clock-text')),
         );
         final settings = tester.getRect(find.byTooltip('播放器设置'));
-        expect(status.center.dy, closeTo(settings.center.dy, .1));
-        expect(status.right, lessThan(settings.left));
+        expect(status.bottom, lessThan(settings.top));
+        expect(clock.left, closeTo(status.left, .1));
+        expect(status.right, closeTo(settings.right, .1));
         expect(status.height, lessThan(24), reason: '时间和电量只占一行');
         if (percent != null) {
           final battery = tester.getRect(
             find.byKey(const Key('player-battery-text')),
           );
+          final group = tester.getRect(
+            find.byKey(const Key('player-battery-group')),
+          );
+          expect(group.right, closeTo(status.right, .1));
           expect(clock.right, lessThan(battery.left));
           expect(clock.center.dy, closeTo(battery.center.dy, .1));
           expect(find.text('$percent%'), findsOneWidget);
@@ -1023,11 +1028,13 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(932, 430));
       final ratio = tester.view.devicePixelRatio;
       tester.view.viewPadding = FakeViewPadding(
+        top: 24 * ratio,
         left: 44 * ratio,
         right: 24 * ratio,
         bottom: 21 * ratio,
       );
       tester.view.padding = FakeViewPadding(
+        top: 24 * ratio,
         left: 44 * ratio,
         right: 24 * ratio,
         bottom: 21 * ratio,
@@ -1044,6 +1051,10 @@ void main() {
         932 - tester.getRect(find.byTooltip('播放器设置')).right,
         closeTo(24 + 8, .01),
       );
+      final status = tester.getRect(find.byKey(const Key('player-status-row')));
+      expect(status.top, greaterThanOrEqualTo(24));
+      expect(status.left, closeTo(44 + 8, .01));
+      expect(932 - status.right, closeTo(24 + 8, .01));
       expect(play.width, greaterThanOrEqualTo(44));
       expect(play.height, greaterThanOrEqualTo(44));
       expect(tester.takeException(), isNull);
@@ -1835,7 +1846,7 @@ void main() {
         expect(gradient.size, size, reason: '渐变覆盖全画面，安全区边缘不形成矩形边界');
         expect(find.byTooltip('播放内核'), findsNothing);
         expect(find.byTooltip('清晰度'), findsNothing);
-        expect(find.text('1920×1080'), findsOneWidget);
+        expect(find.text('第1集 · 1920×1080'), findsOneWidget);
         final slider = tester.getRect(find.byType(Slider));
         final time = tester.getRect(find.text('15:00'));
         expect(time.center.dy, closeTo(slider.center.dy, 2));
@@ -1843,8 +1854,19 @@ void main() {
       });
     }
 
-    testWidgets('完整分辨率恢复片名旁，速率在进度条上方且随媒体更新', (tester) async {
-      final players = await pump(tester);
+    testWidgets('集名后显示完整分辨率，速率在进度条上方且随媒体更新', (tester) async {
+      const title = '播放布局验证';
+      final players = await pump(
+        tester,
+        target: const VideoPlayTarget(
+          sourceId: 'local',
+          itemId: 'layout',
+          title: title,
+          chapterIndex: 0,
+          chapterId: 'one',
+          chapterTitle: '第1集',
+        ),
+      );
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       players.single.pushStats(
@@ -1855,7 +1877,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final stats = tester.getRect(find.text('1920×800'));
+      final stats = tester.getRect(find.text('第1集 · 1920×800'));
       final speed = tester.getRect(find.text('125.0MB/s'));
       final top = tester.getRect(find.byKey(const Key('fullscreen-topbar')));
       final slider = tester.getRect(find.byType(Slider));
@@ -1863,14 +1885,17 @@ void main() {
         find.byKey(const Key('fullscreen-actions')),
       );
       expect(top.contains(stats.center), isTrue);
+      final titleRect = tester.getRect(find.text(title).first);
+      expect(stats.top, greaterThanOrEqualTo(titleRect.bottom));
+      expect(stats.left, closeTo(titleRect.left, .1));
       expect(speed.bottom, lessThanOrEqualTo(slider.top));
       expect(speed.right, closeTo(actions.right, .1));
       expect(find.byTooltip('清晰度'), findsNothing);
       expect(find.text('800P'), findsNothing);
       players.single.pushStats(const PlayerStats(width: 1280, height: 720));
       await tester.pumpAndSettle();
-      expect(find.text('1280×720'), findsOneWidget);
-      expect(find.text('1920×800'), findsNothing);
+      expect(find.text('第1集 · 1280×720'), findsOneWidget);
+      expect(find.text('第1集 · 1920×800'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 

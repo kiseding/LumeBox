@@ -3981,84 +3981,86 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     builder: (context, constraints) {
       final narrow = constraints.maxWidth < 580;
       final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
-      final episode = _target?.chapterTitle;
+      final episode = _target?.chapterTitle.trim();
+      Widget caption(PlayerStats stats) {
+        final parts = <String>[
+          if (episode != null &&
+              episode.isNotEmpty &&
+              episode != '播放' &&
+              episode != title)
+            episode,
+          if (stats.resolutionText != null) stats.resolutionText!,
+        ];
+        if (parts.isEmpty) return const SizedBox.shrink();
+        return Text(
+          parts.join(' · '),
+          key: const Key('fullscreen-media-caption'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: LumeTypography.captionSize,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFFF8F8F8),
+            shadows: _controlShadows,
+          ),
+        );
+      }
+
       return Padding(
         key: const Key('fullscreen-topbar'),
         padding: const EdgeInsets.symmetric(
           horizontal: VideoPlayerPage.controlHorizontalPadding,
           vertical: 4,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _topIcon(
-              icon: Icons.arrow_back_ios_new,
-              tooltip: '退出全屏',
-              onPressed: () => _setFullscreen(false),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: LumeTypography.titleSize,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFF8F8F8),
-                            shadows: _controlShadows,
-                          ),
+            const _PlayerClock(),
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _topIcon(
+                  icon: Icons.arrow_back_ios_new,
+                  tooltip: '退出全屏',
+                  onPressed: () => _setFullscreen(false),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: LumeTypography.titleSize,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFF8F8F8),
+                          shadows: _controlShadows,
                         ),
-                        if (episode != null &&
-                            episode != '播放' &&
-                            episode != title)
-                          Text(
-                            episode,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: LumeTypography.captionSize,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFF8F8F8),
-                              shadows: _controlShadows,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (_player != null) ...[
-                    const SizedBox(width: 6),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: narrow ? 68 : 180),
-                      child: PlayerStatsInline(
-                        stats: _player!.stats,
-                        stacked: narrow,
-                        showSpeed: false,
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 4),
-            if (!narrow) ...[
-              const _PlayerClock(),
-              const SizedBox(width: 12),
-              _buildPipButton(),
-              const SizedBox(width: 4),
-            ],
-            const SizedBox(width: 4),
-            _topIcon(
-              icon: Icons.more_horiz,
-              tooltip: '播放器设置',
-              onPressed: _openSettings,
+                      if (_player == null)
+                        caption(PlayerStats.empty)
+                      else
+                        ValueListenableBuilder<PlayerStats>(
+                          valueListenable: _player!.stats,
+                          builder: (context, stats, _) => caption(stats),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                if (!narrow) _buildPipButton(),
+                const SizedBox(width: 4),
+                _topIcon(
+                  icon: Icons.more_horiz,
+                  tooltip: '播放器设置',
+                  onPressed: _openSettings,
+                ),
+              ],
             ),
           ],
         ),
@@ -5578,7 +5580,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 }
 
-/// 内核切换前记录的位置与播放状态（新内核加载完成后接回去）。
+/// 全屏顶边的状态行：左侧时间、右侧真实电量。
 class _PlayerClock extends StatefulWidget {
   const _PlayerClock();
   @override
@@ -5638,19 +5640,23 @@ class _PlayerClockState extends State<_PlayerClock> {
       child: ExcludeSemantics(
         child: Row(
           key: const Key('player-status-row'),
-          mainAxisSize: MainAxisSize.min,
           children: [
             Text(time, key: const Key('player-clock-text'), style: style),
-            if (_batteryPercent != null) ...[
-              const SizedBox(width: 8),
-              _BatteryGlyph(percent: _batteryPercent!),
-              const SizedBox(width: 4),
-              Text(
-                '$_batteryPercent%',
-                key: const Key('player-battery-text'),
-                style: style,
+            const Spacer(),
+            if (_batteryPercent != null)
+              Row(
+                key: const Key('player-battery-group'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$_batteryPercent%',
+                    key: const Key('player-battery-text'),
+                    style: style,
+                  ),
+                  const SizedBox(width: 4),
+                  _BatteryGlyph(percent: _batteryPercent!),
+                ],
               ),
-            ],
           ],
         ),
       ),
