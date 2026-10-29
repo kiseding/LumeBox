@@ -1,5 +1,15 @@
 # LumeBox 视频源：站点转源结果
 
+## 2026-10-30 新增 13 源（详见 docs/2026-10-30_批量新增13源.md）
+
+`laosiji_video` 老司机在线 · `fplayer_video` 飞播 · `forcedcinema_video` ForcedCinema ·
+`avbebe_video` Avbebe · `cartoonporn_video` CartoonPorn · `pmvtube_video` PMVtube ·
+`sexbjcam_video` sexbjcam · `xxxfollow_video` XXXfollow · `gifscroll_video` GifScroll ·
+`xiaohuangniao_video` 小黄鸟 · `ogfap_video` OGFAP · `hstream_video` hstream ·
+`p91pinse_video` 91PinSe
+
+均为 18+（已在 `source_content_rating.dart` 与源仓库 `metadata/content-ratings.json` 登记）。
+
 ## 源约定（新增源必须遵守）
 
 1. **先找主站，镜像尽量配满**：拿到站点先确认哪个是主站（官方/首发域名），源默认用主站；

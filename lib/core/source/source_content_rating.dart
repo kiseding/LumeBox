@@ -170,6 +170,19 @@ class SourceContentRating {
     'mtav_video',
     'heroero_video',
     'qinav_video',
+    'laosiji_video',
+    'fplayer_video',
+    'forcedcinema_video',
+    'avbebe_video',
+    'cartoonporn_video',
+    'pmvtube_video',
+    'sexbjcam_video',
+    'xxxfollow_video',
+    'gifscroll_video',
+    'xiaohuangniao_video',
+    'ogfap_video',
+    'hstream_video',
+    'p91pinse_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
