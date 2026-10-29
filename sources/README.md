@@ -117,7 +117,7 @@ sources/video/
 ├── yuxiu.js       玉羞园（yhh.yxy881p.icu）xvideos 镜像站；媒体直连 xvideos CDN，无 VIP
 ├── tianlula.js    天撸啦（ttbd067.top:51000）视频频道；接口密文 AES-128-CBC，源内自带纯 JS 解密
 ├── haijiaoqing.js 海角情（haijiaolove.xyz）WordPress 站；列表/详情走 wp-json，正文内嵌 abyssplayer 走 webplayer
-├── aiboaibo.js    爱播爱播（994555.xyz）SvelteKit SSR；首页 HTML 内嵌 list[]，每条自带 m3u8 直链
+├── aiboaibo.js    爱播爱播（994555.xyz）SvelteKit SSR + /category/__data.json（devalue）；51 个分类（来源 11/12 栏目）、每条自带 m3u8，发布页 didizhi.pages.dev
 ├── jizeyy.js      AV仓库（jizeyy.com）Typecho 主题；取流走 ?action=get&p=1 里的 jx.php?url=<m3u8>
 ├── hsex.js        好色TV（hsex.men）列表可直连、详情 CF 挑战 → content 走 webplayer
 ├── reddxxx.js     ReddXXX（reddxxx.com）列表取 sitemap 视频索引、播放走 webplayer
@@ -183,14 +183,14 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 在线影院 | 否 | 3 块 | 31 分类 | 40 | 40（Meilisearch） | ok | 1 | **video（m3u8，master→variant 实测 200；另一域名 91吃瓜 是子集，404 自动回落）** |
 | 91热爆 | 否 | 3 块 | 12 分类 | 20 | 20（站内搜索） | ok | 1 | **video（CDN 直连：`/{dir}/{id}/{id}.mp4/index.m3u8` 去掉签名也 200；VIP 专享片同样可播）** |
 | 海角情 | WordPress：`/wp-json/wp/v2/posts?per_page=20&page=N`（X-WP-Total 1156）、`/wp-json/wp/v2/posts/{id}`；正文是 Elementor 生成的 HTML | 播放器是正文里的 `<iframe src="https://player.abyssplayer.com/{code}">`，播放器页 JS 渲染、HTML 无 m3u8 → 按 `kind: webplayer` 交给 App 网页播放器；一个帖子 1–3 个源，做成 chapters。封面取正文首个 `<img>`（多为 gif）。 |
-| 爱播爱播 | SvelteKit SSR：首页 HTML 内嵌 `data:{…list:[{id,name,pic,m3u8,…}]}`；`/?page=N`、`/page/N`、`/__data.json` 都只回同一批 12 条；搜索 `/search?q=` 有效 | 每条自带 m3u8（`sryndbsfvd.com/…/index.m3u8`），`content()` 直接返回，无需详情页；源内缓存 10 分钟。 |
+| 爱播爱播 | SvelteKit SSR + `__data.json`：首页/搜索页 HTML 内嵌 `{id,name,pic,m3u8,…}`，卡片链接 `/<sourceKey>-<id>`；分类 `/category/__data.json?source=<11\|12>&tid=<栏目>&page=N`（devalue 扁平数组，解出 classes/vods/totalPages）；详情 `/<sourceKey>-<id>/__data.json` | 每条自带 m3u8（`t27.cdn2020.com/…/index.m3u8`），加不加 Referer 都能播；来源 11 有 20 个栏目、来源 12 有 30 个栏目，同名去重后 51 个分类；分页真实生效（s11:0 = 1346 页）。 |
 | 天撸啦 | 综合站拆三源：`Api-vod_list&cid&limit&page`（视频，total 284,145）、`Api-vod_search&wd`、`Api-vod_detail&id`（`vod_url` 是 m3u8）；`Api-news_list&cid&type=pic\|text`（图集/小说）、`Api-news_detail&id`（`news_content` 是一整段 HTML）；分类树在 `Api-list_all` 的 `children` 里 | **接口返回体是 AES-128-CBC 密文**（key `bfd7257d9bee742c`、iv `506ecf5490eeb552`，同为 ASCII），沙箱没有 crypto/atob，所以三个源各自内联一份纯 JS AES-128-CBC（FIPS-197 向量 + 站点真实密文双向核对）；图集把 `news_content` 里的 `<img>` 抽成 images 列表并统一 http→https；小说把 HTML 去标签转纯文本。 |
 | 玉羞园 | 否 | 3 块 | 38 分类 | 48 | 27（站内搜索 `/?k=`） | ok | 1 | **video（hls_low.m3u8 200 206B master；mp4_sd 200 93 MB 整片可直下）** |
 | 天撸啦 | 否 | 4 块 | 52 分类 | 20 | 20（`Api-vod_search`，探花 7718 条） | ok | 1 | **video（`vod_url` = m3u8，实测 200 + #EXTM3U 3790 B）** |
 | 天撸啦图集 | 否 | 3 块 | 9 分类 | 20 | 无搜索接口 | ok | 1 | **images（一套 17 张直链，首图 200）** |
 | 天撸啦小说 | 否 | 3 块 | 9 分类 | 20 | 无搜索接口 | ok | 1 | **text（正文 1.2 万字，HTML 去标签）** |
 | 海角情 | 否 | 1 块 | 7 分类 | 20 | 20（wp-json `search=`） | ok | 3 | **webplayer（正文内嵌 player.abyssplayer.com，多线路）** |
-| 爱播爱播 | 否 | 1 块 | — | 12 | 搜索页 SSR | ok | 1 | **video（m3u8 直链，探活 200 + #EXTM3U，1080p master）** |
+| 爱播爱播 | 否 | 1 块 | 51 分类 | 20~50 | 搜索页 SSR（30 条） | ok | 1 | **video（m3u8 直链，探活 200 + #EXTM3U；分类分页真实生效）** |
 | AV仓库 | 否 | 3 块 | 8 分类 | 20 | 无搜索接口 | ok | 1 | **video（`?action=get&p=1` → jx.php?url=<m3u8>；直连 CDN 在本机被 RST，地址本身正确）** |
 | 好色TV | 否 | 3 块 | 5 栏目 | 24 | 40（search.htm） | ok | 1 | **webplayer（列表/封面可 HTTP 取，详情页有 CF 挑战 → 交给 App 内嵌浏览器）** |
 | ReddXXX | 否 | 1 块 | — | 1004（一个 sitemap 分片） | 无 | ok | 1 | **webplayer（列表来自 sitemap-videos 视频索引，播放走内嵌浏览器）** |
@@ -306,7 +306,7 @@ dart run tools/site_reachability.dart
 - **618 影院是「地址表 + 站群」**：`618208.xyz` 首页只有 2×5 的区表（一区…漫画），每格由脚本用 `crypto.getRandomValues()%30` 从 95 个域名码里随机挑一个拼成 `618<码>.xyz/index.php/{vod|art}/type/id/{X}.html`（去重 847 个域名）；页面文字（导航、标题）用 **XOR 0x80** 混淆、浏览器里由内联脚本还原（`幨遨襆頑`→`全部视频`），所以直接抓 HTML 会看到乱码。本源自带 xor80 解码、并会解析地址表自动挑可用域名（缓存 30 分钟）。
 - **TheAVPorn 的流是浏览器抓包定位的**：游客页只有 `no-player`（观看次数受限），但真实播放请求是 `https://bytt.jb-aiwei.cc/contents/videos/{dir}/{id}/index.m3u8?ttl=…&dsc=…`；实测**整段查询串去掉仍 200**、分片 `.ts` 也不带签名、另一个 id 同规则可播 → `content()` 只用 id 拼路径（`dir=floor(id/1000)*1000`）。换分发域时改 `CDN_HOSTS`。
 - **jizeyy / hsex / reddxxx 的取流方式各不相同**：jizeyy 详情页按钮指向 `?action=get&p=1`，页面里是 `jx.php?url=<真 m3u8>`，URL 解码即得直链（`play4.laoyacdn.com` 在本机出口被 RST，换网络可播）；hsex 列表页可直连但详情页一律 CF 挑战、CDN 是逐条签名（`/hls/{id}/index.m3u8` 403），reddxxx 整站 Turnstile 但 **sitemap 未被挑战**（`/sitemap-videos/{N}`，N=0 最新，4214 个分片）——这两个都按 `webplayer` 交付，由 App 内嵌浏览器过 CF 后播放。
-- **海角情 / 爱播爱播 的边界**：海角情正文只有 iframe，播放器页不暴露 m3u8（要深挖 player.abyssplayer.com 的接口才能直连，目前按 webplayer 交付）；爱播爱播服务端只吐最新 12 条，翻页参数全被忽略，所以列表很短，靠搜索取老片。
+- **爱播爱播的分类在 `__data.json` 里**：首页/搜索页的 HTML 只内嵌 12 条（旧源就停在这里），真正的分类列表在 `/category/__data.json?source=<来源>&tid=<栏目>&page=N`，是 SvelteKit 的 devalue 扁平格式（对象/数组里的整数是下标），源内写了 30 行解码；来源 11/12 的栏目同名很多，去重后 51 个分类，分页真实生效。详情路径必须带 `sourceKey`（`/<sourceKey>-<id>`），从 SSR 卡片 href 里取。发布页 `didizhi.pages.dev` 已做成设置里的「打开发布页」。
 - **hsex.men 与 reddxxx.com 无法做源**：两者的详情/接口全部返回 Cloudflare「Just a moment…」JS 挑战（`cf-mitigated`），App 的 HTTP 客户端过不去，源里只能拿 403 页面；除非改走浏览器内核。
 - **天撸啦接口是密文**：`/res?s=Api-xxx` 的 `list`/`data` 字段 base64 后是 AES-128-CBC（PKCS7），密钥 iv 都写在 `assets/core.js` 的混淆里，用「挂钩 `CryptoJS.AES.decrypt` 抓参数」的办法取到 key/iv 后解出明文。站点改 key 时源会抛「密文解不开（站点换 key 了？）」，届时重抓一次即可。图集/小说**没有搜索接口**（`Api-news_search` 返回 code=0）。纯文本源在 `lume-source-check` 里 `playable` 一项会报「没有给出绝对地址」（没有 URL 可探活），属工具限制，其余入口都是 ok。
 - **玉羞园是 xvideos 镜像**：内容就是 xvideos 公共库，媒体走 `hls-cdn77` / `mp4-cdn77`，`secure=` token 约 1 小时失效 → 每次现取详情页；分页是 0 基（`/new/{页码-1}`、`/c/{slug}/{页码-1}`、搜索 `&p={页码}` 从 1 起），两套卡片版式（`<img data-src>` 与 `<picture><source data-srcset>`）都要兼容。
