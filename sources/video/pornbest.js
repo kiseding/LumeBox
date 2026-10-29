@@ -117,19 +117,28 @@ async function request(path) {
   return { status: status, body: String((reply && reply.body) || ''), url: url };
 }
 
-/// 站点对受限制的出口会把整站跳到 goto2.cc 的「换域」封锁页，这里点名成代理问题。
+/// 站点对受限制的出口会把整站跳到 goto2.cc 的「换域」封锁页（包里是一段 packed JS，
+/// 明文里没有域名，靠 packer 特征 + 缺少站点骨架认），这里点名成代理问题。
 function assertOpen(body) {
-  if (/goto2\.cc\/block|site\/block|block\/default\/switch/.test(String(body))) {
+  var text = String(body || '');
+  if (/goto2\.cc\/block|site\/block|block\/default\/switch/.test(text)) {
     throw new Error('第一女優網：站点把当前网络跳到了封锁页（中国大陆出口会这样）——'
+      + '请在「源设置 → 站点网络」配代理后重试');
+  }
+  if (/eval\(function\(h,u,n,t,e,r\)/i.test(text) && !/class="main-header"/.test(text)) {
+    throw new Error('第一女優網：拿到的不是站点页面而是跳转封锁页（中国大陆出口会这样）——'
       + '请在「源设置 → 站点网络」配代理后重试');
   }
 }
 
 function verify(reply) {
   var status = reply.status;
-  if (status === 200) {
-    assertOpen(reply.body);
-    return reply.body;
+  // 封锁页会以 200/201 落地（HTTP 桥跟随 302），所以先按内容判一次
+  assertOpen(reply.body);
+  if (status === 200) return reply.body;
+  if (status === 201) {
+    throw new Error('第一女優網：站点返回了跳转页（HTTP 201）——'
+      + '中国大陆出口会被跳到封锁页，请在「源设置 → 站点网络」配代理后重试');
   }
   if (status === 301 || status === 302 || status === 303 || status === 307 || status === 308) {
     throw new Error('第一女優網：站点把请求跳到了封锁页（HTTP ' + status + '）——'
