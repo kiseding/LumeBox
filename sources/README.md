@@ -128,7 +128,8 @@ sources/video/
 ├── juzhi.js       橘汁 - 影视（juziapp.hzhcbkj.cn，从橘汁 APK 里挖出的官方后端）；开放 JSON 端点 + 换流接口
 ├── hqvod.js       点播-高清（hqvod.com）苹果CMS 站；列表走 ajax 数据接口，播放页有滑块 → webplayer
 ├── d9y1w.js       四色视频（www.d9y1w.top）maomi 模板站；标题 AES-256-CBC、卡片链接 base64 混淆，播放 m3u8 直链
-└── x8x8.js        8x8x（8x8x.fun / 随机跳板域）SPA 外壳 + bodyRoot 内容页；频道/标签 SSR、推荐流 AES-256-GCM，播放三线路 HLS
+├── x8x8.js        8x8x（8x8x.fun / 随机跳板域）SPA 外壳 + bodyRoot 内容页；频道/标签 SSR、推荐流 AES-256-GCM，播放三线路 HLS
+└── pornbest.js    第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org）Yii2 SSR + video.js；**大陆出口 302 到封锁页，需代理**；详情页 `<source>` 直给 m3u8
 ```
 
 **漫画 / 图片类图源**不在 video/ 下：
@@ -203,6 +204,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 点播 - 高清 | 否 | 1 块 | 5 分类 | 10 | 本地索引过滤 | ok | 5 线路 | **webplayer（播放页滑块人机校验，脚本 403 → App 网页视图过校验后播）** |
 | 四色视频（18+） | 否 | 3 块 | 27 分类 | 20 | 30（剧情/视频/精品三频道合并） | ok | 2 线路 | **video（m3u8 直链 + AES-128 key 与分片同域，实测 200 + `#EXTM3U` 79 KB）** |
 | 8x8x（18+） | **是** | 2 块 | 5 频道 + 12 组标签 | 23 | 28（`/api/search/video`） | ok | 3 线路 | **video（`data-route1..3` + `data-m3u8`，探活 200 + `#EXTM3U` 158 B master）** |
+| 第一女優網（18+） | **是** | 2 块 | 51 分类 | 48 | 24（`/q/<词>`） | ok | 1 | **video（详情页 `<source>` / ld+json `contentUrl` → `voddadaizi5.com:…/index.m3u8`，探活 200 + `#EXTM3U` 300 KB）** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。

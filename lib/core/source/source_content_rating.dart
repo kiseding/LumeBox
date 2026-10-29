@@ -163,6 +163,8 @@ class SourceContentRating {
     'betareel_video',
     // 四色视频（www.d9y1w.top，maomi 模板站；标题 AES-256-CBC、播放 m3u8 直链）。
     'd9y1w_video',
+    // 第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org；日本 AV 站，大陆出口 302 封锁页，需代理）。
+    'pornbest_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
