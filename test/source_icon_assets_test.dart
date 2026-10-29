@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,64 @@ import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/source/source_favicon.dart';
 
 void main() {
+  testWidgets('离线本地标识不写入成功缓存，网络恢复后自动替换', (tester) async {
+    await tester.runAsync(() async {
+      final directory = Directory.systemTemp.createTempSync('icon-retry-');
+      try {
+        var online = false;
+        var now = DateTime(2026, 10, 29);
+        var requests = 0;
+        final picture = img.Image(width: 32, height: 32);
+        img.fill(picture, color: img.ColorRgb8(255, 0, 0));
+        final resolver = SourceFavicon(
+          now: () => now,
+          cacheDirectory: () async => directory,
+          fetchHtmlHomepage: false,
+          http: LumeHttp(
+            client: MockClient((_) async {
+              requests++;
+              return online
+                  ? http.Response.bytes(
+                      img.encodePng(picture),
+                      200,
+                      headers: {'content-type': 'image/png'},
+                    )
+                  : http.Response('offline', 403);
+            }),
+          ),
+        );
+        final fallback = await resolver.load(
+          origin: 'https://retry.invalid',
+          sourceId: 'x8x8_video',
+        );
+        expect(img.decodePng(fallback!)!.width, 192);
+        expect(directory.listSync(), isEmpty);
+        final before = requests;
+        await resolver.load(
+          origin: 'https://retry.invalid',
+          sourceId: 'x8x8_video',
+        );
+        expect(requests, before, reason: '失败冷却期间不反复请求');
+        online = true;
+        now = now.add(const Duration(minutes: 3));
+        final real = await resolver.load(
+          origin: 'https://retry.invalid',
+          sourceId: 'x8x8_video',
+        );
+        expect(img.decodePng(real!)!.width, 32);
+        expect(directory.listSync(), hasLength(1));
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    });
+  });
+
+  test('hxc 同类的全透明 PNG 和 ICO 不能遮掉备用图标', () {
+    final blank = img.Image(width: 16, height: 16, numChannels: 4);
+    expect(SourceFavicon.storedIcon(img.encodePng(blank)), isNull);
+    expect(SourceFavicon.storedIcon(img.encodeIco(blank)), isNull);
+  });
+
   testWidgets('两段录屏的34个缺失或浅色图标离线可显示，真实图片均有来源和校验值', (tester) async {
     await tester.runAsync(() async {
       final index = jsonDecode(
@@ -21,7 +80,7 @@ void main() {
         http: LumeHttp(
           client: MockClient((_) async {
             requests++;
-            return http.Response('offline', 503);
+            return http.Response('offline', 404);
           }),
         ),
       );
@@ -60,7 +119,7 @@ void main() {
     });
   });
 
-  testWidgets('一键获取的新站点图片可替换本地文字标识，自定义地址优先', (tester) async {
+  testWidgets('自动获取的新站点图片可替换本地标识，自定义地址优先', (tester) async {
     await tester.runAsync(() async {
       final red = img.Image(width: 32, height: 32);
       img.fill(red, color: img.ColorRgb8(255, 0, 0));
@@ -82,17 +141,10 @@ void main() {
         ),
       );
       expect(
-        img
-            .decodePng(
-              (await resolver.load(
-                origin: 'https://fixture.invalid',
-                sourceId: 'jcomic_comic',
-              ))!,
-            )!
-            .width,
+        img.decodePng((await resolver.bundledFallback('jcomic_comic'))!)!.width,
         192,
       );
-      final best = await resolver.loadBest(
+      final best = await resolver.load(
         origin: 'https://fixture.invalid',
         sourceId: 'jcomic_comic',
       );

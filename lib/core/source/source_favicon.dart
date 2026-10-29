@@ -56,7 +56,7 @@ class SourceFavicon {
   /// 应用级单例：列表页与设置页共用一份缓存，同一个源只请求一次。
   static final SourceFavicon instance = SourceFavicon(
     cacheDirectory: () async => Directory(
-      '${(await getApplicationSupportDirectory()).path}/source-icons-v2',
+      '${(await getApplicationSupportDirectory()).path}/source-icons-v3',
     ),
   );
   final Future<Directory> Function()? cacheDirectory;
@@ -105,7 +105,7 @@ class SourceFavicon {
             .whereType<String>()
             .take(2)
             .toList();
-        return (bytes: await _labelPng(labels), label: true);
+        return (bytes: await _labelPng(labels, sourceId: id), label: true);
       }
       final file = '${entry['file']}';
       if (!RegExp(r'^[a-z0-9_-]+\.(png|svg)$').hasMatch(file)) return null;
@@ -114,8 +114,37 @@ class SourceFavicon {
         data.offsetInBytes,
         data.lengthInBytes,
       );
-      final png = file.endsWith('.svg') ? await _svgPng(bytes) : bytes;
+      var png = file.endsWith('.svg') ? await _svgPng(bytes) : bytes;
+      final backdrop = entry['background'];
+      if (png != null && backdrop is int) {
+        final logo = img.decodePng(png);
+        if (logo != null) {
+          final tile = img.Image(width: logo.width, height: logo.height);
+          img.fill(
+            tile,
+            color: img.ColorRgb8(
+              (backdrop >> 16) & 255,
+              (backdrop >> 8) & 255,
+              backdrop & 255,
+            ),
+          );
+          img.compositeImage(tile, logo);
+          png = img.encodePng(tile);
+        }
+      }
       return png == null ? null : (bytes: png, label: entry['kind'] == 'label');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// First paint is independent of slow or unavailable websites.
+  Future<Uint8List?> bundledFallback(String? sourceId) async =>
+      (await _bundled(sourceId))?.bytes;
+
+  static Uint8List? storedIcon(Uint8List bytes) {
+    try {
+      return _asImage(bytes, null);
     } catch (_) {
       return null;
     }
@@ -123,35 +152,68 @@ class SourceFavicon {
 
   // A local source label is deliberately distinct from an acquired site logo.
   // Draw text with the platform font so Chinese labels work on iOS as well.
-  static Future<Uint8List> _labelPng(List<String> labels) async {
+  static Future<Uint8List> _labelPng(
+    List<String> labels, {
+    required String sourceId,
+  }) async {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
+    const palette = [
+      0xFF6A52E5,
+      0xFF1769AA,
+      0xFFBC4366,
+      0xFF087F80,
+      0xFFAD531F,
+      0xFF4457A5,
+    ];
+    final seed = labels.join().runes.fold<int>(0, (sum, rune) => sum + rune);
     canvas.drawRRect(
       ui.RRect.fromRectAndRadius(
         const ui.Rect.fromLTWH(0, 0, 192, 192),
         const ui.Radius.circular(38),
       ),
-      ui.Paint()..color = const ui.Color(0xFFEEEAFB),
+      ui.Paint()..color = ui.Color(palette[seed % palette.length]),
     );
+    // A video emblem remains recognisable at card size; the small name below
+    // distinguishes sites which do not publish an image of their own.
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        const ui.Rect.fromLTWH(46, 26, 100, 76),
+        const ui.Radius.circular(18),
+      ),
+      ui.Paint()..color = const ui.Color(0x33FFFFFF),
+    );
+    final play = ui.Path()
+      ..moveTo(84, 44)
+      ..lineTo(84, 84)
+      ..lineTo(116, 64)
+      ..close();
+    if (sourceId.endsWith('_comic')) {
+      final ink = ui.Paint()
+        ..color = const ui.Color(0xFFFFFFFF)
+        ..strokeWidth = 5;
+      canvas.drawLine(const ui.Offset(96, 38), const ui.Offset(96, 90), ink);
+      canvas.drawLine(const ui.Offset(60, 50), const ui.Offset(82, 50), ink);
+      canvas.drawLine(const ui.Offset(110, 50), const ui.Offset(132, 50), ink);
+    } else {
+      canvas.drawPath(play, ui.Paint()..color = const ui.Color(0xFFFFFFFF));
+    }
     for (var i = 0; i < labels.length; i++) {
       final paragraph =
           (ui.ParagraphBuilder(
                   ui.ParagraphStyle(
                     textAlign: ui.TextAlign.center,
-                    fontSize: labels[i].length > 4 ? 30 : 48,
+                    fontSize: labels[i].length > 4 ? 24 : 30,
                     fontWeight: ui.FontWeight.w700,
                   ),
                 )
-                ..pushStyle(ui.TextStyle(color: const ui.Color(0xFF6A52E5)))
+                ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFFFFFFF)))
                 ..addText(labels[i]))
               .build()
             ..layout(const ui.ParagraphConstraints(width: 192));
       canvas.drawParagraph(
         paragraph,
-        ui.Offset(
-          0,
-          labels.length == 1 ? (192 - paragraph.height) / 2 : 36.0 + i * 60,
-        ),
+        ui.Offset(0, labels.length == 1 ? 122 : 110.0 + i * 34),
       );
     }
     final picture = recorder.endRecording();
@@ -176,8 +238,8 @@ class SourceFavicon {
     bool bestQuality = false,
   }) async {
     final bundled = await _bundled(sourceId);
-    if (!bestQuality && explicit.isEmpty && bundled != null) {
-      return bundled.bytes;
+    if (!bestQuality && explicit.isEmpty && bundled?.label == false) {
+      return bundled!.bytes;
     }
     if (_activeResolutions >= 2) {
       final ready = Completer<void>();
@@ -268,7 +330,10 @@ class SourceFavicon {
             sourceId: sourceId,
             bestQuality: true,
           );
-          if (bytes != null && generation == _cacheGeneration) {
+          final fallback = await _bundled(sourceId);
+          final placeholder =
+              fallback?.label == true && listEquals(bytes, fallback?.bytes);
+          if (bytes != null && !placeholder && generation == _cacheGeneration) {
             _remember(key, bytes);
             try {
               final directory = await cacheDirectory?.call();
@@ -328,8 +393,13 @@ class SourceFavicon {
               section: section,
               sourceId: sourceId,
             )
-            .then((bytes) {
-              if (generation == _cacheGeneration) _remember(key, bytes);
+            .then((bytes) async {
+              final fallback = await _bundled(sourceId);
+              final placeholder =
+                  fallback?.label == true && listEquals(bytes, fallback?.bytes);
+              if (generation == _cacheGeneration) {
+                _remember(key, placeholder ? null : bytes);
+              }
               return bytes;
             })
             .whenComplete(() {
@@ -378,7 +448,13 @@ class SourceFavicon {
       section: section,
       sourceId: sourceId,
     );
-    if (bytes != null && file != null && generation == _cacheGeneration) {
+    final fallback = await _bundled(sourceId);
+    final placeholder =
+        fallback?.label == true && listEquals(bytes, fallback?.bytes);
+    if (bytes != null &&
+        !placeholder &&
+        file != null &&
+        generation == _cacheGeneration) {
       try {
         await file.parent.create(recursive: true);
         if (generation == _cacheGeneration) {
@@ -917,7 +993,10 @@ class SourceFavicon {
         final decoded = img.IcoDecoder().decodeImageLargest(bytes);
         return decoded == null
             ? null
-            : Uint8List.fromList(img.encodePng(decoded, singleFrame: true));
+            : _asImage(
+                Uint8List.fromList(img.encodePng(decoded, singleFrame: true)),
+                null,
+              );
       } catch (_) {
         return null;
       }
@@ -925,6 +1004,14 @@ class SourceFavicon {
     // Site logos should stay still even when the original is GIF/APNG/WebP.
     final decoder = img.findDecoderForData(bytes);
     final info = decoder?.startDecode(bytes);
+    if (info != null && info.width * info.height <= 4 * 1024 * 1024) {
+      final frame = decoder!.decodeFrame(0);
+      if (frame != null &&
+          frame.hasAlpha &&
+          !frame.any((pixel) => pixel.aNormalized > .03)) {
+        return null;
+      }
+    }
     if (info != null && info.numFrames > 1) {
       try {
         final frame = decoder!.decodeFrame(0);

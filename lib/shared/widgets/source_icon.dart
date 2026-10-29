@@ -87,8 +87,8 @@ class _SourceIconState extends State<SourceIcon> {
     _savedIconData = _iconData;
     if (_savedIconData.isNotEmpty) {
       try {
-        _bytes = base64Decode(_savedIconData);
-        return;
+        _bytes = SourceFavicon.storedIcon(base64Decode(_savedIconData));
+        if (_bytes != null) return;
       } on FormatException {
         // 旧备份中的损坏图标回退到网络解析。
       }
@@ -99,6 +99,17 @@ class _SourceIconState extends State<SourceIcon> {
     ];
     final site = widget.siteUrl.trim();
     _bytes = _resolver.cached(origin: site, explicit: explicit);
+    if (_bytes == null && widget.sourceId != null) {
+      _resolver.bundledFallback(widget.sourceId).then((bytes) {
+        if (!mounted ||
+            generation != _loadGeneration ||
+            _bytes != null ||
+            bytes == null) {
+          return;
+        }
+        setState(() => _bytes = bytes);
+      });
+    }
     if (site.isEmpty && explicit.isEmpty && widget.sourceId == null) return;
     _resolver
         .load(
@@ -109,13 +120,10 @@ class _SourceIconState extends State<SourceIcon> {
         )
         .then((bytes) {
           if (!mounted || generation != _loadGeneration) return;
-          setState(() => _bytes = bytes);
+          if (bytes != null) setState(() => _bytes = bytes);
         })
         .catchError((Object _) {
-          // 解析器自己已经吞掉了「取不到」；这里只防意外异常把列表带崩。
-          if (mounted && generation == _loadGeneration) {
-            setState(() => _bytes = null);
-          }
+          // Preserve the already displayed fallback on unexpected failures.
         });
   }
 
