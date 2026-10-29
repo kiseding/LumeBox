@@ -86,6 +86,26 @@ void main() {
     );
   });
 
+  test('aes-ecb-base64 解 hxc 的 Base64 文本密文', () {
+    final key = Uint8List.fromList(utf8.encode('46cc793c53dc451b'));
+    // 明文是 data URI 文本；NoPadding 需要 16 字节对齐，用 NUL 补齐。
+    final text = Uint8List.fromList(utf8.encode(dataUri));
+    final paddedLength = (text.length + 15) ~/ 16 * 16;
+    final plain = Uint8List(paddedLength)..setAll(0, text);
+    final cipher = ECBBlockCipher(AESEngine())
+      ..init(true, KeyParameter(key));
+    final cipherBytes = Uint8List(plain.length);
+    for (var off = 0; off < plain.length; off += 16) {
+      cipher.processBlock(plain, off, cipherBytes, off);
+    }
+    final encoded = Uint8List.fromList(utf8.encode(base64Encode(cipherBytes)));
+    final decoded = decodeSourceImage(encoded, {
+      'x-lume-image-encoding': 'aes-ecb-base64',
+      'x-lume-image-key': '46cc793c53dc451b',
+    });
+    expect(decoded, pngBytes);
+  });
+
   test('aes-cbc-pkcs7-ivprefix 用文件头 16 字节当 IV（月色的 .jpg.aes）', () {
     final key = Uint8List.fromList(utf8.encode('yuese!niubia!666'));
     final iv = Uint8List.fromList(utf8.encode('0123456789abcdef'));

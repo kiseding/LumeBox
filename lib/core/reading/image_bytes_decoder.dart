@@ -130,6 +130,37 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     }
     throw const FormatException('Invalid prefixed source image');
   }
+  // hxc 的 `.aes` 封面是「Base64 文本 → AES-128-ECB/NoPadding → data URI」。
+  // 先解 Base64 再交给 ECB，和下面的原始二进制 ECB 路径分开。
+  if (encoding == 'aes-ecb-base64') {
+    final key = Uint8List.fromList(utf8.encode(field('x-lume-image-key')));
+    if (!{16, 24, 32}.contains(key.length)) {
+      throw const FormatException('Invalid source image encoding parameters');
+    }
+    Uint8List cipherBytes;
+    try {
+      cipherBytes = base64Decode(utf8.decode(bytes).trim());
+    } on Object {
+      throw const FormatException('Invalid base64 source image');
+    }
+    if (cipherBytes.isEmpty || cipherBytes.length % 16 != 0) {
+      throw const FormatException('Invalid base64 source image');
+    }
+    final cipher = ECBBlockCipher(AESEngine())
+      ..init(false, KeyParameter(key));
+    final plain = Uint8List(cipherBytes.length);
+    for (var offset = 0; offset < cipherBytes.length; offset += 16) {
+      cipher.processBlock(cipherBytes, offset, plain, offset);
+    }
+    final text = utf8
+        .decode(plain, allowMalformed: true)
+        .replaceAll('\u0000', '')
+        .trim();
+    final inline = decodeImageDataUri(text);
+    if (inline != null) return inline;
+    if (_isPlainImage(plain)) return plain;
+    throw const FormatException('Invalid encoded source image');
+  }
   final noPadding = encoding == 'aes-cbc-nopadding';
   final ivPrefixPadding = encoding == 'aes-cbc-pkcs7-ivprefix';
   if (encoding != 'aes-cbc-pkcs7' && !noPadding && !ivPrefixPadding) {
