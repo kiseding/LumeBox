@@ -104,7 +104,6 @@ class SourceContentRating {
     'aido8_video',
     'tangtoutiao_video',
     'h4dh3_video',
-    'cf2_video',
     'cf3_video',
     'xman6_comic',
     'bakamh_comic',

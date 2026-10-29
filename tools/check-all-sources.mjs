@@ -33,7 +33,6 @@ const SOURCES = [
   { file: 'sources/video/aido8.js', name: '爱豆', needProxy: false, keyword: '巨乳' },
   { file: 'sources/video/tangtoutiao.js', name: '汤头条', needProxy: false, keyword: '巨乳' },
   { file: 'sources/video/h4dh3.js', name: 'hxc', needProxy: false, keyword: '女神' },
-  { file: 'sources/video/cf2.js', name: 'Butterfly', needProxy: false, keyword: '女神' },
   { file: 'sources/video/cf3.js', name: 'Butterfly2', needProxy: false, keyword: '女神' },
   { file: 'sources/video/hentai2w.js', name: 'Hentai2W', needProxy: true, keyword: 'princess' },
 ];

@@ -104,7 +104,6 @@ sources/video/
 ├── aido8.js       爱豆（ww15.aido8.icu）  /awsapi 加密 JSON；匿名整片；封面是反转 JPEG（占位图）
 ├── tangtoutiao.js 汤头条（p1.wgbqoiqv.com）Nuxt 壳 + 独立接口域，AES-256-CFB 签名；付费仅 ~2 分钟试看
 ├── h4dh3.js       hxc（h4dh3.com）        **VIP 真破解**：getPreUrl 签名只覆盖路径，删 start/end 即整片
-├── cf2.js         Butterfly（d1q6v0m0fmxvl0.cloudfront.net）匿名设备登录即整片；interfaceKey 独立
 ├── cf3.js         Butterfly2（d17rhkrwip15vt.cloudfront.net）同 SDK 另一运营方；API 域与页面域分离
 ├── hentai2w.js    Hentai2W（hentai2w.com）**18+**，**需代理**，Inertia props + 自动过年龄门
 ├── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
@@ -180,7 +179,6 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 爱豆 | 否 | 4 块 | 9 | ok | ok | ok | 1 | **video（m3u8 整片）** |
 | 汤头条 | 否 | 2 块 | 8 | 10 | 20 | ok | 1 | **video（免费整片；付费 2 分钟试看）** |
 | hxc | 否 | 2 块 | ok | ok | ok | ok | 1 | **video（m3u8 整片，删 start/end 后）** |
-| Butterfly | 否 | 2 块 | ok | ok | ok | ok | 1 | **video（m3u8 整片）** |
 | Butterfly2 | 否 | 2 块 | ok | ok | 本地过滤 | ok | 1 | **video（m3u8 整片）** |
 | 栀莲短剧 | 否 | 3 块 | 10 | 20 | 20 | ok | 18 | video / webplayer（获准播放的地址直连，锁定集转源站） |
 | 91吃瓜 | 否 | 4 块 | 23 | 19~30 | 30 | ok | 1 | **video（m3u8 直链 + AES key/分片逐个签名）** |
