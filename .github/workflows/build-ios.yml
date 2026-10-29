@@ -8,6 +8,10 @@ name: Build unsigned IPA (iOS)
 on:
   workflow_dispatch:
     inputs:
+      models_only:
+        description: '只预计算并验证离线模型资源，不构建 App'
+        type: boolean
+        default: false
       typecheck_only:
         description: '只检查 Swift 类型，不编译 App、不生成或上传安装包'
         type: boolean
@@ -16,9 +20,24 @@ on:
 run-name: ${{ inputs.typecheck_only && 'Swift typecheck only — no package' || 'Build unsigned IPA' }}
 
 jobs:
+  model-assets:
+    if: ${{ inputs.models_only == true }}
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Precompute and verify fixed Core ML anchors
+        run: python3 tool/prepare_intro_models.py --precompute --output out/anchor_vectors.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intro-anchor-vectors
+          path: out/anchor_vectors.json
+          if-no-files-found: error
   quality:
+    if: ${{ inputs.models_only != true }}
     uses: ./.github/workflows/quality.yml
   build-ipa:
+    if: ${{ inputs.models_only != true }}
     needs: quality
     name: ${{ inputs.typecheck_only && 'Swift and simulator checks (no IPA)' || 'Build unsigned IPA' }}
     runs-on: macos-latest

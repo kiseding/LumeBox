@@ -3,10 +3,13 @@
 MobileCLIP software MIT, weights Apple ASCL; YAMNet Apache-2.0.
 No conversion or inference is performed on this Windows build host.
 """
+import argparse
 import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import urllib.request
 import zipfile
 
@@ -53,6 +56,10 @@ def tokens(vocab, merges, text):
     return result + [0] * (77 - len(result))
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--precompute', action='store_true')
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     checksums = {}
     for name, digest in FILES.items():
@@ -75,6 +82,13 @@ def main():
     vocab = json.loads((TEMP / 'clip-vocab.json').read_text('utf8'))
     merges = (TEMP / 'clip-merges.txt').read_text('utf8')
     (OUT / 'prompts.json').write_text(json.dumps({k: [tokens(vocab, merges, p) for p in values] for k, values in prompts.items()}), 'utf8')
+    if args.precompute:
+        destination = args.output or (OUT / 'anchor_vectors.json')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['swift', str(ROOT / 'tool/precompute_intro_vectors.swift'),
+                        str(TEMP / 'mobileclip_s0_text.mlpackage'), str(OUT / 'prompts.json'),
+                        REVISION, str(destination)], check=True)
+        print('Precomputed vectors:', destination, flush=True)
     for name in ['LICENSE', 'LICENSE_MODELS', 'ACKNOWLEDGEMENTS']:
         fetch('https://raw.githubusercontent.com/apple-aiml-research/ml-mobileclip/main/' + name, OUT / ('MobileCLIP-' + name + '.txt'))
     fetch('https://raw.githubusercontent.com/tensorflow/models/master/LICENSE', OUT / 'YAMNet-LICENSE.txt')
