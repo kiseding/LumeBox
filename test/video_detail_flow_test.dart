@@ -192,7 +192,7 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
-  testWidgets('沉浸详情的TMDB标识和评分居中放在播放按钮下，不挤占年份行', (tester) async {
+  testWidgets('沉浸详情的TMDB小标和评分放在类型旁，不挤占年份行', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -212,6 +212,7 @@ void main() {
       posters: [],
       rating: 8.7,
       year: '2026',
+      genres: ['剧情', '喜剧'],
     );
     state.tmdb.notifyListeners();
     await tester.pumpAndSettle();
@@ -220,11 +221,16 @@ void main() {
     expect(find.text('8.7'), findsOneWidget);
     expect(find.textContaining('★ 8.7'), findsNothing);
     expect(find.byIcon(Icons.verified_outlined), findsNothing);
-    expect(tester.getCenter(badge).dx, closeTo(220, 1));
+    final genres = find.byKey(const Key('video-detail-genres'));
+    expect(tester.getCenter(badge).dy, closeTo(tester.getCenter(genres).dy, 1));
     expect(
-      tester.getTopLeft(badge).dy,
-      greaterThanOrEqualTo(
-        tester.getBottomLeft(find.byKey(const Key('video-detail-play'))).dy,
+      tester.getTopLeft(badge).dx,
+      greaterThan(tester.getTopRight(genres).dx),
+    );
+    expect(
+      tester.getBottomLeft(badge).dy,
+      lessThanOrEqualTo(
+        tester.getTopLeft(find.byKey(const Key('video-detail-play'))).dy,
       ),
     );
     expect(tester.takeException(), isNull);

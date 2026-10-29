@@ -11,15 +11,15 @@ Color? immersivePosterPageColor(
   Color? dominant,
 }) {
   final ranked = [...swatches]..sort((a, b) => b.$2.compareTo(a.$2));
-  final chosen = darkMuted ?? dominant ?? ranked.firstOrNull?.$1;
+  final chosen = dominant ?? darkMuted ?? ranked.firstOrNull?.$1;
   if (chosen == null) return null;
   final tone = HSLColor.fromColor(chosen);
   final tint = tone
-      .withSaturation((tone.saturation * .25).clamp(0, .12))
-      .withLightness(.14)
+      .withSaturation((tone.saturation * .35).clamp(0, .20))
+      .withLightness(.185)
       .withAlpha(1)
       .toColor();
-  return Color.alphaBlend(const Color(0xA624222C), tint);
+  return Color.alphaBlend(const Color(0x5930343D), tint);
 }
 
 /// Preserve the poster's hue in a quiet, readable page surface.
@@ -107,7 +107,7 @@ class _PosterFadeRender extends RenderProxyBox {
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0, .5, .78, .98],
+          stops: [0, .55, .83, .98],
           colors: [
             Colors.white,
             Colors.white,

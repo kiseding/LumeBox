@@ -536,7 +536,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     final revision = ++_paletteRevision;
     try {
       final color = await PosterPaletteCache.resolve(
-        ('video-detail-poster-bottom-v6', cover),
+        ('video-detail-poster-bottom-v7', cover),
         () async {
           final sample = _displayedPoster == cover
               ? await _displayedPosterSample(cover)
@@ -907,40 +907,38 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Widget tmdbRating() {
     final data = tmdb.metadata;
     if (data == null) return const SizedBox.shrink();
-    return Center(
-      child: Tooltip(
-        message: tmdbStatusLabel,
-        child: TextButton(
-          key: const Key('video-detail-tmdb-status'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
-          ),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.white,
-            minimumSize: const Size(44, 40),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SvgPicture.asset(
-                'assets/branding/tmdb.svg',
-                width: 28,
-                height: 21,
-                semanticsLabel: 'TMDB',
-              ),
-              if (data.rating > 0) ...[
-                const SizedBox(width: 8),
-                Text(
-                  data.rating.toStringAsFixed(1),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
+    return Tooltip(
+      message: tmdbStatusLabel,
+      child: TextButton(
+        key: const Key('video-detail-tmdb-status'),
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const TmdbSettingsPage()),
+        ),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          minimumSize: const Size(44, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SvgPicture.asset(
+              'assets/branding/tmdb.svg',
+              width: 18,
+              height: 13,
+              semanticsLabel: 'TMDB',
+            ),
+            if (data.rating > 0) ...[
+              const SizedBox(width: 5),
+              Text(
+                data.rating.toStringAsFixed(1),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -2580,20 +2578,31 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     .replaceAll(RegExp(r'集\s*集'), '集'),
                                 detail?.title ?? widget.item.title,
                               ),
-                              if (tmdb.metadata?.genres.isNotEmpty == true)
+                              if (tmdb.metadata != null)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 2),
-                                  child: Text(
-                                    tmdb.metadata!.genres.join(' · '),
-                                    key: const Key('video-detail-genres'),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white,
+                                  child: Wrap(
+                                    key: const Key(
+                                      'video-detail-genre-rating-row',
                                     ),
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 10,
+                                    children: [
+                                      if (tmdb.metadata!.genres.isNotEmpty)
+                                        Text(
+                                          tmdb.metadata!.genres.join(' · '),
+                                          key: const Key('video-detail-genres'),
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      tmdbRating(),
+                                    ],
                                   ),
                                 ),
                               resumeHint(),
@@ -2640,10 +2649,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                   ),
                                 ),
                               ),
-                              if (tmdb.metadata != null) ...[
-                                const SizedBox(height: 6),
-                                tmdbRating(),
-                              ],
                               const SizedBox(height: 12),
                               summaryBlock(
                                 detail?.title ?? widget.item.title,

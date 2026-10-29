@@ -20,13 +20,13 @@ void main() {
       final surface = immersivePosterPageColor([(seed, 300)], dominant: seed)!;
       surfaces.add(surface);
       final tone = HSLColor.fromColor(surface);
-      expect(tone.lightness, inInclusiveRange(.12, .17));
-      expect(tone.saturation, lessThan(.18));
-      expect(1.05 / (surface.computeLuminance() + .05), greaterThan(12));
+      expect(tone.lightness, inInclusiveRange(.17, .22));
+      expect(tone.saturation, lessThan(.24));
+      expect(1.05 / (surface.computeLuminance() + .05), greaterThan(10));
     }
     expect(surfaces.toSet().length, greaterThan(2));
     final blue = surfaces.first;
-    expect((blue.b - blue.r).abs(), lessThan(.05), reason: '蓝海报不再铺成亮蓝底');
+    expect((blue.b - blue.r).abs(), lessThan(.08), reason: '蓝海报不再铺成亮蓝底');
     expect(immersivePosterPageColor([]), isNull);
   });
   test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
