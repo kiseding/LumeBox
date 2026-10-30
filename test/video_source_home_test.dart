@@ -258,9 +258,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('https://example.com/demo.mp4'), findsNothing);
-    await tester.tap(find.text('播放信息'));
+    await tester.tap(find.byTooltip('播放信息'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('复制地址'), findsOneWidget);
+    expect(find.text('复制地址'), findsOneWidget);
   });
 
   testWidgets('条目没有地址：走剧集链路，选一集后起播取到的视频地址', (tester) async {

@@ -378,7 +378,9 @@ void main() {
       );
       await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
-      await tester.tap(find.text('封面'));
+      await tester.tap(find.byTooltip('视图：网格'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('视图：列表'));
       await tester.pumpAndSettle();
       expect(PlayerExperienceStore.current.text('episodeView'), 'cover');
       await tester.tap(find.byTooltip('关闭'));
@@ -884,9 +886,11 @@ void main() {
         findsNothing,
         reason: '当前地址只通过复制图标获取，不在面板上铺长链接',
       );
-      await tester.tap(find.text('播放信息'));
+      await tester.tap(find.byTooltip('播放信息'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('复制地址'), findsOneWidget);
+      expect(find.text('复制地址'), findsOneWidget);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
       // 用户口径：手动贴地址的入口整条删除（面板里不再有输入框与播放按钮）。
       expect(find.text('手动地址'), findsNothing);
       expect(find.text('播放这个地址'), findsNothing);
@@ -896,7 +900,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(PlayerSourceSheet),
-          matching: find.text('画质'),
+          matching: find.byTooltip('画质'),
         ),
       );
       await tester.pumpAndSettle();

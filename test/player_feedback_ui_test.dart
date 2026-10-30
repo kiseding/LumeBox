@@ -78,7 +78,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('共 200 集'), findsOneWidget);
-      await tester.tap(find.text('定位当前'));
+      await tester.tap(find.byTooltip('定位当前'));
       await tester.pumpAndSettle();
       expect(find.text('第160集'), findsOneWidget);
       expect(
@@ -101,9 +101,9 @@ void main() {
           ).writeAsBytes(bytes!.buffer.asUint8List());
         });
       }
-      await tester.tap(find.text('正序'));
+      await tester.tap(find.byTooltip('正序'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('定位当前'));
+      await tester.tap(find.byTooltip('定位当前'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('第160集'));
       await tester.pumpAndSettle();
