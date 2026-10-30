@@ -1025,7 +1025,7 @@ void main() {
       });
     }
 
-    testWidgets('横屏选集独立，画质从设置进入，移除上一集按钮', (tester) async {
+    testWidgets('横屏选集独立，全屏面板也能进画质，移除上一集按钮', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -1037,12 +1037,16 @@ void main() {
       // 标题行已并入图标工具条：面板里没有大标题，只有集数与图标。
       expect(find.text('选集与线路'), findsNothing);
       expect(find.byTooltip('选集'), findsOneWidget);
-      expect(find.byTooltip('画质'), findsNothing);
+      // 全屏也提供画质分区，不必再绕去设置。
+      expect(find.byTooltip('画质'), findsOneWidget);
+      await tester.tap(find.byTooltip('画质'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('选集'), findsOneWidget);
       await tester.tapAt(const Offset(20, 20));
       await tester.pumpAndSettle();
+      // 从设置「清晰度」进来的画质面板没有分区切换，只有列表与信息图标。
       await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
-      // 画质面板只剩列表与信息图标，没有分区切换。
       expect(find.byType(PlayerSourceSheet), findsOneWidget);
       expect(find.byTooltip('选集'), findsNothing);
       expect(find.byTooltip('线路'), findsNothing);
@@ -1544,6 +1548,10 @@ void main() {
       await tester.tap(find.byTooltip('横竖屏切换'));
       await tester.pumpAndSettle();
       expect(find.byTooltip('横竖屏切换'), findsOneWidget);
+      // 点画面：立即收起控制栏；再点一次唤出（用户口径）。
+      await tester.tap(find.byType(Scaffold).first);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('播放器设置'), findsNothing);
       await tester.tap(find.byType(Scaffold).first);
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('播放器设置'));

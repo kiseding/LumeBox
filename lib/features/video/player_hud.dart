@@ -77,11 +77,15 @@ class PlayerStatsInline extends StatelessWidget {
     this.stacked = false,
     this.showResolution = true,
     this.showSpeed = true,
+    this.dimmed = false,
   });
 
   final bool stacked;
   final bool showResolution;
   final bool showSpeed;
+
+  /// 弱化样式：字号小一号、颜色半透明（全屏网速这类次要信息用）。
+  final bool dimmed;
 
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
@@ -122,10 +126,14 @@ class PlayerStatsInline extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: LumeTypography.captionSize + 1,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFFF8F8F8),
+                style: TextStyle(
+                  fontSize: dimmed
+                      ? LumeTypography.captionSize - 1
+                      : LumeTypography.captionSize + 1,
+                  fontWeight: dimmed ? FontWeight.w500 : FontWeight.w600,
+                  color: dimmed
+                      ? const Color(0xB3F8F8F8)
+                      : const Color(0xFFF8F8F8),
                   shadows: PlayerHudShadows.control,
                 ),
               ),

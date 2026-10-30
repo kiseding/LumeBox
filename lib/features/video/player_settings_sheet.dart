@@ -607,15 +607,16 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
   );
 
   Widget _handle(BuildContext context) {
+    // 与选集抽屉保持同一套紧凑头部：小号标题 + 小图标，不再占一整条 AppBar 高度。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
       child: Row(
         children: <Widget>[
           Expanded(
             child: Text(
               '播放器设置',
               style: TextStyle(
-                fontSize: LumeTypography.titleSize,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: Theme.of(context).colorScheme.onSurface,
               ),
@@ -623,6 +624,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           ),
           IconButton(
             tooltip: '关闭',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
             icon: const LumeIcon(Icons.close, slot: 'player_settings_sheet.1'),
             onPressed: () => Navigator.of(context).pop(),
           ),

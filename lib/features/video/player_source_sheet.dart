@@ -627,87 +627,93 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   Widget _buildToolbar() {
     final count =
         !_qualityOnly && _tab == PlayerSourceTab.episodes && _chapterCount > 0;
-    return Row(
-      children: [
-        if (_qualityOnly)
-          const Text(
-            '画质',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          )
-        else if (count)
-          Text(
-            '共 $_chapterCount 集',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        Expanded(
-          child: Wrap(
-            alignment: WrapAlignment.end,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 1,
-            children: [
-              if (!_qualityOnly) ...[
-                for (final entry in [
-                  (
-                    PlayerSourceTab.episodes,
-                    Icons.video_library_outlined,
-                    '选集',
-                  ),
-                  (PlayerSourceTab.lines, Icons.alt_route, '线路'),
-                  if (widget.includeQualityTab)
-                    (PlayerSourceTab.quality, Icons.hd_outlined, '画质'),
-                ])
-                  _toolIcon(
-                    entry.$2,
-                    entry.$3,
-                    selected: _tab == entry.$1,
-                    onPressed: () => setState(() {
-                      _tab = entry.$1;
-                      _error = null;
-                    }),
-                  ),
-                if (_tab == PlayerSourceTab.episodes) ...[
-                  _toolIcon(
-                    _viewIcon,
-                    '视图：${_view.label}',
-                    onPressed: _cycleView,
-                  ),
-                  _toolIcon(
-                    Icons.swap_vert,
-                    _reverse ? '倒序' : '正序',
-                    onPressed: () {
-                      setState(() => _reverse = !_reverse);
-                      _locateCurrent();
-                    },
-                  ),
-                  _toolIcon(
-                    Icons.my_location,
-                    '定位当前',
-                    onPressed: _chapterCount == 0 ? null : _locateCurrent,
-                  ),
-                  if (_chapterCount > 0)
-                    Builder(
-                      builder: (anchor) => _toolIcon(
-                        Icons.layers_outlined,
-                        _chapterCount > 50
-                            ? '分段：${_segmentLabel(_segment)}'
-                            : '跳转到第几集',
-                        onPressed: () => _pickSegment(anchor),
-                      ),
-                    ),
-                ],
-              ],
-              _toolIcon(
-                Icons.info_outline,
-                '播放信息',
-                onPressed: _showPlaybackInfo,
+    return LayoutBuilder(
+      builder: (context, box) {
+        // 窄面板（最窄的 iPhone 横屏）优先保住一整排图标，集数让位。
+        final showCount = count && box.maxWidth >= 320;
+        return Row(
+          children: [
+            if (_qualityOnly)
+              const Text(
+                '画质',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              )
+            else if (showCount)
+              Text(
+                '共 $_chapterCount 集',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
-            ],
-          ),
-        ),
-      ],
+            Expanded(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 0,
+                children: [
+                  if (!_qualityOnly) ...[
+                    for (final entry in [
+                      (
+                        PlayerSourceTab.episodes,
+                        Icons.video_library_outlined,
+                        '选集',
+                      ),
+                      (PlayerSourceTab.lines, Icons.alt_route, '线路'),
+                      if (widget.includeQualityTab)
+                        (PlayerSourceTab.quality, Icons.hd_outlined, '画质'),
+                    ])
+                      _toolIcon(
+                        entry.$2,
+                        entry.$3,
+                        selected: _tab == entry.$1,
+                        onPressed: () => setState(() {
+                          _tab = entry.$1;
+                          _error = null;
+                        }),
+                      ),
+                    if (_tab == PlayerSourceTab.episodes) ...[
+                      _toolIcon(
+                        _viewIcon,
+                        '视图：${_view.label}',
+                        onPressed: _cycleView,
+                      ),
+                      _toolIcon(
+                        Icons.swap_vert,
+                        _reverse ? '倒序' : '正序',
+                        onPressed: () {
+                          setState(() => _reverse = !_reverse);
+                          _locateCurrent();
+                        },
+                      ),
+                      _toolIcon(
+                        Icons.my_location,
+                        '定位当前',
+                        onPressed: _chapterCount == 0 ? null : _locateCurrent,
+                      ),
+                      if (_chapterCount > 0)
+                        Builder(
+                          builder: (anchor) => _toolIcon(
+                            Icons.layers_outlined,
+                            _chapterCount > 50
+                                ? '分段：${_segmentLabel(_segment)}'
+                                : '跳转到第几集',
+                            onPressed: () => _pickSegment(anchor),
+                          ),
+                        ),
+                    ],
+                  ],
+                  _toolIcon(
+                    Icons.info_outline,
+                    '播放信息',
+                    onPressed: _showPlaybackInfo,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

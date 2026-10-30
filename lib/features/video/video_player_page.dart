@@ -2848,22 +2848,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 手势层：透明触摸面 + 手势提示浮层。
   Widget _buildGestureLayer(Size size) {
+    final gestures = _settings.gestures.enabled;
     return GestureDetector(
       key: _gestureLayerKey,
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: !_settings.gestures.enabled || !_settings.gestures.boost
+      // 单击切换控制栏：不注册双击，保证单击立即响应（双击在左右侧区单独识��）。
+      onTap: _fullscreen ? _toggleOverlayByTap : null,
+      onLongPressStart: !gestures || !_settings.gestures.boost
           ? null
           : (_) => _onLongPressStart(),
-      onLongPressEnd: (_) => _endBoost(),
-      onLongPressCancel: _endBoost,
-      onPanDown: (details) => _onGestureDown(details, size),
-      onPanStart: (details) => _onGestureStart(details, size),
-      onPanUpdate: (details) => _onGestureUpdate(details, size),
-      onPanEnd: _onGestureEnd,
-      onPanCancel: () {
-        _endBoost();
-        setState(() => _gesture = PlayerGestureState.idle);
-      },
+      onLongPressEnd: gestures ? (_) => _endBoost() : null,
+      onLongPressCancel: gestures ? _endBoost : null,
+      onPanDown: gestures ? (details) => _onGestureDown(details, size) : null,
+      onPanStart: gestures ? (details) => _onGestureStart(details, size) : null,
+      onPanUpdate: gestures
+          ? (details) => _onGestureUpdate(details, size)
+          : null,
+      onPanEnd: gestures ? _onGestureEnd : null,
+      onPanCancel: gestures
+          ? () {
+              _endBoost();
+              setState(() => _gesture = PlayerGestureState.idle);
+            }
+          : null,
       child: _gesture.active
           ? _GestureHint(
               state: _gesture,
@@ -3706,6 +3713,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     });
   }
 
+  /// 单击画面：显示时立即收起，收起时唤出并重新计时。
+  void _toggleOverlayByTap() {
+    if (!_fullscreen || _locked) return;
+    if (_overlayVisible) {
+      _autoHideTimer?.cancel();
+      setState(() => _overlayVisible = false);
+      return;
+    }
+    setState(() => _overlayVisible = true);
+    _scheduleAutoHide();
+  }
+
+  /// 双击左侧后退 10 秒 / 双击右侧前进 10 秒。
+  Future<void> _seekBySide(int direction) async {
+    final player = _player;
+    if (player == null) return;
+    final snapshot = player.snapshot.value;
+    final total = snapshot.duration;
+    if (total <= Duration.zero) return;
+    const delta = Duration(seconds: 10);
+    var target = direction < 0
+        ? snapshot.position - delta
+        : snapshot.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > total) target = total;
+    _cancelAutoHide();
+    try {
+      await player.seek(target);
+      if (mounted) {
+        _showToast(PlayerLayout.seekDelta(snapshot.position, target));
+      }
+    } catch (_) {
+      if (mounted) _showToast('跳转失败，请重试');
+    }
+  }
+
   /// 取消自动隐藏并让控制栏保持可见。
   void _cancelAutoHide({bool show = true}) {
     _autoHideTimer?.cancel();
@@ -4002,9 +4045,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: LumeTypography.captionSize + 1,
+            fontSize: LumeTypography.captionSize,
             fontWeight: FontWeight.w600,
-            color: Color(0xFFF8F8F8),
+            color: Color(0xFFE4E4E4),
             shadows: _controlShadows,
           ),
         );
@@ -4041,7 +4084,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: LumeTypography.titleSize + 1,
+                          fontSize: LumeTypography.titleSize,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFFF8F8F8),
                           shadows: _controlShadows,
@@ -4249,6 +4292,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                         stats: _player!.stats,
                         networkKbps: _networkSpeed.kbps,
                         showResolution: false,
+                        dimmed: true,
                       ),
                     ),
                   ),
@@ -4281,6 +4325,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         VoidCallback? callback, {
         bool forceText = false,
         double? width,
+        VoidCallback? onLongPress,
       }) => Tooltip(
         message: tooltip,
         child: SizedBox(
@@ -4288,6 +4333,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           height: _box,
           child: TextButton(
             onPressed: callback,
+            onLongPress: onLongPress,
             style: TextButton.styleFrom(
               padding: EdgeInsets.zero,
               minimumSize: const Size(44, 44),
@@ -4358,6 +4404,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             Icons.speed,
             _showSpeedPicker,
             forceText: true,
+            onLongPress: _settings.speed == 1
+                ? null
+                : () => unawaited(_applySettings(_settings.copyWith(speed: 1))),
           ),
           const SizedBox(width: 4),
           action(
@@ -4693,21 +4742,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ),
               Positioned.fill(
                 child: IgnorePointer(
-                  child: ValueListenableBuilder<PlayerSnapshot>(
-                    valueListenable: player.snapshot,
-                    builder: (context, snapshot, _) => DanmakuOverlay(
-                      position: snapshot.position,
-                      playing: snapshot.playing && !snapshot.buffering,
-                      playbackRate: _settings.speed,
-                      track: _danmaku,
-                      settings: _danmakuSettings,
+                  // 弹幕让开顶部状态/片名与底部进度/控制两段，避免文字压在 HUD 上。
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      top: _fullscreen ? 72 : 8,
+                      bottom: _fullscreen ? 96 : 8,
+                    ),
+                    child: ValueListenableBuilder<PlayerSnapshot>(
+                      valueListenable: player.snapshot,
+                      builder: (context, snapshot, _) => DanmakuOverlay(
+                        position: snapshot.position,
+                        playing: snapshot.playing && !snapshot.buffering,
+                        playbackRate: _settings.speed,
+                        track: _danmaku,
+                        settings: _danmakuSettings,
+                      ),
                     ),
                   ),
                 ),
               ),
               // 手势层：锁定时不吃手势（防误触的本意就在这里）。
-              if (!_locked && _settings.gestures.enabled)
-                Positioned.fill(child: _buildGestureLayer(size)),
+              if (!_locked) Positioned.fill(child: _buildGestureLayer(size)),
               if (_locked)
                 Positioned.fill(
                   child: GestureDetector(
@@ -4763,17 +4818,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     ),
                   ),
                 ),
-              // 全屏浮层收起时：点画面唤出控制栏。
-              if (_fullscreen && !_overlayVisible && !_locked)
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      setState(() => _overlayVisible = true);
-                      _scheduleAutoHide();
-                    },
+              // 单击画面由手势层统一切换控制栏（见 _buildGestureLayer）；
+              // 双击左右两侧快进/快退 10 秒（上面这层只吃点击，不吃拖动）。
+              if (_fullscreen && !_locked) ...[
+                for (final (alignment, direction) in <(Alignment, int)>[
+                  (Alignment.centerLeft, -1),
+                  (Alignment.centerRight, 1),
+                ])
+                  Align(
+                    alignment: alignment,
+                    child: SizedBox(
+                      width: size.width * .27,
+                      height: size.height,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _toggleOverlayByTap,
+                        onDoubleTap: () => unawaited(_seekBySide(direction)),
+                      ),
+                    ),
                   ),
-                ),
+              ],
               Positioned.fill(
                 child: ValueListenableBuilder<PlayerSnapshot>(
                   valueListenable: player.snapshot,
@@ -5110,7 +5174,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             borderRadius: BorderRadius.zero,
           );
         },
-        includeQualityTab: !_fullscreen,
+        includeQualityTab: true,
         loadLines: target == null
             ? null
             : () async {
@@ -5595,16 +5659,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     return ValueListenableBuilder<PipSnapshot>(
       valueListenable: session.snapshot,
-      builder: (context, snapshot, _) => _compactIcon(
-        icon: snapshot.isActive
-            ? Icons.picture_in_picture
-            : Icons.picture_in_picture_alt,
-        tooltip: snapshot.state == PipState.unavailable
-            ? '画中画：当前平台不支持'
-            : (snapshot.isActive ? '退出画中画' : '进入画中画'),
-        highlighted: snapshot.isActive,
-        onPressed: _togglePip,
-      ),
+      builder: (context, snapshot, _) {
+        // 平台/内核没有画中画时整颗隐藏，而不是留一个点不动的按钮。
+        if (snapshot.state == PipState.unavailable) {
+          return const SizedBox.shrink();
+        }
+        return _compactIcon(
+          icon: snapshot.isActive
+              ? Icons.picture_in_picture
+              : Icons.picture_in_picture_alt,
+          tooltip: snapshot.isActive ? '退出画中画' : '进入画中画',
+          highlighted: snapshot.isActive,
+          onPressed: _togglePip,
+        );
+      },
     );
   }
 
