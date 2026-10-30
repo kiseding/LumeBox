@@ -1983,19 +1983,48 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('提示黑条不再长时间压着控制栏：1.6 秒、悬浮、新顶旧', (tester) async {
+    testWidgets('播放页提示走顶部胶囊：1.6 秒、不排队、不再是黑条', (tester) async {
       await pump(tester);
-      // 快捷记片头按钮在没有作品身份时会弹一句提示（标准 SnackBar 通路）。
+      // 快捷记片头按钮在没有作品身份时会弹一句提示。
       await tester.tap(find.text('记片头'));
       await tester.pumpAndSettle();
       expect(find.textContaining('从源条目起播才能记片头片尾'), findsOneWidget);
-      final bar = tester.widget<SnackBar>(find.byType(SnackBar));
-      expect(bar.duration, const Duration(milliseconds: 1600));
-      expect(bar.behavior, SnackBarBehavior.floating);
+      expect(find.byType(SnackBar), findsNothing, reason: '播放页不再用黑条');
       // 新提示顶掉旧的：连着两条不会排队压两条（用户口径）。
       await tester.tap(find.text('记片头'));
       await tester.pumpAndSettle();
-      expect(find.byType(SnackBar), findsOneWidget, reason: '不排队，只有一条');
+      expect(
+        find.textContaining('从源条目起播才能记片头片尾'),
+        findsOneWidget,
+        reason: '不排队，只有一条',
+      );
+      // 1.6 秒后自己消失。
+      await tester.pump(const Duration(milliseconds: 1700));
+      expect(find.textContaining('从源条目起播才能记片头片尾'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('双击右侧前进 10 秒，提示走顶部胶囊', (tester) async {
+      final players = await pump(tester);
+      players.single.emit(
+        duration: const Duration(minutes: 2),
+        position: const Duration(seconds: 30),
+      );
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      final size = tester
+          .getRect(find.byKey(const Key('fullscreen-control-gradient')))
+          .size;
+      final right = Offset(size.width * .88, size.height * .5);
+      await tester.tapAt(right);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(right);
+      await tester.pumpAndSettle();
+      expect(players.single.seeks.last, const Duration(seconds: 40));
+      expect(find.text('前进 10 秒'), findsOneWidget, reason: '轻提示不是黑条');
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1700));
+      expect(find.text('前进 10 秒'), findsNothing, reason: '1.6 秒后淡出');
       await tester.pumpWidget(const SizedBox());
     });
 

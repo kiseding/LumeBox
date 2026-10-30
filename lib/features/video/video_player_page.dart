@@ -344,6 +344,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏模式下的浮层控制栏是否可见。
   bool _overlayVisible = true;
+  String? _hint;
+  Timer? _hintTimer;
 
   /// 控制栏自动隐藏的计时器（用户要求：播放中无操作 N 秒收起，点屏幕唤回）。
   Timer? _autoHideTimer;
@@ -762,6 +764,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _intro?.dispose();
     _nextEpisodeBuffer.dispose();
     _unlockTimer?.cancel();
+    _hintTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _danmakuLoadSeq++;
     for (final client in _danmakuClients) {
@@ -1524,30 +1527,45 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 可读提示（不冒泡异常）。
   ///
-  /// 时长与排队按用户口径调过：默认是 4 秒一条**且排队**——像「这条视频没有可选
-  /// 音轨」这种连着来的提示，黑条会在控制栏上压完一条又一条，看着像卡住了。
-  /// 现在 1.6 秒、悬浮，并且新提示直接顶掉上一条（不排队）。
+  /// 播放页不再用 SnackBar 黑条：它在视频上是一条通栏黑带，换集这种高频提示
+  /// 一闪就是整屏打断。改成画面顶部的半透明胶囊，1.6 秒淡出，新提示顶掉旧的。
   void _showToast(String? message) {
     if (message == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(milliseconds: 1600),
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.fromLTRB(
-          16,
-          0,
-          16,
-          (_fullscreen
-                  ? 100.0
-                  : math.min(
-                      MediaQuery.sizeOf(context).height * .32,
-                      220 * _controlScale,
-                    )) +
-              MediaQuery.paddingOf(context).bottom +
-              8,
+    _hintTimer?.cancel();
+    setState(() => _hint = message);
+    _hintTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (mounted) setState(() => _hint = null);
+    });
+  }
+
+  /// 顶部轻提示胶囊：不拦手势，最多两行。
+  Widget _buildHintPill() {
+    final hint = _hint;
+    if (hint == null) return const SizedBox.shrink();
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xCC1C1C1E),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0x33FFFFFF), width: .5),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            child: Text(
+              hint,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.25,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFFF6F6F6),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -4818,6 +4836,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     ),
                   ),
                 ),
+              // 顶部轻提示（换集、手势、失败等），不拦手势。
+              Positioned(
+                top: _fullscreen ? 64 : 8,
+                left: 16,
+                right: 16,
+                child: IgnorePointer(child: _buildHintPill()),
+              ),
               // 单击画面由手势层统一切换控制栏（见 _buildGestureLayer）；
               // 双击左右两侧快进/快退 10 秒（上面这层只吃点击，不吃拖动）。
               if (_fullscreen && !_locked) ...[
