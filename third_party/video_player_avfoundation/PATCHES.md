@@ -109,3 +109,8 @@ accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffe
 AVPlayer 直接落到关键帧，松手时把容差写回 0 恢复精确 seek。
 
 未写入该键时行为与上游完全一致。
+
+**哨兵 -1**：写 `-1` 表示「吸附到前一个关键帧」——`toleranceBefore =
+kCMTimePositiveInfinity`、`toleranceAfter = kCMTimeZero`（永远不越过目标时间）。
+这是拖动预览的最快档，由播放器设置里的实验开关「快进吸附关键帧」打开；
+松手时宿主写回 0 恢复精确 seek。

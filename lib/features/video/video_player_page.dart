@@ -1352,6 +1352,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       await player.setBuffering(_buffering);
       if (!mounted || !identical(player, _player)) return;
       await player.applySettings(_settings);
+      player.setFastSeekSnapToKeyframe(_settings.fastSeekSnap);
       if (!mounted || !identical(player, _player)) return;
       await player.setVolume(_effectiveVolume);
       final media = _media;
@@ -1524,6 +1525,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     } else {
       _store?.save(next);
       await _player?.applySettings(next);
+      _player?.setFastSeekSnapToKeyframe(next.fastSeekSnap);
       if (subtitlePreferenceChanged) unawaited(_applyPreferredSubtitle());
     }
   }

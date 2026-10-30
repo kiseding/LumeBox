@@ -424,6 +424,7 @@ class PlayerSettings {
     this.hardwareDecoding = true,
     this.autoHideControls = true,
     this.swipeUpNext = false,
+    this.fastSeekSnap = false,
     this.backgroundSourceValidation = true,
     this.rememberManualQuality = false,
     this.manualQualityLabel = '',
@@ -523,6 +524,10 @@ class PlayerSettings {
 
   /// 竖屏短剧：画面中间上滑切下一集（默认关，开了才会拦截竖直手势）。
   final bool swipeUpNext;
+
+  /// 拖动快进时是否吸附到前一个关键帧（实验开关，仅 AVPlayer 生效）。
+  /// 关：容差 400ms；开：toleranceBefore 无限、toleranceAfter 0。
+  final bool fastSeekSnap;
   final bool backgroundSourceValidation;
   final bool rememberManualQuality;
   final String manualQualityLabel;
@@ -593,6 +598,7 @@ class PlayerSettings {
     bool? subtitlesEnabled,
     bool? autoHideControls,
     bool? swipeUpNext,
+    bool? fastSeekSnap,
     bool? backgroundSourceValidation,
     bool? rememberManualQuality,
     String? manualQualityLabel,
@@ -662,6 +668,7 @@ class PlayerSettings {
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
       swipeUpNext: swipeUpNext ?? this.swipeUpNext,
+      fastSeekSnap: fastSeekSnap ?? this.fastSeekSnap,
       backgroundSourceValidation:
           backgroundSourceValidation ?? this.backgroundSourceValidation,
       rememberManualQuality:
@@ -719,6 +726,7 @@ class PlayerSettings {
         other.hardwareDecoding != hardwareDecoding ||
         other.autoHideControls != autoHideControls ||
         other.swipeUpNext != swipeUpNext ||
+        other.fastSeekSnap != fastSeekSnap ||
         other.backgroundSourceValidation != backgroundSourceValidation ||
         other.rememberManualQuality != rememberManualQuality ||
         other.manualQualityLabel != manualQualityLabel ||
@@ -748,6 +756,7 @@ class PlayerSettings {
     hardwareDecoding,
     autoHideControls,
     swipeUpNext,
+    fastSeekSnap,
     backgroundSourceValidation,
     rememberManualQuality,
     manualQualityLabel,

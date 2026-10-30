@@ -48,7 +48,8 @@ final class BufferingController: NSObject {
       case "seekTolerance":
         // 拖动预览用的 AVPlayer seek 容差（毫秒）。0 = 精确 seek。
         let ms = ((call.arguments as? [String: Any])?["seekToleranceMs"] as? NSNumber)?.doubleValue ?? 0
-        UserDefaults.standard.set(max(0, ms), forKey: Self.seekToleranceKey)
+        // -1 是哨兵：拖动时「吸附到前一个关键帧」（before=+∞, after=0）。
+        UserDefaults.standard.set(ms, forKey: Self.seekToleranceKey)
         result(nil)
       case "apply":
         guard let args = call.arguments as? [String: Any] else {

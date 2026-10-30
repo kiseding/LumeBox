@@ -337,9 +337,17 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     await _controller?.seekTo(position);
   }
 
+  /// 吸附到前一关键帧（实验开关）：写 -1 作哨兵，原生侧翻成 ±∞/0。
+  bool _snapToKeyframe = false;
+
+  @override
+  void setFastSeekSnapToKeyframe(bool value) => _snapToKeyframe = value;
+
   @override
   Future<void> seekFast(Duration position) async {
-    await _setSeekTolerance(fastSeekTolerance);
+    await _setSeekTolerance(
+      _snapToKeyframe ? const Duration(milliseconds: -1) : fastSeekTolerance,
+    );
     await _controller?.seekTo(position);
   }
 
