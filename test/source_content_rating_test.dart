@@ -57,6 +57,7 @@ void main() {
     'ogfap_video',
     'hstream_video',
     'p91pinse_video',
+    'ho5ho_comic',
     'rule34video_video',
     'oreno3d_video',
     'xcamtube_video',
