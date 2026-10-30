@@ -252,7 +252,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
             measure.dispose();
             if (_view != PlayerEpisodeView.grid) {
               _columns = 1;
-              _rowExtent = _view == PlayerEpisodeView.cover ? 84 : 56;
+              // 卡片高度 = 行高 - 下方间距：列表 50 = 48 + 2，封面 80 = 76 + 4。
+              _rowExtent = _view == PlayerEpisodeView.cover ? 80 : 50;
               return ListView.builder(
                 key: ValueKey(_view),
                 controller: _scroll,
@@ -268,7 +269,9 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                   final current = chapter.id == widget.currentChapterId;
                   final colors = Theme.of(context).colorScheme;
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
+                    padding: EdgeInsets.only(
+                      bottom: _view == PlayerEpisodeView.cover ? 4 : 2,
+                    ),
                     child: Material(
                       color: current
                           ? colors.primary.withValues(alpha: .18)
@@ -359,8 +362,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: _columns,
                 mainAxisExtent: 44,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
               ),
               itemCount: end - start,
               itemBuilder: (context, visibleIndex) {
@@ -705,7 +708,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     borderRadius: BorderRadius.circular(24),
     clipBehavior: Clip.antiAlias,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 8, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
