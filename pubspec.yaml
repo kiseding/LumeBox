@@ -135,7 +135,6 @@ flutter:
     # waifu2x 权重（17 MB）不随包发布：安装时逐份下载，这里只留清单与许可。
     - assets/models/waifu2x/ORIGIN.json
     - assets/models/waifu2x/LICENSE
-    - assets/models/intro/mobileclip_s0_image.zip
     - assets/models/intro/anchor_vectors.json
     - assets/models/intro/prompts.json
     - assets/models/intro/compact_checksums.json

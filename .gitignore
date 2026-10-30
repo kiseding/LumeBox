@@ -78,5 +78,4 @@ ios/PythonRuntime/
 /.tmp_shots/
 
 # Build-time generated model assets; upstream inputs stay tracked.
-/assets/models/intro/mobileclip_s0_image.zip
 /assets/models/intro/compact_checksums.json

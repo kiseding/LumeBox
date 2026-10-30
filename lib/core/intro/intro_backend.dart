@@ -104,6 +104,11 @@ class NativeIntroBackend implements IntroScanBackend {
       includeVideo
       ? _videoInstallation ??= _installVideo()
       : _audioInstallation ??= _installAudio();
+  /// 图像编码器压缩包的摘要；由 `tool/prepare_intro_models.py` 生成，
+  /// 与 build 期写出的 `compact_checksums.json` 同值。
+  static const String _imagePackSha256 =
+      '30c22892a0f0dfa54be1869644104be840d87d02fbcabd9ecc2720816b99c9e3';
+
   /// 与 `assets/models/intro/checksums.json` 同源。
   static const String _yamnetSha256 =
       'e193da5676a2fdb7a3702c10fba62aa27d76f64e4534467443811c1a2ff1667d';
@@ -138,12 +143,11 @@ class NativeIntroBackend implements IntroScanBackend {
       final marker = File(path.join(root, 'video-anchors-v1.ready'));
       if (await marker.exists()) return root;
       final zipPath = path.join(root, 'models.zip');
-      final bytes = await rootBundle.load(
+      // 图像编码器（20 MB）不随包：首次启用片头识别时下载并校验。
+      await ModelSource.fetch(
         'assets/models/intro/mobileclip_s0_image.zip',
-      );
-      await File(zipPath).writeAsBytes(
-        bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
-        flush: true,
+        File(zipPath),
+        digest: _imagePackSha256,
       );
       // Decode from a disk stream; never materialize uncompressed model weights
       // in a Dart archive alongside video textures. Audio-only never loads ZIP.
