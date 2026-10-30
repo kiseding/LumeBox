@@ -1,3 +1,3 @@
 
-assets/local_danmaku/upstream.cjs -text
+assets/local_danmaku/upstream.cjs.gz -text
 assets/source_icons/*.svg -text

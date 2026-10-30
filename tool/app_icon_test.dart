@@ -10,7 +10,8 @@
 /// 3. 前景：白色播放三角 + 右下折角（原图标的记号）。
 ///
 /// 运行：`flutter test tool/app_icon_test.dart`
-/// 产物：`assets/icon/app_icon_1024.png`（无 Alpha，可交给 flutter_launcher_icons）。
+/// 产物：`tool/icon/app_icon_1024.png`（无 Alpha，可交给 flutter_launcher_icons）；
+/// 另有随包发布的 256 px 预览 `assets/icon/app_icon.png`。
 library;
 
 import 'dart:io';
@@ -138,13 +139,38 @@ void main() {
     image.dispose();
     picture.dispose();
 
+    // 1024 母图只给 flutter_launcher_icons 生成 iOS 图标，放在不随包发布的
+    // tool/icon/ 下；随包发布的只有下面 256 px 的预览图。
+    final master = File(
+      _style.isEmpty ? 'tool/icon/app_icon_1024.png' : 'tool/icon/$_style.png',
+    );
+    master.parent.createSync(recursive: true);
+    master.writeAsBytesSync(data!.buffer.asUint8List());
+    expect(master.existsSync(), isTrue);
+    expect(master.lengthSync(), greaterThan(1000));
+
+    // 设置页里图标只有 70 pt 见方，256 px 足够，单张约 25 KB。
+    final previewRecorder = ui.PictureRecorder();
+    final previewCanvas = Canvas(
+      previewRecorder,
+    )..scale(256 / _size);
+    previewCanvas.drawImage(
+      image,
+      Offset.zero,
+      Paint()..filterQuality = FilterQuality.high,
+    );
+    final previewPicture = previewRecorder.endRecording();
+    final previewImage = await previewPicture.toImage(256, 256);
+    final previewBytes = await previewImage.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
     final file = File(
-      _style.isEmpty
-          ? 'assets/icon/app_icon_1024.png'
-          : 'assets/icon/$_style.png',
+      _style.isEmpty ? 'assets/icon/app_icon.png' : 'assets/icon/$_style.png',
     );
     file.parent.createSync(recursive: true);
-    file.writeAsBytesSync(data!.buffer.asUint8List());
+    file.writeAsBytesSync(previewBytes!.buffer.asUint8List());
+    previewImage.dispose();
+    previewPicture.dispose();
     expect(file.existsSync(), isTrue);
     expect(file.lengthSync(), greaterThan(1000));
   });

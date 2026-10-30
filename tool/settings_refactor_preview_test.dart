@@ -175,7 +175,7 @@ void main() {
     final context = tester.element(find.byType(AppIconGrid));
     await tester.runAsync(() async {
       for (final name in <String>[
-        'app_icon_1024',
+        'app_icon',
         'Aurora',
         'Obsidian',
         'Solar',

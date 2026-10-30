@@ -126,10 +126,11 @@ flutter:
     - assets/source_icons/
     - assets/branding/
     - assets/rex/lumebox_demo.js
-    - assets/reference/
+    # 参考图只给 tool/settings_refactor_preview_test.dart 做版式对照，运行时不读。
     - assets/js/
     - assets/cat/
     - assets/local_danmaku/
+    # 只放 256 px 预览图；1024 母图在 tool/icon/，只给 flutter_launcher_icons 用。
     - assets/icon/
     - assets/models/waifu2x/
     - assets/models/intro/mobileclip_s0_image.zip
@@ -150,4 +151,4 @@ flutter_launcher_icons:
   android: false
   ios: true
   remove_alpha_ios: true
-  image_path_ios: "assets/icon/app_icon_1024.png"
+  image_path_ios: "tool/icon/app_icon_1024.png"
