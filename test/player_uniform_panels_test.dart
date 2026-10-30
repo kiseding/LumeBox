@@ -130,6 +130,32 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('横屏抽屉内容贴物理右边缘，右侧安全区不再推离卡片', (tester) async {
+    // iOS 横屏把左右两侧安全区报成同一数值，这里用 44 模拟灵动岛机型：
+    // 抽屉玻璃贴边，内容也必须贴边，只有顶部/底部仍让出系统安全区。
+    tester.view.physicalSize = const Size(932, 430);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = const FakeViewPadding(right: 44, bottom: 24);
+    tester.view.padding = const FakeViewPadding(right: 44, bottom: 24);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: DanmakuPanelFrame(
+            child: SizedBox.expand(key: ValueKey('panel-content')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final content = tester.getRect(find.byKey(const ValueKey('panel-content')));
+    expect(content.left, closeTo(932 * .6, .01));
+    expect(content.right, closeTo(932, .01));
+    expect(content.top, 0);
+    expect(content.bottom, closeTo(430 - 24, .01));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全局设置调用共用输入组件仍使用普通对话框', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

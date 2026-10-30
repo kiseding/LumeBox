@@ -129,10 +129,12 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
                   removeLeft: edge,
                   removeRight: edge,
                   child: Padding(
+                    // 横屏贴边抽屉的内容对齐物理右边缘：iOS 横屏会把左右两侧
+                    // 安全区都报成同一数值（它不知道机器朝哪边转），照搬右侧
+                    // 数值会让卡片平白离屏 40–62pt，和 Android 观感不一致。
                     padding: edge
                         ? EdgeInsets.only(
                             top: safe.top,
-                            right: safe.right,
                             bottom: keyboard > 0 ? 0 : safe.bottom,
                           )
                         : EdgeInsets.zero,
