@@ -27,11 +27,11 @@ class SpeechLocalModel extends ChangeNotifier {
     Future<Map<String, dynamic>> Function()? loadManifest,
     ModelFileFetcher? fetchFile,
   }) : _pickArchive = pickArchive ?? _selectArchive,
-       _loadManifest = loadManifest,
+       _manifestOf = loadManifest ?? _bundledManifest,
        _fetchFile = fetchFile ?? _fetchFromSources;
 
   final Future<XFile?> Function() _pickArchive;
-  final Future<Map<String, dynamic>> Function()? _loadManifest;
+  final Future<Map<String, dynamic>> Function() _manifestOf;
   final ModelFileFetcher _fetchFile;
 
   static Future<XFile?> _selectArchive() =>
@@ -47,15 +47,13 @@ class SpeechLocalModel extends ChangeNotifier {
   Future<bool>? _checking;
   int _notified = 0;
 
-  Future<Map<String, dynamic>> get _manifest {
-    final injected = _loadManifest;
-    if (injected != null) return injected();
-    return rootBundle
-        .loadString('$assets/manifest.json')
-        .then<Map<String, dynamic>>(
-          (text) => jsonDecode(text) as Map<String, dynamic>,
-        );
-  }
+  static Future<Map<String, dynamic>> _bundledManifest() => rootBundle
+      .loadString('$assets/manifest.json')
+      .then<Map<String, dynamic>>(
+        (text) => jsonDecode(text) as Map<String, dynamic>,
+      );
+
+  Future<Map<String, dynamic>> get _manifest => _manifestOf();
 
   Future<bool> check() {
     if (preparing) return Future.value(ready);
