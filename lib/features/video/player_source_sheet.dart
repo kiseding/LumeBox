@@ -252,8 +252,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
             measure.dispose();
             if (_view != PlayerEpisodeView.grid) {
               _columns = 1;
-              // 卡片高度 = 行高 - 下方间距：列表 50 = 48 + 2，封面 80 = 76 + 4。
-              _rowExtent = _view == PlayerEpisodeView.cover ? 80 : 50;
+              // 卡片高度 = 行高 - 下方间距：列表 50 = 48 + 2，封面 82 = 78 + 4。
+              _rowExtent = _view == PlayerEpisodeView.cover ? 82 : 50;
               return ListView.builder(
                 key: ValueKey(_view),
                 controller: _scroll,
@@ -492,6 +492,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   }
 
   int _chapterCount = 0;
+  static const _jumpItem = -1;
 
   IconData get _viewIcon => switch (_view) {
     PlayerEpisodeView.grid => Icons.grid_view_rounded,
@@ -529,7 +530,6 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       onPressed: _busy ? null : onPressed,
       icon: Icon(icon, size: 18),
       padding: EdgeInsets.zero,
-      visualDensity: VisualDensity.compact,
       constraints: const BoxConstraints.tightFor(width: 32, height: 32),
       // 走 ButtonStyle 的 IconButton 会忽略 constraints，必须把尺寸写进样式，
       // 否则默认 40×40 会把 8 个图标挤到第二行。
@@ -560,18 +560,27 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         Offset.zero & overlay.size,
       ),
       items: [
-        for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
-          PopupMenuItem(value: i, child: Text(_segmentLabel(i))),
+        if (_chapterCount > 50)
+          for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
+            PopupMenuItem(value: i, child: Text(_segmentLabel(i))),
+        if (_chapterCount > 50) const PopupMenuDivider(),
+        // 跳转集数不再单独占图标，收进这个菜单里。
+        const PopupMenuItem<int>(value: _jumpItem, child: Text('跳转到第几集…')),
       ],
     );
     if (picked == null || !mounted) return;
+    if (picked == _jumpItem) {
+      await _jump();
+      return;
+    }
     setState(() {
       _segment = picked;
       if (_scroll.hasClients) _scroll.jumpTo(0);
     });
   }
 
-  Future<void> _showPlaybackInfo() => showPlayerDialog<void>(
+  /// 信息卡走普通居中对话框：复用抽屉框会拉成一整条 40% 宽的白板。
+  Future<void> _showPlaybackInfo() => showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('播放信息'),
@@ -620,7 +629,12 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         !_qualityOnly && _tab == PlayerSourceTab.episodes && _chapterCount > 0;
     return Row(
       children: [
-        if (count)
+        if (_qualityOnly)
+          const Text(
+            '画质',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          )
+        else if (count)
           Text(
             '共 $_chapterCount 集',
             style: TextStyle(
@@ -673,19 +687,16 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                     '定位当前',
                     onPressed: _chapterCount == 0 ? null : _locateCurrent,
                   ),
-                  if (_chapterCount > 50)
+                  if (_chapterCount > 0)
                     Builder(
                       builder: (anchor) => _toolIcon(
                         Icons.layers_outlined,
-                        '分段：${_segmentLabel(_segment)}',
+                        _chapterCount > 50
+                            ? '分段：${_segmentLabel(_segment)}'
+                            : '跳转到第几集',
                         onPressed: () => _pickSegment(anchor),
                       ),
                     ),
-                  _toolIcon(
-                    Icons.numbers,
-                    '跳转集数',
-                    onPressed: _chapterCount == 0 ? null : _jump,
-                  ),
                 ],
               ],
               _toolIcon(
@@ -713,6 +724,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildToolbar(),
+          const SizedBox(height: 4),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             Semantics(
