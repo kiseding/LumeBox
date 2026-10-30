@@ -4012,15 +4012,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
       return Padding(
         key: const Key('fullscreen-topbar'),
+        // 行距收窄：状态行与片名块之间不留松缝，片名整体上移。
         padding: const EdgeInsets.symmetric(
           horizontal: VideoPlayerPage.controlHorizontalPadding,
-          vertical: 4,
+          vertical: 2,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const _PlayerClock(),
-            const SizedBox(height: 6),
+            const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -4229,7 +4230,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           // （home 指示条）本身留的位，按钮压不进去也不用压进去。
           padding: const EdgeInsets.fromLTRB(
             VideoPlayerPage.controlHorizontalPadding,
-            8,
+            4,
             VideoPlayerPage.controlHorizontalPadding,
             2,
           ),
@@ -5301,7 +5302,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
               Expanded(
                 child: SizedBox(
-                  height: 44,
+                  // 行距收窄：滑条行高从 44 收到 34，进度行整体下沉贴近按钮行。
+                  height: 34,
                   child: SliderTheme(data: theme, child: slider),
                 ),
               ),
