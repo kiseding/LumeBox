@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:lume_box/core/models/model_source.dart';
 import 'package:lume_box/core/reading/comic_image_tools.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
@@ -39,6 +40,9 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   setUp(() {
+    // 权重不再打进安装包；仓库里那 8 份就是下载源，测试直接读磁盘，
+    // 既覆盖真实字节，又不会让单测真的联网。
+    ModelSource.debugReader = (path) async => File(path).readAsBytes();
     messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
       switch (call.method) {
         case 'recognize':
@@ -432,13 +436,19 @@ void main() {
     }
   });
 
-  test('all eight waifu2x models are bundled with the app', () async {
+  test('八个 waifu2x 模型不随安装包发布，权重按需从仓库下载', () async {
     for (final name in ComicImageTools.bundledModelNames) {
-      final data = await rootBundle.load('assets/models/waifu2x/$name.mlmodel');
+      // 包里取不到：这一条就是 IPA 少掉 17 MB 的原因。
+      await expectLater(
+        rootBundle.load('assets/models/waifu2x/$name.mlmodel'),
+        throwsA(anything),
+        reason: '$name 不应再打进安装包',
+      );
+      // 但仓库里仍有这份权重（它就是下载源），摘要比对在上一个用例完成。
       expect(
-        data.lengthInBytes,
+        File('assets/models/waifu2x/$name.mlmodel').lengthSync(),
         greaterThan(1 * 1024 * 1024),
-        reason: '$name 应随 App 打包',
+        reason: '$name 需要留在仓库里供下载',
       );
     }
   });

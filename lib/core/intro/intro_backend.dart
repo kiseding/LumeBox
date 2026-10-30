@@ -11,6 +11,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import '../models/model_source.dart';
 import 'intro_models.dart';
 import 'intro_signals.dart';
 
@@ -103,6 +104,10 @@ class NativeIntroBackend implements IntroScanBackend {
       includeVideo
       ? _videoInstallation ??= _installVideo()
       : _audioInstallation ??= _installAudio();
+  /// 与 `assets/models/intro/checksums.json` 同源。
+  static const String _yamnetSha256 =
+      'e193da5676a2fdb7a3702c10fba62aa27d76f64e4534467443811c1a2ff1667d';
+
   static Future<String> _installAudio() async {
     try {
       final root = path.join(
@@ -112,10 +117,11 @@ class NativeIntroBackend implements IntroScanBackend {
       final marker = File(path.join(root, 'audio.ready'));
       if (await marker.exists()) return root;
       await Directory(root).create(recursive: true);
-      final audio = await rootBundle.load('assets/models/intro/yamnet.tflite');
-      await File(path.join(root, 'yamnet.tflite')).writeAsBytes(
-        audio.buffer.asUint8List(audio.offsetInBytes, audio.lengthInBytes),
-        flush: true,
+      // YAMNet 不再随包发布（15 MB，只服务片头识别）；首次开启时下载并校验。
+      await ModelSource.fetch(
+        'assets/models/intro/yamnet.tflite',
+        File(path.join(root, 'yamnet.tflite')),
+        digest: _yamnetSha256,
       );
       await marker.writeAsString('1', flush: true);
       return root;

@@ -1,3 +1,4 @@
+import '../models/model_source.dart';
 import '../translation/ai_text_translation.dart';
 import 'comic_image_tools_settings.dart';
 import 'image_upscale_report.dart';
@@ -293,19 +294,39 @@ class ComicImageTools {
     'photo3',
   ];
 
-  /// 把随包提供的模型安装到设备（编译并写入 Application Support）。
+  /// 与 `assets/models/waifu2x/ORIGIN.json` 的 `sha256` 段一致。
+  static const Map<String, String> _bundledSha256 = <String, String>{
+    'noise0':
+        '09288536faaa4eb4f3e46bf0c66e748f4226a4bb5fd8068e38a5f434f0a75b48',
+    'noise1':
+        'e04d3b26e93498d3183b9a4e27af8d5688e62e276554d03c1103646c66969f6b',
+    'noise2':
+        '7aa191c4c72f35ea6a5936ce28ac17e3adfa127c08a11444d93a7bc614003a8c',
+    'noise3':
+        'c6334b9b98734318600deffc13755faaef6753682dd77dd2e7daa7596062dc8e',
+    'photo0':
+        '3ec788c47cac8f564f661ee4fd10a303b42ebff69c9aaf23ad1b5a198f7fa8b9',
+    'photo1':
+        '41a68347d057dc8644567c41281a04866f78e565b3fc4ccb0603391334f41b0e',
+    'photo2':
+        '41e060bb0deb151bf2f20ff39c1486cd4f458827f9a49b797780c53ed9555035',
+    'photo3':
+        '96c54023bbbde4c13217ca35ad355e1b06f9d47cbe7dee41fdf1b863991606be',
+  };
+
+  /// 把内置的 8 份模型安装到设备（编译并写入 Application Support）。
   ///
-  /// 首次安装 8 个模型需要一点时间，[onProgress] 用于设置页显示进度。
+  /// 权重不再随安装包发布（8 份共 17 MB），首次安装按需逐份下载并校验；
+  /// [onProgress] 用于设置页显示进度。
   Future<void> installBundledModels({
     void Function(int done, int total)? onProgress,
   }) async {
     final total = bundledModelNames.length;
     for (var i = 0; i < total; i++) {
       final name = bundledModelNames[i];
-      final data = await rootBundle.load('assets/models/waifu2x/$name.mlmodel');
-      final bytes = data.buffer.asUint8List(
-        data.offsetInBytes,
-        data.lengthInBytes,
+      final bytes = await ModelSource.bytes(
+        'assets/models/waifu2x/$name.mlmodel',
+        digest: _bundledSha256[name],
       );
       await _invoke<void>('importModel', {
         'name': '$name.mlmodel',

@@ -132,10 +132,12 @@ flutter:
     - assets/local_danmaku/
     # 只放 256 px 预览图；1024 母图在 tool/icon/，只给 flutter_launcher_icons 用。
     - assets/icon/
-    - assets/models/waifu2x/
+    # waifu2x 权重（17 MB）与 YAMNet（15 MB）不随包发布：首次安装时下载，
+    # 这里只留识别用的清单与许可。
+    - assets/models/waifu2x/ORIGIN.json
+    - assets/models/waifu2x/LICENSE
     - assets/models/intro/mobileclip_s0_image.zip
     - assets/models/intro/anchor_vectors.json
-    - assets/models/intro/yamnet.tflite
     - assets/models/intro/prompts.json
     - assets/models/intro/compact_checksums.json
     - assets/models/intro/MobileCLIP-LICENSE.txt
