@@ -437,14 +437,16 @@ void main() {
   });
 
   test('八个 waifu2x 模型不随安装包发布，权重按需从仓库下载', () async {
+    // 看资产清单而不是去 load：load 失败会把 FlutterError 报给测试框架，
+    // 即使被 expectLater 接住，用例本身仍会被判失败（这里踩过）。
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    expect(
+      manifest.listAssets().where((path) => path.endsWith('.mlmodel')),
+      isEmpty,
+      reason: '权重不进包：这一条就是 IPA 少掉 17 MB 的原因',
+    );
+    // 但仓库里仍有这份权重（它就是下载源），摘要比对在上一个用例完成。
     for (final name in ComicImageTools.bundledModelNames) {
-      // 包里取不到：这一条就是 IPA 少掉 17 MB 的原因。
-      await expectLater(
-        rootBundle.load('assets/models/waifu2x/$name.mlmodel'),
-        throwsA(anything),
-        reason: '$name 不应再打进安装包',
-      );
-      // 但仓库里仍有这份权重（它就是下载源），摘要比对在上一个用例完成。
       expect(
         File('assets/models/waifu2x/$name.mlmodel').lengthSync(),
         greaterThan(1 * 1024 * 1024),
