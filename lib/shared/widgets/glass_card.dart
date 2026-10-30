@@ -272,21 +272,34 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 /// 顶栏「向上顶」的幅度：外框贴屏幕顶端，内容只做**状态栏避让**。
 ///
 /// 用户口径（第六次反馈）：顶栏外框本来就铺到 y=0，但内容被**完整的**安全区
-/// （刘海机 62）压在下面，视觉上「整条横条不能往上靠」。参考做法是
-/// **容器贴顶、内容单独避让**：内容少让一档（默认 12），标题与图标跟着上移，
-/// 中间内容区同时多出这一段。
+/// 压在下面，视觉上「整条横条不能往上靠」。参考做法是
+/// **容器贴顶、内容单独避让**：刘海机型内容少让一档（[kLumeTopInsetTrim]），
+/// 标题与图标跟着上移，中间内容区同时多出这一段。
 ///
-/// 12 是保守值：刘海机状态栏 62，缩到 50 之后图标盒（34）落在 50..84，
-/// 灵动岛（约 11..48）与两侧时间/电量（约 22..42）都在它上面，不会压到。
+/// 用户口径（第七次反馈）：真机上标题栏压进了灵动岛。原因是灵动岛机型的安全区
+/// （59–62）比刘海机型（44–47）高，可**岛下留白只有 9–11pt**——再让 12pt 正好
+/// 让进岛里。所以灵动岛机型一档都不让，内容停在系统给的安全线；刘海机型留白
+/// 更宽（17pt 以上），继续按 12 上移。
+///
+/// 12 是保守值：刘海机型状态栏 47，缩到 35 之后图标盒（34）落在 35..69，
+/// 刘海下沿（约 30）与两侧时间/电量（约 16..34）都在它上面，不会压到。
 /// 小状态栏（无刘海机 / 安卓，inset ≤ 24）不缩——那里时间电量就贴着顶，
 /// 缩了会撞上（见 [trimmedTopInset]）。
 const double kLumeTopInsetTrim = 12;
 
+/// 灵动岛机型的状态栏高度下限（iPhone 14 Pro 起为 59，16 Pro 为 62；
+/// 刘海机型是 44–47，两类不重叠）。
+const double kLumeIslandTopInset = 54;
+
 /// 顶栏内容实际要让出的顶部高度：状态栏高度减去一档 [kLumeTopInsetTrim]。
 ///
-/// 状态栏太薄时（无刘海机 / 安卓，≤ 24）原样返回：那里没有可让的余地。
+/// - 状态栏太薄（无刘海机 / 安卓，≤ 24）：原样返回，那里没有可让的余地；
+/// - 灵动岛机型（≥ [kLumeIslandTopInset]）：原样返回。系统安全区里本来就只留了
+///   岛下那一条缝，再往上抬会直接压进岛里（真机踩过，见上）；
+/// - 刘海机型：让出一档 [kLumeTopInsetTrim]。
 double trimmedTopInset(double statusInset) {
   if (statusInset <= 24) return statusInset;
+  if (statusInset >= kLumeIslandTopInset) return statusInset;
   final trim = statusInset - 24 < kLumeTopInsetTrim
       ? statusInset - 24
       : kLumeTopInsetTrim;

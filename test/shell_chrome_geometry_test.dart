@@ -145,6 +145,8 @@ void main() {
     expect(find.byType(AppBar), findsNothing);
     final panel = tester.getRect(homePanel());
     expect(panel.top, closeTo(trimmedTopInset(statusInset), 1));
+    // 灵动岛机型（本用例 inset=59）不许把顶栏顶进岛里：内容必须落在安全线以下。
+    expect(panel.top, greaterThanOrEqualTo(statusInset));
     expect(panel.height, lessThan(160));
     final title = tester.getRect(find.text('历史'));
     final source = tester.getRect(find.text('示例源'));
