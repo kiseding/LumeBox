@@ -132,20 +132,18 @@ flutter:
     - assets/local_danmaku/
     # 只放 256 px 预览图；1024 母图在 tool/icon/，只给 flutter_launcher_icons 用。
     - assets/icon/
-    # waifu2x 权重（17 MB）与 YAMNet（15 MB）不随包发布：首次安装时下载，
-    # 这里只留识别用的清单与许可。
-    - assets/models/waifu2x/ORIGIN.json
-    - assets/models/waifu2x/LICENSE
+    - assets/models/waifu2x/
     - assets/models/intro/mobileclip_s0_image.zip
     - assets/models/intro/anchor_vectors.json
+    - assets/models/intro/yamnet.tflite
     - assets/models/intro/prompts.json
     - assets/models/intro/compact_checksums.json
     - assets/models/intro/MobileCLIP-LICENSE.txt
     - assets/models/intro/MobileCLIP-LICENSE_MODELS.txt
     - assets/models/intro/MobileCLIP-ACKNOWLEDGEMENTS.txt
     - assets/models/intro/YAMNet-LICENSE.txt
+    # 离线音色包只留清单；权重首次启用时按 manifest 的 sources 下载。
     - assets/speech/vits_aishell3/manifest.json
-    - assets/speech/vits_aishell3/runtime/
 
 # 图标生成配置：只生成 iOS 图标；remove_alpha_ios 强制抹除 Alpha 通道
 # （iOS 图标不接受透明通道，实色底才能通过系统图标校验）。

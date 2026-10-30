@@ -114,7 +114,7 @@ void main() {
     );
     expect(model.fromFile, isNull);
     await chooseLocal();
-    await tester.tap(find.text('启用内置包'));
+    await tester.tap(find.text('在线下载'));
     await tester.pumpAndSettle();
     expect(model.preparing, true);
     expect(model.fromFile, false);
@@ -145,7 +145,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('启用内置离线音色包（约 147 MB）'));
+    await tester.tap(find.text('启用离线音色包（约 124 MB）'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('从文件安装'));
     await tester.pump();

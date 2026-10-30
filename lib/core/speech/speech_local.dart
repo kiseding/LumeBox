@@ -3,30 +3,60 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+import '../models/model_source.dart';
+
+typedef ModelFileFetcher =
+    Future<void> Function(
+      Map<String, dynamic> manifest,
+      Map<String, dynamic> file,
+      File target,
+      void Function(int received, int? total)? onProgress,
+    );
+
 class SpeechLocalModel extends ChangeNotifier {
-  SpeechLocalModel({Future<XFile?> Function()? pickArchive})
-    : _pickArchive = pickArchive ?? _selectArchive;
+  SpeechLocalModel({
+    Future<XFile?> Function()? pickArchive,
+    Future<Map<String, dynamic>> Function()? loadManifest,
+    ModelFileFetcher? fetchFile,
+  }) : _pickArchive = pickArchive ?? _selectArchive,
+       _loadManifest = loadManifest,
+       _fetchFile = fetchFile ?? _fetchFromSources;
 
   final Future<XFile?> Function() _pickArchive;
+  final Future<Map<String, dynamic>> Function()? _loadManifest;
+  final ModelFileFetcher _fetchFile;
+
   static Future<XFile?> _selectArchive() =>
       openFile(acceptedTypeGroups: const [archiveType]);
   static final instance = SpeechLocalModel();
   static const assets = 'assets/speech/vits_aishell3';
   bool ready = false, preparing = false;
+
+  /// 下载进度，只用于界面显示百分比；0/0 表示还没有开始。
+  int received = 0, total = 0;
   String? error;
   Directory? directory;
   Future<bool>? _checking;
-  Future<Map<String, dynamic>> get _manifest async =>
-      jsonDecode(await rootBundle.loadString('$assets/manifest.json'))
-          as Map<String, dynamic>;
+  int _notified = 0;
+
+  Future<Map<String, dynamic>> get _manifest {
+    final injected = _loadManifest;
+    if (injected != null) return injected();
+    return rootBundle
+        .loadString('$assets/manifest.json')
+        .then<Map<String, dynamic>>(
+          (text) => jsonDecode(text) as Map<String, dynamic>,
+        );
+  }
+
   Future<bool> check() {
     if (preparing) return Future.value(ready);
     return _checking ??= _check().whenComplete(() => _checking = null);
@@ -72,6 +102,9 @@ class SpeechLocalModel extends ChangeNotifier {
     if (preparing) return false;
     preparing = true;
     error = null;
+    received = 0;
+    total = 0;
+    _notified = 0;
     notifyListeners();
     Directory? staging;
     var choosingFile = fromFile && archiveFile == null;
@@ -83,103 +116,26 @@ class SpeechLocalModel extends ChangeNotifier {
       directory = Directory('${support.path}/speech/vits_aishell3');
       final parent = Directory('${support.path}/speech');
       await parent.create(recursive: true);
-      staging = await parent.createTemp('prepare-');
-      final archive = File('${staging.path}/pack.tar.bz2');
+      final work = await parent.createTemp('prepare-');
+      staging = work;
       final manifest = await _manifest;
-      Map<String, dynamic>? bundled;
-      if (picked == null) {
-        bundled = jsonDecode(
-          await rootBundle.loadString('$assets/runtime/manifest.json'),
-        ) as Map<String, dynamic>;
-        if (bundled['sourceSha256'] != manifest['archiveSha256']) {
-          throw const FormatException('内置音色版本不匹配');
-        }
-      }
-      final expectedArchive =
-          bundled?['archiveSha256'] ?? manifest['archiveSha256'];
       if (picked != null) {
-        await picked.saveTo(archive.path);
+        await _installArchive(picked, work, manifest);
       } else {
-        // The shipped pack is split into bounded assets. Assemble it on demand
-        // rather than opening a file picker or downloading it again.
-        final sink = archive.openWrite();
-        try {
-          for (final part in bundled!['parts'] as List) {
-            final ByteData bytes;
-            try {
-              bytes = await rootBundle.load('$assets/runtime/${part['name']}');
-            } catch (_) {
-              throw const FormatException('内置音色资源缺失，请选择从文件安装');
-            }
-            if (bytes.lengthInBytes != part['bytes']) {
-              throw const FormatException('内置音色资源不完整，请选择从文件安装');
-            }
-            sink.add(
-              bytes.buffer.asUint8List(
-                bytes.offsetInBytes,
-                bytes.lengthInBytes,
-              ),
-            );
-            await sink.flush();
-          }
-        } finally {
-          await sink.close();
-        }
+        await _installDownload(work, manifest);
       }
-      final path = staging.path;
-      await Isolate.run(() async {
-        if ((await sha256.bind(File('$path/pack.tar.bz2').openRead()).first)
-                .toString() !=
-            expectedArchive) {
-          throw const FormatException('模型压缩包校验失败');
-        }
-        final input = InputFileStream('$path/pack.tar.bz2');
-        final output = OutputFileStream('$path/pack.tar');
-        try {
-          BZip2Decoder().decodeStream(input, output);
-        } finally {
-          input.close();
-          output.close();
-        }
-        final tar = InputFileStream('$path/pack.tar');
-        try {
-          final archive = TarDecoder().decodeStream(tar);
-          final wanted = {
-            for (final file in manifest['files'] as List)
-              file['name'] as String,
-          };
-          await Directory('$path/model').create();
-          for (final entry in archive) {
-            final name = entry.name.replaceAll('\\', '/').split('/').last;
-            if (!wanted.contains(name) ||
-                !entry.isFile ||
-                entry.isSymbolicLink) {
-              continue;
-            }
-            final target = OutputFileStream('$path/model/$name');
-            try {
-              entry.writeContent(target);
-            } finally {
-              target.close();
-            }
-          }
-        } finally {
-          tar.close();
-        }
-        if (!await _valid('$path/model', manifest)) {
-          throw const FormatException('模型文件校验失败');
-        }
-      });
       // Only the owned model directory is replaced, after complete validation.
       if (await directory!.exists()) await directory!.delete(recursive: true);
-      await Directory('${staging.path}/model').rename(directory!.path);
+      await Directory('${work.path}/model').rename(directory!.path);
       ready = true;
       return true;
     } catch (failure) {
       error = choosingFile
-          ? '无法打开文件选择器，请重试或启用内置音色包'
+          ? '无法打开文件选择器，请重试或改用在线下载'
           : failure is FormatException
           ? '${failure.message}；请重试或选择官方完整音色包'
+          : failure is ModelDownloadException
+          ? '音色包下载失败，请检查网络后重试；也可从文件安装'
           : '音色包安装失败，请检查剩余空间后重试';
       return false;
     } finally {
@@ -189,6 +145,120 @@ class SpeechLocalModel extends ChangeNotifier {
       preparing = false;
       notifyListeners();
     }
+  }
+
+  /// 默认走官方模型发布页：权重本来就在那儿，没必要再塞进安装包和仓库。
+  ///
+  /// 地址表在 `manifest.json` 的 `sources`：先国内镜像、再官方站点，逐个
+  /// 尝试；单个文件按 `files[].sha256` 校验，坏了就删掉重来。
+  static Future<void> _fetchFromSources(
+    Map<String, dynamic> manifest,
+    Map<String, dynamic> file,
+    File target,
+    void Function(int received, int? total)? onProgress,
+  ) {
+    final bases = (manifest['sources'] as List?)?.cast<String>() ?? const [];
+    final name = file['name'] as String;
+    return ModelSource.fetchFrom(
+      [
+        for (final base in bases)
+          Uri.parse(base.endsWith('/') ? '$base$name' : '$base/$name'),
+      ],
+      target,
+      digest: file['sha256'] as String?,
+      bytes: file['bytes'] as int?,
+      onProgress: onProgress,
+    );
+  }
+
+  /// 逐份下载并校验；全部到齐才动已安装的目录。
+  Future<void> _installDownload(
+    Directory staging,
+    Map<String, dynamic> manifest,
+  ) async {
+    final files = (manifest['files'] as List).cast<Map<String, dynamic>>();
+    final model = Directory('${staging.path}/model');
+    await model.create();
+    total = files.fold<int>(0, (sum, file) => sum + (file['bytes'] as int));
+    var done = 0;
+    for (final file in files) {
+      final base = done;
+      await _fetchFile(
+        manifest,
+        file,
+        File('${model.path}/${file['name']}'),
+        (chunk, _) {
+          received = base + chunk;
+          // 每 1% 通知一次就够：121 MB 的文件不能每读一块就重建界面。
+          if (total <= 0 ||
+              received - _notified >= total ~/ 100 ||
+              received >= total) {
+            _notified = received;
+            notifyListeners();
+          }
+        },
+      );
+      done += file['bytes'] as int;
+      received = done;
+      notifyListeners();
+    }
+    // 只把路径与清单送进 isolate：Directory 之类的对象不必跨 isolate。
+    final path = model.path;
+    if (!await Isolate.run(() => _valid(path, manifest))) {
+      throw const FormatException('模型文件校验失败');
+    }
+  }
+
+  /// 从 `vits-zh-aishell3.tar.bz2` 导入：只留清单里的运行期文件。
+  Future<void> _installArchive(
+    XFile picked,
+    Directory staging,
+    Map<String, dynamic> manifest,
+  ) async {
+    final archive = File('${staging.path}/pack.tar.bz2');
+    await picked.saveTo(archive.path);
+    final expectedArchive = manifest['archiveSha256'] as String;
+    final path = staging.path;
+    await Isolate.run(() async {
+      if ((await sha256.bind(File('$path/pack.tar.bz2').openRead()).first)
+              .toString() !=
+          expectedArchive) {
+        throw const FormatException('模型压缩包校验失败');
+      }
+      final input = InputFileStream('$path/pack.tar.bz2');
+      final output = OutputFileStream('$path/pack.tar');
+      try {
+        BZip2Decoder().decodeStream(input, output);
+      } finally {
+        input.close();
+        output.close();
+      }
+      final tar = InputFileStream('$path/pack.tar');
+      try {
+        final archive = TarDecoder().decodeStream(tar);
+        final wanted = {
+          for (final file in manifest['files'] as List) file['name'] as String,
+        };
+        await Directory('$path/model').create();
+        for (final entry in archive) {
+          final name = entry.name.replaceAll('\\', '/').split('/').last;
+          if (!wanted.contains(name) || !entry.isFile || entry.isSymbolicLink) {
+            continue;
+          }
+          final target = OutputFileStream('$path/model/$name');
+          try {
+            entry.writeContent(target);
+          } finally {
+            target.close();
+          }
+        }
+      } finally {
+        tar.close();
+      }
+      if (!await _valid('$path/model', manifest)) {
+        throw const FormatException('模型文件校验失败');
+      }
+    });
   }
 }
 

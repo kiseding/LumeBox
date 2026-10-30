@@ -77,8 +77,6 @@ ios/PythonRuntime/
 # 本地截图、页面快照与诊断输出；已跟踪的参考图保持不变。
 /.tmp_shots/
 
-# Deterministically prepared offline runtime assets; upstream inputs stay tracked.
+# Build-time generated model assets; upstream inputs stay tracked.
 /assets/models/intro/mobileclip_s0_image.zip
 /assets/models/intro/compact_checksums.json
-/assets/speech/vits_aishell3/runtime/*
-!/assets/speech/vits_aishell3/runtime/.gitkeep

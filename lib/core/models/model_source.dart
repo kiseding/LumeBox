@@ -12,15 +12,10 @@ import '../net/lume_net.dart';
 
 /// 模型文件取用口径：**随包优先，没有就下载**。
 ///
-/// 离线朗读与片头识别的权重已经在 build 期重打包过（见
-/// `docs/2026-10-29_离线资源精简与网页整剧.md`），剩下仍然整块占包体的
-/// 是 waifu2x（8 份共 17 MB）与 YAMNet（15 MB）——它们服务的都是可选功能，
-/// 却对每个用户都占着安装包。这里改成首次使用再取，落盘位置与原来
-/// 「安装内置模型」完全一致。
-///
-/// SHA-256 钉在代码里（与仓库 `ORIGIN.json`／`checksums.json` 同源）：校验
-/// 不过就删掉临时文件并报错，绝不把半个模型交给原生层。开发期如果 assets
-/// 里还有这些文件，直接读随包资产，不发网络请求。
+/// 可选功能的权重不占安装包：waifu2x（8 份共 17 MB）、YAMNet（15 MB）、
+/// 离线音色包（约 124 MB）都在首次使用时才取，落盘位置与原来「安装内置
+/// 模型」完全一致。SHA-256 钉在清单里：校验不过就删掉临时文件并报错，
+/// 绝不把半个模型交给原生层。
 class ModelDownloadException implements Exception {
   const ModelDownloadException(this.message);
 
@@ -110,8 +105,46 @@ class ModelSource {
       await _download(assetPath, target, digest: digest);
       return await target.readAsBytes();
     } finally {
-      if (await target.exists()) await target.delete();
+      for (final file in [target, File('${target.path}.part')]) {
+        if (await file.exists()) await file.delete();
+      }
     }
+  }
+
+  /// 按给定的地址依次尝试，取到 [target] 为止。
+  ///
+  /// 半途失败会留下 `目标.part`，下一个地址（或用户重试）从断点续传——
+  /// 121 MB 的音色包模型不能因为掉了 5% 就从头再来。各地址提供的是同一份
+  /// 字节（[digest] 与 [bytes] 就是对它的约束），因此可以跨源续传。
+  static Future<void> fetchFrom(
+    List<Uri> uris,
+    File target, {
+    String? digest,
+    int? bytes,
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    if (uris.isEmpty) {
+      throw const ModelDownloadException('没有配置下载地址');
+    }
+    Object? lastError;
+    for (final uri in uris) {
+      try {
+        await _downloadFrom(
+          uri,
+          target,
+          digest: digest,
+          expected: bytes,
+          onProgress: onProgress,
+        );
+        return;
+      } on ModelDownloadException catch (error) {
+        lastError = error;
+        // 一个源失败就换下一个；全部失败时最后一条信息才是要报给用户的。
+      }
+    }
+    throw ModelDownloadException(
+      lastError?.toString().replaceFirst('下载失败：', '') ?? '下载失败',
+    );
   }
 
   static Future<bool> _copyBundled(String assetPath, File target) async {
@@ -133,51 +166,89 @@ class ModelSource {
     File target, {
     String? digest,
     void Function(int received, int? total)? onProgress,
+  }) => fetchFrom(_sources(path), target, digest: digest, onProgress: onProgress);
+
+  /// 收尾：尺寸与摘要都对得上才把 `.part` 改名成正式文件。
+  ///
+  /// 对不上就删掉——走到这里说明「内容已经完整但字节不对」，续传没有意义。
+  static Future<bool> _accept(
+    File partial,
+    File target, {
+    String? digest,
+    int? expected,
   }) async {
-    Object? lastError;
-    for (final uri in _sources(path)) {
-      try {
-        await _downloadFrom(
-          uri,
-          target,
-          digest: digest,
-          onProgress: onProgress,
-        );
-        return;
-      } on ModelDownloadException catch (error) {
-        lastError = error;
-        // 一个源失败就换下一个；全部失败时最后一条信息才是要报给用户的。
-      }
+    if (!await partial.exists()) return false;
+    if (expected != null && await partial.length() != expected) {
+      await partial.delete();
+      return false;
     }
-    throw ModelDownloadException(
-      lastError?.toString().replaceFirst('下载失败：', '') ?? '下载失败',
-    );
+    if (digest != null &&
+        (await sha256.bind(partial.openRead()).first).toString() != digest) {
+      await partial.delete();
+      return false;
+    }
+    await partial.rename(target.path);
+    return true;
   }
 
   static Future<void> _downloadFrom(
     Uri uri,
     File target, {
     String? digest,
+    int? expected,
     void Function(int received, int? total)? onProgress,
   }) async {
-    final client = _client();
     final partial = File('${target.path}.part');
+    await target.parent.create(recursive: true);
+    var offset = await partial.exists() ? await partial.length() : 0;
+    if (expected != null && offset > expected) {
+      await partial.delete();
+      offset = 0;
+    }
+    if (offset > 0 && offset == expected) {
+      // 上次其实已经下完（只差改名）：验证通过就直接收工。
+      if (await _accept(partial, target, digest: digest, expected: expected)) {
+        onProgress?.call(offset, expected);
+        return;
+      }
+      offset = 0;
+    }
+    final client = _client();
     IOSink? sink;
     try {
       final request = http.Request('GET', uri)
-        // GitHub 的 contents API 需要它才回原始字节；jsDelivr 忽略此头。
+        // GitHub 的 contents API 需要它才回原始字节；其余源忽略此头。
         ..headers['Accept'] = 'application/vnd.github.raw';
+      if (offset > 0) request.headers['Range'] = 'bytes=$offset-';
       // 只给「拿到响应头」设超时；正文可能下几十分钟，不能整体设限。
       final response = await client
           .send(request)
           .timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200) {
+      if (response.statusCode == 416 && offset > 0) {
+        // 服务端认为已经给完了：交给摘要判断，确实不完整就从头来。
+        if (await _accept(
+          partial,
+          target,
+          digest: digest,
+          expected: expected,
+        )) {
+          return;
+        }
+        throw const ModelDownloadException('下载失败：HTTP 416');
+      }
+      if (response.statusCode != 200 && response.statusCode != 206) {
         throw ModelDownloadException('下载失败：HTTP ${response.statusCode}');
       }
-      await target.parent.create(recursive: true);
-      sink = partial.openWrite();
-      var received = 0;
-      final total = response.contentLength;
+      // 200 说明服务端不支持 Range（或我们没要过），只能重写整个文件。
+      final resumed = offset > 0 && response.statusCode == 206;
+      if (!resumed) offset = 0;
+      sink = partial.openWrite(
+        mode: resumed ? FileMode.append : FileMode.write,
+      );
+      var received = offset;
+      final length = response.contentLength;
+      final total = expected ?? (length == null ? null : received + length);
+      onProgress?.call(received, total);
       await for (final chunk in response.stream) {
         sink.add(chunk);
         received += chunk.length;
@@ -186,28 +257,21 @@ class ModelSource {
       await sink.flush();
       await sink.close();
       sink = null;
-      if (total != null && received != total) {
-        throw ModelDownloadException('下载不完整（$received/$total 字节），请重试');
+      if (expected != null && received != expected) {
+        // 连接提前结束：留着 .part，下次从断点续。
+        throw ModelDownloadException('下载不完整（$received/$expected 字节），请重试');
       }
-      if (digest != null) {
-        final actual = (await sha256.bind(partial.openRead()).first).toString();
-        if (actual != digest) {
-          throw const ModelDownloadException('模型文件校验失败，请重试');
-        }
+      if (digest != null &&
+          (await sha256.bind(partial.openRead()).first).toString() != digest) {
+        await partial.delete();
+        throw const ModelDownloadException('模型文件校验失败，请重试');
       }
       await partial.rename(target.path);
     } finally {
       try {
         await sink?.close();
       } catch (_) {
-        // 关流失败不影响结论：临时文件下面会删掉。
-      }
-      if (await partial.exists()) {
-        try {
-          await partial.delete();
-        } catch (_) {
-          // 删不掉就留着，下次覆盖写。
-        }
+        // 关流失败不影响结论：半截文件上面已经处理过了。
       }
       client.close();
     }
