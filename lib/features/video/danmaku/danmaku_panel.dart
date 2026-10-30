@@ -126,7 +126,12 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
               ? math.max(0, media.size.height - keyboard)
               : landscape
               ? math.min(available, media.size.height * .85)
-              : available * (_expanded || keyboard > 0 ? .85 : .60),
+              : available *
+                    // 选集抽屉按横屏口径取面积：横屏是 40% 宽 × 满高，竖屏铺满宽度后
+                    // 高度就要取 40%，展开再放宽到 56%。
+                    (widget.fullBleedPortrait
+                        ? (_expanded || keyboard > 0 ? .56 : .40)
+                        : (_expanded || keyboard > 0 ? .85 : .60)),
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
