@@ -150,7 +150,7 @@ class SourceContentRating {
     'theavporn_video',
     // 618 影院（618<码>.xyz 站群，入口 618208.xyz；文字 XOR 0x80 混淆）。
     's618_video',
-    // KKAV（www.73tfhk.com，原 37tmrj 换域名目标；接口 XOR2 加密）。
+    // KKAV（www.85fazc.com，37tmrj → 73tfhk 之后的换域名目标；接口 XOR2 加密，只收 https）。
     'kkav_video',
     // 逆ACG（www.niacg.com 二次元 COS 图集；Cloudflare 校验，需网页视图过校验）。
     // TwittHub（www.twitthub.com，X 公开视频聚合；Vercel 校验）。

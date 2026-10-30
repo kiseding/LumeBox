@@ -11,6 +11,23 @@ import 'package:pointycastle/paddings/pkcs7.dart';
 
 typedef _LegacyImageWork = ({Uint8List bytes, Uint8List key, Uint8List? iv});
 
+/// 修复只混淆了**开头若干字节**的图片（Butterfly 系 App 的做法）。
+///
+/// 站点前端拿到图片后做 `for (i=0; i<100; i++) bytes[i] ^= key[i % key.length]`
+/// 再交给浏览器，所以 CDN 上放的是「前 100 字节被 XOR、其余是原图」的文件。
+/// 这里按同样的规则还原前 [length] 字节，后面的原样保留。
+Uint8List xorRepairImageBytes(Uint8List bytes, Uint8List key, {int length = 100}) {
+  if (bytes.isEmpty || key.isEmpty) return bytes;
+  final limit = length <= 0
+      ? bytes.length
+      : (length < bytes.length ? length : bytes.length);
+  final out = Uint8List.fromList(bytes);
+  for (var index = 0; index < limit; index++) {
+    out[index] ^= key[index % key.length];
+  }
+  return out;
+}
+
 Future<Uint8List?> decodeLegacySourceImageInBackground(
   Uint8List bytes,
   Uint8List key, {
@@ -129,6 +146,20 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
       return Uint8List.sublistView(bytes, 16);
     }
     throw const FormatException('Invalid prefixed source image');
+  }
+  // Butterfly 系 App 把图片前 N 字节（默认 100）与 imgKey 循环 XOR 再上传，
+  // 后面的字节就是原图。长度用 `x-lume-image-length` 指定，省略按 100 算。
+  if (encoding == 'xor-prefix') {
+    if (_isPlainImage(bytes)) return bytes;
+    final key = Uint8List.fromList(utf8.encode(field('x-lume-image-key')));
+    if (key.isEmpty) {
+      throw const FormatException('Invalid source image encoding parameters');
+    }
+    final declared = int.tryParse(field('x-lume-image-length')) ?? 100;
+    if (declared <= 0) {
+      throw const FormatException('Invalid source image encoding parameters');
+    }
+    return xorRepairImageBytes(bytes, key, length: declared);
   }
   // hxc 的 `.aes` 封面是「Base64 文本 → AES-128-ECB/NoPadding → data URI」。
   // 先解 Base64 再交给 ECB，和下面的原始二进制 ECB 路径分开。

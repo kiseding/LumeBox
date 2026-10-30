@@ -536,20 +536,26 @@ async function runSource(file, options) {
 }
 
 // 播放地址探活：m3u8 取前 1KB 看是否 #EXTM3U；mp4 看状态码与 content-type。
+// 只取开头一段：m3u8 / FLV 一眼能认出来，mp4 按源约定 206 就算通。整段下载会把
+// 「110MB 的 mp4 直链」这种正常地址误判成超时（KKAV 就被这样误报过）。
 async function probeMedia(url, headers) {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': DEFAULT_UA, ...headers },
+      headers: { 'User-Agent': DEFAULT_UA, Range: 'bytes=0-262143', ...headers },
       signal: AbortSignal.timeout(20000),
     });
     const buffer = Buffer.from(await res.arrayBuffer());
     const head = buffer.subarray(0, 400).toString('utf8');
     const looksM3u8 = head.includes('#EXTM3U');
     const looksFlv = head.slice(0, 3) === 'FLV';
+    const type = res.headers.get('content-type') || '';
     return {
-      ok: res.status >= 200 && res.status < 400 && (looksM3u8 || looksFlv || /video|octet-stream|mp4|mpegurl/i.test(res.headers.get('content-type') || '')),
+      ok:
+        res.status >= 200 &&
+        res.status < 400 &&
+        (looksM3u8 || looksFlv || /video|octet-stream|mp4|mpegurl/i.test(type)),
       status: res.status,
-      type: res.headers.get('content-type') || '',
+      type,
       bytes: buffer.length,
       m3u8: looksM3u8,
       sample: head.slice(0, 80).replace(/\s+/g, ' '),

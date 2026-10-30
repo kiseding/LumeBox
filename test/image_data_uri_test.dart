@@ -164,4 +164,43 @@ void main() {
       expect(SectionImagePipeline.decodeDataUri(restored), pngBytes);
     }
   });
+
+  test('xor-prefix 只翻转开头 N 字节，后面的原图不能动', () {
+    // Butterfly 系 App 的做法：整张图上传后只把前 100 字节和 imgKey 循环异或
+    final key = Uint8List.fromList(utf8.encode('2019ysapp7527'));
+    final body = Uint8List.fromList(
+      <int>[...pngBytes, ...List<int>.filled(200, 0x5a)],
+    );
+    Uint8List obfuscate(Uint8List src, int length) {
+      final out = Uint8List.fromList(src);
+      for (var i = 0; i < length && i < out.length; i++) {
+        out[i] ^= key[i % key.length];
+      }
+      return out;
+    }
+
+    for (final length in <int>[100, 64]) {
+      final repaired = xorRepairImageBytes(obfuscate(body, length), key,
+          length: length);
+      expect(repaired, body, reason: '前 $length 字节异或回来要跟原图一致');
+      expect(repaired.sublist(length), body.sublist(length),
+          reason: '超出长度的部分本来就没加密，不能被二次翻转');
+      // 源声明 coverHeaders 时走的就是这条通路
+      final declared = decodeSourceImage(obfuscate(body, length), {
+        'x-lume-image-encoding': 'xor-prefix',
+        'x-lume-image-key': '2019ysapp7527',
+        if (length != 100) 'x-lume-image-length': '$length',
+      });
+      expect(declared, body);
+    }
+
+    // 长度超过文件本身：只翻到文件末尾，不越界
+    expect(
+      xorRepairImageBytes(obfuscate(body, body.length), key, length: 4096),
+      body,
+    );
+    // 空 key / 空数据原样返回，不抛异常
+    expect(xorRepairImageBytes(body, Uint8List(0)), body);
+    expect(xorRepairImageBytes(Uint8List(0), key), isEmpty);
+  });
 }
