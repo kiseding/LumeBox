@@ -29,6 +29,7 @@ class BufferingConfig {
     this.readAhead = const Duration(seconds: 15),
     this.maxBufferBytes = 64 * 1024 * 1024,
     this.maxBackBufferBytes = 16 * 1024 * 1024,
+    this.seekTolerance = Duration.zero,
   });
 
   /// 默认参数：以「尽快出画面」为准，而不是把缓冲填满再播。
@@ -77,6 +78,19 @@ class BufferingConfig {
   /// 回退（已播过）缓存上限（字节，MPV 的 `demuxer-max-back-bytes`）。
   final int maxBackBufferBytes;
 
+  /// AVPlayer 的 seek 容差：> 0 时允许落到关键帧（毫秒级误差换速度）。
+  /// 0 = 精确 seek（上游 video_player 的行为）。
+  final Duration seekTolerance;
+
+  BufferingConfig withSeekTolerance(Duration tolerance) => BufferingConfig(
+    forwardBuffer: forwardBuffer,
+    minimizeStalling: minimizeStalling,
+    readAhead: readAhead,
+    maxBufferBytes: maxBufferBytes,
+    maxBackBufferBytes: maxBackBufferBytes,
+    seekTolerance: tolerance,
+  );
+
   /// MPV 属性写法：字符串值 + 单位已在属性名里约定。
   Map<String, String> get mpvProperties => <String, String>{
         // 网络流开启缓存（本地文件由 libmpv 自行忽略）。
@@ -92,6 +106,7 @@ class BufferingConfig {
   Map<String, Object?> toChannelArguments() => <String, Object?>{
         'forwardBufferSeconds': forwardBuffer.inMilliseconds / 1000.0,
         'minimizeStalling': minimizeStalling,
+        'seekToleranceMs': seekTolerance.inMilliseconds,
       };
 
   @override
@@ -101,7 +116,8 @@ class BufferingConfig {
       other.minimizeStalling == minimizeStalling &&
       other.readAhead == readAhead &&
       other.maxBufferBytes == maxBufferBytes &&
-      other.maxBackBufferBytes == maxBackBufferBytes;
+      other.maxBackBufferBytes == maxBackBufferBytes &&
+      other.seekTolerance == seekTolerance;
 
   @override
   int get hashCode => Object.hash(
@@ -128,6 +144,9 @@ abstract interface class BufferingBackend {
 
   /// 应用缓冲参数（[BufferingConfig]）。失败只记日志，绝不打断播放。
   Future<void> apply(BufferingConfig config);
+
+  /// 只改 seek 容差（拖动中要大、松手要 0），不重写缓冲参数。
+  Future<void> applySeekTolerance(Duration tolerance);
 }
 
 /// 没有原生写通道的后端（非 iOS，或原生侧未接入）。
@@ -139,6 +158,9 @@ class UnsupportedBufferingBackend implements BufferingBackend {
 
   @override
   Future<void> apply(BufferingConfig config) async {}
+
+  @override
+  Future<void> applySeekTolerance(Duration tolerance) async {}
 }
 
 /// 方法通道 `lumebox/buffering`：
@@ -180,6 +202,20 @@ class MethodChannelBufferingBackend implements BufferingBackend {
     } catch (error, stackTrace) {
       // 缓冲参数失败不该影响播放：记一条日志就好。
       LumeLog.warn('[buffering] 应用缓冲参数失败: $error');
+      LumeLog.error(error, stackTrace);
+    }
+  }
+
+  @override
+  Future<void> applySeekTolerance(Duration tolerance) async {
+    try {
+      await _methods.invokeMethod<void>('seekTolerance', {
+        'seekToleranceMs': tolerance.inMilliseconds,
+      });
+    } on MissingPluginException {
+      // 原生未接入：静默降级（seek 精度仍按上游行为）。
+    } catch (error, stackTrace) {
+      LumeLog.warn('[buffering] 写 seek 容差失败: $error');
       LumeLog.error(error, stackTrace);
     }
   }

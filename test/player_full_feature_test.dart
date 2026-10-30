@@ -1730,7 +1730,7 @@ void main() {
       expect(find.byKey(VideoPlayerPage.controlPanelKey), findsOneWidget);
     });
 
-    testWidgets('进度条拖动：显示预览，松手才 seek', (tester) async {
+    testWidgets('进度条拖动：拖动中节流快 seek，松手精确 seek', (tester) async {
       final players = await pump(tester);
       players.single.emit(
         position: const Duration(minutes: 1),
@@ -1746,11 +1746,25 @@ void main() {
       await gesture.moveBy(const Offset(60, 0));
       await tester.pump();
       expect(find.textContaining('拖动到'), findsOneWidget);
-      expect(players.single.seeks, isEmpty, reason: '拖动中不反复 seek');
+      // 拖动中会节流快 seek（150ms 一次），但不会每帧都发。
+      expect(
+        players.single.seeks.length,
+        lessThanOrEqualTo(1),
+        reason: '拖动中节流，不每帧 seek',
+      );
+      for (var i = 0; i < 6; i++) {
+        await gesture.moveBy(const Offset(30, 0));
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(
+        players.single.seeks.length,
+        lessThanOrEqualTo(4),
+        reason: '连续拖动也按 150ms 节流',
+      );
 
       await gesture.up();
       await tester.pump();
-      expect(players.single.seeks, isNotEmpty, reason: '松手才 seek');
+      expect(players.single.seeks, isNotEmpty, reason: '松手要落到精确位置');
       expect(
         find.textContaining('拖动到'),
         findsOneWidget,

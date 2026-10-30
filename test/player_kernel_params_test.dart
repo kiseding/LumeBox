@@ -256,6 +256,13 @@ class _RecordingBufferingBackend implements BufferingBackend {
     if (error != null) throw error;
     applied.add(config);
   }
+
+  @override
+  Future<void> applySeekTolerance(Duration tolerance) async {
+    seekTolerances.add(tolerance);
+  }
+
+  final List<Duration> seekTolerances = <Duration>[];
 }
 
 /// 替身 video_player 平台：把「创建播放器」与「请求头」记下来，并推一个

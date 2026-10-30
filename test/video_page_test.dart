@@ -537,7 +537,7 @@ void main() {
       expect(find.textContaining('亮度'), findsNothing, reason: '松手后提示浮层收起');
     });
 
-    testWidgets('手势：水平拖在松手时才 seek（拖动中不反复 seek）', (tester) async {
+    testWidgets('手势：水平拖按节流快 seek，松手落到精确位置', (tester) async {
       final created = await pumpVideo(
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
@@ -553,16 +553,22 @@ void main() {
         await gesture.moveBy(Offset(layer.width / 8, 0));
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(created.single.seeks, isEmpty, reason: '拖动中只更新预览，不 seek');
+      // 拖动中按 150ms 节流发快 seek（松手前最多一两次），不是每步都发。
+      expect(
+        created.single.seeks.length,
+        lessThanOrEqualTo(2),
+        reason: '拖动中只按节流发 seek',
+      );
 
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(created.single.seeks, hasLength(1));
+      expect(created.single.seeks, isNotEmpty, reason: '松手要落到精确位置');
       // 整屏宽对应 90 秒窗口。
       final expected = 90 * layer.width / 2 / layer.width;
+      // 台账末尾是松手时那次精确 seek。
       expect(
-        created.single.seeks.single.inSeconds.toDouble(),
+        created.single.seeks.last.inSeconds.toDouble(),
         closeTo(expected, 3.0),
         reason: '滑半屏 ≈ 45 秒',
       );

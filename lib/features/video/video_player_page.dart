@@ -345,6 +345,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 全屏模式下的浮层控制栏是否可见。
   bool _overlayVisible = true;
   bool _panelOpen = false;
+  DateTime? _lastScrubSeek;
   String? _hint;
   Timer? _hintTimer;
   bool _swipeNextFired = false;
@@ -3041,6 +3042,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           width: size.width,
           window: Duration(seconds: _settings.gestures.seekSeconds),
         );
+        _scrubSeekThrottled(target);
         setState(() {
           _gesture = _gesture.copyWith(
             intent: intent,
@@ -3071,6 +3073,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         brightness: _brightness,
       ),
     );
+  }
+
+  /// 拖动中节流快 seek：每 150ms 一次，画面跟着手指走；松手再精确 seek。
+  void _scrubSeekThrottled(Duration target) {
+    final player = _player;
+    if (player == null) return;
+    final now = DateTime.now();
+    final last = _lastScrubSeek;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 150)) {
+      return;
+    }
+    _lastScrubSeek = now;
+    unawaited(player.seekFast(target));
   }
 
   Future<void> _seekGesture(AbstractPlayer player, Duration target) async {
@@ -5370,6 +5386,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? null
           : (value) {
               _seekRevision++;
+              _lastScrubSeek = null;
               _cancelAutoHide();
               setState(
                 () => _previewTarget = _positionAt(value, snapshot.duration),
@@ -5377,15 +5394,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             },
       onChanged: total == 0
           ? null
-          : (value) => setState(
-              () => _previewTarget = _positionAt(value, snapshot.duration),
-            ),
+          : (value) {
+              final target = _positionAt(value, snapshot.duration);
+              setState(() => _previewTarget = target);
+              _scrubSeekThrottled(target);
+            },
       onChangeEnd: total == 0
           ? null
           : (value) async {
               final target = _positionAt(value, snapshot.duration);
               final player = _player;
               final revision = _seekRevision;
+              _lastScrubSeek = null;
               final acknowledged = Completer<void>();
               void checkPosition() {
                 if (player != null &&
@@ -5402,7 +5422,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   await player.seek(target);
                   checkPosition();
                   await acknowledged.future.timeout(
-                    const Duration(seconds: 2),
+                    const Duration(milliseconds: 800),
                     onTimeout: () {},
                   );
                 }
