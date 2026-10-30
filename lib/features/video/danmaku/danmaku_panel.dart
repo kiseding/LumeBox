@@ -18,7 +18,6 @@ Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool edgeDrawer = true,
-  bool fullBleedPortrait = false,
 }) {
   return showGlassModalBottomSheet<T>(
     context: context,
@@ -41,7 +40,6 @@ Future<T?> showDanmakuPanel<T>({
         ),
         DanmakuPanelFrame(
           edgeDrawer: edgeDrawer,
-          fullBleedPortrait: fullBleedPortrait,
           child: PlayerPanelScope(child: builder(context)),
         ),
       ],
@@ -55,20 +53,15 @@ class DanmakuPanelFrame extends StatefulWidget {
     required this.child,
     this.screenPadding,
     this.edgeDrawer = true,
-    this.fullBleedPortrait = false,
   });
   final Widget child;
   final EdgeInsets? screenPadding;
   final bool edgeDrawer;
-
-  /// 竖屏抽屉左右不留白（选集面板要求卡片直接做到屏幕两边）。
-  final bool fullBleedPortrait;
   @override
   State<DanmakuPanelFrame> createState() => _DanmakuPanelFrameState();
 }
 
 class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
-  bool _expanded = false;
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
@@ -93,22 +86,13 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
     return AnimatedPadding(
       duration: PlayerLayout.motion(context, 180),
       curve: Curves.easeOutCubic,
+      // 竖屏抽屉一律铺满屏宽、底部贴安全区；横屏仍是右侧 40% 贴边抽屉。
       padding: edge
           ? EdgeInsets.only(bottom: keyboard)
-          : widget.fullBleedPortrait && !landscape
-          ? EdgeInsets.fromLTRB(
-              0,
-              keyboard > 0 ? 8 : media.viewPadding.top + 8,
-              0,
-              keyboard > 0
-                  ? keyboard + 8
-                  : math.max(media.viewPadding.bottom, 8.0),
-            )
           : EdgeInsets.fromLTRB(
-              math.max(media.viewPadding.left, safe.left) + 8,
+              0,
               keyboard > 0 ? 8 : media.viewPadding.top + 8,
-              math.max(media.viewPadding.right, safe.right) +
-                  (landscape ? 24 : 8),
+              0,
               keyboard > 0
                   ? keyboard + 8
                   : math.max(media.viewPadding.bottom, 8.0),
@@ -127,11 +111,9 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
               : landscape
               ? math.min(available, media.size.height * .85)
               : available *
-                    // 选集抽屉按横屏口径取面积：横屏是 40% 宽 × 满高，竖屏铺满宽度后
-                    // 高度就要取 40%，展开再放宽到 56%。
-                    (widget.fullBleedPortrait
-                        ? (_expanded || keyboard > 0 ? .56 : .40)
-                        : (_expanded || keyboard > 0 ? .85 : .60)),
+                    // 所有竖屏抽屉统一 40% 高（与横屏 40% 宽 × 满高同面积），
+                    // 键盘弹出时让到 85%。
+                    (keyboard > 0 ? .85 : .40),
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
@@ -158,35 +140,7 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
                             bottom: keyboard > 0 ? 0 : safe.bottom,
                           )
                         : EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        if (!landscape)
-                          GestureDetector(
-                            onVerticalDragEnd: (details) => setState(
-                              () => _expanded =
-                                  (details.primaryVelocity ?? 0) < 0,
-                            ),
-                            child: SizedBox(
-                              height: 44,
-                              child: Center(
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  tooltip: _expanded ? '收起面板' : '展开面板',
-                                  onPressed: () =>
-                                      setState(() => _expanded = !_expanded),
-                                  icon: Icon(
-                                    _expanded
-                                        ? Icons.keyboard_arrow_down
-                                        : Icons.keyboard_arrow_up,
-                                    size: 22,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        Expanded(child: widget.child),
-                      ],
-                    ),
+                    child: Column(children: [Expanded(child: widget.child)]),
                   ),
                 ),
               ),

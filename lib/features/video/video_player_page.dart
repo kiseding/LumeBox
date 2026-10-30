@@ -1659,12 +1659,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool isScrollControlled = false,
     bool useSafeArea = false,
     bool edgeDrawer = true,
-    bool fullBleedPortrait = false,
   }) => showPlaybackMenu<T>(
     context: context,
     builder: builder,
     edgeDrawer: edgeDrawer,
-    fullBleedPortrait: fullBleedPortrait,
     glass: _settings.playbackGlass,
     backgroundColor: backgroundColor,
     isScrollControlled: isScrollControlled,
@@ -5229,8 +5227,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,
-      // 选集抽屉在竖屏里卡片直接做到屏幕两边（用户口径）。
-      fullBleedPortrait: true,
       builder: (sheetContext) => PlayerSourceSheet(
         fullBleed: true,
         initialTab: initialTab,
