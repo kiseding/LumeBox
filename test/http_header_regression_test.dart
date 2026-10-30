@@ -21,6 +21,50 @@ void main() {
     expect(sent.headers['user-agent'], 'verified-Safari-UA');
     expect(sent.headers['cookie'], 'cf_clearance=92-session');
   });
+  test('会话 Cookie 在同一站点树内放行（www / api / 裸域都带上）', () async {
+    final sent = <String, Map<String, String>>{};
+    final transport = LumeHttp(
+      client: MockClient((request) async {
+        sent[request.url.host] = request.headers;
+        return http.Response('', 200);
+      }),
+      sessionCookies: () => 'login=1',
+    );
+    addTearDown(transport.dispose);
+
+    await transport.send(url: 'https://www.example.com/list');
+    await transport.send(url: 'https://example.com/detail');
+    await transport.send(url: 'https://api.example.com/v1');
+
+    expect(sent['www.example.com']!['cookie'], contains('login=1'));
+    expect(
+      sent['example.com']!['cookie'],
+      contains('login=1'),
+      reason: '裸域与 www 视为同一站',
+    );
+    expect(
+      sent['api.example.com']!['cookie'],
+      contains('login=1'),
+      reason: '子域同样是同一站',
+    );
+  });
+
+  test('会话 Cookie 不发给别的站点（防仿冒域）', () async {
+    final sent = <String, Map<String, String>>{};
+    final transport = LumeHttp(
+      client: MockClient((request) async {
+        sent[request.url.host] = request.headers;
+        return http.Response('', 200);
+      }),
+      sessionCookies: () => 'login=1',
+    );
+    addTearDown(transport.dispose);
+
+    await transport.send(url: 'https://www.example.com/list');
+    await transport.send(url: 'https://evil-example.com/x');
+    expect(sent['evil-example.com']!['cookie'], isNull);
+  });
+
   test('小写请求头保留脚本 UA 与 Cookie，并补上验证会话', () async {
     late http.Request sent;
     final client = MockClient((request) async {

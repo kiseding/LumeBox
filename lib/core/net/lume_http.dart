@@ -171,6 +171,32 @@ class LumeHttp {
   final _lifetime = NetworkCancellation();
   String? _legacySessionHost;
 
+  /// 站点标识：取注册域近似值（`www.api.example.com` / `api.example.com` → `example.com`）。
+  ///
+  /// 不做完整公共后缀表，只对 `com.cn` / `co.uk` 这类常见的两段后缀多取一级，
+  /// 避免把 `a.co.uk` 和 `b.co.uk` 当成同一站。
+  static const Set<String> _twoPartSuffixes = {
+    'co',
+    'com',
+    'net',
+    'org',
+    'gov',
+    'edu',
+    'ac',
+  };
+
+  static String _cookieSite(String host) {
+    final labels = host.toLowerCase().split('.');
+    if (labels.length <= 2) return labels.join('.');
+    final take = _twoPartSuffixes.contains(labels[labels.length - 2]) ? 3 : 2;
+    return labels.sublist(labels.length - take).join('.');
+  }
+
+  /// 两个 host 是否属于同一站点树（`www.example.com` 与 `api.example.com` 同站；
+  /// 仿冒域 `evil-example.com` 不同站）。
+  static bool _sameCookieSite(String host, String pinned) =>
+      _cookieSite(host) == _cookieSite(pinned);
+
   /// 绑定共享队列：同一板块的图源共用一个队列，并发额度才真的互通。
   void useQueue(NetworkQueue queue) => _queue = queue;
 
@@ -475,7 +501,10 @@ class LumeHttp {
   Map<String, String> _headersFor(Map<String, String>? headers, {String? url}) {
     final host = url == null ? null : Uri.tryParse(url)?.host;
     if (host != null) _legacySessionHost ??= host;
-    final legacyAllowed = host == null || host == _legacySessionHost;
+    // 会话 Cookie 按「同一站点树」放行：镜像站常用 www / api / img 等子域，
+    // 死锁在第一个 host 上会让登录态只在某一个子域生效（真机：登录后阅读页无效）。
+    final legacyAllowed =
+        host == null || _sameCookieSite(host, _legacySessionHost!);
     // HTTP 头名不区分大小写；统一需合并的头名，避免覆盖脚本的小写头。
     final merged = <String, String>{};
     for (final entry in (headers ?? const <String, String>{}).entries) {
