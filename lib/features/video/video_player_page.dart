@@ -344,6 +344,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏模式下的浮层控制栏是否可见。
   bool _overlayVisible = true;
+  bool _panelOpen = false;
   String? _hint;
   Timer? _hintTimer;
   bool _swipeNextFired = false;
@@ -1659,15 +1660,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool isScrollControlled = false,
     bool useSafeArea = false,
     bool edgeDrawer = true,
-  }) => showPlaybackMenu<T>(
-    context: context,
-    builder: builder,
-    edgeDrawer: edgeDrawer,
-    glass: _settings.playbackGlass,
-    backgroundColor: backgroundColor,
-    isScrollControlled: isScrollControlled,
-    useSafeArea: useSafeArea,
-  );
+  }) async {
+    _panelOpen = true;
+    if (mounted) setState(() {});
+    try {
+      return await showPlaybackMenu<T>(
+        context: context,
+        builder: builder,
+        edgeDrawer: edgeDrawer,
+        glass: _settings.playbackGlass,
+        backgroundColor: backgroundColor,
+        isScrollControlled: isScrollControlled,
+        useSafeArea: useSafeArea,
+      );
+    } finally {
+      _panelOpen = false;
+      if (mounted) setState(() {});
+    }
+  }
 
   Future<void> _openQualityMenu() =>
       _openSourceSheet(initialTab: PlayerSourceTab.quality);
@@ -4136,7 +4146,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _PlayerClock(),
+            _PlayerClock(showBattery: !_panelOpen),
             const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -5781,7 +5791,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
 /// 全屏顶边的状态行：左侧时间、右侧真实电量。
 class _PlayerClock extends StatefulWidget {
-  const _PlayerClock();
+  const _PlayerClock({this.showBattery = true});
+
+  /// 抽屉打开时右侧 40% 被玻璃盖住、工具条又顶到最上面，
+  /// 电量图标会从图标底下透出来——这时先不画。
+  final bool showBattery;
+
   @override
   State<_PlayerClock> createState() => _PlayerClockState();
 }
@@ -5842,7 +5857,7 @@ class _PlayerClockState extends State<_PlayerClock> {
           children: [
             Text(time, key: const Key('player-clock-text'), style: style),
             const Spacer(),
-            if (_batteryPercent != null)
+            if (_batteryPercent != null && widget.showBattery)
               Row(
                 key: const Key('player-battery-group'),
                 mainAxisSize: MainAxisSize.min,
