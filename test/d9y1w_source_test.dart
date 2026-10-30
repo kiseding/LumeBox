@@ -14,20 +14,21 @@ import 'package:lume_box/core/source/source.dart';
 
 import 'support/source_scripts.dart';
 
-/// 四色视频（www.d9y1w.top）：maomi 模板成人站，用真站点快照在 **QuickJS 沙箱**里跑。
+/// 四色视频（www.z8f0q.top）：maomi 模板成人站，用真站点快照在 **QuickJS 沙箱**里跑。
 ///
 /// 站点两层编码，本源全靠脚本自己解（沙箱没有 atob / Buffer / crypto）：
 ///   1. 标题 / 分类名 / 菜单链接是 AES-256-CBC（key、iv 在 `/assets/js/common/encrypt.js`，
 ///      iv 只有 10 字节 + 固定后缀 `883346`）——这个用例跑的是纯 JS AES-256 实现，
 ///      解出来必须是真中文，且首条要与快照一致；
-///   2. 卡片 href 是 `/cYc` + base64(明文路径)；解出来的明文路径脚本只用来取 id/channel，
+///   2. 卡片 href 是 `/cYc` + base64(明文路径)，菜单 `data-link` 在 2026-10-30 又套了一层 AES
+///      （解开仍是 `/cYc...`）；解出来的明文路径脚本只用来取 id/channel，
 ///      不再拼混淆链接；搜索打 `/search/<频道>-<词>-<页>.html` 三个频道各一次。
 ///
 /// 还守着封面与线路：
 ///   3. 封面不能用站点图片主机（`base4s.0827.la` 回的是 `data:image/...` 文本），
-///      要落到媒体 CDN（`www.0734.la`）上的真 JPEG；
-///   4. 线路二是死域名（`s5.sanheyiliao.xyz` 已 NXDOMAIN），`content()` 探不通要回落到线路一，
-///      不能把死地址交出去。
+///      要落到媒体 CDN（`s4.dt188.site`）上的真 JPEG；
+///   4. 站点给的两条线路都不可用（`www.0734.la` 连不上、`s5.sanheyiliao.xyz` 已 NXDOMAIN），
+///      `content()` 要探活后交回能播的那台，用户点「线路二」也不能拿到死地址。
 void main() {
   final bridge = _resolveBridge();
   if (bridge != null) {
@@ -52,8 +53,9 @@ void main() {
     'd9y1w_search_jingpin.json',
   ];
 
+  // 媒体 CDN：站点 play 页里那条 m3u8 相对路径挂到实测可用的 s4.dt188.site 上
   const m3u8 =
-      'https://www.0734.la/videos/202610/27/6adfacfbce6d9f989852d8cc/40cg8f/index.m3u8';
+      'https://s4.dt188.site/videos/202610/28/6ae0eb981d9e3a98b9e2a6d8/088d87/index.m3u8';
 
   test(
     '四色视频：AES 标题 / 分类 / 列表 / 搜索 / 详情 / 双线路（站点快照）',
@@ -61,7 +63,11 @@ void main() {
       final http = _RouteHttp(<String, String>{
         '/index/home.html': _read('d9y1w_home.html'),
         '/juqing/lists.html': _read('d9y1w_list.html'),
-        '/juqing/play-438730.html': _read('d9y1w_play.html'),
+        '/juqing/play-438819.html': _read('d9y1w_play.html'),
+        // 只有实测能用的媒体 CDN 回视频；站点给的 www.0734.la / s5.sanheyiliao.xyz 一律 404，
+        // 用来验证 content() 会探活并回落到能播的那台。
+        'https://s4.dt188.site/videos/202610/28/6ae0eb981d9e3a98b9e2a6d8/088d87/index.m3u8':
+            '#EXTM3U\n#EXT-X-VERSION:3\n',
         '/search/juqing-%E9%BA%BB%E8%B1%86-1.html':
             _read('d9y1w_search_juqing.json'),
         '/search/shipin-%E9%BA%BB%E8%B1%86-1.html':
@@ -89,9 +95,9 @@ void main() {
         <String>['juqing:', 'shipin:', 'jingpin:'],
       );
       final first = home.boards.first.items.first;
-      expect(first.id, 'juqing-438730');
-      expect(first.title, contains('URE-131-CN'), reason: 'AES-256 标题要解出真中文');
-      expect(first.cover, startsWith('https://www.0734.la/videos/'),
+      expect(first.id, 'juqing-438819');
+      expect(first.title, contains('VAGU-283-CN'), reason: 'AES-256 标题要解出真中文');
+      expect(first.cover, startsWith('https://s4.dt188.site/videos/'),
           reason: '封面走媒体 CDN 的真 JPEG，不走站点 data URI 主机');
 
       // ---- 分类：三个「全部」+ 菜单里 24 个视频标签（实时抓 + AES 解名）。
@@ -112,8 +118,8 @@ void main() {
       final page1 = await source.data.list(categoryId: 'juqing:', page: 1);
       expect(page1.items.length, 20);
       expect(page1.hasMore, isTrue);
-      expect(page1.items.first.id, 'juqing-438730');
-      expect(page1.items.first.subtitle, '2026-10-29');
+      expect(page1.items.first.id, 'juqing-438819');
+      expect(page1.items.first.subtitle, '2026-10-30');
 
       // ---- 搜索：三个频道各打一次，合并去重。
       final searched = await source.data.list(keyword: '麻豆', page: 1);
@@ -126,30 +132,30 @@ void main() {
       );
 
       // ---- 详情：标题来自详情页 AES，封面/日期来自列表缓存。
-      final detail = await source.data.detail('juqing-438730');
+      final detail = await source.data.detail('juqing-438819');
       expect(detail, isNotNull);
-      expect(detail!.title, contains('URE-131-CN'));
-      expect(detail.cover, startsWith('https://www.0734.la/videos/'));
+      expect(detail!.title, contains('VAGU-283-CN'));
+      expect(detail.cover, startsWith('https://s4.dt188.site/videos/'));
       expect(detail.description, contains('剧情 · 中文字幕'));
-      expect(detail.description, contains('收录：2026-10-29'));
+      expect(detail.description, contains('收录：2026-10-30'));
 
       // ---- 选集：两条线路。
-      final chapters = await source.data.chapters('juqing-438730');
+      final chapters = await source.data.chapters('juqing-438819');
       expect(chapters.map((chapter) => chapter.title).toList(),
           <String>['线路一', '线路二（备用）']);
 
       // ---- 播放：线路一直给；线路二是死域名，探不通要回落线路一。
       final content = await source.data.content(
-        itemId: 'juqing-438730',
+        itemId: 'juqing-438819',
         chapterId: '1',
       );
       expect(content, isA<VideoContent>());
       final video = content! as VideoContent;
       expect(video.url.toString(), m3u8);
-      expect(video.headers['Referer'], 'https://www.d9y1w.top/');
+      expect(video.headers['Referer'], 'https://www.z8f0q.top/');
 
       final backup = await source.data.content(
-        itemId: 'juqing-438730',
+        itemId: 'juqing-438819',
         chapterId: '2',
       );
       expect((backup! as VideoContent).url.toString(), m3u8,
