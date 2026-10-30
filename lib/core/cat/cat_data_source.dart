@@ -124,7 +124,7 @@ class CatDataSource
 
   Map<String, String> headers(Object? value) =>
       catMap(value).map((key, value) => MapEntry(key, catText(value)));
-  SourceItem? item(Map<String, dynamic> raw) {
+  SourceItem? item(Map<String, dynamic> raw, {bool preferThumbnail = true}) {
     final id = catText(
       raw['vod_id'] ?? raw['book_id'] ?? raw['comic_id'] ?? raw['id'],
     );
@@ -142,14 +142,21 @@ class CatDataSource
         raw['isFolder'] == true) {
       _folders.add(scopedId);
     }
+    final thumbnail = [
+      raw['thumbnail'],
+      raw['thumb'],
+    ].map(catText).where((value) => value.isNotEmpty).firstOrNull;
+    final useThumbnail = preferThumbnail && thumbnail != null;
     final cover = address(
-      catText(
-        raw['vod_pic'] ??
-            raw['book_pic'] ??
-            raw['comic_pic'] ??
-            raw['pic'] ??
-            raw['cover'],
-      ),
+      useThumbnail
+          ? thumbnail
+          : catText(
+              raw['vod_pic'] ??
+                  raw['book_pic'] ??
+                  raw['comic_pic'] ??
+                  raw['pic'] ??
+                  raw['cover'],
+            ),
     );
     return SourceItem(
       id: scopedId,
@@ -160,7 +167,11 @@ class CatDataSource
       ),
       coverHeaders: {
         ...?service.imageHeadersFor(site),
-        ...headers(raw['pic_headers'] ?? raw['coverHeaders']),
+        ...headers(
+          (useThumbnail ? raw['thumbnailHeaders'] : null) ??
+              raw['pic_headers'] ??
+              raw['coverHeaders'],
+        ),
       },
     );
   }
@@ -270,7 +281,7 @@ class CatDataSource
   @override
   Future<SourceDetail?> detail(String itemId) async {
     final raw = await rawDetail(itemId);
-    final entry = item(raw);
+    final entry = item(raw, preferThumbnail: false);
     if (entry == null) return null;
     return SourceDetail(
       id: entry.id,

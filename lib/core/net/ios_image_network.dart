@@ -4,6 +4,9 @@ import 'network_queue.dart';
 import 'ios_verified_webview.dart';
 import 'waf.dart';
 import 'network_activity.dart';
+import 'ios_webkit_text_network.dart';
+import 'secure_connection_failure.dart';
+import '../js/source_web_runtime.dart';
 
 class IosImageNetwork {
   static const channel = MethodChannel('lumebox/image_network');
@@ -73,6 +76,20 @@ class IosImageNetwork {
         }
       }
       return response;
+    } on PlatformException catch (error, stack) {
+      if (secureConnectionFailureOf(error) !=
+              SecureConnectionFailure.handshake ||
+          !IosWebKitTextNetwork.accepts(request)) {
+        rethrow;
+      }
+      try {
+        return await IosWebKitTextNetwork.read(request, id);
+      } on SourceWebVerificationException {
+        rethrow;
+      } catch (_) {
+        request.cancellation?.check();
+        Error.throwWithStackTrace(error, stack);
+      }
     } finally {
       remove?.call();
       _active.remove(id);

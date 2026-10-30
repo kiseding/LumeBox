@@ -73,3 +73,15 @@
 AVPlayerItem accessLog 累计传输字节，由 Dart 按采样间隔计算下载速度；未提供
 accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffering` 更新已存在
 的播放器前向缓冲策略，用于接手下一集预加载后的正常播放。
+
+
+## 2026-10-29 · HDR 原生显示与字幕轨道
+
+宿主 `AvPlayer` 根据 HDR 偏好选择上游现有的 `VideoViewType.platformView`（AVPlayerLayer）或 SDR 纹理；切换时恢复播放进度。插件新增 `lumebox/av_presentation` 通道，根据 playerId 操作既有播放器，读取片源动态范围 / 音轨 / 输出设备 / 空间音频条件、选择内封字幕，并按偏好选择杜比或普通音轨。状态信息不把播放条件等同于实际 HDR / Atmos 输出。
+
+外挂 SRT / VTT 在宿主的文字字幕层呈现；ASS 原样式由 MPV libass 提供。详细能力及验证方式见 [播放器展示说明](../../docs/player-presentation.md)。原生 helper 的 Swift 类型检查由 `tool/check_ios_player_presentation.sh` 完成；实际输出需真机验证。
+
+
+### iOS 最低目标统一为 16
+
+用户要求从 2026-10-29 起最低支持 iOS 16.0。App、自维护插件的 Pod / Swift Package 声明与原生检查脚本统一为 iOS 16；不再按 iOS 13 / 14 / 15 编译或维护兼容分支。HDR 内容标识、HDR 播放条件和空间音频查询在此最低版本直接可用。`check_ios_player_presentation.sh` 在 IPA 编译前按 iOS 16 检查，避免插件目标与 App 目标不一致。

@@ -18,6 +18,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
   String imageStyle = 'anime';
   String target = 'zh-Hans';
   String source = 'auto';
+  bool liveTranslation = false;
   bool ai = false;
   bool aiFallback = false;
   TextTranslationMode get translationMode => ai
@@ -37,6 +38,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
   String endpoint = '';
   String model = '';
   String colorizeEndpoint = '';
+  String colorizeProtocol = 'openai';
   String colorizeModel = '';
   String colorizePrompt = defaultColorizePrompt;
 
@@ -68,6 +70,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       source = data['source'] == 'auto' || languages.containsKey(data['source'])
           ? data['source'] as String
           : 'auto';
+      liveTranslation = data['liveTranslation'] == true;
       ai = data['ai'] == true;
       aiFallback = !ai && data['aiFallback'] == true;
       serverTranslation = data['serverTranslation'] == true;
@@ -91,6 +94,9 @@ class ComicImageToolsSettings extends ChangeNotifier {
       colorizeModel = data['colorizeModel'] is String
           ? data['colorizeModel'] as String
           : '';
+      colorizeProtocol = data['colorizeProtocol'] == 'seedream'
+          ? 'seedream'
+          : 'openai';
       final prompt = data['colorizePrompt'];
       if (prompt is String && prompt.trim().isNotEmpty) {
         colorizePrompt = prompt;
@@ -112,6 +118,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'imageStyle': imageStyle,
       'target': target,
       'source': source,
+      'liveTranslation': liveTranslation,
       'ai': ai,
       'aiFallback': aiFallback,
       'serverTranslation': serverTranslation,
@@ -121,6 +128,7 @@ class ComicImageToolsSettings extends ChangeNotifier {
       'endpoint': endpoint,
       'model': model,
       'colorizeEndpoint': colorizeEndpoint,
+      'colorizeProtocol': colorizeProtocol,
       'colorizeModel': colorizeModel,
       'colorizePrompt': colorizePrompt,
     });

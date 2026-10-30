@@ -47,6 +47,8 @@ void main() {
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
 
     // 未接入的内核点击无效。
+    await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('MDK'));
     await tester.pumpAndSettle();
     expect(changed, isNull);
@@ -64,6 +66,8 @@ void main() {
       onChanged: (next) => changed = next,
     );
 
+    await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('MPV'));
     await tester.pumpAndSettle();
 

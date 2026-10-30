@@ -3,6 +3,8 @@ class SourceContentRating {
   // Synced from LumeBox-Sources/content-ratings.json (2026-10-26).
   // Unknown sources remain unclassified; these IDs also drive privacy hiding.
   static const adultIds = <String>{
+    'asmrba_video',
+    'asmrhoney_video',
     'p5mh_comic',
     'fxcomic_comic',
     'mmcg18_comic',
@@ -13,7 +15,6 @@ class SourceContentRating {
     'jmcomic_comic',
     'rouman5_comic',
     'seyoumanhua_comic',
-    'cartoon18_comic',
     'hanime1_video',
     'hanime_video',
     'xanimu_video',
@@ -49,7 +50,6 @@ class SourceContentRating {
     'long91_comic',
     'yaojinghanman_comic',
     'wnacg_comic',
-    'manhua127_comic',
     'manga18_comic',
     'hentai3_comic',
     'mkzhan_comic',
@@ -79,7 +79,6 @@ class SourceContentRating {
     'uncams_video',
     'mfc_video',
     'lu320_video',
-    'tmrj37_video',
     'x8x8_video',
     'yunlaopo_video',
     'hipeng_video',
@@ -105,7 +104,6 @@ class SourceContentRating {
     'aido8_video',
     'tangtoutiao_video',
     'h4dh3_video',
-    'cf2_video',
     'cf3_video',
     'xman6_comic',
     'bakamh_comic',
@@ -122,9 +120,79 @@ class SourceContentRating {
     'xvideos_video',
     'youjizz_video',
     'dage_video',
+    // 栀莲短剧：与「黄果剧场」同一套后端（请求头 X-Client-Platform: huangguo-h5），
+    // 整站是 AI 成人短剧，默认按 18+ 处理。
+    'zhilian-duanju',
+    // 91吃瓜（www.91cg1.com）：吃瓜/探花类成人图集与短片站，图集源与视频源同站。
+    'cg1_photo',
+    'cg1_video',
+    // 绅游巴士（gamebus001.cc）：H 漫 + 成人短片的接口站。
+    'gamebus_comic',
+    'gamebus_video',
+    // 探花视频 / 91大神（同一套内容库的两个域名，吃瓜/探花类成人短片）。
+    'tanhua_video',
+    // 在线影院 / 91吃瓜（bb.f016video.com 与 ss.99utv.com，同一站群，前者是超集）。
+    'f016_video',
+    // 91热爆（www.resao.com，KVS 站；VIP 专享片靠 CDN 路径可预测直接取流）。
+    'resao_video',
+    // 玉羞园（yhh.yxy881p.icu，xvideos 镜像站；媒体直连 xvideos CDN）。
+    'yuxiu_video',
+    'tianlula_video',
+    'tianlula_photo',
+    // 海角情（haijiaolove.xyz，WordPress 站，正文内嵌 player.abyssplayer.com）与爱播爱播（994555.xyz，SSR 直给 m3u8）。
+    'haijiaoqing_video',
+    'aiboaibo_video',
+    // AV仓库（jizeyy）、好色TV（hsex.men）、ReddXXX：成人站，播放走 HTTP 直链或 App 内嵌浏览器。
+    'jizeyy_video',
+    'hsex_video',
+    'reddxxx_video',
+    // TheAVPorn（theavporn.com，KVS 站；播放地址由 id 推导，CDN 不校验签名）。
+    'theavporn_video',
+    // 618 影院（618<码>.xyz 站群，入口 618208.xyz；文字 XOR 0x80 混淆）。
+    's618_video',
+    // KKAV（www.85fazc.com，37tmrj → 73tfhk 之后的换域名目标；接口 XOR2 加密，只收 https）。
+    'kkav_video',
+    // 逆ACG（www.niacg.com 二次元 COS 图集；Cloudflare 校验，需网页视图过校验）。
+    // TwittHub（www.twitthub.com，X 公开视频聚合；Vercel 校验）。
+    'twitthub_video',
+    // BetaTok（betareel.com）：竖屏成人短片 Feed。
+    'betareel_video',
+    // 四色视频（www.z8f0q.top，镜像 www.zie2.com；maomi 模板站，
+    // 标题 AES-256-CBC、菜单链接再套一层 AES、播放 m3u8 直链）。
+    'd9y1w_video',
+    // 第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org；日本 AV 站，大陆出口 302 封锁页，需代理）。
+    'pornbest_video',
+    // 91PornPlus（91pornplus.com 站群；POST /js + AES(passphrase) 密文，接口域名国内直连）。
+    'porn91plus_video',
+    // Pornlulu / 撸撸（www.pornlulu.net，镜像 .com 同库；CDNLah WAF 的 PoW，源内纯 JS 解算）。
+    'pornlulu_video',
+    // 9188色情网（www.9188porn.com，macCMS；列表直链播放页，player_aaaa 给 m3u8），蜜桃视频（mtav.art，macCMS/TKTube），HeroEro（heroero.com，KVS），Qinav（www.qinav.com）。
+    'porn9188_video',
+    'mtav_video',
+    'heroero_video',
+    'qinav_video',
+    'laosiji_video',
+    'fplayer_video',
+    'forcedcinema_video',
+    'avbebe_video',
+    'cartoonporn_video',
+    'pmvtube_video',
+    'sexbjcam_video',
+    'xxxfollow_video',
+    'gifscroll_video',
+    'xiaohuangniao_video',
+    'ogfap_video',
+    'hstream_video',
+    'p91pinse_video',
+    'ho5ho_comic',
+    'rule34video_video',
+    'oreno3d_video',
+    'xcamtube_video',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
+    '奶香香资源',
+    '奶香香资源网',
     "1024videos",
     "127漫画",
     "177漫畫",
@@ -257,6 +325,30 @@ class SourceContentRating {
     "鸟鸟韩漫",
     "麻豆社",
     "黄果剧场",
+    "栀莲短剧",
+    "91吃瓜图集",
+    "91吃瓜视频",
+    "betatok",
+    "绅游巴士",
+    "绅游巴士漫画",
+    "探花视频",
+    "91大神",
+    "在线影院",
+    "91吃瓜",
+    "91热爆",
+    "玉羞园",
+    "天撸啦",
+    "天撸啦图集",
+    "海角情",
+    "爱播爱播",
+    "AV仓库",
+    "好色TV",
+    "ReddXXX",
+    "TheAVPorn",
+    "618影院",
+    "KKAV",
+    "逆ACG",
+    "TwittHub",
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>

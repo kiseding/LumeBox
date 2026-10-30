@@ -1,3 +1,5 @@
+import 'reading_identity.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../media/media_library.dart';
@@ -83,9 +85,27 @@ class ReadingLibrary {
       )
       .toList();
 
-  LibraryItem? item(String itemId) => _store.item(itemId);
+  LibraryItem? item(String itemId, {String? sourceId}) =>
+      _store.item(itemId, sourceId: sourceId);
 
-  bool onShelf(String itemId) => _store.isFavorite(itemId);
+  /// Resolves old raw-ID preferences only when the current library has one owner.
+  String itemSettingKey(String prefix, String id) {
+    final entry = item(id);
+    final canonical = entry?.identity ?? id;
+    final raw = ReadingIdentity.decode(canonical)?[1] ?? id;
+    final legacy = setting('$prefix$raw');
+    if (canonical != raw &&
+        setting('$prefix$canonical') == null &&
+        legacy != null &&
+        item(raw)?.identity == canonical) {
+      setSetting('$prefix$canonical', legacy);
+      setSetting('$prefix$raw', '');
+    }
+    return '$prefix$canonical';
+  }
+
+  bool onShelf(String itemId, {String? sourceId}) =>
+      _store.isFavorite(itemId, sourceId: sourceId);
 
   /// 收藏列表（`favorite = 1`）。
   ///
@@ -101,7 +121,7 @@ class ReadingLibrary {
   /// 收藏页出现（`favorite = 1` 且无进度 → 不算历史）。
   List<LibraryItem> history({int limit = 500}) {
     final items = <LibraryItem>[];
-    for (final item in _store.shelf(includeHistoryOnly: true)) {
+    for (final item in _store.historyItems()) {
       if (!PrivacySettings.instance.allowsSource(item.sourceId, item.title) ||
           !MediaLibrary.instance.visibleAtOrigin(
             section,
@@ -110,25 +130,23 @@ class ReadingLibrary {
           )) {
         continue;
       }
-      final progress = _store.progress(item.itemId);
-      if (progress == null && _store.isFavorite(item.itemId)) continue;
       items.add(item);
       if (items.length >= limit) break;
     }
     return List<LibraryItem>.unmodifiable(items);
   }
 
-  void removeFavorite(String itemId) {
-    _store.removeFavorite(itemId);
+  void removeFavorite(String itemId, {String? sourceId}) {
+    _store.removeFavorite(itemId, sourceId: sourceId);
     _touch();
   }
 
-  void removeHistory(String itemId) {
-    final wasFavorite = _store.isFavorite(itemId);
-    _store.clearProgress(itemId);
+  void removeHistory(String itemId, {String? sourceId}) {
+    final wasFavorite = _store.isFavorite(itemId, sourceId: sourceId);
+    _store.clearProgress(itemId, sourceId: sourceId);
     // 只是历史行（没有收藏）时连元数据一起删掉；否则删了进度、条目还在，
     // 下一次 history() 会把它当成「看过详情但没开始」继续显示。
-    if (!wasFavorite) _store.removeItem(itemId);
+    if (!wasFavorite) _store.removeItem(itemId, sourceId: sourceId);
     _touch();
   }
 
@@ -137,10 +155,13 @@ class ReadingLibrary {
     final items = _store.shelf(includeHistoryOnly: true);
     var count = 0;
     for (final item in items) {
-      final favorite = _store.isFavorite(item.itemId);
-      if (!favorite || _store.progress(item.itemId) != null) count++;
-      _store.clearProgress(item.itemId);
-      if (!favorite) _store.removeItem(item.itemId);
+      final favorite = _store.isFavorite(item.itemId, sourceId: item.sourceId);
+      if (!favorite ||
+          _store.progress(item.itemId, sourceId: item.sourceId) != null) {
+        count++;
+      }
+      _store.clearProgress(item.itemId, sourceId: item.sourceId);
+      if (!favorite) _store.removeItem(item.itemId, sourceId: item.sourceId);
     }
     _touch();
     return count;
@@ -155,7 +176,7 @@ class ReadingLibrary {
     String? subtitle,
     int chapterCount = 0,
   }) {
-    final existing = _store.item(itemId);
+    final existing = _store.item(itemId, sourceId: sourceId);
     final now = DateTime.now();
     final item = LibraryItem(
       section: section,
@@ -173,7 +194,7 @@ class ReadingLibrary {
     );
     _store.upsertItem(item);
     _touch();
-    return _store.item(itemId) ?? item;
+    return _store.item(itemId, sourceId: sourceId) ?? item;
   }
 
   /// 记录播放 / 阅读 / 查看详情所需的元数据，但**绝不加入收藏**。
@@ -192,7 +213,7 @@ class ReadingLibrary {
     int chapterCount = 0,
   }) {
     if (setting('history.incognito') == 'true') return;
-    final existing = _store.item(itemId);
+    final existing = _store.item(itemId, sourceId: sourceId);
     final now = DateTime.now();
     _store.ensureHistoryItem(
       LibraryItem(
@@ -220,43 +241,49 @@ class ReadingLibrary {
   /// 之后调它即可。
   void refresh() => _touch();
 
-  void unshelve(String itemId) {
-    _store.removeItem(itemId);
-    _store.clearProgress(itemId);
+  void unshelve(String itemId, {String? sourceId}) {
+    _store.removeItem(itemId, sourceId: sourceId);
+    _store.clearProgress(itemId, sourceId: sourceId);
     _touch();
   }
 
   /// 同步章节总数（详情页拿到章节列表后调用）。为 0 时忽略，避免图源偶发
   /// 少返章节把角标算错。
-  void syncChapters(String itemId, int chapterCount) {
+  void syncChapters(String itemId, int chapterCount, {String? sourceId}) {
     if (chapterCount <= 0) return;
-    final existing = _store.item(itemId);
+    final existing = _store.item(itemId, sourceId: sourceId);
     if (existing == null) return;
-    _store.setChapterCount(itemId, chapterCount);
+    _store.setChapterCount(itemId, chapterCount, sourceId: sourceId);
     _touch();
     // 章节数变了，排序时间不动——同步目录不算一次阅读。
   }
 
   // ------------------------------------------------------------------ 进度
 
-  ReadingProgress? progress(String itemId) => _store.progress(itemId);
+  ReadingProgress? progress(String itemId, {String? sourceId}) =>
+      _store.progress(itemId, sourceId: sourceId);
 
   /// 已保存的漫画进度；进度形状不符（例如库被改坏）时返回 null。
-  ComicProgress? comicProgress(String itemId) {
-    final saved = _store.progress(itemId);
+  ComicProgress? comicProgress(String itemId, {String? sourceId}) {
+    final saved = _store.progress(itemId, sourceId: sourceId);
     return saved is ComicProgress ? saved : null;
   }
 
   /// 已保存的视频进度；形状不符时返回 null。
-  VideoProgress? videoProgress(String itemId) {
-    final saved = _store.progress(itemId);
+  VideoProgress? videoProgress(String itemId, {String? sourceId}) {
+    final saved = _store.progress(itemId, sourceId: sourceId);
     return saved is VideoProgress ? saved : null;
   }
 
-  Map<String, VideoProgress> videoEpisodeProgresses(String itemId) =>
-      _store.videoEpisodes(itemId);
-  VideoProgress? videoEpisodeProgress(String itemId, String chapterId) =>
-      _store.videoEpisode(itemId, chapterId);
+  Map<String, VideoProgress> videoEpisodeProgresses(
+    String itemId, {
+    String? sourceId,
+  }) => _store.videoEpisodes(itemId, sourceId: sourceId);
+  VideoProgress? videoEpisodeProgress(
+    String itemId,
+    String chapterId, {
+    String? sourceId,
+  }) => _store.videoEpisode(itemId, chapterId, sourceId: sourceId);
 
   /// 「继续观看」列表：有播放记录的作品，按最近播放倒序。
   ///
@@ -273,7 +300,7 @@ class ReadingLibrary {
           )) {
         continue;
       }
-      final progress = _store.progress(item.itemId);
+      final progress = _store.progress(item.itemId, sourceId: item.sourceId);
       if (progress is! VideoProgress) continue;
       items.add(item);
       if (items.length >= limit) break;
@@ -298,7 +325,7 @@ class ReadingLibrary {
           )) {
         continue;
       }
-      final progress = _store.progress(item.itemId);
+      final progress = _store.progress(item.itemId, sourceId: item.sourceId);
       if (progress == null) continue;
       entries.add((item: item, progress: progress));
       if (entries.length >= limit) break;
@@ -319,6 +346,7 @@ class ReadingLibrary {
       progress.itemId,
       progress.chapterIndex,
       at: progress.updatedAt,
+      sourceId: progress.sourceId.isEmpty ? null : progress.sourceId,
     );
     _touch();
   }
@@ -356,6 +384,11 @@ class ReadingLibrary {
   /// 两边必须用同一份清洗结果（清洗是幂等的，重复调用不会漂移）。
   File saveDownload(String folder, String fileName, Uint8List bytes) =>
       _store.writeDownload(folder, fileName, bytes);
+
+  Future<File> saveImageAsync(String name, Uint8List bytes) =>
+      _store.writeExportAsync(name, bytes);
+  Future<File> saveDownloadAsync(String folder, String name, Uint8List bytes) =>
+      _store.writeDownloadAsync(folder, name, bytes);
 
   // ------------------------------------------------------------------ 生命周期
 

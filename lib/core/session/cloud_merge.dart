@@ -6,7 +6,7 @@ class CloudMerge {
     final raw = jsonDecode(text);
     if (raw is! Map ||
         raw['format'] != 'lumebox-icloud' ||
-        raw['version'] != 1 ||
+        ![1, 2].contains(raw['version']) ||
         raw['records'] is! Map ||
         (raw['records'] as Map).length > 100000) {
       throw const FormatException('iCloud 同步数据版本不兼容');
@@ -48,6 +48,6 @@ class CloudMerge {
   }
 
   static String encode(Map<String, Map<String, dynamic>> records) => jsonEncode(
-    {'format': 'lumebox-icloud', 'version': 1, 'records': records},
+    {'format': 'lumebox-icloud', 'version': 2, 'records': records},
   );
 }

@@ -62,7 +62,7 @@ abstract interface class SourceManager {
   /// 保存单图源的「换网址 / 账号登入」（镜像选择、自定义域名、登录账号密码）。
   ///
   /// 与 [setNetwork] 的区别：这份配置是**交给脚本**的（脚本读
-  /// `LumeSource.config`），不改变宿主怎么发请求。图源不存在或跨板块时无操作。
+  /// `LumeSource.config`），并用于已声明线路的地址映射。图源不存在或跨板块时无操作。
   Future<void> setSiteConfig(String sourceId, SourceSiteConfig config);
 
   /// 导出图源脚本原文（备份 / 迁移用）；不存在或跨板块时返回 null。
@@ -120,6 +120,7 @@ class SourceUpdateResult {
     required this.status,
     required this.message,
     this.descriptor,
+    this.previousVersion = '',
   });
 
   /// [note] 是成功时的**附带说明**（例如「订阅里另有 1 条拉不到」）：
@@ -127,10 +128,12 @@ class SourceUpdateResult {
   const SourceUpdateResult.updated(
     SourceDescriptor descriptor, {
     String note = '',
+    String previousVersion = '',
   }) : this._(
          status: SourceUpdateStatus.updated,
          message: note,
          descriptor: descriptor,
+         previousVersion: previousVersion,
        );
 
   const SourceUpdateResult.unchanged(SourceDescriptor descriptor)
@@ -153,11 +156,19 @@ class SourceUpdateResult {
 
   /// 更新后的描述符（成功时有值）。
   final SourceDescriptor? descriptor;
+  final String previousVersion;
+  String get versionChange =>
+      sourceVersionChange(previousVersion, descriptor?.version ?? '');
 
   bool get isSuccess =>
       status == SourceUpdateStatus.updated ||
       status == SourceUpdateStatus.unchanged;
 }
+
+String sourceVersionChange(String before, String after) =>
+    before == after && before.isNotEmpty
+    ? '$after（脚本内容已变化）'
+    : '${before.isEmpty ? '未知版本' : before} → ${after.isEmpty ? '未知版本' : after}';
 
 /// 订阅更新的四种结论。
 enum SourceUpdateStatus {

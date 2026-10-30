@@ -9,14 +9,20 @@ class SourcePreferences {
   const SourcePreferences({
     this.pinned = false,
     this.iconUrl = '',
+    this.iconData = '',
     this.originalOrigin = '',
     this.customOrigin = '',
     this.newestFirst = false,
     this.pickerGroup = '',
+    this.contentCategory = '',
   });
   final bool pinned, newestFirst;
+
+  /// 主动获取的图标独立保存，不依赖可清理的网络缓存。
+  final String iconData;
   final String iconUrl, originalOrigin, customOrigin;
   final String pickerGroup;
+  final String contentCategory;
   static String _key(String id) => 'source.preferences.$id';
   static SourcePreferences read(Section section, String id) {
     try {
@@ -26,10 +32,12 @@ class SourcePreferences {
       return SourcePreferences(
         pinned: map['pinned'] == true,
         iconUrl: '${map['iconUrl'] ?? ''}',
+        iconData: '${map['iconData'] ?? ''}',
         originalOrigin: '${map['originalOrigin'] ?? ''}',
         customOrigin: '${map['customOrigin'] ?? ''}',
         newestFirst: map['newestFirst'] == true,
         pickerGroup: '${map['pickerGroup'] ?? ''}',
+        contentCategory: '${map['contentCategory'] ?? ''}',
       );
     } catch (_) {
       return const SourcePreferences();
@@ -59,10 +67,12 @@ class SourcePreferences {
       jsonEncode({
         'pinned': pinned,
         'iconUrl': iconUrl,
+        'iconData': iconData,
         'originalOrigin': originalOrigin,
         'customOrigin': customOrigin,
         'newestFirst': newestFirst,
         'pickerGroup': pickerGroup,
+        'contentCategory': contentCategory,
       }),
     );
   }
@@ -71,14 +81,18 @@ class SourcePreferences {
     bool? pinned,
     bool? newestFirst,
     String? iconUrl,
+    String? iconData,
     String? originalOrigin,
     String? customOrigin,
     String? pickerGroup,
+    String? contentCategory,
   }) => SourcePreferences(
     pinned: pinned ?? this.pinned,
     newestFirst: newestFirst ?? this.newestFirst,
     pickerGroup: pickerGroup ?? this.pickerGroup,
+    contentCategory: contentCategory ?? this.contentCategory,
     iconUrl: iconUrl ?? this.iconUrl,
+    iconData: iconData ?? this.iconData,
     originalOrigin: originalOrigin ?? this.originalOrigin,
     customOrigin: customOrigin ?? this.customOrigin,
   );

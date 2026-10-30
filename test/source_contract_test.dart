@@ -110,7 +110,10 @@ void main() {
       // 函数式脚本（顶层 getList）常用 {list: [...], hasMore} 表达列表。
       final envelope = parseSourceList(<String, Object?>{
         'list': <Object?>[
-          <String, Object?>{'title': '测试视频', 'url': 'https://example.com/a.mp4'},
+          <String, Object?>{
+            'title': '测试视频',
+            'url': 'https://example.com/a.mp4',
+          },
         ],
         'hasMore': false,
       });
@@ -128,7 +131,10 @@ void main() {
         ],
       });
       expect(both.items.single.id, 'a');
-      expect(parseSourceList(<String, Object?>{'hasMore': true}).isEmpty, isTrue);
+      expect(
+        parseSourceList(<String, Object?>{'hasMore': true}).isEmpty,
+        isTrue,
+      );
     });
 
     test('无法识别时返回空列表', () {
@@ -138,17 +144,14 @@ void main() {
   });
 
   group('章节内容解析', () {
-
-
-
-
     test('不符合契约时抛 FormatException', () {
       expect(
         () => ChapterContent.parse(<String, Object?>{'kind': 'pdf'}),
         throwsFormatException,
       );
       expect(
-        () => ChapterContent.parse(<String, Object?>{'kind': 'video', 'url': ''}),
+        () =>
+            ChapterContent.parse(<String, Object?>{'kind': 'video', 'url': ''}),
         throwsFormatException,
       );
       expect(() => ChapterContent.parse(42), throwsFormatException);
@@ -162,7 +165,10 @@ void main() {
 var LumeSource = { list: function () {} };
 ''';
       final header = SourceMetadata.parseHeader(script);
-      expect(header?.mirrors, <String>['https://main.example', 'https://m1.example']);
+      expect(header?.mirrors, <String>[
+        'https://main.example',
+        'https://m1.example',
+      ]);
 
       final runtime = SourceMetadata.parse(<String, Object?>{
         'id': 'mirror-src',
@@ -181,7 +187,7 @@ var LumeSource = { list: function () {} };
       expect(onlyRuntime?.mirrors, <String>['https://runtime.example']);
     });
 
-    test('非法项丢掉、重复去掉、最多 3 个', () {
+    test('非法项丢掉、重复去掉、保留第四个合法镜像', () {
       final mirrors = SourceSiteConfig.normalizeMirrors(<Object?>[
         'https://main.example',
         '  ',
@@ -191,13 +197,14 @@ var LumeSource = { list: function () {} };
         '//m2.example',
         'https://main.example', // 重复
         'https://m2.example',
-        'https://m3.example', // 第 4 条：丢掉
+        'https://m3.example', // 第四个合法镜像也保留
         'https://user:pass@m4.example',
       ]);
       expect(mirrors, <String>[
         'https://main.example',
         'https://m1.example',
         'https://m2.example',
+        'https://m3.example',
       ]);
       expect(SourceSiteConfig.normalizeMirrors('https://x.example'), isEmpty);
       expect(SourceSiteConfig.normalizeMirrors(null), isEmpty);
@@ -238,7 +245,8 @@ var LumeSource = { list: function () {} };
 
     test('自定义域名缺 scheme 时补 https、去尾斜杠', () {
       expect(
-        const SourceSiteConfig(domainOverride: 'custom.example/').resolvedDomain,
+        const SourceSiteConfig(domainOverride: 'custom.example/')
+            .resolvedDomain,
         'https://custom.example',
       );
       expect(
@@ -247,10 +255,7 @@ var LumeSource = { list: function () {} };
         reason: '只有空白等于没填',
       );
       // 非法输入当作没填（界面在此之前已经拦下）。
-      expect(
-        const SourceSiteConfig(domainOverride: '不是地址').resolvedDomain,
-        '',
-      );
+      expect(const SourceSiteConfig(domainOverride: '不是地址').resolvedDomain, '');
     });
 
     test('选中下标越界回落到列表内的镜像，列表为空时 domain 是空串', () {
@@ -271,7 +276,10 @@ var LumeSource = { list: function () {} };
       expect(SourceSiteConfig.domainIssue('example.com'), isNull);
       expect(SourceSiteConfig.domainIssue('https://example.com/a/b'), isNull);
       expect(SourceSiteConfig.domainIssue('ftp://example.com'), isNotNull);
-      expect(SourceSiteConfig.domainIssue('https://example.com?q=1'), isNotNull);
+      expect(
+        SourceSiteConfig.domainIssue('https://example.com?q=1'),
+        isNotNull,
+      );
     });
   });
 
@@ -296,7 +304,9 @@ var LumeSource = { list: function () {} };
     test('缺字段 / 坏 JSON 落到默认值', () {
       expect(SourceSiteConfig.fromJson(null).mirrors, isEmpty);
       expect(SourceSiteConfig.fromJson('不是 JSON').mirrors, isEmpty);
-      final partial = SourceSiteConfig.fromJson(<String, Object?>{'mirrors': null});
+      final partial = SourceSiteConfig.fromJson(<String, Object?>{
+        'mirrors': null,
+      });
       expect(partial.mirrors, isEmpty);
       expect(partial.mirrorIndex, 0);
       expect(partial.resolvedDomain, '');
@@ -330,7 +340,9 @@ CREATE TABLE source (
 INSERT INTO source (id, name, version, section, script, enabled, updated_at)
 VALUES ('old', '老源', '1.0.0', 'novel', 'var x = 1;', 1, 0);
 ''');
-      final record = SourceRecord.fromRow(db.select('SELECT * FROM source').first);
+      final record = SourceRecord.fromRow(
+        db.select('SELECT * FROM source').first,
+      );
       expect(record.siteConfig.mirrors, isEmpty);
       expect(record.siteConfig.mirrorIndex, 0);
       expect(record.siteConfig.domainOverride, '');

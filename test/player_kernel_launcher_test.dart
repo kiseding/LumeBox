@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,42 @@ import 'package:lume_box/core/player/player_stats.dart';
 void main() {
   setUp(() => PlayerFactory.clearMpvInitFailure());
   tearDown(() => PlayerFactory.clearMpvInitFailure());
+
+  test('entry preflight reads portrait dimensions and transfers the same loaded player', () async {
+    final player = _PreflightPlayer();
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    final media = PlayerMedia(uri: Uri.parse('https://example.com/short.mp4'));
+    await prelaunch.prepareMedia(media);
+    expect(prelaunch.preparedStats?.width, 720);
+    expect(prelaunch.preparedStats?.height, 1280);
+    expect(prelaunch.hasPreparedMedia(media), isTrue);
+    expect(player.loads, 1);
+    expect(player.pauses, 1);
+    expect((await prelaunch.take())?.player, same(player));
+    expect(await prelaunch.take(), isNull);
+    await prelaunch.discard();
+    expect(player.disposals, 0);
+    await player.dispose();
+  });
+
+  test('timed out preflight disposes the loading instance and allows a fresh launch', () async {
+    final player = _PreflightPlayer()..pending = Completer<void>();
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    await prelaunch.prepareMedia(
+      PlayerMedia(uri: Uri.parse('https://example.com/slow.mp4')),
+      timeout: const Duration(milliseconds: 10),
+    );
+    expect(prelaunch.preparedStats, isNull);
+    expect(await prelaunch.take(), isNull);
+    expect(player.disposals, 1);
+    player.pending!.complete();
+  });
 
   test('正常内核：创建成功即原样返回，没有回退', () async {
     final launcher = PlayerKernelLauncher(
@@ -131,13 +169,31 @@ void main() {
   });
 }
 
+class _PreflightPlayer extends _FakePlayer {
+  _PreflightPlayer() : super(PlayerKernel.avplayer);
+  int loads = 0, pauses = 0;
+  Completer<void>? pending;
+  @override
+  Future<void> load(PlayerMedia media) async {
+    loads++;
+    if (pending != null) await pending!.future;
+    _stats.value = const PlayerStats(width: 720, height: 1280);
+  }
+
+  @override
+  Future<void> pause() async {
+    pauses++;
+  }
+}
+
 class _FakePlayer extends AbstractPlayer {
   _FakePlayer(this.kernel);
 
   final PlayerKernel kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
   final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
     const PlayerStats(engineLabel: 'fake'),
   );

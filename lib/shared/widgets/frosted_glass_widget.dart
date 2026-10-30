@@ -111,7 +111,8 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                       ? 0
                       : settings.native.tintOpacity,
                   materialOpacity: widget.materialOpacity,
-                  reduceTransparency: MediaQuery.highContrastOf(context),
+                  reduceTransparency:
+                      !enabled || MediaQuery.highContrastOf(context),
                 ),
               ),
               Material(type: MaterialType.transparency, child: widget.child),

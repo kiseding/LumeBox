@@ -108,7 +108,31 @@ class PrivacySettings extends ChangeNotifier {
 
   Future<void> setShowAdult(bool value) => _persist(showAdult: value);
 
+  Future<void>? _writing;
   Future<void> _persist({
+    bool? appLock,
+    bool? showAdult,
+    AppUnlockMethod? method,
+  }) {
+    final previous = _writing;
+    final next = previous == null
+        ? _write(appLock: appLock, showAdult: showAdult, method: method)
+        : previous
+              .catchError((Object _) {})
+              .then(
+                (_) => _write(
+                  appLock: appLock,
+                  showAdult: showAdult,
+                  method: method,
+                ),
+              );
+    _writing = next;
+    return next.whenComplete(() {
+      if (identical(_writing, next)) _writing = null;
+    });
+  }
+
+  Future<void> _write({
     bool? appLock,
     bool? showAdult,
     AppUnlockMethod? method,

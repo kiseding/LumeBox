@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -128,11 +129,11 @@ class NativeIntroBackend implements IntroScanBackend {
     try {
       final root = await installBundledModels(includeVideo: false);
       if (!Platform.isIOS) return root;
-      final marker = File(path.join(root, 'video.ready'));
+      final marker = File(path.join(root, 'video-anchors-v1.ready'));
       if (await marker.exists()) return root;
       final zipPath = path.join(root, 'models.zip');
       final bytes = await rootBundle.load(
-        'assets/models/intro/mobileclip_s0.zip',
+        'assets/models/intro/mobileclip_s0_image.zip',
       );
       await File(zipPath).writeAsBytes(
         bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
@@ -149,7 +150,21 @@ class NativeIntroBackend implements IntroScanBackend {
         }
       });
       await File(zipPath).delete();
+      final anchors = await rootBundle.loadString(
+        'assets/models/intro/anchor_vectors.json',
+      );
+      await File(path.join(root, 'anchor_vectors.json'))
+          .writeAsString(anchors, flush: true);
       await marker.writeAsString('1', flush: true);
+      // Reclaim only the previous bundled text encoder, after installing the
+      // replacement. Custom imported model directories are never touched.
+      for (final name in [
+        'mobileclip_s0_text.mlpackage',
+        'mobileclip_s0_text.mlmodelc',
+      ]) {
+        final old = Directory(path.join(root, name));
+        if (await old.exists()) await old.delete(recursive: true);
+      }
       return root;
     } catch (_) {
       _videoInstallation = null;
@@ -162,10 +177,12 @@ class NativeIntroBackend implements IntroScanBackend {
     final root =
         options.values['videoModelRoot'] as String? ??
         await installBundledModels();
-    final prompts = jsonDecode(
-      await rootBundle.loadString('assets/models/intro/prompts.json'),
-    );
-    return _modelConfig = {'root': root, 'prompts': prompts};
+    final raw = await rootBundle.loadString('assets/models/intro/prompts.json');
+    return _modelConfig = {
+      'root': root,
+      'prompts': jsonDecode(raw),
+      'promptsSha256': sha256.convert(utf8.encode(raw)).toString(),
+    };
   }
 
   @override

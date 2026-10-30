@@ -457,6 +457,47 @@ class CatService extends ChangeNotifier {
     },
   );
 
+  Future<void> restoreBackupState(
+    List<CatSubscription> records, {
+    required List<String> favorites,
+    required List<Map<String, dynamic>> history,
+    required List<Map<String, dynamic>> bookmarks,
+    required Map<String, (List<int>, List<int>)> bundles,
+    required int siteColumns,
+  }) => _serial(() async {
+    await boot();
+    for (final record in records) {
+      final bundle = bundles[record.id];
+      if (bundle != null) {
+        await _writeBundle(
+          record.id,
+          record.hash,
+          record.configHash,
+          bundle.$1,
+          bundle.$2,
+        );
+      }
+    }
+    subscriptions
+      ..clear()
+      ..addAll(records);
+    this.favorites
+      ..clear()
+      ..addAll(favorites);
+    this.history
+      ..clear()
+      ..addAll(history);
+    _bookmarks.clear();
+    for (final row in bookmarks) {
+      _bookmarks['${row['site']}|${row['id']}'] = row;
+    }
+    this.siteColumns = siteColumns;
+    selectedSiteId = null;
+    needsSiteSelection = true;
+    recoveryMessage = '猫源备份已恢复，请手动选择站点后继续使用。';
+    await save();
+  });
+
   Future<void> _writeBundle(
     String id,
     String hash,

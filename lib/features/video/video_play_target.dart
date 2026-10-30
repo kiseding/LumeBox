@@ -1,3 +1,5 @@
+import '../../core/reading/reading_identity.dart';
+
 /// 一次播放的「作品身份」：记进度需要它，手动贴地址时没有。
 ///
 /// 视频板块的播放来源有两类：
@@ -5,6 +7,7 @@
 /// - **手动地址**：只有一个 URL，没有作品身份，不记进度（记了也无从还原）。
 ///
 /// 这里只承载数据与少量格式化，不碰播放器与数据库。
+
 class VideoPlayTarget {
   const VideoPlayTarget({
     required this.sourceId,
@@ -21,6 +24,8 @@ class VideoPlayTarget {
 
   /// 作品在图源内的 id。
   final String itemId;
+
+  String get identity => ReadingIdentity.key(sourceId, itemId);
 
   /// 作品标题（继续观看列表的展示名）。
   final String title;

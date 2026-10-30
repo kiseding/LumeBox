@@ -1,9 +1,12 @@
-// LumeSource: {"id":"h4dh3_video","name":"hxc 18+","version":"1.0.0","category":"video","mirrors":["https://www.h4dh3.com","https://a84i.ux51l.com","https://a96u.t3nwc.com"]}
+// LumeSource: {"id":"h4dh3_video","name":"hxc 18+","version":"1.0.3","category":"video","contentCategory":"adult","settingsApiVersion":2,"mirrors":["https://www.9zx3x.com","https://9zx3x.com","https://www.h4dh3.com","https://a84i.ux51l.com","https://a96u.t3nwc.com"],"network":"proxy","icon":"https://www.9zx3x.com/favicon.ico","settings":[{"key":"note","type":"info","title":"站点说明","description":"hxc（Fi11）：2026-10-30 起旧域名 h4dh3.com 只剩「马上停用」公告，新域名 www.9zx3x.com（同一套前端）。接口主机仍是 a84i.ux51l.com / a96u.t3nwc.com 两台，前端写死。国内需代理；手机上若报 TLS_HANDSHAKE_FAILED(-1200)，多半是当前网络/代理把这两台接口主机握手拦了，换线路或换代理再试。播放地址取 /videos/getPreUrl 的签名 m3u8 并去掉 30 秒试看区间（见脚本头注释）。"}]}
 //
 // ════════════════════════════════════════════════════════════════════════════
 // 一、站点与前端（2026-10-25 实测）
 // ════════════════════════════════════════════════════════════════════════════
-//   页面宿主  https://www.h4dh3.com/home      （title = hxc，4.6KB 空壳）
+//   页面宿主  https://www.h4dh3.com/home      （title = hxc，4.4KB 空壳）
+//   同后端壳  https://www.d2y7j.com/home      （title = 含羞草，HTML 与 h4dh3 **逐字节相同**，
+//                                              静态资源 / 接口主机 / 播放器全一样；2026-10-27 复核）
+//   注：mirrors 里放的是**接口主机**（a84i / a96u），不是页面壳；换壳域名不影响本源
 //   静态资源  https://j04l.nasuiyile.com/pc/  （Vue3 + Vite，index.412ae7a8.js 930KB，
 //                                                播放器 ckplayer，另有 jumpOfDeviceType）
 //   接口主机  https://a84i.ux51l.com / https://a96u.t3nwc.com   ← 前端里写死的两台
@@ -101,7 +104,13 @@ var DEFAULT_BASES = ['https://a84i.ux51l.com', 'https://a96u.t3nwc.com'];
 var AES_KEY = 'B77A9FF7F323B5404902102257503C2F';
 var AES_IV = 'B77A9FF7F323B5404902102257503C2F';
 var IMAGE_HOST = 'https://i04g.nasuiyile.com';
-var CDN_REFERER = 'https://www.h4dh3.com/';
+// 封面 .aes 是「Base64 文本 → AES-128-ECB/NoPadding → data URI」；
+// App 图片管线按这个声明先解 Base64 再原生 ECB 解，列表层不跑纯 JS AES。
+var COVER_HEADERS = {
+  'x-lume-image-encoding': 'aes-ecb-base64',
+  'x-lume-image-key': '46cc793c53dc451b'
+};
+var CDN_REFERER = 'https://www.9zx3x.com/';
 var PAGE_SIZE = 20;
 
 // typeId → 分类名（实测 2026-10-25，见文件头第五节）
@@ -110,7 +119,6 @@ var CATEGORIES = [
   { id: '15', title: '网红女神' },
   { id: '17', title: '高清无码' },
   { id: '16', title: '潮吹喷水' },
-  { id: '11', title: '潮吹喷水(父)' },
   { id: '19', title: '精品素人' },
   { id: '20', title: '中文字幕' },
   { id: '21', title: '熟女OL' },
@@ -417,7 +425,7 @@ async function pickBase(force) {
       lastError = (error && error.message) || '未知错误';
     }
   }
-  throw new Error('接口线路都打不通（' + lastError + '）');
+  throw new Error('接口线路都打不通（' + lastError + '）——两台接口主机都失败时，先确认手机网络/代理没有拦截 TLS 握手（-1200），或在「源设置 → 站点网络」换一条线路再试');
 }
 
 // 业务接口：code!==0 一律抛可读错误；线路失败换一台重试一次
@@ -457,6 +465,8 @@ function itemOf(row) {
   return {
     id: String(row.id),
     title: String(row.name || row.id),
+    cover: String(row.coverImgUrl || row.cover || ''),
+    coverHeaders: COVER_HEADERS,
     subtitle: parts.join(' · ')
   };
 }
@@ -498,24 +508,18 @@ async function fetchSearch(keyword, page) {
 var LumeSource = {
   id: 'h4dh3_video',
   name: 'hxc 18+',
-  version: '1.0.0',
+  version: '1.0.3',
   category: 'video',
-  mirrors: ['https://www.h4dh3.com', 'https://a84i.ux51l.com', 'https://a96u.t3nwc.com'],
+  mirrors: ['https://www.9zx3x.com', 'https://9zx3x.com', 'https://www.h4dh3.com', 'https://a84i.ux51l.com', 'https://a96u.t3nwc.com'],
 
   async categories() {
     return CATEGORIES.slice();
   },
 
   async filters() {
-    return {
-      groups: [
-        {
-          id: 'type',
-          title: '分类',
-          options: CATEGORIES.filter(function (row) { return row.id !== '0'; })
-        }
-      ]
-    };
+    // categories() 已经包含全部 27 个分类；再返回一份 type 组只会和分类行重复。
+    // 站点没有地区/年份/语言筛选，这里保持空组。
+    return { groups: [] };
   },
 
   async home() {
@@ -575,11 +579,12 @@ var LumeSource = {
     if (info.addTime) lines.push('发布：' + String(info.addTime).slice(0, 19));
     if (tags.length) lines.push('标签：' + tags.join(' / '));
     if (String(info.description || '').trim()) lines.push('简介：' + String(info.description).slice(0, 300));
-    lines.push('封面：站点用 AES 加密图片（.aes），App 侧无法解密，故不显示封面');
 
     return {
       id: String(info.id),
       title: String(info.name || id),
+      cover: String(info.coverImgUrl || info.cover || ''),
+      coverHeaders: COVER_HEADERS,
       subtitle: [info.typeName, info.length ? Math.round(Number(info.length) / 60) + ' 分钟' : '', Number(info.point || 0) > 0 ? info.point + ' 金币' : '免费']
         .filter(Boolean)
         .join(' · '),

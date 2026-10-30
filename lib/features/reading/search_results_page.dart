@@ -543,6 +543,7 @@ class _SearchResultsPageState extends State<SearchResultsPage>
     if (widget.mode == SearchMode.aggregate &&
         (_loading || _aggregateSites.isNotEmpty)) {
       return AggregateSearchResults(
+        query: _keyword,
         section: widget.section,
         hits: _hits,
         sites: _aggregateSites,

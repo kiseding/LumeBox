@@ -1,5 +1,10 @@
+import 'source_result_routes.dart';
+import 'source_site_config.dart';
+import 'source_extension_settings.dart';
+import 'source_settings_policy.dart';
 import '../cache/section_memory_cache.dart';
 import '../net/waf.dart';
+import '../net/network_cancellation.dart';
 import '../net/waf_auto_verify.dart';
 import '../util/lume_log.dart';
 import '../session/section.dart';
@@ -96,6 +101,8 @@ class JsDataSource
     required this.section,
     required this.runtime,
     this.cache,
+    this.rewriteUrl,
+    this.sourceConfiguration,
   });
 
   @override
@@ -112,6 +119,71 @@ class JsDataSource
 
   /// 读缓存（可选，按板块隔离）。为空表示不做任何缓存。
   final SourceReadCache? cache;
+  final SourceUrlRouter? rewriteUrl;
+  final SourceSiteConfig Function()? sourceConfiguration;
+  Future<Object?> settingsAction(
+    String key, {
+    Map<String, Object?> settings = const {},
+    Map<String, Object?> config = const {},
+    Map<String, Object?> inputs = const {},
+  }) async {
+    final site = sourceConfiguration?.call();
+    var parameters = inputs, values = settings, preview = config;
+    if (site != null) {
+      final action = site.sourceDefinitions
+          .where(
+            (f) => f.key == key && f.type == 'action' && f.action == 'source',
+          )
+          .firstOrNull;
+      if (action == null) {
+        throw const SourceException(
+          SourceErrorKind.callFailed,
+          '该操作未由当前源声明，或由 App 管理',
+        );
+      }
+      parameters = _validateFields(action.inputs, inputs);
+      final proposedCommon = config['commonSettings'];
+      final common = SourceSettingsPolicy.resolve(site.commonDefinitions, {
+        ...site.resolvedCommonSettings,
+        if (proposedCommon is Map)
+          ...proposedCommon.map((k, v) => MapEntry('$k', v)),
+      });
+      final extra = _validateFields(site.sourceDefinitions, {
+        ...site.resolvedSourceSettings,
+        ...settings,
+      });
+      values = {...extra, ...common};
+      preview = {
+        ...config,
+        'settings': values,
+        'commonSettings': common,
+        'sourceSettings': extra,
+      };
+    }
+    return _invoke('settingsAction', {
+      'key': key,
+      'settings': values,
+      'config': preview,
+      'inputs': parameters,
+    });
+  }
+
+  static Map<String, Object?> _validateFields(
+    List<SourceSetting> fields,
+    Map<String, Object?> raw,
+  ) {
+    final values = <String, Object?>{};
+    for (final f in fields) {
+      if ({'info', 'action'}.contains(f.type)) continue;
+      final value = raw.containsKey(f.key) ? raw[f.key] : f.fallback;
+      final issue = f.valueIssue(value);
+      if (issue != null) {
+        throw SourceException(SourceErrorKind.callFailed, '${f.title}：$issue');
+      }
+      values[f.key] = value;
+    }
+    return values;
+  }
 
   @override
   Future<String?> refreshImage(String url, String page) async {
@@ -243,10 +315,43 @@ class JsDataSource
     required String itemId,
     required String chapterId,
   }) async {
-    final value = await _invoke(JsSourceContract.content, <String, Object?>{
+    var value = await _invoke(JsSourceContract.content, <String, Object?>{
       'id': itemId,
       'chapterId': chapterId,
     });
+    final mode = sourceConfiguration
+        ?.call()
+        .resolvedCommonSettings['playbackMode'];
+    final isWeb =
+        value is Map &&
+        (value['webParse'] == true ||
+            value['webPlayer'] == true ||
+            '${value['kind']}'.toLowerCase() == 'webplayer');
+    if (mode == 'native' && isWeb) {
+      throw const SourceException(
+        SourceErrorKind.callFailed,
+        'App 已选择原生播放，该源当前只提供网页线路；请更换线路或播放方式',
+      );
+    }
+    if (mode == 'webpage' && value is Map && !isWeb) {
+      final raw = '${value['pageUrl'] ?? itemId}';
+      final page = Uri.tryParse(raw);
+      if (page == null ||
+          !{'http', 'https'}.contains(page.scheme) ||
+          page.host.isEmpty ||
+          page.userInfo.isNotEmpty) {
+        throw const SourceException(
+          SourceErrorKind.callFailed,
+          'App 已选择网页播放，但源未提供有效作品页地址',
+        );
+      }
+      value = {
+        ...value,
+        'kind': 'webplayer',
+        'webPlayer': true,
+        'pageUrl': rewriteUrl?.call(raw, kind: 'site') ?? raw,
+      };
+    }
     try {
       if (value is Map &&
           (value['webParse'] == true ||
@@ -260,12 +365,21 @@ class JsDataSource
           throw const FormatException('网页解析地址无效');
         }
         final headers = value['headers'];
+        final options = value['webPlayerOptions'];
+        final selector = options is Map ? options['episodeSelector'] : null;
+        if (selector != null &&
+            (selector is! String ||
+                selector.trim().isEmpty ||
+                selector.length > 256)) {
+          throw const FormatException('网页选集按钮规则无效');
+        }
         throw CatWebParseRequired(
           uri,
           headers is Map ? headers.map((k, v) => MapEntry('$k', '$v')) : {},
           webPlayer:
               value['webPlayer'] == true ||
               '${value['kind']}'.toLowerCase() == 'webplayer',
+          episodeSelector: selector as String?,
         );
       }
       return ChapterContent.parse(value);
@@ -339,7 +453,16 @@ class JsDataSource
   }
 
   Future<Object?> _invoke(String method, [Object? argument]) async {
-    return _invokeOnce(method, argument, retriedWaf: false);
+    final value = await _invokeOnce(method, argument, retriedWaf: false);
+    final route = rewriteUrl;
+    if (route == null) return value;
+    return routeSourceResult(
+      value,
+      route,
+      kind: method == 'refreshImage' || method == 'content' && value is List
+          ? 'image'
+          : null,
+    );
   }
 
   /// 调一次脚本方法；被 WAF 拦下时**自动过校验并重试一次**（用户口径 2 / 3）。
@@ -355,7 +478,26 @@ class JsDataSource
   }) async {
     try {
       return await runtime.call(method, argument);
+    } on NetworkCancelled {
+      rethrow;
     } on SourceException catch (error) {
+      // Some adapters hide the original HTTP failure after exhausting mirrors.
+      // Preserve a recoverable network category instead of calling it a JS bug.
+      if (error.kind == SourceErrorKind.callFailed &&
+          wafKindOf(error.message) == null &&
+          !RegExp(
+            r'referenceerror|typeerror|is not defined',
+            caseSensitive: false,
+          ).hasMatch(error.message) &&
+          RegExp(
+            r'跳板域都打不开|所有镜像(?:均|都)?(?:连接失败|不可达)|ENOTFOUND|ECONNREFUSED|ECONNRESET',
+            caseSensitive: false,
+          ).hasMatch(error.message)) {
+        throw SourceException(
+          SourceErrorKind.network,
+          '网络连接失败：${error.message}',
+        );
+      }
       if (!retriedWaf && _needsWebView(error.message)) {
         // 地址同样走**统一兜底链**（不只是从报错文案里捞）：老脚本的标记文案里
         // 没有 URL，只靠文案会让这条自动路径静默不动（用户反馈的「弹不出来」）。

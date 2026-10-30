@@ -223,6 +223,7 @@ void main() {
     source.items = const <SourceItem>[
       SourceItem(id: 'https://example.com/demo.mp4', title: '测试视频'),
     ];
+    source.contentUrl = 'https://example.com/demo.mp4';
     final created = await pumpBoard(tester);
     expect(created, isEmpty, reason: '浏览页自己不建播放器（起播才建）');
 
@@ -257,7 +258,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('https://example.com/demo.mp4'), findsNothing);
-    expect(find.byTooltip('复制地址'), findsOneWidget);
+    await tester.tap(find.byTooltip('播放信息'));
+    await tester.pumpAndSettle();
+    expect(find.text('复制地址'), findsOneWidget);
   });
 
   testWidgets('条目没有地址：走剧集链路，选一集后起播取到的视频地址', (tester) async {
@@ -277,7 +280,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // 多集先让用户选。
-    expect(find.text('选集（2）'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('video-detail-episode-1')),
+      findsOneWidget,
+    );
     await tapWithDetailPlay(tester, find.text('第 2 集'));
     await tester.pump();
     await tester.runAsync(() async {
@@ -517,9 +527,11 @@ class _FakePlayer extends AbstractPlayer {
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
 
+  final _stats = ValueNotifier<PlayerStats>(
+    const PlayerStats(width: 1920, height: 1080),
+  );
   @override
-  ValueListenable<PlayerStats> get stats =>
-      ValueNotifier<PlayerStats>(const PlayerStats());
+  ValueListenable<PlayerStats> get stats => _stats;
 
   @override
   Future<void> load(PlayerMedia media) async {
@@ -570,6 +582,7 @@ class _FakePlayer extends AbstractPlayer {
   @override
   Future<void> dispose() async {
     _snapshot.dispose();
+    _stats.dispose();
   }
 }
 
@@ -580,8 +593,12 @@ Future<void> tapWithDetailPlay(
   bool warnIfMissed = true,
 }) async {
   if (finder.evaluate().isEmpty && finder.toString().contains('全屏')) return;
+  bool episode(Widget widget) =>
+      widget.key is ValueKey<String> &&
+      RegExp(r'^video-detail-episode-\d+$')
+          .hasMatch((widget.key as ValueKey<String>).value);
   final chapter = find
-      .ancestor(of: finder, matching: find.byType(ChoiceChip))
+      .ancestor(of: finder, matching: find.byWidgetPredicate(episode))
       .evaluate()
       .isNotEmpty;
   final history = find
@@ -597,13 +614,7 @@ Future<void> tapWithDetailPlay(
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     final chips = find.descendant(
       of: find.byType(VideoDetailPage),
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget.key is ValueKey<String> &&
-            (widget.key as ValueKey<String>).value.startsWith(
-              'video-detail-episode-',
-            ),
-      ),
+      matching: find.byWidgetPredicate(episode),
     );
     if (chapter || history || chips.evaluate().length <= 1) {
       final play = find.byKey(const Key('video-detail-play'));

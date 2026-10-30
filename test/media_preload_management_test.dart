@@ -39,6 +39,7 @@ void main() {
       bufferSeconds: 5,
       triggerSeconds: 30,
     );
+    await MediaPreload.instance.flush();
     root.deleteSync(recursive: true);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -49,6 +50,26 @@ void main() {
   final png = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAF/gH8YQ3GAAAAAElFTkSuQmCC',
   );
+
+  test('queued preload writes yield to UI and clear invalidates queued generations', () async {
+    final policy = MediaPreload.instance;
+    var responded = false;
+    Timer.run(() => responded = true);
+    await policy.cacheImage('large', Uint8List(1024 * 1024), policy.generation);
+    expect(responded, isTrue);
+    expect(await policy.image('large'), hasLength(1024 * 1024));
+    final generation = policy.generation;
+    final writes = [
+      policy.cacheImage('queued-a', png, generation),
+      policy.cacheImage('queued-b', png, generation),
+    ];
+    await policy.clear();
+    await Future.wait(writes);
+    expect(policy.diskBytes, 0);
+    expect(await policy.image('large'), isNull);
+    expect(await policy.image('queued-a'), isNull);
+    expect(await policy.image('queued-b'), isNull);
+  });
 
   test('预载设置可重开恢复，预算有界；清理隔离普通文件并拒绝晚到写入', () async {
     final policy = MediaPreload();
@@ -71,17 +92,18 @@ void main() {
     final ordinary = File('${root.path}/ordinary.bin')
       ..writeAsStringSync('keep');
     final stale = policy.generation;
-    policy.cacheImage('first', Uint8List(5 * 1024 * 1024), stale);
-    policy.cacheImage('second', Uint8List(5 * 1024 * 1024), stale);
+    await policy.cacheImage('first', Uint8List(5 * 1024 * 1024), stale);
+    await policy.cacheImage('second', Uint8List(5 * 1024 * 1024), stale);
     expect(policy.diskBytes, lessThanOrEqualTo(8 * 1024 * 1024));
     var cleared = 0;
     final remove = policy.onClear(() => cleared++);
     expect(await policy.clear(), greaterThan(0));
     expect(cleared, 1);
-    policy.cacheImage('late', png, stale);
+    await policy.cacheImage('late', png, stale);
     expect(policy.diskBytes, 0);
     expect(ordinary.readAsStringSync(), 'keep');
     remove();
+    await policy.flush();
     policy.dispose();
     reopened.dispose();
   });

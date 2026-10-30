@@ -152,33 +152,39 @@ extension _OriginalIntro on _VideoPlayerPageState {
           SegmentKind.preview => '下集预告',
           SegmentKind.main => '片段',
         };
-        return Material(
-          color: const Color(0xe6202022),
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: WrapAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: controller.skipNow,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: Text(
-                    '跳过$label${controller.store.value.autoSkip ? ' · ${controller.secondsLeft}s' : ''}',
+        return PlaybackGlass(
+          enabled: _settings.playbackGlass,
+          dark: true,
+          child: Material(
+            color: _settings.playbackGlass
+                ? Colors.transparent
+                : const Color(0xe6202022),
+            borderRadius: BorderRadius.circular(18),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: controller.skipNow,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: Text(
+                      '跳过$label${controller.store.value.autoSkip ? ' · ${controller.secondsLeft}s' : ''}',
+                    ),
                   ),
-                ),
-                IconButton(
-                  tooltip: '取消本段跳过',
-                  onPressed: controller.dismiss,
-                  color: Colors.white,
-                  icon: const LumeIcon(
-                    Icons.close,
-                    slot: 'video_player_intro.1',
-                    size: 20,
+                  IconButton(
+                    tooltip: '取消本段跳过',
+                    onPressed: controller.dismiss,
+                    color: Colors.white,
+                    icon: const LumeIcon(
+                      Icons.close,
+                      slot: 'video_player_intro.1',
+                      size: 20,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../core/session/section.dart';
 import '../../core/source/source_favicon.dart';
+import '../../core/source/source_preferences.dart';
 import '../../core/theme/lume_theme.dart';
 
 /// 源图标：优先真图标（源声明的地址 → 站点约定名 → 首页 `<link rel=icon>`），
@@ -18,6 +21,7 @@ class SourceIcon extends StatefulWidget {
     this.siteUrl = '',
     this.iconUrl = '',
     this.siteIcon = '',
+    this.iconData,
     this.size = 40,
     this.radius = 12,
     this.section,
@@ -26,6 +30,7 @@ class SourceIcon extends StatefulWidget {
   });
 
   final String name, siteUrl, iconUrl, siteIcon;
+  final String? iconData;
   final double size;
 
   /// 圆角半径；列表卡片按 iOS 尺寸传 8。
@@ -46,6 +51,13 @@ class SourceIcon extends StatefulWidget {
 class _SourceIconState extends State<SourceIcon> {
   Uint8List? _bytes;
   int _loadGeneration = 0;
+  String _savedIconData = '';
+
+  String get _iconData =>
+      widget.iconData ??
+      (widget.section != null && widget.sourceId != null
+          ? SourcePreferences.read(widget.section!, widget.sourceId!).iconData
+          : '');
 
   SourceFavicon get _resolver => widget.favicon ?? SourceFavicon.instance;
 
@@ -58,7 +70,8 @@ class _SourceIconState extends State<SourceIcon> {
   @override
   void didUpdateWidget(covariant SourceIcon oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.siteUrl != widget.siteUrl ||
+    if (_savedIconData != _iconData ||
+        oldWidget.siteUrl != widget.siteUrl ||
         oldWidget.iconUrl != widget.iconUrl ||
         oldWidget.siteIcon != widget.siteIcon ||
         oldWidget.section != widget.section ||
@@ -71,13 +84,33 @@ class _SourceIconState extends State<SourceIcon> {
 
   void _load() {
     final generation = ++_loadGeneration;
+    _savedIconData = _iconData;
+    if (_savedIconData.isNotEmpty) {
+      try {
+        _bytes = SourceFavicon.storedIcon(base64Decode(_savedIconData));
+        if (_bytes != null) return;
+      } on FormatException {
+        // 旧备份中的损坏图标回退到网络解析。
+      }
+    }
     final explicit = <String>[
       if (widget.iconUrl.trim().isNotEmpty) widget.iconUrl.trim(),
       if (widget.siteIcon.trim().isNotEmpty) widget.siteIcon.trim(),
     ];
     final site = widget.siteUrl.trim();
     _bytes = _resolver.cached(origin: site, explicit: explicit);
-    if (site.isEmpty && explicit.isEmpty) return;
+    if (_bytes == null && widget.sourceId != null) {
+      _resolver.bundledFallback(widget.sourceId).then((bytes) {
+        if (!mounted ||
+            generation != _loadGeneration ||
+            _bytes != null ||
+            bytes == null) {
+          return;
+        }
+        setState(() => _bytes = bytes);
+      });
+    }
+    if (site.isEmpty && explicit.isEmpty && widget.sourceId == null) return;
     _resolver
         .load(
           origin: site,
@@ -87,13 +120,10 @@ class _SourceIconState extends State<SourceIcon> {
         )
         .then((bytes) {
           if (!mounted || generation != _loadGeneration) return;
-          setState(() => _bytes = bytes);
+          if (bytes != null) setState(() => _bytes = bytes);
         })
         .catchError((Object _) {
-          // 解析器自己已经吞掉了「取不到」；这里只防意外异常把列表带崩。
-          if (mounted && generation == _loadGeneration) {
-            setState(() => _bytes = null);
-          }
+          // Preserve the already displayed fallback on unexpected failures.
         });
   }
 

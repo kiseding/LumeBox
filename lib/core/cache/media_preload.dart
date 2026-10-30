@@ -17,18 +17,35 @@ class MediaPreload extends ChangeNotifier {
   Directory? _root;
   File? _settings;
   int? _knownBytes;
+  Future<void>? _diskQueue;
+  Future<void> flush() => _diskQueue ?? Future.value();
+
+  Future<T> _diskWork<T>(Future<T> Function() action) {
+    final task = _diskQueue?.then((_) => action()) ?? Future.sync(action);
+    late final Future<void> tail;
+    tail = task
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_diskQueue, tail)) _diskQueue = null;
+        });
+    _diskQueue = tail;
+    return task;
+  }
+
   final _clearers = <FutureOr<void> Function()>{};
   int get imageBudgetBytes => capacityMb * 1024 * 1024 ~/ 2;
   int get mediaBudgetBytes => capacityMb * 1024 * 1024 ~/ 4;
 
   Future<void> boot({Directory? directory}) async {
+    generation++;
+    await flush();
     final base = directory ?? await getApplicationSupportDirectory();
     _root = Directory('${base.path}/media-preload-v1');
     _knownBytes = null;
     _settings = File('${base.path}/media_preload.json');
     try {
-      if (_settings!.existsSync()) {
-        final data = jsonDecode(_settings!.readAsStringSync()) as Map;
+      if (await _settings!.exists()) {
+        final data = jsonDecode(await _settings!.readAsString()) as Map;
         video = data['video'] != false;
         images = data['images'] != false;
         audio = data['audio'] != false;
@@ -39,7 +56,7 @@ class MediaPreload extends ChangeNotifier {
     } catch (_) {
       /* Invalid settings retain bounded defaults. */
     }
-    _prune();
+    await _diskWork(_prune);
   }
 
   static int _integer(Object? value, int fallback, int min, int max) =>
@@ -79,7 +96,7 @@ class MediaPreload extends ChangeNotifier {
       );
       temp.renameSync(file.path);
     }
-    _prune();
+    if (_root != null) unawaited(_diskWork(_prune).catchError((Object _) {}));
     notifyListeners();
   }
 
@@ -91,19 +108,23 @@ class MediaPreload extends ChangeNotifier {
   File? _file(String key) => _root == null
       ? null
       : File('${_root!.path}/${sha256.convert(utf8.encode(key))}.image');
-  Uint8List? image(String key) {
+  Future<Uint8List?> image(String key) async {
     final file = _file(key);
+    if (file == null) return null;
     try {
-      if (file?.existsSync() != true) return null;
-      final bytes = file!.readAsBytesSync();
-      file.setLastModifiedSync(DateTime.now());
+      final bytes = await file.readAsBytes();
+      await file.setLastModified(DateTime.now());
       return bytes;
     } catch (_) {
       return null;
     }
   }
 
-  void cacheImage(String key, Uint8List bytes, int expectedGeneration) {
+  Future<void> cacheImage(
+    String key,
+    Uint8List bytes,
+    int expectedGeneration,
+  ) => _diskWork(() async {
     if (!images ||
         clearing ||
         generation != expectedGeneration ||
@@ -113,45 +134,53 @@ class MediaPreload extends ChangeNotifier {
     final file = _file(key);
     if (file == null) return;
     try {
-      file.parent.createSync(recursive: true);
-      final previous = file.existsSync() ? file.lengthSync() : 0;
-      final before = diskBytes;
-      file.writeAsBytesSync(bytes);
+      await file.parent.create(recursive: true);
+      final previous = await file.exists() ? await file.length() : 0;
+      final before = _knownBytes ?? await _measure();
+      if (clearing || generation != expectedGeneration) return;
+      await file.writeAsBytes(bytes);
       _knownBytes = before + bytes.length - previous;
-      _prune();
+      await _prune();
     } catch (_) {
-      /* Speculative caching must not interrupt display. */
+      _knownBytes = null;
+      // Speculative caching must not interrupt display.
     }
+  });
+
+  Future<List<({File file, int bytes, DateTime modified})>> _files() async {
+    final root = _root;
+    if (root == null || !await root.exists()) return [];
+    final files = <({File file, int bytes, DateTime modified})>[];
+    await for (final entity in root.list(followLinks: false)) {
+      if (entity is! File ||
+          !RegExp(r'[/\\][0-9a-f]{64}\.image$').hasMatch(entity.path)) {
+        continue;
+      }
+      final stat = await entity.stat();
+      if (stat.type == FileSystemEntityType.file) {
+        files.add((file: entity, bytes: stat.size, modified: stat.modified));
+      }
+    }
+    return files;
   }
 
-  List<File> _files() => _root?.existsSync() == true
-      ? _root!
-            .listSync(followLinks: false)
-            .whereType<File>()
-            .where(
-              (file) =>
-                  RegExp(r'[/\\][0-9a-f]{64}\.image$').hasMatch(file.path),
-            )
-            .toList()
-      : [];
-  int get diskBytes {
-    final known = _knownBytes;
-    if (known != null) return known;
-    final total = _files().fold<int>(0, (sum, file) => sum + file.lengthSync());
-    _knownBytes = total;
-    return total;
-  }
-  void _prune() {
-    if (diskBytes <= imageBudgetBytes) return;
-    final files = _files()
-      ..sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
-    var bytes = files.fold(0, (sum, file) => sum + file.lengthSync());
-    for (final file in files) {
+  // Settings read the last asynchronously measured size; scrolling never scans disk.
+  int get diskBytes => _knownBytes ?? 0;
+  Future<int> _measure() async =>
+      (await _files()).fold<int>(0, (sum, entry) => sum + entry.bytes);
+
+  Future<void> _prune() async {
+    _knownBytes ??= await _measure();
+    if (_knownBytes! <= imageBudgetBytes) return;
+    final files = await _files()
+      ..sort((a, b) => a.modified.compareTo(b.modified));
+    var bytes = files.fold<int>(0, (sum, entry) => sum + entry.bytes);
+    for (final entry in files) {
       if (bytes <= imageBudgetBytes) break;
-      bytes -= file.lengthSync();
-      file.deleteSync();
-      _knownBytes = bytes;
+      await entry.file.delete();
+      bytes -= entry.bytes;
     }
+    _knownBytes = bytes;
   }
 
   Future<int> clear() async {
@@ -169,12 +198,15 @@ class MediaPreload extends ChangeNotifier {
           errors.add(error);
         }
       }
-      var freed = 0;
-      for (final file in _files()) {
-        freed += file.lengthSync();
-        file.deleteSync();
-      }
-      _knownBytes = 0;
+      final freed = await _diskWork(() async {
+        var freed = 0;
+        for (final entry in await _files()) {
+          await entry.file.delete();
+          freed += entry.bytes;
+        }
+        _knownBytes = 0;
+        return freed;
+      });
       if (errors.isNotEmpty) throw StateError('部分播放内核未能释放预载，请退出播放后重试');
       notifyListeners();
       return freed;

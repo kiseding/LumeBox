@@ -110,42 +110,20 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('横屏播放'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await tester.tap(find.byKey(const ValueKey('player-category-picture')));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('开关：打开 = 强制横屏，关闭 = 回到自动判断', (tester) async {
+    testWidgets('画面分类统一设置方向，强制横屏与自动写入同一偏好', (tester) async {
       await pumpSettings(tester);
-
-      expect(find.text('播放'), findsOneWidget, reason: '分组标题');
-      expect(find.text('横屏播放'), findsOneWidget);
-      final switchFinder = find.widgetWithText(Row, '横屏播放');
-      expect(switchFinder, findsOneWidget);
-
-      final before = tester.widget<Switch>(
-        find.descendant(of: switchFinder, matching: find.byType(Switch)),
-      );
-      expect(before.value, isFalse, reason: '默认关闭（竖屏短剧按比例自动判断）');
-
-      await tester.tap(
-        find.descendant(of: switchFinder, matching: find.byType(Switch)),
-      );
+      expect(find.text('横屏播放'), findsNothing, reason: '避免重复的两档方向开关');
+      await tester.tap(find.widgetWithText(ChoiceChip, '强制横屏'));
       await tester.pumpAndSettle();
       expect(
         PlaybackOrientationController.instance.orientation,
         PlaybackOrientation.landscape,
-        reason: '打开开关 = 强制横屏',
       );
-      expect(find.textContaining('已开启：全屏播放一律横屏'), findsOneWidget);
-
-      // 再关掉：回到「按视频比例自动判断」。
-      await tester.tap(
-        find.descendant(of: switchFinder, matching: find.byType(Switch)),
-      );
+      await tester.tap(find.widgetWithText(ChoiceChip, '自动'));
       await tester.pumpAndSettle();
       expect(
         PlaybackOrientationController.instance.orientation,

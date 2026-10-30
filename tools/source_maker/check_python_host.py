@@ -46,6 +46,13 @@ def check(directory):
     content = dispatch('call', method='content', argument={'id': item['id'], 'chapterId': chapters[0]['id']})
     assert content['kind'] == 'video' and content['url'] == 'https://media.invalid/movie.mp4', content
     dispatch('dispose')
+    dispatch('load', script=(directory / 'comic-python.py').read_text(encoding='utf-8'), section='comic')
+    item = dispatch('call', method='list', argument={'page': 1})['items'][0]
+    chapter = dispatch('call', method='chapters', argument={'id': item['id']})[0]
+    images = dispatch('call', method='content', argument={'id': item['id'], 'chapterId': chapter['id']})
+    assert images['kind'] == 'images' and images['images'] == ['https://fixture.invalid/page.jpg'], images
+    assert images['imageHeaders'][images['images'][0]]['Referer'] == 'https://fixture.invalid/chapter/1', images
+    dispatch('dispose')
     dispatch('load', script=(directory / 'python-html.py').read_text(encoding='utf-8'))
     listing = dispatch('call', method='list', argument={'page': 1})
     item = listing['items'][0]
@@ -57,7 +64,7 @@ def check(directory):
     content = dispatch('call', method='content', argument={'id': item['id'], 'chapterId': chapters[0]['id']})
     assert content['kind'] == 'video' and content['url'] == 'https://media.invalid/movie.mp4', content
     dispatch('dispose')
-    print(json.dumps({'ok': True, 'host': 'assets/python/lume_python.py', 'requests': len(calls), 'content': content}, ensure_ascii=False))
+    print(json.dumps({'ok': True, 'host': 'assets/python/lume_python.py', 'requests': len(calls), 'content': content, 'comic': images}, ensure_ascii=False))
 
 
 if __name__ == '__main__':

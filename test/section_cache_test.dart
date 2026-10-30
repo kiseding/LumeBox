@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -23,20 +24,19 @@ void main() {
     file.writeAsStringSync('x' * bytes);
   }
 
-  int sizeOf(String relative) =>
-      File('${root.path}/$relative').existsSync()
-          ? File('${root.path}/$relative').lengthSync()
-          : 0;
+  int sizeOf(String relative) => File('${root.path}/$relative').existsSync()
+      ? File('${root.path}/$relative').lengthSync()
+      : 0;
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('lume_box_cache');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 漫画：图片缓存 + 用户保存的图片；小说：图片缓存；猫源：板块缓存目录。
     writeFile('sections/comic/reading_cache/images/a.img', 100);
     writeFile('sections/comic/reading_cache/exports/saved.png', 50);
@@ -50,6 +50,28 @@ void main() {
   });
 
   const service = SectionCacheService();
+
+  test('large cache inspection and deletion yield to the event loop and preserve exports', () async {
+    for (var i = 0; i < 300; i++) {
+      writeFile('sections/comic/reading_cache/images/large/$i.img', 1024);
+    }
+    var ticks = 0;
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 1),
+      (_) => ticks++,
+    );
+    try {
+      final stats = await service.inspect(Section.comic);
+      expect(stats.cacheFiles, 301);
+      expect(stats.cacheBytes, 300 * 1024 + 100);
+      expect(ticks, greaterThan(0));
+      expect(await service.clear(Section.comic), 300 * 1024 + 100);
+      expect((await service.inspect(Section.comic)).cacheFiles, 0);
+      expect(sizeOf('sections/comic/reading_cache/exports/saved.png'), 50);
+    } finally {
+      timer.cancel();
+    }
+  });
 
   test('统计：分板块独立计数，缓存与已保存图片分开', () async {
     final stats = await service.inspectAll();
@@ -66,7 +88,6 @@ void main() {
 
     expect(bySection[Section.cat]!.cacheBytes, 230);
     expect(bySection[Section.cat]!.savedBytes, 0);
-
 
     // 没有缓存数据的板块就是 0，不是失败。
     expect(bySection[Section.video]!.cacheBytes, 0);
@@ -88,11 +109,7 @@ void main() {
       200,
       reason: '小说板块的缓存不受漫画清理影响',
     );
-    expect(
-      sizeOf('sections/cat/cache/c.tmp'),
-      30,
-      reason: '猫源板块的缓存不受漫画清理影响',
-    );
+    expect(sizeOf('sections/cat/cache/c.tmp'), 30, reason: '猫源板块的缓存不受漫画清理影响');
 
     final afterComic = await service.inspect(Section.comic);
     expect(afterComic.cacheBytes, 0);
@@ -117,11 +134,7 @@ void main() {
     expect(bySection[Section.cat]!.cacheBytes, 0);
     expect(bySection[Section.cat]!.cacheBytes, 0);
     expect(bySection[Section.video]!.cacheBytes, 0);
-    expect(
-      bySection[Section.comic]!.cacheBytes,
-      100,
-      reason: '没清漫画，它的缓存仍在',
-    );
+    expect(bySection[Section.comic]!.cacheBytes, 100, reason: '没清漫画，它的缓存仍在');
     expect(sizeOf('sections/comic/reading_cache/images/a.img'), 100);
   });
 }

@@ -9,6 +9,8 @@ import 'package:lume_box/core/js/source_registry.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source_site_config.dart';
+import 'package:lume_box/core/source/source_extension_settings.dart';
+import 'package:lume_box/core/source/source_settings_policy.dart';
 
 /// 板块库与注册表的归属校验。
 ///
@@ -38,6 +40,91 @@ void main() {
 
   Future<SectionDatabase> openDatabase(Section section) async =>
       SectionDatabase.open(await SectionScope.open(section));
+
+  test('更新声明与重命名均保留线路选择、自定义地址、账号和扩展参数', () async {
+    final db = await openDatabase(Section.video);
+    final fields = SourceSetting.parseAll([
+      {'key': 'quality', 'type': 'text', 'title': '画质', 'default': 'hd'},
+    ]);
+    void put(List<String> mirrors, SourceRoute images, String script) =>
+        db.upsertSource(
+          id: 'routes',
+          name: '源',
+          version: '1',
+          section: Section.video.id,
+          script: script,
+          mirrors: mirrors,
+          images: images,
+          settings: fields,
+          commonSettings: SourceSettingsPolicy.parseCommon([
+            {'key': 'pageSize', 'default': 20},
+          ]),
+        );
+    put(
+      ['https://main.example', 'https://mirror.example'],
+      SourceRoute.parse(['https://a.example', 'https://b.example']),
+      'old',
+    );
+    db.setSourceSiteConfig(
+      'routes',
+      db
+          .source('routes')!
+          .siteConfig
+          .copyWith(
+            mirrorIndex: 1,
+            domainOverride: 'custom.example',
+            account: 'account',
+            images: db
+                .source('routes')!
+                .siteConfig
+                .images
+                .copyWith(
+                  selected: 'https://b.example',
+                  custom: 'https://images-custom.example',
+                ),
+            settingValues: {'quality': 'sd'},
+            appSettingValues: {'pageSize': 42},
+          ),
+    );
+    put(
+      ['https://mirror.example', 'https://main.example'],
+      SourceRoute.parse(['https://b.example', 'https://a.example']),
+      'new',
+    );
+    var stored = db.source('routes')!.siteConfig;
+    expect(stored.selectedMirror, 'https://mirror.example');
+    expect(stored.safeMirrorIndex, 0);
+    expect(stored.images.selectedUrl, 'https://b.example');
+    expect(stored.images.resolved, 'https://images-custom.example');
+    expect(stored.resolvedDomain, 'https://custom.example');
+    expect(stored.account, 'account');
+    expect(stored.resolvedSettings['quality'], 'sd');
+    expect(stored.resolvedCommonSettings['pageSize'], 42);
+    db.upsertSource(
+      id: 'routes',
+      name: '新名字',
+      version: '1',
+      section: Section.video.id,
+      script: 'new',
+      mirrors: stored.mirrors,
+    );
+    stored = db.source('routes')!.siteConfig;
+    expect(stored.images.urls, hasLength(2));
+    expect(stored.resolvedSettings['quality'], 'sd');
+    final other = await openDatabase(Section.comic);
+    expect(other.source('routes'), isNull);
+    SectionDatabase.disposeAll();
+    await SectionScope.closeAll();
+    final reopened = await openDatabase(Section.video);
+    expect(
+      reopened.source('routes')!.siteConfig.resolvedCommonSettings['pageSize'],
+      42,
+    );
+    expect(
+      reopened.source('routes')!.siteConfig.images.resolved,
+      'https://images-custom.example',
+    );
+  });
 
   group('源版本恢复', () {
     test('同版本脚本更新也保存上一版，同脚本刷新不覆盖备份', () async {

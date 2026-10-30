@@ -353,6 +353,79 @@ void main() {
     expect(opened, isEmpty);
   });
 
+  test('网页播放保留47集和选中位置，后续切集通过原网页解析', () async {
+    final session = await start();
+    await session.dispatch('play', {
+      'url': 'https://fixture.invalid/12.m3u8',
+      'title': '兰香如故',
+      'options': {
+        'playlist': {
+          'id': 'playlist-1',
+          'itemId': 'drama-47',
+          'selected': 11,
+          'episodes': List.generate(
+            47,
+            (i) => {'title': '第${i + 1}集', 'line': '4K'},
+          ),
+        },
+      },
+    });
+    expect(opened.single.episodes, hasLength(47));
+    expect(opened.single.selected, 11);
+    expect(opened.single.itemId, 'drama-47');
+    final next = await session.resolveEpisode('playlist-1', 12, (script) async {
+      expect(script, 'window.__lumeResolveHomeEpisode(1,"playlist-1",12);');
+      await session.dispatch('episode.result', {
+        'job': 1,
+        'value': {
+          'url': 'https://fixture.invalid/13.m3u8',
+          'options': {
+            'headers': {'Referer': 'episode13'},
+          },
+        },
+      });
+    });
+    expect(next.uri.path, '/13.m3u8');
+    expect(next.headers['Referer'], 'episode13');
+    expect(await session.dispatch('episode.result', {'job': 1}), false);
+    await expectLater(
+      session.resolveEpisode('playlist-1', 13, (_) async {
+        await session.dispatch('episode.result', {'job': 2, 'error': '解析失败'});
+      }),
+      throwsStateError,
+    );
+    await expectLater(
+      session.resolveEpisode('playlist-1', 14, (_) async {
+        throw StateError('WebView disposed');
+      }),
+      throwsStateError,
+    );
+    final pending = session.resolveEpisode('playlist-1', 15, (_) async {
+      await session.close();
+    });
+    await expectLater(pending, throwsStateError);
+  });
+
+  test('拒绝越界或损坏的网页选集', () {
+    for (final index in [-1, 1]) {
+      expect(
+        () => HtmlHomePlayback.parse({
+          'url': 'https://fixture.invalid/movie.mp4',
+          'options': {
+            'playlist': {
+              'id': 'list',
+              'selected': index,
+              'episodes': [
+                {'title': '一集'},
+              ],
+            },
+          },
+        }),
+        throwsFormatException,
+      );
+    }
+  });
+
   test('库关闭重开后保留 HTML 和用户状态，不再依赖原文件路径', () async {
     store.writeLocalState(source.id, {
       'storage': {'theme': 'dark'},

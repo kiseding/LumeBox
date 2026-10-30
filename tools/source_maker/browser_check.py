@@ -17,12 +17,14 @@ class LocalHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'<h1>Public lesson</h1><video src="/lesson.mp4"></video>')
         elif self.path == '/static':
             self.wfile.write(b'<title>Public lessons</title><article class="video-card"><a href="/item/1">Lesson</a><img src="/cover.jpg"></article>')
+        elif self.path == '/slow-media':
+            self.wfile.write(b'<h1>Public lesson</h1><script type="application/ld+json">{"@type":"VideoObject","name":"Lesson"}</script><main id="player"></main><script>setTimeout(()=>{document.querySelector("#player").innerHTML="<video src=/lesson.mp4></video>"},1300)</script>')
         elif self.path.startswith('/api'):
             self.wfile.write(b'{"title":"Local API fixture","token":"must-be-redacted"}')
         elif self.path == '/interactive':
             self.wfile.write(b'<title>Actions</title><button id="more" onclick="fetch(\'/api?token=secret\').then(r=>r.json()).then(v=>{document.querySelector(\'#content\').innerHTML=\'<article class=video-card><a href=/item/1>Lesson</a><img src=/cover.jpg></article>\'})">More</button><div id="content"></div>')
         else:
-            self.wfile.write(b'<title>Local fixture</title><div id="root"></div><script>setTimeout(()=>{document.querySelector("#root").innerHTML="<p class=ready>dynamic fixture</p><article class=video-card><a href=/item/1>Lesson</a><img src=/cover.jpg></article>"},750)</script>')
+            self.wfile.write(b'<title>Local fixture</title><header><a href="/"><img src="/logo.svg"></a></header><a href="/privacy">Privacy</a><div id="root"></div><script>setTimeout(()=>{document.querySelector("#root").innerHTML="<p class=ready>dynamic fixture</p><article class=video-card><a href=/item/1>Lesson</a><img src=/cover.jpg></article>"},750)</script>')
 
 
 def browser_checks(report):
@@ -44,14 +46,35 @@ def browser_checks(report):
                 final, html = browser.get(url, selector='.ready')
                 assert '<p class="ready">dynamic fixture</p>' in html, html
                 assert browser.cookie_count >= 1
+                _, delayed_list = browser.get(url + 'slow-list', purpose='list')
+                assert '<article class="video-card">' in delayed_list
+                _, delayed_media = browser.get(url + 'slow-media', purpose='media')
+                assert '<video src="/lesson.mp4">' in delayed_media
+                results.setdefault(engine, {})['delayed_media'] = True
                 config, rows, _ = discover(url, 'video', browser)
                 config['useBrowser'] = True
                 chain = verify_config(config, rows, browser)
-                results[engine] = {'ok': True, 'cookies': browser.cookie_count, 'dynamic': True, 'chain': chain}
+                results[engine] = {'ok': True, 'cookies': browser.cookie_count, 'dynamic': True, 'delayed_media': True, 'chain': chain}
                 browser.actions = {'click':'#more','clicks':1,'wait':'.video-card'}
                 _, acted = browser.get(url + 'interactive', selector='.video-card')
                 assert '<article class="video-card">' in acted
                 results[engine]['click_wait'] = True
+                if engine in ('webview', 'playwright', 'selenium'):
+                    current_url, current_html = browser.current_page()
+                    assert current_url == url + 'interactive', current_url
+                    assert '<article class="video-card">' in current_html
+                    from browser_session import CurrentPageFetcher
+                    captured = CurrentPageFetcher(browser, current_url, current_html)
+                    current_config, current_rows, _ = discover(current_url, 'video', captured)
+                    assert current_config['url'] == current_url and current_rows
+                    results[engine]['current_page'] = True
+                else:
+                    try:
+                        browser.current_page()
+                    except ValueError as error:
+                        assert 'Scrapling' in str(error), error
+                    else:
+                        raise AssertionError('Scrapling must report unsupported manual tab capture')
                 if engine != 'webview':
                     records = browser.network()
                     assert any('Local API fixture' in json.dumps(r) for r in records), records

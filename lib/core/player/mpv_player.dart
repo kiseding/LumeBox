@@ -26,7 +26,23 @@ import 'player_stats.dart';
 ///
 /// 缓冲参数（[BufferingConfig]）：在**每次装载前**写进 libmpv（`cache` /
 /// `cache-pause-initial` / `demuxer-*`），也就是「起播前把缓冲策略定下来」。
-class MpvPlayer extends AbstractPlayer {
+class MpvPlayer extends AbstractPlayer implements PresentationEngine {
+  final _unknownPresentation = ValueNotifier<List<String>>(const [
+    '当前引擎未提供画面输出信息',
+  ]);
+  @override
+  ValueListenable<List<String>> get presentationStatus =>
+      _engine is PresentationEngine
+      ? (_engine as PresentationEngine).presentationStatus
+      : _unknownPresentation;
+  @override
+  Future<void> applyPresentation(PlaybackPresentation settings) async {
+    final engine = _engine;
+    if (engine is PresentationEngine) {
+      await (engine as PresentationEngine).applyPresentation(settings);
+    }
+  }
+
   MpvPlayer({
     required MpvEngine engine,
     this.engineLabel = 'MPV',
@@ -159,6 +175,7 @@ class MpvPlayer extends AbstractPlayer {
     await _engine.setSubtitleDelay(settings.subtitleDelay);
     await _engine.setHardwareDecoding(settings.hardwareDecoding);
     await setAudioDelay(settings.audioDelay);
+    await applyPresentation(settings.presentation);
   }
 
   // ------------------------------------------------------------ 轨道 / 字幕
@@ -199,6 +216,7 @@ class MpvPlayer extends AbstractPlayer {
     if (_disposed) return;
     _disposed = true;
     await _engine.dispose();
+    _unknownPresentation.dispose();
     _snapshot.dispose();
     _stats.dispose();
   }

@@ -29,6 +29,7 @@ import '../../shared/widgets/source_drag_tile.dart';
 import '../../shared/widgets/source_icon.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_content_rating.dart';
+import '../../core/source/source_content_category.dart';
 import '../cat/cat_subscription_page.dart';
 import 'source_import_dialog.dart';
 import 'source_preferences_page.dart';
@@ -41,7 +42,7 @@ enum _VideoImportAction { kazumi }
 
 enum VideoSourceType {
   all('全部'),
-  ordinary('普通'),
+  ordinary('JS 源'),
   cat('猫源'),
   python('PY'),
   audio('有声小说'),
@@ -96,6 +97,7 @@ Future<VideoSourceChoice?> showVideoSourcePicker({
 /// Type tabs belong only to the drawer. Subscriptions are headings, not another
 /// home-page selector. IDs and playback continue to use their original stores.
 class VideoSourcePicker extends StatefulWidget {
+  static const contentFilterKey = 'video.sourcePicker.contentCategory';
   const VideoSourcePicker({
     super.key,
     required this.manager,
@@ -117,6 +119,8 @@ class VideoSourcePicker extends StatefulWidget {
 class _VideoSourcePickerState extends State<VideoSourcePicker> {
   late final service = widget.service ?? CatService.instance;
   VideoSourceType type = VideoSourceType.all;
+  SourceContentCategory content = SourceContentCategory.movie;
+  bool _contentChosen = false;
   String query = '';
   List<SourceDescriptor> sources = [];
   String? currentId, error;
@@ -207,6 +211,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     if (mounted) {
       setState(() {
         webHomes = _webStore?.items ?? webHomes;
+        if (!PrivacySettings.instance.showAdult &&
+            content == SourceContentCategory.adult) {
+          content = SourceContentCategory.movie;
+        }
       });
     }
   }
@@ -239,6 +247,37 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         currentId = current?.id;
         webHomes = webStore.items;
         _chooseInitialType();
+        if (!_contentChosen) {
+          _contentChosen = true;
+          final saved =
+              ReadingLibrary.find(Section.video)
+                  ?.setting(VideoSourcePicker.contentFilterKey) ??
+              '';
+          final active = sources
+              .where((source) => source.id == currentId)
+              .firstOrNull;
+          final available = SourceContentCategory.groups.where(
+            (category) => sources.any(
+              (source) =>
+                  source.enabled &&
+                  SourceContentCategories.appliesTo(source) &&
+                  SourceContentVisibility.instance.allows(
+                    Section.video,
+                    source,
+                  ) &&
+                  SourceContentCategories.forSource(source) == category,
+            ),
+          );
+          content =
+              SourceContentCategory.fromId(saved) ??
+              (active != null && SourceContentCategories.appliesTo(active)
+                  ? SourceContentCategories.forSource(active)
+                  : available.firstOrNull ?? SourceContentCategory.movie);
+          if (!PrivacySettings.instance.showAdult &&
+              content == SourceContentCategory.adult) {
+            content = SourceContentCategory.movie;
+          }
+        }
         _revealSelectedType();
         loading = false;
         error = null;
@@ -255,12 +294,22 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
 
   bool matches(String text) => text.toLowerCase().contains(query);
 
+  void selectContent(SourceContentCategory value) {
+    setState(() {
+      content = value;
+      _locateCurrent = false;
+    });
+    ReadingLibrary.find(Section.video)
+        ?.setSetting(VideoSourcePicker.contentFilterKey, value.id);
+  }
+
   Future<void> edit(
     Section section,
     String id,
     String name,
     String url, {
     bool widgetParameters = false,
+    SourceDescriptor? descriptor,
   }) async {
     await Navigator.push<void>(
       context,
@@ -271,6 +320,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           name: name,
           siteUrl: url,
           showWidgetParameters: widgetParameters,
+          descriptor: descriptor,
         ),
       ),
     );
@@ -384,6 +434,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
             ? SubscriptionCatalog.audiobooksUrl
             : null,
         title: target == VideoSourceType.audio ? '导入有声小说源' : null,
+        initialContentCategory:
+            target == VideoSourceType.ordinary &&
+                content != SourceContentCategory.all
+            ? content.id
+            : '',
         helpText: target == VideoSourceType.audio
             ? '支持听书 JS、音频源包和订阅链接，导入后显示在有声小说标签。'
             : null,
@@ -706,8 +761,11 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
     String siteUrl = '',
   }) {
     final prefs = SourcePreferences.read(section, id);
+    final js =
+        descriptor != null && SourceContentCategories.appliesTo(descriptor);
     return SourceSwipeTile(
       key: ValueKey('video-picker-swipe-$id'),
+      height: SourceCardMetrics.height,
       actions: [
         SourceSwipeAction(
           label: '删除',
@@ -719,6 +777,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         key: selected ? _currentSourceKey : null,
         tapKey: ValueKey('video-picker-source-$id'),
         title: name,
+        titleMaxLines: js ? 2 : 1,
+        height: SourceCardMetrics.height,
         subtitle: Row(
           children: [
             Flexible(
@@ -728,7 +788,10 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (SourceContentRating.isAdult(id, name))
+            if (SourceContentRating.isAdult(id, name) ||
+                (js &&
+                    SourceContentCategories.forSource(descriptor) ==
+                        SourceContentCategory.adult))
               const Padding(
                 padding: EdgeInsets.only(left: 4),
                 child: SourceRatingBadge(compact: true),
@@ -811,13 +874,32 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
               matches('${s.name} ${s.id} ${s.group}'),
         )
         .toList();
+    final contentCounts = {
+      for (final category in SourceContentCategory.groups)
+        category: ordinary
+            .where(
+              (source) =>
+                  SourceContentCategories.appliesTo(source) &&
+                  SourceContentCategories.forSource(source) == category,
+            )
+            .length,
+    };
+    if (type == VideoSourceType.ordinary &&
+        content != SourceContentCategory.all) {
+      ordinary.removeWhere(
+        (source) => SourceContentCategories.forSource(source) != content,
+      );
+    }
     final originalOrder = sources.map((s) => s.id).toList();
+    final compareOrder = SourceOrder.comparator(Section.video, originalOrder);
+    final pinned = {
+      for (final source in ordinary)
+        source.id: SourcePreferences.read(Section.video, source.id).pinned,
+    };
     ordinary.sort((a, b) {
-      final pa = SourcePreferences.read(Section.video, a.id).pinned;
-      final pb = SourcePreferences.read(Section.video, b.id).pinned;
-      return pa != pb
-          ? (pa ? -1 : 1)
-          : SourceOrder.compare(Section.video, a.id, b.id, originalOrder);
+      final pa = pinned[a.id]!;
+      final pb = pinned[b.id]!;
+      return pa != pb ? (pa ? -1 : 1) : compareOrder(a.id, b.id);
     });
     final records = service.subscriptions.where((s) => s.enabled).toList();
     final groups = <(CatSubscription, List<CatSite>)>[];
@@ -835,7 +917,8 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
           )
           .toList();
       final order = record.sites.map((s) => s.id).toList();
-      sites.sort((a, b) => SourceOrder.compare(Section.cat, a.id, b.id, order));
+      final compareSites = SourceOrder.comparator(Section.cat, order);
+      sites.sort((a, b) => compareSites(a.id, b.id));
       if (sites.isNotEmpty ||
           (type != VideoSourceType.audio &&
               record.sites.isEmpty &&
@@ -917,6 +1000,59 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         (!showOrdinary || ordinary.isEmpty) &&
         (!showCat || groups.isEmpty) &&
         (!showWeb || filteredWeb.isEmpty);
+    Widget sourceGrid(List<SourceDescriptor> entries, VideoSourceType kind) =>
+        grid([
+          for (final s in entries)
+            SourceDragTile(
+              key: ValueKey('video-picker-drag-${s.id}'),
+              id: s.id,
+              name: s.name,
+              accepts: (id) => entries.any((s) => s.id == id),
+              onMove: (from, to) async {
+                final ids = entries.map((s) => s.id).toList();
+                await SourceOrder.move(
+                  Section.video,
+                  originalOrder,
+                  ids,
+                  ids.indexOf(from),
+                  ids.indexOf(to),
+                );
+                changed();
+              },
+              child: card(
+                id: s.id,
+                name: s.name,
+                subtitle: _ordinarySelected(s.id)
+                    ? '当前使用'
+                    : kind == VideoSourceType.ordinary
+                    ? (SourcePreferences.read(Section.video, s.id).pinned
+                          ? '已置顶'
+                          : SourceContentCategories.forSource(s).label)
+                    : '${s.isAudio
+                          ? '音频'
+                          : s.isKazumi
+                          ? 'Kazumi'
+                          : s.runtimeKind == 'python'
+                          ? 'PY'
+                          : s.runtimeKind == 'module'
+                          ? '模块'
+                          : 'JS'} · ${s.version}',
+                descriptor: s,
+                selected: _ordinarySelected(s.id),
+                onTap: () =>
+                    Navigator.pop(context, VideoSourceChoice.ordinary(s.id)),
+                onDelete: () => _deleteOrdinary(s),
+                onMore: () => edit(
+                  Section.video,
+                  s.id,
+                  s.name,
+                  s.siteUrl,
+                  widgetParameters: s.runtimeKind == 'module',
+                  descriptor: s,
+                ),
+              ),
+            ),
+        ]);
     Widget runtimeGroup(VideoSourceType kind) {
       final entries = ordinary.where((source) => kind.accepts(source)).toList();
       if (entries.isEmpty) return const SizedBox.shrink();
@@ -925,60 +1061,48 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
         VideoSourceType.module => '模块 · ESM / CommonJS',
         VideoSourceType.kazumi => 'Kazumi · 动漫规则源',
         VideoSourceType.audio => '有声小说 · 音频源',
-        _ => '普通 · JS 源',
+        _ => 'JS 源',
       };
       return Column(
         key: ValueKey('video-source-group-${kind.name}'),
-        children: [
-          heading(title, entries.length),
-          grid([
-            for (final s in entries)
-              SourceDragTile(
-                key: ValueKey('video-picker-drag-${s.id}'),
-                id: s.id,
-                name: s.name,
-                accepts: (id) => entries.any((s) => s.id == id),
-                onMove: (from, to) async {
-                  final ids = entries.map((s) => s.id).toList();
-                  await SourceOrder.move(
-                    Section.video,
-                    originalOrder,
-                    ids,
-                    ids.indexOf(from),
-                    ids.indexOf(to),
-                  );
-                  changed();
-                },
-                child: card(
-                  id: s.id,
-                  name: s.name,
-                  subtitle: _ordinarySelected(s.id)
-                      ? '当前使用'
-                      : '${s.isAudio
-                            ? '音频'
-                            : s.isKazumi
-                            ? 'Kazumi'
-                            : s.runtimeKind == 'python'
-                            ? 'PY'
-                            : s.runtimeKind == 'module'
-                            ? '模块'
-                            : 'JS'} · ${s.version}',
-                  descriptor: s,
-                  selected: _ordinarySelected(s.id),
-                  onTap: () =>
-                      Navigator.pop(context, VideoSourceChoice.ordinary(s.id)),
-                  onDelete: () => _deleteOrdinary(s),
-                  onMore: () => edit(
-                    Section.video,
-                    s.id,
-                    s.name,
-                    s.siteUrl,
-                    widgetParameters: s.runtimeKind == 'module',
-                  ),
-                ),
-              ),
-          ]),
-        ],
+        children: kind != VideoSourceType.ordinary
+            ? [heading(title, entries.length), sourceGrid(entries, kind)]
+            : [
+                if (type == VideoSourceType.all) heading(title, entries.length),
+                for (final category in SourceContentCategory.groups)
+                  if (entries.any(
+                    (source) =>
+                        SourceContentCategories.forSource(source) == category,
+                  )) ...[
+                    if (type == VideoSourceType.all ||
+                        content == SourceContentCategory.all)
+                      KeyedSubtree(
+                        key: ValueKey(
+                          'video-source-content-heading-${category.id}',
+                        ),
+                        child: heading(
+                          category.label,
+                          entries
+                              .where(
+                                (source) =>
+                                    SourceContentCategories.forSource(source) ==
+                                    category,
+                              )
+                              .length,
+                        ),
+                      ),
+                    sourceGrid(
+                      entries
+                          .where(
+                            (source) =>
+                                SourceContentCategories.forSource(source) ==
+                                category,
+                          )
+                          .toList(),
+                      kind,
+                    ),
+                  ],
+              ],
       );
     }
 
@@ -1058,6 +1182,101 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                       ],
                     ),
                   ),
+                  if (type == VideoSourceType.ordinary)
+                    Padding(
+                      key: const ValueKey('video-source-content-filter'),
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: LumeTheme.surfaceAlt,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final categories = SourceContentCategory.values
+                                  .where(
+                                    (category) =>
+                                        category !=
+                                            SourceContentCategory.adult ||
+                                        PrivacySettings.instance.showAdult,
+                                  )
+                                  .toList();
+                              final minWidth =
+                                  MediaQuery.textScalerOf(context).scale(13) *
+                                      3 +
+                                  MediaQuery.textScalerOf(context).scale(11) *
+                                      2 +
+                                  12;
+                              final columns =
+                                  constraints.maxWidth / categories.length >=
+                                      minWidth
+                                  ? categories.length
+                                  : 2;
+                              return Wrap(
+                                children: [
+                                  for (final category in categories)
+                                    SizedBox(
+                                      width: constraints.maxWidth / columns,
+                                      child: Semantics(
+                                        selected: content == category,
+                                        child: TextButton(
+                                          key: ValueKey(
+                                            'video-source-content-${category.id}',
+                                          ),
+                                          onPressed: () =>
+                                              selectContent(category),
+                                          style: TextButton.styleFrom(
+                                            minimumSize: const Size(0, 30),
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 2,
+                                              vertical: 4,
+                                            ),
+                                            foregroundColor: content == category
+                                                ? Theme.of(context)
+                                                      .colorScheme
+                                                      .primary
+                                                : LumeTheme.muted,
+                                            backgroundColor: content == category
+                                                ? LumeTheme.surface
+                                                : Colors.transparent,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(9),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                category.label,
+                                                maxLines: 1,
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${category == SourceContentCategory.all ? contentCounts.values.fold<int>(0, (sum, value) => sum + value) : contentCounts[category] ?? 0}',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 6),
                   Expanded(
                     child: ScrollConfiguration(
@@ -1080,7 +1299,7 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                             )
                           : SourcePickerScrollList(
                               key: ValueKey(
-                                'video-picker-list-${type.name}-$query',
+                                'video-picker-list-${type.name}-${type == VideoSourceType.ordinary ? content.id : ''}-$query',
                               ),
                               focusKey: _locateCurrent && hasFocus
                                   ? _currentSourceKey
@@ -1101,7 +1320,16 @@ class _VideoSourcePickerState extends State<VideoSourcePicker> {
                                     child: Column(
                                       children: [
                                         Text(
-                                          query.isEmpty ? '还没有可用的源' : '没有匹配的源',
+                                          query.isNotEmpty
+                                              ? '没有匹配的源'
+                                              : type ==
+                                                        VideoSourceType
+                                                            .ordinary &&
+                                                    content !=
+                                                        SourceContentCategory
+                                                            .all
+                                              ? '「${content.label}」里还没有源'
+                                              : '还没有可用的源',
                                         ),
                                         if (query.isEmpty)
                                           TextButton(

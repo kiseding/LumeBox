@@ -29,6 +29,8 @@ class NetworkRequest {
     this.timeout,
     this.reuseVerifiedSession = false,
     this.cancellation,
+    this.isForeground,
+    this.textResponse = false,
   });
 
   final String url;
@@ -56,7 +58,16 @@ class NetworkRequest {
   final Duration? timeout;
   final bool reuseVerifiedSession;
   final NetworkCancellation? cancellation;
-  NetworkRequest withCancellation(NetworkCancellation token) => NetworkRequest(
+
+  /// Evaluated when a slot opens, so a visible image can promote its prefetch.
+  final bool Function()? isForeground;
+
+  /// Only text source requests may use WebKit as an iOS TLS compatibility path.
+  final bool textResponse;
+  NetworkRequest withCancellation(
+    NetworkCancellation token, {
+    bool Function()? isForeground,
+  }) => NetworkRequest(
     url: url,
     method: method,
     headers: headers,
@@ -71,6 +82,8 @@ class NetworkRequest {
     timeout: timeout,
     reuseVerifiedSession: reuseVerifiedSession,
     cancellation: token,
+    isForeground: isForeground ?? this.isForeground,
+    textResponse: textResponse,
   );
 
   /// 响应体读取上限（字节）；null = 读完整。见 [readResponseBody] 的说明
@@ -190,7 +203,7 @@ class NetworkQueue {
   void clearInvalidLinks() => _deadLinks.clear();
 
   /// 等额度的请求（条件变量语义：释放时全部唤醒，各自重新检查）。
-  final List<Completer<void>> _waiters = <Completer<void>>[];
+  final _waiters = <Completer<void>, bool Function()>{};
 
   /// 诊断计数（测试与日志用）。
   int get activeGlobal => _activeGlobal;
@@ -234,7 +247,11 @@ class NetworkQueue {
         try {
           active.token.check();
           final response = await _send(
-            request.withCancellation(active.token),
+            request.withCancellation(
+              active.token,
+              isForeground: () =>
+                  active.priorities.any((priority) => priority()),
+            ),
             key,
           );
           active.result.complete(
@@ -254,12 +271,15 @@ class NetworkQueue {
       });
     }
     final active = flight;
+    bool foreground() => request.isForeground?.call() ?? true;
+    active.priorities.add(foreground);
     active.consumers++;
     final result = consumer == null
         ? active.result.future
         : consumer.guard(active.result.future);
     return result.whenComplete(() {
       active.consumers--;
+      active.priorities.remove(foreground);
       if (active.consumers == 0 && !active.finished) {
         if (identical(_inFlight[key], active)) _inFlight.remove(key);
         active.token.cancel();
@@ -278,6 +298,7 @@ class NetworkQueue {
             request.allowBadCertificate,
             request.followRedirects,
             request.reuseVerifiedSession,
+            request.textResponse,
             request.timeout?.inMicroseconds,
             request.maxBytes,
             request.retryOn,
@@ -300,7 +321,7 @@ class NetworkQueue {
     var attempt = 0;
     final watch = Stopwatch()..start();
     while (true) {
-      await _acquire(host, image, token);
+      await _acquire(host, image, token, request.isForeground);
       NetworkResponse response;
       try {
         token.check();
@@ -521,6 +542,7 @@ class NetworkQueue {
     String host,
     bool image,
     NetworkCancellation token,
+    bool Function()? isForeground,
   ) async {
     while (true) {
       token.check();
@@ -542,7 +564,7 @@ class NetworkQueue {
         return;
       }
       final waiter = Completer<void>();
-      _waiters.add(waiter);
+      _waiters[waiter] = isForeground ?? () => true;
       try {
         await token.guard(waiter.future);
       } finally {
@@ -563,15 +585,22 @@ class NetworkQueue {
 
     // 条件变量语义：唤醒全部等待者，各自重新检查额度。
     if (_waiters.isEmpty) return;
-    final pending = List<Completer<void>>.of(_waiters);
+    final pending = _waiters.entries
+        .map((entry) => (ready: entry.key, foreground: entry.value()))
+        .toList();
     _waiters.clear();
-    for (final waiter in pending) {
+    for (final entry in [
+      ...pending.where((entry) => entry.foreground),
+      ...pending.where((entry) => !entry.foreground),
+    ]) {
+      final waiter = entry.ready;
       if (!waiter.isCompleted) waiter.complete();
     }
   }
 }
 
 class _SharedNetworkFlight {
+  final priorities = <bool Function()>{};
   final token = NetworkCancellation();
   final result = Completer<NetworkResponse>();
   int consumers = 0;

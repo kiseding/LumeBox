@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../settings/playback_settings_group.dart';
-
 import '../../core/player/playback_orientation.dart';
 import '../../core/player/player_capabilities.dart';
 import '../../core/player/player_factory.dart';
@@ -49,21 +47,10 @@ class PlayerSettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassScaffold(
       effectModule: GlassModule.video,
-      behindBar: true,
       title: '播放器设置',
       child: ListView(
-        padding: GlassScaffold.barInset(context).add(const EdgeInsets.all(16)),
+        padding: const EdgeInsets.all(16),
         children: <Widget>[
-          ListTile(
-            leading: const Icon(Icons.comment_outlined),
-            title: const Text('弹幕服务'),
-            subtitle: const Text('内置本机服务 · 弹弹play 开放平台 · 自定义服务器'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push<void>(
-              context,
-              MaterialPageRoute(builder: (_) => const DanmakuSourcesPage()),
-            ),
-          ),
           PlayerSettingsSheet(
             settings: settings,
             // 全局页没有播放器实例：按「设置里选的内核」查同一张能力表。
@@ -77,9 +64,17 @@ class PlayerSettingsPage extends StatelessWidget {
             danmaku: danmaku,
             onDanmakuChanged: onDanmakuChanged,
             embedded: true,
+            danmakuControls: ListTile(
+              leading: const Icon(Icons.comment_outlined),
+              title: const Text('弹幕服务'),
+              subtitle: const Text('内置本机服务 · 弹弹play 开放平台 · 自定义服务器'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(builder: (_) => const DanmakuSourcesPage()),
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          const PlaybackSettingsGroup(),
         ],
       ),
     );

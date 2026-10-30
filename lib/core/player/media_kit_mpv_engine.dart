@@ -1,3 +1,5 @@
+import 'playback_presentation.dart';
+
 import 'dart:async';
 import 'dart:ffi';
 
@@ -34,7 +36,11 @@ import 'player_capabilities.dart';
 /// 句柄（`ctx`）做成了公开字段**，libmpv 的客户端 API 又是线程安全的，
 /// 因此这一层可以直接调用 `mpv_set_property_string`——不 fork、不反射、不猜。
 class MediaKitMpvEngine
-    implements MpvEngine, EnginePropertyCapable, TrackCapable {
+    implements
+        MpvEngine,
+        EnginePropertyCapable,
+        TrackCapable,
+        PresentationEngine {
   /// 私有构造：只接受**已经**建好的 Player。
   ///
   /// 外部只能走 [create]——它保证 media_kit 先初始化、再碰任何 media_kit API。
@@ -50,10 +56,10 @@ class MediaKitMpvEngine
           : const VideoControllerConfiguration(),
     );
     _subscribe();
-    _speedTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _sampleDownloadSpeed(),
-    );
+    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _sampleDownloadSpeed();
+      unawaited(_readPresentationStatus());
+    });
   }
 
   // Position reports are not decode-frame callbacks. PiP must use its bounded
@@ -80,6 +86,7 @@ class MediaKitMpvEngine
     final player = Player(
       configuration: PlayerConfiguration(
         title: title ?? 'Lume Box',
+        libass: true,
         // 日志交给宿主日志层：media_kit 自己的控制台输出关掉。
         logLevel: MPVLogLevel.error,
       ),
@@ -183,11 +190,15 @@ class MediaKitMpvEngine
     final uri = await _highestHls.resolve(
       Uri.parse(request.url),
       request.headers,
+      presentation: _presentation.copyWith(hdrEnabled: false),
     );
     if (_disposed) {
       await _highestHls.close();
       return;
     }
+    _pendingAudioPreference = true;
+    _appliedPresentation.clear();
+    _rejectedPresentation.clear();
     _resetMediaState();
     _networkMedia = [
       'http',
@@ -214,6 +225,8 @@ class MediaKitMpvEngine
       }
       // 字幕状态也要在起播后补挂一次（媒体换了，轨道与延迟都得重设）。
       await _applySubtitleState();
+      await applyPresentation(_presentation);
+      await _preferAudio();
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       _fail('打开失败：$error');
@@ -361,7 +374,9 @@ class MediaKitMpvEngine
   Future<List<PlayerTrack>> audioTracks() async {
     if (_disposed) return const <PlayerTrack>[];
     final selected = _player.state.track.audio.id;
-    final tracks = _player.state.tracks.audio;
+    final tracks = _player.state.tracks.audio
+        .where((t) => t.id != 'auto' && t.id != 'no')
+        .toList();
     return <PlayerTrack>[
       for (var index = 0; index < tracks.length; index++)
         PlayerTrack(
@@ -384,7 +399,9 @@ class MediaKitMpvEngine
   Future<List<PlayerTrack>> subtitleTracks() async {
     if (_disposed) return const <PlayerTrack>[];
     final selected = _player.state.track.subtitle.id;
-    final tracks = _player.state.tracks.subtitle;
+    final tracks = _player.state.tracks.subtitle
+        .where((t) => t.id != 'auto' && t.id != 'no')
+        .toList();
     return <PlayerTrack>[
       for (var index = 0; index < tracks.length; index++)
         PlayerTrack(
@@ -424,6 +441,7 @@ class MediaKitMpvEngine
   @override
   Future<void> selectAudioTrack(String id) async {
     if (_disposed) return;
+    _pendingAudioPreference = false;
     try {
       await _player.setAudioTrack(AudioTrack(id, null, null));
     } catch (error, stackTrace) {
@@ -450,7 +468,10 @@ class MediaKitMpvEngine
   Future<bool> loadSubtitleFile(String path) async {
     if (_disposed) return false;
     try {
-      final uri = path.startsWith('file:') ? path : Uri.file(path).toString();
+      final scheme = Uri.tryParse(path)?.scheme;
+      final uri = ['http', 'https', 'file'].contains(scheme)
+          ? path
+          : Uri.file(path).toString();
       await _player.setSubtitleTrack(SubtitleTrack.uri(uri));
       LumeLog.info('[mpv] 已加载外挂字幕：$path');
       return true;
@@ -483,6 +504,17 @@ class MediaKitMpvEngine
     // 样式由 buildView 的 SubtitleViewConfiguration 消费；这里换掉值并让
     // 渲染面重建（_styleRevision 变化触发上层 rebuild）。
     _styleRevision.value++;
+    await _setProperties({
+      'sub-scale': '${style.fontScale}',
+      'sub-font-size': '32',
+      'sub-color': '#${style.colorArgb.toRadixString(16).padLeft(8, '0')}',
+      'sub-border-size': '${style.outlineWidth}',
+      'sub-back-color':
+          '#${(style.backgroundOpacity * 255).round().toRadixString(16).padLeft(2, '0')}000000',
+      'sub-shadow-offset': '${style.shadowStrength * 2.5}',
+      'sub-pos': '${(100 - style.offsetY * 20).clamp(0, 100)}',
+      'sub-font': style.fontFamily.isEmpty ? 'sans-serif' : style.fontFamily,
+    });
   }
 
   /// 字幕样式版本：变化即通知渲染面重建（`Video` 是 const 构造，靠 key 换新）。
@@ -601,35 +633,142 @@ class MediaKitMpvEngine
     }
   }
 
+  PlaybackPresentation _presentation = const PlaybackPresentation();
+  final _presentationStatus = ValueNotifier<List<String>>(const ['显示：SDR 纹理']);
+  @override
+  ValueListenable<List<String>> get presentationStatus => _presentationStatus;
+  final Map<String, String> _appliedPresentation = {};
+  final Set<String> _rejectedPresentation = {};
+  @override
+  Future<void> applyPresentation(PlaybackPresentation settings) async {
+    final audioChanged = _presentation.dolbyAudio != settings.dolbyAudio;
+    final subtitleModeChanged =
+        _presentation.originalSubtitleStyle != settings.originalSubtitleStyle;
+    _presentation = settings;
+    final properties = {
+      ...settings.mpvProperties,
+      'sub-visibility': _subtitlesEnabled && settings.originalSubtitleStyle
+          ? 'yes'
+          : 'no',
+    };
+    for (final entry in properties.entries) {
+      if (_appliedPresentation[entry.key] == entry.value) continue;
+      if (await setEngineProperty(entry.key, entry.value)) {
+        _appliedPresentation[entry.key] = entry.value;
+        _rejectedPresentation.remove(entry.key);
+      } else {
+        _rejectedPresentation.add(entry.key);
+      }
+    }
+    if (subtitleModeChanged && !_disposed) _styleRevision.value++;
+    if (audioChanged) {
+      _pendingAudioPreference = true;
+      await _preferAudio();
+    }
+    await _readPresentationStatus();
+  }
+
+  bool _pendingAudioPreference = true;
+  Future<void> _preferAudio() async {
+    if (_disposed || !_pendingAudioPreference) return;
+    final tracks = _player.state.tracks.audio.where(
+      (t) => t.id != 'auto' && t.id != 'no',
+    );
+    final preferred = tracks.where((t) {
+      final codec = t.codec?.toLowerCase() ?? '';
+      return ['ac3', 'eac3', 'ac4', 'truehd'].contains(codec) ==
+          _presentation.dolbyAudio;
+    }).firstOrNull;
+    if (tracks.isEmpty) return;
+    _pendingAudioPreference = false;
+    if (preferred != null) await _player.setAudioTrack(preferred);
+  }
+
+  bool _readingPresentation = false;
+  Future<void> _readPresentationStatus() async {
+    if (_disposed || _readingPresentation) return;
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    _readingPresentation = true;
+    try {
+      Future<String?> read(String key) async {
+        try {
+          return await platform
+              .getProperty(key)
+              .timeout(const Duration(seconds: 1));
+        } catch (_) {
+          return null;
+        }
+      }
+
+      final gamma = await read('video-params/gamma');
+      final primaries = await read('video-params/primaries');
+      final audio = await read('audio-codec-name');
+      final channels = await read('audio-params/channel-count');
+      if (_disposed) return;
+      final range = gamma == 'pq'
+          ? 'HDR（PQ）'
+          : gamma == 'hlg'
+          ? 'HLG'
+          : gamma == null || gamma.isEmpty
+          ? '待识别'
+          : 'SDR';
+      _presentationStatus.value = [
+        '片源：$range${primaries == null ? '' : ' · $primaries'}',
+        '显示：SDR 纹理；HDR 内容使用色调映射',
+        if (audio != null && audio.isNotEmpty)
+          '音轨：$audio${channels == null ? '' : ' · $channels 声道'}（不代表 Atmos 已输出）',
+        _presentation.enhances
+            ? '画质增强：${_presentation.preset.label}${_rejectedPresentation.isEmpty ? '' : '（部分参数未被内核接受）'}'
+            : '画质增强：关闭',
+        if (_rejectedPresentation.isNotEmpty)
+          '未生效参数：${_rejectedPresentation.join(' / ')}',
+        _presentation.originalSubtitleStyle
+            ? '字幕：libass 原始样式'
+            : '字幕：统一文字样式（ASS 特效已关闭）',
+      ];
+    } finally {
+      _readingPresentation = false;
+    }
+  }
+
   @override
   Future<void> setSubtitleEnabled(bool enabled) async {
     if (_disposed) return;
     _subtitlesEnabled = enabled;
-    try {
-      await _player.setSubtitleTrack(
-        enabled ? SubtitleTrack.auto() : SubtitleTrack.no(),
-      );
-    } catch (error, stackTrace) {
-      LumeLog.error(error, stackTrace);
-    }
+    await _setProperties({
+      'sub-visibility': enabled && _presentation.originalSubtitleStyle
+          ? 'yes'
+          : 'no',
+    });
   }
 
   @override
   Widget buildView() => ValueListenableBuilder<int>(
     valueListenable: _styleRevision,
-    builder: (context, revision, _) => Video(
-      key: ValueKey<int>(revision),
-      controller: _video,
-      pauseUponEnteringBackgroundMode: false,
-      resumeUponEnteringForegroundMode: false,
-      // 控制栏由上层画：内核不自带 UI（换内核上层零改动的前提）。
-      controls: NoVideoControls,
-      fit: BoxFit.contain,
-      fill: Colors.black,
-      wakelock: true,
-      // 字幕样式：media_kit 的字幕层是 Flutter Widget，收一个完整 TextStyle，
-      // 因此字号 / 颜色 / 描边都真实生效（描边用多层阴影模拟）。
-      subtitleViewConfiguration: _subtitleConfiguration(),
+    builder: (context, revision, _) => Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Video(
+          key: ValueKey<int>(revision),
+          controller: _video,
+          pauseUponEnteringBackgroundMode: false,
+          resumeUponEnteringForegroundMode: false,
+          controls: NoVideoControls,
+          fit: BoxFit.contain,
+          fill: Colors.black,
+          wakelock: true,
+        ),
+        if (!_presentation.originalSubtitleStyle)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: SubtitleView(
+                controller: _video,
+                configuration: _subtitleConfiguration(),
+              ),
+            ),
+          ),
+      ],
     ),
   );
 
@@ -652,7 +791,7 @@ class MediaKitMpvEngine
       textScaler: TextScaler.noScaling,
       // 垂直偏移：改字幕层到底边的距离。正偏移 = 离底边更远（视觉上移）。
       padding: EdgeInsets.only(
-        bottom: 24 + style.offsetY.clamp(-1.0, 1.0) * 120,
+        bottom: (24 + style.offsetY.clamp(-1.0, 1.0) * 120).clamp(0, 160),
       ),
       style: TextStyle(
         height: 1.4,
@@ -689,6 +828,7 @@ class MediaKitMpvEngine
     await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
+    _presentationStatus.dispose();
     _speedTimer?.cancel();
     for (final subscription in _subscriptions) {
       try {
@@ -799,6 +939,7 @@ class MediaKitMpvEngine
         _emit();
       }),
       streams.tracks.listen(_applyTracks),
+      streams.track.listen((_) => _applyTracks(_player.state.tracks)),
       streams.error.listen((value) {
         _fail(value);
       }),
@@ -807,8 +948,13 @@ class MediaKitMpvEngine
 
   /// HUD 参数来自 libmpv 的轨道列表：编码 / 帧率 / 码率（bps → kbps）。
   void _applyTracks(Tracks tracks) {
+    if (_pendingAudioPreference) unawaited(_preferAudio());
     final video = tracks.video.isEmpty ? null : tracks.video.first;
-    final audio = tracks.audio.isEmpty ? null : tracks.audio.first;
+    final audio =
+        tracks.audio
+            .where((t) => t.id == _player.state.track.audio.id)
+            .firstOrNull ??
+        tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').firstOrNull;
     _videoCodec = video?.codec;
     _audioCodec = audio?.codec;
     _fps = video?.fps;

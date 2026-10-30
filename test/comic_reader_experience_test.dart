@@ -1,3 +1,5 @@
+import 'package:lume_box/core/reading/reading_identity.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -47,6 +49,21 @@ class _CountingTranslationTools extends ComicImageTools {
       ),
     ];
   }
+}
+
+class _ServerTranslationTools extends ComicImageTools {
+  _ServerTranslationTools()
+    : super(settings: ComicImageToolsSettings()..serverTranslation = true);
+  int serverCalls = 0;
+  @override
+  Future<Uint8List> translateImageOnServer(Uint8List bytes) async {
+    serverCalls++;
+    return bytes;
+  }
+
+  @override
+  Future<List<ComicTextRegion>> translate(Uint8List bytes) async =>
+      throw StateError('Server mode must bypass local OCR');
 }
 
 class _EmptyTranslationTools extends ComicImageTools {
@@ -617,6 +634,57 @@ void main() {
     expect(controller.offset, closeTo(position, .01));
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('整页服务器模式从阅读器调用服务器而不是本地OCR', (tester) async {
+    final tools = _ServerTranslationTools();
+    await pumpReader(tester, tools: tools, imageCount: 1);
+    await menu(tester, '翻译');
+    await selectMenuItem(tester, '当前页');
+    expect(tools.serverCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('全局实时翻译开启后漫画无需手动开启', (tester) async {
+    final settings = ComicImageToolsSettings.instance;
+    settings.liveTranslation = true;
+    addTearDown(() => settings.liveTranslation = false);
+    final tools = _CountingTranslationTools();
+    await pumpReader(tester, tools: tools, imageCount: 2);
+    await tester.pump(const Duration(milliseconds: 700));
+    await settle(tester);
+    expect(tools.calls, 1);
+    tester.widget<Slider>(find.byKey(const Key('comic.pageSlider'))).onChanged!(
+      1,
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await settle(tester);
+    expect(tools.calls, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('实时翻译当前页并在翻页后继续，关闭后停止', (tester) async {
+    final tools = _CountingTranslationTools();
+    await pumpReader(tester, tools: tools, imageCount: 3);
+    await menu(tester, '翻译');
+    await selectMenuItem(tester, '实时翻译');
+    expect(tools.calls, 1);
+    tester.widget<Slider>(find.byKey(const Key('comic.pageSlider'))).onChanged!(
+      1,
+    );
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 700));
+    await settle(tester);
+    expect(tools.calls, 2);
+    await menu(tester, '翻译');
+    await selectMenuItem(tester, '关闭');
+    tester.widget<Slider>(find.byKey(const Key('comic.pageSlider'))).onChanged!(
+      2,
+    );
+    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(tools.calls, 2);
     expect(tester.takeException(), isNull);
   });
 
@@ -1302,7 +1370,7 @@ void main() {
       createdAt: DateTime.now(),
     );
     library.setSetting(
-      ComicBookmarks.keyFor('item-1'),
+      ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
       ComicBookmarks.encode([bookmark]),
     );
     const key = 'comic.annotations.fake-src.item-1';
@@ -1346,7 +1414,11 @@ void main() {
     await settle(tester);
     expect(find.text('修改后的远章备注'), findsNothing);
     expect(
-      ComicBookmarks.decode(library.setting(ComicBookmarks.keyFor('item-1'))),
+      ComicBookmarks.decode(
+        library.setting(
+          ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
+        ),
+      ),
       hasLength(1),
     );
     await tester.tap(find.text(bookmark.describe()));
@@ -1361,7 +1433,11 @@ void main() {
     await tester.tap(find.byTooltip('删除书签'));
     await settle(tester);
     expect(
-      ComicBookmarks.decode(library.setting(ComicBookmarks.keyFor('item-1'))),
+      ComicBookmarks.decode(
+        library.setting(
+          ComicBookmarks.keyFor(ReadingIdentity.key('fake-src', 'item-1')),
+        ),
+      ),
       isEmpty,
     );
   });

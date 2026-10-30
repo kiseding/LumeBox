@@ -1,35 +1,22 @@
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-/// Keep the bottom poster's natural tone instead of forcing every image dark.
-Color? immersivePosterPageColor(
-  List<(Color, int)> swatches, {
-  Color? darkMuted,
-  Color? dominant,
-}) {
-  final colored = swatches.where((entry) {
-    final tone = HSLColor.fromColor(entry.$1);
-    return tone.saturation >= .32 &&
-        tone.lightness >= .19 &&
-        tone.lightness <= .6;
-  }).toList()..sort((a, b) => b.$2.compareTo(a.$2));
-  final dominantTone = dominant == null ? null : HSLColor.fromColor(dominant);
-  final chosen = dominantTone != null && dominantTone.lightness >= .24
-      ? dominant
-      : colored.firstOrNull?.$1 ?? darkMuted ?? dominant;
-  if (chosen == null) return null;
-  final tone = HSLColor.fromColor(chosen);
-  var surface = tone
-      .withSaturation(tone.saturation.clamp(0, .45))
-      .withLightness(tone.lightness.clamp(.24, .48))
-      .withAlpha(1);
-  // White detail labels still need contrast on bright yellow/green posters.
-  while (surface.toColor().computeLuminance() > .18) {
-    surface = surface.withLightness(surface.lightness - .005);
-  }
-  return surface.toColor();
+/// Continue the poster tone through the synopsis into a deeper episode surface.
+/// The image is opaque above this layer; the tint becomes visible as it fades.
+LinearGradient detailPosterSurfaceGradient(Color color) {
+  final tone = HSLColor.fromColor(color);
+  final lifted = tone
+      .withLightness(tone.lightness + (1 - tone.lightness) * .08)
+      .toColor();
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    stops: const [0, .48, 1],
+    colors: [lifted, lifted, color],
+  );
 }
 
 /// Preserve the poster's hue in a quiet, readable page surface.
@@ -42,6 +29,19 @@ Color compactPosterPageColor(Color poster, {required Brightness brightness}) {
       )
       .withLightness(dark ? .14 : .87)
       .withAlpha(1)
+      .toColor();
+}
+
+Color adjustDetailBackground(
+  Color color, {
+  double brightness = 1,
+  double saturation = 1,
+}) {
+  if (brightness == 1 && saturation == 1) return color;
+  final hsl = HSLColor.fromColor(color);
+  return hsl
+      .withLightness((hsl.lightness * brightness).clamp(.02, .95))
+      .withSaturation((hsl.saturation * saturation).clamp(0, 1))
       .toColor();
 }
 
@@ -96,36 +96,86 @@ class DetailPosterBackground extends StatelessWidget {
 /// Fade only the poster's alpha. A bounded saveLayer with dstIn avoids using
 /// ShaderMask and exposes the page colour underneath the poster.
 class DetailPosterFade extends SingleChildRenderObjectWidget {
-  const DetailPosterFade({super.key, required super.child});
+  const DetailPosterFade({
+    super.key,
+    required super.child,
+    this.strength = 1,
+    this.brightness = 1,
+  });
+  final double strength, brightness;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => _PosterFadeRender();
+  RenderObject createRenderObject(BuildContext context) =>
+      _PosterFadeRender(strength, brightness);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderObject renderObject,
+  ) {
+    (renderObject as _PosterFadeRender).update(strength, brightness);
+  }
 }
 
 class _PosterFadeRender extends RenderProxyBox {
+  _PosterFadeRender(this.strength, this.brightness);
+  double strength, brightness;
+  void update(double strength, double brightness) {
+    if (this.strength == strength && this.brightness == brightness) return;
+    this.strength = strength;
+    this.brightness = brightness;
+    markNeedsPaint();
+  }
+
   @override
   void paint(PaintingContext context, Offset offset) {
     if (child == null || size.isEmpty) return;
     final rect = offset & size;
     final canvas = context.canvas;
-    canvas.saveLayer(rect, Paint());
+    final paint = Paint();
+    if (brightness != 1) {
+      paint.colorFilter = ColorFilter.matrix([
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        brightness,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ]);
+    }
+    canvas.saveLayer(rect, paint);
     super.paint(context, offset);
-    canvas.drawRect(
-      rect,
-      Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [0, .5, .78, .98],
-          colors: [
-            Colors.white,
-            Colors.white,
-            Color(0x9affffff),
-            Colors.transparent,
-          ],
-        ).createShader(rect),
-    );
+    if (strength > 0) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const [0, .48, .64, .78, .90, .97, 1],
+            colors: [
+              for (final alpha in [1.0, 1.0, .93, .72, .36, .08, 0.0])
+                Colors.white.withAlpha(
+                  (255 * math.pow(alpha, strength)).round(),
+                ),
+            ],
+          ).createShader(rect),
+      );
+    }
     canvas.restore();
   }
 }

@@ -15,6 +15,9 @@ import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/cat/cat_web_parse.dart';
+import 'package:lume_box/core/source/web_player_episode.dart';
+import 'package:lume_box/core/source/source_extension_settings.dart';
+import 'package:lume_box/core/source/source_settings_policy.dart';
 
 /// 真实引擎下的桥接验证（用户反馈的 Bug2）：
 ///
@@ -105,7 +108,7 @@ void main() {
             await LumeSource.http.post('https://api.example.com/search','original',{headers:{'x-original':'keep'}});
             return {items:[],hasMore:false};
           },
-          content: async function() { return {webPlayer:true,url:'blob:https://site.example/internal',pageUrl:'https://site.example/play/1',headers:{Referer:'https://site.example/'}}; }
+          content: async function() { return {webPlayer:true,url:'blob:https://site.example/internal',pageUrl:'https://site.example/play/1',headers:{Referer:'https://site.example/'},webPlayerOptions:{episodeSelector:'button.playbtn[data-id="74596"]'}}; }
         };
       ''');
       await source.list();
@@ -118,11 +121,57 @@ void main() {
           isA<CatWebParseRequired>()
               .having((e) => e.webPlayer, 'webPlayer', true)
               .having(
+                (e) => e.episodeSelector,
+                'episodeSelector',
+                'button.playbtn[data-id="74596"]',
+              )
+              .having(
                 (e) => e.page.toString(),
                 'page',
                 'https://site.example/play/1',
               ),
         ),
+      );
+    });
+
+    test('网页选集脚本只点击当前作品的唯一可见按钮，选择器作为数据传入', () async {
+      await boot('var LumeSource = {};');
+      await sandbox.eval(r'''
+        var clicked=0, nodes=[], location={origin:'https://site.example',pathname:'/play/1'};
+        var document={readyState:'complete',querySelectorAll:function(s){globalThis.seenSelector=s;return nodes;}};
+        var button={tagName:'BUTTON',type:'button',disabled:false,getClientRects:function(){return [1];},click:function(){clicked++;}};
+        nodes=[button];
+      ''');
+      final script = webPlayerEpisodeScript(
+        Uri.parse('https://site.example/play/1'),
+        'button[data-id="2"]',
+      );
+      expect((await sandbox.eval(script)).value, 'selected');
+      expect((await sandbox.eval('clicked')).value, 1);
+      await sandbox.eval("location.pathname='/play/other';");
+      expect((await sandbox.eval(script)).value, 'wrong-page');
+      await sandbox.eval("location.pathname='/play/1';nodes=[button,button];");
+      expect((await sandbox.eval(script)).value, 'waiting');
+      await sandbox.eval('nodes=[button];button.type="submit";');
+      expect((await sandbox.eval(script)).value, 'waiting');
+      final literal = 'button[data-id="2"];clicked=99;//';
+      await sandbox.eval(
+        webPlayerEpisodeScript(
+          Uri.parse('https://site.example/play/1'),
+          literal,
+        ),
+      );
+      expect((await sandbox.eval('seenSelector')).value, literal);
+      expect((await sandbox.eval('clicked')).value, 1);
+    });
+
+    test('网页选集参数过长时报告契约错误', () async {
+      final source = await boot(
+        'var LumeSource={content:async function(){return {kind:"webplayer",pageUrl:"https://site.example/play/1",webPlayerOptions:{episodeSelector:"x".repeat(257)}};}};',
+      );
+      await expectLater(
+        source.content(itemId: 'one', chapterId: 'two'),
+        throwsA(isA<SourceException>()),
       );
     });
 
@@ -159,6 +208,78 @@ void main() {
       ''');
       expect((await source.list()).items.single.title, '动态结果');
       expect(calls.map((call) => call.method), ['render', 'extract']);
+    });
+
+    test('资源线路和专用设置进入冻结快照，解析地址与操作参数真实可用', () async {
+      final source = await boot(r'''
+        var LumeSource={
+          list:async function(){
+            try{LumeSource.config.settings.quality='changed';}catch(_){}
+            return {items:[{id:LumeSource.resolveUrl('https://images.example/a.jpg?sig=x%2Fy','image'),title:LumeSource.config.settings.quality}]};
+          },
+          settingsAction:async function(a){return {message:a.key+':'+a.settings.quality+':'+a.config.domain};}
+        };
+      ''');
+      final config = SourceSiteConfig(
+        mirrors: const ['https://site.example'],
+        domainOverride: 'https://custom.example',
+        images: SourceRoute.parse(['https://images.example'])
+            .copyWith(custom: 'https://new-images.example/cdn'),
+        video: SourceRoute.parse(['https://video.example'])
+            .copyWith(custom: 'https://new-video.example'),
+        settingDefinitions: SourceSetting.parseAll([
+          {'key': 'quality', 'title': '画质', 'type': 'text', 'default': 'hd'},
+        ]),
+        commonDefinitions: SourceSettingsPolicy.parseCommon([
+          {'key': 'pageSize', 'default': 20},
+        ]),
+        appSettingValues: const {'pageSize': 42},
+      );
+      final injected = jsonEncode(jsonEncode(config.toScriptJson(cookie: '')));
+      await sandbox.eval('__lumeApplyConfig($injected)');
+      final capabilities = await sandbox.eval(r'''JSON.stringify((function(){
+        try{LumeSource.config.commonSettings.pageSize=999;}catch(_){}
+        try{LumeSource.config.sourceSettings.quality='bad';}catch(_){}
+        try{LumeSource.capabilities.settingsFeatures.push('bad');}catch(_){}
+        LumeSource={capabilities:{settingsApiVersion:99}};
+        return [LumeSource.capabilities.settingsApiVersion,
+          LumeSource.capabilities.settingsFeatures.indexOf('actionInputs')>=0,
+          Object.isFrozen(LumeSource.capabilities),
+          Object.isFrozen(LumeSource.capabilities.settingTypes),
+          LumeSource.config.commonSettings.pageSize,
+          LumeSource.config.sourceSettings.quality];
+      })())''');
+      expect(capabilities.value, [2, true, true, true, 42, 'hd']);
+      final result = await source.list();
+      expect(
+        result.items.single.id,
+        'https://new-images.example/cdn/a.jpg?sig=x%2Fy',
+      );
+      expect(result.items.single.title, 'hd');
+      expect(
+        (await sandbox.eval('Object.isFrozen(LumeSource.config.settings)'))
+            .value,
+        true,
+      );
+      expect(
+        (await sandbox.eval(
+          'LumeSource.resolveUrl("https://video.example/1.m3u8","video")',
+        )).value,
+        'https://new-video.example/1.m3u8',
+      );
+      expect(
+        (await source.settingsAction(
+          'refresh',
+          settings: {'quality': 'sd'},
+          config: {'domain': 'https://preview.example'},
+        ) as Map)['message'],
+        'refresh:sd:https://preview.example',
+      );
+      expect(
+        (await sandbox.eval('LumeSource.config.domain')).value,
+        'https://custom.example',
+        reason: '操作预览参数不修改持久配置',
+      );
     });
 
     test('用户验证脚本：顶层 getList(page) 直接跑通', () async {

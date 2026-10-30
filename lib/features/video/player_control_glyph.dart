@@ -44,7 +44,17 @@ class _ControlPainter extends CustomPainter {
         const Radius.circular(2),
       ),
     );
-    if (icon == Icons.high_quality_outlined) {
+    if (icon == Icons.grid_view_rounded) {
+      for (final x in [3.0, 14.0]) {
+        for (final y in [3.0, 14.0]) {
+          box(x, y, x + 7, y + 7);
+        }
+      }
+    } else if (icon == Icons.forum_outlined) {
+      line(1, 6, 7, 6);
+      line(3, 12, 7, 12);
+      line(1, 18, 7, 18);
+    } else if (icon == Icons.high_quality_outlined) {
       box(2, 5, 22, 19);
       line(6, 9, 6, 15);
       line(11, 9, 11, 15);
@@ -194,6 +204,22 @@ class _ControlPainter extends CustomPainter {
         ..maskFilter = null
         ..color = color,
     );
+    if (icon == Icons.forum_outlined) {
+      final label = TextPainter(
+        text: TextSpan(
+          text: '弹',
+          style: TextStyle(
+            color: color,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            shadows: const [Shadow(color: Color(0x59000000), blurRadius: 2)],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(canvas, const Offset(9, 3));
+      label.dispose();
+    }
     canvas.restore();
   }
 

@@ -58,7 +58,11 @@ void main() {
 class _PreviewPipeline extends SectionImagePipeline {
   _PreviewPipeline() : super(cacheDir: 'unused', diskCache: false);
   @override
-  Future<ui.Image?> image(String url, {int? targetWidth}) async => null;
+  Future<ui.Image?> image(
+    String url, {
+    int? targetWidth,
+    bool Function()? isForeground,
+  }) async => null;
 }
 
 class _PreviewSource extends FakeReadingDataSource {

@@ -7,42 +7,126 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 
 void main() {
-  test('沉浸详情不再选近黑衣服色，保留海报色相和可读亮度', () {
-    final color = immersivePosterPageColor([
-      (const Color(0xff351e1d), 600),
-      (const Color(0xff9b2727), 300),
-    ], darkMuted: const Color(0xff351e1d))!;
-    final tone = HSLColor.fromColor(color);
-    expect(tone.hue, closeTo(0, 1));
-    expect(tone.lightness, greaterThanOrEqualTo(.19));
-    expect(tone.saturation, greaterThan(.32));
+  test('背景明暗与色彩独立调节，默认保持当前取色', () {
+    const seed = Color(0xff2c3948);
+    expect(adjustDetailBackground(seed), seed);
     expect(
-      color.computeLuminance(),
-      greaterThan(const Color(0xff351e1d).computeLuminance()),
+      adjustDetailBackground(seed, brightness: 2).computeLuminance(),
+      greaterThan(seed.computeLuminance()),
     );
-    expect(1.05 / (color.computeLuminance() + .05), greaterThan(4.5));
-    final blue = immersivePosterPageColor([(const Color(0xff2466aa), 300)])!;
-    expect(blue.b, greaterThan(blue.r));
-    expect(immersivePosterPageColor([]), isNull);
+    expect(
+      adjustDetailBackground(seed, saturation: 0).r,
+      closeTo(adjustDetailBackground(seed, saturation: 0).b, .001),
+    );
   });
-  test('浅灰棕海报不再被压成深棕，红海报保留暖红底色', () {
-    const greyBrown = Color(0xff81776f);
-    final surface = immersivePosterPageColor(
-      [(greyBrown, 600), (const Color(0xff503323), 100)],
-      dominant: greyBrown,
-      darkMuted: const Color(0xff503323),
-    )!;
-    expect(HSLColor.fromColor(surface).lightness, greaterThan(.42));
-    expect(surface.r, greaterThan(surface.b));
-    final red = immersivePosterPageColor([
-      (const Color(0xff9b2727), 300),
-    ], darkMuted: const Color(0xff351e1d))!;
-    expect(red.r, greaterThan(red.g * 2));
-    for (final seed in [Colors.yellow, Colors.green, Colors.white, greyBrown]) {
-      final color = immersivePosterPageColor([(seed, 100)], dominant: seed)!;
-      expect(1.05 / (color.computeLuminance() + .05), greaterThan(4.5));
+  testWidgets('海报亮度可实时更新，关闭渐变保留图片，渐变末端露出原背景', (tester) async {
+    final key = GlobalKey();
+    Future<ByteData> capture(double brightness, double strength) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: SizedBox(
+                width: 100,
+                height: 100,
+                child: ColoredBox(
+                  color: Colors.blue,
+                  child: DetailPosterFade(
+                    brightness: brightness,
+                    strength: strength,
+                    child: const ColoredBox(color: Color(0xffff0000)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return (await tester.runAsync(() async {
+        final image =
+            await (key.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary)
+                .toImage();
+        final bytes = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        image.dispose();
+        return bytes;
+      }))!;
     }
+
+    final bright = await capture(1, 0);
+    final dim = await capture(.5, 0);
+    final faded = await capture(.5, 3);
+    final gradual = await capture(1, 1);
+    int baseContribution(int y) => gradual.getUint8((y * 100 + 50) * 4 + 2);
+    expect(baseContribution(60), greaterThan(0));
+    expect(baseContribution(75), greaterThan(baseContribution(60)));
+    expect(baseContribution(90), greaterThan(baseContribution(75)));
+    expect(baseContribution(99), greaterThan(baseContribution(90)));
+    expect(baseContribution(99), greaterThanOrEqualTo(240));
+    final top = (10 * 100 + 50) * 4;
+    final bottom = (99 * 100 + 50) * 4;
+    expect(bright.getUint8(top), greaterThan(250));
+    expect(dim.getUint8(top), inInclusiveRange(125, 130));
+    expect(dim.getUint8(bottom + 2), 0);
+    expect(faded.getUint8(bottom + 2), greaterThan(240));
   });
+  testWidgets('正文底色沿同一色相逐步加深，末端衔接页面底色', (tester) async {
+    const base = Color(0xff542424);
+    final key = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: RepaintBoundary(
+            key: key,
+            child: SizedBox(
+              width: 100,
+              height: 200,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: detailPosterSurfaceGradient(base),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final bytes = (await tester.runAsync(() async {
+      final image =
+          await (key.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary)
+              .toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+      return bytes;
+    }))!;
+    Color pixel(int y) {
+      final i = (y * 100 + 50) * 4;
+      return Color.fromARGB(
+        255,
+        bytes.getUint8(i),
+        bytes.getUint8(i + 1),
+        bytes.getUint8(i + 2),
+      );
+    }
+
+    expect(
+      pixel(100).computeLuminance(),
+      greaterThan(pixel(150).computeLuminance()),
+    );
+    expect(
+      pixel(150).computeLuminance(),
+      greaterThan(pixel(199).computeLuminance()),
+    );
+    expect((pixel(199).r - base.r).abs(), lessThan(2 / 255));
+    expect((pixel(199).g - base.g).abs(), lessThan(2 / 255));
+    expect(pixel(150).r, greaterThan(pixel(150).b));
+  });
+
   test('紧凑版保留海报冷暖色相，同时保证浅深色文字对比', () {
     final lightColors = <Color>{};
     for (final seed in [

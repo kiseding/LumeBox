@@ -812,8 +812,14 @@ void main() {
     }
     final client = DandanplayClient(
       credentials: const DandanplayCredentials('', ''),
+      localService: () async => Uri.parse('http://localhost:1234/prefix'),
       client: MockClient(
-        (_) async => http.Response('{"success":true,"animes":[]}', 200),
+        (r) async => http.Response(
+          r.url.path.endsWith('/_health')
+              ? '{"ok":true}'
+              : '{"success":true,"animes":[]}',
+          200,
+        ),
       ),
     );
     addTearDown(client.close);
@@ -823,6 +829,7 @@ void main() {
   test('缺失列表的响应不能误报连接成功或本集零弹幕', () async {
     final client = DandanplayClient(
       credentials: const DandanplayCredentials('', ''),
+      localService: () async => Uri.parse('http://localhost:1234/prefix'),
       client: MockClient((_) async => http.Response('{"success":true}', 200)),
     );
     addTearDown(client.close);
@@ -845,6 +852,7 @@ void main() {
     expect(DandanplayClient.episodeNumber('未知', chapterIndex: 2), 3);
     final client = DandanplayClient(
       credentials: const DandanplayCredentials('', ''),
+      localService: () async => Uri.parse('http://localhost:1234/prefix'),
       client: MockClient((request) async {
         expect(request.url.queryParameters.containsKey('episode'), isFalse);
         return http.Response('{"animes":[]}', 200);

@@ -19,7 +19,6 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/core/util/lume_log.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 
-
 /// Phase2 真机验收轮发现的三处小 bug 的回归用例。
 ///
 /// 三条都不是「功能没做」，而是**做得对但边界没收干净**，且都属于「用户看得到
@@ -45,11 +44,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_phase2_reg');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     LumeLog.clear();
     // 视频板块的阅读库在**真实时钟**里先打开：`testWidgets` 的测试体跑在
     // fake-async 时钟里，首次打开要建目录、开 sqlite（真实异步），在测试体里
@@ -138,7 +137,8 @@ void main() {
       expect(
         migrationWarnings,
         isEmpty,
-        reason: '全新库的表已经带全部列，不该尝试 ADD COLUMN；'
+        reason:
+            '全新库的表已经带全部列，不该尝试 ADD COLUMN；'
             '实际告警：$migrationWarnings',
       );
     });
@@ -210,7 +210,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _Catalog(),
             playerFactory: (kernel) {
@@ -235,6 +235,8 @@ void main() {
       // 换到 MPV。
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('MPV'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
@@ -244,11 +246,7 @@ void main() {
       expect(first.disposals, greaterThan(0), reason: '旧实例应已释放');
       // 核心断言：挂 A 摘 B 的实现下这里仍是 1——旧实例在释放过程中吐出的
       // 快照会被页面当成当前状态消费（落进度、判连播、改 Dock 显隐）。
-      expect(
-        first.listenerCount,
-        0,
-        reason: '被换下的实例不得再持有页面监听',
-      );
+      expect(first.listenerCount, 0, reason: '被换下的实例不得再持有页面监听');
 
       // 新实例接管监听。
       final second = created.last;
@@ -264,7 +262,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: const _Catalog(),
             playerFactory: (kernel) {
@@ -281,10 +279,12 @@ void main() {
       for (final kernel in <String>['MPV', 'AVPlayer', 'MPV', 'AVPlayer']) {
         await tester.tap(find.byTooltip('播放器设置'));
         await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text(kernel));
+        await tester.pumpAndSettle();
         await tester.tap(find.text(kernel));
         await tester.pumpAndSettle();
         // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
-      await tester.tap(find.byTooltip('关闭'));
+        await tester.tap(find.byTooltip('关闭'));
         await tester.pumpAndSettle();
       }
 
@@ -304,11 +304,7 @@ void main() {
         isEmpty,
         reason: '被换下的实例仍持有监听：${stillListening.length} 个（应 0 个）',
       );
-      expect(
-        created.last.listenerCount,
-        greaterThan(0),
-        reason: '当前实例必须持有监听',
-      );
+      expect(created.last.listenerCount, greaterThan(0), reason: '当前实例必须持有监听');
     });
   });
 }

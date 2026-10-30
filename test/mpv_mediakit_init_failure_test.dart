@@ -17,7 +17,6 @@ import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 
-
 /// MPV 初始化抛「MediaKit 未初始化」异常时的自动降级验证。
 ///
 /// 复现的是真机日志里的那条异常：
@@ -40,11 +39,11 @@ void main() {
     root = Directory.systemTemp.createTempSync('lume_box_mpv_init');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => call.method == 'getApplicationSupportDirectory'
-          ? root.path
-          : null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => call.method == 'getApplicationSupportDirectory'
+              ? root.path
+              : null,
+        );
     // 库必须在真实时钟里先打开：testWidgets 的 fake-async 里等不到真实异步。
     await ReadingLibrary.open(Section.video);
   });
@@ -61,7 +60,9 @@ void main() {
     test('MPV 抛 MediaKit 未初始化异常 → 回退 AVPlayer + 标准提示', () async {
       final launcher = PlayerKernelLauncher(
         factory: (kernel) {
-          if (kernel == PlayerKernel.mpv) throw Exception(mediaKitNotInitialized);
+          if (kernel == PlayerKernel.mpv) {
+            throw Exception(mediaKitNotInitialized);
+          }
           return _FakePlayer(kernel);
         },
       );
@@ -96,7 +97,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _Catalog(const <PlayerKernel>{
               PlayerKernel.avplayer,
@@ -118,6 +119,8 @@ void main() {
       // 在设置里选 MPV：初始化抛异常 → 自动回退。
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('MPV'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
@@ -125,17 +128,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // 1) Toast 文案（任务书指定原文）。
-      expect(
-        find.text('MPV初始化失败，已自动切换回AVPlayer播放器'),
-        findsOneWidget,
-      );
+      expect(find.text('MPV初始化失败，已自动切换回AVPlayer播放器'), findsOneWidget);
       // 2) 实际生效的是 AVPlayer：页面上就是 AVPlayer 的渲染面。
       expect(find.text('fake:avplayer'), findsOneWidget);
-      expect(
-        created.map((player) => player.kernel).toSet(),
-        <PlayerKernel>{PlayerKernel.avplayer},
-        reason: 'MPV 从未被真正采用',
-      );
+      expect(created.map((player) => player.kernel).toSet(), <PlayerKernel>{
+        PlayerKernel.avplayer,
+      }, reason: 'MPV 从未被真正采用');
       // 3) 关键约束：错误内核不进持久化配置。
       final store = await VideoPlayerSettingsStore.open();
       expect(
@@ -150,8 +148,10 @@ void main() {
     testWidgets('启动时库里的内核是 MPV 且初始化失败：照样回退并改写为 AVPlayer', (tester) async {
       final store = await VideoPlayerSettingsStore.open();
       store.save(
-        const PlayerSettings(kernel: PlayerKernel.mpv, subtitlesEnabled: false)
-            .copyWith(speed: 1.5),
+        const PlayerSettings(
+          kernel: PlayerKernel.mpv,
+          subtitlesEnabled: false,
+        ).copyWith(speed: 1.5),
       );
       store.close();
 
@@ -161,7 +161,7 @@ void main() {
         MaterialApp(
           theme: LumeTheme.build(),
           home: VideoPlayerPage(
-          fullscreenOnly: false,
+            fullscreenOnly: false,
             media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
             catalog: _Catalog(const <PlayerKernel>{
               PlayerKernel.avplayer,
@@ -178,10 +178,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('MPV初始化失败，已自动切换回AVPlayer播放器'),
-        findsOneWidget,
-      );
+      expect(find.text('MPV初始化失败，已自动切换回AVPlayer播放器'), findsOneWidget);
 
       final probe = await VideoPlayerSettingsStore.open();
       final saved = probe.load();
@@ -217,8 +214,9 @@ class _FakePlayer extends AbstractPlayer {
 
   final PlayerKernel kernel;
 
-  final ValueNotifier<PlayerSnapshot> _snapshot =
-      ValueNotifier<PlayerSnapshot>(const PlayerSnapshot());
+  final ValueNotifier<PlayerSnapshot> _snapshot = ValueNotifier<PlayerSnapshot>(
+    const PlayerSnapshot(),
+  );
   final ValueNotifier<PlayerStats> _stats = ValueNotifier<PlayerStats>(
     const PlayerStats(engineLabel: 'fake'),
   );

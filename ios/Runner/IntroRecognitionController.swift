@@ -200,7 +200,26 @@ final class IntroRecognitionController {
     }
     return data
   }
-  private func loadModels(_ root: String, _ prompts: [String: [[Int]]]) throws {
+  private struct AnchorVectors: Decodable {
+    let format: String
+    let revision: String
+    let promptsSha256: String
+    let dimension: Int
+    let vectors: [String: [[Double]]]
+    func validated(_ promptHash: String?) throws -> [(String, [Double])] {
+      guard format == "lumebox.intro.anchors.v1",
+        revision == "3e0a7bfb9fe83da8a3efaa3fd8f7df24214bb947",
+        promptsSha256 == promptHash, dimension == 512,
+        Set(vectors.keys) == Set(["recap", "opening", "main", "ending"]),
+        vectors.values.allSatisfy({ examples in
+          examples.count == 2 && examples.allSatisfy { vector in
+            vector.count == dimension && vector.allSatisfy { $0.isFinite } && vector.contains { $0 != 0 }
+          }
+        }) else { throw NSError(domain: "IntroModel", code: 12) }
+      return vectors.keys.sorted().flatMap { label in vectors[label]!.map { (label, $0) } }
+    }
+  }
+  private func loadModels(_ root: String, _ prompts: [String: [[Int]]], _ promptHash: String?) throws {
     if modelRoot == root && imageModel != nil && !textVectors.isEmpty { return }
     let config = MLModelConfiguration()
     if #available(iOS 16.0, *) { config.computeUnits = .cpuAndNeuralEngine } else { config.computeUnits = .cpuOnly }
@@ -213,8 +232,15 @@ final class IntroRecognitionController {
       }
       return try MLModel(contentsOf: compiled, configuration: config)
     }
-    // Compute the eight fixed anchor embeddings once, then release the larger
-    // text encoder. Model changes invalidate the embeddings together.
+    // Bundled prompts use verified build-time embeddings from the same pinned
+    // text encoder. Retain full-pair loading for existing custom model imports.
+    let anchors = URL(fileURLWithPath: root).appendingPathComponent("anchor_vectors.json")
+    if FileManager.default.fileExists(atPath: anchors.path) {
+      let stored = try JSONDecoder().decode(AnchorVectors.self, from: Data(contentsOf: anchors))
+      let vectors = try stored.validated(promptHash)
+      imageModel = try load("mobileclip_s0_image"); textVectors = vectors; modelRoot = root
+      return
+    }
     let text = try load("mobileclip_s0_text")
     var vectors: [(String, [Double])] = []
     for (label, examples) in prompts {
@@ -255,7 +281,7 @@ final class IntroRecognitionController {
       guard scores.count == 4 else { throw NSError(domain: "IntroModel", code: 11) }
       return scores
     }
-    try loadModels(root, prompts)
+    try loadModels(root, prompts, args["promptsSha256"] as? String)
     try check(session)
     guard let model = imageModel, let constraint = model.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else { throw NSError(domain: "IntroModel", code: 7) }
     var buffer: CVPixelBuffer?

@@ -103,7 +103,7 @@ void main() {
     folders.move('i', '追更');
     folders.move('i', '看完');
     expect(folders.load()['追更'], isEmpty);
-    expect(folders.load()['看完'], ['i']);
+    expect(folders.load()['看完'], [library.item('i')!.identity]);
     folders.remove('看完');
     expect(library.item('i'), isNotNull);
     expect(

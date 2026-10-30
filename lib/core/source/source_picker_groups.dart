@@ -28,6 +28,8 @@ class SourcePickerGroups {
           'gztv5_video',
           'jpyy2_video',
           'luttt_video',
+          'duboku_video',
+          'ptt_drama',
         }.contains(source.id)) {
       return 'movie';
     }

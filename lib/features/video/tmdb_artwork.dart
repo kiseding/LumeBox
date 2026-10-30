@@ -7,6 +7,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../../core/tmdb/tmdb.dart';
+import '../../core/reading/reading.dart';
+import '../reading/section_image.dart';
 
 class TmdbDetailController extends ChangeNotifier {
   TmdbDetailController(
@@ -42,6 +44,7 @@ class TmdbDetailController extends ChangeNotifier {
     metadata = TmdbMetadata.fromJson({
       ...current.toJson(),
       'posters': [url, ...current.posters.where((poster) => poster != url)],
+      'preferredPoster': url,
     });
     index = 0;
     notifyListeners();
@@ -74,10 +77,15 @@ class TmdbDetailController extends ChangeNotifier {
     metadata = result;
     index = 0;
     final count = result.posters.length;
-    if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
+    final preferred = result.posters.indexOf(result.preferredPoster ?? '');
+    if (preferred >= 0) {
+      index = preferred;
+    } else if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
       index = Random().nextInt(count);
     }
-    if (count > 1 && settings.posterStyle == TmdbPosterStyle.carousel) {
+    if (preferred < 0 &&
+        count > 1 &&
+        settings.posterStyle == TmdbPosterStyle.carousel) {
       _timer = Timer.periodic(
         const Duration(seconds: 4),
         (_) => show((index + 1) % count),
@@ -159,10 +167,16 @@ class TmdbDetailController extends ChangeNotifier {
     loading = false;
     status = result == null ? (client.lastError ?? '未匹配到 TMDB 资料，保留源信息') : null;
     final count = result?.posters.length ?? 0;
-    if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
+    final preferred =
+        result?.posters.indexOf(result.preferredPoster ?? '') ?? -1;
+    if (preferred >= 0) {
+      index = preferred;
+    } else if (count > 0 && settings.posterStyle == TmdbPosterStyle.random) {
       index = Random().nextInt(count);
     }
-    if (count > 1 && settings.posterStyle == TmdbPosterStyle.carousel) {
+    if (preferred < 0 &&
+        count > 1 &&
+        settings.posterStyle == TmdbPosterStyle.carousel) {
       _timer = Timer.periodic(
         const Duration(seconds: 4),
         (_) => show((index + 1) % count),
@@ -393,11 +407,13 @@ class TmdbPosterGallery extends StatefulWidget {
     required this.fallback,
     this.fit = BoxFit.cover,
     this.onArtworkDisplayed,
+    this.imagePipeline,
   });
   final TmdbDetailController controller;
   final Widget fallback;
   final BoxFit fit;
   final ValueChanged<String?>? onArtworkDisplayed;
+  final SectionImagePipeline? imagePipeline;
   @override
   State<TmdbPosterGallery> createState() => _TmdbPosterGalleryState();
 }
@@ -429,21 +445,40 @@ class _TmdbPosterGalleryState extends State<TmdbPosterGallery> {
         urls[widget.controller.index.clamp(0, urls.length - 1)] == url;
   }
 
-  Widget poster(String url) => Image.network(
-    url,
-    fit: widget.fit,
-    filterQuality: FilterQuality.high,
-    frameBuilder: (_, child, frame, synchronouslyLoaded) {
-      if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
-        reportArtwork(url);
-      }
-      return frame == null && !synchronouslyLoaded ? widget.fallback : child;
-    },
-    errorBuilder: (_, _, _) {
-      if (isCurrent(url)) reportArtwork(null);
-      return widget.fallback;
-    },
-  );
+  Widget poster(String url) {
+    final pipeline = widget.imagePipeline;
+    if (pipeline != null) {
+      return SectionImage(
+        pipeline: pipeline,
+        url: url,
+        fit: widget.fit,
+        targetWidth: 1600,
+        placeholder: widget.fallback,
+        onLoaded: () {
+          if (isCurrent(url)) reportArtwork(url);
+        },
+        onFailed: () {
+          if (isCurrent(url)) reportArtwork(null);
+        },
+      );
+    }
+    return Image.network(
+      url,
+      fit: widget.fit,
+      filterQuality: FilterQuality.high,
+      frameBuilder: (_, child, frame, synchronouslyLoaded) {
+        if ((frame != null || synchronouslyLoaded) && isCurrent(url)) {
+          reportArtwork(url);
+        }
+        return frame == null && !synchronouslyLoaded ? widget.fallback : child;
+      },
+      errorBuilder: (_, _, _) {
+        if (isCurrent(url)) reportArtwork(null);
+        return widget.fallback;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,

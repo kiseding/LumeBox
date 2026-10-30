@@ -158,9 +158,14 @@ class SourceSubscription {
   }) async {
     url = SubscriptionCatalog.migrateUrl(url);
     final headers = force ? const {'Cache-Control': 'no-cache'} : null;
+    Future<LumeHttpResponse> send(String target) async {
+      final current = await _currentCdnManifest(http, target, headers);
+      return current ?? await http.send(url: target, headers: headers);
+    }
+
     LumeHttpResponse response;
     try {
-      response = await http.send(url: url, headers: headers);
+      response = await send(url);
       if (response.statusCode == 429 || response.statusCode >= 500) {
         throw LumeHttpException('HTTP ${response.statusCode}');
       }
@@ -168,7 +173,7 @@ class SourceSubscription {
       final alternate = githubCdnUrl(url);
       if (alternate == null) rethrow;
       LumeLog.info('[订阅] GitHub 原始地址暂不可达，尝试 CDN：$url');
-      response = await http.send(url: alternate, headers: headers);
+      response = await send(alternate);
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('HTTP ${response.statusCode}（$url）');
@@ -177,6 +182,81 @@ class SourceSubscription {
       bytes: response.body,
       text: stripBomText(response.text),
     );
+  }
+
+  /// Saved official CDN subscriptions are logical lists. Resolve their latest
+  /// hash snapshot from the current total manifest on every sync, so a previous
+  /// immutable snapshot cannot pin the phone to sources already removed.
+  static Future<LumeHttpResponse?> _currentCdnManifest(
+    LumeHttp http,
+    String url,
+    Map<String, String>? headers,
+  ) async {
+    final prefix = '${SubscriptionCatalog.cdnBase}subscriptions/cdn/';
+    if (!url.startsWith(prefix)) return null;
+    final name = url.substring(prefix.length);
+    if (!const [
+      'comic.txt',
+      'comics.txt',
+      'photo.txt',
+      'movie.txt',
+      'video.txt',
+      'videos.txt',
+      'audiobook.txt',
+    ].contains(name)) {
+      return null;
+    }
+    try {
+      final response = await http.send(
+        url: SubscriptionCatalog.totalCdnUrl,
+        headers: headers,
+      );
+      if (response.statusCode != 200) throw const FormatException('CDN 总订阅不可用');
+      final total = jsonDecode(stripBomText(response.text));
+      if (total is! Map ||
+          total['format'] != 'lume.total-subscription' ||
+          total['version'] != 1 ||
+          total['sections'] is! Map) {
+        throw const FormatException('CDN 总订阅格式无效');
+      }
+      final sections = total['sections'] as Map;
+      if (name == 'comics.txt' || name == 'videos.txt') {
+        final section = name == 'comics.txt' ? 'comic' : 'video';
+        final entries = sections[section];
+        if (entries is! List ||
+            entries.isEmpty ||
+            !entries.every(
+              (entry) => entry is String && entry.startsWith(prefix),
+            )) {
+          throw const FormatException('CDN 分类清单无效');
+        }
+        return LumeHttpResponse(
+          statusCode: 200,
+          headers: const {},
+          body: Uint8List.fromList(
+            utf8.encode(
+              jsonEncode({
+                'format': 'lume.total-subscription',
+                'version': 1,
+                'sections': {section: entries},
+              }),
+            ),
+          ),
+        );
+      }
+      for (final entries in sections.values.whereType<List>()) {
+        for (final entry in entries.whereType<String>()) {
+          if (entry.startsWith(prefix) &&
+              SubscriptionCatalog.migrateUrl(entry) == url &&
+              entry != url) {
+            return await http.send(url: entry, headers: headers);
+          }
+        }
+      }
+    } catch (_) {
+      throw StateError('无法获取当前 CDN 总订阅，已保留旧源，请稍后同步');
+    }
+    throw StateError('当前 CDN 总订阅未包含此分类，已保留旧源');
   }
 
   static String? githubCdnUrl(String url) {
@@ -196,16 +276,18 @@ class SourceSubscription {
         (parts[3] == 'heads' || parts[3] == 'tags')) {
       parts.removeRange(2, 4);
     }
-    return Uri(
-      scheme: 'https',
-      host: 'cdn.jsdelivr.net',
-      pathSegments: [
-        'gh',
-        parts[0],
-        '${parts[1]}@${parts[2]}',
-        ...parts.skip(3),
-      ],
-    ).toString();
+    return SubscriptionCatalog.migrateUrl(
+      Uri(
+        scheme: 'https',
+        host: 'cdn.jsdelivr.net',
+        pathSegments: [
+          'gh',
+          parts[0],
+          '${parts[1]}@${parts[2]}',
+          ...parts.skip(3),
+        ],
+      ).toString(),
+    );
   }
 
   /// 地址清单 → 脚本清单。

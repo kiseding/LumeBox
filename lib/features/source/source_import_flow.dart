@@ -6,6 +6,9 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/js/source_script.dart';
 import '../../core/source/source.dart';
+import '../../core/source/source_content_category.dart';
+import '../../core/source/source_preferences.dart';
+import '../../core/session/section.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../core/util/lume_log.dart';
 
@@ -62,12 +65,14 @@ class SourceImportOutcome {
     this.message = '',
     this.subscription = false,
     this.originUrl = '',
+    this.versionChange = '',
   });
 
   /// 来源标签（失败行靠它定位是哪一条）。
   final String label;
 
   final SourceImportStatus status;
+  final String versionChange;
 
   /// 图源显示名（成功时有值）。
   final String name;
@@ -95,7 +100,7 @@ class SourceImportOutcome {
       // 弹窗与「复制明细」里能看到完整内容。
       return originUrl.trim().isEmpty ? head : '$head\n地址：$originUrl';
     }
-    return '${status.label}：$name${subscription ? '（订阅）' : ''}${message.isEmpty ? '' : '\n$message'}';
+    return '${status.label}：$name${subscription ? '（订阅）' : ''}${versionChange.isEmpty ? '' : '\n$versionChange；分类、置顶、排序和网络设置已保留'}${message.isEmpty ? '' : '\n$message'}';
   }
 }
 
@@ -217,6 +222,8 @@ Future<bool> importSources(
   List<SourceImportSkip> skipped = const <SourceImportSkip>[],
   List<String> notes = const <String>[],
   String? sectionLabel,
+  Section? section,
+  String contentCategory = '',
 }) async {
   if (items.isEmpty && skipped.isEmpty) return false;
 
@@ -277,6 +284,21 @@ Future<bool> importSources(
       continue;
     }
     succeeded = true;
+    final category = SourceContentCategory.fromId(contentCategory);
+    var categoryNote = '';
+    if (section == Section.video &&
+        category != null &&
+        category != SourceContentCategory.all &&
+        SourceContentCategories.appliesTo(descriptor)) {
+      try {
+        await SourcePreferences.read(Section.video, descriptor.id)
+            .copyWith(contentCategory: category.id)
+            .save(Section.video, descriptor.id);
+      } catch (error, stack) {
+        LumeLog.error(error, stack);
+        categoryNote = '源已导入，分类未保存；可在源设置中重新归类。';
+      }
+    }
     outcomes.add(
       SourceImportOutcome(
         label: item.label,
@@ -284,7 +306,16 @@ Future<bool> importSources(
             ? SourceImportStatus.overwritten
             : SourceImportStatus.added,
         name: descriptor.name,
-        message: result.message ?? '',
+        versionChange: existing.containsKey(descriptor.id)
+            ? sourceVersionChange(
+                existing[descriptor.id]!.version,
+                descriptor.version,
+              )
+            : '',
+        message: [
+          result.message ?? '',
+          categoryNote,
+        ].where((value) => value.isNotEmpty).join('\n'),
         subscription: item.isSubscription,
       ),
     );

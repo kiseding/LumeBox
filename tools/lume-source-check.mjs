@@ -13,8 +13,12 @@
 // 用法：
 //   node tools/lume-source-check.mjs <脚本路径> [--keyword 关键词] [--page 1]
 //                                     [--json] [--call list,detail]
+//                                     [--category <分类id>] [--filter <组>=<选项>]
 //   node tools/lume-source-check.mjs sources/video/ysxq.js
 //   node tools/lume-source-check.mjs sources/video/*.js --json   ← 批量
+//
+//   `--category` / `--filter` 用来验「分类 / 筛选切换是否真的换内容」：
+//   分别跑两次，首条 id 相同就说明参数没被源用上（源约定第 3 条）。
 //
 // 退出码：0 = 全绿；1 = 有失败；2 = 用法错误。
 import fs from 'node:fs';
@@ -55,14 +59,20 @@ const RESERVED = new Set([
 
 // ------------------------------------------------------------------ 参数解析
 function parseArgs(argv) {
-  const out = { files: [], keyword: '', page: 1, json: false, calls: null };
+  const out = { files: [], keyword: '', page: 1, json: false, calls: null, category: null, filters: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--keyword') out.keyword = argv[++i] ?? '';
     else if (arg === '--page') out.page = Number(argv[++i] ?? 1) || 1;
     else if (arg === '--json') out.json = true;
     else if (arg === '--call') out.calls = String(argv[++i] ?? '').split(',').filter(Boolean);
-    else out.files.push(arg);
+    else if (arg === '--category') out.category = String(argv[++i] ?? '');
+    else if (arg === '--filter') {
+      const raw = String(argv[++i] ?? '');
+      const at = raw.indexOf('=');
+      if (at <= 0) throw new Error('--filter 需要 <组>=<选项>，收到：' + raw);
+      out.filters = { ...(out.filters || {}), [raw.slice(0, at)]: raw.slice(at + 1) };
+    } else out.files.push(arg);
   }
   return out;
 }
@@ -84,43 +94,102 @@ function makeHttp(opts) {
   const baseHeaders = {};
   if (opts.ua) baseHeaders['User-Agent'] = opts.ua;
 
+  // 与 App 的 SiteSessionPool 对齐：按 origin 记住 Set-Cookie（中间 302 也要收），
+  // 后续同源请求自动带上。用户显式给的 Cookie 头优先。
+  const jar = new Map();
+  const cookiesFor = (origin) => {
+    const store = jar.get(origin);
+    return store && store.size ? [...store].map(([k, v]) => `${k}=${v}`).join('; ') : '';
+  };
+  const absorbCookies = (origin, list) => {
+    if (!list || !list.length) return;
+    let store = jar.get(origin);
+    if (!store) {
+      store = new Map();
+      jar.set(origin, store);
+    }
+    for (const raw of list) {
+      const pair = String(raw).split(';')[0];
+      const at = pair.indexOf('=');
+      if (at <= 0) continue;
+      const name = pair.slice(0, at).trim();
+      const value = pair.slice(at + 1).trim();
+      if (!name) continue;
+      if (/max-age=0\b|expires=thu, 01 jan 1970/i.test(String(raw))) store.delete(name);
+      else store.set(name, value);
+    }
+  };
+
   async function request(options) {
     const url = String(options?.url ?? '');
     if (!url) throw new Error('LumeSource.http.request 缺少 url');
     const method = String(options.method || 'GET').toUpperCase();
     const headers = { ...baseHeaders, ...(options.headers || {}) };
-    if (config.cookie && !Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')) {
+    const callerCookie = Object.keys(headers).some((k) => k.toLowerCase() === 'cookie');
+    if (config.cookie && !callerCookie) {
       headers['Cookie'] = config.cookie;
     }
     const started = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS - 500);
-    let res;
+    let target = url;
+    let verb = method;
+    let payload = options.body == null ? undefined : String(options.body);
+    let status = 0;
+    let body = '';
+    let headersOut = {};
+    let finalUrl = url;
+    const setCookie = [];
     try {
-      res = await fetch(url, {
-        method,
-        headers,
-        body: options.body == null || method === 'GET' ? undefined : String(options.body),
-        redirect: 'follow',
-        signal: controller.signal,
-      });
+      for (let hop = 0; hop <= 10; hop++) {
+        const hopUrl = new URL(target);
+        const hopHeaders = { ...headers };
+        if (!callerCookie && !hopHeaders.Cookie) {
+          const jarCookie = cookiesFor(hopUrl.origin);
+          if (jarCookie) hopHeaders.Cookie = jarCookie;
+        }
+        const res = await fetch(target, {
+          method: verb,
+          headers: hopHeaders,
+          body: verb === 'GET' || verb === 'HEAD' ? undefined : payload,
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+        const hopCookies = res.headers.getSetCookie?.() ?? [];
+        absorbCookies(hopUrl.origin, hopCookies);
+        setCookie.push(...hopCookies);
+        status = res.status;
+        headersOut = Object.fromEntries(res.headers.entries());
+        finalUrl = target;
+        const location = res.headers.get('location');
+        if (![301, 302, 303, 307, 308].includes(status) || !location) {
+          body = await res.text();
+          break;
+        }
+        await res.arrayBuffer().catch(() => undefined);
+        if (hop === 10) throw new Error('redirect_limit：重定向超过 10 次');
+        const next = new URL(location, target);
+        if (!['http:', 'https:'].includes(next.protocol)) throw new Error('redirect_scheme：不支持的跳转地址');
+        if (status === 303) {
+          verb = 'GET';
+          payload = undefined;
+        }
+        target = next.toString();
+      }
     } finally {
       clearTimeout(timer);
     }
-    const body = await res.text();
-    trace.push({ url, method, status: res.status, ms: Date.now() - started, bytes: body.length });
-    const setCookie = res.headers.getSetCookie?.() ?? [];
-    const reply = {
-      url: res.url || url,
-      status: res.status,
-      headers: Object.fromEntries(res.headers.entries()),
+    trace.push({ url, method, status, ms: Date.now() - started, bytes: body.length });
+    return {
+      url: finalUrl,
+      status,
+      headers: headersOut,
       body,
       setCookie,
       text: () => body,
       json: () => JSON.parse(body),
-      ok: res.status >= 200 && res.status < 300,
+      ok: status >= 200 && status < 300,
     };
-    return reply;
   }
 
   return {
@@ -399,10 +468,14 @@ async function runSource(file, options) {
 
   const first = await doCall('categories', {});
   report.categoryCount = Array.isArray(first) ? first.length : 0;
-  const categoryId = Array.isArray(first) && first.length ? first[0].id : '';
+  const categoryId = options.category != null
+    ? options.category
+    : (Array.isArray(first) && first.length ? first[0].id : '');
 
   let items = null;
-  const listResult = await doCall('list', { page: options.page, categoryId });
+  const listArgument = { page: options.page, categoryId };
+  if (options.filters) listArgument.filters = options.filters;
+  const listResult = await doCall('list', listArgument);
   if (listResult && Array.isArray(listResult.items)) items = listResult.items;
 
   if (options.keyword) {
@@ -463,20 +536,26 @@ async function runSource(file, options) {
 }
 
 // 播放地址探活：m3u8 取前 1KB 看是否 #EXTM3U；mp4 看状态码与 content-type。
+// 只取开头一段：m3u8 / FLV 一眼能认出来，mp4 按源约定 206 就算通。整段下载会把
+// 「110MB 的 mp4 直链」这种正常地址误判成超时（KKAV 就被这样误报过）。
 async function probeMedia(url, headers) {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': DEFAULT_UA, ...headers },
+      headers: { 'User-Agent': DEFAULT_UA, Range: 'bytes=0-262143', ...headers },
       signal: AbortSignal.timeout(20000),
     });
     const buffer = Buffer.from(await res.arrayBuffer());
     const head = buffer.subarray(0, 400).toString('utf8');
     const looksM3u8 = head.includes('#EXTM3U');
     const looksFlv = head.slice(0, 3) === 'FLV';
+    const type = res.headers.get('content-type') || '';
     return {
-      ok: res.status >= 200 && res.status < 400 && (looksM3u8 || looksFlv || /video|octet-stream|mp4|mpegurl/i.test(res.headers.get('content-type') || '')),
+      ok:
+        res.status >= 200 &&
+        res.status < 400 &&
+        (looksM3u8 || looksFlv || /video|octet-stream|mp4|mpegurl/i.test(type)),
       status: res.status,
-      type: res.headers.get('content-type') || '',
+      type,
       bytes: buffer.length,
       m3u8: looksM3u8,
       sample: head.slice(0, 80).replace(/\s+/g, ' '),

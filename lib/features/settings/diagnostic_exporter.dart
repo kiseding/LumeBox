@@ -1,3 +1,6 @@
+import '../../core/util/frame_profile.dart';
+import '../../core/player/playback_diagnostics.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -110,12 +113,13 @@ class DiagnosticExporter {
         'tmdb_settings.json',
         'network_settings.json',
         'floating_modules.json',
+        'performance_last.json',
         'frosted_settings.json',
       ]) {
         final file = File('${directory.path}/$name');
-        if (file.existsSync() && file.lengthSync() <= 256 * 1024) {
+        if (await file.exists() && await file.length() <= 256 * 1024) {
           try {
-            configuration[name] = jsonDecode(file.readAsStringSync());
+            configuration[name] = jsonDecode(await file.readAsString());
           } catch (_) {
             configuration[name] = 'unreadable';
           }
@@ -178,8 +182,11 @@ class DiagnosticExporter {
         },
         'sections': sections,
         'configuration': configuration,
+        'playback': PlaybackDiagnostics.snapshot,
+        'performance': FrameProfile.instance.lastReport,
       },
       logs: logs,
+      previousLogs: LumeLog.previousSession,
     );
   }
 
@@ -187,6 +194,7 @@ class DiagnosticExporter {
     required DateTime created,
     required Map<String, Object?> metadata,
     required List<LogEntry> logs,
+    List<LogEntry> previousLogs = const [],
   }) {
     final archive = Archive();
     void add(String name, String text) {
@@ -210,9 +218,23 @@ class DiagnosticExporter {
           ),
       ], generatedAt: created),
     );
+    if (previousLogs.isNotEmpty) {
+      add(
+        'previous-errors.txt',
+        LogExporter.build([
+          for (final e in previousLogs)
+            LogEntry(
+              time: e.time,
+              level: e.level,
+              message: redact(e.message),
+              detail: e.detail == null ? null : redact(e.detail!),
+            ),
+        ], generatedAt: created),
+      );
+    }
     add(
       'README.txt',
-      'LumeBox 诊断包\n包含版本、系统环境、源状态、已打开板块的播放/阅读设置和最近运行日志（最多500条）。\n不包含源脚本、数据库、阅读正文、图片音频视频或密钥文件。日志里的凭据、URL路径参数和本地路径已过滤。\n日志仅覆盖当前启动会话；重启前的问题及原生崩溃堆栈可能不在包内。\n排查时请同时说明：问题操作步骤、发生时间、期望结果、实际结果。诊断包帮助定位，不保证涵盖所有原因。\n',
+      'LumeBox 诊断包\n包含版本、系统环境、源状态、已打开板块的播放/阅读设置和最近运行日志（最多500条）。\n不包含源脚本、数据库、阅读正文、图片音频视频或密钥文件。日志里的凭据、URL路径参数和本地路径已过滤。\n当前会话保留最近500条日志；另外提供上次会话最多80条脱敏警告与错误（总计上限128KB）。强制退出前尚未落盘的日志和原生崩溃堆栈可能不在包内。\n排查时请同时说明：问题操作步骤、发生时间、期望结果、实际结果。诊断包帮助定位，不保证涵盖所有原因。\n',
     );
     return DiagnosticBundle(
       name: 'LumeBox-diagnostics-${created.millisecondsSinceEpoch}.zip',

@@ -1,6 +1,7 @@
 package com.lumebox.app
 
 import android.app.Activity
+import android.os.BatteryManager
 import android.view.KeyEvent
 import android.content.Intent
 import android.content.ComponentName
@@ -36,6 +37,16 @@ class MainActivity : AudioServiceActivity() {
         }
         DanmakuCredentials.register(this, engine.dartExecutor.binaryMessenger)
         super.configureFlutterEngine(engine)
+        MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/battery")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "level") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val manager = getSystemService(BATTERY_SERVICE) as? BatteryManager
+                val level = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                result.success(level?.takeIf { it in 0..100 })
+            }
         IntroRecognition(this, engine.dartExecutor.binaryMessenger)
         MethodChannel(engine.dartExecutor.binaryMessenger, "lumebox/app_icon")
             .setMethodCallHandler { call, result ->

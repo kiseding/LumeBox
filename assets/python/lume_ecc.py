@@ -5,6 +5,15 @@ Imports stay lazy, as in lume_rsa, for Spiders that only import ECC.
 import sys
 import types
 
+# NIST prime-curve subgroup orders (RFC 6979, Appendix A.2.3--A.2.7).
+_ORDERS = {
+    'secp192r1': int('FFFFFFFFFFFFFFFFFFFFFFFF99DEF836146BC9B1B4D22831', 16),
+    'secp224r1': int('FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D', 16),
+    'secp256r1': int('FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551', 16),
+    'secp384r1': int('FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973', 16),
+    'secp521r1': int('1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409', 16),
+}
+
 
 def _curve(name):
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -123,15 +132,66 @@ class _Dss:
             raise ValueError('Custom DSS random functions are unsupported')
         self.key, self.mode, self.encoding = key, mode, encoding
 
-    def _algorithm(self, digest):
+    def _algorithm(self, digest, deterministic=False):
         from cryptography.hazmat.primitives.asymmetric import ec, utils
         from lume_rsa import _hash
         return ec.ECDSA(utils.Prehashed(_hash(digest)),
-                        deterministic_signing=self.mode == 'deterministic-rfc6979')
+                        deterministic_signing=deterministic)
+
+    def _deterministic_signature(self, digest):
+        """RFC 6979 for bundled OpenSSL versions lacking native deterministic ECDSA.
+
+        Curve multiplication still uses cryptography/OpenSSL. Never substitute
+        a random signature when a Spider explicitly requests deterministic mode.
+        """
+        import hashlib
+        import hmac
+        from cryptography.hazmat.primitives.asymmetric import ec, utils
+        from lume_rsa import _hash
+        order = _ORDERS[self.key._key.curve.name]
+        bits, size = order.bit_length(), (order.bit_length() + 7) // 8
+        name = _hash(digest).name
+        length = hashlib.new(name).digest_size
+
+        def integer(data):
+            return int.from_bytes(data, 'big') >> max(0, len(data) * 8 - bits)
+
+        def mac(key, data):
+            return hmac.new(key, data, name).digest()
+
+        hashed = digest.digest()
+        secret = self.key.d
+        seed = secret.to_bytes(size, 'big') + (integer(hashed) % order).to_bytes(size, 'big')
+        value, key = b'\x01' * length, b'\x00' * length
+        key = mac(key, value + b'\x00' + seed)
+        value = mac(key, value)
+        key = mac(key, value + b'\x01' + seed)
+        value = mac(key, value)
+        while True:
+            candidate = b''
+            while len(candidate) < size:
+                value = mac(key, value)
+                candidate += value
+            nonce = integer(candidate)
+            if 1 <= nonce < order:
+                point = ec.derive_private_key(nonce, self.key._key.curve).public_key().public_numbers()
+                r = point.x % order
+                s = (pow(nonce, -1, order) * (integer(hashed) + r * secret)) % order
+                if r and s:
+                    return utils.encode_dss_signature(r, s)
+            key = mac(key, value + b'\x00')
+            value = mac(key, value)
 
     def sign(self, digest):
+        from cryptography.exceptions import UnsupportedAlgorithm
         from cryptography.hazmat.primitives.asymmetric import utils
-        value = self.key._key.sign(digest.digest(), self._algorithm(digest))
+        try:
+            value = self.key._key.sign(digest.digest(), self._algorithm(digest,
+                deterministic=self.mode == 'deterministic-rfc6979'))
+        except UnsupportedAlgorithm:
+            if self.mode != 'deterministic-rfc6979':
+                raise
+            value = self._deterministic_signature(digest)
         if self.encoding == 'der':
             return value
         r, s = utils.decode_dss_signature(value)

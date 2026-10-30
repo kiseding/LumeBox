@@ -23,10 +23,22 @@ class PlaybackGlass extends StatelessWidget {
       ? ModuleGlassScope(
           module: GlassModule.video,
           part: GlassPart.panels,
-          child: FrostedGlassWidget(
-            part: GlassPart.panels,
-            color: dark ? const Color(0xFF171721) : null,
-            child: child,
+          child: Theme(
+            data: dark
+                ? Theme.of(context).copyWith(
+                    brightness: Brightness.dark,
+                    colorScheme: Theme.of(context).colorScheme
+                        .copyWith(brightness: Brightness.dark),
+                  )
+                : Theme.of(context),
+            child: FrostedGlassWidget(
+              part: GlassPart.panels,
+              nativeGlass: true,
+              translucentOverlay: true,
+              neutralTint: true,
+              color: dark ? const Color(0xFF171721) : null,
+              child: child,
+            ),
           ),
         )
       : child;
@@ -39,4 +51,9 @@ Future<T?> showPlaybackMenu<T>({
   Color? backgroundColor,
   bool isScrollControlled = false,
   bool useSafeArea = false,
-}) => showDanmakuPanel<T>(context: context, builder: builder);
+  bool edgeDrawer = true,
+}) => showDanmakuPanel<T>(
+  context: context,
+  builder: builder,
+  edgeDrawer: edgeDrawer,
+);

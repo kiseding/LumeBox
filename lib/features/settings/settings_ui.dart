@@ -51,6 +51,7 @@ class SettingsEntryCard extends StatelessWidget {
     required this.icon,
     required this.title,
     this.subtitle,
+    this.searchTargets = const {},
     required this.onTap,
     this.trailingValue,
     this.trailing,
@@ -62,6 +63,7 @@ class SettingsEntryCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
+  final Map<String, VoidCallback> searchTargets;
   final VoidCallback? onTap;
 
   /// 行尾的当前值（可空）。
@@ -313,7 +315,7 @@ class _SettingsHomeState extends State<SettingsHome> {
     final matches = widget.categories
         .where(
           (c) =>
-              ('${c.title} ${c.description} ${c.keywords} ${c.children.whereType<SettingsEntryCard>().map((e) => '${e.title} ${e.subtitle}').join(' ')}')
+              ('${c.title} ${c.description} ${c.keywords} ${c.children.whereType<SettingsEntryCard>().map((e) => '${e.title} ${e.subtitle} ${e.searchTargets.keys.join(' ')}').join(' ')}')
                   .toLowerCase()
                   .contains(search),
         )
@@ -349,6 +351,17 @@ class _SettingsHomeState extends State<SettingsHome> {
             subtitle: category.description,
             onTap: () => open(category),
           ),
+          if (search.isNotEmpty)
+            for (final entry
+                in category.children.whereType<SettingsEntryCard>())
+              for (final target in entry.searchTargets.entries)
+                if (target.key.toLowerCase().contains(search))
+                  SettingsEntryCard(
+                    icon: entry.icon,
+                    title: target.key,
+                    subtitle: entry.title,
+                    onTap: target.value,
+                  ),
           if (search.isNotEmpty)
             for (final entry
                 in category.children.whereType<SettingsEntryCard>())

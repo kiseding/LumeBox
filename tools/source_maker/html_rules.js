@@ -2,10 +2,11 @@
 // Supports tag, .class, #id, attributes, descendant, child and comma selectors.
 function parseTree(html) {
   var root={tag:'#document',attrs:{},children:[],parent:null},stack=[root],count=0;
-  var re=/<!--[\s\S]*?-->|<![^>]*>|<\/?[a-z][^>]*>|[^<]+|</gi,m;
+  var re=/<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->|<![^>]*>|<\/?[a-z][^>]*>|[^<]+|</gi,m;
   var voids=/^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/;
   while((m=re.exec(html))) {
     var token=m[0],top=stack[stack.length-1];
+    if(token.slice(0,9)==='<![CDATA['){top.children.push(token.slice(9,-3));continue;}
     if(token.slice(0,2)==='<!')continue;
     if(token[0]!=='<'){top.children.push(token);continue;}
     var tag=/^<(\/?)([\w:-]+)/.exec(token);if(!tag)continue;
@@ -34,6 +35,9 @@ function nodeText(node) {
 function nodeRawText(node) {return node.children.filter(function(v){return typeof v==='string';}).join('');}
 function simpleMatches(node, spec) {
   if(!node||!node.attrs)return false;
+  // XML feeds use namespace prefixes. CSS pseudo-classes remain unsupported.
+  var namespace=/^([\w-]+:[\w-]+)(?=$|[.#\[])/.exec(spec);
+  if(namespace){if(node.tag!==namespace[1].toLowerCase())return false;spec=spec.slice(namespace[1].length);}
   var ok=true;
   spec=spec.replace(/\[([\w:-]+)(?:([~*^$|]?=)["']?([^\]"']*)["']?)?\]/g,function(_,key,op,value){
     var actual=node.attrs[key.toLowerCase()];
@@ -69,27 +73,51 @@ function selectNodes(root, selector) {
   visit(root);return out;
 }
 function firstNode(root, selector) {return selectNodes(root,selector)[0]||null;}
+// Media feeds often expose HTML5 players directly and have no detail link.
+// Prefer their real media cards over unrelated navigation/category thumbnails.
+function inlineMediaItems(html,base) {
+  var root=parseTree(html),tag=C.media==='audio'?'audio':'video',seen={},out=[];
+  selectNodes(root,tag).forEach(function(node){
+    var nested=firstNode(node,'source'),attrs=node.attrs;
+    var src=abs(attrs['data-src']||attrs.src||(nested&&(nested.attrs['data-src']||nested.attrs.src))||'',base);
+    if(!/^https?:\/\//i.test(src)||!(/\.(?:mp4|webm|m3u8|mp3|m4a|ogg|aac)(?:[?#]|$)/i.test(src))||seen[src])return;
+    var cover=abs(attrs.poster||attrs['data-poster']||'',base),label=attrs.title||attrs['aria-label']||attrs['data-title']||attrs['data-caption']||attrs['data-cast-description']||'';
+    if(!label&&node.parent){var title=firstNode(node.parent,'h2,h3,h4,.title');if(title)label=nodeText(title);}
+    seen[src]=true;out.push({id:src,title:decode(label).trim()||'视频 '+(out.length+1),cover:cover,mediaUrl:src,coverHeaders:{Referer:base},mediaHeaders:{Referer:base}});
+  });return out;
+}
 function imageUrl(node, base) {
   if(!node)return '';
-  for(var keys=['data-original','data-lazy-src','data-src','data-url','src'];keys.length;) {
+  for(var keys=['data-original','data-lazy-src','data-src','data-url','data-background','poster','src'];keys.length;) {
     var value=abs(node.attrs[keys.shift()]||'',base);if(value)return value;
   }
   var set=node.attrs['data-srcset']||node.attrs.srcset||'';
-  return set?abs(set.split(',').pop().trim().split(/\s+/)[0],base):'';
+  if(set)return abs(set.split(',').pop().trim().split(/\s+/)[0],base);
+  var bg=/url\(\s*(['"]?)(.*?)\1\s*\)/i.exec(node.attrs.style||'');
+  return bg?abs(bg[2],base):'';
 }
 function ruleItems(html, base) {
-  if(!C.listSelector)return anchors(html,base,C.links);
+  if(C.structuredList)return structuredItems(html,base);
+  if(!C.listSelector)return anchors(html,base,C.links).filter(function(r){return !navigationAddress(r.id);});
   var root=parseTree(html),seen={},out=[];
   selectNodes(root,C.listSelector).forEach(function(card){
-    var link=card.tag==='a'&&card.attrs.href?card:firstNode(card,C.linkSelector||'a[href]');
+    var link=card.tag==='a'&&card.attrs.href?card:null;
+    if(!link){for(var parent=card.parent;parent;parent=parent.parent){if(parent.tag==='a'&&parent.attrs.href){link=parent;break;}}}
+    if(!link)link=firstNode(card,C.linkSelector||'a[href]');
     if(!link)return;
-    var id=abs(link.attrs.href,base);if(!id||seen[id])return;
+    var id=abs(link.attrs.href,base);if(!id||seen[id]||navigationAddress(id)||(C.links&&!(new RegExp(C.links,'i')).test(id)))return;
     var image=firstNode(card,C.coverSelector||'img,source'),heading=firstNode(card,C.titleSelector||'h2,h3,h4,.title');
     var title=(heading&&nodeText(heading))||link.attrs.title||(image&&image.attrs.alt)||nodeText(link);
     if(!title)return;
-    seen[id]=true;out.push({id:id,title:title,cover:imageUrl(image,base)});
+    var cover=imageUrl(image,base);
+    seen[id]=true;out.push({id:id,title:title,cover:cover,coverHeaders:cover?{Referer:base}:{}});
   });
   return out;
+}
+function navigationAddress(id) {
+  var path=id.replace(/^https?:\/\/[^/]+/i,'').split(/[?#]/)[0]||'/';
+  if(path==='/'&&!/[?&](?:p|id|video_id|vod_id|book_id|m)=[^&#]+/.test(id))return true;
+  return /\/(?:c|privacy|terms|dmca|2257|contact|about|help|faq|vip-info|points|featured|recommended|accounts?|login|signup|register|search|tags?|categories|category|types?|genres?|authors?|actors?|models?|users?|cdn-cgi)(?:\/|$)/i.test(path);
 }
 function ruleChapters(html,base) {
   if(!C.chapterSelector)return anchors(html,base,C.chapters);

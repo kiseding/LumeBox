@@ -1,8 +1,14 @@
+import 'package:lume_box/features/video/video_resume_match.dart';
 import 'package:lume_box/features/video/detail_poster_background.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 import 'package:lume_box/core/media/media_library.dart';
 
 import 'dart:io';
+import 'dart:async';
+
+import 'package:lume_box/core/net/network_queue.dart';
+import 'package:image/image.dart' as img;
+import 'package:lume_box/core/reading/comic_image_tools.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +25,7 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
+import 'package:lume_box/features/video/direct_video_source.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
@@ -102,7 +109,9 @@ class LongDetailSource extends DetailSource {
 
 class RoutePlayer extends AbstractPlayer {
   final state = ValueNotifier(const PlayerSnapshot());
-  final information = ValueNotifier(const PlayerStats());
+  final information = ValueNotifier(
+    const PlayerStats(width: 1920, height: 1080),
+  );
   PlayerMedia? media;
   final seeks = <Duration>[];
   @override
@@ -182,6 +191,241 @@ void main() {
     ReadingStore.disposeAll();
     await SectionScope.closeAll();
     root.deleteSync(recursive: true);
+  });
+
+  testWidgets('换源选择对应剧集，并把时间点写入目标源进度', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    VideoPlayTarget? played;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'resume-new', title: '详情测试片'),
+          library: library,
+          resumeRequest: const VideoResumeRequest(
+            title: '详情测试片',
+            chapterTitle: '第2集',
+            chapterIndex: 1,
+            position: Duration(seconds: 75),
+            duration: Duration(minutes: 40),
+          ),
+          onPlay: (_, target, _, _) async {
+            played = target;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.selected, 1);
+    expect(state.lineResume.position, const Duration(seconds: 75));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(played?.chapterId, 'e2');
+    expect(
+      library.videoProgress('resume-new', sourceId: source.id)?.position,
+      const Duration(seconds: 75),
+    );
+  });
+  testWidgets('换源存在多个相同集号时先确认，未选择前不解析播放', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final multi = MultiLineDetailSource();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: multi,
+          item: const SourceItem(id: 'ambiguous', title: '详情测试片'),
+          library: library,
+          resumeRequest: const VideoResumeRequest(
+            title: '详情测试片',
+            chapterTitle: '第1集',
+            chapterIndex: 0,
+            position: Duration(seconds: 60),
+            duration: Duration.zero,
+          ),
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('确认续播剧集'), findsOneWidget);
+    expect(multi.parses, 0);
+    await tester.tap(find.text('线路B · 第1集'));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.currentLine, '线路B');
+    expect(state.lineResume.position, const Duration(seconds: 60));
+  });
+
+  testWidgets('沉浸详情的TMDB小标和评分放在类型旁，不挤占年份行', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(id: 'brand', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    state.tmdb.metadata = const TmdbMetadata(
+      overview: '',
+      posters: [],
+      rating: 8.7,
+      year: '2026',
+      genres: ['剧情', '喜剧'],
+    );
+    state.tmdb.notifyListeners();
+    await tester.pumpAndSettle();
+    final badge = find.byKey(const Key('video-detail-tmdb-status'));
+    expect(badge, findsOneWidget);
+    expect(find.text('8.7'), findsOneWidget);
+    expect(find.textContaining('★ 8.7'), findsNothing);
+    expect(find.byIcon(Icons.verified_outlined), findsNothing);
+    final genres = find.byKey(const Key('video-detail-genres'));
+    expect(tester.getCenter(badge).dy, closeTo(tester.getCenter(genres).dy, 1));
+    expect(
+      tester.getTopLeft(badge).dx,
+      greaterThan(tester.getTopRight(genres).dx),
+    );
+    expect(
+      tester.getBottomLeft(badge).dy,
+      lessThanOrEqualTo(
+        tester.getTopLeft(find.byKey(const Key('video-detail-play'))).dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('全部超分范围开启且海报仍在处理中，详情选集和播放不等待超分', (tester) async {
+    final started = Completer<void>(), finish = Completer<void>();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    ComicImageTools.debugAutomaticSupported = true;
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method == 'superResolve') {
+        if (!started.isCompleted) started.complete();
+        await finish.future;
+        return (call.arguments as Map)['bytes'];
+      }
+      return null;
+    });
+    final tools = ComicImageTools(
+      settings: ComicImageToolsSettings()
+        ..automatic = true
+        ..upscaleCovers = true
+        ..upscaleVideoPosters = true
+        ..concurrency = 1,
+    );
+    final png = img.encodePng(
+      img.Image(width: 4, height: 8)..setPixelRgb(0, 0, 30, 150, 200),
+    );
+    final pipeline = SectionImagePipeline(
+      cacheDir: library.imageCacheDir,
+      diskCache: false,
+      requestSender: (_) async => NetworkResponse(
+        statusCode: 200,
+        body: png,
+        headers: const {'content-type': 'image/png'},
+      ),
+      decodeTransform: (bytes) =>
+          tools.automatic(bytes, surface: UpscaleSurface.videoPoster),
+    );
+    addTearDown(() {
+      if (!finish.isCompleted) finish.complete();
+      tools.dispose();
+      pipeline.dispose();
+      ComicImageTools.debugAutomaticSupported = null;
+      messenger.setMockMethodCallHandler(ComicImageTools.channel, null);
+    });
+    var opened = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(
+            id: 'movie',
+            title: '详情测试片',
+            cover: 'https://fixture.example/poster.png',
+          ),
+          library: library,
+          imagePipeline: pipeline,
+          onPlay: (_, _, _, _) async {
+            opened++;
+          },
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.runAsync(
+      () => started.future.timeout(const Duration(seconds: 5)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.loading, false);
+    expect(state.chapters, hasLength(2));
+    expect(source.parses, 0);
+    final play = find.byKey(const Key('video-detail-play'));
+    await tester.ensureVisible(play);
+    await tester.runAsync(() async {
+      await tester.tap(play);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(opened, 1, reason: '不能等待海报超分完成才能播放');
+    expect(source.parses, 1);
+    expect(finish.isCompleted, false);
+    finish.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('网页47集详情保留目录并从网页选中的第12集开始播放', (tester) async {
+    final web = DirectVideoSource(
+      id: 'web',
+      name: '独狼影视聚合',
+      title: '兰香如故',
+      uri: Uri.parse('https://fixture.invalid/12.m3u8'),
+      selected: 11,
+      episodes: List.generate(
+        47,
+        (i) => SourceChapter(id: 'e$i', title: '第${i + 1}集'),
+      ),
+    );
+    VideoPlayTarget? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: web,
+          item: const SourceItem(id: 'drama47', title: '兰香如故'),
+          initialChapterId: 'e11',
+          library: library,
+          recordHistory: false,
+          onPlay: (_, target, _, _) async => opened = target,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.chapters, hasLength(47));
+    expect(state.selected, 11);
+    final play = find.byKey(const Key('video-detail-play'));
+    await tester.ensureVisible(play);
+    await tester.runAsync(() async {
+      await tester.tap(play);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(opened!.chapterId, 'e11');
+    expect(opened!.chapterIndex, 11);
   });
   testWidgets('网盘诊断不占据标题资料，限制保留且完整详情可以展开', (tester) async {
     await tester.pumpWidget(
@@ -788,7 +1032,81 @@ void main() {
     );
   });
 
-  testWidgets('详情下半屏使用统一海报底色，不叠加另一张横版图，开关可关闭', (tester) async {
+  testWidgets('详情实际取色保留海报下部暗红，不被大片灰蓝背景冲淡', (tester) async {
+    final settings = TmdbSettings.instance;
+    final oldEnabled = settings.enabled;
+    final oldBackdrop = settings.detailBackdropEnabled;
+    settings.enabled = false;
+    settings.detailBackdropEnabled = true;
+    addTearDown(() {
+      settings.enabled = oldEnabled;
+      settings.detailBackdropEnabled = oldBackdrop;
+    });
+    final poster = img.Image(width: 24, height: 32);
+    for (var y = 0; y < poster.height; y++) {
+      for (var x = 0; x < poster.width; x++) {
+        if (y < 22) {
+          poster.setPixelRgb(x, y, 140, 152, 175);
+        } else {
+          poster.setPixelRgb(x, y, 160, 40, 45);
+        }
+      }
+    }
+    final png = img.encodePng(poster);
+    final pipeline = SectionImagePipeline(
+      cacheDir: library.imageCacheDir,
+      diskCache: false,
+      requestSender: (_) async => NetworkResponse(
+        statusCode: 200,
+        body: png,
+        headers: const {'content-type': 'image/png'},
+      ),
+    );
+    addTearDown(pipeline.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: source,
+          item: const SourceItem(
+            id: 'poster-hue-regression',
+            title: '详情测试片',
+            cover: 'https://fixture.example/lower-red-poster.png',
+          ),
+          library: library,
+          imagePipeline: pipeline,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    final background = tester
+        .widget<ColoredBox>(
+          find.byKey(const Key('video-detail-poster-color-background')),
+        )
+        .color;
+    expect(
+      find.byKey(const Key('video-detail-surface-gradient')),
+      findsOneWidget,
+    );
+    final tone = HSVColor.fromColor(background);
+    expect(tone.hue < 15 || tone.hue > 345, isTrue);
+    expect(tone.saturation, greaterThan(.5));
+    expect(tone.value, lessThan(.4));
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      background,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('详情使用同一海报色相渐变，不叠加另一张横版图，开关可关闭', (tester) async {
     final settings = TmdbSettings.instance;
     final oldEnabled = settings.enabled;
     final oldBackdrop = settings.detailBackdropEnabled;

@@ -13,6 +13,40 @@ import '../net/lume_net.dart';
 
 enum TmdbPosterStyle { fixed, random, carousel }
 
+/// Appearance changes do not invalidate metadata or restart matching.
+@immutable
+class TmdbDetailAppearance {
+  const TmdbDetailAppearance({
+    this.backgroundBrightness = 1,
+    this.backgroundSaturation = 1,
+    this.posterBrightness = 1,
+    this.fadeStrength = 1,
+    this.logoScale = 1,
+  });
+  final double backgroundBrightness, backgroundSaturation;
+  final double posterBrightness, fadeStrength, logoScale;
+
+  static double bounded(Object? value, double min, double max) =>
+      value is num && value.isFinite ? value.toDouble().clamp(min, max) : 1;
+
+  factory TmdbDetailAppearance.fromJson(Map data) => TmdbDetailAppearance(
+    backgroundBrightness: bounded(data['backgroundBrightness'], .3, 2.5),
+    backgroundSaturation: bounded(data['backgroundSaturation'], 0, 3),
+    posterBrightness: bounded(data['posterBrightness'], .2, 1.8),
+    fadeStrength: bounded(data['fadeStrength'], 0, 3),
+    logoScale: bounded(data['logoScale'], .5, 2.5),
+  );
+  Map<String, double> toJson() => {
+    'backgroundBrightness': backgroundBrightness,
+    'backgroundSaturation': backgroundSaturation,
+    'posterBrightness': posterBrightness,
+    'fadeStrength': fadeStrength,
+    'logoScale': logoScale,
+  };
+  TmdbDetailAppearance withValue(String field, double value) =>
+      TmdbDetailAppearance.fromJson({...toJson(), field: value});
+}
+
 enum TmdbImageKind {
   backdrop('背景图', ['original', 'w1280', 'w780'], 'w1280'),
   logo('Logo', ['original', 'w500'], 'w500'),
@@ -29,9 +63,29 @@ enum TmdbImageKind {
 class TmdbSettings extends ChangeNotifier {
   TmdbSettings();
   static final instance = TmdbSettings();
-  bool enabled = false;
+  static const builtInApiKey = String.fromEnvironment(
+    'TMDB_API_KEY',
+    defaultValue: 'e8cb17a07eb5091739aaceb3ab2e7120',
+  );
+  bool enabled = true;
   bool detailBackdropEnabled = true;
-  TmdbPosterStyle posterStyle = TmdbPosterStyle.fixed;
+  final detailAppearance = ValueNotifier(const TmdbDetailAppearance());
+  final detailOverrides = ValueNotifier<Map<String, TmdbDetailAppearance>>({});
+  TmdbDetailAppearance appearanceFor(String? key) =>
+      detailOverrides.value[key] ?? detailAppearance.value;
+  void setAppearance(String? key, TmdbDetailAppearance value) {
+    if (key == null) {
+      detailAppearance.value = value;
+    } else {
+      detailOverrides.value = {...detailOverrides.value, key: value};
+    }
+  }
+
+  void clearAppearance(String key) {
+    detailOverrides.value = {...detailOverrides.value}..remove(key);
+  }
+
+  TmdbPosterStyle posterStyle = TmdbPosterStyle.random;
   String apiKey = '', apiProxy = '', imageProxy = '';
   final Map<TmdbImageKind, String> _imageSizes = {};
   String imageSize(TmdbImageKind kind) => _imageSizes[kind] ?? kind.defaultSize;
@@ -45,6 +99,8 @@ class TmdbSettings extends ChangeNotifier {
   Future<void> _writes = Future.value();
   Future<void> boot() async {
     _imageSizes.clear();
+    detailAppearance.value = const TmdbDetailAppearance();
+    detailOverrides.value = {};
     try {
       _file = File(
         '${(await getApplicationSupportDirectory()).path}/tmdb_settings.json',
@@ -64,8 +120,21 @@ class TmdbSettings extends ChangeNotifier {
             imageSize(TmdbImageKind.poster) == 'w500') {
           _imageSizes[TmdbImageKind.poster] = 'w780';
         }
-        enabled = data['enabled'] == true;
+        enabled = data['enabled'] != false;
         detailBackdropEnabled = data['detailBackdropEnabled'] != false;
+        final overrides = data['detailOverrides'];
+        if (overrides is Map) {
+          detailOverrides.value = {
+            for (final e in overrides.entries)
+              if (e.key is String && e.value is Map)
+                e.key as String: TmdbDetailAppearance.fromJson(e.value as Map),
+          };
+        }
+        if (data['detailAppearance'] is Map) {
+          detailAppearance.value = TmdbDetailAppearance.fromJson(
+            data['detailAppearance'] as Map,
+          );
+        }
         apiKey = data['apiKey'] as String? ?? '';
         apiProxy = data['apiProxy'] as String? ?? '';
         imageProxy = data['imageProxy'] as String? ?? '';
@@ -73,19 +142,25 @@ class TmdbSettings extends ChangeNotifier {
             TmdbPosterStyle.values
                 .where((e) => e.name == data['posterStyle'])
                 .firstOrNull ??
-            TmdbPosterStyle.fixed;
+            TmdbPosterStyle.random;
       }
     } catch (_) {
       enabled = false;
     }
   }
 
-  Future<void> save() async {
-    revision++;
-    notifyListeners();
+  Future<void> save({bool appearanceOnly = false}) async {
+    if (!appearanceOnly) {
+      revision++;
+      notifyListeners();
+    }
     final snapshot = jsonEncode({
       'enabled': enabled,
       'detailBackdropEnabled': detailBackdropEnabled,
+      'detailAppearance': detailAppearance.value.toJson(),
+      'detailOverrides': {
+        for (final e in detailOverrides.value.entries) e.key: e.value.toJson(),
+      },
       'apiKey': apiKey,
       'apiProxy': apiProxy,
       'imageProxy': imageProxy,
@@ -222,13 +297,15 @@ class TmdbSettings extends ChangeNotifier {
     return save();
   }
 
-  bool get configured => enabled && apiKey.trim().isNotEmpty;
-  String get credential => apiKey.trim().replaceFirst(
+  bool get usesBuiltInKey => apiKey.trim().isEmpty;
+  String get _effectiveKey => usesBuiltInKey ? builtInApiKey : apiKey.trim();
+  bool get configured => enabled && credential.isNotEmpty;
+  String get credential => _effectiveKey.replaceFirst(
     RegExp(r'^Bearer\s+', caseSensitive: false),
     '',
   );
   bool get usesBearer =>
-      apiKey.trim().toLowerCase().startsWith('bearer ') ||
+      _effectiveKey.toLowerCase().startsWith('bearer ') ||
       (credential.startsWith('eyJ') && credential.split('.').length == 3);
   static Uri address(String raw, String fallback) {
     var value = raw.trim();
@@ -299,6 +376,7 @@ class TmdbMetadata {
     this.year = '',
     this.genres = const [],
     this.episodeCount = 0,
+    this.preferredPoster,
   });
   final String overview;
   final List<String> posters, backdrops, cast, logos, profiles, videoCovers;
@@ -308,6 +386,7 @@ class TmdbMetadata {
   final String year;
   final List<String> genres;
   final int episodeCount;
+  final String? preferredPoster;
   Map<String, dynamic> toJson() => {
     'overview': overview,
     'posters': posters,
@@ -322,6 +401,7 @@ class TmdbMetadata {
     'year': year,
     'genres': genres,
     'episodeCount': episodeCount,
+    if (preferredPoster != null) 'preferredPoster': preferredPoster,
   };
   factory TmdbMetadata.fromJson(Map<String, dynamic> data) => TmdbMetadata(
     recommendations: (data['recommendations'] as List? ?? [])
@@ -345,6 +425,7 @@ class TmdbMetadata {
     year: data['year'] as String? ?? '',
     genres: (data['genres'] as List? ?? []).whereType<String>().toList(),
     episodeCount: (data['episodeCount'] as num?)?.toInt() ?? 0,
+    preferredPoster: data['preferredPoster'] as String?,
   );
 }
 
@@ -487,6 +568,19 @@ class TmdbClient {
       }
     }
     if (response.statusCode != 200) {
+      if (response.statusCode == 401) {
+        throw StateError(
+          settings.usesBuiltInKey
+              ? 'TMDB 鉴权失败（HTTP 401）。内置密钥未被当前服务接受，可填写自己的 v3 Key 或 v4 Token。'
+              : 'TMDB 鉴权失败（HTTP 401）。请检查自定义 v3 Key 或 v4 Token。',
+        );
+      }
+      if (response.statusCode == 403) {
+        throw StateError('TMDB 拒绝访问（HTTP 403），请检查服务权限、代理及网络出口。');
+      }
+      if (response.statusCode == 429) {
+        throw StateError('TMDB 请求过于频繁（HTTP 429），请稍后重试。');
+      }
       throw StateError('TMDB 请求失败（HTTP ${response.statusCode}）');
     }
     final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -495,7 +589,7 @@ class TmdbClient {
   }
 
   Future<void> testApi() async {
-    if (!settings.configured) throw StateError('请先启用 TMDB 并填写 API Key');
+    if (!settings.configured) throw StateError('请先启用 TMDB');
     final revision = settings.revision;
     final base = await _resolvedBase(revision);
     final data = await _json('configuration', revision, base);

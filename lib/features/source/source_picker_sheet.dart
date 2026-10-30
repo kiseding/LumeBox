@@ -153,6 +153,10 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   }
 
   Future<void> network(SourceDescriptor source) async {
+    source =
+        (await manager.list()).where((s) => s.id == source.id).firstOrNull ??
+        source;
+    if (!mounted) return;
     final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),
@@ -185,6 +189,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           name: source.name,
           siteUrl: source.siteUrl,
           showWidgetParameters: source.runtimeKind == 'module',
+          descriptor: source,
+          manager: manager,
           onNetwork: () => network(source),
         ),
       ),
@@ -329,7 +335,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           }
           toast(switch (result.status) {
             SourceUpdateStatus.updated =>
-              '「${source.name}」已更新到最新脚本${result.message.isEmpty ? '' : '（${result.message}）'}',
+              '「${source.name}」已更新：${result.versionChange}；个人设置已保留${result.message.isEmpty ? '' : '（${result.message}）'}',
             SourceUpdateStatus.unchanged => '「${source.name}」已是最新',
             SourceUpdateStatus.skipped => '跳过：${result.message}',
             SourceUpdateStatus.failed => '更新失败：${result.message}',
@@ -437,21 +443,23 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         )
         .toList();
     final order = sources.map((s) => s.id).toList();
+    final compareOrder = SourceOrder.comparator(widget.section, order);
+    final pinned = {
+      for (final source in visible)
+        source.id: SourcePreferences.read(widget.section, source.id).pinned,
+    };
     visible.sort((a, b) {
-      final pinA = SourcePreferences.read(widget.section, a.id).pinned;
-      final pinB = SourcePreferences.read(widget.section, b.id).pinned;
-      return pinA != pinB
-          ? (pinA ? -1 : 1)
-          : SourceOrder.compare(widget.section, a.id, b.id, order);
+      final pinA = pinned[a.id]!;
+      final pinB = pinned[b.id]!;
+      return pinA != pinB ? (pinA ? -1 : 1) : compareOrder(a.id, b.id);
     });
     Future<void> move(
       List<SourceDescriptor> entries,
       String from,
       String to,
     ) async {
-      final all = List<SourceDescriptor>.of(
-        sources,
-      )..sort((a, b) => SourceOrder.compare(widget.section, a.id, b.id, order));
+      final all = List<SourceDescriptor>.of(sources)
+        ..sort((a, b) => compareOrder(a.id, b.id));
       await SourceOrder.move(
         widget.section,
         all.map((s) => s.id).toList(),

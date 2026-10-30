@@ -78,6 +78,29 @@ await context.fm.vodInline({ vod_name: '全城追缉', mark: '正片', episodes:
   { name: '正片', url: 'dlv://duboku/fixture', resolve: true },
 ] });
 assert.equal(calls.at(-1).args.url, 'https://fixture.invalid/duboku.m3u8');
+// Preserve the full catalog while resolving only the selected episode. The
+// resolver must remain tied to this playlist even if the page changes globals.
+const episodeResolves = [];
+context.__fmWebHomeInlineResolver = async episode => {
+  episodeResolves.push(episode.url);
+  return { url: 'https://fixture.invalid/' + episode.url + '.m3u8', headers: { Referer: episode.url } };
+};
+await context.fm.vodInline({ vod_id: 'drama47', vod_name: '兰香如故', mark: '第12集', episodes:
+  Array.from({length:47}, (_,i) => ({name:'第'+(i+1)+'集',url:'episode'+i,resolve:true,line:'新咕噜4K'})) });
+const playlist = calls.at(-1).args.options.playlist;
+assert.equal(playlist.episodes.length, 47);
+assert.equal(playlist.selected, 11);
+assert.equal(playlist.itemId, 'drama47');
+assert.deepEqual(episodeResolves, ['episode11']);
+context.__fmWebHomeInlineResolver = () => { throw Error('wrong resolver'); };
+await context.__lumeResolveHomeEpisode(88, playlist.id, 12);
+assert.deepEqual(episodeResolves, ['episode11', 'episode12']);
+assert.equal(calls.at(-1).method, 'episode.result');
+assert.equal(calls.at(-1).args.job, 88);
+assert.equal(calls.at(-1).args.value.url, 'https://fixture.invalid/episode12.m3u8');
+assert.equal(calls.at(-1).args.value.options.headers.Referer, 'episode12');
+await context.__lumeResolveHomeEpisode(89, playlist.id, 100);
+assert.match(calls.at(-1).args.error, /选集已失效/);
 await context.fm.pan.play({ url: 'https://pan.invalid/s/abc', title: '分享', password: '1234' });
 assert.equal(calls.at(-1).args.url, 'push://https://pan.invalid/s/abc');
 assert.equal(calls.at(-1).args.options.password, '1234');

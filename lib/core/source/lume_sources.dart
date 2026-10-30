@@ -1,6 +1,5 @@
-import 'source_media_hints.dart';
-
-import 'dart:convert';
+import 'source_preferences.dart';
+import 'source_presentation_cache.dart';
 
 import '../net/network_cancellation.dart';
 
@@ -22,7 +21,6 @@ import 'data_source.dart';
 import 'js_data_source.dart';
 import '../net/source_subscription.dart';
 import 'source_manager.dart';
-import 'source_package.dart';
 
 /// 数据源门面：UI 侧访问图源的唯一入口，也是全项目唯一选择实现的地方。
 ///
@@ -51,7 +49,15 @@ class LumeSources {
   static Future<List<SourceDescriptor>> list(Section section) async {
     if (!runtimeAvailableFor(section)) return const <SourceDescriptor>[];
     final registry = await SourceRegistry.open(section);
-    return registry.sources.map(_describe).toList(growable: false);
+    final records = registry.sources;
+    final info = await _presentation.prepare([
+      for (final record in records)
+        (key: '${record.section}/${record.id}', script: record.script),
+    ]);
+    return [
+      for (var i = 0; i < records.length; i++)
+        _describe(records[i], info: info[i]),
+    ];
   }
 
   /// 用户给这个图源**显式配过**的 UA（图源网络覆盖 → 全局设置）；没配过返回 null。
@@ -179,6 +185,17 @@ class LumeSources {
     if (!runtimeAvailableFor(section)) return;
     final registry = await SourceRegistry.open(section);
     registry.setSourceSiteConfig(sourceId, config);
+    final legacy = SourcePreferences.read(section, sourceId);
+    if (legacy.customOrigin.isNotEmpty || legacy.originalOrigin.isEmpty) {
+      await legacy
+          .copyWith(
+            customOrigin: '',
+            originalOrigin: legacy.originalOrigin.isEmpty
+                ? siteUrlFromScript(registry.source(sourceId)?.script ?? '')
+                : legacy.originalOrigin,
+          )
+          .save(section, sourceId);
+    }
   }
 
   /// 重命名图源：只改本板块库里的展示名（脚本与运行时保持原样）。
@@ -222,6 +239,7 @@ class LumeSources {
     if (!runtimeAvailableFor(section)) return;
     final registry = await SourceRegistry.open(section);
     registry.remove(sourceId);
+    _presentation.remove('${section.id}/$sourceId');
   }
 
   /// 打开统一数据源。图源不存在、已禁用或脚本载入失败时返回 null。
@@ -253,6 +271,10 @@ class LumeSources {
       section: section,
       runtime: _EngineRuntime(registry, sourceId),
       cache: cached ? SectionMemoryCache.instance : null,
+      sourceConfiguration: () =>
+          registry.source(sourceId)?.siteConfig ?? SourceSiteConfig.none,
+      rewriteUrl: (url, {kind}) =>
+          registry.rewriteSourceUrl(sourceId, url, kind: kind),
     );
   }
 
@@ -330,6 +352,7 @@ class LumeSources {
     // 覆盖导入不会动网络覆盖与来源地址（它们属于用户配置，不属于脚本）。
     return SourceUpdateResult.updated(
       _describe(updated),
+      previousVersion: record.version,
       note: skipped.isEmpty
           ? ''
           : '订阅里另有 ${skipped.length} 条拉不到：${skipped.join('、')}',
@@ -411,82 +434,56 @@ class LumeSources {
   }
 
   /// 释放板块的全部图源运行时与数据库连接（页面退出时调用）。
-  static void close(Section section) => SourceRegistry.close(section);
+  static void close(Section section) {
+    _presentation.clearSection(section.id);
+    SourceRegistry.close(section);
+  }
 
   /// 取板块的图源管理端口（一个实例只服务一个板块）。
   ///
   /// 管理界面默认用它；注入替身的场景（测试）不经过本方法。
   static SourceManager manager(Section section) => _LumeSourceManager(section);
 
-  /// Resolve the actual website, including generated Kazumi metadata mirrors.
-  static String siteUrlFromScript(String script) {
-    // 站点根有两种写法：单值（`BASE_URL = 'https://a.com'` / `H.base="https://a.com"`）
-    // 与主机列表（`var HOSTS = ['https://a.com', 'https://a.net']`，多域名备用）。
-    // 两种都要认：源站地址是「取源图标」「报错时告诉用户打开的是哪个站」的依据，
-    // 认不出来这些源就只能永远显示首字母。
-    final single = RegExp(
-      r'''\b(?:BASE_URL|BASE|HOST|baseURL|baseUrl|base_url|base|host|H\.base)\s*[:=]\s*['"](https?://[^'"]+)''',
-    ).firstMatch(script);
-    final host =
-        single?.group(1) ??
-        _firstHost(script) ??
-        SourceMetadata.parseHeader(script)?.mirrors.firstOrNull;
-    final uri = Uri.tryParse(host ?? '');
-    return uri != null && uri.host.isNotEmpty && uri.userInfo.isEmpty
-        ? uri.origin
-        : '';
-  }
+  static final _presentation = SourcePresentationCache();
 
-  /// `HOSTS = ['https://a.com', …]` / `HOSTS = ["https://a.com"]` 里的第一个主机。
-  static String? _firstHost(String script) {
-    final match = RegExp(r'''HOSTS\s*=\s*\[\s*['"](https?://[^'"]+)''')
-        .firstMatch(script);
-    return match?.group(1);
-  }
+  /// Resolve the website without loading a source runtime.
+  static String siteUrlFromScript(String script) =>
+      SourceScriptPresentation.siteUrlFromScript(script);
 
-  static SourceDescriptor _describe(SourceRecord record) => SourceDescriptor(
-    id: record.id,
-    runtimeKind: SourcePackage.kindOf(record.script).name,
-    mediaKind: SourceMediaHints.fromScript(record.script),
-    // 展示名过一层中文字典（只影响界面文字；id 与脚本都不动）。
-    name: SourceDisplayNames.of(record.id, record.name),
-    version: record.version,
-    enabled: record.enabled,
-    network: record.network,
-    siteConfig: record.siteConfig,
-    originUrl: record.originUrl,
-    siteUrl: siteUrlFromScript(record.script),
-    iconUrl: _iconUrl(record.script),
-    section: Section.values.where((s) => s.id == record.section).firstOrNull,
-    group: record.group,
-    failureCount: record.failureCount,
-    broken: record.isBroken,
-  );
-
-  static String _iconUrl(String script) {
-    final match = RegExp(
-      r'^\s*(?://\s*@?|#\s*)LumeSource\s*[:=]\s*(\{[^\n]+\})',
-      multiLine: true,
-    ).firstMatch(script);
-    if (match == null) return '';
-    try {
-      final metadata = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-      final value = metadata['icon'] ?? metadata['iconUrl'];
-      if (value is! String) return '';
-      final declared = Uri.tryParse(value.trim());
-      final site = Uri.tryParse(siteUrlFromScript(script));
-      final uri = declared == null
-          ? null
-          : (site?.hasScheme == true ? site!.resolveUri(declared) : declared);
-      return uri != null &&
-              {'http', 'https'}.contains(uri.scheme) &&
-              uri.host.isNotEmpty &&
-              uri.userInfo.isEmpty
-          ? uri.toString()
-          : '';
-    } on Object {
-      return '';
-    }
+  static SourceDescriptor _describe(
+    SourceRecord record, {
+    SourceScriptPresentation? info,
+  }) {
+    info ??= _presentation.read(
+      '${record.section}/${record.id}',
+      record.script,
+    );
+    return SourceDescriptor(
+      id: record.id,
+      runtimeKind: info.runtimeKind,
+      mediaKind: info.mediaKind,
+      contentCategory: info.contentCategory,
+      networkMode: info.network,
+      name: SourceDisplayNames.of(record.id, record.name),
+      version: record.version,
+      enabled: record.enabled,
+      network: record.network,
+      siteConfig: record.siteConfig.hasCustomDomain
+          ? record.siteConfig
+          : record.siteConfig.copyWith(
+              domainOverride: SourcePreferences.read(
+                Section.values.firstWhere((s) => s.id == record.section),
+                record.id,
+              ).customOrigin,
+            ),
+      originUrl: record.originUrl,
+      siteUrl: info.siteUrl,
+      iconUrl: info.iconUrl,
+      section: Section.values.where((s) => s.id == record.section).firstOrNull,
+      group: record.group,
+      failureCount: record.failureCount,
+      broken: record.isBroken,
+    );
   }
 }
 

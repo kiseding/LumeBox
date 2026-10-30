@@ -19,6 +19,7 @@ import '../../core/util/lume_log.dart';
 import 'source_import_flow.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/source/source_package.dart';
+import '../../core/source/source_content_category.dart';
 
 /// 一次导入请求：目标板块 + 待导入条目 + 没能进链路的条目 + 过程说明。
 class SourceImportRequest {
@@ -28,10 +29,12 @@ class SourceImportRequest {
     this.skipped = const <SourceImportSkip>[],
     this.notes = const <String>[],
     this.subscriptionUrls = const [],
+    this.contentCategory = '',
   });
 
   /// 目标板块（图源只写这里）。
   final Section section;
+  final String contentCategory;
 
   final List<SourceImportItem> items;
 
@@ -56,6 +59,7 @@ Future<bool> runSourceImport(
   String? initialSubscription,
   String? title,
   String? helpText,
+  String initialContentCategory = '',
 }) async {
   final request = await showGlassDialog<SourceImportRequest>(
     context: context,
@@ -66,6 +70,7 @@ Future<bool> runSourceImport(
       initialSubscription: initialSubscription,
       title: title,
       helpText: helpText,
+      initialContentCategory: initialContentCategory,
     ),
   );
   if (request == null || !context.mounted) return false;
@@ -75,6 +80,8 @@ Future<bool> runSourceImport(
     items: request.items,
     skipped: request.skipped,
     notes: request.notes,
+    section: request.section,
+    contentCategory: request.contentCategory,
   );
   if (request.subscriptionUrls.isNotEmpty &&
       manager is SubscriptionImportManager) {
@@ -109,6 +116,7 @@ class SourceImportDialog extends StatefulWidget {
     this.initialSubscription,
     this.title,
     this.helpText,
+    this.initialContentCategory = '',
   });
 
   /// 固定目标板块（板块页 / 板块入口用）。
@@ -134,6 +142,7 @@ class SourceImportDialog extends StatefulWidget {
   final String? initialSubscription;
   final String? title;
   final String? helpText;
+  final String initialContentCategory;
 
   @override
   State<SourceImportDialog> createState() => _SourceImportDialogState();
@@ -151,6 +160,12 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       <({String name, SourceImportInput input})>[];
 
   _ImportMode _mode = _ImportMode.local;
+  late String _contentCategory =
+      SourceContentCategory.groups.any(
+        (group) => group.id == widget.initialContentCategory,
+      )
+      ? widget.initialContentCategory
+      : '';
   late Section _section =
       widget.initialSection ??
       widget.section ??
@@ -260,6 +275,30 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
                       }),
               ),
               const SizedBox(height: 12),
+              if (_section == Section.video) ...[
+                DropdownButtonFormField<String>(
+                  key: ValueKey('import-content-category-$_contentCategory'),
+                  initialValue: _contentCategory,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'JS 源内容分类',
+                    helperText: '自动识别会保留已有的手动分类。',
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('自动识别')),
+                    for (final group in SourceContentCategory.groups)
+                      DropdownMenuItem(
+                        value: group.id,
+                        child: Text(group.label),
+                      ),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (value) =>
+                            setState(() => _contentCategory = value ?? ''),
+                ),
+                const SizedBox(height: 12),
+              ],
               ...(_mode == _ImportMode.local
                   ? _buildLocal()
                   : _buildSubscription()),
@@ -467,18 +506,18 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
       Wrap(
         spacing: 8,
         children: [
-          for (final domestic in [true, false])
+          for (final route in SubscriptionRoute.values)
             ActionChip(
-              label: Text(domestic ? '国内 CDN 线路' : 'GitHub 原站'),
+              label: Text(route.label),
               onPressed: _busy
                   ? null
                   : () => setState(() {
                       final audio = _url.text.contains('audiobook');
                       _url.text = audio
-                          ? '${domestic ? SubscriptionCatalog.cdnBase : SubscriptionCatalog.base}subscriptions/${domestic ? 'cdn/' : ''}audiobook.txt'
+                          ? SubscriptionCatalog.audiobookFor(route)
                           : SubscriptionCatalog.sectionUrl(
                               _section,
-                              cdn: domestic,
+                              route: route,
                             );
                     }),
             ),
@@ -808,6 +847,7 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         SourceImportRequest(
           section: _section,
           items: items,
+          contentCategory: _section == Section.video ? _contentCategory : '',
           skipped: skipped,
           notes: notes,
           subscriptionUrls: urls,

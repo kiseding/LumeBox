@@ -19,6 +19,9 @@ import '../../core/source/source_picker_groups.dart';
 import '../../shared/widgets/source_icon.dart';
 
 import 'package:flutter/material.dart';
+
+import '../../core/source/source_content_category.dart';
+
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../core/js/cat_engines.dart';
@@ -74,6 +77,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   String? _group;
   bool _compact = false;
   int _sourceFilter = 0;
+  SourceContentCategory? _contentFilter;
   bool _selecting = false;
   bool _maintaining = false;
   final Set<String> _selectedIds = {};
@@ -429,6 +433,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
   /// 不会出现「改了配置还在用旧 Cookie」的错觉。换网址 / 账号登入只落库：
   /// 它在**每次调用前**注入脚本（`LumeSource.config`），因此下一次浏览就用新值。
   Future<void> _editNetwork(SourceDescriptor source) async {
+    source =
+        (await _manager.list()).where((s) => s.id == source.id).firstOrNull ??
+        source;
+    if (!mounted) return;
     final result = await showGlassDialog<SourceSettingsResult>(
       context: context,
       builder: (_) => SourceNetworkDialog(source: source),
@@ -590,6 +598,41 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
     });
   }
 
+  Future<void> _bulkCategory(String category) async {
+    if (_maintaining || _selectedIds.isEmpty) return;
+    final selected = (_sources ?? [])
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
+    final targets = selected.where(SourceContentCategories.appliesTo).toList();
+    setState(() => _maintaining = true);
+    var saved = 0;
+    final failed = <String>[];
+    try {
+      for (final source in targets) {
+        try {
+          await SourcePreferences.read(
+            widget.section,
+            source.id,
+          ).copyWith(contentCategory: category).save(widget.section, source.id);
+          saved++;
+        } catch (_) {
+          failed.add(source.id);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _selectedIds.removeAll(
+          targets.map((s) => s.id).where((id) => !failed.contains(id)),
+        );
+        _maintenanceStatus =
+            '已归类 $saved 个 JS 源${selected.length > targets.length ? '，跳过 ${selected.length - targets.length} 个其他类型源' : ''}${failed.isNotEmpty ? '，失败 ${failed.length} 项（保留选择，可重试）' : ''}';
+      });
+      await _reload();
+    } finally {
+      if (mounted) setState(() => _maintaining = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_manager.runtimeAvailable) {
@@ -731,6 +774,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
       );
     }
     final query = _sourceQuery.toLowerCase().trim();
+    final compareOrder = SourceOrder.comparator(
+      widget.section,
+      sources.map((s) => s.id),
+    );
+    final pinned = {
+      for (final source in sources)
+        source.id: SourcePreferences.read(widget.section, source.id).pinned,
+    };
     final visible =
         sources
             .where(
@@ -739,36 +790,33 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     source.id,
                     source.name,
                   ) &&
+                  (widget.section != Section.video ||
+                      PrivacySettings.instance.showAdult ||
+                      !SourceContentCategories.appliesTo(source) ||
+                      SourceContentCategories.forSource(source) !=
+                          SourceContentCategory.adult) &&
                   (query.isEmpty ||
                       '${source.name} ${source.id} ${source.group}'
                           .toLowerCase()
                           .contains(query)) &&
                   (_group == null || source.group == _group) &&
+                  (_contentFilter == null ||
+                      (SourceContentCategories.appliesTo(source) &&
+                          SourceContentCategories.forSource(source) ==
+                              _contentFilter)) &&
                   (_sourceFilter == 0 ||
                       (_sourceFilter == 1 ? source.enabled : source.broken)),
             )
             .toList()
           ..sort((a, b) {
-            final pinA = SourcePreferences.read(widget.section, a.id).pinned;
-            final pinB = SourcePreferences.read(widget.section, b.id).pinned;
+            final pinA = pinned[a.id]!;
+            final pinB = pinned[b.id]!;
             if (pinA != pinB) return pinA ? -1 : 1;
-            return SourceOrder.compare(
-              widget.section,
-              a.id,
-              b.id,
-              sources.map((s) => s.id).toList(),
-            );
+            return compareOrder(a.id, b.id);
           });
     Future<void> move(String from, String to) async {
       final all = List<SourceDescriptor>.of(sources)
-        ..sort(
-          (a, b) => SourceOrder.compare(
-            widget.section,
-            a.id,
-            b.id,
-            sources.map((s) => s.id).toList(),
-          ),
-        );
+        ..sort((a, b) => compareOrder(a.id, b.id));
       await SourceOrder.move(
         widget.section,
         all.map((s) => s.id).toList(),
@@ -862,6 +910,28 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                 ),
               ],
             ),
+            if (widget.section == Section.video)
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final category in [
+                    null,
+                    ...SourceContentCategory.groups,
+                  ])
+                    if (category != SourceContentCategory.adult ||
+                        PrivacySettings.instance.showAdult)
+                      ChoiceChip(
+                        key: ValueKey(
+                          'manager-content-${category?.id ?? 'all'}',
+                        ),
+                        label: Text(category?.label ?? '全部内容'),
+                        selected: _contentFilter == category,
+                        onSelected: _maintaining
+                            ? null
+                            : (_) => setState(() => _contentFilter = category),
+                      ),
+                ],
+              ),
             Text('${visible.length} 个源 · 长按源条目拖动排序'),
             if (_maintenanceStatus != null)
               Padding(
@@ -886,6 +956,31 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     child: const Text('清空选择'),
                   ),
                   Text('已选 ${_selectedIds.length} 个'),
+                  if (widget.section == Section.video)
+                    PopupMenuButton<String>(
+                      key: const ValueKey('bulk-source-category'),
+                      enabled:
+                          !_maintaining &&
+                          sources.any(
+                            (s) =>
+                                _selectedIds.contains(s.id) &&
+                                SourceContentCategories.appliesTo(s),
+                          ),
+                      tooltip: '批量归类 JS 源',
+                      onSelected: _bulkCategory,
+                      itemBuilder: (_) => [
+                        for (final category in SourceContentCategory.groups)
+                          PopupMenuItem(
+                            value: category.id,
+                            child: Text('归到${category.label}'),
+                          ),
+                        const PopupMenuItem(value: '', child: Text('恢复自动归类')),
+                      ],
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('归类所选'),
+                      ),
+                    ),
                   TextButton(
                     onPressed: _selectedIds.isEmpty
                         ? null

@@ -2,6 +2,7 @@ import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
 import '../reading/browse_header_motion.dart';
+import '../reading/cover_viewport.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -30,6 +31,9 @@ import '../../core/source/home_browse_mode.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+
+import '../../core/net/network_settings.dart';
 
 import '../../core/cat/cat_service.dart';
 import '../../core/cat/cat_data_source.dart';
@@ -92,7 +96,15 @@ class _CatPageState extends State<CatPage>
   }
 
   ReadingLibrary? library;
-  SectionImagePipeline? pipeline;
+  SectionImagePipeline? _pipeline;
+  SectionImagePipeline? get pipeline {
+    final root = _pipeline;
+    final current = source;
+    if (root == null || current == null) return root;
+    return root.forSource(Section.cat, current.id, NetworkProfile.none)
+      ..bindSource(current);
+  }
+
   CatDataSource? source;
   List<SourceCategory> categories = [];
   List<SourceFilterGroup> groups = [];
@@ -183,7 +195,7 @@ class _CatPageState extends State<CatPage>
     FloatingModules.instance.removeListener(changed);
     messages?.cancel();
     scroll.dispose();
-    pipeline?.dispose();
+    _pipeline?.dispose();
     super.dispose();
   }
 
@@ -203,7 +215,7 @@ class _CatPageState extends State<CatPage>
       await service.boot();
       library = await ReadingLibrary.open(Section.cat);
       if (!mounted) return;
-      pipeline = SectionImagePipeline(
+      _pipeline = SectionImagePipeline(
         cacheDir: library!.imageCacheDir,
         memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
         maxConcurrent: SectionImagePipeline.coverConcurrency,
@@ -375,7 +387,13 @@ class _CatPageState extends State<CatPage>
     for (final item in covers) {
       images.configureImageHeaders({item.cover!: item.coverHeaders});
     }
-    images.preload(covers.map((e) => e.cover!), targetWidth: 360);
+    images.preload(
+      covers.map((e) => e.cover!),
+      targetWidth:
+          _layout == BrowseLayoutMode.list || _layout == BrowseLayoutMode.list2
+          ? 200
+          : 300,
+    );
   }
 
   void loadMore() {
@@ -502,15 +520,12 @@ class _CatPageState extends State<CatPage>
     name: site.name,
     accepts: (id) => record.sites.any((entry) => entry.id == id),
     onMove: (from, to) async {
+      final compareOrder = SourceOrder.comparator(
+        Section.cat,
+        record.sites.map((entry) => entry.id),
+      );
       final all = record.sites.map((entry) => entry.id).toList()
-        ..sort(
-          (a, b) => SourceOrder.compare(
-            Section.cat,
-            a,
-            b,
-            record.sites.map((entry) => entry.id).toList(),
-          ),
-        );
+        ..sort(compareOrder);
       await SourceOrder.move(
         Section.cat,
         all,
@@ -577,16 +592,18 @@ class _CatPageState extends State<CatPage>
                         .contains(pickerQuery.toLowerCase())),
           )
           .toList();
+      final compareOrder = SourceOrder.comparator(
+        Section.cat,
+        record.sites.map((site) => site.id),
+      );
+      final pinned = {
+        for (final site in rows)
+          site.id: SourcePreferences.read(Section.cat, site.id).pinned,
+      };
       rows.sort((a, b) {
-        final pa = SourcePreferences.read(Section.cat, a.id).pinned,
-            pb = SourcePreferences.read(Section.cat, b.id).pinned;
+        final pa = pinned[a.id]!, pb = pinned[b.id]!;
         return pa == pb
-            ? SourceOrder.compare(
-                Section.cat,
-                a.id,
-                b.id,
-                record.sites.map((site) => site.id).toList(),
-              )
+            ? compareOrder(a.id, b.id)
             : pa
             ? -1
             : 1;
@@ -916,8 +933,10 @@ class _CatPageState extends State<CatPage>
                 : rawTime(historyMatch);
             if (fromHistory != null) return fromHistory;
             final itemId = catText(entry['id']);
-            return lib.progress(itemId)?.updatedAt ??
-                lib.item(itemId)?.updatedAt ??
+            return lib
+                    .progress(itemId, sourceId: catText(entry['site']))
+                    ?.updatedAt ??
+                lib.item(itemId, sourceId: catText(entry['site']))?.updatedAt ??
                 DateTime.now();
           }
 
@@ -928,7 +947,7 @@ class _CatPageState extends State<CatPage>
           /// 只为渲染服务：收藏状态与删除仍由 [CatService] 负责，这里不写库。
           LibraryItem libraryItem(Map<String, dynamic> entry) {
             final itemId = catText(entry['id']);
-            final saved = lib.item(itemId);
+            final saved = lib.item(itemId, sourceId: catText(entry['site']));
             final time = entryTime(entry);
             return LibraryItem(
               section: Section.cat,
@@ -959,9 +978,9 @@ class _CatPageState extends State<CatPage>
           void removeEntry(Map<String, dynamic> entry) {
             final itemId = catText(entry['id']);
             if (favorites) {
-              lib.removeFavorite(itemId);
+              lib.removeFavorite(itemId, sourceId: catText(entry['site']));
             } else {
-              lib.removeHistory(itemId);
+              lib.removeHistory(itemId, sourceId: catText(entry['site']));
             }
             unawaited(
               service.removeCollection({id(entry)}, favorites: favorites),
@@ -1225,10 +1244,12 @@ class _CatPageState extends State<CatPage>
                                     if (favorites) {
                                       library?.removeFavorite(
                                         catText(entry['id']),
+                                        sourceId: catText(entry['site']),
                                       );
                                     } else {
                                       library?.removeHistory(
                                         catText(entry['id']),
+                                        sourceId: catText(entry['site']),
                                       );
                                     }
                                   }
@@ -1254,7 +1275,10 @@ class _CatPageState extends State<CatPage>
                                           ) ==
                                           'true',
                                       item: item,
-                                      progress: lib.progress(item.itemId),
+                                      progress: lib.progress(
+                                        item.itemId,
+                                        sourceId: item.sourceId,
+                                      ),
                                       now: now,
                                       removeLabel: favorites ? '取消收藏' : '删除记录',
                                       onRemove: () => removeEntry(entry),
@@ -1272,7 +1296,10 @@ class _CatPageState extends State<CatPage>
                                         : null,
                                     child: HistoryGridTile(
                                       item: item,
-                                      progress: lib.progress(item.itemId),
+                                      progress: lib.progress(
+                                        item.itemId,
+                                        sourceId: item.sourceId,
+                                      ),
                                       pipeline: pipeline,
                                       headers: coverHeaders(entry),
                                       updated:
@@ -1521,144 +1548,148 @@ class _CatPageState extends State<CatPage>
             },
             child: RefreshIndicator(
               onRefresh: refresh,
-              child: CustomScrollView(
-                controller: scroll,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height:
-                          trimmedTopInset(MediaQuery.paddingOf(context).top) +
-                          _headerHeight +
-                          FloatingModules.instance
-                              .style(FloatingModule.home)
-                              .y
-                              .clamp(0, 80) +
-                          HomePanelLayout.contentGap,
-                    ),
-                  ),
-                  if (service.busy)
+              child: CoverViewport(
+                child: CustomScrollView(
+                  scrollCacheExtent: const ScrollCacheExtent.viewport(1),
+                  controller: scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
                     SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          const LinearProgressIndicator(),
-                          Text(service.status),
-                        ],
+                      child: SizedBox(
+                        height:
+                            trimmedTopInset(MediaQuery.paddingOf(context).top) +
+                            _headerHeight +
+                            FloatingModules.instance
+                                .style(FloatingModule.home)
+                                .y
+                                .clamp(0, 80) +
+                            HomePanelLayout.contentGap,
                       ),
                     ),
-                  if (loading)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    )
-                  else if (error != null)
-                    SliverToBoxAdapter(
-                      child: GlassCard(
+                    if (service.busy)
+                      SliverToBoxAdapter(
                         child: Column(
                           children: [
-                            Text(error!),
-                            TextButton(
-                              onPressed: source == null ? boot : refresh,
-                              child: const Text('重试'),
-                            ),
-                            TextButton(
-                              onPressed: subscriptions,
-                              child: const Text('管理订阅'),
-                            ),
+                            const LinearProgressIndicator(),
+                            Text(service.status),
                           ],
                         ),
                       ),
-                    )
-                  else if (source == null)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          children: [
-                            const Text('添加猫源订阅后，选择包内站点即可浏览。'),
-                            FilledButton.icon(
-                              onPressed: subscriptions,
-                              icon: const SubscriptionStatusIcon(
-                                section: Section.cat,
-                              ),
-                              label: const Text('添加订阅'),
-                            ),
-                          ],
+                    if (loading)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Center(child: CircularProgressIndicator()),
                         ),
-                      ),
-                    )
-                  else if (items.isEmpty)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Center(child: Text('暂无内容，请选择分类或其他站点')),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: _layout == BrowseLayoutMode.grid3
-                            ? ThreeColumnPosterLayout.sidePadding
-                            : TwoColumnSourceLayout.sidePadding,
-                      ),
-                      sliver: _layout == BrowseLayoutMode.list
-                          ? SliverList.separated(
-                              itemCount: items.length,
-                              itemBuilder: browseItem,
-                              separatorBuilder: (_, _) => const Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: Color(0xFFE5E5EA),
+                      )
+                    else if (error != null)
+                      SliverToBoxAdapter(
+                        child: GlassCard(
+                          child: Column(
+                            children: [
+                              Text(error!),
+                              TextButton(
+                                onPressed: source == null ? boot : refresh,
+                                child: const Text('重试'),
                               ),
-                            )
-                          : SliverLayoutBuilder(
-                              builder: (context, constraints) => SliverGrid(
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: _layout.columns,
-                                      childAspectRatio: _layout.tileAspectRatio,
-                                      mainAxisExtent:
-                                          _layout == BrowseLayoutMode.list2
-                                          ? TwoColumnSourceLayout.itemExtent(
-                                              context,
-                                              (constraints.crossAxisExtent -
-                                                      TwoColumnSourceLayout
-                                                          .spacing) /
-                                                  2,
-                                            )
-                                          : null,
-                                      crossAxisSpacing:
-                                          _layout == BrowseLayoutMode.grid3
-                                          ? ThreeColumnPosterLayout.spacing
-                                          : _layout == BrowseLayoutMode.list2
-                                          ? TwoColumnSourceLayout.spacing
-                                          : 12,
-                                      mainAxisSpacing:
-                                          _layout == BrowseLayoutMode.grid3
-                                          ? ThreeColumnPosterLayout.rowSpacing
-                                          : _layout == BrowseLayoutMode.list2
-                                          ? TwoColumnSourceLayout.rowSpacing
-                                          : 12,
-                                    ),
-                                delegate: SliverChildBuilderDelegate(
-                                  browseItem,
-                                  childCount: items.length,
+                              TextButton(
+                                onPressed: subscriptions,
+                                child: const Text('管理订阅'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (source == null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            children: [
+                              const Text('添加猫源订阅后，选择包内站点即可浏览。'),
+                              FilledButton.icon(
+                                onPressed: subscriptions,
+                                icon: const SubscriptionStatusIcon(
+                                  section: Section.cat,
+                                ),
+                                label: const Text('添加订阅'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (items.isEmpty)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Center(child: Text('暂无内容，请选择分类或其他站点')),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: _layout == BrowseLayoutMode.grid3
+                              ? ThreeColumnPosterLayout.sidePadding
+                              : TwoColumnSourceLayout.sidePadding,
+                        ),
+                        sliver: _layout == BrowseLayoutMode.list
+                            ? SliverList.separated(
+                                itemCount: items.length,
+                                itemBuilder: browseItem,
+                                separatorBuilder: (_, _) => const Divider(
+                                  height: 1,
+                                  thickness: 1,
+                                  color: Color(0xFFE5E5EA),
+                                ),
+                              )
+                            : SliverLayoutBuilder(
+                                builder: (context, constraints) => SliverGrid(
+                                  gridDelegate:
+                                      SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: _layout.columns,
+                                        childAspectRatio:
+                                            _layout.tileAspectRatio,
+                                        mainAxisExtent:
+                                            _layout == BrowseLayoutMode.list2
+                                            ? TwoColumnSourceLayout.itemExtent(
+                                                context,
+                                                (constraints.crossAxisExtent -
+                                                        TwoColumnSourceLayout
+                                                            .spacing) /
+                                                    2,
+                                              )
+                                            : null,
+                                        crossAxisSpacing:
+                                            _layout == BrowseLayoutMode.grid3
+                                            ? ThreeColumnPosterLayout.spacing
+                                            : _layout == BrowseLayoutMode.list2
+                                            ? TwoColumnSourceLayout.spacing
+                                            : 12,
+                                        mainAxisSpacing:
+                                            _layout == BrowseLayoutMode.grid3
+                                            ? ThreeColumnPosterLayout.rowSpacing
+                                            : _layout == BrowseLayoutMode.list2
+                                            ? TwoColumnSourceLayout.rowSpacing
+                                            : 12,
+                                      ),
+                                  delegate: SliverChildBuilderDelegate(
+                                    browseItem,
+                                    childCount: items.length,
+                                  ),
                                 ),
                               ),
-                            ),
+                      ),
+                    if (loadingMore)
+                      const SliverToBoxAdapter(
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: ShellDockScope.bottomInset(context) + 24,
+                      ),
                     ),
-                  if (loadingMore)
-                    const SliverToBoxAdapter(
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: ShellDockScope.bottomInset(context) + 24,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

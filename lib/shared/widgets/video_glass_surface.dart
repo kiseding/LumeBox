@@ -2,50 +2,59 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme/frosted_settings.dart';
+
 /// One neutral glass material for video capsules, menus and modal panels.
 /// Only the background is filtered; foreground widgets keep full opacity.
 class VideoGlassSurface extends StatelessWidget {
-  const VideoGlassSurface({super.key, required this.child, this.radius = 28});
+  const VideoGlassSurface({
+    super.key,
+    required this.child,
+    this.radius = 28,
+    this.dark = false,
+    this.materialOpacity = opacity,
+  });
 
   static const tint = Colors.white;
   static const opacity = .58;
   static const foreground = Color(0xFF17181B);
   final Widget child;
   final double radius;
+  final bool dark;
+  final double materialOpacity;
 
   @override
   Widget build(BuildContext context) {
     if (VideoGlassScope.active(context)) return child;
     final inherited = Theme.of(context);
+    final ink = dark ? const Color(0xFFF3F5F4) : foreground;
     final reduced =
         MediaQuery.highContrastOf(context) ||
-        MediaQuery.of(context).accessibleNavigation;
+        MediaQuery.of(context).accessibleNavigation ||
+        FrostedSettings.instance.reduceTransparency;
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFFD83361),
-      brightness: Brightness.light,
-      surface: const Color(0xFFF2F2F5),
+      seedColor: inherited.colorScheme.primary,
+      brightness: dark ? Brightness.dark : Brightness.light,
+      surface: dark ? const Color(0xFF202428) : const Color(0xFFF2F2F5),
     );
     final theme = inherited.copyWith(
-      brightness: Brightness.light,
+      brightness: dark ? Brightness.dark : Brightness.light,
       colorScheme: scheme,
       scaffoldBackgroundColor: Colors.transparent,
       disabledColor: const Color(0xFF777880),
       dividerColor: Colors.black.withValues(alpha: .12),
-      textTheme: inherited.textTheme.apply(
-        bodyColor: foreground,
-        displayColor: foreground,
-      ),
-      iconTheme: const IconThemeData(color: foreground),
+      textTheme: inherited.textTheme.apply(bodyColor: ink, displayColor: ink),
+      iconTheme: IconThemeData(color: ink),
       iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(foregroundColor: foreground),
+        style: IconButton.styleFrom(foregroundColor: ink),
       ),
       listTileTheme: inherited.listTileTheme.copyWith(
-        textColor: foreground,
-        iconColor: foreground,
+        textColor: ink,
+        iconColor: ink,
       ),
       appBarTheme: inherited.appBarTheme.copyWith(
         backgroundColor: Colors.transparent,
-        foregroundColor: foreground,
+        foregroundColor: ink,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -57,7 +66,9 @@ class VideoGlassSurface extends StatelessWidget {
       ),
     );
     Widget background = ColoredBox(
-      color: tint.withValues(alpha: reduced ? .97 : opacity),
+      color: (dark ? const Color(0xFF202428) : tint).withValues(
+        alpha: reduced ? .97 : materialOpacity,
+      ),
     );
     if (!reduced) {
       background = BackdropFilter(
@@ -96,9 +107,9 @@ class VideoGlassSurface extends StatelessWidget {
             child: Theme(
               data: theme,
               child: DefaultTextStyle(
-                style: theme.textTheme.bodyMedium!.copyWith(color: foreground),
+                style: theme.textTheme.bodyMedium!.copyWith(color: ink),
                 child: IconTheme(
-                  data: const IconThemeData(color: foreground),
+                  data: IconThemeData(color: ink),
                   child: Material(
                     type: MaterialType.transparency,
                     child: child,

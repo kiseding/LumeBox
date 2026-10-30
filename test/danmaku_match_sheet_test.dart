@@ -10,6 +10,50 @@ import 'package:lume_box/features/video/danmaku/danmaku_match_sheet.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_panel.dart';
 
 void main() {
+  testWidgets('横屏弹层贴右占四成，安全边距位于面板内容内部', (tester) async {
+    tester.view.physicalSize = const Size(932, 430);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = const FakeViewPadding(
+      left: 62,
+      right: 62,
+      bottom: 21,
+    );
+    tester.view.padding = const FakeViewPadding(
+      left: 62,
+      right: 62,
+      bottom: 21,
+    );
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDanmakuPanel<void>(
+                context: context,
+                builder: (_) => const Text('面板内容'),
+              ),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(
+      find.byKey(const ValueKey('danmaku-panel-frame')),
+    );
+    expect(rect.right, 932);
+    expect(rect.width, closeTo(932 * .4, .01));
+    expect(
+      tester.getRect(find.text('面板内容')).right,
+      lessThanOrEqualTo(932 - 62),
+    );
+    expect(rect.left, greaterThanOrEqualTo(62));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final landscape in [false, true]) {
     testWidgets('匹配先核对作品和集数，空弹幕不提交，横屏=$landscape', (tester) async {
       await tester.binding.setSurfaceSize(

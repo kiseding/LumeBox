@@ -82,7 +82,8 @@ class PlayerCapabilities {
   /// 逐项依据（都核对过依赖源码 / 官方文档，不是猜的）：
   /// - **AVPlayer**（video_player 2.14 + video_player_avfoundation 2.12）：
   ///   音轨选择可用（插件 `isAudioTrackSupportAvailable() == true`）；
-  ///   字幕由系统样式渲染，轨道 / 样式 / 延迟都无接口；硬解无通道；
+  ///   字幕轨道经宿主通道选择；SRT / VTT 外挂由文字层渲染；
+  ///   内封字幕样式 / 延迟不提供完整控制，外挂选中后动态开放样式与延迟；硬解无通道；
   ///   后台音频走 `allowBackgroundPlayback`；缓冲参数走本项目原生通道；
   /// - **MPV**（media_kit 1.2.6 / libmpv）：轨道、外挂字幕、字幕样式（Flutter
   ///   字幕层）、延迟（`sub-delay` / `audio-delay`）、硬解（`hwdec`）、缓冲参数
@@ -91,33 +92,35 @@ class PlayerCapabilities {
   ///   （`sub-delay`）；字幕是内嵌渲染（样式改不了）；音频延迟与解码链切换
   ///   没有可查证的属性名——**不猜**，如实标不支持。
   static PlayerCapabilities of(PlayerKernel kernel) => switch (kernel) {
-        PlayerKernel.avplayer => const PlayerCapabilities(
-            audioTracks: true,
-            backgroundAudio: true,
-            nowPlaying: true,
-            bufferingParams: true,
-          ),
-        PlayerKernel.mpv => const PlayerCapabilities(
-            audioTracks: true,
-            subtitleTracks: true,
-            externalSubtitle: true,
-            subtitleStyle: true,
-            subtitleDelay: true,
-            audioDelay: true,
-            hardwareDecoding: true,
-            backgroundAudio: true,
-            nowPlaying: true,
-            bufferingParams: true,
-          ),
-        PlayerKernel.mdk => const PlayerCapabilities(
-            audioTracks: true,
-            subtitleTracks: true,
-            externalSubtitle: true,
-            subtitleDelay: true,
-            backgroundAudio: true,
-            nowPlaying: true,
-          ),
-      };
+    PlayerKernel.avplayer => const PlayerCapabilities(
+      subtitleTracks: true,
+      externalSubtitle: true,
+      audioTracks: true,
+      backgroundAudio: true,
+      nowPlaying: true,
+      bufferingParams: true,
+    ),
+    PlayerKernel.mpv => const PlayerCapabilities(
+      audioTracks: true,
+      subtitleTracks: true,
+      externalSubtitle: true,
+      subtitleStyle: true,
+      subtitleDelay: true,
+      audioDelay: true,
+      hardwareDecoding: true,
+      backgroundAudio: true,
+      nowPlaying: true,
+      bufferingParams: true,
+    ),
+    PlayerKernel.mdk => const PlayerCapabilities(
+      audioTracks: true,
+      subtitleTracks: true,
+      externalSubtitle: true,
+      subtitleDelay: true,
+      backgroundAudio: true,
+      nowPlaying: true,
+    ),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -135,32 +138,22 @@ class PlayerCapabilities {
 
   @override
   int get hashCode => Object.hash(
-        audioTracks,
-        subtitleTracks,
-        externalSubtitle,
-        subtitleStyle,
-        subtitleDelay,
-        audioDelay,
-        hardwareDecoding,
-        backgroundAudio,
-        nowPlaying,
-        bufferingParams,
-      );
+    audioTracks,
+    subtitleTracks,
+    externalSubtitle,
+    subtitleStyle,
+    subtitleDelay,
+    audioDelay,
+    hardwareDecoding,
+    backgroundAudio,
+    nowPlaying,
+    bufferingParams,
+  );
 
   @override
-  String toString() => 'PlayerCapabilities('
-      '${<String>[
-        if (audioTracks) '音轨',
-        if (subtitleTracks) '字幕轨',
-        if (externalSubtitle) '外挂字幕',
-        if (subtitleStyle) '字幕样式',
-        if (subtitleDelay) '字幕延迟',
-        if (audioDelay) '音频延迟',
-        if (hardwareDecoding) '硬解',
-        if (backgroundAudio) '后台音频',
-        if (nowPlaying) '锁屏控制',
-        if (bufferingParams) '缓冲参数',
-      ].join('/')})';
+  String toString() =>
+      'PlayerCapabilities('
+      '${<String>[if (audioTracks) '音轨', if (subtitleTracks) '字幕轨', if (externalSubtitle) '外挂字幕', if (subtitleStyle) '字幕样式', if (subtitleDelay) '字幕延迟', if (audioDelay) '音频延迟', if (hardwareDecoding) '硬解', if (backgroundAudio) '后台音频', if (nowPlaying) '锁屏控制', if (bufferingParams) '缓冲参数'].join('/')})';
 }
 
 /// 一条可选音轨 / 字幕轨（内核无关的统一形状）。
@@ -200,6 +193,7 @@ class PlayerTrack {
   int get hashCode => Object.hash(id, label, language, selected);
 
   @override
-  String toString() => 'PlayerTrack($id, $label${language == null ? '' : '/$language'}, '
+  String toString() =>
+      'PlayerTrack($id, $label${language == null ? '' : '/$language'}, '
       '${selected ? '选中' : '未选'})';
 }

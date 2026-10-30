@@ -92,7 +92,7 @@ void main() {
     'selected bubble combines OCR lines into one translation request',
     () async {
       messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
-        if (call.method == 'recognize')
+        if (call.method == 'recognize') {
           return [
             {
               'text': 'selected-bubble-line-one',
@@ -109,6 +109,7 @@ void main() {
               'height': .2,
             },
           ];
+        }
         if (call.method == 'translate') {
           expect((call.arguments as Map)['texts'], [
             'selected-bubble-line-one\nselected-bubble-line-two',
@@ -128,7 +129,7 @@ void main() {
 
   test('部分翻译失败仍返回成功区域，失败对白保留原图并给出简短提示', () async {
     messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
-      if (call.method == 'recognize')
+      if (call.method == 'recognize') {
         return [
           {
             'text': 'partial-regression-one',
@@ -145,12 +146,14 @@ void main() {
             'height': .1,
           },
         ];
-      if (call.method == 'translate')
+      }
+      if (call.method == 'translate') {
         throw PlatformException(
           code: 'translation_partial',
           message: 'unsupported pair',
           details: ['成功译文', ''],
         );
+      }
       return null;
     });
     final tools = ComicImageTools();
@@ -247,8 +250,18 @@ void main() {
           ),
         ),
       );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('advanced-image-models')),
+        250,
+      );
+      await tester.tap(find.byKey(const Key('advanced-image-models')));
+      await tester.pumpAndSettle();
       final button = find.byKey(const Key('import-super-resolution-model'));
-      await tester.scrollUntilVisible(button, 250);
+      await tester.scrollUntilVisible(
+        button,
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(button);
       await tester.pumpAndSettle();
       expect(find.text('无法打开文件选择器或安装模型，请重试'), findsOneWidget);
@@ -267,8 +280,18 @@ void main() {
         home: ComicImageToolsSettingsPage(pickModelFile: () async => null),
       ),
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('advanced-image-models')),
+      250,
+    );
+    await tester.tap(find.byKey(const Key('advanced-image-models')));
+    await tester.pumpAndSettle();
     final button = find.byKey(const Key('import-super-resolution-model'));
-    await tester.scrollUntilVisible(button, 250);
+    await tester.scrollUntilVisible(
+      button,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.text('已取消选择模型'), findsOneWidget);
@@ -484,6 +507,7 @@ void main() {
         ..concurrency = 9
         ..colorizeEndpoint = 'https://image.example/v1/images/edits'
         ..colorizeModel = 'image-model'
+        ..colorizeProtocol = 'seedream'
         ..colorizePrompt = 'colorize'
         ..serverTranslation = true
         ..imageTranslationEndpoint = 'https://manga.example'
@@ -496,6 +520,7 @@ void main() {
       expect(reloaded.upscaleCovers, isTrue);
       expect(reloaded.upscaleVideoPosters, isTrue);
       expect(reloaded.concurrency, 4);
+      expect(reloaded.colorizeProtocol, 'seedream');
       expect(
         reloaded.colorizeEndpoint,
         'https://image.example/v1/images/edits',
@@ -551,6 +576,70 @@ void main() {
     await expectLater(bad.colorize(bytes), throwsFormatException);
   });
 
+  test('Seedream 使用 JSON 原图上色，只生成一张图并读取 base64', () async {
+    final settings = ComicImageToolsSettings()
+      ..colorizeProtocol = 'seedream'
+      ..colorizeEndpoint =
+          'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+      ..colorizeModel = 'doubao-seedream-4-0-250828';
+    final client = MockClient((request) async {
+      expect(request.headers['Content-Type'], contains('application/json'));
+      final body = jsonDecode(request.body) as Map;
+      expect(body['model'], 'doubao-seedream-4-0-250828');
+      expect(body['image'], 'data:image/png;base64,${base64Encode(bytes)}');
+      expect(body['response_format'], 'b64_json');
+      expect(body['sequential_image_generation'], 'disabled');
+      expect(body['stream'], false);
+      expect(body['size'], '2K');
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+  });
+
+  test('Seedream Flash 使用自己的密钥且不发送旧模型专有的组图参数', () async {
+    final slots = <String>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      final slot = (call.arguments as Map)['slot'] as String;
+      slots.add(slot);
+      return slot == 'colorizeSeedream' ? 'ark-secret' : '';
+    });
+    final settings = ComicImageToolsSettings()
+      ..colorizeProtocol = 'seedream'
+      ..colorizeEndpoint =
+          'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+      ..colorizeModel = 'doubao-seedream-5-0-flash-260915';
+    final client = MockClient((request) async {
+      expect(request.headers['Authorization'], 'Bearer ark-secret');
+      final body = jsonDecode(request.body) as Map;
+      expect(body, isNot(contains('sequential_image_generation')));
+      expect(body['image'], startsWith('data:image/png;base64,'));
+      expect(body['output_format'], 'png');
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+    expect(slots, ['colorizeSeedream']);
+  });
+
   test('closing reader cancels native jobs and rejects stale result', () async {
     final response = Completer<Object?>();
     final started = Completer<void>();
@@ -573,6 +662,80 @@ void main() {
     response.complete(bytes);
     await expectation;
     expect(cancelled, hasLength(1));
+  });
+
+  test('上色独立密钥与 GPT Image 请求不会覆盖或读取翻译密钥', () async {
+    final slots = <String>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      expect(call.method, 'getKey');
+      slots.add((call.arguments as Map?)?['slot'] as String? ?? 'apiKey');
+      return 'image-secret';
+    });
+    final client = MockClient((request) async {
+      expect(request.headers['Authorization'], 'Bearer image-secret');
+      final body = latin1.decode(request.bodyBytes);
+      expect(body, contains('name="image[]"'));
+      expect(body, contains('name="output_format"'));
+      expect(body, isNot(contains('response_format')));
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(
+      settings: ComicImageToolsSettings()
+        ..colorizeEndpoint = 'https://api.openai.com/v1/images/edits'
+        ..colorizeModel = 'gpt-image-1-mini',
+      client: client,
+    );
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+    expect(slots, ['colorize']);
+  });
+
+  test('上色兼容旧共用密钥，但错误的 DeepSeek/对话地址在上传前拦住', () async {
+    var uploads = 0;
+    final slots = <String>[];
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      final slot = (call.arguments as Map?)?['slot'] as String? ?? 'apiKey';
+      slots.add(slot);
+      return slot == 'colorize' ? '' : 'legacy-secret';
+    });
+    final settings = ComicImageToolsSettings()
+      ..colorizeEndpoint = 'https://image.example/v1/images/edits'
+      ..colorizeModel = 'image-model';
+    final client = MockClient((request) async {
+      uploads++;
+      expect(request.headers['Authorization'], 'Bearer legacy-secret');
+      return http.Response(
+        jsonEncode({
+          'data': [
+            {'b64_json': base64Encode(bytes)},
+          ],
+        }),
+        200,
+      );
+    });
+    addTearDown(client.close);
+    final tools = ComicImageTools(settings: settings, client: client);
+    addTearDown(tools.dispose);
+    expect(await tools.colorize(bytes), bytes);
+    expect(slots, ['colorize', 'apiKey']);
+    slots.clear();
+    for (final url in [
+      'https://api.deepseek.com/v1',
+      'https://image.example/v1/chat/completions',
+    ]) {
+      settings.colorizeEndpoint = url;
+      await expectLater(tools.colorize(bytes), throwsFormatException);
+    }
+    expect(uploads, 1);
+    expect(slots, isEmpty);
   });
 
   test(
@@ -690,6 +853,71 @@ void main() {
     expect(calls, 2);
   });
 
+  test('手动超分和自动封面共用预算，退出排队阅读器不会唤醒其他页面', () async {
+    ComicImageTools.debugAutomaticSupported = true;
+    addTearDown(() => ComicImageTools.debugAutomaticSupported = null);
+    final started = Completer<void>(), finish = Completer<void>();
+    var calls = 0;
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method != 'superResolve') return null;
+      calls++;
+      if (calls == 1) {
+        started.complete();
+        await finish.future;
+      }
+      return bytes;
+    });
+    final settings = ComicImageToolsSettings()
+      ..automatic = true
+      ..upscaleCovers = true
+      ..concurrency = 1;
+    final manual = ComicImageTools(settings: settings);
+    final closingReader = ComicImageTools(settings: settings);
+    final covers = ComicImageTools(settings: settings);
+    addTearDown(manual.dispose);
+    addTearDown(closingReader.dispose);
+    addTearDown(covers.dispose);
+    final a = manual.superResolve(bytes);
+    await started.future;
+    final b = closingReader.automatic(bytes);
+    final c = covers.automatic(bytes, surface: UpscaleSurface.cover);
+    await Future<void>.delayed(Duration.zero);
+    closingReader.dispose();
+    expect(await b, bytes);
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1, reason: '取消自己不能把其他页面排队任务放行');
+    finish.complete();
+    await Future.wait([a, c]);
+    expect(calls, 2);
+  });
+
+  test('降低并发设置后，排队任务等待所有超额任务完成', () async {
+    final started = Completer<void>();
+    final gates = [Completer<void>(), Completer<void>()];
+    var calls = 0;
+    messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
+      if (call.method != 'superResolve') return null;
+      final index = calls++;
+      if (calls == 2) started.complete();
+      if (index < gates.length) await gates[index].future;
+      return bytes;
+    });
+    final settings = ComicImageToolsSettings()..concurrency = 2;
+    final tools = ComicImageTools(settings: settings);
+    addTearDown(tools.dispose);
+    final a = tools.superResolve(bytes), b = tools.superResolve(bytes);
+    await started.future;
+    final c = tools.superResolve(bytes);
+    settings.concurrency = 1;
+    gates.first.complete();
+    await a;
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 2);
+    gates.last.complete();
+    await Future.wait([b, c]);
+    expect(calls, 3);
+  });
+
   testWidgets('服务器翻译设置适配 320pt 与大字号，日文识别选项可见', (tester) async {
     final settings = ComicImageToolsSettings.instance;
     final previous = settings.serverTranslation,
@@ -778,7 +1006,7 @@ void main() {
       '自动超分的额外范围',
       '漫画 / 猫源封面',
       '视频海报',
-      '安装内置模型（8 个）',
+      '内置模型 · 自动准备',
       'AI 上色（实验性 · 云端）',
       '保存上色配置',
     ]) {

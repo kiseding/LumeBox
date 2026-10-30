@@ -1,3 +1,5 @@
+import 'performance_page.dart';
+import '../comic/download_center_page.dart';
 import '../video/player_settings_host.dart';
 import '../comic/comic_reader_settings_host.dart';
 
@@ -240,6 +242,17 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.movie_outlined,
       title: 'TMDB配置',
+      searchTargets: {
+        for (final entry in const {
+          '背景亮度': 'backgroundBrightness',
+          '背景色彩 饱和度': 'backgroundSaturation',
+          '海报亮度': 'posterBrightness',
+          '渐变强度': 'fadeStrength',
+          'TMDB标识大小 Logo': 'logoScale',
+        }.entries)
+          entry.key: () =>
+              _push(context, TmdbSettingsPage(focusAppearance: entry.value)),
+      },
       subtitle: '海报样式 / API Key / 接口与图片代理',
       onTap: () => _push(context, const TmdbSettingsPage()),
     ),
@@ -251,6 +264,12 @@ class SettingsPage extends StatelessWidget {
     ),
 
     const SettingsGroupTitle('存储与安全'),
+    SettingsEntryCard(
+      icon: Icons.download_outlined,
+      title: '下载中心',
+      subtitle: '暂停、继续、失败重试与重开恢复',
+      onTap: () => _push(context, const DownloadCenterPage()),
+    ),
     SettingsEntryCard(
       icon: Icons.downloading_outlined,
       title: '预载与清理',
@@ -277,6 +296,12 @@ class SettingsPage extends StatelessWidget {
     ),
 
     const SettingsGroupTitle('诊断与关于'),
+    SettingsEntryCard(
+      icon: Icons.speed,
+      title: '流畅度采集',
+      subtitle: '长列表、翻页、切集与清理的帧耗时报告',
+      onTap: () => _push(context, const PerformancePage()),
+    ),
     SettingsEntryCard(
       icon: Icons.menu_book_outlined,
       title: '使用说明',

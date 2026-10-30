@@ -10,10 +10,8 @@ import '../../shared/widgets/notice_card.dart';
 import 'log_report.dart';
 import 'log_report_page.dart';
 
-/// 运行日志：查看本次会话的日志（信息 / 警告 / 错误），可清空。
-///
-/// 日志只保留当前运行会话（内存环形缓冲，上限 [LumeLog.bufferLimit] 条）；
-/// 重启应用后清空——报告导出同样只覆盖当前会话。
+/// 运行日志：查看本次会话与上次异常，可筛选、导出及清空。
+/// 当前会话内存缓冲上限为 [LumeLog.bufferLimit] 条，上次异常另有落盘限额。
 class LogViewerPage extends StatefulWidget {
   const LogViewerPage({super.key, required this.exporter});
 
@@ -32,7 +30,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('清空日志'),
-        content: const Text('清空本次运行记录的全部日志？清空后无法恢复。'),
+        content: const Text('清空本次与上次会话保存的全部日志？清空后无法恢复。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -89,7 +87,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
   }
 
   Widget _buildBody() {
-    final entries = LumeLog.snapshot;
+    final entries = [...LumeLog.previousSession, ...LumeLog.snapshot];
     if (entries.isEmpty) {
       return const NoticeCard(title: '暂无日志', subtitle: '本次运行还没有产生日志');
     }

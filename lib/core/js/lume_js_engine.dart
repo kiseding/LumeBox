@@ -227,7 +227,7 @@ class LumeJsEngine {
     final result = await _sandbox.eval(
       'JSON.stringify({id: LumeSource.id, name: LumeSource.name, '
       'version: LumeSource.version, category: LumeSource.category, '
-      'mirrors: LumeSource.mirrors, widgetParameters:LumeSource.widgetParameters, '
+      'mirrors: LumeSource.mirrors, endpoints:LumeSource.endpoints, settings:LumeSource.settings, commonSettings:LumeSource.commonSettings, settingsApiVersion:LumeSource.settingsApiVersion, requiresSettings:LumeSource.requiresSettings, network:LumeSource.network, widgetParameters:LumeSource.widgetParameters, '
       'compatibilityWarnings:LumeSource.compatibilityWarnings})',
       fileName: 'metadata.js',
     );

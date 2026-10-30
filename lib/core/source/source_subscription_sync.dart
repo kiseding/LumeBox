@@ -93,15 +93,28 @@ class SourceSubscriptionSync {
     String name,
     String status,
   ) {
+    _recordChanges(section, [
+      {'id': id, 'name': name, 'status': status},
+    ]);
+  }
+
+  static void _recordChanges(
+    Section section,
+    Iterable<Map<String, String>> changes, {
+    bool notifyRevision = true,
+  }) {
+    if (changes.isEmpty) return;
     final entries = _changes.putIfAbsent(section, () => {});
-    final fresh = !entries.containsKey(id);
-    entries[id] = {'id': id, 'name': name, 'status': status};
-    if (fresh) {
-      changeCount(section).value++;
+    for (final change in changes) {
+      entries[change['id']!] = change;
+    }
+    final count = changeCount(section);
+    if (count.value != entries.length) {
+      count.value = entries.length;
     } else {
       final file = _noticeFiles[section];
       if (file != null) _saveChanges(section, file);
-      revision(section).value++;
+      if (notifyRevision) revision(section).value++;
     }
   }
 
@@ -181,10 +194,34 @@ class SourceSubscriptionSync {
     return service;
   }
 
+  static Map<String, dynamic> validateDocument(Object? data) {
+    if (data is! Map || data['subscriptions'] is! List) {
+      throw const FormatException('订阅配置必须包含 subscriptions 数组');
+    }
+    for (final row in data['subscriptions'] as List) {
+      if (row is! Map ||
+          row['url'] is! String ||
+          !SubscriptionCatalog.validUrl(row['url'] as String) ||
+          row['enabled'] != null && row['enabled'] is! bool ||
+          row['error'] != null && row['error'] is! String ||
+          row['excludedIds'] != null &&
+              (row['excludedIds'] is! List ||
+                  (row['excludedIds'] as List).any((v) => v is! String)) ||
+          row['members'] != null &&
+              (row['members'] is! Map ||
+                  (row['members'] as Map).entries.any(
+                    (e) => e.key is! String || e.value is! String,
+                  ))) {
+        throw const FormatException('订阅记录的地址、启用状态、成员或排除列表格式错误');
+      }
+    }
+    return Map<String, dynamic>.from(data);
+  }
+
   Future<void> load() async {
     subscriptions.clear();
     if (!file.existsSync()) return;
-    final data = jsonDecode(file.readAsStringSync()) as Map;
+    final data = validateDocument(jsonDecode(file.readAsStringSync()));
     _migrated = data['migrationVersion'] == 3;
     var normalized = false;
     for (final raw in (data['subscriptions'] as List? ?? [])) {
@@ -286,13 +323,64 @@ class SourceSubscriptionSync {
     await save();
   }
 
+  Future<void> _recoverMembers() async {
+    final sources = await manager.list();
+    for (final source in sources) {
+      if (!source.subscribed ||
+          subscriptions.any((s) => s.members.containsKey(source.id))) {
+        continue;
+      }
+      final exact = subscriptions
+          .where(
+            (s) => SubscriptionCatalog.sameSourceUrl(s.url, source.originUrl),
+          )
+          .firstOrNull;
+      if (exact != null) {
+        exact.members[source.id] = source.originUrl;
+        continue;
+      }
+      final sourcePath = SubscriptionCatalog.officialPath(source.originUrl);
+      final folders = switch (section) {
+        Section.comic => ['comic/', 'photo/'],
+        Section.video => ['video/', 'movie/', 'audiobook/'],
+        _ => <String>[],
+      };
+      if (sourcePath == null || !folders.any(sourcePath.startsWith)) continue;
+      final owners = subscriptions.where((record) {
+        final path = SubscriptionCatalog.officialPath(record.url);
+        return path == SubscriptionCatalog.names[section] ||
+            path ==
+                SubscriptionCatalog.names[section]?.replaceFirst(
+                  'subscriptions/',
+                  'subscriptions/cdn/',
+                ) ||
+            path == 'subscriptions/all.json' ||
+            path == 'subscriptions/cdn/all.json';
+      }).toList();
+      if (owners.isEmpty) continue;
+      // 优先沿用原线路；只恢复明确属于官方完整订阅的旧源。
+      final owner =
+          owners
+              .where(
+                (s) =>
+                    s.url.startsWith(SubscriptionCatalog.cdnBase) ==
+                    source.originUrl.startsWith(SubscriptionCatalog.cdnBase),
+              )
+              .firstOrNull ??
+          owners.first;
+      owner.members[source.id] = source.originUrl;
+    }
+  }
+
   Future<SubscriptionSyncResult> sync({bool force = false}) async {
     final result = SubscriptionSyncResult();
+    final changes = <Map<String, String>>[];
     var downloaded = 0;
     if (!manager.runtimeAvailable) {
       return result..errors.add('当前平台无法运行 JS 源，订阅未同步');
     }
     await _migrate();
+    await _recoverMembers();
     if (!subscriptions.any((s) => s.enabled)) {
       return result..message = '没有已启用的订阅，请先添加订阅地址';
     }
@@ -356,7 +444,10 @@ class SourceSubscriptionSync {
               continue;
             }
             final old = before.values
-                .where((s) => s.originUrl == ref.url)
+                .where(
+                  (s) =>
+                      SubscriptionCatalog.sameSourceUrl(s.originUrl, ref.url),
+                )
                 .firstOrNull;
             if (old != null &&
                 await manager.exportScript(old.id) == ref.script) {
@@ -377,10 +468,19 @@ class SourceSubscriptionSync {
             next[descriptor.id] = ref.url;
             if (before.containsKey(descriptor.id)) {
               result.updated++;
-              recordChange(section, descriptor.id, descriptor.name, '已更新');
+              changes.add({
+                'id': descriptor.id,
+                'name': descriptor.name,
+                'status':
+                    '已更新 ${sourceVersionChange(before[descriptor.id]!.version, descriptor.version)}',
+              });
             } else {
               result.added++;
-              recordChange(section, descriptor.id, descriptor.name, '已新增');
+              changes.add({
+                'id': descriptor.id,
+                'name': descriptor.name,
+                'status': '已新增',
+              });
             }
           }
           if (complete) {
@@ -392,10 +492,24 @@ class SourceSubscriptionSync {
                 continue;
               }
               final existing = before[old.key];
-              if (existing == null || existing.originUrl != old.value) continue;
+              if (existing == null ||
+                  (!SubscriptionCatalog.sameSourceUrl(
+                        existing.originUrl,
+                        old.value,
+                      ) &&
+                      !SubscriptionCatalog.sameSourceUrl(
+                        existing.originUrl,
+                        record.url,
+                      ))) {
+                continue;
+              }
               await manager.remove(old.key);
               result.removed++;
-              recordChange(section, existing.id, existing.name, '已移除');
+              changes.add({
+                'id': existing.id,
+                'name': existing.name,
+                'status': '已移除',
+              });
             }
             record.members = next;
             record.error = '';
@@ -413,9 +527,10 @@ class SourceSubscriptionSync {
     } finally {
       http.dispose();
       progress(section).value = '';
-    }
-    if (result.changed) {
-      revision(section).value++;
+      // Persist and invalidate once per batch. Per-source revisions repeatedly
+      // cancel and restart the visible page while a large subscription updates.
+      _recordChanges(section, changes, notifyRevision: false);
+      if (result.changed) revision(section).value++;
     }
     if (result.changed || result.errors.isNotEmpty) {
       LumeLog.info('[订阅] ${section.label}: ${result.summary}');

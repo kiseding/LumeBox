@@ -64,7 +64,7 @@ class PlayerHud extends StatelessWidget {
   }
 }
 
-/// 全屏顶栏后面那一排（用户口径）：分辨率与速率**横排**、落在片名后面，
+/// 紧凑参数：可按区域选择显示实测尺寸或传输速率。
 /// 跟着控制浮层一起出现 / 收起。
 ///
 /// 与左侧 [PlayerHud] 的区别：这里只要这两格，字色走顶栏那一套（白字 + 投影），
@@ -75,9 +75,17 @@ class PlayerStatsInline extends StatelessWidget {
     required this.stats,
     this.networkKbps,
     this.stacked = false,
+    this.showResolution = true,
+    this.showSpeed = true,
+    this.dimmed = false,
   });
 
   final bool stacked;
+  final bool showResolution;
+  final bool showSpeed;
+
+  /// 弱化样式：字号小一号、颜色半透明（全屏网速这类次要信息用）。
+  final bool dimmed;
 
   final ValueListenable<PlayerStats> stats;
   final ValueListenable<int?>? networkKbps;
@@ -106,8 +114,10 @@ class PlayerStatsInline extends StatelessWidget {
       valueListenable: stats,
       builder: (context, value, _) {
         final labels = <String>[
-          if (value.resolutionText != null) value.resolutionText!,
-          if (speedText(value, kbps) != null) speedText(value, kbps)!,
+          if (showResolution && value.resolutionText != null)
+            value.resolutionText!,
+          if (showSpeed && speedText(value, kbps) != null)
+            speedText(value, kbps)!,
         ];
         if (labels.isEmpty) return const SizedBox.shrink();
         final texts = labels
@@ -116,10 +126,14 @@ class PlayerStatsInline extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: LumeTypography.captionSize,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFFF8F8F8),
+                style: TextStyle(
+                  fontSize: dimmed
+                      ? LumeTypography.captionSize - 1
+                      : LumeTypography.captionSize + 1,
+                  fontWeight: dimmed ? FontWeight.w500 : FontWeight.w600,
+                  color: dimmed
+                      ? const Color(0xB3F8F8F8)
+                      : const Color(0xFFF8F8F8),
                   shadows: PlayerHudShadows.control,
                 ),
               ),
@@ -174,7 +188,7 @@ class _HudChip extends StatelessWidget {
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: LumeTypography.captionSize,
+            fontSize: LumeTypography.captionSize + 1,
             fontWeight: FontWeight.w600,
             color: Colors.white,
             letterSpacing: 0.3,

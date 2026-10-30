@@ -1,3 +1,5 @@
+import 'aggregate_work_groups.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/reading/reading.dart';
@@ -7,7 +9,7 @@ import 'poster_card.dart';
 import 'section_toolbar.dart';
 import 'aggregate_search_poster.dart';
 
-enum _SiteLayout { grouped, top, left }
+enum _SiteLayout { grouped, top, left, merged }
 
 /// Search presentation is local to the section and never starts new requests.
 class AggregateSearchResults extends StatefulWidget {
@@ -22,8 +24,10 @@ class AggregateSearchResults extends StatefulWidget {
     required this.onOpen,
     required this.onRetry,
     this.pipeline,
+    this.query = '',
   });
   final Section section;
+  final String query;
   final List<SearchHit> hits;
   final List<SourceDescriptor> sites;
   final Set<String> completed;
@@ -43,6 +47,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   static const _referenceVersionKey = 'search.results.threeColumnVersion';
   _SiteLayout _layout = _SiteLayout.left;
   bool _cards = true;
+  String _sort = 'relevance';
   String? _selected;
 
   List<SourceDescriptor> get _visibleSites {
@@ -72,6 +77,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
       (value) => value.name == saved,
       orElse: () => _SiteLayout.left,
     );
+    _sort = library?.setting('search.results.workSort') ?? 'relevance';
     _cards = library?.setting(_cardsKey) != 'false';
   }
 
@@ -86,7 +92,10 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
 
   void _configure(String value) {
     setState(() {
-      if (value == 'cards' || value == 'list') {
+      if (value.startsWith('sort_')) {
+        _sort = value.substring(5);
+        _layout = _SiteLayout.merged;
+      } else if (value == 'cards' || value == 'list') {
         _cards = value == 'cards';
       } else {
         _layout = _SiteLayout.values.byName(value);
@@ -95,6 +104,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
     final library = ReadingLibrary.find(widget.section);
     library?.setSetting(_layoutKey, _layout.name);
     library?.setSetting(_cardsKey, '$_cards');
+    library?.setSetting('search.results.workSort', _sort);
   }
 
   String _status(SourceDescriptor site, int count) {
@@ -146,6 +156,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
         'grouped': '站点分组',
         'top': '顶部站点分类',
         'left': '左侧站点分类',
+        'merged': '同名作品合并',
       }.entries)
         CheckedPopupMenuItem(
           height:
@@ -153,6 +164,17 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
           value: entry.key,
           checked: _layout.name == entry.key,
           child: Text(entry.value),
+        ),
+      const PopupMenuDivider(),
+      for (final option in const {
+        'relevance': '按匹配度',
+        'episodes': '按更新集数',
+        'health': '按近期体检可用情况',
+      }.entries)
+        CheckedPopupMenuItem(
+          value: 'sort_${option.key}',
+          checked: _sort == option.key,
+          child: Text(option.value),
         ),
       const PopupMenuDivider(),
       CheckedPopupMenuItem(
@@ -454,6 +476,61 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
     );
   }
 
+  Widget mergedWorks(List<SearchHit> hits) {
+    final groups = AggregateWorkGroups.group(
+      hits,
+      order: _sort,
+      query: widget.query,
+      library: ReadingLibrary.find(widget.section),
+    );
+    return ListView.builder(
+      itemCount: groups.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text(
+              '按完整片名与年份分组；请选择来源并核对季数、版本。',
+              style: TextStyle(fontSize: 12),
+            ),
+          );
+        }
+        final group = groups[index - 1], first = groups[index - 1].first;
+        return Card(
+          child: ListTile(
+            title: Text(first.item.title),
+            subtitle: Text(
+              '${group.map((e) => e.sourceId).toSet().length} 个来源 · ${first.item.subtitle ?? ''}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              builder: (context) => SafeArea(
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * .6,
+                  child: ListView(
+                    children: [
+                      for (final hit in group)
+                        ListTile(
+                          title: Text(hit.sourceName),
+                          subtitle: Text(hit.item.subtitle ?? hit.item.title),
+                          onTap: () {
+                            Navigator.pop(context);
+                            widget.onOpen(hit);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final groups = <String, List<SearchHit>>{};
@@ -527,7 +604,9 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
             child: _sitePicker(groups, vertical: false),
           ),
         Expanded(
-          child: _layout == _SiteLayout.left
+          child: _layout == _SiteLayout.merged
+              ? mergedWorks(filtered)
+              : _layout == _SiteLayout.left
               ? LayoutBuilder(
                   builder: (context, constraints) => Row(
                     children: [

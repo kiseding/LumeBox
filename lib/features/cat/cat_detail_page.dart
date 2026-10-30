@@ -27,9 +27,12 @@ import '../../core/player/abstract_player.dart';
 import '../../core/player/player_experience_store.dart';
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_kernel_launcher.dart';
+import '../../core/player/playback_orientation.dart';
 import '../../core/player/player_settings.dart';
 import 'cat_web_parse_page.dart';
 import '../video/video_player_settings.dart';
+import '../video/playback_quality_preference.dart';
+import '../video/playback_entry_preparation.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../video/video_player_page.dart';
 import '../video/video_play_target.dart';
@@ -58,6 +61,12 @@ class _CatDetailPageState extends State<CatDetailPage>
     decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
   );
   late final tmdb = TmdbDetailController(widget.item.title);
+  late final tmdbImagePipeline = SectionImagePipeline(
+    cacheDir: '${widget.library.imageCacheDir}/tmdb',
+    memoryBudgetBytes: SectionImagePipeline.thumbnailBudgetBytes,
+    cacheOriginalBytes: true,
+    decodeTransform: (bytes) => automaticUpscale(bytes, UpscaleSurface.cover),
+  );
   SourceDetail? detail;
   List<SourceChapter> chapters = [];
   String? error;
@@ -84,6 +93,7 @@ class _CatDetailPageState extends State<CatDetailPage>
   @override
   void dispose() {
     tmdb.dispose();
+    tmdbImagePipeline.dispose();
     pipeline.dispose();
     super.dispose();
   }
@@ -111,7 +121,10 @@ class _CatDetailPageState extends State<CatDetailPage>
           chapters = episodes;
           raw = metadata;
           lines = CatDataSource.episodeLines(episodes);
-          final progress = widget.library.videoProgress(widget.item.id);
+          final progress = widget.library.videoProgress(
+            widget.item.id,
+            sourceId: widget.source.id,
+          );
           lastChapterId = progress?.chapterId;
           selectedChapterId = lastChapterId;
           final resumed = episodes
@@ -204,6 +217,25 @@ class _CatDetailPageState extends State<CatDetailPage>
         'epName': chapter.title,
         'url': SourcePlayback.contentAddress(content)!.toString(),
       };
+      final qualities = SourcePlayback.contentQualities(
+        content,
+        source: widget.source,
+      );
+      final settings = VideoPlayerSettingsStore(widget.library).load();
+      final quality = PlaybackQualityPreference.select(qualities, settings);
+      final media = PlayerMedia(
+        uri: quality?.url ?? SourcePlayback.contentAddress(content)!,
+        headers: quality != null && quality.headers.isNotEmpty
+            ? quality.headers
+            : SourcePlayback.contentHeaders(content, source: widget.source),
+        title: '${widget.item.title} · ${chapter.title}',
+      );
+      if (prelaunch != null &&
+          PlaybackOrientationController.instance.orientation ==
+              PlaybackOrientation.auto) {
+        await preparePlaybackEntry(prelaunch, media, settings);
+        if (!mounted) return;
+      }
       final transferred = prelaunch;
       openedPlayer = true;
       final opening = Navigator.push(
@@ -211,14 +243,7 @@ class _CatDetailPageState extends State<CatDetailPage>
         MaterialPageRoute<void>(
           builder: (_) => VideoPlayerPage(
             prelaunch: transferred,
-            media: PlayerMedia(
-              uri: SourcePlayback.contentAddress(content)!,
-              headers: SourcePlayback.contentHeaders(
-                content,
-                source: widget.source,
-              ),
-              title: '${widget.item.title} · ${chapter.title}',
-            ),
+            media: media,
             library: widget.library,
             sourceManager: CatSourceManager(
               widget.source.service,
@@ -226,10 +251,7 @@ class _CatDetailPageState extends State<CatDetailPage>
               chapterFlag: playbackLine,
             ),
             sourceId: widget.source.id,
-            qualities: SourcePlayback.contentQualities(
-              content,
-              source: widget.source,
-            ),
+            qualities: qualities,
             target: VideoPlayTarget(
               sourceId: widget.source.id,
               itemId: widget.item.id,
@@ -259,7 +281,9 @@ class _CatDetailPageState extends State<CatDetailPage>
         setState(() {
           playing = false;
           lastChapterId =
-              widget.library.videoProgress(widget.item.id)?.chapterId ??
+              widget.library
+                  .videoProgress(widget.item.id, sourceId: widget.source.id)
+                  ?.chapterId ??
               lastChapterId;
           if (openedPlayer && lastChapterId != null) {
             selectedChapterId = lastChapterId;
@@ -321,6 +345,7 @@ class _CatDetailPageState extends State<CatDetailPage>
 
   Widget image({int? width, BorderRadius? radius}) => TmdbPosterGallery(
     controller: tmdb,
+    imagePipeline: tmdbImagePipeline,
     fallback: SectionImage(
       pipeline: pipeline,
       placeholder: MissingCover(

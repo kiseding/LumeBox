@@ -1,3 +1,5 @@
+import '../source/source_extension_settings.dart';
+
 import 'dart:async';
 
 import '../source/source_preferences.dart';
@@ -99,6 +101,15 @@ class SourceRegistry {
   static const String currentSourceKey = 'current_source';
 
   static final Map<String, Future<SourceRegistry>> _opening = {};
+  static String rewriteExisting(
+    Section section,
+    String sourceId,
+    String url, {
+    String? kind,
+  }) =>
+      _registries[section.id]?.rewriteSourceUrl(sourceId, url, kind: kind) ??
+      SourcePreferences.read(section, sourceId).rewrite(url);
+
   static Future<SourceRegistry> open(Section section) {
     final existing = _registries[section.id];
     if (existing != null) {
@@ -140,8 +151,7 @@ class SourceRegistry {
     final record = source(sourceId);
     final client = LumeHttp(
       profile: record?.network ?? NetworkProfile.none,
-      rewriteUrl: (url) =>
-          SourcePreferences.read(section, sourceId).rewrite(url),
+      rewriteUrl: (url) => rewriteSourceUrl(sourceId, url),
       source: sourceId,
       // 「网页视图」过完 Cloudflare 校验后存下的会话 Cookie：该图源的所有请求
       // 自动带上（用户口径第 4 条）。没存过就是 null，行为与从前完全一致。
@@ -330,6 +340,10 @@ class SourceRegistry {
         // 站点镜像**由脚本声明**（身份声明的 `mirrors`），导入 / 更新时整体替换；
         // 同一份配置里的用户字段（选中下标 / 自定义域名 / 账号密码）由库层保留。
         mirrors: metadata.mirrors,
+        images: metadata.images,
+        video: metadata.video,
+        settings: metadata.settings,
+        commonSettings: metadata.commonSettings,
       );
       // 订阅来源：记在库里供「更新订阅源」重新拉取；本地导入留空。
       // 覆盖导入（更新）时也照写——来源地址属于用户配置，不随脚本内容丢失。
@@ -348,6 +362,8 @@ class SourceRegistry {
             ? warnings.join('\n')
             : null,
       );
+    } on FormatException catch (error) {
+      return SourceImportOutcome.failure('源设置声明无效：${error.message}');
     } finally {
       probe.dispose();
     }
@@ -503,6 +519,7 @@ class SourceRegistry {
   void setSourceSiteConfig(String sourceId, SourceSiteConfig config) {
     if (!_owns(sourceId)) return;
     _database.setSourceSiteConfig(sourceId, config);
+    SectionMemoryCache.instance.removeSource(section, sourceId);
   }
 
   /// 本源当前解析后的脚本配置快照（脚本读到的 `LumeSource.config`）。
@@ -512,7 +529,35 @@ class SourceRegistry {
   Map<String, Object?> scriptConfigFor(String sourceId) {
     final record = source(sourceId);
     final site = record?.siteConfig ?? SourceSiteConfig.none;
-    return site.toScriptJson(cookie: record?.network.cookie ?? '');
+    final legacy = SourcePreferences.read(section, sourceId);
+    final effective = site.hasCustomDomain || legacy.customOrigin.isEmpty
+        ? site
+        : site.copyWith(domainOverride: legacy.customOrigin);
+    return effective.toScriptJson(cookie: record?.network.cookie ?? '');
+  }
+
+  String rewriteSourceUrl(String sourceId, String url, {String? kind}) {
+    final record = source(sourceId);
+    if (record == null) {
+      return SourcePreferences.read(section, sourceId).rewrite(url);
+    }
+    final legacy = SourcePreferences.read(section, sourceId);
+    var site = record.siteConfig;
+    if (!site.hasCustomDomain && legacy.customOrigin.isNotEmpty) {
+      site = site.copyWith(domainOverride: legacy.customOrigin);
+    }
+    final routed = site.rewriteUrl(url, kind: kind);
+    if (routed != url) return routed;
+    // Migrate the old settings-page override without applying it after a newer
+    // custom address from the unified site settings.
+    if (!record.siteConfig.hasCustomDomain) return legacy.rewrite(url);
+    if (legacy.originalOrigin.isNotEmpty) {
+      return SourceRoute(
+        urls: [legacy.originalOrigin],
+        custom: site.resolvedDomain,
+      ).rewrite(url);
+    }
+    return url;
   }
 
   /// 导出脚本原文：图源不存在或跨板块时返回 null。

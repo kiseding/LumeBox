@@ -10,6 +10,27 @@ import 'package:lume_box/core/source/source_package.dart';
 import 'package:lume_box/core/session/section.dart';
 
 void main() {
+  test('明确的 JS 标记不被正文中的 Python 示例误分，模块标记优先于内嵌 JS 标记', () {
+    const script =
+        '// LumeSource: {"id":"maker","name":"示例","version":"1"}\n'
+        '// LumeRuntime: javascript\n'
+        'var example = `\nclass Spider:\n    pass\n`;\n'
+        'var LumeSource = {list: async function(){return {items:[]};}};';
+    final imported = SourcePackage.fromBytes(
+      utf8.encode(script),
+      name: '示例.js',
+    );
+    expect(SourcePackage.kindOf(imported), SourcePackageKind.javascript);
+    expect(imported, script);
+    expect(
+      SourcePackage.kindOf('// LumeRuntime: module\n$script'),
+      SourcePackageKind.module,
+    );
+    expect(
+      SourcePackage.kindOf('# LumeRuntime: python\n$script'),
+      SourcePackageKind.python,
+    );
+  });
   const python =
       'from base.spider import Spider\nclass Spider(Spider):\n    pass\n';
   test('Python 本地导入有稳定元信息，覆盖和恢复保留同一个 id', () {

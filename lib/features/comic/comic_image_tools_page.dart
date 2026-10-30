@@ -81,6 +81,8 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     text: settings.colorizePrompt,
   );
   final keyInput = TextEditingController();
+  final colorizeKeyInput = TextEditingController();
+  late String colorizeProtocol = settings.colorizeProtocol;
   final serverKeyInput = TextEditingController();
   ComicImageTools? probe;
   bool busy = false;
@@ -94,6 +96,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     colorizeModel.dispose();
     colorizePrompt.dispose();
     keyInput.dispose();
+    colorizeKeyInput.dispose();
     serverKeyInput.dispose();
     probe?.dispose();
     super.dispose();
@@ -252,7 +255,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
         setState(
           () => status =
               '内置模型已安装完成（${ComicImageTools.bundledModelNames.length}/'
-              '${ComicImageTools.bundledModelNames.length}），首次使用会自动编译',
+              '${ComicImageTools.bundledModelNames.length}），可离线超分',
         );
       }
     } catch (error) {
@@ -273,22 +276,26 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
     if (busy) return;
     setState(() => busy = true);
     try {
-      ComicImageTools.validateEndpoint(colorizeEndpoint.text);
+      ComicImageTools.validateColorizeEndpoint(colorizeEndpoint.text);
       if (colorizeModel.text.trim().isEmpty) {
         throw const FormatException('请填写上色模型');
       }
-      if (keyInput.text.trim().isNotEmpty) {
+      if (colorizeKeyInput.text.trim().isNotEmpty) {
         await ComicImageTools.channel.invokeMethod<void>('setKey', {
-          'key': keyInput.text.trim(),
+          'key': colorizeKeyInput.text.trim(),
+          'slot': colorizeProtocol == 'seedream'
+              ? 'colorizeSeedream'
+              : 'colorize',
         });
       }
       settings.colorizeEndpoint = colorizeEndpoint.text.trim();
+      settings.colorizeProtocol = colorizeProtocol;
       settings.colorizeModel = colorizeModel.text.trim();
       settings.colorizePrompt = colorizePrompt.text.trim().isEmpty
           ? ComicImageToolsSettings.defaultColorizePrompt
           : colorizePrompt.text.trim();
       await settings.save();
-      keyInput.clear();
+      colorizeKeyInput.clear();
       if (mounted) {
         setState(() => status = '上色配置已保存；图片会上传到该接口，费用由服务商决定');
       }
@@ -314,7 +321,9 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       });
       if (mounted) {
         setState(
-          () => status = method == 'clearModels' ? '已清理编译缓存，原始模型保留' : '模型已就绪',
+          () => status = method == 'clearModels'
+              ? '已清理编译缓存，下次使用会自动准备模型'
+              : '模型已就绪',
         );
       }
     } catch (_) {
@@ -426,6 +435,16 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
       padding: const EdgeInsets.all(16),
       children: widget.translation
           ? [
+              NativeSwitchListTile.adaptive(
+                key: const ValueKey('global-live-translation'),
+                title: const Text('实时翻译'),
+                subtitle: const Text('自动翻译新加载的标题、搜索结果与漫画当前页'),
+                value: settings.liveTranslation,
+                onChanged: (value) {
+                  setState(() => settings.liveTranslation = value);
+                  save();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.file_open_outlined),
                 title: const Text('导入翻译配置文件'),
@@ -464,9 +483,13 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                 TextTranslationMode.ai: 'AI 翻译（联网）',
                 TextTranslationMode.fallback: '系统失败后用 AI 补译',
               }, (v) => settings.translationMode = v),
-              const SettingsFooterNote(
-                '补译模式会把系统失败或不支持的文字发送给已配置的 AI 接口；成功译文保留。AI 不可用时保留原文。',
-              ),
+              SettingsFooterNote(switch (settings.translationMode) {
+                TextTranslationMode.system =>
+                  '本模式在设备上翻译文字，不调用 AI 接口。首次使用可能需要下载系统语言包。',
+                TextTranslationMode.ai => '本模式直接把待翻译文字发送给下方配置的 AI 接口，不先调用系统翻译；成功译文缓存到本机。网络失败时保留原文，可重试未完成条目。',
+                TextTranslationMode.fallback =>
+                  '先使用系统翻译；只有失败、不支持或未译出的外文才发送给 AI 补译。成功译文保留，AI 不可用时保留原文。',
+              }),
               NativeSwitchListTile.adaptive(
                 title: const Text('漫画使用整图翻译服务器'),
                 subtitle: const Text('仅影响漫画图片；关闭时，漫画文字跟随全局翻译方式'),
@@ -745,44 +768,46 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               ),
               const Divider(height: 24),
               const ListTile(
-                title: Text('模型管理'),
+                title: Text('内置模型 · 自动准备'),
                 subtitle: Text(
-                  '内置 waifu2x：漫画 / 照片两种类型 × 降噪 0–3，共 8 份模型，随 App 提供，无需联网下载。',
+                  '8 个 waifu2x 模型已随 App 提供，无需下载或手动安装。首次超分时自动准备当前模型，之后复用缓存；重新安装 App 后也会自动准备。',
                 ),
               ),
               if (busy) const Center(child: CircularProgressIndicator()),
-              FilledButton.icon(
-                onPressed: busy ? null : installBundled,
-                icon: const LumeIcon(
-                  Icons.download_done,
-                  slot: 'comic_image_tools_page.2',
-                ),
-                label: const Text('安装内置模型（8 个）'),
-              ),
               const SettingsFooterNote(
-                '首次安装会在设备上编译，约再占一份同量级缓存；安装后即可离线超分。',
+                '设备端超分目前支持 iOS。首次准备在后台进行，可能稍慢；不会在启动 App 时一次编译全部模型。',
                 padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
               ),
-              OutlinedButton.icon(
-                onPressed: busy ? null : () => manage('prepareModel'),
-                icon: const LumeIcon(
-                  Icons.play_circle_outline,
-                  slot: 'comic_image_tools_page.3',
-                ),
-                label: const Text('加载当前已安装模型'),
-              ),
-              TextButton.icon(
-                key: const Key('import-super-resolution-model'),
-                onPressed: busy ? null : importModel,
-                icon: const LumeIcon(
-                  Icons.file_open_outlined,
-                  slot: 'comic_image_tools_page.4',
-                ),
-                label: const Text('从本地安装超分模型'),
-              ),
-              TextButton(
-                onPressed: busy ? null : () => manage('clearModels'),
-                child: const Text('清理模型编译缓存'),
+              ExpansionTile(
+                key: const Key('advanced-image-models'),
+                title: const Text('模型高级管理'),
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : () => manage('prepareModel'),
+                    icon: const LumeIcon(
+                      Icons.play_circle_outline,
+                      slot: 'comic_image_tools_page.3',
+                    ),
+                    label: const Text('准备当前模型'),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : installBundled,
+                    child: const Text('重新安装全部内置模型（8 个）'),
+                  ),
+                  TextButton.icon(
+                    key: const Key('import-super-resolution-model'),
+                    onPressed: busy ? null : importModel,
+                    icon: const LumeIcon(
+                      Icons.file_open_outlined,
+                      slot: 'comic_image_tools_page.4',
+                    ),
+                    label: const Text('从本地安装超分模型'),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : () => manage('clearModels'),
+                    child: const Text('清理模型编译缓存'),
+                  ),
+                ],
               ),
               if (status != null)
                 Padding(
@@ -793,14 +818,47 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               ListTile(
                 title: const Text('AI 上色（实验性 · 云端）'),
                 subtitle: const Text(
-                  '仓库没有内置设备端上色模型；这里使用你自填的 OpenAI 兼容图片编辑接口（需返回 b64_json）。'
-                  '图片会上传到该服务，费用由服务商决定。',
+                  '需要支持图片编辑的服务（返回 b64_json 图片）。DeepSeek 官方接口不能用于上色，可用于 AI 翻译。'
+                  '保存配置后，点击阅读页的「AI 上色当前图片」才会上传并处理，可能产生服务商费用。',
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Column(
                   children: <Widget>[
+                    DropdownButtonFormField<String>(
+                      initialValue: colorizeProtocol,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: '上色服务'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'openai',
+                          child: Text('通用图片编辑（OpenAI 兼容）'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'seedream',
+                          child: Text('火山方舟 · Seedream（国内）'),
+                        ),
+                      ],
+                      onChanged: busy
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setState(() {
+                                colorizeProtocol = value;
+                                colorizeEndpoint.text = value == 'seedream'
+                                    ? 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+                                    : 'https://api.openai.com/v1/images/edits';
+                                colorizeModel.text = value == 'seedream'
+                                    ? 'doubao-seedream-5-0-flash-260915'
+                                    : 'gpt-image-1-mini';
+                                colorizeKeyInput.clear();
+                              });
+                            },
+                    ),
+                    const SettingsFooterNote(
+                      '选择服务后自动填写接口和模型，再填该服务的 API Key。需要先在服务商控制台开通对应模型；每次上色只请求一张图。',
+                    ),
                     TextField(
                       controller: colorizeEndpoint,
                       decoration: const InputDecoration(
@@ -813,7 +871,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                       controller: colorizeModel,
                       decoration: const InputDecoration(
                         labelText: '上色模型',
-                        hintText: '例如 gpt-image-1',
+                        hintText: '填写图片编辑服务提供的模型名',
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -825,13 +883,16 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
                     ),
                     const SizedBox(height: 10),
                     TextField(
-                      controller: keyInput,
+                      controller: colorizeKeyInput,
                       obscureText: true,
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: const InputDecoration(
-                        labelText: 'API Key（与 AI 翻译共用，留空保留）',
+                        labelText: '上色 API Key（留空保留）',
                       ),
+                    ),
+                    const SettingsFooterNote(
+                      '填写所选服务的密钥。Seedream、通用上色和 AI 翻译的密钥分别保存，互不覆盖。通用上色兼容旧版共用的翻译密钥；上色提示词可保留默认内容。',
                     ),
                     const SizedBox(height: 12),
                     FilledButton(
@@ -958,7 +1019,7 @@ class _ImageToolsState extends State<ComicImageToolsPage> {
             enhanced = result;
             colorized = null;
             regions = [];
-            message = '超分完成，可切回原图对照或保存结果';
+            message = tools.lastUpscaleReport?.summary ?? '超分完成，可切回原图对照或保存结果';
           });
         }
       }

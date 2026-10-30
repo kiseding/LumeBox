@@ -1,3 +1,5 @@
+import 'package:lume_box/core/reading/reading_identity.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -94,7 +96,7 @@ void main() {
       store.cloudRecords(includeSettings: false)[jsonEncode([
             'video',
             'library_item',
-            'local',
+            ReadingIdentity.key('source-a', 'local'),
           ])]
           as Map,
     );
@@ -118,7 +120,15 @@ void main() {
     await cloud.sync();
     expect(library.onShelf('remote'), false);
     final records = CloudMerge.decode(documents.single);
-    expect((records[remoteKey]!['value'] as Map)['favorite'], 0);
+    expect(
+      (records[jsonEncode([
+            'video',
+            'library_item',
+            ReadingIdentity.key('source-a', 'remote'),
+          ])]!['value']
+          as Map)['favorite'],
+      0,
+    );
     expect(File('${root.path}/icloud-sync-local.json').existsSync(), true);
     fail = true;
     await cloud.sync();
@@ -136,7 +146,11 @@ void main() {
         chapterCount: 2,
       );
       final store = await ReadingStore.open(Section.video);
-      final key = jsonEncode(['video', 'library_item', 'local']);
+      final key = jsonEncode([
+        'video',
+        'library_item',
+        ReadingIdentity.key('source-a', 'local'),
+      ]);
       final row = Map<String, Object?>.from(
         store.cloudRecords(includeSettings: false)[key] as Map,
       );
@@ -157,6 +171,63 @@ void main() {
       expect(uploads, 0);
     },
   );
+
+  test('cloud restores cross-source favorites and every episode to an empty device and propagates progress removal', () async {
+    VideoProgress checkpoint(String source, String ep, int seconds) =>
+        VideoProgress(
+          section: Section.video,
+          sourceId: source,
+          itemId: 'same',
+          chapterIndex: ep == '1' ? 0 : 1,
+          chapterId: ep,
+          chapterTitle: ep,
+          updatedAt: DateTime.now(),
+          position: Duration(seconds: seconds),
+          duration: const Duration(minutes: 10),
+        );
+    for (final source in ['a', 'b']) {
+      library.shelve(sourceId: source, itemId: 'same', title: source);
+      library.saveProgress(checkpoint(source, '1', source == 'a' ? 10 : 70));
+    }
+    library.saveProgress(checkpoint('a', '2', 20));
+    await cloud.sync();
+    expect(uploads, 1);
+    expect((jsonDecode(documents.single) as Map)['version'], 2);
+    cloud.dispose();
+    ReadingLibrary.disposeAll();
+    ReadingStore.disposeAll();
+    await SectionScope.closeAll();
+    final old = root;
+    addTearDown(() => old.deleteSync(recursive: true));
+    root = Directory.systemTemp.createTempSync('lume-cloud-blank-');
+    library = await ReadingLibrary.open(Section.video);
+    expect(library.favorites(), isEmpty);
+    cloud = ICloudSync(platformSupported: true, directory: root)
+      ..includeSettings = false
+      ..includeSubscriptions = false;
+    await cloud.boot();
+    await cloud.sync();
+    expect(library.favorites(), hasLength(2));
+    expect(library.videoEpisodeProgresses('same', sourceId: 'a'), hasLength(2));
+    expect(
+      library
+          .videoEpisodeProgress('same', '1', sourceId: 'b')!
+          .position
+          .inSeconds,
+      70,
+    );
+    library.removeHistory('same', sourceId: 'a');
+    await cloud.sync();
+    final records = CloudMerge.decode(documents.single);
+    final aEpisodes = records.entries.where((e) {
+      final key = jsonDecode(e.key) as List;
+      return key[1] == 'video_episode_progress' &&
+          ReadingIdentity.decode(key[2])?[0] == 'a';
+    });
+    expect(aEpisodes, hasLength(2));
+    expect(aEpisodes.every((e) => e.value['value'] == null), true);
+    expect(library.videoEpisodeProgress('same', '1', sourceId: 'b'), isNotNull);
+  });
 
   test('account change pauses automatic sync before any upload', () async {
     library.shelve(

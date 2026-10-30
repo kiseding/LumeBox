@@ -3,6 +3,7 @@ import UIKit
 import Vision
 import ImageIO
 import CoreML
+import CryptoKit
 import Security
 import SwiftUI
 import NaturalLanguage
@@ -85,11 +86,12 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     attributes: .concurrent
   )
   private let lock = NSLock()
-  // Core ML 模型加载/编译不是并发安全的；只锁模型表，不锁推理。
+  // 模型加载、编译和磁盘替换串行化；不锁推理。
   private let modelLock = NSLock()
   private var cancelled = Set<String>()
   private var active = Set<String>()
   private var models: [String: MLModel] = [:]
+  private var modelOrder: [String] = []
   private var translationID: String?
   private var translationResult: FlutterResult?
   private var translationHost: UIViewController?
@@ -110,7 +112,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       result(nil); return
     }
     if call.method == "getKey" || call.method == "setKey" {
-      let keySlot = args["slot"] as? String == "imageServer" ? "imageServer" : "apiKey"
+      let requestedSlot = args["slot"] as? String ?? "apiKey"
+      let keySlot = ["imageServer", "colorize", "colorizeSeedream"].contains(requestedSlot) ? requestedSlot : "apiKey"
       let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "lumebox.comicTranslation", kSecAttrAccount as String: keySlot]
       if call.method == "getKey" {
         var read = query; read[kSecReturnData as String] = true
@@ -163,20 +166,25 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
             defer { try? FileManager.default.removeItem(at: compiled) }
             let configuration = MLModelConfiguration()
             _ = try MLModel(contentsOf: compiled, configuration: configuration)
+            self.modelLock.lock()
+            defer { self.modelLock.unlock() }
             let directory = try self.modelDirectory()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let target = directory.appendingPathComponent(String(name.dropLast(8)) + ".mlmodelc")
             try bytes.data.write(to: directory.appendingPathComponent(name), options: .atomic)
-            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
+            self.models.removeAll(); self.modelOrder.removeAll()
             if FileManager.default.fileExists(atPath: target.path) { _ = try FileManager.default.replaceItemAt(target, withItemAt: compiled) }
             else { try FileManager.default.copyItem(at: compiled, to: target) }
+            try self.modelFingerprint(bytes.data).write(to: directory.appendingPathComponent(String(name.dropLast(8)) + ".sha256"), atomically: true, encoding: .utf8)
             return nil
           case "prepareModel": _ = try self.model(args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime"); return nil
           case "clearModels":
-            self.modelLock.lock(); self.models.removeAll(); self.modelLock.unlock()
+            self.modelLock.lock()
+            defer { self.modelLock.unlock() }
+            self.models.removeAll(); self.modelOrder.removeAll()
             let directory = try self.modelDirectory()
             if FileManager.default.fileExists(atPath: directory.path) {
-              for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "mlmodelc" {
+              for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where ["mlmodelc", "sha256"].contains(file.pathExtension) {
                 try FileManager.default.removeItem(at: file)
               }
             }
@@ -192,8 +200,11 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
               return try self.recognizeSource(source, width: width, height: height,
                 sourceLanguage: args["source"] as? String ?? "auto", id: id)
             }
-            guard width * height <= 8_000_000 else { throw self.failure("图片超过超分内存限制，原图保留") }
-            if call.method == "superResolve", let threshold = args["threshold"] as? Int, width >= threshold { return bytes }
+            if call.method == "superResolve", let threshold = args["threshold"] as? Int, width >= threshold {
+              return ["bytes": bytes, "status": "skipped", "width": width, "height": height,
+                "reason": "原图宽度已达到 \(threshold)px 阈值"] as [String: Any]
+            }
+            guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
             guard let decoded = UIImage(data: bytes.data) else { throw self.failure("图片解码失败") }
             let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
             let normalized = UIGraphicsImageRenderer(size: CGSize(width: CGFloat(width), height: CGFloat(height)), format: format).image { context in
@@ -201,8 +212,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
               decoded.draw(in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
             }
             guard let image = normalized.cgImage else { throw self.failure("图片解码失败") }
-            guard width * height <= 4_000_000 else { throw self.failure("当前页超过超分内存限制，原图保留") }
-            return FlutterStandardTypedData(bytes: try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id))
+            let enlarged = try self.enlarge(image, noise: args["noise"] as? Int ?? 0, style: args["imageStyle"] as? String ?? "anime", id: id)
+            return ["bytes": FlutterStandardTypedData(bytes: enlarged), "status": "processed",
+              "width": width, "height": height, "outputWidth": width * 2, "outputHeight": height * 2] as [String: Any]
           }
         }
         self.end(id)
@@ -218,6 +230,9 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
   private func check(_ id: String) throws { lock.lock(); let stop = cancelled.contains(id); lock.unlock(); if stop { throw failure("处理已取消") } }
   private func end(_ id: String) { lock.lock(); cancelled.remove(id); active.remove(id); lock.unlock() }
   private func modelDirectory() throws -> URL { try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("comic-super-resolution", isDirectory: true) }
+  private func modelFingerprint(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
 
   private func model(_ noise: Int, style: String = "anime") throws -> MLModel {
     // 并发推理时可能同时请求同一个/不同模型：加载与字典访问串行化。
@@ -226,21 +241,50 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
     guard ["anime", "photo"].contains(style) else { throw failure("模型类型无效") }
     let modelKey = "\(style == "photo" ? "photo" : "noise")\(noise)"
     guard (0...3).contains(noise) else { throw failure("降噪级别无效") }
-    if let loaded = models[modelKey] { return loaded }
+    if let loaded = models[modelKey] {
+      modelOrder.removeAll { $0 == modelKey }; modelOrder.append(modelKey)
+      return loaded
+    }
     let directory = try modelDirectory()
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let compiled = directory.appendingPathComponent("\(modelKey).mlmodelc")
-    if !FileManager.default.fileExists(atPath: compiled.path) {
-      let source = directory.appendingPathComponent("\(modelKey).mlmodel")
-      guard FileManager.default.fileExists(atPath: source.path) else { throw failure("请先在设置中安装内置模型，或从本地导入对应的超分模型") }
+    let custom = directory.appendingPathComponent("\(modelKey).mlmodel")
+    let assetKey = FlutterDartProject.lookupKey(forAsset: "assets/models/waifu2x/\(modelKey).mlmodel")
+    let source: URL
+    if FileManager.default.fileExists(atPath: custom.path) {
+      source = custom
+    } else if let bundledPath = Bundle.main.path(forResource: assetKey, ofType: nil) {
+      source = URL(fileURLWithPath: bundledPath)
+    } else {
+      throw failure("App 内置模型文件缺失，请重新安装完整安装包")
+    }
+    let fingerprint = modelFingerprint(try Data(contentsOf: source))
+    let stamp = directory.appendingPathComponent("\(modelKey).sha256")
+    func compile() throws {
       let temporary = try MLModel.compileModel(at: source)
       defer { try? FileManager.default.removeItem(at: temporary) }
+      if FileManager.default.fileExists(atPath: compiled.path) {
+        try FileManager.default.removeItem(at: compiled)
+      }
       try FileManager.default.copyItem(at: temporary, to: compiled)
+      try fingerprint.write(to: stamp, atomically: true, encoding: .utf8)
+    }
+    if !FileManager.default.fileExists(atPath: compiled.path) ||
+        (try? String(contentsOf: stamp, encoding: .utf8)) != fingerprint {
+      try compile()
     }
     let config = MLModelConfiguration(); config.computeUnits = .all
-    let loaded = try MLModel(contentsOf: compiled, configuration: config)
-    // Keep only the current variant resident.
-    models = [modelKey: loaded]
+    let loaded: MLModel
+    do { loaded = try MLModel(contentsOf: compiled, configuration: config) }
+    catch {
+      // 系统升级或缓存损坏时自动重新准备一次，不要求用户重新安装模型。
+      try compile()
+      loaded = try MLModel(contentsOf: compiled, configuration: config)
+    }
+    // 漫画正文和照片海报常交替使用；最多留两个，避免反复加载且不常驻全部八个。
+    models[modelKey] = loaded
+    modelOrder.append(modelKey)
+    while modelOrder.count > 2 { models.removeValue(forKey: modelOrder.removeFirst()) }
     return loaded
   }
 
@@ -429,7 +473,8 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
       let alreadyTarget = source == "auto" && texts.allSatisfy { text in
         if !text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) { return true }
         guard let detected = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue else { return false }
-        return detected.lowercased().split(separator: "-").first == targetFamily
+        return detected.lowercased().split(separator: "-").first == targetFamily &&
+          !(targetFamily == "zh" && hasForeignChineseTargetText(text))
       }
       if !preparing && (source == target || alreadyTarget) {
         finishTranslation(texts, error: nil)
@@ -444,8 +489,19 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         : AnyView(ComicTranslationTaskView(texts: texts, source: source, target: target, completion: completion))
       let host = UIHostingController(rootView: view)
       translationHost = host
-      host.presentationController?.delegate = self
-      root.present(host, animated: true) { [weak self, weak host] in host?.presentationController?.delegate = self }
+      if preparing {
+        root.present(host, animated: true) { [weak self, weak host] in host?.presentationController?.delegate = self }
+      } else {
+        // Keep SwiftUI's translation task attached without a blocking sheet.
+        root.addChild(host)
+        host.view.backgroundColor = .clear
+        host.view.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        host.view.clipsToBounds = true
+        host.view.isUserInteractionEnabled = false
+        host.view.accessibilityElementsHidden = true
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+      }
       return
     }
     #endif
@@ -464,16 +520,26 @@ final class ComicImageToolsController: NSObject, UIAdaptivePresentationControlle
         result(FlutterError(code: "translation_partial", message: error, details: strings))
       }
       else if let strings = strings { result(strings) }
-      else { result(FlutterError(code: "translation", message: error ?? "翻译失败", details: nil)) }
+      else { result(FlutterError(code: error == "翻译已取消" ? "translation_cancelled" : "translation", message: error ?? "翻译失败", details: nil)) }
     }
     if let host = host, host.presentingViewController != nil {
       host.dismiss(animated: true, completion: complete)
-    } else { complete() }
+    } else {
+      host?.willMove(toParent: nil)
+      host?.view.removeFromSuperview()
+      host?.removeFromParent()
+      complete()
+    }
   }
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finishTranslation(nil, error: "翻译已取消") }
 }
 
 #if canImport(Translation)
+// Short and mixed titles can be guessed as Chinese despite foreign script.
+private func hasForeignChineseTargetText(_ text: String) -> Bool {
+  text.range(of: "[A-Za-z]{3,}|[\\u3040-\\u30ff\\uac00-\\ud7af\\u0400-\\u052f\\u0600-\\u06ff\\u0900-\\u097f\\u0e00-\\u0e7f]", options: .regularExpression) != nil
+}
+
 @available(iOS 18.0, *)
 private struct ComicTranslationTaskView: View {
   struct Group {
@@ -526,6 +592,18 @@ private struct ComicTranslationTaskView: View {
       }
       // Apple cannot translate a language to itself, including regional variants.
       // Chinese content already meets the Chinese-display request.
+      if source == "auto", family(target) == "zh",
+         detected.map({ family($0) == "zh" }) == true,
+         hasForeignChineseTargetText(text) {
+        if text.range(of: "[\\u3040-\\u30ff]", options: .regularExpression) != nil { detected = "ja" }
+        else if text.range(of: "[\\uac00-\\ud7af]", options: .regularExpression) != nil { detected = "ko" }
+        else {
+          // Re-detect the foreign portion without the Chinese page labels.
+          let foreign = text.replacingOccurrences(of: "[\\u3400-\\u9fff]", with: " ", options: .regularExpression)
+          detected = NLLanguageRecognizer.dominantLanguage(for: foreign)?.rawValue ?? "en"
+          if detected.map({ family($0) == "zh" }) == true { detected = "en" }
+        }
+      }
       if let detected, family(detected) == family(target) { continue }
       let language = detected ?? "en"
       if let found = plan.firstIndex(where: { $0.language == language }) {
@@ -555,6 +633,7 @@ private struct ComicTranslationTaskView: View {
             return
           }
           for (offset, index) in group.indices.enumerated() { output[index] = values[offset] }
+          if let error { failures.append(error) }
           advance()
         }.id(groupIndex)
       }
@@ -586,14 +665,25 @@ private struct ComicTranslationBatchView: View {
             await MainActor.run { completion(nil, "系统不支持 \(source) → \(target) 翻译，可更换原文语言或使用 AI 翻译") }
             return
           }
-          if case .supported = status { try await session.prepareTranslation() }
-          var translated: [String] = []
-          for text in texts {
-            try Task.checkCancellation()
-            let response = try await session.translate(text)
-            translated.append(response.targetText)
+          if case .supported = status {
+            await MainActor.run { completion(nil, "请先在翻译设置下载 \(source) → \(target) 语言包，或选择 AI 翻译") }
+            return
           }
-          await MainActor.run { completion(translated, nil) }
+          var translated = [String](repeating: "", count: texts.count)
+          var failed = 0
+          for (index, text) in texts.enumerated() {
+            try Task.checkCancellation()
+            do {
+              let response = try await session.translate(text)
+              translated[index] = response.targetText
+            } catch {
+              try Task.checkCancellation()
+              // One rejected title must not erase this language's completed work.
+              failed += 1
+            }
+          }
+          let message = failed == 0 ? nil : "\(source) → \(target) 有 \(failed) 条翻译失败，成功译文已保留"
+          await MainActor.run { completion(translated, message) }
         } catch {
           await MainActor.run { completion(nil, "\(source) → \(target) 翻译失败：\(error.localizedDescription)") }
         }

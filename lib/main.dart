@@ -1,3 +1,6 @@
+import 'core/util/frame_profile.dart';
+import 'features/comic/comic_download_center.dart';
+import 'core/session/startup_gate.dart';
 import 'core/media/media_library.dart';
 import 'core/tmdb/tmdb.dart';
 import 'core/cache/media_preload.dart';
@@ -27,45 +30,110 @@ import 'core/util/developer_mode.dart';
 import 'core/util/lume_log.dart';
 
 void main() {
-  runZonedGuarded<void>(() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    // Independent local reads overlap; privacy, networking, appearance and
-    // navigation are all ready before any page starts its first request.
-    await Future.wait<void>([
-      AppPreferences.instance.boot(),
-      PrivacySettings.instance.boot(),
-      MediaLibrary.instance.boot(),
-      LumeNet.boot(),
-      LumeSandboxSettings.boot(),
-      DeveloperMode.boot(),
-      BrowseLayoutSettings.instance.boot(),
-      PlaybackOrientationController.instance.boot(),
-      ShellSettingsController.instance.boot(),
-      SourceContentVisibility.instance.boot(),
-      SearchSettings.instance.boot(),
-      TmdbSettings.instance.boot(),
-      MediaPreload.instance.boot(),
-      AppearanceController.instance.boot(),
-      UserFonts.instance.boot(),
-      FloatingModules.instance.boot(),
-      FrostedSettings.instance.boot(),
-      ComicImageToolsSettings.instance.boot(),
-    ]);
-    // The selected font depends on both the appearance and font index.
-    await UserFonts.instance.ensureLoaded(
-      AppearanceController.instance.settings.fontId,
-    );
-    runApp(const LumeBoxApp());
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_startupMaintenance());
-    });
-  }, (error, stackTrace) => LumeLog.error(error, stackTrace));
+  runZonedGuarded<void>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      if (const bool.fromEnvironment('LUME_PROFILE_STARTUP')) {
+        FrameProfile.instance.start(
+          '冷启动',
+          refreshRate: WidgetsBinding
+              .instance
+              .platformDispatcher
+              .views
+              .first
+              .display
+              .refreshRate,
+        );
+      }
+      await LumeLog.startPersistence()
+          .timeout(const Duration(seconds: 3))
+          .catchError((Object _) {});
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        LumeLog.error(details.exception, details.stack);
+        unawaited(LumeLog.flushPersistence());
+      };
+      runApp(
+        StartupGate(
+          initialize: () async {
+            final issues = await initializeAppTasks([
+              StartupTask('应用偏好', () => AppPreferences.instance.boot()),
+              StartupTask(
+                '隐私保护',
+                () => PrivacySettings.instance.boot(),
+                required: true,
+              ),
+              StartupTask('媒体库', () => MediaLibrary.instance.boot()),
+              StartupTask('网络', () => LumeNet.boot()),
+              StartupTask('源运行设置', () => LumeSandboxSettings.boot()),
+              StartupTask('开发设置', () => DeveloperMode.boot()),
+              StartupTask('浏览布局', () => BrowseLayoutSettings.instance.boot()),
+              StartupTask(
+                '播放方向',
+                () => PlaybackOrientationController.instance.boot(),
+              ),
+              StartupTask('导航', () => ShellSettingsController.instance.boot()),
+              StartupTask(
+                '内容分类',
+                () => SourceContentVisibility.instance.boot(),
+              ),
+              StartupTask('搜索', () => SearchSettings.instance.boot()),
+              StartupTask('影视资料', () => TmdbSettings.instance.boot()),
+              StartupTask('下载任务', () => ComicDownloadCenter.instance.boot()),
+              StartupTask('预载缓存', () => MediaPreload.instance.boot()),
+              StartupTask('外观', () => AppearanceController.instance.boot()),
+              StartupTask('字体目录', () => UserFonts.instance.boot()),
+              StartupTask('悬浮模块', () => FloatingModules.instance.boot()),
+              StartupTask('玻璃材质', () => FrostedSettings.instance.boot()),
+              StartupTask(
+                '图片工具',
+                () => ComicImageToolsSettings.instance.boot(),
+              ),
+            ]);
+            try {
+              await UserFonts.instance
+                  .ensureLoaded(AppearanceController.instance.settings.fontId)
+                  .timeout(const Duration(seconds: 5));
+            } catch (error, stack) {
+              LumeLog.error(error, stack);
+              issues.add(const StartupIssue('自定义字体', false));
+            }
+            return issues;
+          },
+          child: const LumeBoxApp(),
+          onReady: () {
+            if (const bool.fromEnvironment('LUME_PROFILE_STARTUP')) {
+              FrameProfile.instance.mark('startupReady');
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => FrameProfile.instance.mark('firstContentFrame'),
+              );
+              Future<void>.delayed(const Duration(seconds: 3), () {
+                if (FrameProfile.instance.recording) {
+                  FrameProfile.instance.stop();
+                  unawaited(FrameProfile.instance.save());
+                }
+              });
+            }
+            unawaited(_startupMaintenance());
+          },
+        ),
+      );
+    },
+    (error, stackTrace) {
+      LumeLog.error(error, stackTrace);
+      unawaited(LumeLog.flushPersistence());
+    },
+  );
 }
 
 Future<void> _startupMaintenance() async {
   // Leave first-screen source/cover loading time before disk maintenance.
   await Future<void>.delayed(const Duration(seconds: 8));
-  await clearRetiredModuleCache();
+  try {
+    await clearRetiredModuleCache();
+  } catch (error, stack) {
+    LumeLog.error(error, stack);
+  }
   if (AppPreferences.instance.autoBackup) {
     try {
       await ConfigurationBackup().automatic();

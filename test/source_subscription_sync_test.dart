@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_subscription_sync.dart';
+import 'package:lume_box/core/source/source_subscription_catalog.dart';
 import 'package:lume_box/core/net/source_subscription.dart';
 import 'package:lume_box/core/net/network_settings.dart';
 
@@ -54,6 +55,165 @@ void main() {
   });
   String script(String id, int version) =>
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
+
+  test('旧 CDN 快照订阅迁移并合并成员与用户排除项', () async {
+    const stable = '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.txt';
+    service.subscriptions.clear();
+    service.subscriptions.addAll([
+      SavedSourceSubscription(
+        '${SubscriptionCatalog.cdnBase}subscriptions/cdn/video.11111111.txt',
+        members: {'retired': '${SubscriptionCatalog.cdnBase}video/retired.js'},
+        excludedIds: {'excluded'},
+      ),
+      SavedSourceSubscription(
+        stable,
+        members: {'active': '${SubscriptionCatalog.cdnBase}video/active.js'},
+      ),
+    ]);
+    await service.save();
+    await service.load();
+    expect(service.subscriptions, hasLength(1));
+    expect(service.subscriptions.single.url, stable);
+    expect(
+      service.subscriptions.single.members.keys,
+      containsAll(['retired', 'active']),
+    );
+    expect(service.subscriptions.single.excludedIds, {'excluded'});
+    expect(service.subscriptions.single.checkedAt, isNull);
+  });
+
+  test('旧版本成员表缺失时恢复官方归属并移除远端已下架源，保留手动与外部源', () async {
+    final official = SubscriptionCatalog.sectionUrl(Section.video);
+    service.subscriptions.clear();
+    await service.register([official]);
+    manager.sources.addAll([
+      const SourceDescriptor(
+        id: 'retired',
+        name: '旧订阅源',
+        version: '1',
+        enabled: true,
+        originUrl: '${SubscriptionCatalog.cdnBase}video/retired.js',
+      ),
+      const SourceDescriptor(
+        id: 'manual',
+        name: '手动源',
+        version: '1',
+        enabled: true,
+      ),
+      const SourceDescriptor(
+        id: 'external',
+        name: '外部源',
+        version: '1',
+        enabled: true,
+        originUrl: 'https://external.example/source.js',
+      ),
+    ]);
+    remote[official] = '${SubscriptionCatalog.base}video/active.js';
+    remote['${SubscriptionCatalog.base}video/active.js'] = script('active', 1);
+    final result = await service.sync(force: true);
+    expect(result.errors, isEmpty);
+    expect(result.removed, 1);
+    expect(
+      manager.sources.map((s) => s.id),
+      containsAll(['active', 'manual', 'external']),
+    );
+    expect(manager.removed, ['retired']);
+  });
+
+  test('成员表与源保存的 GitHub/CDN 地址不同仍识别同一源并清理下架项', () async {
+    const raw = '${SubscriptionCatalog.base}video/retired.js';
+    const cdn = '${SubscriptionCatalog.cdnBase}video/retired.js';
+    service.subscriptions.single.members['retired'] = raw;
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'retired',
+        name: '旧源',
+        version: '1',
+        enabled: true,
+        originUrl: cdn,
+      ),
+    );
+    remote[manifest] = '# 已清空';
+    expect((await service.sync(force: true)).removed, 1);
+  });
+
+  test('旧源保存根订阅地址时，按成员表清理下架项', () async {
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'retired',
+        name: '旧源',
+        version: '1',
+        enabled: true,
+        originUrl: manifest,
+      ),
+    );
+    remote[manifest] = '# 已清空';
+    expect((await service.sync(force: true)).removed, 1);
+  });
+
+  test('恢复归属后遇到不完整订阅仍保留全部旧源', () async {
+    final official = SubscriptionCatalog.sectionUrl(Section.video);
+    service.subscriptions.clear();
+    await service.register([official]);
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'retired',
+        name: '旧源',
+        version: '1',
+        enabled: true,
+        originUrl: '${SubscriptionCatalog.base}video/retired.js',
+      ),
+    );
+    remote[official] = '${SubscriptionCatalog.base}video/missing.js';
+    final result = await service.sync(force: true);
+    expect(result.errors, isNotEmpty);
+    expect(result.removed, 0);
+    expect(manager.sources.map((s) => s.id), contains('retired'));
+  });
+
+  test('150 个源批量同步仅刷新页面一次，未读变更更新也不重复刷新', () async {
+    SourceSubscriptionSync.attachNoticeFile(
+      Section.video,
+      File('${root.path}/notice.txt'),
+    );
+    SourceSubscriptionSync.acknowledge(Section.video);
+    final ids = List.generate(150, (i) => 'batch-$i');
+    remote[manifest] = ids
+        .map((id) => 'https://repo.example/$id.js')
+        .join('\n');
+    final revision = SourceSubscriptionSync.revision(Section.video);
+    final count = SourceSubscriptionSync.changeCount(Section.video);
+    var reloads = 0;
+    var countChanges = 0;
+    void onReload() => reloads++;
+    void onCount() => countChanges++;
+    revision.addListener(onReload);
+    count.addListener(onCount);
+    addTearDown(() {
+      revision.removeListener(onReload);
+      count.removeListener(onCount);
+    });
+    for (var version = 1; version <= 2; version++) {
+      for (final id in ids) {
+        remote['https://repo.example/$id.js'] = script(id, version);
+      }
+      final result = await service.sync(force: true);
+      expect(result.errors, isEmpty);
+      expect(version == 1 ? result.added : result.updated, 150);
+      expect(reloads, version, reason: '每轮整批完成后只刷新一次');
+      expect(countChanges, 1, reason: '首次新增合并通知，已有未读变更不重复写入计数');
+      expect(count.value, 150);
+      expect(SourceSubscriptionSync.notices(Section.video), hasLength(150));
+    }
+    final saved = jsonDecode(
+      File('${root.path}/notice.txt.json').readAsStringSync(),
+    ) as Map;
+    expect(saved, hasLength(150));
+    expect(saved['batch-0']['status'], contains('1 → 2'));
+    final unchanged = await service.sync(force: true);
+    expect(unchanged.unchanged, 150);
+    expect(reloads, 2, reason: '脚本没有变化不刷新页面');
+  });
 
   test('手动同步等待后台检查后强制刷新，不沿用六小时内跳过的结果', () async {
     final stored = await SourceSubscriptionSync.open(

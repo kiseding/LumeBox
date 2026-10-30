@@ -5,6 +5,7 @@ import '../../core/net/network_cancellation.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../../core/util/lume_log.dart';
+import '../../core/reading/cover_warmup.dart';
 
 /// One bounded, shared request per section. Explicit refresh invalidates in-flight results.
 class SectionPreloader {
@@ -20,6 +21,8 @@ class SectionPreloader {
     Section section, {
     SourceManager? manager,
     Future<void> Function()? openLibrary,
+    Future<void> Function(DataSource, SourceDescriptor, Iterable<SourceItem>)?
+    preloadCovers,
   }) {
     final existing = _tasks[section];
     if (existing != null) return existing;
@@ -30,7 +33,14 @@ class SectionPreloader {
     task = _requests
         .run(
           section.id,
-          () => _perform(section, manager, openLibrary, generation, target),
+          () => _perform(
+            section,
+            manager,
+            openLibrary,
+            generation,
+            target,
+            preloadCovers,
+          ),
           timeout: const Duration(seconds: 12),
         )
         .catchError((Object error) {
@@ -53,6 +63,8 @@ class SectionPreloader {
     Future<void> Function()? openLibrary,
     int generation,
     Completer<({String id, bool home})?> target,
+    Future<void> Function(DataSource, SourceDescriptor, Iterable<SourceItem>)?
+    preloadCovers,
   ) async {
     final token = NetworkCancellation.current;
     try {
@@ -85,6 +97,15 @@ class SectionPreloader {
       token?.check();
       if ((_generation[section] ?? 0) != generation) return;
       _warm[section] = _WarmEntry(source.id, list, home);
+      if (preloadCovers != null) {
+        final items = home == null
+            ? list!.items
+            : home.isBoards
+            ? home.boards.expand((board) => board.items)
+            : home.items;
+        // Preparing the image pipeline must not delay the first covers until UI build.
+        await preloadCovers(source, current, items);
+      }
     } on NetworkCancelled {
       // Discarded warm-ups must not start any later source requests.
     } catch (error) {
@@ -145,6 +166,7 @@ class SectionPreloader {
   }
 
   static void discard([Section? section]) {
+    CoverWarmup.discard(section);
     for (final target in section == null ? Section.values : [section]) {
       _requests.cancel(target.id);
       _warm.remove(target);

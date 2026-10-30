@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'sensitive_data.dart';
 
@@ -46,6 +49,98 @@ class LogEntry {
 /// 「运行日志」页面查看与「错误报告」导出。只保留当前运行会话的日志：
 /// 不做磁盘滚动（任务书只要求运行日志与报告导出，见 Phase3 文档）。
 class LumeLog {
+  static File? _journal;
+  static Timer? _journalTimer;
+  static Future<void> _writing = Future.value();
+  static List<LogEntry> previousSession = [];
+  static final List<LogEntry> _persistent = [];
+  static String _diskText(String text) => SensitiveData.redact(text)
+      .replaceAllMapped(RegExp(r'https?://[^\s<>"\x27]+'), (m) {
+        final uri = Uri.tryParse(m[0]!);
+        return uri == null
+            ? '[URL omitted]'
+            : '${uri.scheme}://${uri.host}/[path omitted]';
+      })
+      .replaceAll(
+        RegExp(r'\b[A-Za-z]:[\\/][^\r\n"<>]+'),
+        '[local path omitted]',
+      )
+      .replaceAll(
+        RegExp(r'/(Users|home|private|var|data|storage)/[^\s"<>]+'),
+        '[local path omitted]',
+      );
+
+  static Future<void> startPersistence({Directory? directory}) async {
+    final base = directory ?? await getApplicationSupportDirectory();
+    final file = File('${base.path}/last-session-errors.json');
+    await flushPersistence();
+    previousSession = [];
+    if (await file.exists()) {
+      try {
+        if (await file.length() <= 128 * 1024) {
+          final raw = jsonDecode(await file.readAsString()) as List;
+          previousSession = [
+            for (final row in raw.take(80))
+              if (row is Map)
+                LogEntry(
+                  time: DateTime.tryParse('${row['time']}') ?? DateTime.now(),
+                  level: LogLevel.error,
+                  message: _diskText('${row['message']}'),
+                  detail: row['detail'] == null
+                      ? null
+                      : _diskText('${row['detail']}'),
+                ),
+          ];
+        }
+      } catch (_) {}
+    }
+    _journal = file;
+    _persistent.clear();
+    // Preserve the previous session until this session actually has an issue.
+  }
+
+  static Future<void> stopPersistence() async {
+    await flushPersistence();
+    _journal = null;
+    _persistent.clear();
+  }
+
+  static Future<void> flushPersistence() async {
+    _journalTimer?.cancel();
+    _journalTimer = null;
+    final file = _journal;
+    if (file == null || _persistent.isEmpty) {
+      await _writing;
+      return;
+    }
+    final entries = [
+      for (final e in _persistent)
+        {
+          'time': e.time.toIso8601String(),
+          'message': _diskText(e.message)
+              .substring(0, _diskText(e.message).length.clamp(0, 2000)),
+          'detail': e.detail == null
+              ? null
+              : _diskText(e.detail!)
+                    .substring(0, _diskText(e.detail!).length.clamp(0, 4000)),
+        },
+    ];
+    while (utf8.encode(jsonEncode(entries)).length > 128 * 1024 &&
+        entries.length > 1) {
+      entries.removeAt(0);
+    }
+    final text = jsonEncode(entries);
+    _writing = _writing.catchError((Object _) {}).then((_) async {
+      try {
+        await file.parent.create(recursive: true);
+        final tmp = File('${file.path}.tmp');
+        await tmp.writeAsString(text, flush: true);
+        await tmp.rename(file.path);
+      } catch (_) {}
+    });
+    await _writing;
+  }
+
   static const String tag = 'Lume Box';
 
   /// 内存里保留的日志条数上限。
@@ -93,14 +188,43 @@ class LumeLog {
     _record(LogLevel.error, message, detail: detail);
   }
 
-  /// 清空内存日志（磁盘上没有任何日志文件，清理是即时的）。
+  /// 清空本次、上次日志，并在写入队列中删除磁盘副本。
   static void clear() {
-    if (_buffer.isEmpty) return;
+    if (_buffer.isEmpty && previousSession.isEmpty && _persistent.isEmpty) {
+      return;
+    }
     _buffer.clear();
+    previousSession = [];
+    _persistent.clear();
+    _journalTimer?.cancel();
+    final file = _journal;
+    if (file != null) {
+      _writing = _writing.catchError((Object _) {}).then((_) async {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      });
+    }
     _changes.add(null);
   }
 
   static void _record(LogLevel level, String message, {String? detail}) {
+    if (_journal != null && level != LogLevel.info) {
+      _persistent.add(
+        LogEntry(
+          time: DateTime.now(),
+          level: level,
+          message: message,
+          detail: detail,
+        ),
+      );
+      if (_persistent.length > 80) _persistent.removeAt(0);
+      _journalTimer?.cancel();
+      _journalTimer = Timer(
+        const Duration(milliseconds: 200),
+        () => unawaited(flushPersistence()),
+      );
+    }
     _buffer.add(
       LogEntry(
         time: DateTime.now(),

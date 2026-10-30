@@ -157,25 +157,28 @@ def run_worker(options, send):
             if request['action'] == 'network':
                 send({'ok': True, 'network': network})
                 continue
+            if request['action'] == 'snapshot':
+                send({'ok': False, 'error': 'Scrapling 不保留可手动导航的当前标签页，请选择推荐浏览器、Playwright、Selenium 或内置浏览器'})
+                continue
             try:
                 target = validate_url(request['url'])
                 if not same_site(url, target):
                     raise ValueError('当前会话仅用于当前站点')
-                if cached and target == url and not request.get('selector') and not request.get('actions'):
+                if cached and target == url and not request.get('selector') and not request.get('actions') and not request.get('purpose'):
                     send(cached)
                     cached = None
                     continue
                 cached = None
                 if browser_mode:
                     extra = {'wait_selector': request['selector']} if request.get('selector') else {}
-                    if request.get('actions'):
+                    if request.get('actions') or request.get('purpose'):
                         extra = {}
                         if async_mode:
                             async def action(page):
-                                await page.evaluate(program(request['actions'], request.get('selector', '')))
+                                await page.evaluate(program(request.get('actions'), request.get('selector', ''), request.get('purpose', '')))
                         else:
                             def action(page):
-                                page.evaluate(program(request['actions'], request.get('selector', '')))
+                                page.evaluate(program(request.get('actions'), request.get('selector', ''), request.get('purpose', '')))
                         extra['page_action'] = action
                     if session_mode:
                         value = resolve(client.fetch(target, **extra))

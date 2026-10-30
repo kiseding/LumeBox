@@ -38,7 +38,11 @@ def export_source(config, rows=()):
     c = target_config(config, config.get('target', config['category']))
     script = generate(c)  # Shared metadata/rule validation.
     target = c['target']
-    if c.get('useBrowser') and target in ('cat', 'python'):
+    if c['mode'] in ('zhilian','yeguo') and target != 'video':
+        raise ValueError('该短剧游客接口目前只支持视频 JS，请保持 JS 格式')
+    if c['mode'] in ('mediacms', 'wordpress', 'feed','inline-media') and target not in ('video', 'audio', 'module'):
+        raise ValueError('该公开接口目前支持 JS 或模块导出；其他格式尚未通过验证，请保持 JS')
+    if c.get('useBrowser') and target in ('cat', 'python', 'comic_python'):
         raise ValueError('浏览器会话源目前请导出 JS 或模块；PY / Node 猫源尚未适配浏览器模式')
     if target == 'web':
         cards = []
@@ -56,11 +60,12 @@ def export_source(config, rows=()):
         return '.html', page.encode(), '视频源选择 → 网页 → 导入 HTML 文件'
     if target == 'kazumi':
         return '.json', kazumi(c).encode(), '视频源选择 → Kazumi → 导入规则 JSON'
-    if target == 'python':
+    if target in ('python', 'comic_python'):
         meta = json.loads(script.splitlines()[0].split(': ', 1)[1])
         body = '# LumeRuntime: python\n# LumeSource: ' + json.dumps(meta, ensure_ascii=False) + '\n'
         body += 'CONFIG = ' + repr(c) + '\n' + resource('python_runtime.py')
-        return '.py', body.encode(), '视频源选择 → PY → 导入 .py 文件'
+        route = '漫画板块 → 源管理 → 导入 .py 文件' if target == 'comic_python' else '视频源选择 → PY → 导入 .py 文件'
+        return '.py', body.encode(), route
     if target == 'module':
         # Module scope must read HTTP from the host global, not a local exported object.
         body = script.replace('var LumeSource = {', 'var GeneratedSource = {').replace('LumeSource.http.get', 'globalThis.LumeSource.http.get').replace('LumeSource.web', 'globalThis.LumeSource.web')

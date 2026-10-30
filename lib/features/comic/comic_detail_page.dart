@@ -1,3 +1,5 @@
+import 'comic_download_center.dart';
+
 import 'dart:async';
 
 import '../../core/source/source_picker_groups.dart';
@@ -40,6 +42,7 @@ class ComicDetailPage extends StatefulWidget {
     required this.target,
     this.runtimeAvailable,
     this.imagePipeline,
+    this.downloadCenter,
   });
 
   final ReadingLibrary library;
@@ -53,6 +56,7 @@ class ComicDetailPage extends StatefulWidget {
   /// 与 `ComicPage` 的平台门同一口径，测试也靠它显式声明运行环境。
   final bool? runtimeAvailable;
   final SectionImagePipeline? imagePipeline;
+  final ComicDownloadCenter? downloadCenter;
 
   @override
   State<ComicDetailPage> createState() => _ComicDetailPageState();
@@ -127,7 +131,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   void dispose() {
     // 先停下载再释放管线：管线关闭会让在飞请求返回空，下载器据此
     // 判定「这一批不下了」，而不是把剩下的图逐张记成失败。
-    _downloader?.dispose();
+    // Downloads are owned by the global task center.
     _chapterSearch.dispose();
     _compactScroll.dispose();
     if (widget.imagePipeline == null) _pipeline.dispose();
@@ -191,8 +195,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _detail = detail;
         _loading = false;
         _chaptersLoading = true;
-        _onShelf = widget.library.onShelf(widget.target.itemId);
-        _progress = widget.library.progress(widget.target.itemId);
+        _onShelf = widget.library.onShelf(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
+        _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
       });
       final chapters = await networkRequests.run(
         'chapters',
@@ -210,8 +220,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         _chapters = chapters;
         _loading = false;
         _chaptersLoading = false;
-        _onShelf = widget.library.onShelf(widget.target.itemId);
-        _progress = widget.library.progress(widget.target.itemId);
+        _onShelf = widget.library.onShelf(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
+        _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        );
       });
       if (_compact && _isGallery) unawaited(_loadGalleryPreview());
       // 「查看详情」本身也是历史：只写 favorite = 0 的历史行；收藏必须等
@@ -224,9 +240,20 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         subtitle: detail?.subtitle ?? widget.target.subtitle,
         chapterCount: chapters.length,
       );
+      // Recording ownership can adopt an older checkpoint without source metadata.
+      setState(
+        () => _progress = widget.library.progress(
+          widget.target.itemId,
+          sourceId: widget.target.sourceId,
+        ),
+      );
       // 已在书架：同步章节总数，未读角标才有准确口径。
       if (_onShelf) {
-        widget.library.syncChapters(widget.target.itemId, chapters.length);
+        widget.library.syncChapters(
+          widget.target.itemId,
+          chapters.length,
+          sourceId: widget.target.sourceId,
+        );
       }
     } on SourceException catch (error) {
       LumeLog.warn('[${widget.target.itemId}] 详情获取失败: $error');
@@ -259,7 +286,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     );
     setState(() {
       _onShelf = true;
-      _progress = widget.library.progress(widget.target.itemId);
+      _progress = widget.library.progress(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
     });
     if (!silent) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -287,7 +317,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       ),
     );
     if (confirmed != true || !mounted) return;
-    widget.library.unshelve(widget.target.itemId);
+    widget.library.unshelve(
+      widget.target.itemId,
+      sourceId: widget.target.sourceId,
+    );
     setState(() {
       _onShelf = false;
       _progress = null;
@@ -318,8 +351,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     // 返回后主动通知历史抽屉 / 书架重新取数；不能只靠切换 Tab 刷新。
     widget.library.refresh();
     setState(() {
-      _onShelf = widget.library.onShelf(widget.target.itemId);
-      _progress = widget.library.progress(widget.target.itemId);
+      _onShelf = widget.library.onShelf(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
+      _progress = widget.library.progress(
+        widget.target.itemId,
+        sourceId: widget.target.sourceId,
+      );
     });
   }
 
@@ -347,14 +386,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   ComicDownloader? _ensureDownloader() {
     final source = _source;
     if (source == null || _chapters.isEmpty) return null;
-    return _downloader ??= ComicDownloader(
-      dataSource: source,
-      itemId: widget.target.itemId,
-      works: _detail?.title ?? widget.target.title,
-      library: widget.library,
-      fetch: _pipeline.fetch,
-      configureImageHeaders: _pipeline.configureImageHeaders,
-    );
+    return _downloader ??=
+        (widget.downloadCenter ?? ComicDownloadCenter.instance).attach(
+          source: source,
+          itemId: widget.target.itemId,
+          title: _detail?.title ?? widget.target.title,
+          library: widget.library,
+        );
   }
 
   /// 「批量下载」：先选范围（全部 / 未读 / 仅当前章），选完立即开始。
@@ -376,9 +414,10 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     );
     if (scope == null || !mounted) return;
     setState(() => _downloadCardHidden = false);
-    await downloader.start(
-      chapters: _chapters,
-      indices: scope.indices(
+    await (widget.downloadCenter ?? ComicDownloadCenter.instance).enqueue(
+      downloader,
+      _chapters,
+      scope.indices(
         chapterCount: _chapters.length,
         readChapterIndex: readChapterIndex,
         currentIndex: readChapterIndex,
@@ -1292,6 +1331,14 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                 ],
               ),
               const SizedBox(height: 14),
+              TextButton(
+                onPressed: () => showImageProcessingInfo(
+                  context,
+                  pipeline: _pipeline,
+                  url: detail?.cover ?? widget.target.cover,
+                ),
+                child: const Text('图片信息 / 超分状态'),
+              ),
               Row(
                 children: <Widget>[
                   Expanded(

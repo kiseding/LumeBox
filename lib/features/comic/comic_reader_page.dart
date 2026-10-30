@@ -277,6 +277,34 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   bool _sharing = false;
   Future<List<(String, String)>>? _comicVoices;
   final _comicVoiceAnchor = GlobalKey(debugLabel: 'comic.speech.voice');
+  bool _translationScopeChosen = false;
+  void _globalTranslationChanged() {
+    if (!mounted || _translationScopeChosen) return;
+    setState(() {
+      _translationScope = ComicImageToolsSettings.instance.liveTranslation
+          ? 'live'
+          : 'off';
+      _translationGeneration++;
+      _translationBusy = false;
+      _liveTranslationAttempted.clear();
+    });
+    _scheduleLiveTranslation();
+  }
+
+  Timer? _liveTranslationTimer;
+  final Set<String> _liveTranslationAttempted = {};
+  void _scheduleLiveTranslation() {
+    _liveTranslationTimer?.cancel();
+    if (_translationScope != 'live' || _images.isEmpty) return;
+    final url = _images[_page];
+    if (_liveTranslationAttempted.contains(url)) return;
+    _liveTranslationTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted || _translationScope != 'live' || _translationBusy) return;
+      _liveTranslationAttempted.add(url);
+      unawaited(_translatePages(false));
+    });
+  }
+
   bool _translationBusy = false;
   String _translationScope = 'off';
   int _wideHalf = 0;
@@ -364,6 +392,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       if (layoutChanged) _rebuildControllers();
       _configureVolumeKeys();
       _primeWindow();
+      _scheduleLiveTranslation();
       if (_runtimeAvailable) unawaited(_applyOrientation());
     });
     WidgetsBinding.instance.ensureVisualUpdate();
@@ -404,7 +433,11 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     widget.library.settingsRevision.addListener(_sharedReaderSettingsChanged);
     _translationScope = _annotations()['translation.scope'] == 'series'
         ? 'series'
+        : ComicImageToolsSettings.instance.liveTranslation
+        ? 'live'
         : 'off';
+    _translationScopeChosen = _translationScope == 'series';
+    ComicImageToolsSettings.instance.addListener(_globalTranslationChanged);
     if (widget.library.setting(ComicReaderPreferences.key) == null) {
       _preferences.flow = _readingMode == ComicReadingMode.waterfall
           ? 'webtoon'
@@ -425,7 +458,12 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     // 模块设置（手势阈值 / 控件尺寸 / 间距）：与全局「漫画设置」同一份数据。
     _module = SectionModuleSettings.load(widget.library);
     _bookmarks = ComicBookmarks.decode(
-      widget.library.setting(ComicBookmarks.keyFor(widget.target.itemId)),
+      widget.library.setting(
+        widget.library.itemSettingKey(
+          ComicBookmarks.keyPrefix,
+          widget.target.identity,
+        ),
+      ),
     );
     _speechSettings = SpeechSettings.decode(
       widget.library.setting(SpeechSettings.settingKey) ??
@@ -492,6 +530,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   @override
   void dispose() {
+    _liveTranslationTimer?.cancel();
+    ComicImageToolsSettings.instance.removeListener(_globalTranslationChanged);
     _volumeKeys.dispose();
     widget.library.settingsRevision.removeListener(
       _sharedReaderSettingsChanged,
@@ -574,6 +614,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           });
           _rebuildControllers();
           _primeWindow();
+          _scheduleLiveTranslation();
           // 进章即记一次进度：书架的「未读角标」与「继续阅读」都靠这条记录，
           // 不能等到翻页或退出才写。
           _saveProgress();
@@ -677,6 +718,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final chapter = _chapters[_chapterIndex];
     widget.library.saveProgress(
       ComicProgress(
+        sourceId: widget.target.sourceId,
         section: widget.library.section,
         itemId: widget.target.itemId,
         chapterIndex: _chapterIndex,
@@ -828,6 +870,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           });
           _scheduleSave();
           _primeWindow();
+          _scheduleLiveTranslation();
         }
       }
     }
@@ -989,6 +1032,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     _rebuildControllers();
     _scheduleSave();
     _primeWindow();
+    _scheduleLiveTranslation();
   }
 
   void _onPageChanged(int page) {
@@ -1014,6 +1058,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     });
     _scheduleSave();
     _primeWindow();
+    _scheduleLiveTranslation();
   }
 
   void _updateSettings(ComicReaderSettings next) {
@@ -1085,7 +1130,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   void _writeBookmarks(List<ComicBookmark> next) {
     setState(() => _bookmarks = next);
     widget.library.setSetting(
-      ComicBookmarks.keyFor(widget.target.itemId),
+      widget.library.itemSettingKey(
+        ComicBookmarks.keyPrefix,
+        widget.target.identity,
+      ),
       ComicBookmarks.encode(next),
     );
   }
@@ -1128,7 +1176,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     _autoLastFrame = null;
     _translationBusy = false;
     _translations.clear();
-    if (_translationScope != 'series') _translationScope = 'off';
+    _liveTranslationAttempted.clear();
+    if (!['series', 'live'].contains(_translationScope)) {
+      _translationScope = 'off';
+    }
     _speechContinuous = false;
     _speechCursor.value = null;
     _speechText = null;
@@ -1251,7 +1302,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         messenger.showSnackBar(const SnackBar(content: Text('保存失败：图片未能取到')));
         return;
       }
-      final file = widget.library.saveImage(_fileNameFor(url, index), bytes);
+      final file = await widget.library.saveImageAsync(
+        _fileNameFor(url, index),
+        bytes,
+      );
       messenger.showSnackBar(SnackBar(content: Text('已保存到 ${file.path}')));
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);

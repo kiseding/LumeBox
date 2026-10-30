@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/reading/browse_layout.dart';
 import '../../core/reading/reading.dart';
+import '../../core/reading/comic_image_tools.dart';
 import '../../core/source/source.dart';
 import '../../core/theme/lume_theme.dart';
 import 'section_image.dart';
@@ -21,6 +22,41 @@ import 'section_image.dart';
 /// 图片和承载它的卡片必须用**同一个**半径，否则去掉文字白底后，图片下方
 /// 两角会露出卡片底色，看起来仍然是直角。
 const BorderRadius kPosterCoverRadius = BorderRadius.all(Radius.circular(10));
+
+Future<void> showImageProcessingInfo(
+  BuildContext context, {
+  required SectionImagePipeline pipeline,
+  required String? url,
+  UpscaleSurface surface = UpscaleSurface.cover,
+  String origin = '源站封面',
+}) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: const Text('图片信息 / 超分状态'),
+    content: ValueListenableBuilder<int>(
+      valueListenable: pipeline.processingRevision,
+      builder: (_, _, _) {
+        final report = url == null ? null : pipeline.processingReport(url);
+        final enabled = ComicImageTools.shared.surfaceEnabled(surface);
+        return Text(
+          '$origin\n${report?.summary ?? (url == null || url.isEmpty
+                  ? '没有可用图片'
+                  : enabled
+                  ? '尚无处理结果，图片可能正在加载或处理。已缓存图片可重新打开后查看。'
+                  : '未开启自动超分或此范围，显示原图。')}\n\n'
+          '只调整图片清晰度，不改变作品资料、TMDB 匹配或播放地址。'
+          '达到宽度阈值会跳过；前后尺寸翻倍表示设备已执行超分。',
+        );
+      },
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('关闭'),
+      ),
+    ],
+  ),
+);
 
 /// 首页三列网格共用的尺寸，避免首页与分类页出现两套间距。
 abstract final class ThreeColumnPosterLayout {
@@ -574,7 +610,8 @@ class CompactSourceItemTile extends StatelessWidget {
                     url: item.cover,
                     title: item.title,
                     headers: item.coverHeaders,
-                    width: (coverWidth * 2.5).round(),
+                    // One decode bucket for list covers, shared with prefetch.
+                    width: 200,
                   ),
                 ),
               ),

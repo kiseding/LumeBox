@@ -1,3 +1,6 @@
+@Tags(['rex-native-serial'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 

@@ -1,5 +1,7 @@
 import '../translation/ai_text_translation.dart';
 import 'comic_image_tools_settings.dart';
+import 'image_upscale_report.dart';
+export 'image_upscale_report.dart';
 export 'comic_image_tools_settings.dart';
 
 import 'dart:async';
@@ -51,6 +53,12 @@ enum UpscaleSurface {
 /// 退出时取消本页任务。
 Future<Uint8List> automaticUpscale(Uint8List bytes, UpscaleSurface surface) =>
     ComicImageTools.shared.automatic(bytes, surface: surface);
+
+class _UpscaleWaiter {
+  _UpscaleWaiter(this.owner);
+  final ComicImageTools owner;
+  final ready = Completer<bool>();
+}
 
 class ComicTextRegion {
   const ComicTextRegion({
@@ -113,12 +121,42 @@ class ComicImageTools {
   bool _disposed = false;
   ComicTranslationReport? lastTranslationReport;
   String? lastTranslationWarning;
+  ImageUpscaleReport? lastUpscaleReport;
+
+  Uint8List _upscaleResult(Object? value, Uint8List original) {
+    final bytes = value is Map ? value['bytes'] : value;
+    if (bytes is! Uint8List || bytes.isEmpty) throw StateError('超分未返回图片');
+    final map = value is Map ? value : const {};
+    final report = ImageUpscaleReport(
+      map['status'] as String? ??
+          (listEquals(bytes, original) ? 'skipped' : 'processed'),
+      width: map['width'] as int?,
+      height: map['height'] as int?,
+      outputWidth: map['outputWidth'] as int?,
+      outputHeight: map['outputHeight'] as int?,
+      reason: map['reason'] as String? ?? '',
+    );
+    lastUpscaleReport = report;
+    report.publish();
+    return bytes;
+  }
+
+  void _upscaleFailed(Object error) {
+    final report = ImageUpscaleReport(
+      'failed',
+      reason: error is PlatformException
+          ? error.message ?? '设备端处理失败'
+          : '图片处理失败',
+    );
+    lastUpscaleReport = report;
+    report.publish();
+  }
 
   /// 自动超分的并发闸门。用户在设置里可以调到 4，默认 1。
   // Readers and cover pipelines share one device budget, rather than each
   // starting up to four independent Core ML jobs at once.
   static int _automaticActive = 0;
-  static final List<Completer<void>> _automaticWaiters = <Completer<void>>[];
+  static final List<_UpscaleWaiter> _automaticWaiters = [];
   @visibleForTesting
   static bool? debugAutomaticSupported;
 
@@ -145,13 +183,20 @@ class ComicImageTools {
   }
 
   Future<Uint8List> superResolve(Uint8List bytes) async {
-    final result = await _invoke<Uint8List>('superResolve', {
-      'bytes': bytes,
-      'noise': preferences.noise,
-      'imageStyle': imageStyle ?? preferences.imageStyle,
-    });
-    if (result == null || result.isEmpty) throw StateError('超分未返回图片');
-    return result;
+    if (!await _acquireAutomaticSlot()) throw StateError('图片处理已取消');
+    try {
+      final result = await _invoke<Object?>('superResolve', {
+        'bytes': bytes,
+        'noise': preferences.noise,
+        'imageStyle': imageStyle ?? preferences.imageStyle,
+      });
+      return _upscaleResult(result, bytes);
+    } catch (error) {
+      _upscaleFailed(error);
+      rethrow;
+    } finally {
+      _releaseAutomaticSlot();
+    }
   }
 
   /// 某个范围当前是否应该自动超分。
@@ -180,20 +225,24 @@ class ComicImageTools {
     }
     final completer = Completer<Uint8List>();
     unawaited(() async {
-      await _acquireAutomaticSlot();
+      if (!await _acquireAutomaticSlot()) {
+        completer.complete(bytes);
+        return;
+      }
       try {
         if (_disposed || !surfaceEnabled(surface)) {
           completer.complete(bytes);
           return;
         }
-        final result = await _invoke<Uint8List>('superResolve', {
+        final result = await _invoke<Object?>('superResolve', {
           'bytes': bytes,
           'noise': preferences.noise,
           'imageStyle': imageStyle ?? preferences.imageStyle,
           'threshold': preferences.threshold,
         });
-        completer.complete(result == null || result.isEmpty ? bytes : result);
-      } catch (_) {
+        completer.complete(_upscaleResult(result, bytes));
+      } catch (error) {
+        if (!_disposed) _upscaleFailed(error);
         // A failed optional enhancement cannot break the original image.
         completer.complete(bytes);
       } finally {
@@ -203,22 +252,32 @@ class ComicImageTools {
     return completer.future;
   }
 
-  Future<void> _acquireAutomaticSlot() async {
+  Future<bool> _acquireAutomaticSlot() async {
+    if (_disposed) return false;
     final limit = preferences.concurrency.clamp(1, 4);
     if (_automaticActive < limit) {
       _automaticActive++;
-      return;
+      return true;
     }
-    final waiter = Completer<void>();
+    final waiter = _UpscaleWaiter(this);
     _automaticWaiters.add(waiter);
-    await waiter.future;
+    return waiter.ready.future;
   }
 
   void _releaseAutomaticSlot() {
     if (_automaticActive > 0) _automaticActive--;
-    if (_automaticWaiters.isNotEmpty) {
+    while (_automaticWaiters.isNotEmpty) {
+      final waiter = _automaticWaiters.first;
+      if (waiter.owner._disposed) {
+        _automaticWaiters.removeAt(0).ready.complete(false);
+        continue;
+      }
+      if (_automaticActive >=
+          waiter.owner.preferences.concurrency.clamp(1, 4)) {
+        break;
+      }
       _automaticActive++;
-      _automaticWaiters.removeAt(0).complete();
+      _automaticWaiters.removeAt(0).ready.complete(true);
     }
   }
 
@@ -453,20 +512,30 @@ class ComicImageTools {
     }
   }
 
-  /// 云端 AI 上色（OpenAI 兼容的图片编辑接口）。
+  /// 云端 AI 上色（通用图片编辑或 Seedream 图生图接口）。
   ///
   /// 设备端上色模型不在本仓库内；这里把图片以 multipart 发到用户自填的
   /// `/v1/images/edits` 类接口，并要求返回 `data[0].b64_json`。图片会上传到
-  /// 该服务，界面上必须如实标注；翻译与上色共用同一把 API Key。
+  /// 该服务，界面上必须如实标注；上色可单独保存 API Key。
   Future<Uint8List> colorize(Uint8List bytes) async {
-    final uri = validateEndpoint(preferences.colorizeEndpoint);
+    final uri = validateColorizeEndpoint(preferences.colorizeEndpoint);
     final model = preferences.colorizeModel.trim();
     if (model.isEmpty) throw const FormatException('请先填写 AI 上色模型');
     if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
       throw const FormatException('图片为空或超过 20MB');
     }
-    final key = await channel.invokeMethod<String>('getKey') ?? '';
-    if (key.isEmpty) throw const FormatException('请先保存 AI API Key');
+    var key =
+        await channel.invokeMethod<String>('getKey', {
+          'slot': preferences.colorizeProtocol == 'seedream'
+              ? 'colorizeSeedream'
+              : 'colorize',
+        }) ??
+        '';
+    // 保留旧版共用密钥的配置；单独填写后不再受翻译密钥影响。
+    if (key.isEmpty && preferences.colorizeProtocol != 'seedream') {
+      key = await channel.invokeMethod<String>('getKey') ?? '';
+    }
+    if (key.isEmpty) throw const FormatException('请先保存当前上色服务的 API Key');
     final owned = client == null;
     final transport = client ?? http.Client();
     if (_disposed) {
@@ -478,20 +547,47 @@ class ComicImageTools {
       final prompt = preferences.colorizePrompt.trim().isEmpty
           ? ComicImageToolsSettings.defaultColorizePrompt
           : preferences.colorizePrompt.trim();
-      final request = http.MultipartRequest('POST', uri)
-        ..headers['Authorization'] = 'Bearer $key'
-        ..fields['model'] = model
-        ..fields['prompt'] = prompt
-        ..fields['response_format'] = 'b64_json';
       final imageType = _imageType(bytes);
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'image',
-          bytes,
-          filename: imageType.$1,
-          contentType: imageType.$2,
-        ),
-      );
+      final http.BaseRequest request;
+      if (preferences.colorizeProtocol == 'seedream') {
+        request = http.Request('POST', uri)
+          ..headers['Content-Type'] = 'application/json'
+          ..body = jsonEncode({
+            'model': model,
+            'prompt': prompt,
+            'image': 'data:${imageType.$2};base64,${base64Encode(bytes)}',
+            'size': '2K',
+            'response_format': 'b64_json',
+            if (model.contains('seedream-5-')) 'output_format': 'png',
+            if (model.contains('seedream-4-') ||
+                model.contains('seedream-5-0-lite'))
+              'sequential_image_generation': 'disabled',
+            'stream': false,
+            'watermark': true,
+          });
+      } else {
+        final multipart = http.MultipartRequest('POST', uri)
+          ..fields['model'] = model
+          ..fields['prompt'] = prompt;
+        final gptImage =
+            model.startsWith('gpt-image-') || model == 'chatgpt-image-latest';
+        if (gptImage) {
+          // GPT Image 默认返回 base64，不接受旧版 response_format 参数。
+          multipart.fields['output_format'] = 'png';
+        } else {
+          multipart.fields['response_format'] = 'b64_json';
+        }
+        multipart.files.add(
+          http.MultipartFile.fromBytes(
+            gptImage ? 'image[]' : 'image',
+            bytes,
+            filename: imageType.$1,
+            contentType: imageType.$2,
+          ),
+        );
+        request = multipart;
+      }
+      request.headers['Authorization'] = 'Bearer $key';
       final response = await transport
           .send(request)
           .timeout(const Duration(seconds: 120));
@@ -573,6 +669,26 @@ class ComicImageTools {
     return uri;
   }
 
+  static Uri validateColorizeEndpoint(String input) {
+    final uri = Uri.tryParse(input.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasFragment) {
+      throw const FormatException('请填写服务商提供的完整 HTTPS 图片编辑接口地址');
+    }
+    if (uri.host.toLowerCase() == 'api.deepseek.com') {
+      throw const FormatException(
+        'DeepSeek 官方接口不能生成上色图片，请换用支持图片编辑的服务；DeepSeek 可继续用于 AI 翻译',
+      );
+    }
+    if (uri.path.contains('/chat/completions')) {
+      throw const FormatException('这是文字对话接口，请填写图片编辑接口地址（通常以 /images/edits 结尾）');
+    }
+    return uri;
+  }
+
   Future<List<String>> _translateAI(List<String> texts) async {
     validateEndpoint(preferences.endpoint);
     if (preferences.model.trim().isEmpty) {
@@ -594,6 +710,7 @@ class ComicImageTools {
         url: preferences.endpoint,
         model: preferences.model,
         key: key,
+        target: preferences.target,
         language:
             ComicImageToolsSettings.languages[preferences.target] ??
             preferences.target,
@@ -608,12 +725,12 @@ class ComicImageTools {
 
   void dispose() {
     _disposed = true;
-    // 唤醒排队中的自动超分任务，让它们看到 _disposed 后原图返回，
-    // 而不是永远挂在信号量上。
-    for (final waiter in _automaticWaiters) {
-      if (!waiter.isCompleted) waiter.complete();
+    // 只取消本实例排队的任务，其他页面继续遵守设备并发预算。
+    for (final waiter
+        in _automaticWaiters.where((w) => w.owner == this).toList()) {
+      _automaticWaiters.remove(waiter);
+      waiter.ready.complete(false);
     }
-    _automaticWaiters.clear();
     for (final transport in _ownedClients) {
       transport.close();
     }

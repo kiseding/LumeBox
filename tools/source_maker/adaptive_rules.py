@@ -14,8 +14,19 @@ class AdaptiveFetcher:
         self.base = base
         self.adaptive_store = store
         self.pages = OrderedDict()
-    def get(self, url, selector=''):
-        result = self.base.get(url, selector=selector) if hasattr(self.base, 'accept') else self.base.get(url)
+    @property
+    def browser_mode(self):
+        return getattr(self.base, 'browser_mode', False)
+
+    def request(self, options):
+        method = getattr(self.base, 'request', None)
+        if method is None:
+            raise ValueError('该接口需要 HTTP 请求模式，请使用“开始制作”重新检查')
+        return method(options)
+
+    def get(self, url, selector='', purpose='', cancel_event=None):
+        from core import Fetcher
+        result = self.base.get(url, selector=selector, purpose=purpose) if self.browser_mode else self.base.get(url, selector=selector) if hasattr(self.base, 'accept') else self.base.get(url, cancel_event=cancel_event) if isinstance(self.base, Fetcher) else self.base.get(url)
         self.pages[result[0]] = result[1]
         while len(self.pages) > 10:
             self.pages.popitem(last=False)

@@ -44,8 +44,16 @@ class _CoverPipeline extends SectionImagePipeline {
       );
   int references = 0;
   @override
-  Future<ui.Image?> image(String url, {int? targetWidth}) async {
-    final result = await super.image(url, targetWidth: targetWidth);
+  Future<ui.Image?> image(
+    String url, {
+    int? targetWidth,
+    bool Function()? isForeground,
+  }) async {
+    final result = await super.image(
+      url,
+      targetWidth: targetWidth,
+      isForeground: isForeground,
+    );
     if (result != null) references++;
     return result;
   }

@@ -195,7 +195,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final stored = ComicBookmarks.decode(
-        library.setting(ComicBookmarks.keyFor(target.itemId)),
+        library.setting(ComicBookmarks.keyFor(target.identity)),
       );
       expect(stored.length, 1);
       expect(stored.first.chapterIndex, 0);
@@ -207,7 +207,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         ComicBookmarks.decode(
-          library.setting(ComicBookmarks.keyFor(target.itemId)),
+          library.setting(ComicBookmarks.keyFor(target.identity)),
         ),
         isEmpty,
       );
@@ -221,7 +221,7 @@ void main() {
         makeBookmark(chapterIndex: 2, page: 3, chapterTitle: '第 3 章'),
       ];
       library.setSetting(
-        ComicBookmarks.keyFor(target.itemId),
+        ComicBookmarks.keyFor(target.identity),
         ComicBookmarks.encode(seed),
       );
       await pumpReader(tester);
@@ -237,7 +237,7 @@ void main() {
       expect(find.text('第 1 章 · 第 3 页'), findsNothing);
       expect(
         ComicBookmarks.decode(
-          library.setting(ComicBookmarks.keyFor(target.itemId)),
+          library.setting(ComicBookmarks.keyFor(target.identity)),
         ).length,
         1,
       );

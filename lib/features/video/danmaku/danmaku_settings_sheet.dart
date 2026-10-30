@@ -1,5 +1,5 @@
 import '../../../shared/widgets/native_glass_controls.dart';
-import '../../../shared/widgets/native_glass_surfaces.dart';
+import 'danmaku_panel.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
@@ -262,8 +262,9 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
     final controller = TextEditingController(
       text: _settings.blockedWords.join('\n'),
     );
-    final result = await showGlassDialog<String>(
+    final result = await showPlayerDialog<String>(
       context: context,
+      onlyInPlayer: true,
       builder: (context) => AlertDialog(
         title: const Text('关键词屏蔽'),
         content: TextField(
@@ -284,7 +285,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
         ],
       ),
     );
-    controller.dispose();
+    Future<void>.delayed(const Duration(milliseconds: 400), controller.dispose);
     if (result != null && mounted) {
       _update(_settings.copyWith(blockedWords: result.split('\n')));
     }

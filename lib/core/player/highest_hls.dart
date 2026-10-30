@@ -1,3 +1,5 @@
+import 'playback_presentation.dart';
+
 import 'dart:io';
 import 'dart:math';
 
@@ -9,9 +11,14 @@ import '../net/network_settings.dart';
 class HighestHls {
   HttpServer? _server;
 
-  static String? singleRendition(String text, Uri base) {
+  static String? singleRendition(
+    String text,
+    Uri base, {
+    PlaybackPresentation? presentation,
+  }) {
     final lines = text.split('\n').map((line) => line.trim()).toList();
-    final variants = <({int index, int height, int bandwidth})>[];
+    final variants =
+        <({int index, int height, int bandwidth, bool hdr, bool dolby})>[];
     for (var i = 0; i + 1 < lines.length; i++) {
       if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
       final height =
@@ -29,16 +36,55 @@ class HighestHls {
           ) ??
           0;
       if (lines[i + 1].isNotEmpty && !lines[i + 1].startsWith('#')) {
-        variants.add((index: i, height: height, bandwidth: bandwidth));
+        final dolby = RegExp(
+          r'(?:dvh1|dvhe)',
+          caseSensitive: false,
+        ).hasMatch(lines[i]);
+        final hdr =
+            dolby ||
+            RegExp(
+              r'VIDEO-RANGE=(PQ|HLG)',
+              caseSensitive: false,
+            ).hasMatch(lines[i]);
+        variants.add((
+          index: i,
+          height: height,
+          bandwidth: bandwidth,
+          hdr: hdr,
+          dolby: dolby,
+        ));
       }
     }
     if (variants.length < 2) return null;
+    final indices = variants.map((v) => v.index).toSet();
+    final p = presentation;
+    if (p != null) {
+      // Prefer compatible alternatives, but retain single-format streams for tone mapping.
+      if (!p.wantsHdr && variants.any((v) => !v.hdr)) {
+        variants.removeWhere((v) => v.hdr);
+      }
+      if (!p.dolbyVision && variants.any((v) => !v.dolby)) {
+        variants.removeWhere((v) => v.dolby);
+      }
+    }
     variants.sort((a, b) {
+      if (p != null &&
+          p.wantsHdr &&
+          p.hdrPolicy == HdrPolicy.prefer &&
+          a.hdr != b.hdr) {
+        return a.hdr ? -1 : 1;
+      }
+      if (p != null &&
+          p.wantsHdr &&
+          p.dolbyVision &&
+          a.height == b.height &&
+          a.dolby != b.dolby) {
+        return a.dolby ? -1 : 1;
+      }
       final resolution = b.height.compareTo(a.height);
       return resolution != 0 ? resolution : b.bandwidth.compareTo(a.bandwidth);
     });
     final selected = variants.first.index;
-    final indices = variants.map((v) => v.index).toSet();
     final result = <String>[];
     for (var i = 0; i < lines.length; i++) {
       if (indices.contains(i) && i != selected) {
@@ -60,7 +106,11 @@ class HighestHls {
     return '${result.join('\n')}\n';
   }
 
-  Future<Uri> resolve(Uri uri, Map<String, String>? headers) async {
+  Future<Uri> resolve(
+    Uri uri,
+    Map<String, String>? headers, {
+    PlaybackPresentation? presentation,
+  }) async {
     await close();
     if (!['http', 'https'].contains(uri.scheme) ||
         !uri.path.toLowerCase().endsWith('.m3u8')) {
@@ -108,7 +158,11 @@ class HighestHls {
           !response.text.trimLeft().startsWith('#EXTM3U')) {
         return uri;
       }
-      final master = singleRendition(response.text, base);
+      final master = singleRendition(
+        response.text,
+        base,
+        presentation: presentation,
+      );
       if (master == null) return uri;
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _server = server;

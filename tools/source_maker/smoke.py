@@ -22,10 +22,12 @@ def smoke(report):
         app.show_rows(rows)
         app.update()
         layouts = []
-        for geometry in ('1160x820', '960x720'):
+        for geometry in ('980x760', '820x660'):
             app.geometry(geometry)
             app.update()
-            for button in (app.generate_btn, app.verify_btn, app.export_btn):
+            assert not app.advanced_pane.winfo_ismapped()
+            assert not app.log.winfo_ismapped()
+            for button in (app.analyze_btn, app.export_btn, app.next_btn, app.current_page_btn):
                 x, y = button.winfo_rootx() - app.winfo_rootx(), button.winfo_rooty() - app.winfo_rooty()
                 assert button.winfo_ismapped(), button['text']
                 assert 0 <= x and x + button.winfo_width() <= app.winfo_width(), (geometry, button['text'], x)
@@ -43,6 +45,15 @@ def smoke(report):
         value = execute(script, 'LumeSource.list({page:1})', Fixture())
         assert value['items'][0]['title'] == '验证作品'
         assert value['items'][0]['id'] == 'https://fixture.example/book/1'
+        literal = '<video></video><script>var source="https://media.example/lesson.m3u8";hls.loadSource(source);</script>'
+        assert execute(script, 'playerLiteralMedia(' + json.dumps(literal) + ',C.url)') == 'https://media.example/lesson.m3u8'
+        cms = dict(config, mode='mediacms', api='https://fixture.example/api', target='video', media='video')
+        assert execute(generate(cms), 'LumeSource.filters()')['groups'][0]['id'] == 'sort_by'
+        class PublicAPI:
+            def get(self, url):
+                return (url, "<script>MediaCMS.site={api:'/api'};MediaCMS.api={media:'/media'};</script>") if url.endswith('/') else (url, '{"results":[{"url":"/view?m=one","title":"Lesson","thumbnail_url":"/cover.jpg"}]}')
+        detected, api_rows, _ = discover('https://fixture.example/', 'video', PublicAPI())
+        assert detected['mode'] == 'mediacms' and api_rows[0]['cover'] == 'https://fixture.example/cover.jpg'
         formats = {}
         for label, target in TARGETS.items():
             candidate = target_config(config, target)
@@ -70,6 +81,11 @@ def smoke(report):
             finally:
                 profiles.close()
         from app import ENGINES
+        app.browser_actions = {'click': '#previous-site'}
+        app.new_source()
+        assert app.config_data is None and app.artifact is None and not app.rows
+        assert not app.browser_actions and app.url.get() == ''
+        assert 'disabled' in app.export_btn.state()
         Path(report).write_text(json.dumps({'ok': True, 'gui': app.title(), 'items': value['items'], 'formats': formats, 'layouts': layouts, 'conversion_and_stale_export': True, 'adaptive_relocation': True, 'engine_options':len(ENGINES), 'source_bytes': len(script.encode())}, ensure_ascii=False, indent=2), encoding='utf-8')
         return True
     except Exception as e:
@@ -78,4 +94,4 @@ def smoke(report):
         return False
     finally:
         if app:
-            app.destroy()
+            app.close_app()

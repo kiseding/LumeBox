@@ -23,8 +23,9 @@ void main() {
       );
       String? savedKey;
       messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
-        if (call.method == 'setKey')
+        if (call.method == 'setKey') {
           savedKey = (call.arguments as Map)['key'] as String;
+        }
         return null;
       });
       addTearDown(

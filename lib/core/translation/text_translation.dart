@@ -1,6 +1,9 @@
 import '../reading/comic_image_tools_settings.dart';
 import '../reading/translation_http_client.dart';
+import '../util/lume_log.dart';
 import 'ai_text_translation.dart';
+import 'translation_result.dart';
+export 'translation_result.dart' show unresolvedTranslation;
 
 import 'dart:async';
 import 'dart:convert';
@@ -12,6 +15,37 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 typedef TextTranslator = Future<List<String>> Function(List<String> texts);
+
+Map<String, String> _readTranslationCache(String json) {
+  final data = jsonDecode(json);
+  if (data is! Map) return {};
+  return {
+    for (final entry in data.entries.take(TextTranslationService.maxEntries))
+      if (entry.key is String &&
+          RegExp(r'^[a-f0-9]{64}$').hasMatch(entry.key) &&
+          entry.value is String &&
+          (entry.value as String).length <= 100000)
+        entry.key as String: entry.value as String,
+  };
+}
+
+({String json, List<String> omitted}) _encodeTranslationCache(
+  Map<String, String> cache,
+) {
+  final parts = <String>[], omitted = <String>[];
+  var bytes = 2;
+  for (final entry in cache.entries.toList().reversed) {
+    final part = '${jsonEncode(entry.key)}:${jsonEncode(entry.value)}';
+    final size = utf8.encode(part).length + (parts.isEmpty ? 0 : 1);
+    if (bytes + size > 10 * 1024 * 1024) {
+      omitted.add(entry.key);
+    } else {
+      parts.add(part);
+      bytes += size;
+    }
+  }
+  return (json: '{${parts.reversed.join(',')}}', omitted: omitted);
+}
 
 /// Display-only translations. IDs, original metadata and search queries stay intact.
 class TextTranslationService extends ChangeNotifier {
@@ -38,6 +72,8 @@ class TextTranslationService extends ChangeNotifier {
   final File? file;
   final TextTranslator? translator;
   final Map<String, String> _cache = {};
+  final _keys =
+      <(String, String, String, TextTranslationMode, String), String>{};
   Future<void>? _boot;
   Future<void> _writes = Future.value();
   int _revision = 0;
@@ -59,34 +95,57 @@ class TextTranslationService extends ChangeNotifier {
     String target,
     TextTranslationMode mode, [
     String? profile,
-  ]) => sha256
-      .convert(
-        utf8.encode(
-          jsonEncode(
-            mode == TextTranslationMode.system
-                ? [1, source, target, text]
-                : [2, mode.name, profile ?? _profile, source, target, text],
+  ]) {
+    final identity = (
+      text,
+      source,
+      target,
+      mode,
+      mode == TextTranslationMode.system ? '' : profile ?? _profile,
+    );
+    final known = _keys[identity];
+    if (known != null) return known;
+    final key = sha256
+        .convert(
+          utf8.encode(
+            jsonEncode(
+              mode == TextTranslationMode.system
+                  ? [1, source, target, text]
+                  : [2, mode.name, profile ?? _profile, source, target, text],
+            ),
           ),
-        ),
-      )
-      .toString();
+        )
+        .toString();
+    _keys[identity] = key;
+    if (_keys.length > 4096) _keys.remove(_keys.keys.first);
+    return key;
+  }
+
   String? lookup(
     String text, {
     String? source,
     String? target,
     TextTranslationMode? mode,
     String? profile,
-  }) =>
-      _cache[_key(
-        text,
-        source ?? (useGlobalSettings ? settings.source : 'auto'),
-        target ?? (useGlobalSettings ? settings.target : 'zh-Hans'),
-        mode ??
-            (useGlobalSettings
-                ? settings.translationMode
-                : TextTranslationMode.system),
-        profile,
-      )];
+  }) {
+    final language =
+        target ?? (useGlobalSettings ? settings.target : 'zh-Hans');
+    final value =
+        _cache[_key(
+          text,
+          source ?? (useGlobalSettings ? settings.source : 'auto'),
+          target ?? (useGlobalSettings ? settings.target : 'zh-Hans'),
+          mode ??
+              (useGlobalSettings
+                  ? settings.translationMode
+                  : TextTranslationMode.system),
+          profile,
+        )];
+    return value != null && unresolvedTranslation(text, value, language)
+        ? null
+        : value;
+  }
+
   Future<File> _file() async =>
       file ??
       File(
@@ -97,16 +156,12 @@ class TextTranslationService extends ChangeNotifier {
     try {
       final store = await _file();
       if (await store.exists() && await store.length() <= 12 * 1024 * 1024) {
-        final data = jsonDecode(await store.readAsString());
-        if (data is Map) {
-          for (final entry in data.entries.take(maxEntries)) {
-            if (entry.key is String &&
-                RegExp(r'^[a-f0-9]{64}$').hasMatch(entry.key) &&
-                entry.value is String &&
-                (entry.value as String).length <= 100000) {
-              _cache.putIfAbsent(entry.key, () => entry.value as String);
-            }
-          }
+        final data = await compute(
+          _readTranslationCache,
+          await store.readAsString(),
+        );
+        for (final entry in data.entries) {
+          _cache.putIfAbsent(entry.key, () => entry.value);
         }
       }
     } catch (_) {
@@ -179,6 +234,7 @@ class TextTranslationService extends ChangeNotifier {
             try {
               values = await translateWithPolicy(
                 pending,
+                target: selectedTarget,
                 mode: selectedMode,
                 native:
                     using ??
@@ -215,7 +271,18 @@ class TextTranslationService extends ChangeNotifier {
               throw const FormatException('翻译结果不完整，请重试');
             }
             for (var i = 0; i < pending.length; i++) {
-              if (values[i].trim().isEmpty) continue;
+              if (values[i].trim().isEmpty ||
+                  unresolvedTranslation(
+                    pending[i],
+                    values[i],
+                    selectedTarget,
+                  )) {
+                partial ??= PlatformException(
+                  code: 'translation_partial',
+                  message: '部分外文尚未得到中文译文，已保留成功译文；可重试或在全局翻译设置中选择自动识别原文、AI 补译。',
+                );
+                continue;
+              }
               final key = _key(
                 pending[i],
                 selectedSource,
@@ -249,6 +316,10 @@ class TextTranslationService extends ChangeNotifier {
                 .toList(),
           );
         } catch (error, stack) {
+          LumeLog.warn(
+            '[翻译] ${selectedMode.name} $selectedSource → $selectedTarget，'
+            '待处理 ${missing.length} 条，任务未全部完成（${error is PlatformException ? error.code : error.runtimeType}）',
+          );
           result.completeError(error, stack);
         }
       });
@@ -287,6 +358,7 @@ class TextTranslationService extends ChangeNotifier {
         model: model,
         key: key,
         language: ComicImageToolsSettings.languages[target] ?? target,
+        target: target,
       );
     } finally {
       transport.close();
@@ -321,18 +393,17 @@ class TextTranslationService extends ChangeNotifier {
   }
 
   Future<void> _save() {
-    var data = jsonEncode(_cache);
-    while (utf8.encode(data).length > 10 * 1024 * 1024 && _cache.isNotEmpty) {
-      _cache.remove(_cache.keys.first);
-      data = jsonEncode(_cache);
-    }
-    final snapshot = data;
+    final snapshot = Map<String, String>.of(_cache);
     _writes = _writes.catchError((Object _) {}).then((_) async {
       try {
+        final data = await compute(_encodeTranslationCache, snapshot);
+        for (final key in data.omitted) {
+          if (_cache[key] == snapshot[key]) _cache.remove(key);
+        }
         final store = await _file();
         await store.parent.create(recursive: true);
         final temporary = File('${store.path}.tmp');
-        await temporary.writeAsString(snapshot, flush: true);
+        await temporary.writeAsString(data.json, flush: true);
         await temporary.rename(store.path);
       } catch (_) {
         /* The in-memory translation remains usable. */
@@ -346,6 +417,7 @@ class TextTranslationService extends ChangeNotifier {
     await boot();
     _revision++;
     _cache.clear();
+    _keys.clear();
     displayOriginal = false;
     notifyListeners();
     await _save();
@@ -355,6 +427,7 @@ class TextTranslationService extends ChangeNotifier {
 /// Preserve successful native translations; only unresolved entries go online.
 Future<List<String>> translateWithPolicy(
   List<String> texts, {
+  String target = 'zh-Hans',
   required TextTranslationMode mode,
   required TextTranslator native,
   required TextTranslator ai,
@@ -387,8 +460,13 @@ Future<List<String>> translateWithPolicy(
   if (values.length != texts.length) values = List.filled(texts.length, '');
   final missing = [
     for (var i = 0; i < values.length; i++)
-      if (values[i].trim().isEmpty) i,
+      if (values[i].trim().isEmpty ||
+          unresolvedTranslation(texts[i], values[i], target))
+        i,
   ];
+  for (final index in missing) {
+    values[index] = '';
+  }
   if (missing.isEmpty) return values;
   try {
     final translated = await ai([for (final index in missing) texts[index]]);
@@ -400,7 +478,16 @@ Future<List<String>> translateWithPolicy(
       values[missing[i]] = translated[i];
     }
     return values;
-  } catch (_) {
+  } catch (error) {
+    if (error is PlatformException &&
+        error.code == 'translation_partial' &&
+        error.details is List &&
+        (error.details as List).length == missing.length) {
+      final recovered = error.details as List;
+      for (var i = 0; i < missing.length; i++) {
+        if (recovered[i] is String) values[missing[i]] = recovered[i] as String;
+      }
+    }
     if (values.any((v) => v.trim().isNotEmpty)) {
       throw PlatformException(
         code: 'translation_partial',

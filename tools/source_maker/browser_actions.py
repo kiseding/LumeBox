@@ -5,10 +5,10 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
-def program(actions=None, selector=''):
+def program(actions=None, selector='', purpose=''):
     root = Path(getattr(sys, '_MEIPASS', Path(__file__).parent))
     source = (root / 'page_actions.js').read_text(encoding='utf-8')
-    return '(' + source + ')(' + json.dumps(actions or {}) + ',' + json.dumps(selector) + ')'
+    return '(' + source + ')(' + json.dumps(actions or {}) + ',' + json.dumps(selector) + ',' + json.dumps(purpose) + ')'
 
 
 def redact(value):

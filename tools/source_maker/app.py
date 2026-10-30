@@ -7,22 +7,49 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from core import TARGETS, Fetcher, discover, generate, html_items, target_config, source_filename
+from core import TARGETS, BrowserRequired, Fetcher, discover, generate, html_items, target_config, source_filename
 from exports import export_source
 
-ENGINES = {'内置浏览器': 'webview', 'Playwright': 'playwright', 'Selenium': 'selenium',
+ENGINES = {'推荐浏览器（Edge）': 'playwright', '内置浏览器': 'webview', 'Playwright': 'playwright', 'Selenium': 'selenium',
     'Scrapling HTTP': 'scrapling-fetcher', 'Scrapling 异步 HTTP': 'scrapling-async',
     'Scrapling HTTP 会话': 'scrapling-session', 'Scrapling 异步 HTTP 会话': 'scrapling-async-session',
     'Scrapling 浏览器': 'scrapling-browser', 'Scrapling 异步浏览器': 'scrapling-async-browser',
     'Scrapling 浏览器会话': 'scrapling-browser-session', 'Scrapling 异步浏览器会话': 'scrapling-async-browser-session'}
 
 
+class TaskFetcher:
+    def __init__(self, fetcher, cancel):
+        self.fetcher, self.cancel = fetcher, cancel
+
+    def __getattr__(self, name):
+        return getattr(self.fetcher, name)
+
+    def request(self, options):
+        if self.cancel and self.cancel.is_set():
+            raise InterruptedError('已取消制作')
+        value = self.fetcher.request(options)
+        if self.cancel and self.cancel.is_set():
+            raise InterruptedError('已取消制作')
+        return value
+
+    def get(self, *args, **kwargs):
+        if self.cancel and self.cancel.is_set():
+            raise InterruptedError('已取消制作')
+        from adaptive_rules import AdaptiveFetcher
+        if isinstance(self.fetcher, (Fetcher, AdaptiveFetcher)):
+            kwargs['cancel_event'] = self.cancel
+        result = self.fetcher.get(*args, **kwargs)
+        if self.cancel and self.cancel.is_set():
+            raise InterruptedError('已取消制作')
+        return result
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('LumeBox 制源工坊 0.5 · Windows')
-        self.geometry('1160x820')
-        self.minsize(960, 720)
+        self.title('LumeBox 制源工坊 0.7.9')
+        self.geometry('980x760')
+        self.minsize(820, 660)
         self.configure(bg='#f4f6fa')
         self.events = queue.Queue()
         self.config_data = None
@@ -35,6 +62,16 @@ class App(tk.Tk):
         self.browser_actions = {}
         self.updates = queue.Queue()
         self.batch_stop = None
+        self.input_revision = 0
+        self.loading_config = False
+        self.advanced_visible = False
+        self.details_visible = False
+        self.failed_config = None
+        self.last_category = '视频'
+        self.last_saved = None
+        self.operation_id = 0
+        self.operation_cancel = None
+        self.worker_context = threading.local()
         from adaptive_rules import AdaptiveProfiles
         self.adaptive_store = AdaptiveProfiles()
         self.adaptive_enabled = True
@@ -43,117 +80,282 @@ class App(tk.Tk):
         style = ttk.Style(self)
         style.theme_use('clam')
         style.configure('.', font=('Microsoft YaHei UI', 10), background='#f4f6fa')
-        style.configure('TButton', padding=(14, 8))
+        style.configure('TButton', padding=(12, 8))
         style.configure('Accent.TButton', foreground='white', background='#4d5eea')
-        style.configure('Treeview', rowheight=32, background='white', fieldbackground='white')
-        style.configure('TEntry', padding=6)
-        shell = ttk.Frame(self, padding=24)
+        style.configure('Treeview', rowheight=36, background='white', fieldbackground='white')
+        style.configure('TEntry', padding=7)
+        shell = ttk.Frame(self, padding=22)
         shell.pack(fill='both', expand=True)
-        # Reserve the action bar first. Expanding panels must never hide conversion.
+        header = ttk.Frame(shell)
+        header.pack(fill='x')
+        ttk.Label(header, text='LumeBox 制源工坊', font=('Microsoft YaHei UI', 22, 'bold')).pack(side='left')
+        self.advanced_btn = ttk.Button(header, text='高级设置', command=self.toggle_advanced)
+        self.advanced_btn.pack(side='right')
+        ttk.Label(shell, text='填入网址，自动检查，保存后导入 LumeBox。', foreground='#68738a').pack(anchor='w', pady=(4, 18))
+
         actions = ttk.Frame(shell)
-        actions.pack(side='bottom', fill='x', pady=(12, 0))
-        self.conversion_status = tk.StringVar(value='流程：识别链接 → 生成源 → 验证源 → 导出文件')
-        ttk.Label(actions, textvariable=self.conversion_status, foreground='#4d5eea').pack(anchor='w', pady=(0, 8))
-        action_row = ttk.Frame(actions)
-        action_row.pack(fill='x')
-        ttk.Label(shell, text='LumeBox 制源工坊', font=('Microsoft YaHei UI', 23, 'bold')).pack(anchor='w')
-        ttk.Label(shell, text='1 识别网页　→　2 生成源代码　→　3 验证与导出', foreground='#68738a').pack(anchor='w', pady=(4, 18))
-        bar = ttk.Frame(shell)
+        actions.pack(side='bottom', fill='x', pady=(14, 0))
+        self.conversion_status = tk.StringVar(value='默认生成 JS；只有你确认后才尝试 PY。')
+        ttk.Label(actions, textvariable=self.conversion_status, foreground='#68738a', wraplength=730).pack(anchor='w', pady=(0, 10))
+        self.export_btn = ttk.Button(actions, text='保存源文件', style='Accent.TButton', command=self.export, state='disabled')
+        self.export_btn.pack(side='right')
+        self.next_btn = ttk.Button(actions, text='制作下一个源', command=self.new_source)
+        self.next_btn.pack(side='right', padx=(0, 8))
+        ttk.Label(actions, text='保存后，在 LumeBox 对应的源管理中导入文件。', foreground='#68738a').pack(side='left')
+
+        form = ttk.LabelFrame(shell, text='1  填写网站', padding=14)
+        form.pack(fill='x')
+        bar = ttk.Frame(form)
         bar.pack(fill='x')
         self.url = tk.StringVar()
-        entry = ttk.Entry(bar, textvariable=self.url, font=('Microsoft YaHei UI', 12))
-        entry.pack(side='left', fill='x', expand=True)
-        entry.bind('<Return>', lambda _: self.analyze())
+        self.url_entry = ttk.Entry(bar, textvariable=self.url, font=('Microsoft YaHei UI', 11))
+        self.url_entry.pack(side='left', fill='x', expand=True)
+        self.url_entry.bind('<Return>', lambda _: self.make_source())
         self.category = tk.StringVar(value='视频')
-        target_box = ttk.Combobox(bar, textvariable=self.category, values=list(TARGETS), state='readonly', width=10)
-        target_box.pack(side='left', padx=10)
-        target_box.bind('<<ComboboxSelected>>', lambda _: self.target_changed())
-        self.analyze_btn = ttk.Button(bar, text='开始识别', style='Accent.TButton', command=self.analyze)
+        self.target_box = ttk.Combobox(bar, textvariable=self.category, values=['视频', '漫画', '有声小说', '图片'], state='readonly', width=8)
+        self.target_box.pack(side='left', padx=8)
+        self.analyze_btn = ttk.Button(bar, text='开始制作', style='Accent.TButton', command=self.make_source)
         self.analyze_btn.pack(side='left')
-        self.browser_btn = ttk.Button(bar, text='连接所选引擎', command=self.verify_in_browser)
-        self.browser_btn.pack(side='left', padx=(8, 0))
-        browser_row = ttk.Frame(shell)
-        browser_row.pack(fill='x', pady=(6, 0))
-        self.browser_engine = tk.StringVar(value='内置浏览器')
-        ttk.Combobox(browser_row, textvariable=self.browser_engine, values=list(ENGINES), state='readonly', width=26).pack(side='left')
-        ttk.Button(browser_row, text='已验证，继续', command=self.accept_browser).pack(side='left', padx=8)
-        ttk.Button(browser_row, text='结束浏览器会话', command=self.end_browser).pack(side='left')
-        batch_btn = ttk.Button(browser_row, text='批量制源 · Scrapy', command=self.batch_dialog)
-        batch_btn.pack(side='right')
-        ttk.Button(browser_row, text='暂停批量', command=lambda: self.batch_stop.set() if self.batch_stop else None).pack(side='right', padx=6)
-        adaptive_row = ttk.Frame(shell)
-        adaptive_row.pack(fill='x', pady=(6, 0))
-        adaptive_value = tk.BooleanVar(value=True)
-        ttk.Checkbutton(adaptive_row, text='Scrapling 改版自动适应 · 验证通过后学习', variable=adaptive_value,
-            command=lambda: setattr(self, 'adaptive_enabled', adaptive_value.get())).pack(side='left')
-        ttk.Button(adaptive_row, text='忘记本站样本', command=lambda: self.attempt(self.forget_profile)).pack(side='left', padx=8)
-        ttk.Button(adaptive_row, text='浏览器操作 / 接口记录', command=self.browser_options_dialog).pack(side='right')
-        self.status = tk.StringVar(value='准备就绪 · 支持静态 HTML / 苹果 CMS · 生成后不需要本工具常驻')
-        ttk.Label(shell, textvariable=self.status, wraplength=1070, foreground='#4d5eea').pack(anchor='w', pady=14)
+        self.cancel_btn = ttk.Button(bar, text='取消', command=self.cancel_operation, state='disabled', width=5)
+        self.cancel_btn.pack(side='left', padx=(6, 0))
+        ttk.Label(form, text='例如 https://example.com/videos，优先填写有作品封面的列表页。', foreground='#68738a').pack(anchor='w', pady=(8, 0))
+        self.browser_engine = tk.StringVar(value='推荐浏览器（Edge）')
+        browser_tools = ttk.Frame(form)
+        browser_tools.pack(fill='x', pady=(8, 0))
+        self.browser_btn = ttk.Button(browser_tools, text='网页需要登录或加载不全？用浏览器重试', command=lambda: self.verify_in_browser(auto_verify=True))
+        self.browser_btn.pack(side='left')
+        self.current_page_btn = ttk.Button(browser_tools, text='读取浏览器当前页', command=self.read_browser_page)
+        self.current_page_btn.pack(side='left', padx=(8, 0))
+        self.status = tk.StringVar(value='准备就绪，填入网址后点击“开始制作”。')
+        ttk.Label(shell, textvariable=self.status, wraplength=900, foreground='#4d5eea').pack(anchor='w', pady=(14, 8))
         self.progress = ttk.Progressbar(shell, mode='indeterminate')
-        self.progress.pack(fill='x', pady=(0, 10))
-        panes = ttk.Panedwindow(shell, orient='horizontal')
-        panes.pack(fill='both', expand=True)
-        left, right_pane = ttk.Frame(panes), ttk.Frame(panes, padding=(18, 0, 0, 0))
-        panes.add(left, weight=3)
-        panes.add(right_pane, weight=2)
-        # Source settings scroll independently on small windows and high DPI.
-        settings_canvas = tk.Canvas(right_pane, highlightthickness=0, bg='#f4f6fa', width=350)
-        settings_scroll = ttk.Scrollbar(right_pane, orient='vertical', command=settings_canvas.yview)
-        settings_canvas.configure(yscrollcommand=settings_scroll.set)
-        settings_scroll.pack(side='right', fill='y')
-        settings_canvas.pack(side='left', fill='both', expand=True)
-        right = ttk.Frame(settings_canvas)
-        settings_window = settings_canvas.create_window((0, 0), window=right, anchor='nw')
-        right.bind('<Configure>', lambda _: settings_canvas.configure(scrollregion=settings_canvas.bbox('all')))
-        settings_canvas.bind('<Configure>', lambda e: settings_canvas.itemconfigure(settings_window, width=e.width))
-        self.settings_canvas = settings_canvas
-        ttk.Label(left, text='抓取预览', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=(0, 10))
-        treeframe = ttk.Frame(left)
-        treeframe.pack(fill='both', expand=True)
-        self.tree = ttk.Treeview(treeframe, columns=('title', 'url'), show='headings', selectmode='browse')
-        self.tree.heading('title', text='标题')
+        self.progress.pack(fill='x', pady=(0, 12))
+
+        self.panes = ttk.Panedwindow(shell, orient='horizontal')
+        self.panes.pack(fill='both', expand=True)
+        self.left = ttk.Frame(self.panes)
+        self.panes.add(self.left, weight=3)
+        self.preview_heading = ttk.Frame(self.left)
+        self.preview_heading.pack(fill='x', pady=(0, 8))
+        ttk.Label(self.preview_heading, text='2  确认识别结果', font=('Microsoft YaHei UI', 13, 'bold')).pack(side='left')
+        self.details_btn = ttk.Button(self.preview_heading, text='查看详情', command=self.toggle_details)
+        self.details_btn.pack(side='right')
+        name_row = ttk.Frame(self.left)
+        name_row.pack(fill='x', pady=(0, 10))
+        ttk.Label(name_row, text='源名称').pack(side='left', padx=(0, 10))
+        self.fields = {'name': tk.StringVar()}
+        self.name_entry = ttk.Entry(name_row, textvariable=self.fields['name'])
+        self.name_entry.pack(side='left', fill='x', expand=True)
+        ttk.Label(name_row, text='JS 分类').pack(side='left', padx=(12, 6))
+        self.content_category = tk.StringVar(value='自动识别')
+        self.content_category_box = ttk.Combobox(name_row, textvariable=self.content_category,
+            values=['自动识别', '影视', '成人', '待分类'], state='readonly', width=9)
+        self.content_category_box.pack(side='left')
+        self.browser_help = ttk.LabelFrame(self.left, text='在浏览器里完成后，回来继续', padding=10)
+        ttk.Label(self.browser_help, text='看到作品列表后点击“已完成，继续制作”。', wraplength=440).pack(anchor='w')
+        browser_actions = ttk.Frame(self.browser_help)
+        browser_actions.pack(fill='x', pady=(8, 0))
+        self.continue_btn = ttk.Button(browser_actions, text='已完成，继续制作', command=self.accept_browser)
+        self.continue_btn.pack(side='left')
+        ttk.Button(browser_actions, text='取消浏览器操作', command=self.cancel_browser).pack(side='left', padx=8)
+        self.python_btn = ttk.Button(self.left, text='尝试 PY 方案（需你确认）', command=self.confirm_python)
+        self.treeframe = ttk.Frame(self.left)
+        self.treeframe.pack(fill='both', expand=True)
+        self.tree = ttk.Treeview(self.treeframe, columns=('title', 'url'), displaycolumns=('title',), show='headings', selectmode='browse')
+        self.tree.heading('title', text='识别到的作品')
         self.tree.heading('url', text='条目地址 / ID')
-        self.tree.column('title', width=210)
-        self.tree.column('url', width=300)
-        scroll = ttk.Scrollbar(treeframe, command=self.tree.yview)
+        self.tree.column('title', width=260)
+        self.tree.column('url', width=240)
+        scroll = ttk.Scrollbar(self.treeframe, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.pack(side='left', fill='both', expand=True)
         scroll.pack(side='right', fill='y')
-        ttk.Label(left, text='记录与测试结果', foreground='#68738a').pack(anchor='w', pady=(12, 5))
-        self.log = tk.Text(left, height=7, wrap='word', font=('Microsoft YaHei UI', 9), relief='flat', padx=10, pady=8, state='disabled')
+        self.details_frame = ttk.Frame(self.left)
+        self.log = tk.Text(self.details_frame, height=6, wrap='word', font=('Microsoft YaHei UI', 9), relief='flat', padx=10, pady=8, state='disabled')
         self.log.pack(fill='x')
-        ttk.Label(right, text='源设置', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=(0, 10))
-        self.fields = {}
-        labels = [('name', '源名称'), ('id', '源 ID'), ('list', '列表网址 · 可用 {page}'), ('search', '搜索网址 · 可用 {keyword} 和 {page}'), ('links', '列表链接规则 · 正则表达式'), ('categoryLinks', '分类链接规则 · 正则表达式'), ('chapters', '章节 / 选集链接规则 · 正则表达式'), ('contentId', '漫画 / 图片内容元素 ID · 可选')]
+
+        self.advanced_pane = ttk.Frame(self.panes, padding=(16, 0, 0, 0))
+        canvas = tk.Canvas(self.advanced_pane, highlightthickness=0, bg='#f4f6fa', width=350)
+        settings_scroll = ttk.Scrollbar(self.advanced_pane, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=settings_scroll.set)
+        settings_scroll.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        right = ttk.Frame(canvas)
+        settings_window = canvas.create_window((0, 0), window=right, anchor='nw')
+        right.bind('<Configure>', lambda _: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>', lambda e: canvas.itemconfigure(settings_window, width=e.width))
+        canvas.bind('<MouseWheel>', lambda e: canvas.yview_scroll(-int(e.delta / 120), 'units'))
+        self.settings_canvas = canvas
+        ttk.Label(right, text='高级设置 · 按需使用', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=(0, 8))
+        ttk.Label(right, text='输出类型 / 格式').pack(anchor='w')
+        ttk.Combobox(right, textvariable=self.category, values=list(TARGETS), state='readonly').pack(fill='x', pady=(3, 8))
+        ttk.Label(right, text='浏览器与采集引擎').pack(anchor='w')
+        ttk.Combobox(right, textvariable=self.browser_engine, values=list(ENGINES), state='readonly').pack(fill='x', pady=(3, 6))
+        self.buttons = [self.browser_btn, self.current_page_btn]
+        for label, callback in [('连接当前引擎', lambda: self.verify_in_browser(auto_verify=True)), ('结束浏览器会话', self.end_browser), ('浏览器操作 / 接口记录', self.browser_options_dialog)]:
+            button = ttk.Button(right, text=label, command=callback)
+            button.pack(fill='x', pady=3)
+            self.buttons.append(button)
+        adaptive_value = tk.BooleanVar(value=True)
+        ttk.Checkbutton(right, text='记住已验证规则，帮助下次识别', variable=adaptive_value, command=lambda: setattr(self, 'adaptive_enabled', adaptive_value.get())).pack(anchor='w', pady=8)
+        ttk.Button(right, text='忘记本站样本', command=lambda: self.attempt(self.forget_profile)).pack(fill='x')
+        labels = [('id', '源 ID'), ('list', '列表网址 · {page} 表示页数'), ('search', '搜索网址 · {keyword} 表示关键词'), ('links', '列表链接规则 · 正则'), ('categoryLinks', '分类链接规则 · 正则'), ('chapters', '章节 / 选集链接规则 · 正则'), ('contentId', '漫画 / 图片内容元素 ID · 可选')]
         for key, label in labels:
-            ttk.Label(right, text=label, foreground='#68738a').pack(anchor='w', pady=(5, 2))
+            ttk.Label(right, text=label, foreground='#68738a').pack(anchor='w', pady=(8, 2))
             value = tk.StringVar()
             ttk.Entry(right, textvariable=value).pack(fill='x')
             self.fields[key] = value
-        ttk.Button(right, text='编辑 Kazumi XPath', command=self.edit_kazumi).pack(anchor='w', pady=(8, 0))
-        ttk.Button(right, text='高级解析规则 · CSS', command=self.edit_rules).pack(anchor='w', pady=(6, 0))
-        ttk.Button(right, text='查看各引擎功能范围', command=self.show_capabilities).pack(anchor='w', pady=(6, 0))
-        self.target_note = tk.StringVar(value='视频 → LumeSource JS · 实时抓取与直链播放')
-        ttk.Label(right, textvariable=self.target_note, wraplength=360, foreground='#68738a').pack(anchor='w', pady=8)
-        self.buttons = []
-        for label, callback in [('重新预览', self.preview), ('保存工程', self.save_project), ('打开工程', self.open_project)]:
-            b = ttk.Button(action_row, text=label, command=callback)
-            b.pack(side='left', padx=(0, 8))
-            self.buttons.append(b)
-        self.export_btn = ttk.Button(action_row, text='导出源', style='Accent.TButton', command=self.export, state='disabled')
-        self.export_btn.pack(side='right')
-        self.verify_btn = ttk.Button(action_row, text='验证源', command=self.test_first)
-        self.verify_btn.pack(side='right', padx=8)
-        self.generate_btn = ttk.Button(action_row, text='生成源', style='Accent.TButton', command=self.prepare)
-        self.generate_btn.pack(side='right')
-        self.buttons.extend([self.verify_btn, self.generate_btn])
-        self.buttons.append(self.browser_btn)
-        self.buttons.append(batch_btn)
+        self.target_note = tk.StringVar(value='默认输出 JS，不会自动切换 PY。')
+        ttk.Label(right, textvariable=self.target_note, wraplength=320, foreground='#68738a').pack(anchor='w', pady=10)
+        for label, callback in [('编辑 Kazumi XPath', self.edit_kazumi), ('高级解析规则 · CSS', self.edit_rules), ('查看各引擎功能范围', self.show_capabilities), ('仅重新识别', self.analyze), ('重新预览', self.preview), ('保存工程', self.save_project), ('打开工程', self.open_project), ('批量制作', self.batch_dialog)]:
+            button = ttk.Button(right, text=label, command=callback)
+            button.pack(fill='x', pady=3)
+            self.buttons.append(button)
+        ttk.Button(right, text='暂停批量任务', command=lambda: self.batch_stop.set() if self.batch_stop else None).pack(fill='x', pady=3)
+        self.generate_btn = ttk.Button(right, text='查看源代码草稿', command=self.prepare)
+        self.generate_btn.pack(fill='x', pady=3)
+        self.verify_btn = ttk.Button(right, text='重新检查当前规则', command=self.test_first)
+        self.verify_btn.pack(fill='x', pady=3)
+        self.buttons.extend([self.generate_btn, self.verify_btn])
         for value in self.fields.values():
             value.trace_add('write', lambda *_: self.invalidate())
         self.url.trace_add('write', lambda *_: self.invalidate())
-        self.after(100, self.drain)
+        self.category.trace_add('write', lambda *_: self.target_changed())
+        self.content_category.trace_add('write', lambda *_: self.invalidate())
+        self.browser_engine.trace_add('write', lambda *_: self.invalidate())
+        self.drain_timer = self.after(100, self.drain)
+        self.url_entry.focus_set()
+
+    def toggle_advanced(self):
+        self.advanced_visible = not self.advanced_visible
+        if self.advanced_visible:
+            self.panes.add(self.advanced_pane, weight=2)
+            self.advanced_btn.configure(text='收起高级设置')
+            self.tree.configure(displaycolumns=('title', 'url'))
+        else:
+            self.panes.forget(self.advanced_pane)
+            self.advanced_btn.configure(text='高级设置')
+            self.tree.configure(displaycolumns=('title',))
+
+    def toggle_details(self):
+        self.details_visible = not self.details_visible
+        if self.details_visible:
+            self.details_frame.pack(side='bottom', fill='x', before=self.treeframe, pady=(8, 0))
+        else:
+            self.details_frame.pack_forget()
+        self.details_btn.configure(text='收起详情' if self.details_visible else '查看详情')
+
+    def make_source(self):
+        if self.busy:
+            return
+        def start():
+            from core import validate_url
+            url = validate_url(self.url.get())
+            if self.config_data and url != self.config_data['url']:
+                self.clear_source(keep_url=True)
+            self.detach_other_browser(url)
+            if not self.browser and self.browser_engine.get() not in ('内置浏览器', '推荐浏览器（Edge）'):
+                self.analyze(auto_verify=True)
+            elif self.config_data and url == self.config_data['url'] and self.rows:
+                self.test_first()
+            else:
+                self.analyze(auto_verify=True)
+        self.attempt(start)
+
+    def release_browser(self):
+        browser, self.browser = self.browser, None
+        if browser:
+            browser.cancel()
+            threading.Thread(target=browser.close, daemon=True).start()
+        self.browser_help.pack_forget()
+
+    def detach_other_browser(self, url):
+        from browser_session import same_site
+        if self.browser and (not same_site(self.browser.url, url) or self.browser.closed.is_set()):
+            self.release_browser()
+
+    def clear_source(self, keep_url=False):
+        # Invalidate the worker before clearing fields: its late callback is obsolete.
+        self.cancel_operation()
+        self.config_data = None
+        self.rows = []
+        self.artifact = self.validated_signature = self.failed_config = None
+        self.browser_actions = {}
+        self.loading_config = True
+        try:
+            for value in self.fields.values():
+                value.set('')
+            if not keep_url:
+                self.url.set('')
+            self.content_category.set('自动识别')
+            if self.category.get() in ('PY', '漫画 PY'):
+                self.category.set('漫画' if self.category.get() == '漫画 PY' else '视频')
+        finally:
+            self.loading_config = False
+        self.target_changed()
+        self.tree.delete(*self.tree.get_children())
+        self.log.configure(state='normal')
+        self.log.delete('1.0', 'end')
+        self.log.configure(state='disabled')
+        if self.details_visible:
+            self.toggle_details()
+        self.conversion_status.set('默认生成 JS；只有你确认后才尝试 PY。')
+        self.status.set('准备制作下一个源，填入网址后点击“开始制作”。')
+        self.url_entry.focus_set()
+
+    def new_source(self):
+        self.clear_source()
+
+    def read_browser_page(self):
+        def start():
+            if self.busy:
+                return
+            browser = self.browser
+            if not browser or not browser.ready:
+                raise ValueError('请先用浏览器重试并完成连接，再在该窗口打开作品列表页。')
+            category = TARGETS[self.category.get()]
+            def run():
+                url, html = browser.current_page()
+                from browser_session import CurrentPageFetcher
+                config, rows, message = discover(url, category, self.active_fetcher(CurrentPageFetcher(browser, url, html)))
+                config['useBrowser'] = True
+                return config, rows, message
+            def done(result):
+                config, rows, message = result
+                self.load_config(config)
+                self.show_rows(rows)
+                self.note('已读取浏览器当前页并更新列表入口；仍需检查详情、选集和内容。')
+                self.note(message)
+                self.test_first()
+            self.work(run, done)
+        self.attempt(start)
+
+    def cancel_browser(self):
+        self.cancel_operation()
+
+    def cancel_operation(self):
+        self.operation_id += 1
+        if self.operation_cancel:
+            self.operation_cancel.set()
+        self.input_revision += 1
+        if self.batch_stop:
+            self.batch_stop.set()
+        self.release_browser()
+        self.busy = False
+        self.progress.stop()
+        for button in [self.analyze_btn, self.python_btn] + self.buttons:
+            button.configure(state='normal')
+        self.cancel_btn.configure(state='disabled')
+        self.invalidate()
+        self.browser_help.pack_forget()
+        self.status.set('已取消。可以直接修改网址，重新开始制作。')
+
+    def confirm_python(self):
+        if self.busy or not self.failed_config:
+            return
+        if not messagebox.askyesno('是否尝试 PY？', '当前 JS 检查未通过。是否由你确认尝试 PY？\n\n只有 PY 也检查通过后才允许保存；不同意会继续保留 JS。', parent=self):
+            return
+        self.test_first(allow_python=True)
 
     def note(self, message):
         self.log.configure(state='normal')
@@ -162,17 +364,24 @@ class App(tk.Tk):
         self.log.configure(state='disabled')
 
     def close_app(self):
+        self.after_cancel(self.drain_timer)
+        if self.operation_cancel:
+            self.operation_cancel.set()
+        if self.batch_stop:
+            self.batch_stop.set()
         if self.browser:
-            self.browser.close()
+            browser = self.browser
+            browser.cancel()
+            threading.Thread(target=browser.close, daemon=True).start()
         self.adaptive_store.close()
         self.destroy()
 
-    def active_fetcher(self):
-        base = self.browser if self.browser else self.fetcher
+    def active_fetcher(self, base=None):
+        base = base or (self.browser if self.browser else self.fetcher)
         if self.adaptive_enabled:
             from adaptive_rules import AdaptiveFetcher
-            return AdaptiveFetcher(base, self.adaptive_store)
-        return base
+            base = AdaptiveFetcher(base, self.adaptive_store)
+        return TaskFetcher(base, getattr(self.worker_context, 'cancel', None))
 
     def forget_profile(self):
         from core import validate_url
@@ -220,6 +429,7 @@ class App(tk.Tk):
         text.pack(fill='both', expand=True)
         text.insert('1.0', '''Playwright / Selenium
 真实浏览器、手动登录与验证、会话 Cookie、点击加载更多、滚动、等待元素、同站 JSON 接口响应记录。
+主界面可读取手动导航后的当前页，更新制源入口并重新验证；内置浏览器也支持。Scrapling 不提供手动导航标签页。
 
 Scrapling 0.5
 Fetcher、AsyncFetcher、HTTP 同步/异步会话；StealthyFetcher 同步/异步浏览器抓取与 StealthySession / AsyncStealthySession。浏览器支持同样的页面操作与接口记录，验证仍由你手动完成。
@@ -231,7 +441,7 @@ Scrapy
 最多 10 个站点的公开入口采集；可调并发、间隔、重试，自动限速、robots 规则、进度、暂停与任务文件续作；已导出文件校验完整后复用。当前请求完成后暂停后续处理。
 
 转换
-视频优先 JS、静态失败尝试 PY；漫画目前导出 JS。分类、筛选、分页、封面、详情、选集和内容都需要对应规则。抓取成功不等于源已可用，检查媒体地址不等于实际起播。
+默认保持 JS；检查失败不会切换 PY，必须由你确认后才尝试。漫画默认 JS，确认后可输出漫画 PY。分类、筛选、分页、封面、详情、选集和内容都需要对应规则。抓取成功不等于源已可用，检查媒体地址不等于实际起播。
 
 范围
 这是制源工作流的集成，并非所有框架 API 的图形化编辑器。分布式部署、远程爬虫集群、MCP 服务、任意专用加密播放器等没有接入。''')
@@ -244,11 +454,12 @@ Scrapy
 
     def end_browser(self):
         if self.busy:
-            self.note('请等待当前操作结束；验证时可以直接关闭浏览器窗口取消。')
+            self.cancel_operation()
             return
         if self.browser:
-            self.browser.close()
-            self.browser = None
+            browser, self.browser = self.browser, None
+            browser.cancel()
+            threading.Thread(target=browser.close, daemon=True).start()
             self.invalidate()
             self.note('浏览器会话已结束。动态源再次测试前需重新连接所选引擎并完成验证。')
 
@@ -290,27 +501,34 @@ Scrapy
         ttk.Button(dialog, text='选择目录并开始', command=lambda: self.attempt(run)).pack(pady=16)
         ttk.Button(dialog, text='暂停当前批量任务', command=lambda: self.batch_stop.set() if self.batch_stop else None).pack()
 
-    def verify_in_browser(self):
+    def verify_in_browser(self, auto_verify=False):
         from core import validate_url
         def start():
             url = validate_url(self.url.get())
+            self.detach_other_browser(url)
             from browser_session import BrowserSession
             target = TARGETS[self.category.get()]
             engine = ENGINES[self.browser_engine.get()]
+            previous = self.browser
             def run():
-                if self.browser:
-                    self.browser.close()
-                    self.browser = None
-                browser = BrowserSession(url, engine=engine, on_open=lambda session: setattr(self, 'browser', session))
-                self.browser = browser
+                cancel = self.worker_context.cancel
+                if previous:
+                    previous.close()
+                def opened(session):
+                    if cancel.is_set():
+                        session.cancel()
+                    else:
+                        self.browser = session
+                browser = BrowserSession(url, engine=engine, on_open=opened, cancel_event=cancel)
                 browser.actions = dict(self.browser_actions)
                 try:
-                    c, rows, message = discover(browser.url, target, self.active_fetcher())
+                    c, rows, message = discover(browser.url, target, self.active_fetcher(base=browser))
                     c['useBrowser'] = browser.browser_mode
                     return c, rows, message
                 except Exception:
                     browser.close()
-                    self.browser = None
+                    if self.browser is browser:
+                        self.browser = None
                     raise
             def done(result):
                 c, rows, message = result
@@ -318,15 +536,26 @@ Scrapy
                 self.show_rows(rows)
                 self.note('采集引擎已连接。HTTP 模式直接读取页面；浏览器模式支持动态网页。Cookie 不写入源文件，手机 App 上需重新验证。')
                 self.note(message)
+                self.browser_help.pack_forget()
+                if auto_verify:
+                    self.test_first()
             self.work(run, done)
-            self.status.set('请在新浏览器窗口手动验证，再返回本工具点击「已验证，继续」')
+            if self.details_visible:
+                self.toggle_details()
+            self.browser_help.pack(fill='x', before=self.treeframe, pady=(0, 10))
+            self.status.set('请在浏览器里打开作品列表，然后点“已完成，继续制作”。')
         self.attempt(start)
 
     def invalidate(self):
+        if self.loading_config:
+            return
+        self.input_revision += 1
         self.artifact = None
         self.validated_signature = None
+        self.failed_config = None
+        self.python_btn.pack_forget()
         self.export_btn.configure(state='disabled')
-        self.conversion_status.set('流程：识别链接 → 生成源 → 验证源 → 导出文件')
+        self.conversion_status.set('已修改内容，请点“开始制作”重新检查。' if self.config_data else '默认生成 JS；只有你确认后才尝试 PY。')
 
     def fingerprint(self, config):
         return json.dumps([config, self.rows], ensure_ascii=False, sort_keys=True)
@@ -380,15 +609,21 @@ Scrapy
         if self.busy:
             return
         self.busy = True
-        for b in [self.analyze_btn, self.export_btn] + self.buttons:
+        revision = self.input_revision
+        self.operation_id += 1
+        operation = self.operation_id
+        cancel = self.operation_cancel = threading.Event()
+        for b in [self.analyze_btn, self.export_btn, self.python_btn] + self.buttons:
             b.configure(state='disabled')
         self.progress.start(12)
-        self.status.set('正在抓取，请稍候…')
+        self.cancel_btn.configure(state='normal')
+        self.status.set('正在识别并检查内容，请稍候…')
         def worker():
+            self.worker_context.cancel = cancel
             try:
-                self.events.put((done, fn(), None))
+                self.events.put((done, fn(), None, revision, operation))
             except Exception as e:
-                self.events.put((done, None, str(e)))
+                self.events.put((done, None, e, revision, operation))
         threading.Thread(target=worker, daemon=True).start()
 
     def drain(self):
@@ -398,19 +633,36 @@ Scrapy
             except queue.Empty:
                 break
         try:
-            done, value, error = self.events.get_nowait()
+            done, value, error, revision, operation = self.events.get_nowait()
+            if operation != self.operation_id:
+                self.drain_timer = self.after(100, self.drain)
+                return
             self.busy = False
             self.progress.stop()
-            for b in [self.analyze_btn, self.export_btn] + self.buttons:
+            self.cancel_btn.configure(state='disabled')
+            for b in [self.analyze_btn, self.export_btn, self.python_btn] + self.buttons:
                 b.configure(state='normal')
             self.refresh_export()
-            if error:
+            if revision != self.input_revision:
+                self.status.set('输入已改变，请点“开始制作”重新检查。')
+                self.note('输入已改变，已丢弃上一次操作的结果，避免保存旧网站或旧规则。')
+            elif error:
                 self.validated_signature = None
                 self.refresh_export()
                 if self.artifact:
                     self.conversion_status.set('验证未通过，已阻止导出 · 可保存工程继续适配')
-                self.status.set('操作未完成：' + error)
-                self.note(error)
+                self.status.set('检查未通过：' + str(error).splitlines()[0][:180])
+                self.note(str(error))
+                if not self.details_visible:
+                    self.toggle_details()
+                if self.failed_config and self.failed_config.get('target') in ('video', 'comic') and not self.failed_config.get('useBrowser'):
+                    self.python_btn.pack(anchor='w', before=self.treeframe, pady=(0, 10))
+                if isinstance(error, BrowserRequired) and self.browser_engine.get() == '推荐浏览器（Edge）' and not getattr(self.browser, 'browser_mode', False):
+                    if error.target_url:
+                        self.url.set(error.target_url)
+                        self.note('已识别入口跳转，继续读取实际列表网址：' + error.target_url)
+                    self.note('已识别为动态列表，将用推荐浏览器继续；不会切换源格式。')
+                    self.verify_in_browser(auto_verify=True)
             else:
                 try:
                     done(value)
@@ -419,7 +671,7 @@ Scrapy
                     self.note(str(e))
         except queue.Empty:
             pass
-        self.after(100, self.drain)
+        self.drain_timer = self.after(100, self.drain)
 
     def show_rows(self, rows):
         self.invalidate()
@@ -427,7 +679,7 @@ Scrapy
         self.tree.delete(*self.tree.get_children())
         for row in rows:
             self.tree.insert('', 'end', values=(row['title'], row['id']))
-        self.status.set(f'抓取到 {len(rows)} 个候选链接 · 尚未证明是作品 · 下一步点击底部「生成源」')
+        self.status.set(f'识别到 {len(rows)} 个候选作品，正在准备检查。')
 
     def load_config(self, config):
         if config.get('category') == 'novel':
@@ -436,21 +688,36 @@ Scrapy
         self.browser_actions = dict(config.get('browserActions', self.browser_actions))
         if self.browser:
             self.browser.actions = dict(self.browser_actions)
-        self.url.set(config['url'])
-        target = config.get('target', config['category'])
-        self.category.set(next(k for k, v in TARGETS.items() if v == target))
-        for k, v in self.fields.items():
-            v.set(config.get(k, ''))
+        self.loading_config = True
+        try:
+            self.url.set(config['url'])
+            target = config.get('target', config['category'])
+            self.category.set(next(k for k, v in TARGETS.items() if v == target))
+            for k, v in self.fields.items():
+                v.set(config.get(k, ''))
+            self.content_category.set({'movie':'影视', 'adult':'成人', 'unclassified':'待分类'}.get(config.get('contentCategory'), '自动识别'))
+        finally:
+            self.loading_config = False
+        self.last_category = self.category.get()
         self.target_changed()
 
     def target_changed(self):
+        self.content_category_box.configure(state='readonly' if self.category.get() == '视频' else 'disabled')
+        if not self.loading_config and self.category.get() in ('PY', '漫画 PY') and self.last_category != self.category.get():
+            if not messagebox.askyesno('是否切换为 PY？', '默认保持 JS。确定要把这次输出切换为 PY 吗？', parent=self):
+                self.category.set(self.last_category)
+                return
+        if self.loading_config:
+            return
+        self.last_category = self.category.get()
         if hasattr(self, 'export_btn'):
             self.invalidate()
         notes = {'audio': '有声小说 → JS · category=video / kind=audio',
                  'comic': '漫画 → JS · category=comic / 图片章节',
                  'images': '图片 → JS · category=comic / 详情即图集；导入后可分组为美图',
                  'video': '视频 → JS · category=video / 视频直链',
-                 'python': 'PY 视频源：支持公开 HTML 与苹果 CMS。视频默认先尝试 JS，失败再尝试 PY。漫画目前导出 JS。',
+                 'python': '已由你确认使用 PY 视频源。支持公开 HTML 与苹果 CMS。',
+                 'comic_python': '已由你确认使用漫画 PY。导入漫画源管理，章节返回阅读区图片列表。',
                  'module': '模块 → .cjs · CommonJS 源对象导出',
                  'cat': '猫源 → ZIP · Node start() / index.config.js / MD5',
                  'kazumi': 'Kazumi → JSON · XPath 或 JSON API 规则',
@@ -497,31 +764,35 @@ Scrapy
         if not self.config_data:
             raise ValueError('请先输入网址并识别，或打开已保存的工程')
         if self.url.get().strip() != self.config_data['url']:
-            raise ValueError('顶部网址已改变，请点击「开始识别」后再生成该网站的源')
+            raise ValueError('顶部网址已改变，请点“开始制作”重新检查该网站。')
         config = dict(self.config_data)
         if any(self.browser_actions.values()):
             config['browserActions'] = dict(self.browser_actions)
         else:
             config.pop('browserActions', None)
         config.update({k: v.get().strip() for k, v in self.fields.items()})
+        config['contentCategory'] = {'影视':'movie', '成人':'adult', '待分类':'unclassified'}.get(self.content_category.get(), '')
         config = target_config(config, TARGETS[self.category.get()])
         if config['mode'] == 'maccms' and config['media'] == 'images':
             raise ValueError('视频接口无法作为漫画或图片源')
         generate(config)
         return config
 
-    def analyze(self):
-        if not self.browser and self.browser_engine.get() != '内置浏览器':
-            self.verify_in_browser()
+    def analyze(self, auto_verify=False):
+        self.detach_other_browser(self.url.get())
+        if not self.browser and self.browser_engine.get() not in ('内置浏览器', '推荐浏览器（Edge）'):
+            self.verify_in_browser(auto_verify=auto_verify)
             return
         url, category = self.url.get(), TARGETS[self.category.get()]
         def done(result):
             config, rows, message = result
-            if self.browser:
+            if self.browser and config['mode'] == 'html':
                 config['useBrowser'] = self.browser.browser_mode
             self.load_config(config)
             self.show_rows(rows)
             self.note(message)
+            if auto_verify:
+                self.test_first()
         self.work(lambda: discover(url, category, self.active_fetcher()), done)
 
     def attempt(self, fn):
@@ -534,7 +805,7 @@ Scrapy
         def start():
             c = self.collect()
             if c.get('useBrowser') and not self.browser:
-                raise ValueError('该工程使用浏览器会话，请先点击「连接所选引擎」')
+                raise ValueError('该工程使用浏览器会话，请先点击“用浏览器重试”。')
             def run():
                 f = self.active_fetcher()
                 if c['mode'] == 'maccms':
@@ -546,33 +817,37 @@ Scrapy
             self.work(run, self.show_rows)
         self.attempt(start)
 
-    def test_first(self):
+    def test_first(self, allow_python=False):
         def start():
             c = self.collect()
             if not self.rows and c['target'] != 'web':
-                raise ValueError('请先重新预览，得到至少一条内容')
+                raise ValueError('没有找到作品。请改填作品列表页，或用浏览器重试。')
             if c.get('useBrowser') and not self.browser:
                 raise ValueError('请先连接所选引擎并完成验证恢复浏览器会话')
             from verifier import verify_with_fallback
             rows = list(self.rows)
             signature = self.fingerprint(c)
+            self.failed_config = c
             self.validated_signature = None
             self.refresh_export()
             def done(result):
                 checked, report = result
-                self.status.set('源检查完成 · 验证范围见日志，媒体未实际起播')
                 self.note(report)
                 if self.fingerprint(self.collect()) == signature:
                     if checked != c:
                         self.load_config(checked)
-                        self.prepare(show_preview=False)
+                    self.prepare(show_preview=False)
                     signature_now = self.fingerprint(self.collect())
                     self.validated_signature = signature_now
                     self.refresh_export()
-                    self.conversion_status.set('抽样链路已通过 · 分类/筛选支持情况见日志 · 媒体未实际起播')
+                    self.failed_config = None
+                    self.python_btn.pack_forget()
+                    extension = self.artifact[1]
+                    self.status.set(f'检查通过 · {len(rows)} 个候选作品 · 可以保存 {extension} 源文件了。')
+                    self.conversion_status.set('已抽样检查详情、选集和内容地址；导入 App 后可实际播放或阅读。')
             def run():
                 fetcher = self.active_fetcher()
-                checked, report = verify_with_fallback(c, rows, fetcher)
+                checked, report = verify_with_fallback(c, rows, fetcher, allow_python=allow_python)
                 if self.adaptive_enabled and hasattr(fetcher, 'pages'):
                     try:
                         count = self.adaptive_store.learn(checked, rows, fetcher)
@@ -598,6 +873,8 @@ Scrapy
             if p:
                 c = json.loads(Path(p).read_text(encoding='utf-8-sig'))
                 generate(c)
+                if c.get('target') in ('python', 'comic_python') and not messagebox.askyesno('打开 PY 工程？', '这个工程使用 PY。确定要打开并继续使用 PY 吗？', parent=self):
+                    return
                 self.load_config(c)
                 self.show_rows([])
                 self.note('工程已打开，请重新预览。')
@@ -607,15 +884,16 @@ Scrapy
         def save():
             c = self.collect()
             if not self.artifact or self.artifact[0] != self.fingerprint(c):
-                raise ValueError('请先点击「生成源」。修改规则或重新预览后，需要重新生成')
+                raise ValueError('请先点击“开始制作”，检查通过后再保存。')
             if self.validated_signature != self.artifact[0]:
-                raise ValueError('该源尚未通过验证，不能导出为可用源。请点击「验证源」；失败时保存工程继续适配')
+                raise ValueError('该源尚未检查通过。请点“开始制作”重新检查。')
             _, extension, data, route = self.artifact
             self.output_dir.mkdir(parents=True, exist_ok=True)
             p = filedialog.asksaveasfilename(parent=self, title='导出到 LumeBox', initialdir=self.output_dir, initialfile=source_filename(c, extension), defaultextension=extension, filetypes=[('LumeBox 源文件', '*' + extension)])
             if p:
                 Path(p).write_bytes(data)
-                self.status.set('导出完成 · ' + route)
+                self.last_saved = Path(p)
+                self.status.set('导出完成 · 可点击“制作下一个源”继续，无需关闭软件。')
                 self.note('已导出：' + p)
                 messagebox.showinfo('导出完成', '导入位置：' + route + '\n\n' + p, parent=self)
         self.attempt(save)

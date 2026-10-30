@@ -48,7 +48,7 @@ void main() {
       }),
     );
     await controller.boot();
-    expect(controller.style(FloatingModule.home).opacity, .9);
+    expect(controller.style(FloatingModule.home).opacity, .95);
     expect(controller.style(FloatingModule.home).offset.dx, 0);
     expect(controller.style(FloatingModule.home).offset.dy, 0);
     expect(controller.style(FloatingModule.home).blur, 6);

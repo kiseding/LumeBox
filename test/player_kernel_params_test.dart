@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
@@ -26,6 +27,92 @@ void main() {
     setUp(() {
       platform = _FakeVideoPlayerPlatform();
       VideoPlayerPlatform.instance = platform;
+    });
+
+    test('HDR display switches retain playback and position while subtitle changes do not reload video', () async {
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/video.mp4')),
+      );
+      expect(platform.created.single.viewType, VideoViewType.platformView);
+      await player.seek(const Duration(seconds: 42));
+      await player.play();
+      await player.selectAudioTrack('en');
+      await player.applySettings(
+        const PlayerSettings(
+          presentation: PlaybackPresentation(hdrEnabled: false),
+        ),
+      );
+      expect(platform.created.length, 2);
+      expect(platform.created.last.viewType, VideoViewType.textureView);
+      expect(platform.positions.values, contains(const Duration(seconds: 42)));
+      expect(player.snapshot.value.playing, true);
+      expect(
+        (await player.audioTracks()).singleWhere((t) => t.selected).id,
+        'en',
+      );
+      await player.applySettings(
+        const PlayerSettings(
+          presentation: PlaybackPresentation(hdrEnabled: false),
+        ).copyWith(subtitleColor: SubtitleColor.yellow),
+      );
+      expect(platform.created.length, 2);
+      await player.dispose();
+    });
+
+    test('首播网络瞬断自动恢复并继续播放，不显示终止错误', () async {
+      platform.failures = 1;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      final errors = <String>[];
+      player.snapshot.addListener(() {
+        final error = player.snapshot.value.error;
+        if (error != null) errors.add(error);
+      });
+      final loading = player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/video.mp4')),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await loading;
+      await player.play();
+      expect(player.snapshot.value.buffering, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      for (var i = 0; i < 20 && platform.created.length < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.created, hasLength(2));
+      expect(player.snapshot.value.error, isNull);
+      expect(player.snapshot.value.playing, isTrue);
+      expect(errors, isEmpty);
+      await player.dispose();
+    });
+
+    test('连续失败最多重连三次，之后显示错误', () async {
+      platform.failures = 10;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/fail.mp4')),
+      );
+      await player.play();
+      await Future<void>.delayed(const Duration(milliseconds: 7400));
+      expect(platform.created, hasLength(4));
+      expect(player.snapshot.value.error, isNotNull);
+      expect(player.snapshot.value.buffering, isFalse);
+      await player.dispose();
+    });
+
+    test('重连等待中暂停取消自动起播', () async {
+      platform.failures = 1;
+      final player = AvPlayer(buffering: _RecordingBufferingBackend());
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/pause.mp4')),
+      );
+      await player.play();
+      await player.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(platform.created, hasLength(1));
+      expect(player.snapshot.value.playing, isFalse);
+      await player.dispose();
     });
 
     test('旧媒体初始化未完成时换内容，新加载成功且旧Future收尾', () async {
@@ -177,8 +264,10 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final List<VideoCreationOptions> created = <VideoCreationOptions>[];
   final Map<int, StreamController<VideoEvent>> _streams =
       <int, StreamController<VideoEvent>>{};
+  final positions = <int, Duration>{};
   int _nextId = 0;
   bool holdFirst = false;
+  int failures = 0;
 
   /// 创建播放器时的钩子（用来断言「缓冲参数已经写过了」）。
   void Function()? onCreated;
@@ -199,6 +288,15 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     // 事件必须在 controller 订阅之后再推，否则首帧状态会丢。
     scheduleMicrotask(() {
       if (holdFirst && id == 0) return;
+      if (id < failures) {
+        stream.addError(
+          PlatformException(
+            code: 'VideoError',
+            message: 'Network connection lost -1005',
+          ),
+        );
+        return;
+      }
       stream.add(
         VideoEvent(
           eventType: VideoEventType.initialized,
@@ -217,6 +315,24 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) => _streams[playerId]!.stream;
 
+  final selectedAudio = <int, String>{};
+  @override
+  bool isAudioTrackSupportAvailable() => true;
+  @override
+  Future<List<VideoAudioTrack>> getAudioTracks(int playerId) async => [
+    for (final language in ['zh', 'en'])
+      VideoAudioTrack(
+        id: language,
+        label: language,
+        language: language,
+        isSelected: (selectedAudio[playerId] ?? 'zh') == language,
+      ),
+  ];
+  @override
+  Future<void> selectAudioTrack(int playerId, String trackId) async {
+    selectedAudio[playerId] = trackId;
+  }
+
   @override
   Future<void> setLooping(int playerId, bool looping) async {}
 
@@ -230,13 +346,16 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Future<void> setVolume(int playerId, double volume) async {}
 
   @override
-  Future<void> seekTo(int playerId, Duration position) async {}
+  Future<void> seekTo(int playerId, Duration position) async {
+    positions[playerId] = position;
+  }
 
   @override
   Future<void> setPlaybackSpeed(int playerId, double speed) async {}
 
   @override
-  Future<Duration> getPosition(int playerId) async => Duration.zero;
+  Future<Duration> getPosition(int playerId) async =>
+      positions[playerId] ?? Duration.zero;
 
   @override
   Widget buildView(int playerId) => const SizedBox.shrink();

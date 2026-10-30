@@ -1085,6 +1085,17 @@ extension _ComicReaderChrome on _ComicReaderPageState {
             arrow: false,
           ),
           _entry(
+            Icons.auto_awesome,
+            '实时翻译',
+            () => close(() {
+              _setTranslationScope('live');
+              _translatePages(false);
+            }),
+            detail: '停留当前页后自动翻译，翻页继续',
+            selected: _translationScope == 'live',
+            arrow: false,
+          ),
+          _entry(
             Icons.menu_book_outlined,
             '本章',
             () => close(() {
@@ -1195,7 +1206,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
             () => open('translation'),
             detail: _translationScope == 'off'
                 ? '关闭'
-                : '${const {'page': '当前页', 'chapter': '本章', 'series': '本系列'}[_translationScope]}'
+                : '${const {'page': '当前页', 'chapter': '本章', 'series': '本系列', 'live': '实时翻译'}[_translationScope]}'
                       ' · ${_translationBusy
                           ? '正在翻译…'
                           : _translations.isEmpty
@@ -2240,6 +2251,9 @@ extension _ComicReaderChrome on _ComicReaderPageState {
   }
 
   void _setTranslationScope(String scope) {
+    _translationScopeChosen = true;
+    _liveTranslationTimer?.cancel();
+    _liveTranslationAttempted.clear();
     _translationGeneration++;
     _translationBusy = false;
     _translationScope = scope;
@@ -2260,12 +2274,27 @@ extension _ComicReaderChrome on _ComicReaderPageState {
           in chapter ? List<int>.generate(urls.length, (i) => i) : [current]) {
         if (!mounted || generation != _translationGeneration) break;
         final url = urls[index];
+        if (_translationScope == 'live') _liveTranslationAttempted.add(url);
         final bytes =
             _pageOverrides[url] ??
             await (widget.pageBytes?.call(url) ?? _pipeline.bytes(url));
         if (!mounted || generation != _translationGeneration) break;
         if (bytes == null) throw StateError('第 ${index + 1} 页未能加载');
+        if (_imageTools.preferences.serverTranslation) {
+          final translated = await _imageTools.translateImageOnServer(bytes);
+          if (!mounted || generation != _translationGeneration) break;
+          _refresh(() {
+            _pageOverrides[url] = translated;
+            _translations.remove(url);
+          });
+          continue;
+        }
         final regions = await _imageTools.translate(bytes);
+        if (regions.isEmpty) {
+          warning ??=
+              _imageTools.lastTranslationWarning ??
+              '第 ${index + 1} 页未识别到可翻译文字，可尝试圈选翻译或整页翻译服务器';
+        }
         warning ??= _imageTools.lastTranslationWarning;
         if (!mounted || generation != _translationGeneration) break;
         _refresh(() => _translations[url] = regions);
@@ -2300,6 +2329,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     } finally {
       if (mounted && generation == _translationGeneration) {
         _refresh(() => _translationBusy = false);
+        if (_page != current) _scheduleLiveTranslation();
       }
     }
   }

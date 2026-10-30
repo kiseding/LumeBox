@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../core/cat/cat_web_parse.dart';
 import '../../core/js/source_web_runtime.dart';
 import '../../core/net/site_session_pool.dart';
+import '../../core/source/web_player_episode.dart';
 
 Future<void> showSourceWebPlayer(
   BuildContext context,
@@ -31,6 +32,64 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
   bool _ready = false, _fullScreen = false;
   bool _booting = false;
   String? _error;
+  Timer? _episodeTimer;
+  int _document = 0;
+  bool _selecting = false;
+  bool _foreground = true;
+  bool _episodePending = false;
+
+  void _stopSelection() {
+    _document++;
+    _episodeTimer?.cancel();
+    _episodeTimer = null;
+    _selecting = false;
+  }
+
+  void _selectEpisode(String url) {
+    final selector = widget.request.episodeSelector;
+    final loaded = Uri.tryParse(url);
+    if (selector == null ||
+        loaded == null ||
+        !['http', 'https'].contains(loaded.scheme) ||
+        loaded.origin != widget.request.page.origin) {
+      return;
+    }
+    _episodePending = true;
+    if (!_foreground) return;
+    _stopSelection();
+    final document = _document;
+    var attempts = 0;
+    Future<void> attempt() async {
+      if (!mounted || document != _document || _selecting) return;
+      _selecting = true;
+      String result;
+      try {
+        result =
+            '${await _controller.runJavaScriptReturningResult(webPlayerEpisodeScript(widget.request.page, selector))}'
+                .replaceAll('"', '');
+      } catch (_) {
+        result = 'waiting';
+      }
+      if (!mounted || document != _document) return;
+      _selecting = false;
+      if (result == 'selected') {
+        _episodePending = false;
+        setState(() => _error = null);
+        return;
+      }
+      if (++attempts >= 60 || result == 'invalid') {
+        setState(() => _error = '未能选中指定集数。完成网页验证后点击“重试选集”，或在网页中手动选集。');
+        return;
+      }
+      _episodeTimer = Timer(
+        const Duration(seconds: 1),
+        () => unawaited(attempt()),
+      );
+    }
+
+    unawaited(attempt());
+  }
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +117,8 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
       if (ua != null) await _controller.setUserAgent(ua);
       await _controller.setNavigationDelegate(
         NavigationDelegate(
+          onPageStarted: (_) => _stopSelection(),
+          onPageFinished: _selectEpisode,
           onNavigationRequest: (request) {
             final url = Uri.tryParse(request.url);
             if (url == null ||
@@ -110,6 +171,8 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      _foreground = false;
+      _stopSelection();
       unawaited(
         _controller
             .runJavaScript(
@@ -117,11 +180,17 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
             )
             .catchError((_) {}),
       );
+    } else if (state == AppLifecycleState.resumed) {
+      _foreground = true;
+      if (_episodePending && mounted) {
+        setState(() => _error = '已暂停自动选集，可点击“重试选集”继续。');
+      }
     }
   }
 
   @override
   void dispose() {
+    _stopSelection();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(
       _controller.loadRequest(Uri.parse('about:blank')).catchError((_) {}),
@@ -163,6 +232,11 @@ class _SourceWebPlayerPageState extends State<SourceWebPlayerPage>
             ),
           if (_error != null)
             Padding(padding: const EdgeInsets.all(8), child: Text(_error!)),
+          if (_error != null && widget.request.episodeSelector != null)
+            TextButton(
+              onPressed: () => _selectEpisode(widget.request.page.toString()),
+              child: const Text('重试选集'),
+            ),
           Expanded(
             key: const ValueKey('web-playback-content'),
             child: Stack(

@@ -100,6 +100,34 @@ void main() {
       expect(loaded.subtitleSize, SubtitleSize.large);
     });
 
+    test('presentation switches and subtitle appearance persist in the video database', () async {
+      final store = await VideoPlayerSettingsStore.open();
+      final next = store.load().copyWith(
+        presentation: const PlaybackPresentation(
+          hdrEnabled: false,
+          dolbyVision: false,
+          dolbyAudio: false,
+          enhancementEnabled: true,
+          preset: EnhancementPreset.anime,
+          sharpen: false,
+          subtitleLanguage: 'en',
+          originalSubtitleStyle: false,
+        ),
+        subtitleFont: 'PingFang SC',
+        subtitleShadow: 0.75,
+        subtitleOffsetY: 0.5,
+      );
+      store.save(next);
+      final reopened = await VideoPlayerSettingsStore.open();
+      expect(reopened.load().presentation, next.presentation);
+      expect(reopened.load().subtitleFont, 'PingFang SC');
+      expect(reopened.load().subtitleShadow, 0.75);
+      expect(reopened.load().subtitleOffsetY, 0.5);
+      final library = await ReadingLibrary.open(Section.video);
+      library.setSetting('video.player.presentation', '{broken');
+      expect(store.load().presentation, const PlaybackPresentation());
+    });
+
     test('gesture switches and adjustment values persist and survive kernel switches', () async {
       final store = await VideoPlayerSettingsStore.open();
       final next = store.load().copyWith(

@@ -31,13 +31,15 @@
   else if (/__jsl_clearance_s|__jsluid_s|yunjiasu|加速乐|\bjsl\b/i.test(evidence)) kind = 'baiduJiasule';
   else if (/FSSBBIl1UgzbN7N|riverse|瑞数/i.test(evidence)) kind = 'riverse';
   else if (/\bdx-|smidV2|td_cookie|顶象|数美|同盾/i.test(evidence)) kind = 'domesticCaptcha';
-  const interactive = any('button,input:not([type="hidden"]),[role="button"],[role="slider"],canvas,[class*="slider"]') ||
+  // CAP renders its button inside a shadow root; the document has no button/input.
+  const cap = document.querySelectorAll('cap-widget[data-cap-api-endpoint]').length > 0;
+  const interactive = cap || any('button,input:not([type="hidden"]),[role="button"],[role="slider"],canvas,[class*="slider"]') ||
     Array.from(document.querySelectorAll('iframe')).some(frame => {
       const rect = frame.getBoundingClientRect ? frame.getBoundingClientRect() : {width:320,height:180};
       return visible(frame) && rect.width >= 20 && rect.height >= 20;
     });
   const generic = /访问验证|安全验证|请稍候|请稍等|点击完成验证|完成验证|拖动滑块|滑动验证|please complete the security check/i.test(text);
-  const container = any('[class*="captcha"],[id*="captcha"],[class*="challenge"],[id*="challenge"],[class*="verify"],[id*="verify"],[role="slider"]');
+  const container = cap || any('[class*="captcha"],[id*="captcha"],[class*="challenge"],[id*="challenge"],[class*="verify"],[id*="verify"],[role="slider"]');
   const excluded = /登录|登錄|sign in|log in|暂无|没有找到|无结果|no results|公告|announcement/i.test(text);
   const wanted = Array.isArray(selectors) ? selectors.filter(s => typeof s === 'string' && s.trim()) : [];
   const business = wanted.length ? wanted.some(any) : !excluded && any(

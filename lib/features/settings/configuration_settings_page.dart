@@ -53,7 +53,9 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
             'name':
                 'LumeBox-config-${DateTime.now().millisecondsSinceEpoch}.json',
           });
-      return saved == true ? '配置备份已导出' : null;
+      return saved == true
+          ? '配置备份已导出${backup.warnings.isEmpty ? '' : '，部分配置已跳过：${backup.warnings.join('；')}'}'
+          : null;
     }
     final location = await getSaveLocation(
       suggestedName:
@@ -64,7 +66,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
       Uint8List.fromList(utf8.encode(text)),
       mimeType: 'application/json',
     ).saveTo(location.path);
-    return '配置备份已导出';
+    return '配置备份已导出${backup.warnings.isEmpty ? '' : '，部分配置已跳过：${backup.warnings.join('；')}'}';
   }
 
   Future<String?> restore() async {
@@ -124,7 +126,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
     if (yes != true) return null;
     await backup.restore(text);
     await preferences.boot();
-    return '配置已恢复，请重新启动 App 以应用全部界面设置';
+    return '配置已恢复，请重新启动 App 以应用全部界面设置${backup.warnings.isEmpty ? '' : '；${backup.warnings.join('；')}'}';
   }
 
   @override
@@ -212,7 +214,7 @@ class _ConfigurationSettingsPageState extends State<ConfigurationSettingsPage> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           ),
         const SettingsFooterNote(
-          '备份包含全局设置、各板块偏好与源配置；恢复会覆盖同名配置和源，恢复后需重启 App。',
+          '备份包含全局设置、各板块偏好、收藏、历史、分集进度、手工媒体条目与源配置；不含已下载媒体及本地模型。恢复会覆盖同名配置和源，恢复后需重启 App。',
           padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
         ),
       ],

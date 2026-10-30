@@ -167,7 +167,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   // 快照是冻结的：脚本改不动用户的选择，也不会因为脚本给 LumeSource 赋值而被
   // 覆盖掉（config 在 reserved 里）。
   var configKeys = ['domain', 'mirrors', 'mirrorIndex', 'customDomain',
-                    'account', 'password', 'cookie'];
+                    'account', 'password', 'cookie','imageDomain','imageMirrors','videoDomain','videoMirrors','settings','commonSettings','sourceSettings'];
 
   // 只吸收白名单字段并归一到脚本可直接用的形态：
   // - 字符串字段缺失即空串（domain 因此**永远是字符串**，脚本可安全地做真值判断）；
@@ -178,8 +178,14 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
     for (var i = 0; i < configKeys.length; i++) {
       var key = configKeys[i];
       var item = value == null ? undefined : value[key];
-      if (key === 'mirrors') {
-        next.mirrors = Object.freeze(Array.isArray(item) ? item.slice() : []);
+      if (key === 'mirrors' || key === 'imageMirrors' || key === 'videoMirrors') {
+        next[key] = Object.freeze(Array.isArray(item) ? item.slice() : []);
+      } else if(key === 'settings' || key === 'commonSettings' || key === 'sourceSettings') {
+        var fields = {};
+        if(item && typeof item === 'object' && !Array.isArray(item)) Object.keys(item).forEach(function(k){
+          if(/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(k) && ['string','number','boolean'].indexOf(typeof item[k])>=0) fields[k]=item[k];
+        });
+        next[key]=Object.freeze(fields);
       } else if (key === 'mirrorIndex') {
         next.mirrorIndex =
           (typeof item === 'number' && isFinite(item)) ? item : 0;
@@ -192,10 +198,31 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
 
   var emptyConfig = freezeConfig(null);
 
+  function resolveSourceUrl(url, kind) {
+    var c=configValue, pairs=kind==='image'?[['imageDomain','imageMirrors'],['domain','mirrors']]:
+      kind==='video'?[['videoDomain','videoMirrors'],['domain','mirrors']]:[['domain','mirrors']];
+    var input=String(url||''), match=/^(https?:\/\/[^\/?#]+)([^?#]*)([?#][\s\S]*)?$/.exec(input);
+    if(!match)return input;
+    for(var i=0;i<pairs.length;i++){
+      var target=c[pairs[i][0]], urls=c[pairs[i][1]]||[];
+      if(!target)continue;
+      urls=urls.slice().sort(function(a,b){return b.length-a.length;});
+      for(var j=0;j<urls.length;j++){
+        var base=/^(https?:\/\/[^\/?#]+)([^?#]*)$/.exec(urls[j]);
+        if(!base||base[1].toLowerCase()!==match[1].toLowerCase())continue;
+        var prefix=base[2].replace(/\/+$/,'');
+        if(prefix&&match[2]!==prefix&&match[2].indexOf(prefix+'/')!==0)continue;
+        return target.replace(/\/+$/,'')+match[2].slice(prefix.length)+(match[3]||'');
+      }
+    }
+    return input;
+  }
+
   // ---------------------------------------------------------------- 桥接对象
   // `bridge` 字段就是「桥接服务地址」（空串 = 不用桥接），脚本读
   // `LumeSource.bridge` 即可；其余图源不受影响（读到空串）。
   var bridge = {
+    resolveUrl: resolveSourceUrl,
     http: http,
     session: {setUserAgent:function(url,ua){return invoke('session.configure',{url:String(url),userAgent:String(ua||'')});}},
     tools: {
@@ -216,7 +243,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
       segment:function(url,index,options){return invoke('media',Object.assign({},options,{operation:'segment',url:String(url),index:index}));}
     },
     fs: fs,
-    web: {render: function (options) { return invoke('web.render', options || {}); },bridge:{
+    web: {episodeSelection: true, render: function (options) { var args=Object.assign({},options||{});if(args.url)args.url=resolveSourceUrl(args.url,'site');return invoke('web.render', args); },bridge:{
       configure:function(options){return invoke('web.bridge.configure',options||{});},
       request:function(options){return invoke('web.bridge.request',options||{});}
     }},
@@ -243,6 +270,12 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
     set: function () { /* 只读：脚本对 config 的赋值一律忽略 */ }
   });
 
+  var hostCapabilities=Object.freeze({settingsApiVersion:2,
+    settingsFeatures:Object.freeze(['commonSettings','settingsActions','actionInputs','settingsGroups','resourceRoutes']),
+    settingTypes:Object.freeze(['toggle','select','text','number','info','action'])});
+  Object.defineProperty(bridge,'capabilities',{enumerable:true,configurable:false,
+    get:function(){return hostCapabilities;},set:function(){}});
+
   globalThis.__lumeApplyConfig = function (json) {
     var value = null;
     try { value = JSON.parse(json); } catch (error) { value = null; }
@@ -251,7 +284,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
   };
 
   // 宿主能力不被脚本对象覆盖（脚本自己的实现可以占用其余任何名字）。
-  var reserved = {tools:true, media:true, session:true,  http: true, fs: true, web: true, html: true, storage: true, config: true };
+  var reserved = {capabilities:true, resolveUrl:true, tools:true, media:true, session:true,  http: true, fs: true, web: true, html: true, storage: true, config: true };
 
   function namesOf(name) { return aliases[name] || [name]; }
 

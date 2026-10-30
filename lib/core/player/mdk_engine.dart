@@ -40,7 +40,55 @@ import 'player_stats.dart';
 ///   实际在用、语义明确的网络重连两项（`avio.reconnect` /
 ///   `avio.reconnect_delay_max`）——它们解决的是「起播/播放中连接被掐断后
 ///   要重新握手」这一类卡顿，与缓冲策略是两回事，如实分开说。
-class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
+class MdkEngine extends AbstractPlayer
+    implements VideoFrameCapture, PresentationEngine {
+  PlaybackPresentation _presentation = const PlaybackPresentation();
+  final _presentationStatus = ValueNotifier<List<String>>(const [
+    '显示：MDK 纹理；HDR 输出暂无法确认',
+  ]);
+  @override
+  ValueListenable<List<String>> get presentationStatus => _presentationStatus;
+  @override
+  Future<void> applyPresentation(PlaybackPresentation settings) async {
+    final changed = _presentation.dolbyAudio != settings.dolbyAudio;
+    _presentation = settings;
+    if (changed) _preferAudio();
+    _updatePresentationStatus();
+  }
+
+  void _preferAudio() {
+    if (!_live) return;
+    final tracks = _player.mediaInfo.audio ?? const <mdk.AudioStreamInfo>[];
+    final preferred = tracks
+        .where(
+          (t) =>
+              [
+                'ac3',
+                'eac3',
+                'ac4',
+                'truehd',
+              ].contains(t.codec.codec.toLowerCase()) ==
+              _presentation.dolbyAudio,
+        )
+        .firstOrNull;
+    if (preferred != null) _player.activeAudioTracks = [preferred.index];
+  }
+
+  void _updatePresentationStatus() {
+    if (!_live) return;
+    final tracks = _player.mediaInfo.audio ?? const <mdk.AudioStreamInfo>[];
+    final selected = tracks
+        .where((t) => _player.activeAudioTracks.contains(t.index))
+        .firstOrNull;
+    _presentationStatus.value = [
+      '显示：MDK 纹理；HDR 输出暂无法确认',
+      if (selected != null)
+        '音轨：${selected.codec.codec} · ${selected.codec.channels} 声道（不代表 Atmos 已输出）',
+      if (_presentation.enhancementEnabled) '画质增强：当前内核不支持，请切换 MPV',
+      '字幕：MDK 内嵌渲染，原始样式开关不适用',
+    ];
+  }
+
   MdkEngine._(this._player);
 
   /// 创建引擎。原生库不可用时抛 [StateError]（由工厂转成可读提示）。
@@ -79,6 +127,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
 
   /// 字幕状态（MDK 只能写延迟，见类文档）。
   bool _subtitlesEnabled = true;
+  List<int> _subtitleSelection = const [-1];
   Duration _subtitleDelay = Duration.zero;
 
   double _volume = 1.0;
@@ -184,6 +233,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     if (index == null) return;
     try {
       _player.activeAudioTracks = <int>[index];
+      _updatePresentationStatus();
     } catch (error) {
       LumeLog.warn('[mdk] 切音轨失败（$id）：$error');
     }
@@ -202,7 +252,9 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
           id: '${stream.index}',
           label: _trackLabel(stream, '字幕', streams.indexOf(stream)),
           language: _metadata(stream.metadata, 'language'),
-          selected: active.isEmpty
+          selected: _subtitleSelection.isEmpty || !_subtitlesEnabled
+              ? false
+              : active.isEmpty || active.contains(-1)
               ? stream.index == streams.first.index
               : active.contains(stream.index),
         ),
@@ -215,11 +267,13 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     try {
       if (id == null) {
         // 空列表 = 不选任何字幕轨（关闭字幕）。
+        _subtitleSelection = const [];
         _player.activeSubtitleTracks = const <int>[];
         return;
       }
       final index = int.tryParse(id);
       if (index == null) return;
+      _subtitleSelection = [index];
       _player.activeSubtitleTracks = <int>[index];
     } catch (error) {
       LumeLog.warn('[mdk] 切字幕轨失败（$id）：$error');
@@ -231,7 +285,11 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   Future<bool> loadSubtitleFile(String path) async {
     if (!_live) return false;
     try {
-      final uri = path.startsWith('file:') ? path : Uri.file(path).toString();
+      final scheme = Uri.tryParse(path)?.scheme;
+      final uri = ['http', 'https', 'file'].contains(scheme)
+          ? path
+          : Uri.file(path).toString();
+      _subtitleSelection = const [-1];
       _player.setMedia(uri, mdk.MediaType.subtitle);
       LumeLog.info('[mdk] 已加载外挂字幕：$path');
       return true;
@@ -270,11 +328,16 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
   @override
   Future<void> load(PlayerMedia media) async {
     if (!_live) return;
-    final uri = await _highestHls.resolve(media.uri, media.headers);
+    final uri = await _highestHls.resolve(
+      media.uri,
+      media.headers,
+      presentation: _presentation.copyWith(hdrEnabled: false),
+    );
     if (!_live) {
       await _highestHls.close();
       return;
     }
+    _subtitleSelection = const [-1];
     _emit(error: null, clearError: true);
     _applyNetworkProperties();
     _applyHeaders(media.headers);
@@ -284,6 +347,8 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     _duration = Duration(milliseconds: _player.mediaInfo.duration);
     _emit(duration: _duration, position: Duration.zero);
     _applySubtitleState();
+    _preferAudio();
+    _updatePresentationStatus();
     _applyRate();
     _applyVolume();
     _startTicker();
@@ -431,6 +496,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
 
   @override
   Future<void> applySettings(PlayerSettings settings) async {
+    await applyPresentation(settings.presentation);
     _speed = settings.speed;
     _subtitlesEnabled = settings.subtitlesEnabled;
     _subtitleDelay = settings.subtitleDelay;
@@ -455,7 +521,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     try {
       // 空列表 = 不选任何字幕轨；[-1] = 交给内核自动选（MDK 的默认行为）。
       _player.activeSubtitleTracks = _subtitlesEnabled
-          ? const <int>[-1]
+          ? _subtitleSelection
           : const <int>[];
     } catch (error) {
       LumeLog.warn('[mdk] 切字幕轨失败：$error');
@@ -536,6 +602,7 @@ class MdkEngine extends AbstractPlayer implements VideoFrameCapture {
     await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
+    _presentationStatus.dispose();
     _ticker?.cancel();
     _ticker = null;
     for (final subscription in _subscriptions) {

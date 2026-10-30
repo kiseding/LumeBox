@@ -45,6 +45,25 @@ void main() {
   });
 
   group('3a 板块声明解析（纯 Dart）', () {
+    test('订阅美图和有声分类映射到现有板块，仍拒绝跨板块导入', () {
+      for (final pair in [
+        ('photo', Section.comic),
+        ('美图', Section.comic),
+        ('audiobook', Section.video),
+        ('有声小说', Section.video),
+      ]) {
+        final metadata = SourceMetadata(
+          id: 'a',
+          name: '甲',
+          version: '',
+          category: pair.$1,
+        );
+        expect(metadata.sectionMismatch(pair.$2), isNull);
+        for (final other in Section.values.where((s) => s != pair.$2)) {
+          expect(metadata.sectionMismatch(other), contains('跨板块'));
+        }
+      }
+    });
     test('头部注释声明 category 被解析出来', () {
       final metadata = SourceMetadata.parseHeader(
         '// LumeSource: {"id":"a","name":"甲","category":"comic"}',
@@ -71,18 +90,38 @@ void main() {
     });
 
     test('声明与目标一致时放行；中文板块名同样认', () {
-      const comic = SourceMetadata(id: 'a', name: '甲', version: '', category: 'comic');
+      const comic = SourceMetadata(
+        id: 'a',
+        name: '甲',
+        version: '',
+        category: 'comic',
+      );
       expect(comic.sectionMismatch(Section.comic), isNull);
 
-      const chinese = SourceMetadata(id: 'a', name: '甲', version: '', category: '漫画');
+      const chinese = SourceMetadata(
+        id: 'a',
+        name: '甲',
+        version: '',
+        category: '漫画',
+      );
       expect(chinese.sectionMismatch(Section.comic), isNull);
 
-      const padded = SourceMetadata(id: 'a', name: '甲', version: '', category: ' Video ');
+      const padded = SourceMetadata(
+        id: 'a',
+        name: '甲',
+        version: '',
+        category: ' Video ',
+      );
       expect(padded.sectionMismatch(Section.video), isNull);
     });
 
     test('声明与目标不符时给出点名到板块的可读原因', () {
-      const novel = SourceMetadata(id: 'a', name: '甲', version: '', category: 'video');
+      const novel = SourceMetadata(
+        id: 'a',
+        name: '甲',
+        version: '',
+        category: 'video',
+      );
       final issue = novel.sectionMismatch(Section.comic);
       expect(issue, isNotNull);
       expect(issue, contains('跨板块'));
@@ -92,7 +131,12 @@ void main() {
     });
 
     test('声明了非法板块名时明确拒绝，而不是静默放行', () {
-      const bogus = SourceMetadata(id: 'a', name: '甲', version: '', category: 'manga');
+      const bogus = SourceMetadata(
+        id: 'a',
+        name: '甲',
+        version: '',
+        category: 'manga',
+      );
       final issue = bogus.sectionMismatch(Section.comic);
       expect(issue, isNotNull);
       expect(issue, contains('manga'));
@@ -116,11 +160,33 @@ void main() {
   });
 
   group('3b 跨板块导入被解析阶段拒绝（真实引擎）', () {
+    test('photo 和 audiobook 订阅导入及更新成功', () async {
+      for (final pair in [
+        ('photo', Section.comic),
+        ('audiobook', Section.video),
+      ]) {
+        final registry = await openRegistryFor(pair.$2);
+        String script(String version) =>
+            '''
+// LumeSource: {"id":"alias-${pair.$1}","name":"分类兼容","version":"$version","category":"${pair.$1}"}
+var LumeSource = { id: 'alias-${pair.$1}', name: '分类兼容', version: '$version', category: '${pair.$1}',
+  async categories() { return [{id:'all',title:'全部'}]; }
+};
+''';
+        final imported = await registry.import(script('1.0.0'));
+        expect(imported.isSuccess, true, reason: imported.message);
+        final updated = await registry.import(script('1.0.1'));
+        expect(updated.isSuccess, true, reason: updated.message);
+        expect(updated.record!.version, '1.0.1');
+      }
+    }, skip: skipReason);
     test(
       '视频脚本导入漫画板块：拒绝落库、日志点名跨板块',
       () async {
         final comic = await openRegistryFor(Section.comic);
-        final outcome = await comic.import(fixture('section_mismatch_video.js'));
+        final outcome = await comic.import(
+          fixture('section_mismatch_video.js'),
+        );
 
         expect(outcome.isSuccess, isFalse, reason: '跨板块源必须被拒绝');
         expect(outcome.message, contains('跨板块'));
@@ -130,8 +196,8 @@ void main() {
         expect(comic.source('test-section-video'), isNull);
 
         // 明确错误日志：点名被拒的图源与两个板块。
-        final rejected =
-            logLinesContaining('拒绝跨板块源').where((l) => l.contains('test-section-video'));
+        final rejected = logLinesContaining('拒绝跨板块源')
+            .where((l) => l.contains('test-section-video'));
         expect(rejected, isNotEmpty, reason: '拒绝行为必须在日志里留痕');
       },
       skip: skipReason,
@@ -142,7 +208,9 @@ void main() {
       '同一份脚本导入视频板块：正常成功（对照）',
       () async {
         final novel = await openRegistryFor(Section.video);
-        final outcome = await novel.import(fixture('section_mismatch_video.js'));
+        final outcome = await novel.import(
+          fixture('section_mismatch_video.js'),
+        );
 
         expect(outcome.isSuccess, isTrue, reason: outcome.message ?? '');
         expect(outcome.record!.id, 'test-section-video');
@@ -219,7 +287,11 @@ var LumeSource = {
   async categories() { return [{ id: 'c1', title: '分类一' }]; }
 };
 ''';
-        for (final section in <Section>[Section.video, Section.comic, Section.video]) {
+        for (final section in <Section>[
+          Section.video,
+          Section.comic,
+          Section.video,
+        ]) {
           final registry = await openRegistryFor(section);
           final outcome = await registry.import(script);
           expect(
@@ -238,7 +310,10 @@ var LumeSource = {
       () async {
         // 先正常导入视频板块，再确认漫画板块看不见它。
         final novel = await openRegistryFor(Section.video);
-        expect((await novel.import(fixture('section_mismatch_video.js'))).isSuccess, isTrue);
+        expect(
+          (await novel.import(fixture('section_mismatch_video.js'))).isSuccess,
+          isTrue,
+        );
 
         final comic = await openRegistryFor(Section.comic);
         expect(comic.sources, isEmpty);

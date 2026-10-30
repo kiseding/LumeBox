@@ -1,6 +1,6 @@
+import '../js/source_registry.dart';
 import '../net/network_cancellation.dart';
 import '../cache/media_preload.dart';
-import '../source/source_preferences.dart';
 
 import 'dart:async';
 import 'dart:collection';
@@ -12,14 +12,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show visibleForTesting, ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:pointycastle/export.dart'
-    show
-        AESEngine,
-        BlockCipher,
-        CBCBlockCipher,
-        ECBBlockCipher,
-        KeyParameter,
-        ParametersWithIV;
 
 import '../net/lume_http.dart';
 import '../net/lume_net.dart';
@@ -27,6 +19,7 @@ import '../net/network_queue.dart';
 import '../net/network_settings.dart';
 import '../net/source_request_log.dart';
 import '../net/site_session_pool.dart';
+import '../net/web_session_lifecycle.dart';
 import '../net/waf.dart';
 import '../session/section.dart';
 import '../source/data_source.dart';
@@ -34,6 +27,8 @@ import '../util/lume_log.dart';
 import 'reading_store.dart';
 import 'image_bytes_decoder.dart';
 import 'image_strip_restorer.dart';
+import 'cover_byte_cache.dart';
+import 'image_upscale_report.dart';
 
 /// 图片管线：网络 → 板块磁盘缓存 → 解码 → 内存缓存。
 ///
@@ -64,12 +59,15 @@ class SectionImagePipeline {
     this.sourceLabel = '图片缓存',
     this.requestSender,
     this.decodeTransform,
+    this.cacheOriginalBytes = false,
   }) : _client = client ?? http.Client(),
        _maxRetries = maxRetries < 0 ? 0 : maxRetries,
        _memory = ImageMemoryCache(memoryBudgetBytes) {
     _removePreloadClearer = MediaPreload.instance.onClear(() {
       _preloadQueue.clear();
       _preloadKeys.clear();
+      _preloadWindows.clear();
+      _preloadWindow = null;
       _memory.clearUnused(includePinned: true, keys: _speculativeKeys);
       _speculativeKeys.clear();
     });
@@ -92,6 +90,18 @@ class SectionImagePipeline {
 
   /// Optional reader-local enhancement; raw exports and disk bytes stay original.
   final Future<Uint8List> Function(Uint8List)? decodeTransform;
+  final bool cacheOriginalBytes;
+  final processingRevision = ValueNotifier<int>(0);
+  final _processingReports = <String, ImageUpscaleReport>{};
+  ImageUpscaleReport? processingReport(String url) =>
+      _processingReports[upgradeToHttps(normalizeTransform(url))];
+  static final _coverBytes = _createCoverByteCache();
+  static CoverByteCache _createCoverByteCache() {
+    final cache = CoverByteCache();
+    MediaPreload.instance.onClear(cache.clear);
+    return cache;
+  }
+
   final Map<String, String> _failures = {};
   String? failureFor(String url) =>
       _failures[upgradeToHttps(normalizeTransform(url))];
@@ -192,6 +202,7 @@ class SectionImagePipeline {
         // 封面降级到按源隔离的子管线时，也要继承父管线的解码增强
         //（自动超分 / 未来其他解码处理），否则按源封面会静默绕过开关。
         decodeTransform: decodeTransform,
+        cacheOriginalBytes: true,
       )..bindSession(section, sourceId),
     );
   }
@@ -246,7 +257,15 @@ class SectionImagePipeline {
       <String, Future<ui.Image?>>{};
 
   int _running = 0;
-  final Queue<Completer<void>> _slots = Queue<Completer<void>>();
+  final _slots = Queue<({String url, bool preload, Completer<bool> ready})>();
+  final _foregroundRequests = <String, List<bool Function()>>{};
+  Set<String>? _preloadWindow;
+  final _preloadWindows = <int?, Set<String>>{};
+  bool _isForeground(String url, bool preload) {
+    final consumers = _foregroundRequests[url];
+    return consumers == null ? !preload : consumers.any((visible) => visible());
+  }
+
   bool _disposed = false;
   final _requestLifetime = NetworkCancellation();
 
@@ -259,8 +278,12 @@ class SectionImagePipeline {
   int get memoryCount => _memory.length;
 
   /// 内存缓存键：同一 URL 的不同解码宽度是两份不同位图。
-  static String key(String url, int? targetWidth) =>
-      targetWidth == null ? url : '$url@$targetWidth';
+  static String key(String url, int? targetWidth) => targetWidth == null
+      ? canonicalUrl(url)
+      : '${canonicalUrl(url)}@$targetWidth';
+
+  static String canonicalUrl(String url) =>
+      upgradeToHttps(normalizeTransform(url.trim()));
 
   // ------------------------------------------------------------------ 取图
 
@@ -274,8 +297,16 @@ class SectionImagePipeline {
   /// [targetWidth] 用于按显示宽度解码：漫画长图不按屏宽解码会带来几十 MB 的
   /// 位图，这是条漫场景下最容易踩的内存坑。解码不允许放大：原图比目标宽度还
   /// 小就按原尺寸解，不给长图白涨一圈内存。
-  Future<ui.Image?> image(String url, {int? targetWidth}) =>
-      _resolveImage(url, targetWidth: targetWidth, holdReference: true);
+  Future<ui.Image?> image(
+    String url, {
+    int? targetWidth,
+    bool Function()? isForeground,
+  }) => _resolveImage(
+    url,
+    targetWidth: targetWidth,
+    holdReference: true,
+    isForeground: isForeground,
+  );
 
   /// Small, caller-owned palette sample. Does not run AI or occupy the display
   /// bitmap cache; it still shares the original download/session/cache path.
@@ -306,8 +337,9 @@ class SectionImagePipeline {
     String url, {
     int? targetWidth,
     required bool holdReference,
+    bool Function()? isForeground,
   }) {
-    final trimmed = url.trim();
+    final trimmed = canonicalUrl(url);
     if (trimmed.isEmpty || _disposed) return Future<ui.Image?>.value();
     final cacheKey = key(trimmed, targetWidth);
     if (holdReference) _speculativeKeys.remove(cacheKey);
@@ -317,15 +349,25 @@ class SectionImagePipeline {
       return Future<ui.Image?>.value(cached);
     }
     final existing = _inFlightImages[cacheKey];
+    final visible = isForeground ?? () => true;
+    if (holdReference) {
+      _foregroundRequests.putIfAbsent(trimmed, () => []).add(visible);
+    }
     final request =
         existing ??
         _startDecode(trimmed, targetWidth, cacheKey, preload: !holdReference);
     if (!holdReference) return request;
     // 在飞请求是共享的，引用必须各自记账：谁 await，谁的账上多一次引用。
-    return request.then((image) {
-      if (image != null) _memory.acquire(cacheKey);
-      return image;
-    });
+    return request
+        .then((image) {
+          if (image != null) _memory.acquire(cacheKey);
+          return image;
+        })
+        .whenComplete(() {
+          final consumers = _foregroundRequests[trimmed];
+          consumers?.remove(visible);
+          if (consumers?.isEmpty ?? false) _foregroundRequests.remove(trimmed);
+        });
   }
 
   /// 发起一次解码并登记在飞表（同一 URL + 解码宽度只解一次）。
@@ -342,13 +384,52 @@ class SectionImagePipeline {
 
   /// 取原始字节（保存图片、解码前的缓存写入都走这里）。
   Future<Uint8List?> bytes(String url, {bool preload = false}) {
-    final trimmed = url.trim();
+    final trimmed = canonicalUrl(url);
     if (trimmed.isEmpty || _disposed) return Future<Uint8List?>.value();
+    final byteKey =
+        cacheOriginalBytes && trimmed.startsWith(RegExp(r'https?://'))
+        ? _coverByteKey(trimmed)
+        : null;
+    final cached = byteKey == null ? null : _coverBytes.get(byteKey);
+    if (cached != null) return Future.value(cached);
     final existing = _inFlightBytes[trimmed];
     if (existing != null) return existing;
-    final request = _loadBytes(trimmed, preload: preload);
+    final generation = MediaPreload.instance.generation;
+    final request = _loadBytes(trimmed, preload: preload).then((data) {
+      if (byteKey != null &&
+          data != null &&
+          !_disposed &&
+          generation == MediaPreload.instance.generation) {
+        _coverBytes.put(byteKey, data);
+      }
+      return data;
+    });
     _inFlightBytes[trimmed] = request;
     return request.whenComplete(() => _inFlightBytes.remove(trimmed));
+  }
+
+  String _coverByteKey(String url) {
+    final headers = (_imageHeaders[url]?.entries.toList() ?? [])
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final session = _sessionFor(url);
+    return jsonEncode([
+      cacheDir,
+      sourceLabel,
+      _boundSource?.id,
+      url,
+      network.userAgent,
+      network.proxy,
+      network.allowBadCertificate,
+      LumeNet.settings.userAgent,
+      LumeNet.settings.proxy,
+      session?.cookies,
+      session?.userAgent,
+      WebSessionLifecycle.revision(url),
+      SiteSessionPool.shared.userAgentFor(url),
+      if (_boundSource != null)
+        WafSessions.userAgentFor(_boundSource!.section, _boundSource!.id),
+      for (final header in headers) [header.key, header.value],
+    ]);
   }
 
   /// 取原始字节但**不落缓存**（批量下载用）。
@@ -375,7 +456,7 @@ class SectionImagePipeline {
       return;
     }
     for (final raw in urls) {
-      final url = raw.trim();
+      final url = canonicalUrl(raw);
       final cacheKey = key(url, targetWidth);
       if (url.isEmpty ||
           _memory.get(cacheKey) != null ||
@@ -385,6 +466,32 @@ class SectionImagePipeline {
       _preloadQueue.add((url: url, width: targetWidth, cacheKey: cacheKey));
     }
     _drainPreloads();
+  }
+
+  /// A scroll viewport replaces its speculative queue as the user moves.
+  /// Already visible/in-flight images keep their shared request.
+  void replacePreloads(Iterable<String> urls, {int? targetWidth}) {
+    final window = urls.map(canonicalUrl).toSet();
+    final previous = _preloadWindows[targetWidth] ?? const <String>{};
+    _preloadWindows[targetWidth] = window;
+    _preloadWindow = _preloadWindows.values.expand((urls) => urls).toSet();
+    final keys = window.map((url) => key(url, targetWidth)).toSet();
+    _preloadQueue.removeWhere((entry) {
+      if (entry.width != targetWidth || keys.contains(entry.cacheKey)) {
+        return false;
+      }
+      _preloadKeys.remove(entry.cacheKey);
+      return true;
+    });
+    _slots.removeWhere((entry) {
+      if (_preloadWindow!.contains(entry.url) ||
+          _isForeground(entry.url, entry.preload)) {
+        return false;
+      }
+      entry.ready.complete(false);
+      return true;
+    });
+    preload(window.difference(previous), targetWidth: targetWidth);
   }
 
   void _drainPreloads() {
@@ -450,6 +557,8 @@ class SectionImagePipeline {
     _failures.clear();
     _verificationTargets.clear();
     verificationRevision.dispose();
+    processingRevision.dispose();
+    _processingReports.clear();
     // 取消在飞请求：关闭客户端是 package:http 提供的取消入口。
     try {
       _client.close();
@@ -507,9 +616,16 @@ class SectionImagePipeline {
     for (var attempt = 0; attempt < 2; attempt++) {
       if (data == null || _disposed) return null;
       try {
+        ImageUpscaleReport? processingReport;
         final decodeData = decodeTransform == null
             ? data
-            : await decodeTransform!(data);
+            : await runZoned(
+                () => decodeTransform!(data!),
+                zoneValues: {
+                  ImageUpscaleReport.zoneKey: (ImageUpscaleReport report) =>
+                      processingReport = report,
+                },
+              );
         if (_disposed) return null;
         final codec = await ui.instantiateImageCodec(
           decodeData,
@@ -528,22 +644,32 @@ class SectionImagePipeline {
             final file = File(
               _diskPath(upgradeToHttps(normalizeTransform(url))),
             );
-            file.parent.createSync(recursive: true);
-            file.writeAsBytesSync(data);
+            await file.parent.create(recursive: true);
+            await file.writeAsBytes(data);
           } catch (_) {}
         }
         _failures.remove(upgradeToHttps(normalizeTransform(url)));
         _memory.put(cacheKey, image);
+        if (processingReport != null) {
+          final normalized = upgradeToHttps(normalizeTransform(url));
+          _processingReports.remove(normalized);
+          _processingReports[normalized] = processingReport!;
+          while (_processingReports.length > 128) {
+            _processingReports.remove(_processingReports.keys.first);
+          }
+          processingRevision.value++;
+        }
         return image;
       } catch (error) {
         final normalized = upgradeToHttps(normalizeTransform(url));
+        if (cacheOriginalBytes) _coverBytes.remove(_coverByteKey(normalized));
         _failures[normalized] = '图片解码失败';
         LumeLog.warn('[$sourceLabel] 图片解码失败: $url ($error)');
         if (!diskCache || attempt != 0) return null;
         final file = File(_diskPath(normalized));
         if (!file.existsSync()) return null;
         try {
-          file.deleteSync();
+          await file.delete();
         } catch (_) {
           return null;
         }
@@ -625,38 +751,7 @@ class SectionImagePipeline {
     final raw = await _download(upgradeToHttps(normalizeTransform(target)));
     if (raw == null || raw.isEmpty) return null;
     try {
-      Uint8List cipherBytes = raw;
-      if (isCbc) {
-        // 站点给的是 Base64 文本密文，先解成字节
-        final text = utf8.decode(raw, allowMalformed: true).trim();
-        cipherBytes = Uint8List.fromList(base64Decode(base64.normalize(text)));
-      }
-      final BlockCipher cipher;
-      if (isCbc) {
-        cipher = CBCBlockCipher(AESEngine())
-          ..init(false, ParametersWithIV(KeyParameter(key), iv!));
-      } else {
-        cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
-      }
-      // 注意：BlockCipher.process() 只处理「一个块」，多块必须逐块 processBlock
-      // （踩过：直接 process 一整张 275KB 的密文只解出 16 字节）。
-      final blockSize = cipher.blockSize;
-      if (cipherBytes.length % blockSize != 0) return null;
-      final plain = Uint8List(cipherBytes.length);
-      for (var offset = 0; offset < cipherBytes.length; offset += blockSize) {
-        cipher.processBlock(cipherBytes, offset, plain, offset);
-      }
-      if (plain.isEmpty) return null;
-      final pad = plain[plain.length - 1];
-      final body = (pad > 0 && pad <= 16 && pad <= plain.length)
-          ? Uint8List.sublistView(plain, 0, plain.length - pad)
-          : plain;
-      final text = utf8.decode(body, allowMalformed: true);
-      if (text.startsWith('data:')) {
-        final decoded = decodeDataUri(text);
-        if (decoded != null) return decoded;
-      }
-      return Uint8List.fromList(body);
+      return await decodeLegacySourceImageInBackground(raw, key, iv: iv);
     } catch (error) {
       LumeLog.warn('[$sourceLabel] 加密封面解密失败: $rawUrl ($error)');
       return null;
@@ -667,21 +762,7 @@ class SectionImagePipeline {
   /// 图源里有些封面是**加密后内联**的：源脚本（纯 JS）把它解出来就成了一整条
   /// `data:image/jpeg;base64,xxxx`，此时没有任何可请求的主机，只能就地解码。
   /// 支持 `;base64` 与无参数的 `data:image/png,`（后者按百分号编码解）。
-  static Uint8List? decodeDataUri(String url) {
-    final text = url.trim();
-    if (!text.startsWith('data:')) return null;
-    final comma = text.indexOf(',');
-    if (comma <= 0) return null;
-    final meta = text.substring(5, comma).toLowerCase();
-    if (!meta.startsWith('image/')) return null;
-    final payload = text.substring(comma + 1);
-    try {
-      if (meta.contains('base64')) return base64Decode(payload);
-      return Uint8List.fromList(Uri.decodeComponent(payload).codeUnits);
-    } catch (_) {
-      return null;
-    }
-  }
+  static Uint8List? decodeDataUri(String url) => decodeImageDataUri(url);
 
   Future<Uint8List?> _loadBytes(String rawUrl, {bool preload = false}) async {
     final preloadGeneration = MediaPreload.instance.generation;
@@ -699,7 +780,7 @@ class SectionImagePipeline {
     // 明文地址在这里一次性升级：内存缓存键、磁盘文件名、实际请求三者保持一致，
     // 不会同一张图存两份。
     final url = upgradeToHttps(normalizeTransform(rawUrl));
-    if (!diskCache) return _download(url);
+    if (!diskCache) return _download(url, preload: preload);
     final file = File(_diskPath(url));
     try {
       if (file.existsSync() && file.lengthSync() > 0) {
@@ -708,12 +789,12 @@ class SectionImagePipeline {
     } catch (error) {
       LumeLog.warn('图片缓存读取失败: $url ($error)');
     }
-    final speculative = MediaPreload.instance.image('$cacheDir|$url');
+    final speculative = await MediaPreload.instance.image('$cacheDir|$url');
     if (speculative != null) return speculative;
-    final downloaded = await _download(url);
+    final downloaded = await _download(url, preload: preload);
     if (downloaded == null) return null;
     if (preload) {
-      MediaPreload.instance.cacheImage(
+      await MediaPreload.instance.cacheImage(
         '$cacheDir|$url',
         downloaded,
         preloadGeneration,
@@ -730,8 +811,8 @@ class SectionImagePipeline {
     return downloaded;
   }
 
-  Future<Uint8List?> _download(String url) async {
-    final allowed = await _acquireSlot();
+  Future<Uint8List?> _download(String url, {bool preload = false}) async {
+    final allowed = await _acquireSlot(url, preload);
     if (allowed != true || _disposed) return null;
     try {
       // 防盗链 403 的第二次尝试：同一个地址换一种 Referer 再试一遍。
@@ -783,6 +864,7 @@ class SectionImagePipeline {
         final outcome = await _fetchOnce(
           requestedUrl,
           withReferer: !bareReferer,
+          isForeground: () => _isForeground(url, preload),
         );
         if (outcome.bytes != null) {
           _failures.remove(url);
@@ -925,6 +1007,7 @@ class SectionImagePipeline {
   Future<({Uint8List? bytes, bool retryable, bool forbidden})> _fetchOnce(
     String url, {
     bool withReferer = true,
+    bool Function()? isForeground,
   }) async {
     try {
       final bound = _boundSource;
@@ -945,11 +1028,14 @@ class SectionImagePipeline {
       );
       // 图片同样走全局网络队列：单域名并发（2~3）保护图床，429/503 自动退避。
       // 队列管「什么时候发」，这里只管「拿到字节后怎么用」。
-      final prefs = SourcePreferences.read(
+
+      String route(String value) => SourceRegistry.rewriteExisting(
         section,
         bound?.id ?? _sessionSourceId ?? '',
+        value,
+        kind: 'image',
       );
-      final target = prefs.rewrite(url);
+      final target = route(url);
       final outgoingHeaders = <String, String>{
         ...imageRequestHeaders(url, withReferer: withReferer),
         if (network.userAgent.trim().isNotEmpty)
@@ -973,7 +1059,12 @@ class SectionImagePipeline {
             .where((key) => key.toLowerCase() == 'referer')
             .firstOrNull;
         if (refKey != null) {
-          outgoingHeaders[refKey] = prefs.rewrite(outgoingHeaders[refKey]!);
+          outgoingHeaders[refKey] = SourceRegistry.rewriteExisting(
+            section,
+            bound?.id ?? _sessionSourceId ?? '',
+            outgoingHeaders[refKey]!,
+            kind: 'site',
+          );
         }
       }
       // Image hosts can require a normal domain cookie issued by the HTML page
@@ -991,6 +1082,7 @@ class SectionImagePipeline {
         NetworkRequest(
           url: target,
           cancellation: _requestLifetime,
+          isForeground: isForeground,
           headers: sessionHeaders,
           source: sourceLabel,
           timeout: timeout,
@@ -1034,7 +1126,10 @@ class SectionImagePipeline {
         }
         _failures.remove(url);
         final decoded = await restoreSourceImageStrips(
-          decodeSourceImage(Uint8List.fromList(bytes), explicitHeaders),
+          await decodeSourceImageInBackground(
+            Uint8List.fromList(bytes),
+            explicitHeaders,
+          ),
           explicitHeaders,
         );
         if (_disposed) return (bytes: null, retryable: false, forbidden: false);
@@ -1080,15 +1175,21 @@ class SectionImagePipeline {
   }
 
   /// 并发闸门：最多 [maxConcurrent] 个网络请求同时在跑。
-  Future<bool?> _acquireSlot() async {
+  Future<bool?> _acquireSlot(String url, bool preload) async {
     if (_disposed) return null;
+    if (_preloadWindow != null &&
+        !_preloadWindow!.contains(url) &&
+        !_isForeground(url, preload)) {
+      return false;
+    }
     if (_running < maxConcurrent) {
       _running++;
       return true;
     }
-    final waiter = Completer<void>();
-    _slots.add(waiter);
-    await waiter.future;
+    final waiter = Completer<bool>();
+    _slots.add((url: url, preload: preload, ready: waiter));
+    final granted = await waiter.future;
+    if (!granted) return false;
     if (_disposed) return null;
     // The releasing request transfers its existing slot to this waiter.
     // Incrementing again leaks capacity after the initial batch drains.
@@ -1098,7 +1199,12 @@ class SectionImagePipeline {
   void _releaseSlot() {
     if (_slots.isNotEmpty) {
       // 把名额直接转交给下一个等待者。
-      _slots.removeFirst().complete();
+      final foreground = _slots
+          .where((entry) => _isForeground(entry.url, entry.preload))
+          .firstOrNull;
+      final next = foreground ?? _slots.first;
+      _slots.remove(next);
+      next.ready.complete(true);
     } else {
       _running = _running > 0 ? _running - 1 : 0;
     }
@@ -1107,7 +1213,7 @@ class SectionImagePipeline {
   /// 唤醒全部等待者，避免页面退出后仍有请求悬挂。
   void _drainSlots() {
     while (_slots.isNotEmpty) {
-      _slots.removeFirst().complete();
+      _slots.removeFirst().ready.complete(false);
     }
     _running = 0;
   }

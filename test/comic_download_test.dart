@@ -1,3 +1,7 @@
+import 'package:lume_box/features/comic/comic_download_center.dart';
+
+import 'support/pump_io.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -28,9 +32,11 @@ void main() {
 
   late Directory root;
   late ReadingLibrary library;
+  late ComicDownloadCenter center;
 
   setUp(() async {
     root = Directory.systemTemp.createTempSync('lume_box_download');
+    center = ComicDownloadCenter(directory: () async => root);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -52,20 +58,19 @@ void main() {
 
   /// 章节列表：8 章，与章节 id 一一对应。
   List<SourceChapter> chapters(int count) => <SourceChapter>[
-        for (var index = 1; index <= count; index++)
-          SourceChapter(id: 'c$index', title: '第 $index 章'),
-      ];
+    for (var index = 1; index <= count; index++)
+      SourceChapter(id: 'c$index', title: '第 $index 章'),
+  ];
 
   /// 字节来源：按 URL 返回确定的字节；[fail] 里的 URL 返回 null（模拟取不到）。
   Future<Uint8List?> Function(String) fetcher({
     Set<String> fail = const <String>{},
     List<String>? log,
-  }) =>
-      (String url) async {
-        log?.add(url);
-        if (fail.contains(url)) return null;
-        return Uint8List.fromList(<int>[1, 2, 3, 4, url.length]);
-      };
+  }) => (String url) async {
+    log?.add(url);
+    if (fail.contains(url)) return null;
+    return Uint8List.fromList(<int>[1, 2, 3, 4, url.length]);
+  };
 
   ComicDownloader downloader({
     int imageCount = 3,
@@ -73,24 +78,24 @@ void main() {
     Set<String> fail = const <String>{},
     List<String>? log,
     FakeReadingDataSource? source,
-  }) =>
-      ComicDownloader(
-        dataSource: source ??
-            FakeReadingDataSource(
-              section: Section.comic,
-              chapterCount: chapterCount,
-              imageCount: imageCount,
-            ),
-        itemId: 'item-1',
-        works: '测试漫画',
-        library: library,
-        fetch: fetcher(fail: fail, log: log),
-      );
+  }) => ComicDownloader(
+    dataSource:
+        source ??
+        FakeReadingDataSource(
+          section: Section.comic,
+          chapterCount: chapterCount,
+          imageCount: imageCount,
+        ),
+    itemId: 'item-1',
+    works: '测试漫画',
+    library: library,
+    fetch: fetcher(fail: fail, log: log),
+  );
 
   String chapterDir(int chapterIndex) => Directory(
-        '${library.exportDir}/测试漫画/'
-        '${(chapterIndex + 1).toString().padLeft(3, '0')}_第_${chapterIndex + 1}_章',
-      ).path;
+    '${library.exportDir}/测试漫画/'
+    '${(chapterIndex + 1).toString().padLeft(3, '0')}_第_${chapterIndex + 1}_章',
+  ).path;
   List<String> dirFiles(String path) {
     final dir = Directory(path);
     if (!dir.existsSync()) return const <String>[];
@@ -105,15 +110,21 @@ void main() {
   // ------------------------------------------------------------- 范围与命名
 
   test('下载范围：全部 / 未读 / 仅当前章都按正序下标给出', () {
-    expect(
-      ComicDownloadScope.all.indices(chapterCount: 5),
-      <int>[0, 1, 2, 3, 4],
-    );
+    expect(ComicDownloadScope.all.indices(chapterCount: 5), <int>[
+      0,
+      1,
+      2,
+      3,
+      4,
+    ]);
     // 没有进度时「未读」等于全部。
-    expect(
-      ComicDownloadScope.unread.indices(chapterCount: 5),
-      <int>[0, 1, 2, 3, 4],
-    );
+    expect(ComicDownloadScope.unread.indices(chapterCount: 5), <int>[
+      0,
+      1,
+      2,
+      3,
+      4,
+    ]);
     // 读到第 3 章（下标 2）时，未读从下标 3 开始。
     expect(
       ComicDownloadScope.unread.indices(chapterCount: 5, readChapterIndex: 2),
@@ -138,7 +149,10 @@ void main() {
 
   test('落盘文件名：三位序号 + 原扩展名，认不出的扩展名退回 .jpg', () {
     expect(comicImageFileName('https://a.com/x/y/abc.jpg', 0), '001.jpg');
-    expect(comicImageFileName('https://a.com/x/y/abc.PNG?sig=1', 11), '012.png');
+    expect(
+      comicImageFileName('https://a.com/x/y/abc.PNG?sig=1', 11),
+      '012.png',
+    );
     expect(comicImageFileName('https://a.com/x/y/abc', 2), '003.jpg');
     expect(comicImageFileName('https://a.com/x/y/abc.jsp', 2), '003.jpg');
     expect(comicImageFileName('https://a.com/x/y/abc.php', 2), '003.jpg');
@@ -164,11 +178,11 @@ void main() {
     expect(requests.length, 24);
     expect(runner.progress.destination, runner.worksDir);
     for (var index = 0; index < 8; index++) {
-      expect(
-        dirFiles(chapterDir(index)),
-        <String>['001.jpg', '002.jpg', '003.jpg'],
-        reason: '第 ${index + 1} 章应有 3 张图',
-      );
+      expect(dirFiles(chapterDir(index)), <String>[
+        '001.jpg',
+        '002.jpg',
+        '003.jpg',
+      ], reason: '第 ${index + 1} 章应有 3 张图');
     }
   });
 
@@ -188,8 +202,11 @@ void main() {
   });
 
   test('失败不中断：某章取不到图只记该章失败，其余章照下', () async {
-    final source =
-        FakeReadingDataSource(section: Section.comic, chapterCount: 3, imageCount: 2);
+    final source = FakeReadingDataSource(
+      section: Section.comic,
+      chapterCount: 3,
+      imageCount: 2,
+    );
     final broken = <String>{
       // 第 2 章的两张都取不到。
       '${FakeReadingDataSource.imageHost}/c2/1.jpg',
@@ -216,7 +233,10 @@ void main() {
     }
 
     runner.addListener(onProgress);
-    await runner.start(chapters: chapters(5), indices: const <int>[0, 1, 2, 3, 4]);
+    await runner.start(
+      chapters: chapters(5),
+      indices: const <int>[0, 1, 2, 3, 4],
+    );
     runner.removeListener(onProgress);
 
     expect(runner.progress.status, ComicDownloadStatus.cancelled);
@@ -295,9 +315,15 @@ void main() {
         theme: LumeTheme.build(),
         home: ComicDetailPage(
           library: library,
+          downloadCenter: center,
           manager: FakeSourceManager(
             sources: const <SourceDescriptor>[
-              SourceDescriptor(id: 'a', name: '测试源', version: '1.0', enabled: true),
+              SourceDescriptor(
+                id: 'a',
+                name: '测试源',
+                version: '1.0',
+                enabled: true,
+              ),
             ],
             opened: <String, DataSource>{
               'a': FakeReadingDataSource(
@@ -316,16 +342,16 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
   }
 
   testWidgets('详情页：批量下载入口与范围面板', (tester) async {
     await pumpPage(tester);
 
     await tester.tap(find.byTooltip('更多章节操作'));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
     await tester.tap(find.text('批量下载'));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
 
     expect(find.text('批量下载'), findsOneWidget);
     expect(find.text('全部章节'), findsOneWidget);
@@ -340,13 +366,16 @@ void main() {
     await pumpPage(tester);
 
     await tester.tap(find.byTooltip('更多章节操作'));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
     await tester.tap(find.text('批量下载'));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
     await tester.tap(find.text('仅当前章'));
     // 逐帧推进到下载结束：网络请求在真实异步里完成，pumpAndSettle 等不到它。
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 100; i++) {
       await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
       if (find.text('下载结束（有失败）').evaluate().isNotEmpty) break;
     }
 
@@ -358,7 +387,16 @@ void main() {
     expect(find.text('关闭'), findsOneWidget);
 
     await tester.tap(find.text('关闭'));
-    await tester.pumpAndSettle();
+    await pumpIoAndSettle(tester);
     expect(find.text('下载结束（有失败）'), findsNothing, reason: '关闭后卡片收起');
+    var flushed = false;
+    center.flush().then((_) => flushed = true);
+    for (var i = 0; i < 100 && !flushed; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(flushed, isTrue);
   });
 }

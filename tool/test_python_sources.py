@@ -105,6 +105,32 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_ecc_deterministic_fallback_matches_rfc6979_vectors(self):
+        from unittest.mock import patch
+        from Crypto.PublicKey import ECC
+        from Crypto.Signature import DSS
+        from Crypto.Hash import SHA256, SHA512
+        from cryptography.hazmat.primitives.asymmetric import ec, utils
+        from cryptography.exceptions import UnsupportedAlgorithm
+        from lume_ecc import _Dss
+        real = _Dss._algorithm
+
+        def legacy(self, digest, deterministic=False):
+            if deterministic:
+                raise UnsupportedAlgorithm('Fixture: bundled legacy OpenSSL')
+            return real(self, digest, deterministic=False)
+
+        vectors = json.loads(Path(__file__).with_name('ecc_rfc6979_vectors.json').read_text())['vectors']
+        with patch.object(_Dss, '_algorithm', legacy):
+            for vector in vectors:
+                with self.subTest(curve=vector['curve'], hash=vector['hash']):
+                    key = ECC.construct(curve=vector['curve'], d=int(vector['key'], 16))
+                    digest = {'sha256':SHA256, 'sha512':SHA512}[vector['hash']].new(vector['message'].encode())
+                    signature = DSS.new(key, 'deterministic-rfc6979', encoding='der').sign(digest)
+                    r, s = utils.decode_dss_signature(signature)
+                    self.assertEqual((r,s), (int(vector['r'],16),int(vector['s'],16)))
+                    DSS.new(key.public_key(), 'deterministic-rfc6979', encoding='der').verify(digest,signature)
+
     def test_comic_python_returns_ordered_images_and_per_image_headers(self):
         source = '''
 class Spider:

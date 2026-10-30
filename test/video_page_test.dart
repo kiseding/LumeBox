@@ -255,6 +255,8 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('MPV'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
@@ -305,6 +307,8 @@ void main() {
 
       // 切到 MPV：初始化抛错 → 回退 AVPlayer + 提示。
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('MPV'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
@@ -361,6 +365,8 @@ void main() {
       // 换成 MPV 内核：同一块 HUD 直接显示 MPV 的参数，页面代码零改动。
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('MPV'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('MPV'));
       await tester.pumpAndSettle();
       // 设置是弹窗：用它的关闭按钮收起（不再是整页返回）。
@@ -397,10 +403,13 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.dragUntilVisible(
-        find.text('1.5x'),
-        find.byType(ListView).last,
-        const Offset(0, -160),
+      await tester.ensureVisible(
+        find
+            .descendant(
+              of: find.byType(PlayerSettingsSheet),
+              matching: find.widgetWithText(ChoiceChip, '1.5x'),
+            )
+            .first,
       );
       await tester.pumpAndSettle();
       await tester.tap(
@@ -515,6 +524,7 @@ void main() {
         tester,
         available: <PlayerKernel>{PlayerKernel.avplayer},
       );
+      created.single.volumes.clear();
 
       final layer = _gestureLayerRect(tester);
       await _dragInSteps(
@@ -671,7 +681,7 @@ void main() {
       await tester.pump();
 
       expect(created.single.applied?.speed, 2.0, reason: '长按在 1.0x 基础上翻倍');
-      expect(find.textContaining('快进'), findsOneWidget);
+      expect(find.textContaining('临时 2.0x · 松手恢复 1.0x'), findsOneWidget);
 
       await gesture.up();
       await tester.pumpAndSettle();

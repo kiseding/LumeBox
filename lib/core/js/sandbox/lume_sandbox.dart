@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../net/network_cancellation.dart';
 import '../../util/lume_log.dart';
 import 'sandbox_context.dart';
 import 'sandbox_host.dart';
@@ -93,31 +94,27 @@ class LumeSandbox {
   String? get loadedSource => _source;
 
   /// 载入脚本。成功后源码被记住，后续上下文重建会自动重放。
-  Future<SandboxResult> load(String source) => _operate(
-        'load',
-        (context, budget) {
-          final result = context.loadSource(source);
-          _source = result.isOk ? source : null;
-          if (!result.isOk) {
-            LumeLog.warn('[$id] 脚本载入失败: ${result.error}');
-          }
-          return Future<SandboxResult>.value(result);
-        },
-      );
+  Future<SandboxResult> load(String source) =>
+      _operate('load', (context, budget) {
+        final result = context.loadSource(source);
+        _source = result.isOk ? source : null;
+        if (!result.isOk) {
+          LumeLog.warn('[$id] 脚本载入失败: ${result.error}');
+        }
+        return Future<SandboxResult>.value(result);
+      });
 
   /// 求值一段 JS 并返回其 JSON 结果。
   Future<SandboxResult> eval(String code, {String? fileName}) => _operate(
-        'eval',
-        (context, budget) =>
-            Future<SandboxResult>.value(context.evalJson(code, fileName: fileName)),
-      );
+    'eval',
+    (context, budget) =>
+        Future<SandboxResult>.value(context.evalJson(code, fileName: fileName)),
+  );
 
   /// Dart → JS 调用：`path` 支持点号路径（如 `LumeSource.latest`），
   /// 参数与返回值均为 JSON 可序列化值。
-  Future<SandboxResult> call(String path, [Object? argument]) => _operate(
-        'call:$path',
-        (context, budget) => context.call(path, argument),
-      );
+  Future<SandboxResult> call(String path, [Object? argument]) =>
+      _operate('call:$path', (context, budget) => context.call(path, argument));
 
   /// 销毁当前上下文并释放资源。可重复调用。
   ///
@@ -134,7 +131,7 @@ class LumeSandbox {
   Future<SandboxResult> _operate(
     String label,
     Future<SandboxResult> Function(SandboxContext context, SandboxBudget budget)
-        action,
+    action,
   ) {
     if (_disposed) {
       return Future<SandboxResult>.value(
@@ -143,7 +140,10 @@ class LumeSandbox {
     }
     if (!SandboxContext.isSupported) {
       return Future<SandboxResult>.value(
-        SandboxFailure(SandboxErrorKind.unsupported, SandboxContext.availabilityDetail),
+        SandboxFailure(
+          SandboxErrorKind.unsupported,
+          SandboxContext.availabilityDetail,
+        ),
       );
     }
     final completer = Completer<SandboxResult>();
@@ -151,11 +151,13 @@ class LumeSandbox {
       if (completer.isCompleted) return;
       try {
         completer.complete(await _execute(label, action));
+      } on NetworkCancelled catch (error, stackTrace) {
+        // Page navigation is expected, and must retain its typed cancellation
+        // through the JS boundary instead of becoming an engine error + stack.
+        completer.completeError(error, stackTrace);
       } catch (error, stackTrace) {
         LumeLog.error(error, stackTrace);
-        completer.complete(
-          SandboxFailure(SandboxErrorKind.engine, '$error'),
-        );
+        completer.complete(SandboxFailure(SandboxErrorKind.engine, '$error'));
       }
     });
     return completer.future;
@@ -164,8 +166,9 @@ class LumeSandbox {
   Future<SandboxResult> _execute(
     String label,
     Future<SandboxResult> Function(SandboxContext context, SandboxBudget budget)
-        action,
+    action,
   ) async {
+    NetworkCancellation.current?.check();
     if (_disposed) {
       return const SandboxFailure(SandboxErrorKind.disposed, '沙箱已释放');
     }
@@ -179,6 +182,7 @@ class LumeSandbox {
     context.beginOperation(budget);
     try {
       final result = await action(context, budget);
+      NetworkCancellation.current?.check();
       if (!result.isOk) {
         _lastFailure = result.error;
         LumeLog.warn('[$id] $label 失败: ${result.error}');

@@ -73,11 +73,13 @@ dependencies:
   pointycastle: ^4.0.0
   sherpa_onnx: ^1.13.8
   tflite_flutter: ^0.12.1
-  xml: ^7.1.0
+  # flutter_svg 的编译器目前支持到 xml 7.0.1；朗读 SSML 与图标解析共用。
+  xml: 7.0.1
   lume_cat_node:
     path: third_party/lume_cat_node
   cupertino_http: 3.1.0
   palette_generator: 0.3.3+7
+  flutter_svg: ^2.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -121,6 +123,8 @@ flutter:
     - assets/shaders/comic_page_filters.frag
     - assets/shaders/comic_glass.frag
   assets:
+    - assets/source_icons/
+    - assets/branding/
     - assets/rex/lumebox_demo.js
     - assets/reference/
     - assets/js/
@@ -128,8 +132,17 @@ flutter:
     - assets/local_danmaku/
     - assets/icon/
     - assets/models/waifu2x/
-    - assets/models/intro/
-    - assets/speech/vits_aishell3/
+    - assets/models/intro/mobileclip_s0_image.zip
+    - assets/models/intro/anchor_vectors.json
+    - assets/models/intro/yamnet.tflite
+    - assets/models/intro/prompts.json
+    - assets/models/intro/compact_checksums.json
+    - assets/models/intro/MobileCLIP-LICENSE.txt
+    - assets/models/intro/MobileCLIP-LICENSE_MODELS.txt
+    - assets/models/intro/MobileCLIP-ACKNOWLEDGEMENTS.txt
+    - assets/models/intro/YAMNet-LICENSE.txt
+    - assets/speech/vits_aishell3/manifest.json
+    - assets/speech/vits_aishell3/runtime/
 
 # 图标生成配置：只生成 iOS 图标；remove_alpha_ios 强制抹除 Alpha 通道
 # （iOS 图标不接受透明通道，实色底才能通过系统图标校验）。

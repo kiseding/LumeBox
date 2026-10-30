@@ -175,6 +175,7 @@ class ICloudSync extends ChangeNotifier with WidgetsBindingObserver {
       if (!Section.values.any((s) => s.id == key[0])) return false;
       return key[1] == 'library_item' ||
           key[1] == 'reading_progress' ||
+          key[1] == 'video_episode_progress' ||
           key[1] == 'reading_setting' &&
               (key[2] == 'favorites.folders' ||
                   includeSettings &&
@@ -261,6 +262,81 @@ class ICloudSync extends ChangeNotifier with WidgetsBindingObserver {
     return result;
   }
 
+  Future<Map<String, Map<String, dynamic>>> _normalize(
+    Map<String, Map<String, dynamic>> records,
+  ) async {
+    final result = <String, Map<String, dynamic>>{};
+    final owners = <String, Set<String>>{};
+    for (final e in records.entries) {
+      final value = e.value['value'];
+      final key = jsonDecode(e.key) as List;
+      if (value is Map && value['source_id'] is String) {
+        owners
+            .putIfAbsent('${key[0]}:${value['item_id']}', () => {})
+            .add(value['source_id'] as String);
+      }
+    }
+    for (final e in records.entries) {
+      final key = jsonDecode(e.key) as List;
+      if (![
+        'library_item',
+        'reading_progress',
+        'video_episode_progress',
+        'reading_setting',
+      ].contains(key[1])) {
+        result[e.key] = e.value;
+        continue;
+      }
+      final section = Section.values.where((s) => s.id == key[0]).firstOrNull;
+      if (section == null) continue;
+      final store = await ReadingStore.open(section);
+      Object? value = e.value['value'];
+      if (value is Map && key[1] != 'reading_setting') {
+        value = {
+          ...value,
+          'source_id':
+              value['source_id'] ??
+              (owners['${key[0]}:${value['item_id']}']?.length == 1
+                  ? owners['${key[0]}:${value['item_id']}']!.single
+                  : null) ??
+              store.sourceFor('${value['item_id']}') ??
+              '',
+        };
+      }
+      final normalized = store
+          .normalizeCloudRecords({e.key: value})
+          .entries
+          .single;
+      final next = {...e.value, 'value': normalized.value};
+      result.addAll(
+        CloudMerge.merge([
+          result,
+          {normalized.key: next},
+        ]),
+      );
+    }
+    // Version-one snapshots had only the latest episode. Preserve that checkpoint
+    // as an episode record without inventing history for other episodes.
+    for (final e in result.entries.toList()) {
+      final key = jsonDecode(e.key) as List;
+      final row = e.value['value'];
+      if (key[1] == 'reading_progress' &&
+          row is Map &&
+          row['progress_kind'] == 'video') {
+        final episodeKey = jsonEncode([
+          key[0],
+          'video_episode_progress',
+          ReadingStore.cloudIdentity('video_episode_progress', row),
+        ]);
+        result.putIfAbsent(
+          episodeKey,
+          () => Map<String, dynamic>.from(e.value),
+        );
+      }
+    }
+    return result;
+  }
+
   Future<void> sync({bool acceptAccount = false}) =>
       _syncing ??= _run(acceptAccount).whenComplete(() => _syncing = null);
   Future<void> _run(bool acceptAccount) async {
@@ -302,9 +378,16 @@ class ICloudSync extends ChangeNotifier with WidgetsBindingObserver {
       for (final raw in remote!['documents'] as List) {
         if (raw is! String) throw const FormatException('云端快照无效');
         documents.add(
-          CloudMerge.decode(raw)..removeWhere((key, _) => !_allowed(key)),
+          (await _normalize(CloudMerge.decode(raw)))
+            ..removeWhere((key, _) => !_allowed(key)),
         );
       }
+      _records = await _normalize(_records);
+      final baseline = await _normalize({
+        for (final e in _baseline.entries)
+          e.key: {'value': e.value, 'stamp': 0, 'device': _device},
+      });
+      _baseline = {for (final e in baseline.entries) e.key: e.value['value']};
       final local = await _snapshot();
       final own = Map<String, Map<String, dynamic>>.from(_records)
         ..removeWhere((key, _) => !_allowed(key));
@@ -342,6 +425,7 @@ class ICloudSync extends ChangeNotifier with WidgetsBindingObserver {
         if ([
           'library_item',
           'reading_progress',
+          'video_episode_progress',
           'reading_setting',
         ].contains(key[1])) {
           validation.putIfAbsent(key[0], () => {})[entry.key] =
@@ -372,6 +456,7 @@ class ICloudSync extends ChangeNotifier with WidgetsBindingObserver {
         final value = entry.value['value'];
         if (key[1] == 'library_item' ||
             key[1] == 'reading_progress' ||
+            key[1] == 'video_episode_progress' ||
             key[1] == 'reading_setting') {
           bySection.putIfAbsent(key[0], () => {})[entry.key] = value;
         } else if (key[0] == 'global' && value is Map) {

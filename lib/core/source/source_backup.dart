@@ -1,3 +1,5 @@
+import 'source_site_config.dart';
+
 import 'dart:convert';
 
 import '../js/source_registry.dart';
@@ -100,6 +102,7 @@ class SourceBackupEntry {
     required this.version,
     required this.script,
     required this.enabled,
+    this.siteConfig,
     this.originUrl = '',
     this.userAgent = '',
     this.proxy = '',
@@ -111,6 +114,7 @@ class SourceBackupEntry {
   final String version;
   final String script;
   final bool enabled;
+  final SourceSiteConfig? siteConfig;
 
   /// 订阅来源地址（订阅导入的图源才有）。
   final String originUrl;
@@ -126,11 +130,35 @@ class SourceBackupEntry {
     'version': version,
     'script': script,
     'enabled': enabled,
+    if (siteConfig != null) 'siteConfig': _safeSite(siteConfig!).toJson(),
     if (originUrl.isNotEmpty) 'originUrl': originUrl,
     if (userAgent.isNotEmpty) 'userAgent': userAgent,
     if (proxy.isNotEmpty) 'proxy': proxy,
     if (group.isNotEmpty) 'group': group,
   };
+
+  static SourceSiteConfig _safeSite(SourceSiteConfig site) {
+    bool safe(String key) => !RegExp(
+      r'password|secret|token|cookie|authorization|api.?key|credential',
+      caseSensitive: false,
+    ).hasMatch(key);
+    Map<String, Object?> values(Map<String, Object?> raw) => {
+      for (final e in raw.entries)
+        if (safe(e.key)) e.key: e.value,
+    };
+    return site.copyWith(
+      account: '',
+      password: '',
+      settingDefinitions: site.settingDefinitions
+          .where((s) => safe(s.key))
+          .toList(),
+      commonDefinitions: site.commonDefinitions
+          .where((s) => safe(s.key))
+          .toList(),
+      settingValues: values(site.settingValues),
+      appSettingValues: values(site.appSettingValues),
+    );
+  }
 
   static SourceBackupEntry? parse(Object? json) {
     if (json is! Map) return null;
@@ -143,6 +171,9 @@ class SourceBackupEntry {
       version: '${json['version'] ?? ''}',
       script: script,
       enabled: json['enabled'] != false,
+      siteConfig: json['siteConfig'] == null
+          ? null
+          : _safeSite(SourceSiteConfig.fromJson(json['siteConfig'])),
       originUrl: '${json['originUrl'] ?? ''}',
       userAgent: '${json['userAgent'] ?? ''}',
       proxy: '${json['proxy'] ?? ''}',
@@ -223,6 +254,7 @@ class SourceBackupService {
               userAgent: record.network.userAgent,
               proxy: record.network.proxy,
               group: record.group,
+              siteConfig: record.siteConfig,
             ),
         ];
       } catch (error, stackTrace) {
@@ -272,8 +304,25 @@ class SourceBackupService {
             continue;
           }
           // 启停状态与网络覆盖属于备份里的用户配置，恢复时一并写回。
+          registry.rename(record.id, item.name);
           registry.setEnabled(record.id, item.enabled);
           registry.setGroup(record.id, item.group);
+          final site = item.siteConfig;
+          if (site != null) {
+            registry.setSourceSiteConfig(
+              record.id,
+              record.siteConfig.copyWith(
+                mirrors: site.mirrors,
+                mirrorIndex: site.mirrorIndex,
+                mirrorUrl: site.mirrorUrl,
+                domainOverride: site.domainOverride,
+                images: site.images,
+                video: site.video,
+                settingValues: site.settingValues,
+                appSettingValues: site.appSettingValues,
+              ),
+            );
+          }
           if (item.userAgent.isNotEmpty || item.proxy.isNotEmpty) {
             registry.setSourceNetwork(
               record.id,

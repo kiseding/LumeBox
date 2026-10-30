@@ -1,6 +1,6 @@
 import 'player_settings_panel.dart';
 import '../../shared/widgets/native_glass_controls.dart';
-import '../../shared/widgets/native_glass_surfaces.dart';
+import 'danmaku/danmaku_panel.dart';
 
 import 'dart:convert';
 import 'dart:io';
@@ -483,8 +483,9 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
             IconButton(
               tooltip: '使用说明',
               icon: const Icon(Icons.help_outline_rounded, size: 21),
-              onPressed: () => showGlassDialog<void>(
+              onPressed: () => showPlayerDialog<void>(
                 context: context,
+                onlyInPlayer: true,
                 useRootNavigator: false,
                 builder: (context) => AlertDialog(
                   title: const Text('片头片尾识别'),

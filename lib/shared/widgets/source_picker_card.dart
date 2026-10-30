@@ -21,10 +21,14 @@ class SourcePickerCard extends StatelessWidget {
     required this.onMore,
     this.titleTrailing,
     this.moreTooltip = '源操作',
+    this.titleMaxLines = 1,
+    this.height = SourceCardMetrics.height,
   });
 
   final Key? tapKey, moreKey, surfaceKey;
   final String title, moreTooltip;
+  final int titleMaxLines;
+  final double height;
   final Widget subtitle, icon;
   final Widget? titleTrailing;
   final bool selected;
@@ -43,7 +47,7 @@ class SourcePickerCard extends StatelessWidget {
       child: Semantics(
         selected: selected,
         child: SizedBox(
-          height: SourceCardMetrics.height,
+          height: height,
           child: DecoratedBox(
             key: surfaceKey,
             decoration: BoxDecoration(
@@ -90,7 +94,7 @@ class SourcePickerCard extends StatelessWidget {
                                           SourceDisplayNames.withoutRatingSuffix(
                                             title,
                                           ),
-                                          maxLines: 1,
+                                          maxLines: titleMaxLines,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontSize: 15,
