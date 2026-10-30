@@ -383,7 +383,7 @@ void main() {
       await tester.tap(find.byTooltip('视图：列表'));
       await tester.pumpAndSettle();
       expect(PlayerExperienceStore.current.text('episodeView'), 'cover');
-      await tester.tap(find.byTooltip('关闭'));
+      await tester.tapAt(const Offset(20, 20));
       await tester.pumpAndSettle();
       await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
@@ -1034,33 +1034,19 @@ void main() {
       expect(find.byTooltip('上一集'), findsNothing);
       await tester.tap(find.byTooltip('线路 / 选集'));
       await tester.pumpAndSettle();
-      expect(find.text('选集与线路'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(PlayerSourceSheet),
-          matching: find.text('画质'),
-        ),
-        findsNothing,
-      );
-      await tester.tap(find.byTooltip('关闭'));
+      // 标题行已并入图标工具条：面板里没有大标题，只有集数与图标。
+      expect(find.text('选集与线路'), findsNothing);
+      expect(find.byTooltip('选集'), findsOneWidget);
+      expect(find.byTooltip('画质'), findsNothing);
+      await tester.tapAt(const Offset(20, 20));
       await tester.pumpAndSettle();
       await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byType(PlayerSourceSheet),
-          matching: find.text('画质'),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('选集与线路'), findsNothing);
-      expect(
-        find.descendant(
-          of: find.byType(PlayerSourceSheet),
-          matching: find.text('选集'),
-        ),
-        findsNothing,
-      );
+      // 画质面板只剩列表与信息图标，没有分区切换。
+      expect(find.byType(PlayerSourceSheet), findsOneWidget);
+      expect(find.byTooltip('选集'), findsNothing);
+      expect(find.byTooltip('线路'), findsNothing);
+      expect(find.byTooltip('画质'), findsNothing);
     });
 
     testWidgets('横屏按钮外移后左右边距为系统安全区加8，点击框至少44', (tester) async {

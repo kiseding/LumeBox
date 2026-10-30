@@ -490,8 +490,6 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   int _chapterCount = 0;
 
-  String get _title => _qualityOnly ? '画质' : '选集与线路';
-
   IconData get _viewIcon => switch (_view) {
     PlayerEpisodeView.grid => Icons.grid_view_rounded,
     PlayerEpisodeView.list => Icons.view_list_rounded,
@@ -526,11 +524,17 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     return IconButton(
       tooltip: tooltip,
       onPressed: _busy ? null : onPressed,
-      icon: Icon(icon, size: 19),
+      icon: Icon(icon, size: 18),
       padding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+      // 走 ButtonStyle 的 IconButton 会忽略 constraints，必须把尺寸写进样式，
+      // 否则默认 40×40 会把 8 个图标挤到第二行。
       style: IconButton.styleFrom(
+        minimumSize: const Size(32, 32),
+        maximumSize: const Size(32, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: EdgeInsets.zero,
         foregroundColor: selected ? colors.primary : colors.onSurfaceVariant,
         backgroundColor: selected
             ? colors.primary.withValues(alpha: .14)
@@ -607,60 +611,91 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     ),
   );
 
-  Widget _buildToolbar() => Wrap(
-    alignment: WrapAlignment.end,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    spacing: 2,
-    children: [
-      if (!_qualityOnly) ...[
-        for (final entry in [
-          (PlayerSourceTab.episodes, Icons.video_library_outlined, '选集'),
-          (PlayerSourceTab.lines, Icons.alt_route, '线路'),
-          if (widget.includeQualityTab)
-            (PlayerSourceTab.quality, Icons.hd_outlined, '画质'),
-        ])
-          _toolIcon(
-            entry.$2,
-            entry.$3,
-            selected: _tab == entry.$1,
-            onPressed: () => setState(() {
-              _tab = entry.$1;
-              _error = null;
-            }),
-          ),
-        if (_tab == PlayerSourceTab.episodes) ...[
-          _toolIcon(_viewIcon, '视图：${_view.label}', onPressed: _cycleView),
-          _toolIcon(
-            Icons.swap_vert,
-            _reverse ? '倒序' : '正序',
-            onPressed: () {
-              setState(() => _reverse = !_reverse);
-              _locateCurrent();
-            },
-          ),
-          _toolIcon(
-            Icons.my_location,
-            '定位当前',
-            onPressed: _chapterCount == 0 ? null : _locateCurrent,
-          ),
-          if (_chapterCount > 50)
-            Builder(
-              builder: (anchor) => _toolIcon(
-                Icons.layers_outlined,
-                '分段：${_segmentLabel(_segment)}',
-                onPressed: () => _pickSegment(anchor),
-              ),
+  /// 一行到底：左边集数，右边全部小图标；标题行与关闭按钮不再占位。
+  Widget _buildToolbar() {
+    final count =
+        !_qualityOnly && _tab == PlayerSourceTab.episodes && _chapterCount > 0;
+    return Row(
+      children: [
+        if (count)
+          Text(
+            '共 $_chapterCount 集',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-          _toolIcon(
-            Icons.numbers,
-            '跳转集数',
-            onPressed: _chapterCount == 0 ? null : _jump,
           ),
-        ],
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 1,
+            children: [
+              if (!_qualityOnly) ...[
+                for (final entry in [
+                  (
+                    PlayerSourceTab.episodes,
+                    Icons.video_library_outlined,
+                    '选集',
+                  ),
+                  (PlayerSourceTab.lines, Icons.alt_route, '线路'),
+                  if (widget.includeQualityTab)
+                    (PlayerSourceTab.quality, Icons.hd_outlined, '画质'),
+                ])
+                  _toolIcon(
+                    entry.$2,
+                    entry.$3,
+                    selected: _tab == entry.$1,
+                    onPressed: () => setState(() {
+                      _tab = entry.$1;
+                      _error = null;
+                    }),
+                  ),
+                if (_tab == PlayerSourceTab.episodes) ...[
+                  _toolIcon(
+                    _viewIcon,
+                    '视图：${_view.label}',
+                    onPressed: _cycleView,
+                  ),
+                  _toolIcon(
+                    Icons.swap_vert,
+                    _reverse ? '倒序' : '正序',
+                    onPressed: () {
+                      setState(() => _reverse = !_reverse);
+                      _locateCurrent();
+                    },
+                  ),
+                  _toolIcon(
+                    Icons.my_location,
+                    '定位当前',
+                    onPressed: _chapterCount == 0 ? null : _locateCurrent,
+                  ),
+                  if (_chapterCount > 50)
+                    Builder(
+                      builder: (anchor) => _toolIcon(
+                        Icons.layers_outlined,
+                        '分段：${_segmentLabel(_segment)}',
+                        onPressed: () => _pickSegment(anchor),
+                      ),
+                    ),
+                  _toolIcon(
+                    Icons.numbers,
+                    '跳转集数',
+                    onPressed: _chapterCount == 0 ? null : _jump,
+                  ),
+                ],
+              ],
+              _toolIcon(
+                Icons.info_outline,
+                '播放信息',
+                onPressed: _showPlaybackInfo,
+              ),
+            ],
+          ),
+        ),
       ],
-      _toolIcon(Icons.info_outline, '播放信息', onPressed: _showPlaybackInfo),
-    ],
-  );
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Material(
@@ -670,40 +705,11 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     borderRadius: BorderRadius.circular(24),
     clipBehavior: Clip.antiAlias,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text(
-                _title,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (!_qualityOnly &&
-                  _tab == PlayerSourceTab.episodes &&
-                  _chapterCount > 0) ...[
-                const SizedBox(width: 8),
-                Text(
-                  '共 $_chapterCount 集',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const Spacer(),
-              IconButton(
-                tooltip: '关闭',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close, size: 22),
-              ),
-            ],
-          ),
-          if (!_qualityOnly) _buildToolbar(),
+          _buildToolbar(),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             Semantics(
