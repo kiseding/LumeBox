@@ -49,7 +49,11 @@ class PlayerSourceSheet extends StatefulWidget {
     this.initialView = PlayerEpisodeView.grid,
     this.onViewChanged,
     this.artworkBuilder,
+    this.fullBleed = false,
   });
+
+  /// 竖屏抽屉铺满屏幕宽度：卡片贴边，只有工具条保留内边距。
+  final bool fullBleed;
   final String address;
   final List<VideoQuality> qualities;
   final int currentIndex;
@@ -728,18 +732,31 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     borderRadius: BorderRadius.circular(24),
     clipBehavior: Clip.antiAlias,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 16, 8),
+      padding: EdgeInsets.fromLTRB(
+        widget.fullBleed ? 0 : 14,
+        8,
+        widget.fullBleed ? 0 : 16,
+        8,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildToolbar(),
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.fullBleed ? 14 : 0,
+            ),
+            child: _buildToolbar(),
+          ),
           const SizedBox(height: 4),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             Semantics(
               liveRegion: true,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: EdgeInsets.symmetric(
+                  vertical: 6,
+                  horizontal: widget.fullBleed ? 14 : 0,
+                ),
                 child: Text(
                   _error!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),

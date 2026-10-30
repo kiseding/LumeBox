@@ -18,6 +18,7 @@ Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool edgeDrawer = true,
+  bool fullBleedPortrait = false,
 }) {
   return showGlassModalBottomSheet<T>(
     context: context,
@@ -40,6 +41,7 @@ Future<T?> showDanmakuPanel<T>({
         ),
         DanmakuPanelFrame(
           edgeDrawer: edgeDrawer,
+          fullBleedPortrait: fullBleedPortrait,
           child: PlayerPanelScope(child: builder(context)),
         ),
       ],
@@ -53,10 +55,14 @@ class DanmakuPanelFrame extends StatefulWidget {
     required this.child,
     this.screenPadding,
     this.edgeDrawer = true,
+    this.fullBleedPortrait = false,
   });
   final Widget child;
   final EdgeInsets? screenPadding;
   final bool edgeDrawer;
+
+  /// 竖屏抽屉左右不留白（选集面板要求卡片直接做到屏幕两边）。
+  final bool fullBleedPortrait;
   @override
   State<DanmakuPanelFrame> createState() => _DanmakuPanelFrameState();
 }
@@ -89,6 +95,15 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
       curve: Curves.easeOutCubic,
       padding: edge
           ? EdgeInsets.only(bottom: keyboard)
+          : widget.fullBleedPortrait && !landscape
+          ? EdgeInsets.fromLTRB(
+              0,
+              keyboard > 0 ? 8 : media.viewPadding.top + 8,
+              0,
+              keyboard > 0
+                  ? keyboard + 8
+                  : math.max(media.viewPadding.bottom, 8.0),
+            )
           : EdgeInsets.fromLTRB(
               math.max(media.viewPadding.left, safe.left) + 8,
               keyboard > 0 ? 8 : media.viewPadding.top + 8,

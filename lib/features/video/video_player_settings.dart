@@ -45,6 +45,9 @@ class VideoPlayerSettingsStore {
   static const String keyControlStyle = 'video.player.controlStyle';
   static const String keyAutoHideControls = 'video.player.autoHideControls';
 
+  /// 竖屏短剧上滑切下一集（缺键按「关」）。
+  static const String keySwipeUpNext = 'video.player.swipeUpNext';
+
   /// 手势灵敏度（亮度 / 音量垂直滑动）。
   static const String keyGestureSensitivity = 'video.player.gestureSensitivity';
 
@@ -106,6 +109,7 @@ class VideoPlayerSettingsStore {
           ? PlayerControlStyle.text
           : PlayerControlStyle.icons,
       autoHideControls: _library.setting(keyAutoHideControls) != 'false',
+      swipeUpNext: _library.setting(keySwipeUpNext) == 'true',
       // 同上：缺键按「开」（历史行为就是一集播完自动进下一集）。
       autoNext: _library.setting(keyAutoNext) != 'false',
       gestureSensitivity: _gestureSensitivityOf(_library),
@@ -165,6 +169,10 @@ class VideoPlayerSettingsStore {
     _library.setSetting(keyControlStyle, settings.controlStyle.name);
     _library.setSetting(keyKernel, settings.kernel.id);
     _library.setSetting(keyAutoNext, settings.autoNext ? 'true' : 'false');
+    _library.setSetting(
+      keySwipeUpNext,
+      settings.swipeUpNext ? 'true' : 'false',
+    );
     for (final entry in settings.prefs.entries) {
       _library.setSetting(
         keyPrefsFor(entry.key),

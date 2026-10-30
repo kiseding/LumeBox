@@ -812,6 +812,37 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             ),
           ),
           const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '竖屏短剧上滑切下一集',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: LumeTypography.titleSize,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              Switch(
+                value: settings.swipeUpNext,
+                onChanged: (value) =>
+                    _update(settings.copyWith(swipeUpNext: value)),
+              ),
+            ],
+          ),
+          Text(
+            settings.swipeUpNext
+                ? '竖屏时在画面中间上滑即切下一集（左右两侧仍是亮度/音量）'
+                : '关闭时画面中间的竖直滑动不做动作',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: LumeTypography.descriptionSize,
+              height: 1.4,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
             _orientation == PlaybackOrientation.portrait
                 ? '竖屏全屏（竖屏短剧想一直竖着看，或横片也想竖着看时选它）'

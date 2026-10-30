@@ -52,8 +52,10 @@ Future<T?> showPlaybackMenu<T>({
   bool isScrollControlled = false,
   bool useSafeArea = false,
   bool edgeDrawer = true,
+  bool fullBleedPortrait = false,
 }) => showDanmakuPanel<T>(
   context: context,
   builder: builder,
   edgeDrawer: edgeDrawer,
+  fullBleedPortrait: fullBleedPortrait,
 );

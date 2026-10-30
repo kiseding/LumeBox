@@ -26,8 +26,6 @@ import '../../core/net/ios_verified_webview.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
@@ -348,6 +346,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _overlayVisible = true;
   String? _hint;
   Timer? _hintTimer;
+  bool _swipeNextFired = false;
 
   /// 控制栏自动隐藏的计时器（用户要求：播放中无操作 N 秒收起，点屏幕唤回）。
   Timer? _autoHideTimer;
@@ -1660,10 +1659,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool isScrollControlled = false,
     bool useSafeArea = false,
     bool edgeDrawer = true,
+    bool fullBleedPortrait = false,
   }) => showPlaybackMenu<T>(
     context: context,
     builder: builder,
     edgeDrawer: edgeDrawer,
+    fullBleedPortrait: fullBleedPortrait,
     glass: _settings.playbackGlass,
     backgroundColor: backgroundColor,
     isScrollControlled: isScrollControlled,
@@ -2919,6 +2920,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   void _onGestureDown(DragDownDetails details, Size size) {
+    _swipeNextFired = false;
     _gestureOrigin = details.globalPosition;
     _gestureStartFraction = size.width <= 0
         ? 0.5
@@ -2944,6 +2946,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final start = _localPositionOf(origin, size);
     final totalDx = current.dx - start.dx;
     final totalDy = current.dy - start.dy;
+
+    // 竖屏短剧：画面中间带的上滑切下一集（开关打开时才拦截；两侧仍是亮度/音量）。
+    // 必须在意图判定之前吃掉竖直位移，否则第一次 update 就会被判成音量手势。
+    final middleSwipe =
+        _settings.swipeUpNext &&
+        size.height > size.width &&
+        _gestureStartFraction > .34 &&
+        _gestureStartFraction < .66 &&
+        totalDy.abs() > totalDx.abs();
+    if (middleSwipe) {
+      if (!_swipeNextFired && totalDy < -72) {
+        _swipeNextFired = true;
+        _endBoost();
+        final current = _target;
+        if (current != null && !_advancing) {
+          unawaited(_playEpisodeAt(current.chapterIndex + 1));
+        }
+      }
+      return;
+    }
 
     // 已判定的意图优先：中途不换功能（换功能最让人恼火）。
     var intent = _gesture.intent;
@@ -3946,7 +3968,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                           if (portrait) ...[
                             Positioned(
                               left: VideoPlayerPage.controlHorizontalPadding,
-                              bottom: 104,
+                              // 用户口径：放在屏幕下方三分之一处。
+                              bottom: media.height / 3,
                               child: _topIcon(
                                 icon: Icons.lock_open,
                                 tooltip: '锁定（防误触）',
@@ -3958,7 +3981,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                             ),
                             Positioned(
                               right: VideoPlayerPage.controlHorizontalPadding,
-                              bottom: 104,
+                              bottom: media.height / 3,
                               child: _topIcon(
                                 icon: Icons.screen_rotation_alt,
                                 tooltip: '横竖屏切换',
@@ -4079,8 +4102,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildImmersiveTopBar() => LayoutBuilder(
     builder: (context, constraints) {
       final narrow = constraints.maxWidth < 580;
-      final media = MediaQuery.sizeOf(context);
-      final portrait = media.height > media.width;
       final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
       final episode = _target?.chapterTitle.trim();
       Widget caption(PlayerStats stats) {
@@ -4117,13 +4138,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PlayerClock(
-              // 竖屏竖向空间紧，网速并到时间行右侧；横屏仍在进度条上方独占一行。
-              stats: portrait ? _player?.stats : null,
-              networkKbps: portrait && _showNetworkSpeed
-                  ? _networkSpeed.kbps
-                  : null,
-            ),
+            const _PlayerClock(),
             const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -4342,10 +4357,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             builder: (context, snapshot, _) => Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                if (_showNetworkSpeed &&
-                    _player != null &&
-                    MediaQuery.sizeOf(context).width >
-                        MediaQuery.sizeOf(context).height)
+                if (_showNetworkSpeed && _player != null)
                   Align(
                     alignment: Alignment.centerRight,
                     child: ConstrainedBox(
@@ -5217,7 +5229,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,
+      // 选集抽屉在竖屏里卡片直接做到屏幕两边（用户口径）。
+      fullBleedPortrait: true,
       builder: (sheetContext) => PlayerSourceSheet(
+        fullBleed: true,
         initialTab: initialTab,
         initialView:
             PlayerEpisodeView.values
@@ -5770,12 +5785,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
 /// 全屏顶边的状态行：左侧时间、右侧真实电量。
 class _PlayerClock extends StatefulWidget {
-  const _PlayerClock({this.stats, this.networkKbps});
-
-  /// 竖屏时把网速并进这一行；横屏传 null，仍在进度条上方单独显示。
-  final ValueListenable<PlayerStats>? stats;
-  final ValueListenable<int?>? networkKbps;
-
+  const _PlayerClock();
   @override
   State<_PlayerClock> createState() => _PlayerClockState();
 }
@@ -5835,16 +5845,6 @@ class _PlayerClockState extends State<_PlayerClock> {
           key: const Key('player-status-row'),
           children: [
             Text(time, key: const Key('player-clock-text'), style: style),
-            if (widget.stats != null) ...[
-              const SizedBox(width: 8),
-              PlayerStatsInline(
-                key: const Key('portrait-network-speed'),
-                stats: widget.stats!,
-                networkKbps: widget.networkKbps,
-                showResolution: false,
-                dimmed: true,
-              ),
-            ],
             const Spacer(),
             if (_batteryPercent != null)
               Row(

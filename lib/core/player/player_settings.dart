@@ -423,6 +423,7 @@ class PlayerSettings {
     this.subtitlesEnabled = true,
     this.hardwareDecoding = true,
     this.autoHideControls = true,
+    this.swipeUpNext = false,
     this.backgroundSourceValidation = true,
     this.rememberManualQuality = false,
     this.manualQualityLabel = '',
@@ -519,6 +520,9 @@ class PlayerSettings {
   /// 播放中 N 秒无操作就把进度条与按钮收起来，点屏幕再唤回；关掉则一直显示。
   /// 与内核无关（三套内核共用一份），因此放在全局项里而不是 KernelPrefs。
   final bool autoHideControls;
+
+  /// 竖屏短剧：画面中间上滑切下一集（默认关，开了才会拦截竖直手势）。
+  final bool swipeUpNext;
   final bool backgroundSourceValidation;
   final bool rememberManualQuality;
   final String manualQualityLabel;
@@ -588,6 +592,7 @@ class PlayerSettings {
     double? speed,
     bool? subtitlesEnabled,
     bool? autoHideControls,
+    bool? swipeUpNext,
     bool? backgroundSourceValidation,
     bool? rememberManualQuality,
     String? manualQualityLabel,
@@ -656,6 +661,7 @@ class PlayerSettings {
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       autoHideControls: autoHideControls ?? this.autoHideControls,
+      swipeUpNext: swipeUpNext ?? this.swipeUpNext,
       backgroundSourceValidation:
           backgroundSourceValidation ?? this.backgroundSourceValidation,
       rememberManualQuality:
@@ -712,6 +718,7 @@ class PlayerSettings {
         other.subtitlesEnabled != subtitlesEnabled ||
         other.hardwareDecoding != hardwareDecoding ||
         other.autoHideControls != autoHideControls ||
+        other.swipeUpNext != swipeUpNext ||
         other.backgroundSourceValidation != backgroundSourceValidation ||
         other.rememberManualQuality != rememberManualQuality ||
         other.manualQualityLabel != manualQualityLabel ||
@@ -740,6 +747,7 @@ class PlayerSettings {
     subtitlesEnabled,
     hardwareDecoding,
     autoHideControls,
+    swipeUpNext,
     backgroundSourceValidation,
     rememberManualQuality,
     manualQualityLabel,
