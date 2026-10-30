@@ -228,6 +228,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         final end = (start + 50).clamp(0, _chapters.length);
         return LayoutBuilder(
           builder: (context, bounds) {
+            final media = MediaQuery.sizeOf(context);
+            final portraitSheet = media.height > media.width;
             final longLabels = _chapters.any(
               (c) => VideoEpisodeCatalog.labelOf(c).length > 8,
             );
@@ -295,9 +297,10 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                           child: Row(
                             children: [
                               if (_view == PlayerEpisodeView.cover) ...[
+                                // 竖屏抽屉里的竖屏短剧封面多为 9:16，横着摆会被裁成一条。
                                 SizedBox(
-                                  width: 94,
-                                  height: 56,
+                                  width: portraitSheet ? 36 : 94,
+                                  height: portraitSheet ? 64 : 56,
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
                                     child:

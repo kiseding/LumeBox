@@ -26,6 +26,8 @@ import '../../core/net/ios_verified_webview.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
@@ -3899,6 +3901,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏模式的布局：画面铺满 + 浮层控制栏（点画面切换显隐）。
   Widget _buildImmersive(Widget body) {
+    final media = MediaQuery.sizeOf(context);
+    final portrait = media.height > media.width;
     return Stack(
       children: [
         Positioned.fill(child: body),
@@ -3938,12 +3942,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       key: const Key('fullscreen-visible-controls'),
                       child: Stack(
                         children: [
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Padding(
-                              padding: const EdgeInsets.only(
-                                left: VideoPlayerPage.controlHorizontalPadding,
-                              ),
+                          // 竖屏时两个圆钮从画面中线挪到进度条上方，避免压住竖屏短剧的人物。
+                          if (portrait) ...[
+                            Positioned(
+                              left: VideoPlayerPage.controlHorizontalPadding,
+                              bottom: 104,
                               child: _topIcon(
                                 icon: Icons.lock_open,
                                 tooltip: '锁定（防误触）',
@@ -3953,13 +3956,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                                 },
                               ),
                             ),
-                          ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Padding(
-                              padding: const EdgeInsets.only(
-                                right: VideoPlayerPage.controlHorizontalPadding,
-                              ),
+                            Positioned(
+                              right: VideoPlayerPage.controlHorizontalPadding,
+                              bottom: 104,
                               child: _topIcon(
                                 icon: Icons.screen_rotation_alt,
                                 tooltip: '横竖屏切换',
@@ -3969,7 +3968,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                                 },
                               ),
                             ),
-                          ),
+                          ] else ...[
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  left:
+                                      VideoPlayerPage.controlHorizontalPadding,
+                                ),
+                                child: _topIcon(
+                                  icon: Icons.lock_open,
+                                  tooltip: '锁定（防误触）',
+                                  onPressed: () {
+                                    _cancelAutoHide();
+                                    _setLocked();
+                                  },
+                                ),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  right:
+                                      VideoPlayerPage.controlHorizontalPadding,
+                                ),
+                                child: _topIcon(
+                                  icon: Icons.screen_rotation_alt,
+                                  tooltip: '横竖屏切换',
+                                  onPressed: () {
+                                    _cycleOrientation();
+                                    _scheduleAutoHide();
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
                           Positioned(
                             top: 0,
                             left: 0,
@@ -4045,6 +4079,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildImmersiveTopBar() => LayoutBuilder(
     builder: (context, constraints) {
       final narrow = constraints.maxWidth < 580;
+      final media = MediaQuery.sizeOf(context);
+      final portrait = media.height > media.width;
       final title = _target?.title ?? widget.title ?? _media?.title ?? '播放';
       final episode = _target?.chapterTitle.trim();
       Widget caption(PlayerStats stats) {
@@ -4081,7 +4117,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _PlayerClock(),
+            _PlayerClock(
+              // 竖屏竖向空间紧，网速并到时间行右侧；横屏仍在进度条上方独占一行。
+              stats: portrait ? _player?.stats : null,
+              networkKbps: portrait && _showNetworkSpeed
+                  ? _networkSpeed.kbps
+                  : null,
+            ),
             const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -4300,7 +4342,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             builder: (context, snapshot, _) => Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                if (_showNetworkSpeed && _player != null)
+                if (_showNetworkSpeed &&
+                    _player != null &&
+                    MediaQuery.sizeOf(context).width >
+                        MediaQuery.sizeOf(context).height)
                   Align(
                     alignment: Alignment.centerRight,
                     child: ConstrainedBox(
@@ -4764,7 +4809,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   child: Padding(
                     padding: EdgeInsets.only(
                       top: _fullscreen ? 72 : 8,
-                      bottom: _fullscreen ? 96 : 8,
+                      // 竖屏底部多了安全区，留 110 才不压进度条。
+                      bottom: _fullscreen
+                          ? (size.height > size.width ? 110 : 96)
+                          : 8,
                     ),
                     child: ValueListenableBuilder<PlayerSnapshot>(
                       valueListenable: player.snapshot,
@@ -5359,11 +5407,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         secondaryActiveTrackColor: Colors.white54,
         thumbColor: const Color(0xFFF8F8F8),
         thumbShape: const RoundSliderThumbShape(
-          enabledThumbRadius: 6,
+          enabledThumbRadius: 8,
           elevation: 0,
           pressedElevation: 0,
         ),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
       );
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -5722,7 +5770,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
 /// 全屏顶边的状态行：左侧时间、右侧真实电量。
 class _PlayerClock extends StatefulWidget {
-  const _PlayerClock();
+  const _PlayerClock({this.stats, this.networkKbps});
+
+  /// 竖屏时把网速并进这一行；横屏传 null，仍在进度条上方单独显示。
+  final ValueListenable<PlayerStats>? stats;
+  final ValueListenable<int?>? networkKbps;
+
   @override
   State<_PlayerClock> createState() => _PlayerClockState();
 }
@@ -5782,6 +5835,16 @@ class _PlayerClockState extends State<_PlayerClock> {
           key: const Key('player-status-row'),
           children: [
             Text(time, key: const Key('player-clock-text'), style: style),
+            if (widget.stats != null) ...[
+              const SizedBox(width: 8),
+              PlayerStatsInline(
+                key: const Key('portrait-network-speed'),
+                stats: widget.stats!,
+                networkKbps: widget.networkKbps,
+                showResolution: false,
+                dimmed: true,
+              ),
+            ],
             const Spacer(),
             if (_batteryPercent != null)
               Row(
