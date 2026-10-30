@@ -85,3 +85,32 @@ accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffe
 ### iOS 最低目标统一为 16
 
 用户要求从 2026-10-29 起最低支持 iOS 16.0。App、自维护插件的 Pod / Swift Package 声明与原生检查脚本统一为 iOS 16；不再按 iOS 13 / 14 / 15 编译或维护兼容分支。HDR 内容标识、HDR 播放条件和空间音频查询在此最低版本直接可用。`check_ios_player_presentation.sh` 在 IPA 编译前按 iOS 16 检查，避免插件目标与 App 目标不一致。
+
+## 补丁 2 · seek 容差（拖动快进不卡）
+
+**改动**：`darwin/video_player_avfoundation/Sources/video_player_avfoundation_objc/FVPVideoPlayer.m` 的 `seekTo:completion:`
+
+```objc
+  CMTime tolerance = position == duration ? CMTimeMake(1, 1000) : kCMTimeZero;
+  // Lume Box 本地补丁：宿主写入的 seek 容差（拖动预览用大容差跳关键帧）。
+  NSNumber *toleranceMs = [[NSUserDefaults standardUserDefaults]
+      objectForKey:@"lumebox.seek.toleranceMs"];
+  if (toleranceMs != nil && toleranceMs.doubleValue > 0) {
+    CMTime requested = CMTimeMakeWithSeconds(toleranceMs.doubleValue / 1000.0, 1000);
+    if (CMTimeCompare(requested, tolerance) > 0) tolerance = requested;
+  }
+```
+
+### 为什么
+
+上游用的是 **精确 seek**（`tolerance = kCMTimeZero`）：AVPlayer 必须从上一个关键帧
+解码到目标帧才算完成。长 GOP 的剧集 + 网络流下，这一步就是几秒到十几秒，用户感知
+就是「快进要等很久」。宿主在拖动时写入 400ms 容差（`lumebox.seek.toleranceMs`），
+AVPlayer 直接落到关键帧，松手时把容差写回 0 恢复精确 seek。
+
+未写入该键时行为与上游完全一致。
+
+**哨兵 -1**：写 `-1` 表示「吸附到前一个关键帧」——`toleranceBefore =
+kCMTimePositiveInfinity`、`toleranceAfter = kCMTimeZero`（永远不越过目标时间）。
+这是拖动预览的最快档，由播放器设置里的实验开关「快进吸附关键帧」打开；
+松手时宿主写回 0 恢复精确 seek。

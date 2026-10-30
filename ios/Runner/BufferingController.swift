@@ -35,6 +35,9 @@ final class BufferingController: NSObject {
   /// 是否让 AVPlayer 等缓冲填够再播（false = 拿到可播数据就起播）。
   static let minimizeStallingKey = "lumebox.buffering.minimizeStalling"
 
+  /// AVPlayer seek 容差（毫秒）：> 0 时允许落到关键帧，拖动预览用它换速度。
+  static let seekToleranceKey = "lumebox.seek.toleranceMs"
+
   func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
@@ -42,6 +45,12 @@ final class BufferingController: NSObject {
       case "isSupported":
         // 写侧与 vendored 插件都在 iOS 上；其他平台由 Dart 侧如实降级。
         result(true)
+      case "seekTolerance":
+        // 拖动预览用的 AVPlayer seek 容差（毫秒）。0 = 精确 seek。
+        let ms = ((call.arguments as? [String: Any])?["seekToleranceMs"] as? NSNumber)?.doubleValue ?? 0
+        // -1 是哨兵：拖动时「吸附到前一个关键帧」（before=+∞, after=0）。
+        UserDefaults.standard.set(ms, forKey: Self.seekToleranceKey)
+        result(nil)
       case "apply":
         guard let args = call.arguments as? [String: Any] else {
           result(FlutterError(code: "badArgs", message: "缓冲参数缺失", details: nil))

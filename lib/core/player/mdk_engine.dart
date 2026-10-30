@@ -467,6 +467,17 @@ class MdkEngine extends AbstractPlayer
     _emit(position: position);
   }
 
+  /// 拖动预览：带上 MDK 的 `fast|keyFrame` 标志，直接跳关键帧。
+  @override
+  Future<void> seekFast(Duration position) async {
+    if (!_live) return;
+    await _player.seek(
+      position: position.inMilliseconds,
+      flags: mdk.SeekFlag(mdk.SeekFlag.keyFrame | mdk.SeekFlag.fast),
+    );
+    _emit(position: position);
+  }
+
   @override
   Future<void> stop() async {
     if (!_live) return;

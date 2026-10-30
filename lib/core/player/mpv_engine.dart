@@ -14,6 +14,11 @@ abstract interface class VideoFrameCapture {
   Future<MpvVideoFrame?> captureFrame();
 }
 
+/// 引擎的可选能力：快速定位（跳关键帧）。没实现的引擎由 [MpvPlayer] 退化为普通 seek。
+abstract interface class FastSeekEngine {
+  Future<void> seekFast(Duration position);
+}
+
 abstract interface class MpvEngine implements VideoFrameCapture {
   /// 订阅引擎快照（位置 / 时长 / 播放 / 缓冲 / HUD 原始字段）。
   ///

@@ -843,6 +843,37 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             ),
           ),
           const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '快进吸附关键帧（实验）',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: LumeTypography.titleSize,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              Switch(
+                value: settings.fastSeekSnap,
+                onChanged: (value) =>
+                    _update(settings.copyWith(fastSeekSnap: value)),
+              ),
+            ],
+          ),
+          Text(
+            settings.fastSeekSnap
+                ? '拖动时直接吸到上一个关键帧（最快档，画面可能按关键帧间隔跳；松手仍精确）'
+                : '拖动时用 400ms 容差（较快，误差 ≤0.4 秒）',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: LumeTypography.descriptionSize,
+              height: 1.4,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
             _orientation == PlaybackOrientation.portrait
                 ? '竖屏全屏（竖屏短剧想一直竖着看，或横片也想竖着看时选它）'

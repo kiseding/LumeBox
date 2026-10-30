@@ -455,9 +455,26 @@ NS_INLINE CGFloat radiansToDegrees(CGFloat radians) {
   // seekToTime will never complete, and this call will hang.
   // see issue https://github.com/flutter/flutter/issues/124475.
   CMTime tolerance = position == duration ? CMTimeMake(1, 1000) : kCMTimeZero;
+  // Lume Box 本地补丁：宿主写入的 seek 容差（拖动预览用大容差跳关键帧）。
+  // 未写入或为 0 时与上游完全一致（精确 seek）。
+  NSNumber *toleranceMs = [[NSUserDefaults standardUserDefaults]
+      objectForKey:@"lumebox.seek.toleranceMs"];
+  CMTime toleranceAfter = tolerance;
+  if (toleranceMs != nil && toleranceMs.doubleValue < 0) {
+    // 哨兵 -1：吸附到前一个关键帧。永远不越过目标时间（after = 0），
+    // 拖动预览用这一档最快，松手时宿主会把容差写回 0 做精确 seek。
+    tolerance = kCMTimePositiveInfinity;
+    toleranceAfter = kCMTimeZero;
+  } else if (toleranceMs != nil && toleranceMs.doubleValue > 0) {
+    CMTime requested = CMTimeMakeWithSeconds(toleranceMs.doubleValue / 1000.0, 1000);
+    if (CMTimeCompare(requested, tolerance) > 0) {
+      tolerance = requested;
+      toleranceAfter = requested;
+    }
+  }
   [_player seekToTime:targetCMTime
         toleranceBefore:tolerance
-         toleranceAfter:tolerance
+         toleranceAfter:toleranceAfter
       completionHandler:^(BOOL completed) {
         if (completion) {
           dispatch_async(dispatch_get_main_queue(), ^{

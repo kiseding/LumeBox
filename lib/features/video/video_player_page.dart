@@ -344,6 +344,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 全屏模式下的浮层控制栏是否可见。
   bool _overlayVisible = true;
+  bool _panelOpen = false;
+  DateTime? _lastScrubSeek;
   String? _hint;
   Timer? _hintTimer;
   bool _swipeNextFired = false;
@@ -1350,6 +1352,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       await player.setBuffering(_buffering);
       if (!mounted || !identical(player, _player)) return;
       await player.applySettings(_settings);
+      player.setFastSeekSnapToKeyframe(_settings.fastSeekSnap);
       if (!mounted || !identical(player, _player)) return;
       await player.setVolume(_effectiveVolume);
       final media = _media;
@@ -1522,6 +1525,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     } else {
       _store?.save(next);
       await _player?.applySettings(next);
+      _player?.setFastSeekSnapToKeyframe(next.fastSeekSnap);
       if (subtitlePreferenceChanged) unawaited(_applyPreferredSubtitle());
     }
   }
@@ -1659,15 +1663,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool isScrollControlled = false,
     bool useSafeArea = false,
     bool edgeDrawer = true,
-  }) => showPlaybackMenu<T>(
-    context: context,
-    builder: builder,
-    edgeDrawer: edgeDrawer,
-    glass: _settings.playbackGlass,
-    backgroundColor: backgroundColor,
-    isScrollControlled: isScrollControlled,
-    useSafeArea: useSafeArea,
-  );
+  }) async {
+    _panelOpen = true;
+    if (mounted) setState(() {});
+    try {
+      return await showPlaybackMenu<T>(
+        context: context,
+        builder: builder,
+        edgeDrawer: edgeDrawer,
+        glass: _settings.playbackGlass,
+        backgroundColor: backgroundColor,
+        isScrollControlled: isScrollControlled,
+        useSafeArea: useSafeArea,
+      );
+    } finally {
+      _panelOpen = false;
+      if (mounted) setState(() {});
+    }
+  }
 
   Future<void> _openQualityMenu() =>
       _openSourceSheet(initialTab: PlayerSourceTab.quality);
@@ -3031,6 +3044,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           width: size.width,
           window: Duration(seconds: _settings.gestures.seekSeconds),
         );
+        _scrubSeekThrottled(target);
         setState(() {
           _gesture = _gesture.copyWith(
             intent: intent,
@@ -3061,6 +3075,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         brightness: _brightness,
       ),
     );
+  }
+
+  /// 拖动中节流快 seek：每 150ms 一次，画面跟着手指走；松手再精确 seek。
+  void _scrubSeekThrottled(Duration target) {
+    final player = _player;
+    if (player == null) return;
+    final now = DateTime.now();
+    final last = _lastScrubSeek;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 150)) {
+      return;
+    }
+    _lastScrubSeek = now;
+    unawaited(player.seekFast(target));
   }
 
   Future<void> _seekGesture(AbstractPlayer player, Duration target) async {
@@ -4136,7 +4164,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _PlayerClock(),
+            _PlayerClock(showBattery: !_panelOpen),
             const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -5360,6 +5388,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? null
           : (value) {
               _seekRevision++;
+              _lastScrubSeek = null;
               _cancelAutoHide();
               setState(
                 () => _previewTarget = _positionAt(value, snapshot.duration),
@@ -5367,15 +5396,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             },
       onChanged: total == 0
           ? null
-          : (value) => setState(
-              () => _previewTarget = _positionAt(value, snapshot.duration),
-            ),
+          : (value) {
+              final target = _positionAt(value, snapshot.duration);
+              setState(() => _previewTarget = target);
+              _scrubSeekThrottled(target);
+            },
       onChangeEnd: total == 0
           ? null
           : (value) async {
               final target = _positionAt(value, snapshot.duration);
               final player = _player;
               final revision = _seekRevision;
+              _lastScrubSeek = null;
               final acknowledged = Completer<void>();
               void checkPosition() {
                 if (player != null &&
@@ -5392,7 +5424,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   await player.seek(target);
                   checkPosition();
                   await acknowledged.future.timeout(
-                    const Duration(seconds: 2),
+                    const Duration(milliseconds: 800),
                     onTimeout: () {},
                   );
                 }
@@ -5781,7 +5813,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
 /// 全屏顶边的状态行：左侧时间、右侧真实电量。
 class _PlayerClock extends StatefulWidget {
-  const _PlayerClock();
+  const _PlayerClock({this.showBattery = true});
+
+  /// 抽屉打开时右侧 40% 被玻璃盖住、工具条又顶到最上面，
+  /// 电量图标会从图标底下透出来——这时先不画。
+  final bool showBattery;
+
   @override
   State<_PlayerClock> createState() => _PlayerClockState();
 }
@@ -5842,7 +5879,7 @@ class _PlayerClockState extends State<_PlayerClock> {
           children: [
             Text(time, key: const Key('player-clock-text'), style: style),
             const Spacer(),
-            if (_batteryPercent != null)
+            if (_batteryPercent != null && widget.showBattery)
               Row(
                 key: const Key('player-battery-group'),
                 mainAxisSize: MainAxisSize.min,

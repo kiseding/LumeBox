@@ -37,6 +37,7 @@ import 'player_capabilities.dart';
 /// 因此这一层可以直接调用 `mpv_set_property_string`——不 fork、不反射、不猜。
 class MediaKitMpvEngine
     implements
+        FastSeekEngine,
         MpvEngine,
         EnginePropertyCapable,
         TrackCapable,
@@ -562,7 +563,34 @@ class MediaKitMpvEngine
       return;
     }
     _pendingSeek = null;
+    await _setHrSeek(true);
     await _player.seek(position);
+  }
+
+  /// 拖动预览：mpv 的 hr-seek=no 直接跳关键帧，网络流上快一个数量级。
+  @override
+  Future<void> seekFast(Duration position) async {
+    if (_disposed) return;
+    if (_duration <= Duration.zero) {
+      _pendingSeek = position;
+      return;
+    }
+    _pendingSeek = null;
+    await _setHrSeek(false);
+    await _player.seek(position);
+  }
+
+  /// media_kit 初始化时把 `hr-seek` 写死成 yes（精确 seek），
+  /// 这里按调用方需要切换；写的都是运行时属性，失败只记日志。
+  Future<void> _setHrSeek(bool exact) async {
+    try {
+      final platform = _player.platform;
+      if (platform is NativePlayer) {
+        await platform.setProperty('hr-seek', exact ? 'yes' : 'no');
+      }
+    } catch (error) {
+      LumeLog.warn('[mpv] 切换 hr-seek 失败：$error');
+    }
   }
 
   Duration? _pendingSeek;

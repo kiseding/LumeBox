@@ -81,6 +81,16 @@ abstract class AbstractPlayer {
 
   Future<void> seek(Duration position);
 
+  /// 拖动预览用的快速定位：允许落到最近关键帧，落点可能有误差。
+  ///
+  /// 拖滑条/横向手势时每 150ms 会发一次，要求尽量快；松手时改用 [seek]。
+  /// 内核没有更快的路径时退化为 [seek]（行为完全一致）。
+  Future<void> seekFast(Duration position) => seek(position);
+
+  /// 拖动快进是否吸附到前一个关键帧（实验开关）。
+  /// 只有 AVPlayer 有这条路径，其它内核已经是关键帧 seek，默认空实现。
+  void setFastSeekSnapToKeyframe(bool value) {}
+
   Future<void> stop();
 
   /// 设置音量（0.0~1.0）。手势调音量走这里。

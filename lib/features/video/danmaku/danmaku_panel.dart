@@ -135,8 +135,10 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
                     // 安全区都报成同一数值（它不知道机器朝哪边转），照搬右侧
                     // 数值会让卡片平白离屏 40–62pt，和 Android 观感不一致。
                     padding: edge
+                        // 横屏贴边抽屉的工具条行放到面板最顶：不再让出顶部安全区，
+                        // 否则在状态行下面空出一条。
                         ? EdgeInsets.only(
-                            top: safe.top,
+                            top: 0,
                             bottom: keyboard > 0 ? 0 : safe.bottom,
                           )
                         : EdgeInsets.zero,

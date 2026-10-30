@@ -166,16 +166,16 @@ void main() {
       expect(find.byTooltip('线路 / 选集'), findsOneWidget);
       expect(find.byTooltip('前进 10 秒'), findsNothing);
       expect(find.byTooltip('后退 10 秒'), findsNothing);
-      final previous = tester.getRect(find.byTooltip('上一集'));
+      // 「上一集」已在 52db015 从全屏底栏移除（用户口径：只保留下一集）。
+      expect(find.byTooltip('上一集'), findsNothing);
       final play = tester.getRect(find.byTooltip('暂停'));
       final next = tester.getRect(find.byTooltip('下一集'));
       final danmaku = tester.getRect(find.byTooltip('弹幕：开'));
-      expect(play.left - previous.right, closeTo(4, .1));
       expect(next.left - play.right, closeTo(4, .1));
-      expect(previous.center.dy, closeTo(danmaku.center.dy, 1));
+      expect(play.center.dy, closeTo(danmaku.center.dy, 1));
       final slider = tester.getRect(find.byType(Slider));
       expect(
-        previous.top - slider.bottom,
+        play.top - slider.bottom,
         closeTo(VideoPlayerPage.controlRowGap, 8),
         reason: '两行固定行距',
       );

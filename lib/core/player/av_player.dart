@@ -326,8 +326,39 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     await _controller?.pause();
   }
 
+  /// 拖动预览用的容差：AVPlayer 在这个范围内可直接落到关键帧，
+  /// 不必从上一个关键帧解码到目标帧（长 GOP 剧集里这一步最慢）。
+  static const Duration fastSeekTolerance = Duration(milliseconds: 400);
+
   @override
-  Future<void> seek(Duration position) async => _controller?.seekTo(position);
+  Future<void> seek(Duration position) async {
+    // 松手/系统跳转用精确 seek（容差归零，恢复上游行为）。
+    await _setSeekTolerance(Duration.zero);
+    await _controller?.seekTo(position);
+  }
+
+  /// 吸附到前一关键帧（实验开关）：写 -1 作哨兵，原生侧翻成 ±∞/0。
+  bool _snapToKeyframe = false;
+
+  @override
+  void setFastSeekSnapToKeyframe(bool value) => _snapToKeyframe = value;
+
+  @override
+  Future<void> seekFast(Duration position) async {
+    await _setSeekTolerance(
+      _snapToKeyframe ? const Duration(milliseconds: -1) : fastSeekTolerance,
+    );
+    await _controller?.seekTo(position);
+  }
+
+  Future<void> _setSeekTolerance(Duration tolerance) async {
+    try {
+      await _buffering.applySeekTolerance(tolerance);
+    } catch (error, stackTrace) {
+      LumeLog.warn('[avplayer] 写 seek 容差失败：$error');
+      LumeLog.error(error, stackTrace);
+    }
+  }
 
   @override
   Future<void> stop() async {

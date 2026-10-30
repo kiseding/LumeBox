@@ -173,9 +173,10 @@ void main() {
     await tester.pumpAndSettle();
     final frame = find.byKey(const ValueKey('danmaku-panel-frame'));
     final height = tester.getSize(frame).height;
-    await tester.tap(find.byTooltip('展开面板'));
-    await tester.pumpAndSettle();
-    expect(tester.getSize(frame).height, greaterThan(height));
+    // 竖屏抽屉已取消展开抓手：高度固定，不再有「展开/收起」入口。
+    expect(find.byTooltip('展开面板'), findsNothing);
+    expect(find.byTooltip('收起面板'), findsNothing);
+    expect(height, greaterThan(0));
     expect(
       tester.widget<ListTile>(find.widgetWithText(ListTile, '缺集')).enabled,
       isFalse,

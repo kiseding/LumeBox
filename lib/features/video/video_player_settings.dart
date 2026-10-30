@@ -48,6 +48,9 @@ class VideoPlayerSettingsStore {
   /// 竖屏短剧上滑切下一集（缺键按「关」）。
   static const String keySwipeUpNext = 'video.player.swipeUpNext';
 
+  /// 拖动快进吸附关键帧（实验，缺键按「关」）。
+  static const String keyFastSeekSnap = 'video.player.fastSeekSnap';
+
   /// 手势灵敏度（亮度 / 音量垂直滑动）。
   static const String keyGestureSensitivity = 'video.player.gestureSensitivity';
 
@@ -110,6 +113,7 @@ class VideoPlayerSettingsStore {
           : PlayerControlStyle.icons,
       autoHideControls: _library.setting(keyAutoHideControls) != 'false',
       swipeUpNext: _library.setting(keySwipeUpNext) == 'true',
+      fastSeekSnap: _library.setting(keyFastSeekSnap) == 'true',
       // 同上：缺键按「开」（历史行为就是一集播完自动进下一集）。
       autoNext: _library.setting(keyAutoNext) != 'false',
       gestureSensitivity: _gestureSensitivityOf(_library),
@@ -172,6 +176,10 @@ class VideoPlayerSettingsStore {
     _library.setSetting(
       keySwipeUpNext,
       settings.swipeUpNext ? 'true' : 'false',
+    );
+    _library.setSetting(
+      keyFastSeekSnap,
+      settings.fastSeekSnap ? 'true' : 'false',
     );
     for (final entry in settings.prefs.entries) {
       _library.setSetting(

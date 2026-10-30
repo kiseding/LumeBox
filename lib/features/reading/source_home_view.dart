@@ -127,15 +127,31 @@ class _SourceHomeViewState extends State<SourceHomeView>
   void _bindSession() =>
       widget.pipeline?.bindSession(widget.source.section, widget.source.id);
 
-  Future<void> _load({bool force = false}) async {
+  /// 运行时被换掉（换源/改站点地址/重载）时，在飞的请求会以「请求已取消」
+  /// 结束——这不是用户要看的失败，静默重来一次即可。
+  static bool _superseded(Object error) {
+    final text = error is SourceException ? error.message : '$error';
+    return text.contains('请求已取消') ||
+        text.contains('源已释放') ||
+        text.contains('网页请求已取消');
+  }
+
+  /// 正在加载的源 id：同一源的非强制重入直接复用，不再 cancel 重启
+  /// （真机日志里出现过 30 秒内 30 次「请求已取消」的取消风暴）。
+  String? _loadingSourceId;
+
+  Future<void> _load({bool force = false, bool retried = false}) async {
+    final source = widget.source;
+    if (!force && _loadingSourceId == source.id) return;
     final seq = ++_seq;
+    _loadingSourceId = source.id;
     networkRequests.cancel('home');
     setState(() {
       _home = null;
       _error = null;
     });
-    final source = widget.source;
     if (source is! HomeCapable) {
+      _loadingSourceId = null;
       if (!mounted) return;
       setState(() => _home = const SourceHome());
       return;
@@ -172,7 +188,17 @@ class _SourceHomeViewState extends State<SourceHomeView>
       widget.onHomeLoaded?.call();
     } catch (error) {
       if (!mounted || seq != _seq) return;
+      if (!retried && _superseded(error)) {
+        // 给新运行时一点启动时间（保存设置后引擎是重建的）。
+        // 先让出「正在加载」标记，否则重试会被自己的去重挡掉。
+        _loadingSourceId = null;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (!mounted || seq != _seq) return;
+        return _load(force: force, retried: true);
+      }
       setState(() => _error = error);
+    } finally {
+      if (seq == _seq) _loadingSourceId = null;
     }
   }
 
