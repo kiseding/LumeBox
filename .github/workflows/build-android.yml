@@ -12,23 +12,16 @@ name: Build APK (Android)
 on:
   workflow_dispatch:
     inputs:
-      abi:
-        description: '要构建的 ABI（all = 三个都出）'
-        type: choice
-        options: [all, arm64-v8a, armeabi-v7a, x86_64]
-        default: all
       build_type:
         description: '构建类型'
         type: choice
         options: [release, debug]
         default: release
 
-run-name: Build APK (Android) — ${{ inputs.abi }} / ${{ inputs.build_type }}
+run-name: Build APK (Android) — ${{ inputs.build_type }}
 
 jobs:
   build-apk:
-    # 选 all 就三个都跑；否则只跑点名的那一个。
-    if: ${{ inputs.abi == 'all' || inputs.abi == matrix.abi }}
     name: ${{ matrix.flavor }} (${{ matrix.abi }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
