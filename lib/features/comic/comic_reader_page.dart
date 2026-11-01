@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart'
     show
@@ -611,6 +612,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
             _page = images.isEmpty ? 0 : start.clamp(0, images.length - 1);
             _fraction = 0;
             _loading = false;
+            // 换章后旧锚点作废：新章的图序列不同，沿用旧下标会漏掉首次预加载。
+            _scrollPrimeAnchor = -1;
           });
           _rebuildControllers();
           _primeWindow();
@@ -733,30 +736,42 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   // ------------------------------------------------------------------ 预加载
 
-  /// 计算当前可见范围，钉住窗口内的图并预加载窗口外一圈。
-  void _primeWindow() {
+  /// 视野前方要预取的张数。
+  ///
+  /// 条漫一屏常常有一张半到两张，5 张约等于两屏多：够手指连续拖动时不断档，
+  /// 又不会把整章都拉进内存。往后（回看方向）仍按设置的「预加载半径」给。
+  static const int _preloadAheadCount = 5;
+
+  /// 计算当前可见范围，钉住窗口内的图并预加载前后两侧。
+  void _primeWindow() => _primeWindowAt(_page);
+
+  /// 按**锚点图下标**预加载。
+  ///
+  /// [anchor] 是视口顶部那张图，滚动中由偏移量算出；它与 [_page] 不是一回事
+  /// ——[_page] 要等滚动结束才更新，拿它算窗口会让预加载一直落在「已经划过去
+  /// 的那张」上。
+  void _primeWindowAt(int anchor) {
     if (_images.isEmpty) return;
+    final last = _images.length - 1;
     final radius = _settings.preloadRadius;
-    final window = <int>[
-      for (int i = _page - radius; i <= _page + radius; i++)
-        if (i >= 0 && i < _images.length) i,
-    ];
-    final urls = <String>[for (final index in window) _images[index]];
-    _pipeline.retain(urls, targetWidth: _decodeWidth);
+    // 保留区间必须覆盖「正在预取的那几张」：retain 会把区间外的排队请求当作
+    // 垃圾清掉，滚动中每 120ms 清一次，预取就永远跑不完（等于没预取）。
+    final keepFrom = math.max(0, anchor - radius);
+    final keepTo = math.min(
+      last,
+      anchor + math.max(radius, _preloadAheadCount),
+    );
+    _pipeline.retain(<String>[
+      for (int i = keepFrom; i <= keepTo; i++) _images[i],
+    ], targetWidth: _decodeWidth);
     final ahead = <String>[
-      for (
-        int i = _page + radius + 1;
-        i <= _page + radius * 2 && i < _images.length;
-        i++
-      )
-        _images[i],
-      for (int i = _page - radius - 1; i >= _page - radius * 2 && i >= 0; i--)
-        _images[i],
+      for (int i = anchor + 1; i <= keepTo; i++) _images[i],
+      for (int i = anchor - 1; i >= keepFrom; i--) _images[i],
     ];
     _pipeline.preload(ahead, targetWidth: _decodeWidth);
     // 临近章尾时提前拉下一章的头几张：不这么做的话，翻到章尾再等网络，
     // 用户看到的是「卡一下才出图」。
-    _prefetchNextChapterHead();
+    _prefetchNextChapterHead(anchor);
   }
 
   /// 距章尾还剩多少张时开始预取下一章。
@@ -773,9 +788,12 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   final Set<String> _prefetchedChapters = <String>{};
 
   /// 预取下一章开头的几张图（只在接近章尾时做）。
-  void _prefetchNextChapterHead() {
+  ///
+  /// [anchor] 用调用方算出的视口锚点，而不是 [_page]：滚动中 [_page] 还没跟上，
+  /// 用它判断「是否接近章尾」会慢一张，预取也就跟着晚一张。
+  void _prefetchNextChapterHead(int anchor) {
     if (_images.isEmpty) return;
-    if (_page < _images.length - _nextChapterPrefetchWindow) return;
+    if (anchor < _images.length - _nextChapterPrefetchWindow) return;
     final next = _chapterIndex + 1;
     if (next >= _chapters.length) return;
     final chapter = _chapters[next];
@@ -852,8 +870,26 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     }
   }
 
-  /// 瀑布流滚动：结束时才更新页序号与进度，滚动过程中不做重计算。
+  /// 滚动中两次发放预加载的最小间隔（快速甩动时别每帧重排窗口）。
+  static const Duration _scrollPrimeInterval = Duration(milliseconds: 120);
+
+  DateTime _lastScrollPrime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 上一次按滚动位置预加载时的锚点图，用来判断窗口是否真的变了。
+  int _scrollPrimeAnchor = -1;
+
+  /// 瀑布流的滚动通知。
+  ///
+  /// **预加载跟着滚动走，页码与进度仍然等滚动结束**。原来的实现在这里只认
+  /// `ScrollEndNotification`，等于「手松开才开始准备下一张」——条漫是连续滑
+  /// 的，于是永远滑到哪才加载到哪。现在滚动过程中按偏移量算出视口顶部那张，
+  /// 锚点一变就重发预加载；而 setState 页码、写进度、触发翻译仍留在结束时，
+  /// 避免每帧重建列表和频繁落盘。
   bool _onScroll(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification) {
+      _primeWhileScrolling();
+      return false;
+    }
     if (notification is ScrollEndNotification) {
       final controller = _scrollController;
       if (controller != null && controller.hasClients) {
@@ -875,6 +911,23 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       }
     }
     return false;
+  }
+
+  /// 滚动中按视口锚点补预加载：[_scrollPrimeAnchor] 不变就说明窗口没动。
+  ///
+  /// 先过时间闸再算锚点：[_waterfallIndexFor] 是线性扫一遍图高，每帧都算没有
+  /// 意义——窗口只跟锚点有关，锚点没变就不该重排。
+  void _primeWhileScrolling() {
+    if (_images.isEmpty) return;
+    final controller = _scrollController;
+    if (controller == null || !controller.hasClients) return;
+    final now = DateTime.now();
+    if (now.difference(_lastScrollPrime) < _scrollPrimeInterval) return;
+    _lastScrollPrime = now;
+    final anchor = _waterfallIndexFor(controller.offset);
+    if (anchor == _scrollPrimeAnchor) return;
+    _scrollPrimeAnchor = anchor;
+    _primeWindowAt(anchor);
   }
 
   // ------------------------------------------------------------------ 交互
@@ -1473,6 +1526,9 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         controller: _scrollController,
         padding: EdgeInsets.zero,
         itemCount: _images.length,
+        // 预构建上下各一屏：条目建得早就早点向管线要图（预取过的直接命中内存），
+        // 同时把「占位比例 → 真实比例」的修正放到画面之外，滑动时不再抖一下。
+        scrollCacheExtent: const ScrollCacheExtent.viewport(1),
         itemExtentBuilder: (index, _) => _itemHeight(index) + gap,
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsets.fromLTRB(margin, 0, margin, gap),

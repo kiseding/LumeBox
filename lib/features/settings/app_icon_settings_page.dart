@@ -134,7 +134,7 @@ class _AppIconGridState extends State<AppIconGrid> {
                         borderRadius: BorderRadius.circular(14),
                         child: Image.asset(
                           'assets/icon/'
-                          '${name == 'default' ? 'app_icon_1024' : name}.png',
+                          '${name == 'default' ? 'app_icon' : name}.png',
                           width: size,
                           height: size,
                         ),

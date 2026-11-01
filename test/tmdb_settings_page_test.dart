@@ -90,7 +90,9 @@ void main() {
     expect(TmdbSettings.instance.imageProxy, isEmpty);
     var flushed = false;
     TmdbSettings.instance.flush().then((_) => flushed = true);
-    for (var i = 0; i < 60 && !flushed; i++) {
+    // 落盘是真实文件 IO：CI 机器偶尔会慢到秒级，轮询窗口给足 5 秒
+    // （1.2 秒的旧上限在 windows-latest 上偶发假失败）。
+    for (var i = 0; i < 250 && !flushed; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );

@@ -862,12 +862,19 @@ class CatService extends ChangeNotifier {
     }
     final directory = Directory('${_root!.path}/builtin-danmaku/2cb7a22b8271');
     await directory.create(recursive: true);
-    for (final name in ['index.js', 'upstream.cjs']) {
-      final bytes = await rootBundle.load('assets/local_danmaku/$name');
-      final data = bytes.buffer.asUint8List(
+    // upstream.cjs 有 3 MB；随包以 gzip 存放（解压后字节完全一致，
+    // 因此 manifest 里的 patchedSha256 仍然有效），安装时再展开成运行时
+    // 需要的 CommonJS 文件。
+    for (final (asset, name) in [
+      ('index.js', 'index.js'),
+      ('upstream.cjs.gz', 'upstream.cjs'),
+    ]) {
+      final bytes = await rootBundle.load('assets/local_danmaku/$asset');
+      final packed = bytes.buffer.asUint8List(
         bytes.offsetInBytes,
         bytes.lengthInBytes,
       );
+      final data = asset.endsWith('.gz') ? gzip.decode(packed) : packed;
       if (name == 'upstream.cjs' &&
           sha256.convert(data).toString() !=
               '2cb7a22b8271168002740a551ece5439112763f4cf306bc77e91f1cb0fcf4ca8') {

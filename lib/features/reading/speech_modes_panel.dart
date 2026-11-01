@@ -124,10 +124,10 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
         title: const Text('启用本地离线朗读'),
         content: const SingleChildScrollView(
           child: Text(
-            '这是普通话离线音色包，压缩资源约 147 MB，支持 174 种音色。'
-            '优先使用安装包内置资源，无需重复下载；首次使用需要解压、校验并占用额外存储空间。\n\n'
-            '也可从“文件”选择完整的 vits-zh-aishell3.tar.bz2 包。'
-            '安装完成后即可选择本地模式；系统朗读无需安装这个包。',
+            '这是普通话离线音色包，支持 174 种音色，需要下载约 124 MB。'
+            '下载源是该模型的官方发布页（Hugging Face 及其国内镜像），逐份校验后再安装，装好即完全离线。\n\n'
+            '网络不通时也可以从“文件”选择完整的 vits-zh-aishell3.tar.bz2 导入。'
+            '系统朗读无需安装这个包。',
           ),
         ),
         actions: [
@@ -141,7 +141,7 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('启用内置包'),
+            child: const Text('在线下载'),
           ),
         ],
       ),
@@ -157,6 +157,12 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(SnackBar(content: Text(model.error!)));
     }
+  }
+
+  String get _preparingLabel {
+    if (model.total <= 0) return '正在准备音色包…';
+    final percent = (model.received * 100 ~/ model.total).clamp(0, 100);
+    return '正在下载音色包 $percent%';
   }
 
   @override
@@ -211,14 +217,14 @@ class _SpeechModesPanelState extends State<SpeechModesPanel> {
                       slot: 'speech_modes_panel.1',
                     ),
               label: Text(
-                model.preparing ? '正在解压并校验音色包…' : '启用内置离线音色包（约 147 MB）',
+                model.preparing ? _preparingLabel : '启用离线音色包（约 124 MB）',
               ),
             ),
           if (!model.ready)
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                '用于普通话离线朗读，首次使用需安装；系统朗读可直接使用。',
+                '用于普通话离线朗读，首次启用要联网下载约 124 MB；系统朗读可直接使用。',
                 style: TextStyle(fontSize: 12),
               ),
             ),

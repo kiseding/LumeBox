@@ -770,7 +770,7 @@ class _SettingsState extends State<ComicImageToolsSettingsPage> {
               const ListTile(
                 title: Text('内置模型 · 自动准备'),
                 subtitle: Text(
-                  '8 个 waifu2x 模型已随 App 提供，无需下载或手动安装。首次超分时自动准备当前模型，之后复用缓存；重新安装 App 后也会自动准备。',
+                  '8 个 waifu2x 模型不再打包进安装包（省 17 MB）。首次超分时自动下载当前模型（约 2.2 MB），之后复用缓存；重新安装 App 后也会自动准备。',
                 ),
               ),
               if (busy) const Center(child: CircularProgressIndicator()),
