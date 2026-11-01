@@ -79,6 +79,7 @@ class SourceHomeView extends StatefulWidget {
 
 class _SourceHomeViewState extends State<SourceHomeView>
     with NetworkOwnedState<SourceHomeView> {
+  static final _visits = Expando<SourceHome>();
   SourceHome? _home;
   Object? _error;
   int _seq = 0;
@@ -168,6 +169,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
       );
       if (!mounted || seq != _seq) return;
       final home =
+          (!force ? _visits[source] : null) ??
           SectionPreloader.takeWarmHome(source.section, sourceId: source.id) ??
           await networkRequests.run<SourceHome>(
             'home',
@@ -179,6 +181,7 @@ class _SourceHomeViewState extends State<SourceHomeView>
             ),
           );
       if (!mounted || seq != _seq) return;
+      _visits[source] = home;
       setState(() => _home = home);
       _preloadFirstScreen(home);
       widget.onTranslationTexts?.call([
@@ -286,6 +289,11 @@ class _SourceHomeViewState extends State<SourceHomeView>
           ? detail
           : '$detail\n\n${secureConnectionHint(connection)}';
       final kind = wafKindOf(detail);
+      final state = stateForError(error);
+      final recovery = state.recoveryHint;
+      final explanation = recovery == null
+          ? description
+          : '$recovery\n\n$description';
       // 「网页视图」出口与提示**必须同时出现或同时不出现**（真机反馈：卡片上写着
       // 「可点【网页视图】过校验」却找不到按钮——首页超时这类失败原本不给按钮）。
       final offerWebView = shouldOfferWebView(detail);
@@ -298,24 +306,27 @@ class _SourceHomeViewState extends State<SourceHomeView>
             )
           : null;
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               NoticeCard(
-                title: '首页加载失败',
+                title: state == SourceStateKind.scriptError
+                    ? '首页加载失败'
+                    : state.label,
                 subtitle: kind == WafFailureKind.bridge
-                    ? '$description\n\n$wafBridgeHint'
-                    : (hint == null ? description : '$description\n\n$hint'),
+                    ? '$explanation\n\n$wafBridgeHint'
+                    : (hint == null ? explanation : '$explanation\n\n$hint'),
               ),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 8,
                 children: <Widget>[
                   OutlinedButton(onPressed: _retry, child: const Text('重试')),
                   if (offerWebView) ...<Widget>[
-                    const SizedBox(width: 10),
                     // 与列表页同一个出口（用户口径 2.1）：内置网页视图过校验后自动重拉。
                     OutlinedButton.icon(
                       onPressed: _openWebViewForWaf,
@@ -427,6 +438,9 @@ class _SourceHomeViewState extends State<SourceHomeView>
         BrowseLayoutMode.grid3;
     if (mode == BrowseLayoutMode.list) {
       return ListView.separated(
+        key: PageStorageKey(
+          'home:${widget.source.id}:${widget.browseMode}:list',
+        ),
         scrollCacheExtent: const ScrollCacheExtent.viewport(1),
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
@@ -461,6 +475,9 @@ class _SourceHomeViewState extends State<SourceHomeView>
         : TwoColumnSourceLayout.spacing;
     return LayoutBuilder(
       builder: (context, constraints) => GridView.builder(
+        key: PageStorageKey(
+          'home:${widget.source.id}:${widget.browseMode}:${mode.name}',
+        ),
         scrollCacheExtent: const ScrollCacheExtent.viewport(1),
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
