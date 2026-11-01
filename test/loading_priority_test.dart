@@ -7,10 +7,12 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/js_data_source.dart';
 
 void main() {
-  test('预取只占两个通道，可见图片越过待预取队列，重复预取不重复请求', () async {
+  test('预取只占部分通道，可见图片越过待预取队列，重复预取不重复请求', () async {
     final started = <String>[];
     final gates = <String, Completer<NetworkResponse>>{};
-    final firstTwo = Completer<void>(), visibleStarted = Completer<void>();
+    // 预取上限 = maxConcurrent-1（且不超过 3）：这里 4 条并发 → 预取占 3，
+    // 至少留 1 条给刚进视口的图。
+    final prefetchFull = Completer<void>(), visibleStarted = Completer<void>();
     final pipeline = SectionImagePipeline(
       cacheDir: '',
       diskCache: false,
@@ -20,7 +22,7 @@ void main() {
         final path = Uri.parse(request.url).path;
         started.add(path);
         final gate = gates[path] = Completer<NetworkResponse>();
-        if (started.length == 2) firstTwo.complete();
+        if (started.length == 3) prefetchFull.complete();
         if (path == '/visible') visibleStarted.complete();
         return gate.future;
       },
@@ -28,11 +30,11 @@ void main() {
     final urls = [for (var i = 0; i < 6; i++) 'https://images.example/$i'];
     pipeline.preload(urls);
     pipeline.preload(urls);
-    await firstTwo.future.timeout(const Duration(seconds: 2));
-    expect(started, ['/0', '/1']);
+    await prefetchFull.future.timeout(const Duration(seconds: 2));
+    expect(started, ['/0', '/1', '/2']);
     final visible = pipeline.image('https://images.example/visible');
     await visibleStarted.future.timeout(const Duration(seconds: 2));
-    expect(started, ['/0', '/1', '/visible']);
+    expect(started, ['/0', '/1', '/2', '/visible']);
     pipeline.dispose();
     for (final gate in gates.values) {
       gate.complete(
@@ -41,7 +43,11 @@ void main() {
     }
     await visible;
     await Future<void>.delayed(Duration.zero);
-    expect(started, ['/0', '/1', '/visible'], reason: '退出后不再继续排队的预取');
+    expect(
+      started,
+      ['/0', '/1', '/2', '/visible'],
+      reason: '退出后不再继续排队的预取',
+    );
   });
 
   test('home 和 filters 同时探测只读取一次源契约，失败后允许重试', () async {
