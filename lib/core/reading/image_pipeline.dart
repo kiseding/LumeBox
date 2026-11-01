@@ -501,7 +501,9 @@ class SectionImagePipeline {
       return;
     }
     // Background work reserves room for images that just became visible.
-    final limit = (maxConcurrent - 1).clamp(1, 2);
+    // 3 而不是 2：前方要备 5 张，两个槽位在两三次滑动里填不满，用户滑到位
+    // 时排在队尾的还没开始下载。始终给前台留出 maxConcurrent-3 个槽位。
+    final limit = (maxConcurrent - 1).clamp(1, 3);
     while (!_disposed && _activePreloads < limit && _preloadQueue.isNotEmpty) {
       final next = _preloadQueue.removeFirst();
       _activePreloads++;
@@ -575,11 +577,12 @@ class SectionImagePipeline {
 
   Future<void> _preloadOne(String url, int? targetWidth) async {
     final policy = MediaPreload.instance;
-    if (!policy.images ||
-        policy.clearing ||
-        _memory.bytes >= policy.imageBudgetBytes) {
-      return;
-    }
+    if (!policy.images || policy.clearing) return;
+    // 预算只管**投机缓存**。以前这里比的是总量，等于把「钉住的窗口 +
+    // 正在显示的图」也算进缓存占用：条漫一张解码后十几 MB，开章两三张就
+    // 越过 32 MB 的默认定额，此后每一次预加载都直接 return——看着有预加载，
+    // 实际一张都没拉。工作集不参与这个判断，淘汰仍然按预算走。
+    if (_memory.speculativeBytes >= policy.imageBudgetBytes) return;
     final generation = policy.generation;
     final speculativeKey = key(url, targetWidth);
     if (!_inFlightImages.containsKey(speculativeKey) &&
@@ -1260,6 +1263,24 @@ class ImageMemoryCache {
   int get bytes => _bytes;
 
   int get length => _entries.length;
+
+  /// 「工作集」字节：被钉住（预加载窗口）或正被引用的图。
+  ///
+  /// 这部分本来就该留在内存里——它们要么正画在屏上，要么马上要进视口。
+  /// 把它算进缓存预算会让长图漫画开章两三张就顶到线（一张 1179×3500
+  /// 解码后 16 MB），之后预加载全部静默跳过。
+  int get workingSetBytes {
+    var sum = 0;
+    for (final entry in _entries.values) {
+      if (entry.pinned || entry.refs > 0) sum += entry.bytes;
+    }
+    return sum;
+  }
+
+  /// 可淘汰的投机缓存字节：总数减去工作集。
+  ///
+  /// 预加载的预算门槛只该看这一项——钉住的窗口不是缓存。
+  int get speculativeBytes => _bytes - workingSetBytes;
 
   ui.Image? get(String key) {
     final entry = _entries[key];

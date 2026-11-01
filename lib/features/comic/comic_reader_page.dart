@@ -71,6 +71,35 @@ part 'comic_reader_chrome.dart';
 part 'comic_reader_menu.dart';
 part 'comic_reader_surface.dart';
 
+/// 前方要预取的张数：从锚点往后按占位高度累计，到约 [screens] 屏为止，
+/// 最多 [max] 张。
+///
+/// 为什么按屏幕而不是按张数：条漫一张常常就有一屏半，固定给 5 张等于把
+/// 十几屏的图排进解码队列——每张 1179×3500 解码后约 16 MB，既来不及在用户
+/// 滑到前下完，又会把内存预算挤爆。单页漫画一张不到一屏，仍然走满 [max]。
+///
+/// 视口高度未知（<= 0）时退回 [max]：宁可多取，也不要因为拿不到尺寸就不预取。
+@visibleForTesting
+int comicPreloadAheadCount(
+  List<double> heights,
+  double viewportHeight, {
+  int max = 5,
+  double screens = 2.5,
+}) {
+  if (heights.isEmpty) return 0;
+  if (viewportHeight <= 0) return math.min(max, heights.length);
+  final limit = viewportHeight * screens;
+  var covered = 0.0;
+  var taken = 0;
+  for (final height in heights) {
+    if (taken >= max) break;
+    covered += height;
+    taken++;
+    if (covered >= limit) break;
+  }
+  return taken;
+}
+
 /// 全屏漫画阅读器：连续滚动、方向翻页与双页阅读，共用章节和进度底座。
 ///
 /// 资源纪律（宪法第 7 条）：
@@ -742,6 +771,33 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   /// 又不会把整章都拉进内存。往后（回看方向）仍按设置的「预加载半径」给。
   static const int _preloadAheadCount = 5;
 
+  /// 前方预取的**屏幕数**上限。
+  ///
+  /// 条漫一张常常就有一屏半，按「5 张」算是十几屏：解码成本远超收益
+  /// （一张 1179×3500 解码后约 16 MB），而且滑到那一屏时多半已被淘汰。
+  /// 单页漫画一张不到一屏，仍然按满 5 张走。
+  static const double _preloadAheadScreens = 2.5;
+
+  /// 从 [anchor] 往后数，累计到约 [_preloadAheadScreens] 屏为止。
+  ///
+  /// 用占位高度而不是真实高度：比例还没回来的图按默认比例算，只会偏保守。
+  int _aheadCountFrom(int anchor) {
+    final heights = <double>[];
+    for (
+      var i = anchor + 1;
+      i < _images.length && heights.length < _preloadAheadCount;
+      i++
+    ) {
+      heights.add(_itemSlotHeight(i));
+    }
+    return comicPreloadAheadCount(
+      heights,
+      _viewport.height,
+      max: _preloadAheadCount,
+      screens: _preloadAheadScreens,
+    );
+  }
+
   /// 计算当前可见范围，钉住窗口内的图并预加载前后两侧。
   void _primeWindow() => _primeWindowAt(_page);
 
@@ -756,19 +812,17 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final radius = _settings.preloadRadius;
     // 保留区间必须覆盖「正在预取的那几张」：retain 会把区间外的排队请求当作
     // 垃圾清掉，滚动中每 120ms 清一次，预取就永远跑不完（等于没预取）。
+    final ahead = _aheadCountFrom(anchor);
     final keepFrom = math.max(0, anchor - radius);
-    final keepTo = math.min(
-      last,
-      anchor + math.max(radius, _preloadAheadCount),
-    );
+    final keepTo = math.min(last, anchor + math.max(radius, ahead));
     _pipeline.retain(<String>[
       for (int i = keepFrom; i <= keepTo; i++) _images[i],
     ], targetWidth: _decodeWidth);
-    final ahead = <String>[
+    final aheadUrls = <String>[
       for (int i = anchor + 1; i <= keepTo; i++) _images[i],
       for (int i = anchor - 1; i >= keepFrom; i--) _images[i],
     ];
-    _pipeline.preload(ahead, targetWidth: _decodeWidth);
+    _pipeline.preload(aheadUrls, targetWidth: _decodeWidth);
     // 临近章尾时提前拉下一章的头几张：不这么做的话，翻到章尾再等网络，
     // 用户看到的是「卡一下才出图」。
     _prefetchNextChapterHead(anchor);
