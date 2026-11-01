@@ -98,6 +98,20 @@ jobs:
           cp "$SRC" "out/LumeBox-${{ matrix.flavor }}-${{ inputs.build_type }}.apk"
           ls -lh out
 
+      # 打包期最容易出的错是「插件 AAR 里别的 ABI 也被塞进来」——包能装能跑，
+      # 只是白白大一截，而且从体积上看不出来。这里把 lib/ 下的 ABI 目录列出来，
+      # 和目标 ABI 不一一对应就直接失败。
+      - name: 校验 APK 只含 ${{ matrix.abi }}
+        run: |
+          APK="out/LumeBox-${{ matrix.flavor }}-${{ inputs.build_type }}.apk"
+          LIBS=$(unzip -Z1 "$APK" | grep '^lib/' | cut -d/ -f2 | sort -u)
+          echo "APK 内含 ABI："
+          echo "$LIBS"
+          if [ "$LIBS" != "${{ matrix.abi }}" ]; then
+            echo "::error::期望只有 ${{ matrix.abi }}，实际是 $(echo "$LIBS" | tr '\n' ' ')"
+            exit 1
+          fi
+
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
         with:
