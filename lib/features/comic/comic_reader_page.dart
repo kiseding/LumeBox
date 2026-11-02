@@ -737,13 +737,25 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       if (!mounted) return;
       final controller = _scrollController;
       if (controller == null || !controller.hasClients) return;
-      if ((controller.offset - target).abs() < 0.5) return;
-      controller.jumpTo(
-        target.clamp(
-          controller.position.minScrollExtent,
-          controller.position.maxScrollExtent,
-        ),
-      );
+      if ((controller.offset - target).abs() >= 0.5) {
+        controller.jumpTo(
+          target.clamp(
+            controller.position.minScrollExtent,
+            controller.position.maxScrollExtent,
+          ),
+        );
+      }
+      // 续读落点体检：目标偏移是用「占位比例」估出来的，与真实比例差得多时
+      // 会停在别的张上。界面上「停错位置」和「卡住不动」是同一个观感，
+      // 没有这条日志分不清是哪一种。
+      if (_images.isEmpty) return;
+      final landed = _waterfallIndexFor(controller.offset);
+      if (landed != _page) {
+        LumeLog.info(
+          '[${widget.target.itemId}] 续读落点偏差：目标第 ${_page + 1} 张，'
+          '实际落在第 ${landed + 1} 张（共 ${_images.length} 张）',
+        );
+      }
     });
   }
 
@@ -871,6 +883,13 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         () => widget.dataSource.content(
           itemId: widget.target.itemId,
           chapterId: chapterId,
+        ),
+        // 预取也必须有上限：源脚本卡住时这条请求会一直挂在运行时里，
+        // 用户真的翻到下一章时反而排在它后面——正是「继续读下一章一直转圈」。
+        timeout: const Duration(seconds: 45),
+        timeoutError: () => const SourceException(
+          SourceErrorKind.network,
+          '下一章预取超时（45 秒没有返回）',
         ),
       );
       if (!mounted || content is! ImageContent) return;
