@@ -1,8 +1,9 @@
 # 只编译、不签名：产出未签名 IPA（在本地用 Sideloadly + 自有证书重签名后安装）。
 #
-# 触发规则（2026-10-20 起）：**只在手动触发时构建，push/合并到 main 不会自动出包。**
-# 需要包时：Actions → Build unsigned IPA (iOS) → Run workflow（或让 AI 用 gh 触发）。
-# 额度提醒：私有仓库的 macOS runner 按 10 倍折算 Actions 用量，手动构建便于控制成本。
+# 触发规则（2026-11-02 起）：**每次 push 自动出包**（手动触发仍然可用）。
+# 仓库是公开的，标准 runner 不折算 Actions 用量，自动构建没有额度成本。
+# 仅文档改动（**.md、docs/**）不触发，避免白跑 60 分钟 macOS。
+# 手动触发保留两个开关：models_only（只算模型）/ typecheck_only（只查 Swift 类型）。
 name: Build unsigned IPA (iOS)
 
 on:
@@ -16,6 +17,13 @@ on:
         description: '只检查 Swift 类型，不编译 App、不生成或上传安装包'
         type: boolean
         default: false
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.tmp_shots/**'
+      - '.zcode/**'
 
 run-name: ${{ inputs.typecheck_only && 'Swift typecheck only — no package' || 'Build unsigned IPA' }}
 
