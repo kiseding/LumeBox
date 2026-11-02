@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/source/source_content_rating.dart';
 
 void main() {
@@ -61,6 +61,9 @@ void main() {
     'rule34video_video',
     'oreno3d_video',
     'xcamtube_video',
+    'madoutv_video',
+    'mitaow_video',
+    'mitaovideo_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
