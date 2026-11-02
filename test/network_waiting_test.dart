@@ -137,4 +137,24 @@ void main() {
     expect(find.text('正在等待网络，恢复后继续…'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('提示条按 topInset 让出顶部安全带', (tester) async {
+    // 回归背景：`GlassScaffold(behindBar: true)` 的页面里内容从屏幕顶边开始，
+    // 提示条固定 `top: 8` 会落在状态栏那一带——灵动岛机型上正好被岛压住。
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: NetworkWaitingView(
+            topInset: 100,
+            child: SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    NetworkActivity.setWaiting('a', true);
+    await tester.pump();
+    final rect = tester.getRect(find.text('正在等待网络，恢复后继续…'));
+    expect(rect.top, greaterThanOrEqualTo(100), reason: '提示条不能落进顶部安全带');
+    NetworkActivity.setWaiting('a', false);
+  });
 }

@@ -492,7 +492,12 @@ class GlassScaffold extends StatelessWidget {
                   ? SafeArea(
                       top: false,
                       bottom: false,
-                      child: NetworkWaitingView(child: child),
+                      // 内容铺到顶栏之下时，这个 Stack 从屏幕顶边开始：提示条要
+                      // 让过整条顶栏，否则会落在状态栏那一带被灵动岛压住。
+                      child: NetworkWaitingView(
+                        topInset: barHeight(context),
+                        child: child,
+                      ),
                     )
                   : SafeArea(
                       bottom: _reservesBottom(context),
