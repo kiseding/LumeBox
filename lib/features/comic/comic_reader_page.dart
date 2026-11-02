@@ -625,6 +625,14 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           itemId: widget.target.itemId,
           chapterId: chapter.id,
         ),
+        // 源脚本卡住（await 一个永不返回的请求 / 等网页验证）时，这里以前会
+        // 无限转圈：用户看到的就是「一直加载不出来」，也没有重试入口。
+        timeout: const Duration(seconds: 60),
+        timeoutError: () => const SourceException(
+          SourceErrorKind.network,
+          '章节加载超时（60 秒没有返回）。可能是网络不通，或该源需要网页验证；'
+          '可以重试，或到源管理里换一个源。',
+        ),
       );
       if (!mounted || loadSequence != _chapterLoadSequence) return;
       switch (content) {

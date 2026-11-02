@@ -185,6 +185,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       final detail = await networkRequests.run(
         'detail',
         () => source.detail(widget.target.itemId),
+        // 与阅读器同一口径：源脚本卡住时必须能结束，否则详情页永远转圈
+        // （书架「继续阅读」点进来看到的就是这个）。
+        timeout: const Duration(seconds: 30),
+        timeoutError: () => const SourceException(
+          SourceErrorKind.network,
+          '详情加载超时（30 秒没有返回）。请检查网络，或稍后重试。',
+        ),
       );
       if (!mounted || revision != _loadRevision) return;
       if (detail?.cover != null) {
@@ -207,6 +214,12 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       final chapters = await networkRequests.run(
         'chapters',
         () => source.chapters(widget.target.itemId),
+        // 章节列表比详情重（有的站一次返回上百话），给的时间宽一档。
+        timeout: const Duration(seconds: 45),
+        timeoutError: () => const SourceException(
+          SourceErrorKind.network,
+          '章节列表加载超时（45 秒没有返回）。请检查网络，或稍后重试。',
+        ),
       );
       if (!mounted || revision != _loadRevision) return;
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么。
