@@ -68,8 +68,9 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
+	<!-- 120Hz 不再全程开启（原先 CADisableMinimumFrameDurationOnPhone = true）。
+	     这个键让 Pro 机型整个 App 跑 120fps，而顶栏与 Dock 的玻璃是每帧一次的
+	     离屏高斯模糊，两者叠起来是持续发热的主因；去键即回到系统默认 60fps。 -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
