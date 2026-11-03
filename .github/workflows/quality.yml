@@ -7,7 +7,9 @@ permissions:
 jobs:
   analyze-and-test:
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 同步上游 67 个提交后测试套件变大（新增小说、下载、TVBox、加密等用例），
+    # 30 分钟会在回归跑完前被掐断（实测 28 分钟还在跑）。给到 50。
+    timeout-minutes: 50
     env:
       PUB_HOSTED_URL: https://pub.flutter-io.cn
     steps:
