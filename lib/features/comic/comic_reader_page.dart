@@ -77,9 +77,9 @@ part 'comic_reader_surface.dart';
 /// 前方要预取的张数：从锚点往后按占位高度累计，到约 [screens] 屏为止，
 /// 最多 [max] 张。
 ///
-/// 为什么按屏幕而不是按张数：条漫一张常常就有一屏半，固定给 5 张等于把
-/// 十几屏的图排进解码队列——每张 1179×3500 解码后约 16 MB，既来不及在用户
-/// 滑到前下完，又会把内存预算挤爆。单页漫画一张不到一屏，仍然走满 [max]。
+/// 为什么按屏幕而不是按张数：条漫一张常常就有一屏半，固定给 5 张会把多屏图片
+/// 排进解码队列——每张 1179×3500 解码后约 16 MB，既来不及在用户滑到前下完，
+/// 又会把内存预算挤爆。单页漫画仍会按 [screens] 与 [max] 计算。
 ///
 /// 视口高度未知（<= 0）时退回 [max]：宁可多取，也不要因为拿不到尺寸就不预取。
 @visibleForTesting
@@ -87,7 +87,7 @@ int comicPreloadAheadCount(
   List<double> heights,
   double viewportHeight, {
   int max = 5,
-  double screens = 2.5,
+  double screens = 1.5,
 }) {
   if (heights.isEmpty) return 0;
   if (viewportHeight <= 0) return math.min(max, heights.length);
@@ -460,6 +460,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       cacheDir: widget.library.imageCacheDir,
       network: widget.network,
       requestSender: widget.imageRequestSender,
+      // Keep speculative downloads to one worker; visible images retain a free slot.
+      maxConcurrent: 2,
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
       // 只是这一话跨会话再看会重新下载（内存缓存与管线复用仍在）。
       diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
@@ -797,16 +799,14 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   /// 视野前方要预取的张数。
   ///
-  /// 条漫一屏常常有一张半到两张，5 张约等于两屏多：够手指连续拖动时不断档，
-  /// 又不会把整章都拉进内存。往后（回看方向）仍按设置的「预加载半径」给。
+  /// 屏数上限控制前方预取；往后（回看方向）仍按设置的「预加载半径」给。
   static const int _preloadAheadCount = 5;
 
   /// 前方预取的**屏幕数**上限。
   ///
-  /// 条漫一张常常就有一屏半，按「5 张」算是十几屏：解码成本远超收益
-  /// （一张 1179×3500 解码后约 16 MB），而且滑到那一屏时多半已被淘汰。
-  /// 单页漫画一张不到一屏，仍然按满 5 张走。
-  static const double _preloadAheadScreens = 2.5;
+  /// 条漫一张常常就有一屏半，过量预取会增加解码、内存与耗电，且滑到目标时
+  /// 预取图可能已被淘汰。单页漫画同样受屏数上限约束，不再一次排满多张大图。
+  static const double _preloadAheadScreens = 1.5;
 
   /// 从 [anchor] 往后数，累计到约 [_preloadAheadScreens] 屏为止。
   ///
@@ -1490,10 +1490,14 @@ class _ComicReaderPageState extends State<ComicReaderPage>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    ColorFiltered(
-                      colorFilter: ColorFilter.matrix(_preferences.colorMatrix),
-                      child: _buildContent(),
-                    ),
+                    _preferences.hasColorAdjustments
+                        ? ColorFiltered(
+                            colorFilter: ColorFilter.matrix(
+                              _preferences.colorMatrix,
+                            ),
+                            child: _buildContent(),
+                          )
+                        : _buildContent(),
                     if (_preferences.brightness < 1)
                       IgnorePointer(
                         child: ColoredBox(
@@ -1618,9 +1622,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         controller: _scrollController,
         padding: EdgeInsets.zero,
         itemCount: _images.length,
-        // 预构建上下各一屏：条目建得早就早点向管线要图（预取过的直接命中内存），
-        // 同时把「占位比例 → 真实比例」的修正放到画面之外，滑动时不再抖一下。
-        scrollCacheExtent: const ScrollCacheExtent.viewport(1),
+        // 半屏预构建：保留滚动缓冲，减少屏外图片提前解码的数量。
+        scrollCacheExtent: const ScrollCacheExtent.viewport(0.5),
         itemExtentBuilder: (index, _) => _itemHeight(index) + gap,
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsets.fromLTRB(margin, 0, margin, gap),

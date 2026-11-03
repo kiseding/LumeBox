@@ -3,18 +3,18 @@ import 'package:lume_box/features/comic/comic_reader_page.dart';
 
 void main() {
   group('前方预取按屏幕封顶', () {
-    test('条漫：一张一屏半时只取 2 张', () {
-      // 视口 880，2.5 屏 = 2200：第一张 1300 没到线，第二张 2600 到线即停。
+    test('条漫：单张超过 1.5 屏时只取 1 张', () {
+      // 视口 880，1.5 屏 = 1320；第一张 1400 跨过上限即停止。
       expect(
-        comicPreloadAheadCount(const [1300, 1300, 1300, 1300, 1300], 880),
-        2,
+        comicPreloadAheadCount(const [1400, 1400, 1400, 1400, 1400], 880),
+        1,
       );
     });
 
-    test('单页漫画：一张半屏时仍按上限取 5 张', () {
+    test('单页漫画：仍按 1.5 屏限制预取范围', () {
       expect(
         comicPreloadAheadCount(const [400, 400, 400, 400, 400], 880),
-        5,
+        4,
       );
     });
 

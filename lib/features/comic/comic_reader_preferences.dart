@@ -163,4 +163,7 @@ class ComicReaderPreferences {
       0,
     ];
   }
+
+  bool get hasColorAdjustments =>
+      grayscale || inverted || contrast != 1 || warmth != 0;
 }

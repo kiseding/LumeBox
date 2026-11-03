@@ -789,6 +789,7 @@ void main() {
 
   testWidgets('画面调整落库且重置恢复所有滤镜', (tester) async {
     await pumpReader(tester);
+    expect(ComicReaderPreferences.load(library).hasColorAdjustments, isFalse);
     await menu(tester, '画面调整');
     expect(find.text('重置为默认').hitTestable(), findsOneWidget);
     await tester.drag(find.byType(Slider).at(1), const Offset(-90, 0));
@@ -802,6 +803,7 @@ void main() {
     await tester.tap(find.widgetWithText(SwitchListTile, '灰度'));
     await settle(tester);
     expect(ComicReaderPreferences.load(library).grayscale, isTrue);
+    expect(ComicReaderPreferences.load(library).hasColorAdjustments, isTrue);
     await tester.scrollUntilVisible(
       find.text('重置为默认'),
       180,
@@ -811,6 +813,7 @@ void main() {
     await settle(tester);
     final preferences = ComicReaderPreferences.load(library);
     expect(preferences.grayscale, isFalse);
+    expect(preferences.hasColorAdjustments, isFalse);
     expect(preferences.brightness, 1);
     expect(preferences.gamma, 1);
   });
