@@ -1,3 +1,6 @@
+import '../../core/source/source_content_type.dart';
+import '../reading/content_detail_router.dart';
+import '../download/download_selection.dart';
 import 'comic_download_center.dart';
 
 import 'dart:async';
@@ -40,11 +43,13 @@ class ComicDetailPage extends StatefulWidget {
     required this.library,
     required this.manager,
     required this.target,
+    this.detectContent = true,
     this.runtimeAvailable,
     this.imagePipeline,
     this.downloadCenter,
   });
 
+  final bool detectContent;
   final ReadingLibrary library;
 
   /// 图源管理端口：详情页自己打开图源，因此从书架进来也能用。
@@ -79,6 +84,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
             automaticUpscale(bytes, UpscaleSurface.cover),
       );
 
+  Widget? _typedDetail;
   DataSource? _source;
   SourceDetail? _detail;
   List<SourceChapter> _chapters = const <SourceChapter>[];
@@ -222,6 +228,32 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         ),
       );
       if (!mounted || revision != _loadRevision) return;
+      if (widget.detectContent) {
+        final type = await networkRequests.run(
+          'content-type',
+          () => detectSourceContent(
+            source: source,
+            itemId: widget.target.itemId,
+            detail: detail,
+            chapters: chapters,
+          ),
+        );
+        if (!mounted || revision != _loadRevision) return;
+        if (type != null && type != SourceContentType.comic) {
+          setState(() {
+            _loading = false;
+            _chaptersLoading = false;
+            _typedDetail = contentDetailPage(
+              type: type,
+              source: source,
+              library: widget.library,
+              manager: widget.manager,
+              target: widget.target,
+            );
+          });
+          return;
+        }
+      }
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么。
       _pipeline.bindSession(source.section, source.id);
       if (detail?.cover != null) {
@@ -426,15 +458,23 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       ),
     );
     if (scope == null || !mounted) return;
+    final indices = scope == ComicDownloadScope.selected
+        ? await selectDownloadChapters(
+            context,
+            _chapters,
+            initial: readChapterIndex ?? 0,
+          )
+        : scope.indices(
+            chapterCount: _chapters.length,
+            readChapterIndex: readChapterIndex,
+            currentIndex: readChapterIndex,
+          );
+    if (indices == null || !mounted) return;
     setState(() => _downloadCardHidden = false);
     await (widget.downloadCenter ?? ComicDownloadCenter.instance).enqueue(
       downloader,
       _chapters,
-      scope.indices(
-        chapterCount: _chapters.length,
-        readChapterIndex: readChapterIndex,
-        currentIndex: readChapterIndex,
-      ),
+      indices,
     );
   }
 
@@ -485,7 +525,8 @@ class _ComicDetailPageState extends State<ComicDetailPage>
     try {
       final content = await networkRequests.run(
         'gallery-preview',
-        () => source.content(
+        () => SourceContentRead.read(
+          source,
           itemId: widget.target.itemId,
           chapterId: _chapters.first.id,
         ),
@@ -1143,6 +1184,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
 
   @override
   Widget build(BuildContext context) {
+    if (_typedDetail != null) return _typedDetail!;
     if (_compact) {
       return Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
@@ -1683,13 +1725,15 @@ class _DownloadScopeSheet extends StatelessWidget {
       for (final scope in ComicDownloadScope.values)
         (
           scope,
-          scope
-              .indices(
-                chapterCount: chapterCount,
-                readChapterIndex: readChapterIndex,
-                currentIndex: readChapterIndex,
-              )
-              .length,
+          scope == ComicDownloadScope.selected
+              ? chapterCount
+              : scope
+                    .indices(
+                      chapterCount: chapterCount,
+                      readChapterIndex: readChapterIndex,
+                      currentIndex: readChapterIndex,
+                    )
+                    .length,
         ),
     ];
     return ClipRRect(
@@ -1698,73 +1742,76 @@ class _DownloadScopeSheet extends StatelessWidget {
         color: LumeTheme.surface,
         child: SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '批量下载',
-                  style: TextStyle(
-                    fontSize: LumeTypography.sectionTitleSize,
-                    fontWeight: FontWeight.w600,
-                    color: LumeTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '图片存到应用内的导出目录（按作品 / 章节分目录），'
-                  '已下过的图会自动跳过，可随时取消。',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: LumeTypography.descriptionSize,
-                    height: 1.5,
-                    color: LumeTheme.descriptionColor,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                for (final (scope, count) in scopes)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    enabled: count > 0,
-                    onTap: count > 0
-                        ? () => Navigator.of(context).pop(scope)
-                        : null,
-                    title: Text(
-                      scope.label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: LumeTypography.titleSize,
-                        color: LumeTheme.textPrimary,
-                      ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '批量下载',
+                    style: TextStyle(
+                      fontSize: LumeTypography.sectionTitleSize,
+                      fontWeight: FontWeight.w600,
+                      color: LumeTheme.textPrimary,
                     ),
-                    subtitle: Text(
-                      switch (scope) {
-                        ComicDownloadScope.all => '整部作品，共 $count 章',
-                        ComicDownloadScope.unread =>
-                          count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
-                        ComicDownloadScope.current =>
-                          count == 0
-                              ? '暂无可下载章节'
-                              : '只下第 ${(readChapterIndex ?? 0) + 1} 章',
-                      },
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: LumeTypography.descriptionSize,
-                        color: LumeTheme.descriptionColor,
-                      ),
-                    ),
-                    trailing: count > 0
-                        ? LumeIcon(
-                            Icons.chevron_right,
-                            slot: 'comic_detail_page.4',
-                            color: LumeTheme.muted,
-                          )
-                        : null,
                   ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '图片存到应用内的导出目录（按作品 / 章节分目录），'
+                    '已下过的图会自动跳过，可随时取消。',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: LumeTypography.descriptionSize,
+                      height: 1.5,
+                      color: LumeTheme.descriptionColor,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final (scope, count) in scopes)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      enabled: count > 0,
+                      onTap: count > 0
+                          ? () => Navigator.of(context).pop(scope)
+                          : null,
+                      title: Text(
+                        scope.label,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: LumeTypography.titleSize,
+                          color: LumeTheme.textPrimary,
+                        ),
+                      ),
+                      subtitle: Text(
+                        switch (scope) {
+                          ComicDownloadScope.selected => '勾选需要保存的章节',
+                          ComicDownloadScope.all => '整部作品，共 $count 章',
+                          ComicDownloadScope.unread =>
+                            count == 0 ? '没有未读章节' : '进度之后，共 $count 章',
+                          ComicDownloadScope.current =>
+                            count == 0
+                                ? '暂无可下载章节'
+                                : '只下第 ${(readChapterIndex ?? 0) + 1} 章',
+                        },
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: LumeTypography.descriptionSize,
+                          color: LumeTheme.descriptionColor,
+                        ),
+                      ),
+                      trailing: count > 0
+                          ? LumeIcon(
+                              Icons.chevron_right,
+                              slot: 'comic_detail_page.4',
+                              color: LumeTheme.muted,
+                            )
+                          : null,
+                    ),
+                ],
+              ),
             ),
           ),
         ),

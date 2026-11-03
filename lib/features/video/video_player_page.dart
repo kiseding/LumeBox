@@ -639,16 +639,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 片头 / 片尾标记（用户口径：播放中「记一下」，下次自动跳过）。
   SkipMarks _skipMarks = SkipMarks.none;
 
-  /// 本次播放是否已经处理过片头（只在起播时判一次：用户拖回片头看时不再弹回去）。
-  bool _introHandled = false;
-
-  /// 本次播放是否已经处理过片尾（与片头同一条纪律，且是**死循环的守门人**）。
-  ///
-  /// 片尾的判定源是「位置 ≥ 标记」，而跳片尾恰恰把位置推到标记之后（跳到结尾）
-  /// ——没有这个标记，最后一集会在片尾之后**每个快照都重现处理一次**：换集请求
-  /// 与 seek 交替，永远停不下来（真机是每帧一次章节列表请求，用例里直接挂死）。
-  bool _outroHandled = false;
-
   /// 弹幕：设置 + 本集弹幕 + 内存缓存（换集时按 itemId/chapterId 取）。
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
   DanmakuTrack _danmaku = DanmakuTrack.empty;
@@ -915,9 +905,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (mounted) setState(() {});
   }
 
+  Stopwatch? _startupWatch;
+  Stopwatch? _firstFrameWatch;
+
   void _onSnapshotChanged() {
     _syncPipPlaybackState();
     final snapshot = _player?.snapshot.value;
+    final startupWatch = _startupWatch;
+    if (startupWatch != null && snapshot?.error != null) _startupWatch = null;
+    if (startupWatch != null &&
+        snapshot != null &&
+        snapshot.error == null &&
+        snapshot.playing &&
+        !snapshot.buffering &&
+        snapshot.position > Duration.zero) {
+      PlaybackDiagnostics.record(
+        'playback-progress-started',
+        source: _target?.sourceId,
+        kernel: _settings.kernel.name,
+        uri: _media?.uri,
+        elapsedMs: startupWatch.elapsedMilliseconds,
+      );
+      _startupWatch = null;
+    }
     if (snapshot != null) _syncOriginalIntro(snapshot);
     final playing = snapshot?.playing ?? false;
     final work = _target;
@@ -1028,8 +1038,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           _session?.state != PipState.active &&
           snapshot.position >= const Duration(seconds: 10) &&
           remaining >= const Duration(seconds: 5) &&
-          remaining <=
-              Duration(seconds: MediaPreload.instance.triggerSeconds) &&
           buffered >=
               Duration(seconds: _settings.kernel == PlayerKernel.mdk ? 3 : 8)) {
         unawaited(
@@ -1039,6 +1047,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             _openSource,
             widget.playerFactory ??
                 ((kernel) => PlayerFactory.create(kernel: kernel)),
+            refreshNearEnd:
+                remaining <=
+                Duration(seconds: MediaPreload.instance.triggerSeconds),
           ),
         );
       }
@@ -1452,6 +1463,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       uri: media.uri,
     );
     final loadWatch = Stopwatch()..start();
+    _startupWatch = null;
     _nextEpisodeBuffer.discard();
     // 浏览器 UA：片源/会话自带的 User-Agent 优先，否则补上全局偏好。
     final requestMedia = PlaybackPreferenceWiring.applyUserAgent(
@@ -1487,6 +1499,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       }
       _playbackRequestHeaders = headers ?? const {};
       try {
+        _firstFrameWatch = loadWatch;
         await player.load(
           PlayerMedia(uri: media.uri, title: media.title, headers: headers),
         );
@@ -1515,6 +1528,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       elapsedMs: loadWatch.elapsedMilliseconds,
       error: player.snapshot.value.error,
     );
+    _startupWatch = player.snapshot.value.error == null ? loadWatch : null;
     setState(() => _loaded = player.snapshot.value.error == null);
   }
 
@@ -1768,8 +1782,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     // 换作品 / 换集：重新读这套片头片尾标记，并允许片头**与片尾**再判一次
     //（片尾那条同样必须复位：换集就是为了让新一集还能走到它自己的片尾）。
-    _introHandled = false;
-    _outroHandled = false;
     _loadSkipMarks(target);
     _introGeneration++;
     _introOpening = false;
@@ -1903,7 +1915,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     try {
       final prepared = _session?.state == PipState.active
           ? null
-          : _nextEpisodeBuffer.take(target, index, _settings.kernel);
+          : await _nextEpisodeBuffer.takeWhenReady(
+              target,
+              index,
+              _settings.kernel,
+            );
+      if (!mounted) return false;
       final List<SourceChapter>? chapters;
       try {
         chapters = prepared == null
@@ -2411,6 +2428,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           status: _publicDanmakuStatus,
           sourceCount: _sourceDanmakuCount,
           publicCount: _publicDanmakuCount,
+          preview: _danmaku.items.take(8).toList(growable: false),
           loading: _publicDanmakuLoading,
           videoTitle: _target?.title,
           episodeTitle: _target?.chapterTitle,
@@ -2498,32 +2516,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       ).catchError((Object error) => LumeLog.warn('同剧跳过记忆保存失败：$error')),
     );
     setState(() => _skipMarks = next);
-    _introHandled = !intro && _introducedAlready;
-    // 「记片尾」记的就是**当前位置**：当场算作已处理，这一集不会被立刻跳走
-    //（用户还要看完这一段）。下次起播 / 换集重新判定，到时照跳。
-    if (!intro) _outroHandled = true;
     _showToast(
       intro
           ? '已记片头：${_format(position)}（下次从这里开始播）'
           : '已记片尾：${_format(position)}（到时自动跳下一集）',
     );
-  }
-
-  /// 清掉这套作品的片头片尾标记。
-  void _clearSkipMarks() {
-    final target = _target;
-    final library = _library;
-    if (target == null || library == null) return;
-    SkipMarksStore(library).clear(target.identity);
-    unawaited(
-      rememberPlayerSkip(
-        target,
-        SkipMarks.none,
-        _player?.snapshot.value.duration ?? Duration.zero,
-      ).catchError((Object error) => LumeLog.warn('同剧跳过记忆清除失败：$error')),
-    );
-    setState(() => _skipMarks = SkipMarks.none);
-    _showToast('已清除片头片尾标记');
   }
 
   /// 片尾区间：剩余时间进到这里就算「在片尾」，快捷按钮随之变成「记片尾」。
@@ -2537,7 +2534,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final total = snapshot.duration;
     if (total <= Duration.zero) return false;
     final scaled = total * _outroWindowFraction;
-    final window = scaled > _outroWindowMin ? scaled : _outroWindowMin;
+    final preferred = scaled > _outroWindowMin ? scaled : _outroWindowMin;
+    final window = preferred > total * .5 ? total * .5 : preferred;
     return total - snapshot.position <= window;
   }
 
@@ -2547,120 +2545,187 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 快捷按钮的提示：把「这一下记的是哪一头、长按能清」说清楚。
   String _skipQuickTooltip(PlayerSnapshot snapshot) =>
-      '${_skipQuickLabel(snapshot)}（长按清除标记）';
+      '${_skipQuickLabel(snapshot)}（长按查看标记）';
 
   /// 快捷按钮按下去：按当前所处的区间记对应的一头。
   void _markSkipFromQuick(PlayerSnapshot snapshot) =>
       _markSkip(intro: !_inOutroRegion(snapshot));
 
-  /// 长按快捷按钮清标记；没记过时如实说明，别让长按像没反应。
-  void _clearSkipMarksFromQuick() {
-    if (_skipMarks.isEmpty) {
-      _showToast('还没有记过片头片尾');
+  SkipMarks _visibleSkipMarks(PlayerSnapshot snapshot) {
+    final target = _target;
+    final controller = _intro;
+    final request = controller?.request;
+    if (target == null ||
+        request == null ||
+        request.episode.series != '${target.sourceId}:${target.itemId}' ||
+        request.episode.episode != target.chapterIndex + 1) {
+      return SkipMarks.none;
+    }
+    if (!controller!.store.hasSeriesMemory(request.episode)) return _skipMarks;
+    final segments = controller.store.seriesMemory(
+      request.episode,
+      snapshot.duration.inMilliseconds,
+      includeDisabled: true,
+    );
+    final opening = segments
+        .where((segment) => segment.kind == SegmentKind.opening)
+        .firstOrNull;
+    final ending = segments
+        .where((segment) => segment.kind == SegmentKind.ending)
+        .firstOrNull;
+    return SkipMarks(
+      intro: opening == null ? null : Duration(milliseconds: opening.endMs),
+      outro: ending == null ? null : Duration(milliseconds: ending.startMs),
+    );
+  }
+
+  Future<void> _clearSkipKind(bool intro) async {
+    final target = _target;
+    final library = _library;
+    if (target == null || library == null) return;
+    await clearPlayerSkipKind(
+      target,
+      intro ? SegmentKind.opening : SegmentKind.ending,
+      controller: _intro,
+    );
+    if (!mounted || _target?.isSameEpisode(target) != true) return;
+    final next = _skipMarks.copyWith(clearIntro: intro, clearOutro: !intro);
+    SkipMarksStore(library).save(target.identity, next);
+    setState(() => _skipMarks = next);
+    _showToast(intro ? '已清除片头标记' : '已清除片尾标记');
+  }
+
+  Future<void> _showSkipMarks() async {
+    if (_target == null) {
+      _showToast('从源条目起播才能记片头片尾');
       return;
     }
-    _clearSkipMarks();
+    _cancelAutoHide();
+    await showPlayerSettingsPanel<void>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (panelContext, refresh) {
+          final marks = _visibleSkipMarks(
+            _player?.snapshot.value ?? const PlayerSnapshot(),
+          );
+          Widget row(String name, Duration? at, bool intro) => ListTile(
+            title: Text(name),
+            subtitle: Text(at == null ? '未设置' : _format(at)),
+            trailing: TextButton(
+              onPressed: at == null
+                  ? null
+                  : () async {
+                      try {
+                        await _clearSkipKind(intro);
+                        if (panelContext.mounted) refresh(() {});
+                      } catch (_) {
+                        if (mounted) _showToast('清除标记失败，请重试');
+                      }
+                    },
+              child: const Text('清除'),
+            ),
+          );
+          return PlayerSettingsScaffold(
+            title: '片头片尾标记',
+            body: ListView(
+              children: [
+                row('片头结束', marks.intro, true),
+                row('片尾开始', marks.outro, false),
+                ListTile(
+                  title: const Text('片头片尾详细设置'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    panelContext,
+                    MaterialPageRoute(
+                      builder: (_) => IntroEpisodeSheet(
+                        controller: _intro!,
+                        position: () =>
+                            _player?.snapshot.value.position ?? Duration.zero,
+                        onRebind: () {
+                          _introMedia = null;
+                          final snapshot = _player?.snapshot.value;
+                          if (snapshot != null) _syncOriginalIntro(snapshot);
+                        },
+                      ),
+                    ),
+                  ),
+                  enabled: _intro != null,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    if (mounted) _scheduleAutoHide();
   }
 
   /// 快捷智能「记片头 / 记片尾」（用户口径：就放在播放页控制栏上）。
   ///
   /// 文案随播放位置切换，不再需要用户自己判断「现在该记哪一头」；两个入口
   /// （全屏浮层与竖屏控制栏）读同一份判定，行为不会各说各话。
-  Widget _skipQuickButton({bool inPanel = false}) =>
+  Widget _skipQuickButton({bool inPanel = false, bool withIcon = false}) =>
       ValueListenableBuilder<PlayerSnapshot>(
         valueListenable: _player?.snapshot ?? _idleSnapshot,
-        builder: (context, snapshot, _) => Tooltip(
-          message: _skipQuickTooltip(snapshot),
-          child: TextButton(
-            onPressed: () => _intro?.prompt != null
-                ? _originalSkipNow()
-                : _markSkipFromQuick(snapshot),
-            onLongPress: _clearSkipMarksFromQuick,
-            style: TextButton.styleFrom(
-              minimumSize: const Size(56, 40),
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              foregroundColor: _fullscreen && !inPanel
-                  ? Colors.white
-                  : LumeTheme.accent,
-            ),
-            child: Text(
-              _skipQuickLabel(snapshot),
-              style: TextStyle(
-                fontSize: LumeTypography.bodySize + 1,
-                fontWeight: FontWeight.w600,
-                shadows: _fullscreen && !inPanel ? _controlShadows : null,
+        builder: (context, snapshot, _) {
+          final marks = _visibleSkipMarks(snapshot);
+          final mark = _inOutroRegion(snapshot) ? marks.outro : marks.intro;
+          return Tooltip(
+            message: _skipQuickTooltip(snapshot),
+            child: TextButton(
+              onPressed: () => _markSkipFromQuick(snapshot),
+              onLongPress: _showSkipMarks,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(56, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                foregroundColor: _fullscreen && !inPanel
+                    ? Colors.white
+                    : LumeTheme.accent,
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (withIcon) ...[
+                      const Icon(Icons.fast_forward_rounded, size: 17),
+                      const SizedBox(width: 3),
+                    ],
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _skipQuickLabel(snapshot),
+                          style: TextStyle(
+                            fontSize: LumeTypography.bodySize + 1,
+                            fontWeight: FontWeight.w600,
+                            height: 1.1,
+                            shadows: _fullscreen && !inPanel
+                                ? _controlShadows
+                                : null,
+                          ),
+                        ),
+                        if (mark != null)
+                          Text(
+                            _format(mark),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              height: 1.1,
+                              shadows: _fullscreen && !inPanel
+                                  ? _controlShadows
+                                  : null,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
-
-  /// 起播时是否已经走过片头（用来判断「记片尾」后要不要重新判片头）。
-  bool get _introducedAlready {
-    final snapshot = _player?.snapshot.value;
-    final intro = _skipMarks.intro;
-    if (snapshot == null || intro == null) return false;
-    return snapshot.position >= intro;
-  }
-
-  /// 每次快照变化时判一次：该跳片头就跳、到片尾就进下一集。
-  ///
-  /// 只在「从源条目起播」且这一集有标记时生效；手动贴地址没有作品身份，不跳。
-  void _maybeSkip(SkipMarks marks, Duration position, Duration duration) {
-    final target = _target;
-    final player = _player;
-    if (target == null || player == null) return;
-    final outcome = SkipDecision.resolve(
-      marks: marks,
-      position: position,
-      duration: duration,
-      introEnabled: true,
-      outroEnabled: true,
-      introHandled: _introHandled,
-      outroHandled: _outroHandled,
-      hasNext: _autoNext && target.chapterIndex >= 0,
-    );
-    // 片尾只处理一次：位置已经越过片尾标记就等于「这一集的片尾已经管过了」，
-    // 任何一次动作之后都不能再判（否则跳到结尾 / 换集失败之后位置仍在标记之后，
-    // 每个快照都会再来一轮——见 SkipDecision 的第 2 条边界）。
-    if (outcome.action != SkipAction.none &&
-        marks.outro != null &&
-        position >= marks.outro!) {
-      _outroHandled = true;
-    }
-    switch (outcome.action) {
-      case SkipAction.none:
-        return;
-      case SkipAction.seek:
-        final to = outcome.position!;
-        _introHandled = true;
-        unawaited(player.seek(to));
-        _showToast(
-          to >= duration && duration > Duration.zero ? '已跳过片尾' : '已跳过片头',
-        );
-      case SkipAction.advance:
-        _introHandled = true;
-        // 有没有下一集要**问过才知道**（单集作品 / 最后一集都没有），
-        // 因此先试着换集：换成了才说「进入下一集」，换不成跳到结尾。
-        unawaited(_skipOutroTo(target, duration));
-    }
-  }
-
-  /// 片尾到点：有下一集就连播，没有就跳到结尾（用户口径：片尾「到点自动跳」）。
-  ///
-  /// 以前这里直接判「有下一集」（只按 `_autoNext` 猜），单集作品的片尾于是**什么
-  /// 都没发生**——越界换集被静默吃掉，用户等不到「跳到结尾」。
-  Future<void> _skipOutroTo(VideoPlayTarget target, Duration duration) async {
-    final switched = await _playEpisodeAt(target.chapterIndex + 1, auto: true);
-    if (switched) {
-      _showToast('已跳过片尾，进入下一集');
-      return;
-    }
-    final player = _player;
-    if (player == null || !mounted) return;
-    if (duration > Duration.zero) await player.seek(duration);
-    _showToast('已跳过片尾');
-  }
 
   /// 保存当前播放进度（集数 + 时间点）。
   ///
@@ -3114,13 +3179,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 拖动中节流快 seek：每 150ms 一次，画面跟着手指走；松手再精确 seek。
+  /// 已缓冲区域可快速预览；网络流的未缓冲区域只在松手时请求目标。
   ///
   /// 串行 + 只保留最新目标：拖动时目标是连续变化的，中间那些落点没有一个是
   /// 用户要的，排队发出去只会让源端连开一路又一路 Range 请求。
   void _scrubSeekThrottled(Duration target) {
     final player = _player;
     if (player == null) return;
+    if (_media?.isNetwork == true) {
+      final position = player.snapshot.value.position;
+      final buffered = player.stats.value.buffered ?? Duration.zero;
+      if (target < position || target > position + buffered) {
+        _pendingScrubSeek = null;
+        return;
+      }
+    }
     _pendingScrubSeek = target;
     final now = DateTime.now();
     final last = _lastScrubSeek;
@@ -3472,7 +3545,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                               .copyWith(bufferSeconds: seconds)
                               .save(library);
                         }
-                        unawaited(_player?.setBuffering(_buffering));
+                        final player = _player;
+                        if (player != null) {
+                          unawaited(
+                            player.setBuffering(_buffering).catchError((
+                              Object error,
+                            ) {
+                              if (mounted) _showToast('本次缓冲调整未完成，将在下次播放时应用');
+                            }),
+                          );
+                        }
                       },
               ),
             ],
@@ -3792,6 +3874,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return GlassScaffold(
       effectModule: GlassModule.video,
       title: widget.title ?? _target?.title ?? '播放',
+      actions: [
+        _compactIcon(
+          icon: VideoPlayerPage.playerKernelIcon,
+          tooltip: '播放内核',
+          onPressed: _openKernelPicker,
+        ),
+      ],
       behindBar: true,
       child: Padding(padding: GlassScaffold.barInset(context), child: body),
     );
@@ -3954,6 +4043,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void _onStatsChanged() {
     if (!mounted) return;
     final stats = _player?.stats.value;
+    if (stats?.firstFrameReady == true && _firstFrameWatch != null) {
+      PlaybackDiagnostics.record(
+        'first-frame-ready',
+        source: _target?.sourceId,
+        kernel: _settings.kernel.name,
+        uri: _media?.uri,
+        elapsedMs: _firstFrameWatch!.elapsedMilliseconds,
+      );
+      _firstFrameWatch = null;
+    }
     final sizeKey = '${stats?.width}x${stats?.height}';
     if (sizeKey != _lastVideoSize) {
       setState(() => _lastVideoSize = sizeKey);
@@ -3983,6 +4082,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       case PlaybackOrientation.auto:
         // Unknown dimensions retain the entry direction instead of briefly
         // forcing a portrait short into landscape before metadata arrives.
+        if (!_hasVideoDimensions && _appliedOrientations != null) {
+          return _appliedOrientations!;
+        }
         return !_hasVideoDimensions || _isPortraitVideo
             ? const <DeviceOrientation>[DeviceOrientation.portraitUp]
             : const <DeviceOrientation>[
@@ -4286,8 +4388,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   ),
                 ),
                 const SizedBox(width: 4),
-                if (!narrow) _buildPipButton(),
-                const SizedBox(width: 4),
+                if (!narrow) ...[_buildPipButton(), const SizedBox(width: 8)],
+                _topIcon(
+                  icon: VideoPlayerPage.playerKernelIcon,
+                  tooltip: '播放内核',
+                  onPressed: _openKernelPicker,
+                ),
+                const SizedBox(width: 8),
                 _topIcon(
                   icon: Icons.more_horiz,
                   tooltip: '播放器设置',
@@ -4362,8 +4469,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       return Tooltip(
         message: tooltip,
         child: SizedBox(
-          width: 32,
-          height: 36,
+          width: 48,
+          height: 48,
           child: TextButton(
             onPressed: onPressed,
             style: TextButton.styleFrom(
@@ -4531,11 +4638,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             const SizedBox(width: 4),
             action(
               '下集',
-              '下一集',
+              '下一集 · ${_nextEpisodeBuffer.status}',
               Icons.skip_next,
               target == null || _advancing
                   ? null
                   : () => _playEpisodeAt(target.chapterIndex + 1),
+            ),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 82,
+              height: _box,
+              child: _skipQuickButton(withIcon: true),
             ),
           ],
           const Spacer(),
@@ -4593,12 +4706,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       highlighted: _danmakuSettings.enabled,
     ),
     _buildPipButton(),
-    // 播放内核：与全屏那颗同一图标（用户口径：换个好看的图标）。
-    _compactIcon(
-      icon: VideoPlayerPage.playerKernelIcon,
-      tooltip: '播放内核',
-      onPressed: _openKernelPicker,
-    ),
     _compactIcon(
       icon: _fullscreen ? Icons.close_fullscreen : Icons.open_in_full,
       tooltip: _fullscreen ? '退出全屏' : '全屏',
@@ -5435,7 +5542,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final slider = NativeGlassSlider(
       value: _fraction(shown, snapshot.duration),
       secondaryTrackValue: _fraction(
-        shown + (_player?.stats.value.buffered ?? Duration.zero),
+        snapshot.position + (_player?.stats.value.buffered ?? Duration.zero),
         snapshot.duration,
       ),
       onChangeStart: total == 0
@@ -5813,7 +5920,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _buildPipButton() {
     final session = _session;
     if (session == null) {
-      return _compactIcon(
+      return _topIcon(
         icon: Icons.picture_in_picture_alt,
         tooltip: '画中画：正在准备',
         onPressed: null,
@@ -5826,7 +5933,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         if (snapshot.state == PipState.unavailable) {
           return const SizedBox.shrink();
         }
-        return _compactIcon(
+        return _topIcon(
           icon: snapshot.isActive
               ? Icons.picture_in_picture
               : Icons.picture_in_picture_alt,

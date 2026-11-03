@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../security/local_cipher.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -25,7 +27,8 @@ import 'reading_identity.dart';
 /// 缓存目录同样独占：`sections/<id>/reading_cache/`，其下 `images/` 放图片缓存，
 /// `exports/` 保留用户手动保存的图片，不参与缓存清理。
 class ReadingStore {
-  ReadingStore._(this.section, this._scope, this._db);
+  ReadingStore._(this.section, this._scope, this._db, this._cipher);
+  final LocalCipher _cipher;
 
   /// 库内自证键：本库属于哪个板块。
   static const String _ownerKey = 'owner_section';
@@ -70,6 +73,98 @@ CREATE TABLE IF NOT EXISTS reading_setting (
   final SectionScope _scope;
   final Database _db;
 
+  /// Copy first, then let the relocation coordinator remove the old source.
+  /// Destination checkpoints win when newer; source/item identity is unchanged.
+  void copySourceTo(String sourceId, ReadingStore target) {
+    target._db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final table in [
+        'library_item',
+        'reading_progress',
+        'video_episode_progress',
+      ]) {
+        for (final row in _db.select('SELECT * FROM $table WHERE source_id=?', [
+          sourceId,
+        ])) {
+          final names = row.keys.toList();
+          final keys = [
+            'source_id',
+            'item_id',
+            if (table == 'video_episode_progress') 'chapter_id',
+          ];
+          final update = names
+              .where((key) => !keys.contains(key))
+              .map(
+                (key) => key == 'favorite'
+                    ? 'favorite=MAX($table.favorite,excluded.favorite)'
+                    : '$key=excluded.$key',
+              )
+              .join(',');
+          target._db.execute(
+            'INSERT INTO $table (${names.join(',')}) VALUES (${List.filled(names.length, '?').join(',')}) '
+            'ON CONFLICT(${keys.join(',')}) DO UPDATE SET $update WHERE excluded.updated_at >= $table.updated_at',
+            [
+              for (final key in names)
+                key == 'section' ? target.section.id : row[key],
+            ],
+          );
+        }
+      }
+      for (final row in _db.select('SELECT * FROM reading_setting')) {
+        final key = row['key'] as String;
+        if (key == 'source.preferences.$sourceId' ||
+            key == 'reader.chapterDescending.$sourceId' ||
+            key.startsWith('video.player.')) {
+          target._db.execute(
+            'INSERT OR IGNORE INTO reading_setting(key,value) VALUES (?,?)',
+            [key, target._cipher.seal(setting(key)!, context: 'reading:${target.section.id}:$key')],
+          );
+        }
+      }
+      final folders = setting('favorites.folders');
+      if (folders != null) {
+        final oldFolders = jsonDecode(folders) as Map;
+        final newFolders = Map<String, dynamic>.from(
+          jsonDecode(target.setting('favorites.folders') ?? '{}') as Map,
+        );
+        for (final entry in oldFolders.entries) {
+          final members = (entry.value as List)
+              .whereType<String>()
+              .where((id) => ReadingIdentity.decode(id)?.first == sourceId)
+              .toList();
+          if (members.isNotEmpty) {
+            newFolders['${entry.key}'] = {
+              ...(newFolders['${entry.key}'] as List? ?? []),
+              ...members,
+            }.toList();
+          }
+        }
+        target.setSetting('favorites.folders', jsonEncode(newFolders));
+      }
+      target._db.execute('COMMIT');
+    } catch (_) {
+      target._db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  void removeRelocatedSource(String sourceId) {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final table in [
+        'library_item',
+        'reading_progress',
+        'video_episode_progress',
+      ]) {
+        _db.execute('DELETE FROM $table WHERE source_id=?', [sourceId]);
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
   static final Map<String, ReadingStore> _opened = <String, ReadingStore>{};
   static final Map<String, Future<ReadingStore>> _opening = {};
 
@@ -101,9 +196,11 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       section,
       scope,
       sqlite3.open(_readingDbPath(scope)),
+      await LocalCipher.open(),
     );
     try {
       store._migrate();
+      store._protectLegacySettings();
       store._prepareDirectories();
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
@@ -566,6 +663,11 @@ CREATE TABLE IF NOT EXISTS reading_setting (
         pageFraction,
         0,
       ),
+      NovelProgress(:final offset, :final textLength) => (
+        offset,
+        0.0,
+        textLength,
+      ),
       VideoProgress(:final position, :final duration) => (
         position.inMilliseconds,
         duration.inMilliseconds.toDouble(),
@@ -573,6 +675,7 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       ),
     };
     final kind = switch (progress) {
+      NovelProgress() => 'novel',
       ComicProgress() => 'comic',
       VideoProgress() => 'video',
     };
@@ -638,7 +741,10 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       if (!(row['key'] as String).startsWith('waf.') &&
           !(row['key'] as String).startsWith('rex.widget.') &&
           !(row['key'] as String).startsWith('history.lock'))
-        row['key'] as String: row['value'] as String,
+        row['key'] as String: _cipher.reveal(
+          row['value'] as String,
+          context: 'reading:${section.id}:${row['key']}',
+        ),
   };
 
   String? setting(String key) {
@@ -646,7 +752,12 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     final rows = _db.select('SELECT value FROM reading_setting WHERE key = ?', [
       key,
     ]);
-    return rows.isEmpty ? null : rows.first['value'] as String;
+    return rows.isEmpty
+        ? null
+        : _cipher.reveal(
+            rows.first['value'] as String,
+            context: 'reading:${section.id}:$key',
+          );
   }
 
   /// Station credentials/preferences only. Shelf, progress and app settings survive.
@@ -663,8 +774,34 @@ CREATE TABLE IF NOT EXISTS reading_setting (
     _db.execute(
       'INSERT INTO reading_setting (key, value) VALUES (?, ?) '
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-      <Object?>[key, value],
+      <Object?>[
+        key,
+        _cipher.seal(value, context: 'reading:${section.id}:$key'),
+      ],
     );
+  }
+
+  void _protectLegacySettings() {
+    _db.execute('PRAGMA secure_delete = ON');
+    var changed = false;
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final row in _db.select('SELECT key,value FROM reading_setting')) {
+        final text = row['value'] as String;
+        if (text.startsWith(LocalCipher.prefix)) continue;
+        setSetting(row['key'] as String, text);
+        changed = true;
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+    if (changed) {
+      _db.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+      _db.execute('VACUUM');
+      _db.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+    }
   }
 
   /// Cloud sync reads rows through this store, never copies a live SQLite file.
@@ -1130,9 +1267,23 @@ CREATE TABLE IF NOT EXISTS reading_setting (
       chapterTitle: row['chapter_title'] as String,
       updatedAt: updatedAt,
     );
-    final kind = section == Section.cat
-        ? sectionFromId(row['progress_kind'] as String)
-        : section;
+    final progressKind = row['progress_kind'] as String;
+    if (progressKind == 'novel') {
+      return NovelProgress(
+        section: section,
+        sourceId: row['source_id'] as String,
+        itemId: common.itemId,
+        chapterIndex: common.chapterIndex,
+        chapterId: common.chapterId,
+        chapterTitle: common.chapterTitle,
+        updatedAt: updatedAt,
+        offset: row['position'] as int,
+        textLength: row['chapter_length'] as int,
+      );
+    }
+    final kind =
+        sectionFromId(progressKind) ??
+        (section == Section.cat ? null : section);
     return switch (kind) {
       Section.comic => ComicProgress(
         section: section,

@@ -1,3 +1,4 @@
+import 'source_import_selection.dart';
 import '../../core/source/source_subscription_catalog.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 
@@ -20,6 +21,7 @@ import 'source_import_flow.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/source/source_package.dart';
 import '../../core/source/source_content_category.dart';
+import '../../core/source/source_import_routing.dart';
 
 /// 一次导入请求：目标板块 + 待导入条目 + 没能进链路的条目 + 过程说明。
 class SourceImportRequest {
@@ -35,6 +37,14 @@ class SourceImportRequest {
   /// 目标板块（图源只写这里）。
   final Section section;
   final String contentCategory;
+  Section get subscriptionSection {
+    final targets = items
+        .map(
+          (item) => SourceImportRouting.section(item.script, fallback: section),
+        )
+        .toSet();
+    return targets.length == 1 ? targets.single : section;
+  }
 
   final List<SourceImportItem> items;
 
@@ -86,9 +96,11 @@ Future<bool> runSourceImport(
   if (request.subscriptionUrls.isNotEmpty &&
       manager is SubscriptionImportManager) {
     await SourceSubscriptionSync.remember(
-      request.section,
+      request.subscriptionSection,
       request.subscriptionUrls,
-      manager: manager,
+      manager: request.subscriptionSection == section
+          ? manager
+          : LumeSources.manager(request.subscriptionSection),
     );
   }
   return imported;
@@ -847,10 +859,20 @@ class _SourceImportDialogState extends State<SourceImportDialog> {
         return;
       }
       if (!mounted) return;
+      if (items.length > 1) {
+        setState(() {
+          _busy = false;
+          _progress = null;
+        });
+      }
+      final chosen = items.length > 1
+          ? await chooseSourceImports(context, items)
+          : items;
+      if (chosen == null || !mounted) return;
       Navigator.of(context).pop(
         SourceImportRequest(
           section: _section,
-          items: items,
+          items: chosen,
           contentCategory: _section == Section.video ? _contentCategory : '',
           skipped: skipped,
           notes: notes,

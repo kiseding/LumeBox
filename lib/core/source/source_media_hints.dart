@@ -9,7 +9,7 @@ abstract final class SourceMediaHints {
 
   static String fromScript(String script) {
     final header = RegExp(
-      r'^//\s*@?LumeSource:\s*(\{[^\n]+\})',
+      r'^\s*(?://|#)\s*@?LumeSource\s*[:=]\s*(\{[^\n]+\})',
       multiLine: true,
     ).firstMatch(script);
     if (header != null) {
@@ -23,6 +23,13 @@ abstract final class SourceMediaHints {
             return 'audio';
           }
           if (kind.isEmpty && data['category'] == 'audiobook') return 'audio';
+          if (['novel', 'text', 'html'].contains(kind) ||
+              data['category'] == 'novel') {
+            return 'novel';
+          }
+          if (['photo', 'comic'].contains(data['category'])) {
+            return '${data['category']}';
+          }
           if (kind == 'video') return 'video';
         }
       } catch (_) {

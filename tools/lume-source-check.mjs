@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 // App 内置默认 UA（lib/core/net/lume_http.dart: defaultUserAgent）。
 const DEFAULT_UA =
@@ -213,14 +214,58 @@ function makeTools(fsStore) {
       }
       return crypto.createHash(name).update(String(data), 'utf8').digest('hex');
     },
-    aes: async () => {
-      throw new Error('harness: tools.aes 未实现（App 侧为原生能力）');
+    // 与 App 侧 SourceTools 对齐：key/iv/data 是 base64，返回 base64
+    aes: async (options) => {
+      const o = options || {};
+      const mode = String(o.mode || 'CBC').toUpperCase();
+      const encrypt = o.encrypt === true;
+      const key = Buffer.from(String(o.key || ''), 'base64');
+      const iv = Buffer.from(String(o.iv || ''), 'base64');
+      const input = Buffer.from(String(o.data || ''), 'base64');
+      if (![16, 24, 32].includes(key.length)) throw new Error('harness: AES 密钥长度无效');
+      const algo = 'aes-' + key.length * 8 + '-' + mode.toLowerCase();
+      if (mode === 'GCM') {
+        const cipher = crypto.createCipheriv(algo, key, iv, { authTagLength: 16 });
+        if (encrypt) return Buffer.concat([cipher.update(input), cipher.final(), cipher.getAuthTag()]).toString('base64');
+        cipher.setAuthTag(input.subarray(input.length - 16));
+        return Buffer.concat([cipher.update(input.subarray(0, input.length - 16)), cipher.final()]).toString('base64');
+      }
+      if (mode === 'CTR') {
+        const cipher = crypto.createCipheriv(algo, key, iv);
+        return Buffer.concat([cipher.update(input), cipher.final()]).toString('base64');
+      }
+      if (mode === 'ECB') {
+        const cipher = encrypt ? crypto.createCipheriv(algo, key, null) : crypto.createDecipheriv(algo, key, null);
+        cipher.setAutoPadding(o.padding !== 'none');
+        return Buffer.concat([cipher.update(input), cipher.final()]).toString('base64');
+      }
+      const cipher = encrypt ? crypto.createCipheriv(algo, key, iv) : crypto.createDecipheriv(algo, key, iv);
+      cipher.setAutoPadding(o.padding !== 'none');
+      return Buffer.concat([cipher.update(input), cipher.final()]).toString('base64');
+    },
+    hmac: async (options) => {
+      const o = options || {};
+      const algo = String(o.algorithm || 'sha256').toLowerCase();
+      const key = o.keyEncoding === 'base64' ? Buffer.from(String(o.key || ''), 'base64') : Buffer.from(String(o.key || ''), 'utf8');
+      const data = o.encoding === 'base64' ? Buffer.from(String(o.data || ''), 'base64') : Buffer.from(String(o.data || ''), 'utf8');
+      return crypto.createHmac(algo, key).update(data).digest('hex');
+    },
+    xor: async (options) => {
+      const o = options || {};
+      const mask = o.keyEncoding === 'base64' ? Buffer.from(String(o.key || ''), 'base64') : Buffer.from(String(o.key || ''), 'utf8');
+      if (!mask.length) throw new Error('harness: XOR 密钥为空');
+      const data = o.encoding === 'base64' ? Buffer.from(String(o.data || ''), 'base64') : Buffer.from(String(o.data || ''), 'utf8');
+      const out = Buffer.alloc(data.length);
+      for (let i = 0; i < data.length; i++) out[i] = data[i] ^ mask[i % mask.length];
+      return out.toString('base64');
     },
     rsa: async () => {
       throw new Error('harness: tools.rsa 未实现（App 侧为原生能力）');
     },
-    inflate: async () => {
-      throw new Error('harness: tools.inflate 未实现（App 侧为原生能力）');
+    inflate: async (data, raw) => {
+      const input = Buffer.from(String(data || ''), 'base64');
+      const out = raw ? zlib.inflateRawSync(input) : zlib.inflateSync(input);
+      return out.toString('base64');
     },
     base64Encode: async (data) => Buffer.from(String(data), 'utf8').toString('base64'),
     base64Decode: async (data) => Buffer.from(String(data), 'base64').toString('utf8'),
@@ -502,7 +547,13 @@ async function runSource(file, options) {
       '';
     if (chapterId) {
       const content = await doCall('content', { id: itemId, chapterId });
-      if (content && (content.kind === 'video' || content.kind === 'images' || content.kind === 'text')) {
+      if (content && content.kind === 'text') {
+        // 小说正文没有可探活的地址：按正文字数判定（App 侧也只要求有正文）
+        const body = typeof content.text === 'string' ? content.text.trim() : '';
+        report.calls.playable = body.length
+          ? { ok: true, url: '', text: body.length }
+          : { ok: false, error: 'content 是 text 但正文为空：' + JSON.stringify(content).slice(0, 200) };
+      } else if (content && (content.kind === 'video' || content.kind === 'images')) {
         const url = content.url || (content.images && content.images[0]) || '';
         if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
           report.calls.playable = { ok: true, url: url.slice(0, 160) };
@@ -538,17 +589,36 @@ async function runSource(file, options) {
 // 播放地址探活：m3u8 取前 1KB 看是否 #EXTM3U；mp4 看状态码与 content-type。
 // 只取开头一段：m3u8 / FLV 一眼能认出来，mp4 按源约定 206 就算通。整段下载会把
 // 「110MB 的 mp4 直链」这种正常地址误判成超时（KKAV 就被这样误报过）。
+// 直播流（flv / SSE）永远不会结束，所以改成流式读、攒够就主动断开，
+// 否则 res.arrayBuffer() 一定挂到超时（直播盒子就是这样误报的）。
 async function probeMedia(url, headers) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': DEFAULT_UA, Range: 'bytes=0-262143', ...headers },
-      signal: AbortSignal.timeout(20000),
+      signal: controller.signal,
     });
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const type = res.headers.get('content-type') || '';
+    const looksLive = /video\/x-flv|event-stream|octet-stream/i.test(type) || /\.flv(\?|$)/i.test(url);
+    const limit = looksLive ? 8192 : 262144;
+    const chunks = [];
+    let total = 0;
+    if (res.body) {
+      const reader = res.body.getReader();
+      while (total < limit) {
+        const step = await reader.read();
+        if (step.done) break;
+        const piece = Buffer.from(step.value);
+        chunks.push(piece);
+        total += piece.length;
+      }
+      reader.cancel().catch(() => {});
+    }
+    const buffer = Buffer.concat(chunks);
     const head = buffer.subarray(0, 400).toString('utf8');
     const looksM3u8 = head.includes('#EXTM3U');
-    const looksFlv = head.slice(0, 3) === 'FLV';
-    const type = res.headers.get('content-type') || '';
+    const looksFlv = buffer.subarray(0, 3).toString('latin1') === 'FLV';
     return {
       ok:
         res.status >= 200 &&
@@ -557,11 +627,15 @@ async function probeMedia(url, headers) {
       status: res.status,
       type,
       bytes: buffer.length,
+      live: looksLive,
       m3u8: looksM3u8,
       sample: head.slice(0, 80).replace(/\s+/g, ' '),
     };
   } catch (error) {
     return { ok: false, error: describe(error) };
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
   }
 }
 

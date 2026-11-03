@@ -1,8 +1,96 @@
-﻿/// Explicitly identified adult sources. Unknown sources stay unclassified.
+/// Explicitly identified adult sources. Unknown sources stay unclassified.
 class SourceContentRating {
+  // Rebuilt from installed scripts while descriptors are read. This also covers
+  // repository sources published after the App was built (including Python).
+  static final _declaredAdultIds = <String>{};
+  static void registerDeclaration(String id, String contentCategory) {
+    final key = id.toLowerCase();
+    if (contentCategory == 'adult') {
+      _declaredAdultIds.add(key);
+    } else {
+      _declaredAdultIds.remove(key);
+    }
+  }
+
   // Synced from LumeBox-Sources/content-ratings.json (2026-10-26).
   // Unknown sources remain unclassified; these IDs also drive privacy hiding.
   static const adultIds = <String>{
+    // User PY collection (2026-11-03).
+    'pypack_02c9b149e1a6c17c',
+    'pypack_035ad44c7cfa4911',
+    'pypack_039fc633d5411ce5',
+    'pypack_044068473e0303be',
+    'pypack_080362d6222f8d32',
+    'pypack_0cab865ff159c1fd',
+    'pypack_0fa95981ae4f3015',
+    'pypack_13192b0f19124210',
+    'pypack_14c974b7e43130e0',
+    'pypack_1545f23820617dc8',
+    'pypack_169f40b6923802fe',
+    'pypack_188d3d5770e9c9dc',
+    'pypack_1ca85e9f09038929',
+    'pypack_1fd0a1be766d7b05',
+    'pypack_212b74af09e423b2',
+    'pypack_2629ee05b2ac3eaf',
+    'pypack_2802226610d4e6c2',
+    'pypack_28f71b72956965f4',
+    'pypack_3042d332a8ee89e5',
+    'pypack_347be6b91aa06257',
+    'pypack_352c21db33be3427',
+    'pypack_373136a3ed1617f1',
+    'pypack_3d7dffbaeec81d24',
+    'pypack_40321f7e9e507396',
+    'pypack_404e583d4c7b09a0',
+    'pypack_491ad8064be66652',
+    'pypack_4c860756bba96c00',
+    'pypack_4cdfb404f7da5cca',
+    'pypack_52a1686b1efed9a8',
+    'pypack_549496d6e862b0db',
+    'pypack_55b2e6841964471b',
+    'pypack_5ae710262db60781',
+    'pypack_5e60e725a825e9e1',
+    'pypack_66515b5817a196f0',
+    'pypack_67127010003a8ec7',
+    'pypack_6801804eecf1b0ce',
+    'pypack_6b049c4e0b2b3ff6',
+    'pypack_6c2cc842049cd28d',
+    'pypack_6ff24041e6c8c703',
+    'pypack_71f0984fc2a49e62',
+    'pypack_723fd810eaeae521',
+    'pypack_78875f382dd4a609',
+    'pypack_794ea446a150d735',
+    'pypack_7a615a369fb3f055',
+    'pypack_8150f4dc8fbe64db',
+    'pypack_848d31242beb0ab9',
+    'pypack_8535d5c4a40c0174',
+    'pypack_87e83502384a0eba',
+    'pypack_8834e2ad23fa3ad9',
+    'pypack_8d2f80865c942d19',
+    'pypack_8d4d40be57ae814e',
+    'pypack_8d8b8d926b7d858a',
+    'pypack_8f4699005dff15c2',
+    'pypack_974c88bd7ff4e50e',
+    'pypack_9932d9ac3e3680fd',
+    'pypack_a0e18a45cf84fc00',
+    'pypack_a75ceff6963d4930',
+    'pypack_a8990556ad2e6277',
+    'pypack_ac18f1ead1d18b21',
+    'pypack_b11f4ecce820a17c',
+    'pypack_b6ab593a7e33e63d',
+    'pypack_b7bf8b0f1eb0e1da',
+    'pypack_bbbc0c3df2696c99',
+    'pypack_c20d21a3b2666142',
+    'pypack_c8c7380efd79eaa4',
+    'pypack_ccbbb52aea68400b',
+    'pypack_daf13bb5f32259b4',
+    'pypack_df3dd9f97a066d9f',
+    'pypack_e3c62fdc39efc998',
+    'pypack_eb5d0c9439edad02',
+    'pypack_ee97103063bb832a',
+    'pypack_f02cdca2ef3b69ca',
+    'pypack_f103a317c218faad',
+    'pypack_f837697be39f3e55',
+
     'asmrba_video',
     'asmrhoney_video',
     'p5mh_comic',
@@ -191,6 +279,35 @@ class SourceContentRating {
     'madoutv_video',
     'mitaow_video',
     'mitaovideo_video',
+    'chengshe_video',
+    // ITsACG（www.itsacg.com，Discuz + jameson_manhua）：绅士向同人本/单行本/韩漫/3D 漫。
+    'itsacg_comic',
+    // 夜社资源（yeshezy1.com，苹果CMS 综合站）：视频/有声/写真/漫画/小说七大类。
+    'yeshezy_video',
+    // 黄色仓库资源站（hsckzy.vip，苹果CMS）：国产/AV/欧美/动漫/其他五区 36 个分类。
+    'hsckzy_video',
+    // 火力视频 / 舞艺吧（web.lao4j.net）：擦边舞蹈与录屏短视频站。
+    'lao4j_video',
+    // 有爱爱 UAA（uaa002.com 站群）：视频/有声/漫画/小说四大库的综合成人站。
+    'uaa_video',
+    // 18ak漫画 / 爱看漫画（www.18akmanhua.com，来自「暮色」App 内置源）：
+    // /api 签名接口 + AES-256 响应，视频板块 1531 条，付费片 pay_url 直发可播。
+    'akmh_video',
+    // INS AV（网页 dcuj77.com / 接口 pqtn95.com，来自「暮色」App 内置 insav 模块）：
+    // 日本 AV 厂牌聚合，请求体整体 AES 加密 + md5 签名，播放需登录（本源走网页播放）。
+    'insav_video',
+    // 直播盒子（api.hclyz.com:81，来自「暮色」App 内置 live 模块）：成人直播聚合，
+    // 130 个平台 + 主播 flv 直链，接口明文不加密。
+    'livebox_video',
+    // 18ak漫画（漫画板块，与 akmh_video 同站）：成人漫画库 6599 部，
+    // 章节图按 /content/<book>/<chapter>/1.jpg 数字序列，接口层不鉴权。
+    'akmh_comic',
+    // 看片视频（KPDZ.APP，落地页两级跳板；接口 sm-api.wieuc.com 返回 Fernet 密文，
+    // key 从前端 chunk 里取得；分类/标签/筛选齐全）。
+    'kpdz_video',
+    // 爱丽丝书屋（alicesw.com，成人网络小说站）：全属性色情小说，纯文本正文，
+    // 与 alicesw1.homes / alicesw.tw 同源；归漫画板块的「小说」分类。
+    'alicesw_comic',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
@@ -355,6 +472,7 @@ class SourceContentRating {
     "龙禁漫",
   };
   static bool isAdult(String id, String name) =>
+      _declaredAdultIds.contains(id.toLowerCase()) ||
       adultIds.contains(id.toLowerCase()) ||
       adultNames.contains(name.toLowerCase().replaceAll(RegExp(r'\s+'), '')) ||
       adultIds.any(

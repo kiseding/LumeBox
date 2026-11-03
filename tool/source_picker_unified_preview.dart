@@ -2,6 +2,14 @@
 /// flutter run -d emulator-5554 -t tool/source_picker_unified_preview.dart
 library;
 
+import 'package:flutter/services.dart';
+import 'package:lume_box/core/security/local_cipher.dart';
+import 'package:lume_box/features/settings/content_visibility_page.dart';
+
+import 'danmaku_redesign_preview.dart';
+import 'novel_reader_preview.dart' show openNovelReaderPreview;
+import 'android_player_preview.dart' show AndroidPlayerPreview;
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -42,8 +50,13 @@ class _PreviewCats extends CatService {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final sandbox = Directory.systemTemp.createTempSync('lumebox-source-layout-');
+  final sandbox = Directory(
+    '${Directory.systemTemp.path}/lumebox-reading-layout-preview',
+  )..createSync(recursive: true);
   PathProviderPlatform.instance = _PreviewPaths(sandbox.path);
+  // Disposable data and key belong solely to this debug preview sandbox.
+  // ignore: invalid_use_of_visible_for_testing_member
+  LocalCipher.configurePreview(sandbox.path, LocalCipher.random(32));
   await PrivacySettings.instance.boot(directory: sandbox);
   await PrivacySettings.instance.setShowAdult(true);
   await SourceContentVisibility.instance.boot(
@@ -86,6 +99,28 @@ class _PreviewState extends State<SourcePickerUnifiedPreview> {
         ),
     ],
   )..selected = 'preview-comic-0';
+  late final readingExtras = [
+    const SourceDescriptor(
+      id: 'preview-novel',
+      name: '文字小说（示例源）',
+      version: '本地预览',
+      enabled: true,
+      mediaKind: 'novel',
+    ),
+    const SourceDescriptor(
+      id: 'preview-audio',
+      name: '有声小说（示例源）',
+      version: '本地预览',
+      enabled: true,
+      mediaKind: 'audio',
+    ),
+    const SourceDescriptor(
+      id: 'kazumi_preview',
+      name: 'Kazumi 动漫（示例源）',
+      version: '本地预览',
+      enabled: true,
+    ),
+  ];
   final video = FakeSourceManager(
     sources: [
       for (var i = 0; i < 12; i++)
@@ -109,7 +144,7 @@ class _PreviewState extends State<SourcePickerUnifiedPreview> {
   void openComic(BuildContext context) => showSourcePicker(
     context: context,
     section: Section.comic,
-    sources: comic.sources,
+    sources: [...comic.sources, ...readingExtras],
     currentId: comic.selected,
     manager: comic,
   );
@@ -132,7 +167,7 @@ class _PreviewState extends State<SourcePickerUnifiedPreview> {
     home: Builder(
       builder: (context) => Scaffold(
         appBar: AppBar(
-          title: const Text('源选择 · 统一布局预览'),
+          title: const Text('漫画 / 视频 · 分类排序预览'),
           actions: [
             IconButton(
               tooltip: '切换亮暗',
@@ -146,6 +181,21 @@ class _PreviewState extends State<SourcePickerUnifiedPreview> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('使用生产面板组件，示例数据独立存储'),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => openNovelReaderPreview(context),
+                child: const Text('小说阅读（留白调整）'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AndroidPlayerPreview(),
+                  ),
+                ),
+                child: const Text('播放器（横竖屏与按钮）'),
+              ),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: () => openComic(context),
@@ -155,6 +205,35 @@ class _PreviewState extends State<SourcePickerUnifiedPreview> {
               FilledButton(
                 onPressed: () => openVideo(context),
                 child: const Text('预览视频源选择'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ContentVisibilityPage(),
+                  ),
+                ),
+                child: const Text('内容分类显示'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: () async {
+                  await SystemChrome.setPreferredOrientations([
+                    DeviceOrientation.landscapeLeft,
+                  ]);
+                  if (!context.mounted) return;
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DanmakuRedesignPreview(),
+                    ),
+                  );
+                  await SystemChrome.setPreferredOrientations([
+                    DeviceOrientation.portraitUp,
+                  ]);
+                },
+                child: const Text('横屏弹幕与线路预览'),
               ),
               const SizedBox(height: 24),
               const Text(

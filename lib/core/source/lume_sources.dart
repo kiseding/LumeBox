@@ -1,5 +1,7 @@
 import 'source_preferences.dart';
 import 'source_presentation_cache.dart';
+import 'tvbox_config.dart';
+import 'source_content_rating.dart';
 
 import '../net/network_cancellation.dart';
 
@@ -320,7 +322,13 @@ class LumeSources {
         );
     final List<String> scripts;
     try {
-      scripts = await resolver.resolve(<String>[record.originUrl]);
+      final tvbox = TvBoxEntry.fromScript(record.script);
+      if (tvbox?.kind == TvBoxKind.python && tvbox!.api == record.originUrl) {
+        final response = await resolver.fetch(record.originUrl);
+        scripts = [tvbox.pythonScript(response.bytes)];
+      } else {
+        scripts = await resolver.resolve(<String>[record.originUrl]);
+      }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       return SourceUpdateResult.failed('订阅拉取失败：$error');
@@ -466,6 +474,7 @@ class LumeSources {
       '${record.section}/${record.id}',
       record.script,
     );
+    SourceContentRating.registerDeclaration(record.id, info.contentCategory);
     return SourceDescriptor(
       id: record.id,
       runtimeKind: info.runtimeKind,

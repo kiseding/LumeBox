@@ -1,4 +1,13 @@
+import 'playback_entry_preparation.dart';
+import '../../core/source/source_content_type.dart';
+import '../reading/content_detail_router.dart';
+import '../download/download_selection.dart';
+import '../comic/download_center_page.dart';
+import 'video_download_center.dart';
+
 import 'dart:convert';
+
+import '../../core/player/playback_diagnostics.dart';
 
 import 'video_resume_match.dart';
 import '../../shared/widgets/video_glass_surface.dart';
@@ -82,6 +91,7 @@ typedef OpenVideoPlayer = Future<void> Function(
 class VideoDetailPage extends StatefulWidget {
   const VideoDetailPage({
     super.key,
+    this.detectContent = true,
     this.source,
     this.loadSource,
     this.sourceId,
@@ -92,11 +102,13 @@ class VideoDetailPage extends StatefulWidget {
     required this.library,
     required this.onPlay,
     this.prelaunch,
+    this.downloadCenter,
     this.initialChapterId,
     this.resumeRequest,
   });
   final String? initialChapterId;
   final VideoResumeRequest? resumeRequest;
+  final bool detectContent;
   final DataSource? source;
   final Future<DataSource?> Function()? loadSource;
   final String? sourceId;
@@ -107,6 +119,7 @@ class VideoDetailPage extends StatefulWidget {
   final ReadingLibrary library;
   final OpenVideoPlayer onPlay;
   final PlayerPrelaunch? Function()? prelaunch;
+  final VideoDownloadCenter? downloadCenter;
   @override
   State<VideoDetailPage> createState() => _VideoDetailPageState();
 }
@@ -134,6 +147,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   final _episodesKey = GlobalKey();
   final _scroll = ScrollController();
 
+  Widget? _typedDetail;
   bool loading = true, resolving = false;
   String? error;
   late final pipeline =
@@ -243,6 +257,35 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         }
       }
       if (!mounted) return;
+      if (widget.detectContent && direct == null) {
+        final type = await detectSourceContent(
+          source: source,
+          itemId: widget.item.id,
+          detail: metadata,
+          chapters: episodes,
+          hint: widget.item.mediaType,
+        );
+        if (!mounted) return;
+        if (type != null && type != SourceContentType.video) {
+          setState(() {
+            loading = false;
+            _typedDetail = contentDetailPage(
+              type: type,
+              source: source,
+              library: widget.library,
+              manager: widget.manager,
+              target: ReadingTarget(
+                sourceId: source.id,
+                itemId: widget.item.id,
+                title: metadata?.title ?? widget.item.title,
+                cover: sourceCover,
+                subtitle: metadata?.subtitle ?? widget.item.subtitle,
+              ),
+            );
+          });
+          return;
+        }
+      }
       // 查看详情只写历史（favorite = 0）；收藏只能由心形按钮触发。
       if (widget.recordHistory) {
         widget.library.recordHistoryItem(
@@ -375,6 +418,29 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     }
   }
 
+  Future<void> downloadVideo() async {
+    if (_source == null || chapters.isEmpty || resolving) return;
+    final source = _source!;
+    final episodes = List<SourceChapter>.of(chapters);
+    final indices = await selectDownloadChapters(
+      context,
+      episodes,
+      initial: selected,
+    );
+    if (indices == null || !mounted) return;
+    await (widget.downloadCenter ?? VideoDownloadCenter.instance).enqueue(
+      sourceId: source.id,
+      itemId: widget.item.id,
+      title: widget.item.title,
+      chapters: [for (final i in indices) episodes[i]],
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已添加 ${indices.length} 集到下载中心')));
+    }
+  }
+
   Future<void> play() async {
     if (resolving || chapters.isEmpty) return;
     setState(() {
@@ -389,10 +455,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       ChapterContent? content;
       {
         try {
-          content = await _source!.content(
-            itemId: widget.item.id,
-            chapterId: chapter.id,
-          );
+          final resolveWatch = Stopwatch()..start();
+          content =
+              await SourceContentRead.read(
+                _source!,
+                itemId: widget.item.id,
+                chapterId: chapter.id,
+              ).whenComplete(() {
+                PlaybackDiagnostics.record(
+                  'source-resolve-complete',
+                  source: _source!.id,
+                  elapsedMs: resolveWatch.elapsedMilliseconds,
+                );
+              });
         } on CatWebParseRequired catch (request) {
           if (!mounted) return;
           if (request.webPlayer) {
@@ -415,6 +490,27 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       final saved = MediaLibrary.instance.byId(
         MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),
       );
+      if (content is TextContent || content is ImageContent) {
+        if (!mounted) return;
+        setState(
+          () => _typedDetail = contentDetailPage(
+            type: content is TextContent
+                ? SourceContentType.novel
+                : SourceContentType.comic,
+            source: _source!,
+            library: widget.library,
+            manager: widget.manager,
+            target: ReadingTarget(
+              sourceId: _source!.id,
+              itemId: widget.item.id,
+              title: detail?.title ?? widget.item.title,
+              cover: sourceCover,
+              subtitle: detail?.subtitle ?? widget.item.subtitle,
+            ),
+          ),
+        );
+        return;
+      }
       final address =
           SourcePlayback.contentAddress(content) ??
           direct ??
@@ -437,7 +533,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         );
         lineResume = null;
       }
-      final tracks = saved?.manual == true
+      // Source-declared audio and recognizable video URLs need no second
+      // native asset load before navigation. Probe only ambiguous addresses.
+      final audioHint =
+          content is VideoContent && content.audioOnly ||
+          RegExp(
+            r'\.(mp3|m4a|aac|flac|ogg|opus|wav)$',
+            caseSensitive: false,
+          ).hasMatch(address.path);
+      final videoAddress = RegExp(
+        r'\.(m3u8|mpd|mp4|m4v|mkv|webm|mov|avi|flv|ts)$',
+        caseSensitive: false,
+      ).hasMatch(address.path);
+      final tracks = saved?.manual == true || audioHint || videoAddress
           ? const MediaTrackInfo()
           : await const MediaTrackProbe().inspect(
               address,
@@ -446,12 +554,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       if ((saved?.manual == true && saved!.kind != ResourceKind.video) ||
           (saved?.manual != true &&
               (tracks.kind == ResourceKind.audioBook ||
-                  !tracks.known &&
-                      (content is VideoContent && content.audioOnly ||
-                          RegExp(
-                            r'\.(mp3|m4a|aac|flac|ogg|opus|wav)$',
-                            caseSensitive: false,
-                          ).hasMatch(address.path))))) {
+                  !tracks.known && audioHint))) {
         final entry = saved?.manual == true
             ? saved!
             : await MediaResourceService().source(
@@ -468,16 +571,22 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         return;
       }
       if (!mounted) return;
-      prepared = widget.prelaunch?.call();
+      final media = PlayerMedia(
+        uri: address,
+        title: '${widget.item.title} · ${VideoEpisodeCatalog.labelOf(chapter)}',
+        headers: SourcePlayback.contentHeaders(content, source: _source!),
+      );
+      prepared = await preparePlaybackRoute(
+        media,
+        library: widget.library,
+        prelaunch: widget.prelaunch?.call(),
+        stillActive: () => mounted,
+      );
+      if (!mounted) return;
       final transferred = prepared;
       prepared = null;
       await widget.onPlay(
-        PlayerMedia(
-          uri: address,
-          title:
-              '${widget.item.title} · ${VideoEpisodeCatalog.labelOf(chapter)}',
-          headers: SourcePlayback.contentHeaders(content, source: _source!),
-        ),
+        media,
         VideoPlayTarget(
           sourceId: _source!.id,
           itemId: widget.item.id,
@@ -729,14 +838,16 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: Theme.of(context)
-        .copyWith(textTheme: _bolderTextTheme(Theme.of(context).textTheme)),
-    child: Builder(
-      builder: (context) =>
-          originalStyle ? _buildOriginal(context) : _buildCompact(context),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      _typedDetail ??
+      Theme(
+        data: Theme.of(context)
+            .copyWith(textTheme: _bolderTextTheme(Theme.of(context).textTheme)),
+        child: Builder(
+          builder: (context) =>
+              originalStyle ? _buildOriginal(context) : _buildCompact(context),
+        ),
+      );
 
   void setDetailStyle(bool original) {
     widget.library.setSetting(styleSetting, '$original');
@@ -836,6 +947,13 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           tooltip: '更多',
           onSelected: (action) {
             switch (action) {
+              case 'downloads':
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DownloadCenterPage(),
+                  ),
+                );
               case 'search':
                 searchCurrentVideo();
               case 'resource-info':
@@ -867,6 +985,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             }
           },
           itemBuilder: (_) => videoGlassMenuEntries<String>([
+            const PopupMenuItem(value: 'downloads', child: Text('下载中心')),
             if (conciseVideoSubtitle(
                   rawSourceSubtitle,
                   availableEpisodes: chapters.length,
@@ -1091,9 +1210,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   );
 
   Widget linePicker() => LayoutBuilder(
-    builder: (context, bounds) => Row(
-      key: const Key('video-detail-line-heading'),
-      children: [
+    builder: (context, bounds) {
+      final controls = <Widget>[
         Expanded(
           child: PopupMenuButton<String>(
             key: const Key('video-detail-original-line-selector'),
@@ -1179,10 +1297,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SourceTranslationAction(
-                key: const Key('video-detail-translation'),
-                texts: [detail?.title ?? widget.item.title, synopsis],
-              ),
+              ...translationDownloadActions(),
               IconButton(
                 tooltip: reversed ? '恢复正序' : '倒序排列',
                 onPressed: chapters.isEmpty
@@ -1239,8 +1354,26 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ],
           ),
         ),
-      ],
-    ),
+      ];
+      if (bounds.maxWidth < 360 &&
+          MediaQuery.textScalerOf(context).scale(1) > 1.3) {
+        return Column(
+          key: const Key('video-detail-line-heading'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [controls.first]),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: controls.skip(1).toList(),
+            ),
+          ],
+        );
+      }
+      return Row(
+        key: const Key('video-detail-line-heading'),
+        children: controls,
+      );
+    },
   );
 
   Widget episodeStrip(List<int> visible, {bool grid = false}) => LayoutBuilder(
@@ -1677,35 +1810,41 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     );
   }
 
-  Widget episodeGrid(List<int> indexes, {bool modal = false}) => LayoutBuilder(
-    builder: (context, bounds) {
-      final count = !modal && !originalStyle
-          ? 3
-          : bounds.maxWidth < 340
-          ? 4
-          : 5;
-      final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-      return GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: count,
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          mainAxisExtent: 44 * scale,
-        ),
-        itemCount: indexes.length,
-        itemBuilder: (_, i) => episodeButton(indexes[i], modal: modal),
+  Widget episodeGrid(List<int> indexes, {bool modal = false, Key? activeKey}) =>
+      LayoutBuilder(
+        builder: (context, bounds) {
+          final count = !modal && !originalStyle
+              ? 3
+              : bounds.maxWidth < 340
+              ? 4
+              : 5;
+          final scale = MediaQuery.textScalerOf(context)
+              .scale(1)
+              .clamp(1.0, 2.0);
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: count,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              mainAxisExtent: 44 * scale,
+            ),
+            itemCount: indexes.length,
+            itemBuilder: (_, i) => KeyedSubtree(
+              key: indexes[i] == selected ? activeKey : null,
+              child: episodeButton(indexes[i], modal: modal),
+            ),
+          );
+        },
       );
-    },
-  );
 
   Future<void> showEpisodes() async {
     if (chapters.isEmpty) return;
-    var page = selected ~/ 50, query = '';
-    int? jumpIndex;
-    var searchRevision = 0;
+    var page = (reversed ? chapters.length - 1 - selected : selected) ~/ 50;
+    final scroll = ScrollController();
+    final activeKey = GlobalKey();
     var listMode = chapters.any(
       (e) => VideoEpisodeCatalog.labelOf(e).length > 18,
     );
@@ -1721,15 +1860,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             for (var i = 0; i < chapters.length; i++)
               reversed ? chapters.length - 1 - i : i,
           ];
-          final filtered = order
-              .where(
-                (i) => (jumpIndex == null
-                    ? VideoEpisodeCatalog.labelOf(chapters[i])
-                          .toLowerCase()
-                          .contains(query.toLowerCase())
-                    : i == jumpIndex),
-              )
-              .toList();
+          final filtered = order;
           final pages = (filtered.length / 50).ceil().clamp(1, 999999);
           page = page.clamp(0, pages - 1);
           final visible = filtered.skip(page * 50).take(50).toList();
@@ -1738,6 +1869,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             child: FractionallySizedBox(
               heightFactor: .78,
               child: ListView(
+                controller: scroll,
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                 children: [
                   Row(
@@ -1750,6 +1882,41 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: '定位当前集',
+                        icon: const Icon(Icons.my_location),
+                        onPressed: () {
+                          final position = reversed
+                              ? chapters.length - 1 - selected
+                              : selected;
+                          refresh(() => page = position ~/ 50);
+                          WidgetsBinding.instance.addPostFrameCallback((
+                            _,
+                          ) async {
+                            if (!scroll.hasClients) return;
+                            final count =
+                                (chapters.length - (position ~/ 50) * 50).clamp(
+                                  1,
+                                  50,
+                                );
+                            final fraction = count <= 1
+                                ? 0.0
+                                : (position % 50) / (count - 1);
+                            scroll.jumpTo(
+                              scroll.position.maxScrollExtent * fraction,
+                            );
+                            await WidgetsBinding.instance.endOfFrame;
+                            final target = activeKey.currentContext;
+                            if (target != null && target.mounted) {
+                              await Scrollable.ensureVisible(
+                                target,
+                                alignment: .25,
+                                duration: const Duration(milliseconds: 250),
+                              );
+                            }
+                          });
+                        },
                       ),
                       IconButton(
                         tooltip: '倒序排列',
@@ -1790,7 +1957,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                         changeLine(line, allowMissing: true);
                                         refresh(() {
                                           page = 0;
-                                          jumpIndex = null;
                                         });
                                       },
                               ),
@@ -1799,54 +1965,6 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       ),
                     ),
                   const SizedBox(height: 12),
-                  TextField(
-                    key: ValueKey('episode-search-$searchRevision'),
-                    decoration: const InputDecoration(
-                      hintText: '搜索剧集名称',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    onChanged: (v) => refresh(() {
-                      query = v;
-                      jumpIndex = null;
-                      page = 0;
-                    }),
-                  ),
-                  TextField(
-                    key: const Key('video-episode-jump'),
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: '跳转到第几集',
-                      prefixIcon: Icon(Icons.numbers),
-                    ),
-                    onSubmitted: (value) {
-                      final number = int.tryParse(value);
-                      if (number == null ||
-                          number < 1 ||
-                          number > chapters.length) {
-                        ScaffoldMessenger.of(sheetContext).showSnackBar(
-                          const SnackBar(content: Text('请输入有效集数')),
-                        );
-                        return;
-                      }
-                      refresh(() {
-                        jumpIndex = number - 1;
-                        query = '';
-                        searchRevision++;
-                        page = 0;
-                      });
-                      FocusScope.of(context).unfocus();
-                    },
-                  ),
-                  if (jumpIndex != null)
-                    TextButton(
-                      onPressed: () => refresh(() {
-                        jumpIndex = null;
-                        query = '';
-                        searchRevision++;
-                        page = 0;
-                      }),
-                      child: const Text('显示全部剧集'),
-                    ),
                   if (pages > 1)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1875,35 +1993,44 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       child: Text('没有匹配的剧集'),
                     )
                   else if (listMode) ...[
-                    for (final i in visible)
-                      ListTile(
-                        key: ValueKey('video-detail-picker-episode-$i'),
-                        selected: i == selected,
-                        leading: Text('${i + 1}'),
-                        title: Text(
-                          VideoEpisodeCatalog.displayLabel(chapters[i], i),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                    for (final i in visible) ...[
+                      KeyedSubtree(
+                        key: i == selected ? activeKey : null,
+                        child: ListTile(
+                          key: ValueKey('video-detail-picker-episode-$i'),
+                          selected: i == selected,
+                          leading: Text('${i + 1}'),
+                          title: Text(
+                            VideoEpisodeCatalog.displayLabel(chapters[i], i),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle:
+                              VideoEpisodeCatalog.displayLabel(
+                                    chapters[i],
+                                    i,
+                                  ) !=
+                                  VideoEpisodeCatalog.labelOf(chapters[i])
+                              ? Text(
+                                  VideoEpisodeCatalog.labelOf(chapters[i]),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                )
+                              : null,
+                          trailing: const Icon(Icons.play_circle_outline),
+                          onTap: resolving
+                              ? null
+                              : () {
+                                  Navigator.pop(sheetContext);
+                                  chooseEpisode(i);
+                                },
                         ),
-                        subtitle:
-                            VideoEpisodeCatalog.displayLabel(chapters[i], i) !=
-                                VideoEpisodeCatalog.labelOf(chapters[i])
-                            ? Text(
-                                VideoEpisodeCatalog.labelOf(chapters[i]),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              )
-                            : null,
-                        trailing: const Icon(Icons.play_circle_outline),
-                        onTap: resolving
-                            ? null
-                            : () {
-                                Navigator.pop(sheetContext);
-                                chooseEpisode(i);
-                              },
                       ),
+                      if (i != visible.last)
+                        const Divider(height: 1, indent: 48, endIndent: 24),
+                    ],
                   ] else
-                    episodeGrid(visible, modal: true),
+                    episodeGrid(visible, modal: true, activeKey: activeKey),
                 ],
               ),
             ),
@@ -1911,6 +2038,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         },
       ),
     );
+    scroll.dispose();
   }
 
   Widget episodeSection({bool immersive = false}) {
@@ -1977,6 +2105,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   static const _compactAccent = Color(0xFFE83E68);
 
+  List<Widget> translationDownloadActions() => [
+    SourceTranslationAction(
+      key: const Key('video-detail-translation'),
+      texts: [detail?.title ?? widget.item.title, synopsis],
+    ),
+    IconButton(
+      key: const Key('video-detail-download'),
+      tooltip: '下载视频 / 选集',
+      onPressed: resolving || chapters.isEmpty ? null : downloadVideo,
+      icon: const Icon(Icons.download_outlined, size: 20),
+    ),
+  ];
+
   Widget compactPlaybackControls() => Row(
     key: const Key('video-detail-compact-playback'),
     children: [
@@ -2029,6 +2170,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       key: _episodesKey,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: translationDownloadActions(),
+        ),
         Row(
           children: [
             if (MediaQuery.textScalerOf(context).scale(1) > 1.3)

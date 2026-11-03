@@ -1,3 +1,4 @@
+import '../source/source_subscription_page.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../core/session/section.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
@@ -14,6 +15,7 @@ import 'package:flutter/services.dart';
 import '../../core/source/total_subscription.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'settings_ui.dart';
+import '../source/subscription_sync_report.dart';
 
 class TotalSubscriptionPage extends StatefulWidget {
   const TotalSubscriptionPage({super.key, this.service});
@@ -28,6 +30,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
   bool busy = false;
   String? status;
   String? exported;
+  Map<Section, SubscriptionSyncResult>? results;
   @override
   void dispose() {
     input.dispose();
@@ -39,6 +42,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     setState(() {
       busy = true;
       status = null;
+      results = null;
     });
     try {
       await action();
@@ -58,7 +62,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
       builder: (context) => AlertDialog(
         title: const Text('导入总订阅'),
         content: Text(
-          '${total.entries.entries.map((entry) => '${entry.key.label}：${entry.value.length} 个订阅').join('\n')}\n\n按板块保存并立即同步。保留其他订阅和手动导入的源；同名订阅源会更新。',
+          '${total.entries.entries.map((entry) => '${entry.key.label}：${entry.value.length} 个订阅').join('\n')}\n\n按板块保存并检查。已有源正常更新，新源先进入待安装列表，请勾选后安装。保留其他订阅和手动导入的源。',
         ),
         actions: [
           TextButton(
@@ -74,16 +78,9 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     );
     if (yes != true || !mounted) return;
     setState(() => busy = true);
-    final results = await service.import(total);
+    final imported = await service.import(total);
     if (mounted) {
-      setState(
-        () => status = results.entries
-            .map(
-              (entry) =>
-                  '${entry.key.label}：${entry.value.summary}${entry.value.errors.isEmpty ? '' : '\n${entry.value.errors.join('\n')}'}',
-            )
-            .join('\n\n'),
-      );
+      setState(() => results = imported);
     }
   }
 
@@ -129,6 +126,24 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (results != null)
+          for (final entry in results!.entries.where(
+            (e) => e.value.pending > 0,
+          ))
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SourceSubscriptionPage(
+                    section: entry.key,
+                    manager: service.managers[entry.key],
+                    fetchSubscription: service.fetch,
+                  ),
+                ),
+              ),
+              child: Text(
+                '${entry.key.label} · 选择安装 ${entry.value.pending} 个新源',
+              ),
+            ),
         if (busy)
           for (final section in [Section.comic, Section.video])
             ValueListenableBuilder<String>(
@@ -141,7 +156,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
                     ),
             ),
         const SettingsFooterNote(
-          '一次导入漫画、视频订阅，自动分配到对应版块。美图归漫画，影视归视频；猫源订阅仍在猫源配置中心管理。',
+          '自动分类并导入手机：漫画、美图、小说、有声归漫画板块；影视、视频归视频板块。猫源订阅仍在猫源配置中心管理。',
           padding: EdgeInsets.zero,
         ),
         const SizedBox(height: 16),
@@ -246,6 +261,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
           ),
         ],
         if (busy) const LinearProgressIndicator(),
+        if (results != null) SubscriptionSyncReport(results: results!),
         if (status != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),

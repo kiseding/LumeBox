@@ -1,3 +1,4 @@
+import 'danmaku_models.dart';
 import '../../../shared/widgets/native_glass_controls.dart';
 import 'danmaku_panel.dart';
 
@@ -29,6 +30,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
     this.publicCount = 0,
     this.loading = false,
     this.onClearMatch,
+    this.preview = const [],
   });
 
   final DanmakuSettings settings;
@@ -43,6 +45,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
   final VoidCallback? onReload, onClearMatch;
   final String? videoTitle, episodeTitle, serviceLabel, matchLabel;
   final int sourceCount, publicCount;
+  final List<DanmakuItem> preview;
   final bool loading;
 
   @override
@@ -55,15 +58,15 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
   Widget _sourcePanel(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final buttonStyle = ButtonStyle(
-      minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+      minimumSize: const WidgetStatePropertyAll(Size(0, 42)),
       padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 8),
+        EdgeInsets.symmetric(horizontal: 12),
       ),
-      textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12)),
+      textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
       visualDensity: VisualDensity.compact,
     );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       children: [
         DecoratedBox(
           decoration: BoxDecoration(
@@ -71,7 +74,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -80,7 +83,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                     Text(
                       '本集 ${widget.danmakuCount ?? 0} 条',
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -91,7 +94,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: colors.onSurfaceVariant,
                         ),
                       ),
@@ -112,7 +115,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                         widget.status!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
+                        style: const TextStyle(fontSize: 13),
                       ),
                     ),
                   ),
@@ -123,14 +126,14 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                       '已关联：${widget.matchLabel}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Row(
           children: [
             if (widget.onMatch != null)
@@ -173,7 +176,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
         ),
         ListTile(
           dense: true,
-          minTileHeight: 44,
+          minTileHeight: 52,
           minVerticalPadding: 0,
           contentPadding: EdgeInsets.zero,
           minLeadingWidth: 20,
@@ -183,7 +186,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             slot: 'danmaku.service',
             size: 20,
           ),
-          title: const Text('弹幕服务', style: TextStyle(fontSize: 13)),
+          title: const Text('弹幕服务', style: TextStyle(fontSize: 15)),
           subtitle: Text(
             widget.serviceLabel ?? '选择官方或自定义 danmu 服务',
             maxLines: 1,
@@ -207,9 +210,50 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
         Text(
           _hint,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 12,
             height: 1.2,
             color: colors.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        DecoratedBox(
+          key: const ValueKey('danmaku-episode-preview'),
+          decoration: BoxDecoration(
+            color: colors.surface.withValues(alpha: .3),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '本集弹幕预览',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                if (widget.preview.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      widget.loading
+                          ? '正在读取本集弹幕…'
+                          : '本集暂无可预览的弹幕，可尝试手动匹配或更换弹幕服务。',
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                  )
+                else
+                  for (final item in widget.preview.take(8))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        '${item.time.inMinutes.toString().padLeft(2, '0')}:${(item.time.inSeconds % 60).toString().padLeft(2, '0')}  ${item.text}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+              ],
+            ),
           ),
         ),
       ],
@@ -232,7 +276,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                     const Text(
                       '弹幕',
                       style: TextStyle(
-                        fontSize: 17,
+                        fontSize: 20,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -246,7 +290,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -271,10 +315,10 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
           ),
         ),
         const TabBar(
-          labelPadding: EdgeInsets.symmetric(horizontal: 8),
+          labelPadding: EdgeInsets.symmetric(horizontal: 12),
           tabs: [
-            Tab(height: 32, text: '来源与匹配'),
-            Tab(height: 32, text: '显示样式'),
+            Tab(height: 40, text: '来源与匹配'),
+            Tab(height: 40, text: '显示样式'),
           ],
         ),
         Expanded(

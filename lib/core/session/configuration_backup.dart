@@ -5,6 +5,8 @@ import '../media/media_library.dart';
 import 'dart:convert';
 import 'dart:io';
 
+import '../security/local_cipher.dart';
+
 import 'package:path_provider/path_provider.dart';
 
 import '../reading/reading_library.dart';
@@ -13,6 +15,17 @@ import '../source/source_subscription_sync.dart';
 import '../cat/cat_service.dart';
 import 'section_scope.dart';
 import 'section.dart';
+
+enum ConfigurationRestorePart {
+  settings('界面与板块设置'),
+  reading('收藏、历史与阅读／播放进度'),
+  media('手工媒体条目'),
+  sources('已安装源'),
+  subscriptions('订阅与猫源配置');
+
+  const ConfigurationRestorePart(this.label);
+  final String label;
+}
 
 class ConfigurationBackup {
   ConfigurationBackup({CatService? catService})
@@ -38,7 +51,10 @@ class ConfigurationBackup {
     'browse_layout.json',
     'network_settings.json',
   };
-  Future<String> export() async {
+  Future<String> export({String? password}) async =>
+      BackupCipher.encode(await _exportPlaintext(), password: password);
+
+  Future<String> _exportPlaintext() async {
     final base = await getApplicationSupportDirectory();
     warnings.clear();
     final settings = <String, Object?>{};
@@ -100,14 +116,60 @@ class ConfigurationBackup {
     });
   }
 
-  Future<void> restore(String text) async {
-    final data = jsonDecode(text);
+  Future<Map<String, Object?>> preview(String text, {String? password}) async {
+    final data = jsonDecode(
+      await BackupCipher.decode(text, password: password),
+    );
     if (data is! Map ||
         data['format'] != 'lumebox-configuration' ||
         ![1, 2].contains(data['version']) ||
         data['files'] is! Map ||
         data['sections'] is! Map) {
       throw const FormatException('不是支持的 LumeBox 配置备份');
+    }
+    return Map<String, Object?>.from(data);
+  }
+
+  Future<void> restore(
+    String text, {
+    String? password,
+    Set<ConfigurationRestorePart>? parts,
+  }) async {
+    final data = jsonDecode(
+      await BackupCipher.decode(text, password: password),
+    );
+    if (data is! Map ||
+        data['format'] != 'lumebox-configuration' ||
+        ![1, 2].contains(data['version']) ||
+        data['files'] is! Map ||
+        data['sections'] is! Map) {
+      throw const FormatException('不是支持的 LumeBox 配置备份');
+    }
+    if (parts != null) {
+      if (parts.isEmpty) throw const FormatException('请选择要恢复的内容');
+      data['files'] = {
+        for (final entry in (data['files'] as Map).entries)
+          if (parts.contains(
+            entry.key == 'media_library.json'
+                ? ConfigurationRestorePart.media
+                : ConfigurationRestorePart.settings,
+          ))
+            entry.key: entry.value,
+      };
+      if (!parts.contains(ConfigurationRestorePart.settings)) {
+        data['sections'] = <String, Object?>{};
+      }
+      if (!parts.contains(ConfigurationRestorePart.reading)) {
+        data.remove('readingData');
+      }
+      if (!parts.contains(ConfigurationRestorePart.sources)) {
+        data.remove('sources');
+      }
+      if (!parts.contains(ConfigurationRestorePart.subscriptions)) {
+        data.remove('subscriptions');
+        data.remove('catData');
+        data.remove('catSubscriptions');
+      }
     }
     final incomingFiles = (data['files'] as Map).cast<String, dynamic>();
     if (incomingFiles.keys.any((name) => !files.contains(name))) {
@@ -284,6 +346,7 @@ class ConfigurationBackup {
     final base = await getApplicationSupportDirectory();
     final directory = Directory('${base.path}/configuration_backups');
     if (!directory.existsSync()) return [];
+    await _protectOldSnapshots(directory);
     return directory
         .listSync()
         .whereType<File>()
@@ -295,10 +358,17 @@ class ConfigurationBackup {
       ..sort((a, b) => b.path.compareTo(a.path));
   }
 
+  Future<void> protectExistingSnapshots() async {
+    final base = await getApplicationSupportDirectory();
+    final directory = Directory('${base.path}/configuration_backups');
+    if (directory.existsSync()) await _protectOldSnapshots(directory);
+  }
+
   Future<File> _createAutomatic() async {
     final base = await getApplicationSupportDirectory();
     final directory = Directory('${base.path}/configuration_backups')
       ..createSync(recursive: true);
+    await _protectOldSnapshots(directory);
     final day = DateTime.now().toIso8601String().substring(0, 10);
     final file = File('${directory.path}/LumeBox-$day.json');
     if (!file.existsSync()) {
@@ -321,5 +391,24 @@ class ConfigurationBackup {
       old.deleteSync();
     }
     return file;
+  }
+
+  Future<void> _protectOldSnapshots(Directory directory) async {
+    for (final file in directory.listSync().whereType<File>()) {
+      if (!file.path.endsWith('.json')) continue;
+      final text = await file.readAsString();
+      if (BackupCipher.isEncrypted(text)) continue;
+      try {
+        final value = jsonDecode(text);
+        if (value is! Map || value['format'] != 'lumebox-configuration') {
+          continue;
+        }
+      } catch (_) {
+        continue;
+      }
+      final temp = File('${file.path}.encrypting');
+      await temp.writeAsString(await BackupCipher.encode(text), flush: true);
+      await temp.rename(file.path);
+    }
   }
 }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        AD2026110200000000000002 /* OfflineVideoRemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2026110200000000000001; };
         AE1800000000000000000007 /* AetherEngine-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = AE1800000000000000000006; };
         AE1800000000000000000002 /* AetherPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1800000000000000000001; };
         AE1800000000000000000005 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = AE1800000000000000000004; };
@@ -16,6 +17,7 @@
 		E817B0030000000000000002 /* ICloudSyncController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0030000000000000001 /* ICloudSyncController.swift */; };
 		E817B0020000000000000002 /* MediaTrackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0020000000000000001 /* MediaTrackProbe.swift */; };
 		E817B0010000000000000002 /* SpeechStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0010000000000000001 /* SpeechStream.swift */; };
+		E817B0A10000000000000002 /* SourceRepositoryCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = E817B0A10000000000000001 /* SourceRepositoryCredentials.swift */; };
 		AC0160160000000000000004 /* PrivacyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0160160000000000000003 /* PrivacyController.swift */; };
 		AC0160160000000000000002 /* ComicImageToolsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0160160000000000000001 /* ComicImageToolsController.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
@@ -64,6 +66,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        AD2026110200000000000001 /* OfflineVideoRemuxer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineVideoRemuxer.swift; sourceTree = "<group>"; };
         AE1800000000000000000006 /* AetherEngine-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AetherEngine-LICENSE.txt"; sourceTree = "<group>"; };
         AE1800000000000000000001 /* AetherPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherPlayerController.swift; sourceTree = "<group>"; };
         AA2026102100000000000001 /* SourceWebController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceWebController.swift; sourceTree = "<group>"; };
@@ -71,6 +74,7 @@
 		E817B0030000000000000001 /* ICloudSyncController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSyncController.swift; sourceTree = "<group>"; };
 		E817B0020000000000000001 /* MediaTrackProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTrackProbe.swift; sourceTree = "<group>"; };
 		E817B0010000000000000001 /* SpeechStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechStream.swift; sourceTree = "<group>"; };
+		E817B0A10000000000000001 /* SourceRepositoryCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceRepositoryCredentials.swift; sourceTree = "<group>"; };
 		AC0160160000000000000003 /* PrivacyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyController.swift; sourceTree = "<group>"; };
 		AC0160160000000000000001 /* ComicImageToolsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicImageToolsController.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
@@ -172,6 +176,7 @@
 				A1B2C3D40000000000000003 /* PipFramePump.swift */,
 				A1B2C3D40000000000000005 /* SpeechController.swift */,
 				E817B0010000000000000001 /* SpeechStream.swift */,
+				E817B0A10000000000000001 /* SourceRepositoryCredentials.swift */,
 				E817B0020000000000000001 /* MediaTrackProbe.swift */,
 				E817B0030000000000000001 /* ICloudSyncController.swift */,
 				A1B2C3D40000000000000007 /* BrightnessController.swift */,
@@ -180,6 +185,7 @@
 				A1B2C3D4000000000000000D /* WafCookieController.swift */,
                 AA2026102100000000000001 /* SourceWebController.swift */,
                 AE1800000000000000000001 /* AetherPlayerController.swift */,
+                AD2026110200000000000001 /* OfflineVideoRemuxer.swift */,
                 AE1800000000000000000006 /* AetherEngine-LICENSE.txt */,
 				A1B2C3D4000000000000000F /* BatteryController.swift */,
 				AA2010200000000000000002 /* LumePythonController.m */,
@@ -384,6 +390,7 @@
 				A1B2C3D40000000000000004 /* PipFramePump.swift in Sources */,
 				A1B2C3D40000000000000006 /* SpeechController.swift in Sources */,
 				E817B0010000000000000002 /* SpeechStream.swift in Sources */,
+				E817B0A10000000000000002 /* SourceRepositoryCredentials.swift in Sources */,
 				E817B0020000000000000002 /* MediaTrackProbe.swift in Sources */,
 				E817B0030000000000000002 /* ICloudSyncController.swift in Sources */,
 				A1B2C3D40000000000000008 /* BrightnessController.swift in Sources */,
@@ -392,6 +399,7 @@
 				A1B2C3D4000000000000000E /* WafCookieController.swift in Sources */,
                 AA2026102100000000000002 /* SourceWebController.swift in Sources */,
                 AE1800000000000000000002 /* AetherPlayerController.swift in Sources */,
+                AD2026110200000000000002 /* OfflineVideoRemuxer.swift in Sources */,
 				A1B2C3D40000000000000010 /* BatteryController.swift in Sources */,
 				AA2010200000000000000001 /* LumePythonController.m in Sources */,
 				AC0160160000000000000005 /* LumeGlassBackdrop.swift in Sources */,

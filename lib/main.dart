@@ -1,3 +1,4 @@
+import 'core/source/reading_section_migration.dart';
 import 'core/util/frame_profile.dart';
 import 'features/comic/comic_download_center.dart';
 import 'core/session/startup_gate.dart';
@@ -56,6 +57,7 @@ void main() {
       runApp(
         StartupGate(
           initialize: () async {
+            await ReadingSectionMigration.run();
             final issues = await initializeAppTasks([
               StartupTask('应用偏好', () => AppPreferences.instance.boot()),
               StartupTask(
@@ -139,6 +141,12 @@ Future<void> _startupMaintenance() async {
       await ConfigurationBackup().automatic();
     } catch (error) {
       LumeLog.warn('自动备份失败：$error');
+    }
+  } else {
+    try {
+      await ConfigurationBackup().protectExistingSnapshots();
+    } catch (error) {
+      LumeLog.warn('旧备份加密迁移失败：$error');
     }
   }
 }

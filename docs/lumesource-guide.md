@@ -2,7 +2,7 @@
 
 面向**写图源脚本的人**：怎么把一份 JS 脚本写成本 App 能导入、能跑、能出内容的图源。
 
-- 适用范围：小说 / 漫画 / 视频三个板块（猫源见文末「猫源的特殊性」）；
+- 内容范围：小说 / 漫画 / 视频；综合源可混合返回三类内容，App 按作品识别并打开对应详情与阅读器。源仍使用现有 `comic` / `video` 存储归属（猫源见文末）。
 - 配套示例：`assets/test_sources/demo_novel_source.js`、`demo_comic_source.js`、
   `demo_video_source.js` —— 三份都是**可真跑**的模板（本机起个静态站即可验证），
   照抄改地址就能用；
@@ -185,7 +185,7 @@ return {
 // resolution；url 可以写成 playUrl / src。没有地址的条目会被跳过。
 ```
 
-**形态必须与板块匹配**：漫画板块拿到 `text` 会报「该章节不是图片内容：源返回了文本」。
+**综合源按作品分流**：列表/详情建议返回 `mediaType: "novel" | "comic" | "video"`；没有声明时 App 读取章节实际载荷识别。小说返回实际正文 `{kind: "text", text}`，或 HTML 正文 `{kind: "html", html}`，不能用简介或网页 URL 代替。识别与读写记录始终保留源原有归属，详见 [实现与验证说明](2026-11-02_小说阅读与综合源类型识别.md)。
 这不是 bug，是守卫——它说明脚本返回错了形态。
 
 ### 三种脚本写法（都认）
@@ -221,11 +221,16 @@ var LumeSource = {
 
 ```js
 var response = await LumeSource.http.get('https://example.com/api/list?page=1');
-// response: { status, headers, body, text(), json() }
+// response: { status, headers, body, url, text(), json() }
 var data = response.json();
 
 // 其它方法：request({url, method, headers, body}) / post(url, body, opts)
 ```
+
+`response.url` 是**跟随 302 之后的最终地址**（宿主会把重定向一路跟完）。换域名的站点靠它
+认出「这一跳落到哪台主机」：拿一个会跳转的服务（站方的地址发布/跳转页）请求一次，
+再取 `response.url` 的 origin，就是当前正在用的域名 —— 不用再把域名写死在脚本里。
+宿主没回这个字段时脚本要能兜底（`response.url || 请求地址`）。
 
 **所有请求都经宿主网络层发出**，因此自动获得：
 

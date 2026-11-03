@@ -1,3 +1,99 @@
+## 2026-11-03 爱丽丝书屋（`comic/alicesw.js`，详见 [源记录](../docs/2026-11-03_爱丽丝书屋源.md)）
+
+成人网络小说站 `alicesw.com`（全站 18+，diyquge 模板的静态 HTML，无接口无加密；发布页 `alicesw.click`，
+镜像 `alicesw1.homes` 简体同源 / `alicesw.tw` 繁体）。本源按**文字小说**交付：列表与详情带
+`mediaType:"novel"`，正文返回 `kind:"text"`，App 归入漫画板块的「小说」分类并打开文字阅读器。
+
+结构要点：题材分类 `/lists/{id}.html?page=N`、总列表与「题材+排序」`/all[/id/{id}]/order/{排序}+desc.html`、
+原创专区 `/original.html`、排行 `/other/rank_hits/order/hits*`（单页 30 条不分页）、
+搜索 `/search.html?q=&f=_all&sort=relevance&p=N`；详情 `/novel/{id}.html`、目录 `/other/chapters/id/{id}.html`
+（**一次给全**，实测 6972 章 666 KB 单页）、正文 `/book/{书号}/{章节hash}.html`。
+**`/novel/{id}` 与 `/book/{书号}` 编号不同**，章节地址只能从目录页取。35 个分类 + 排序筛选
+（最近更新/人气最高/字数最多，排行与原创专区不受排序影响）。详见 [源记录](../docs/2026-11-03_爱丽丝书屋源.md)。
+
+1.1.0 补上**列表封面**：站点列表页没有封面，源里按 id 并发抓详情页取 `.imgbox img`（32 并发、
+单请求 1500ms 超时、列表 2400ms / 首页 3200ms 预算），封面 URL 用 `LumeSource.fs` 缓存 12 小时、
+最多 380 条。实测冷启动 `list()` 2.5s 覆盖 31/31，缓存命中 0.78s；`home()` 2.7s 覆盖 34/48（每板块前 6 条）。
+
+## 2026-11-02 有爱爱 UAA 综合源（`video/uaa.js`，详见 [源记录](../docs/2026-11-02_UAA有爱爱综合源-VIP绕行.md)）
+
+UAA 站群（`uaa002.com` 主用，`uaa001`–`uaa010` / `uaa2601`–`uaa2610` 共 21 个同内容域名，永久域名 `uaa.com`、
+发布页 `uaadizhi.com`）是 Spring Boot SSR + JSON 接口的综合成人站：视频 / 有声 / 漫画 / 小说 四大库一个源全包，
+29 个分类（视频 7 含排序与 origin 地区、有声 7、漫画 6、小说 9）。
+
+**网页被 Cloudflare managed challenge 挡着（连 `/js/`、`/image/` 都挡），但 `/api/` 前缀不在校验规则里** ——
+本源所有页面请求加 `/api/web` 前缀拿同一份 SSR HTML（列表/详情/章节/静态资源全通），取流走
+`/api/video|audio/app/*` JSON，App 自带 UA 实测 200，不需要网页视图过校验。
+
+**VIP / U币 全在前端**：视频 `code:1` 只代表「前端 60 秒试看」，`intro` 返回的 `model.url` 就是整片 m3u8
+（`xc2026103109`：794 段、`#EXTINF` 合计 2381.3 秒 = 详情 `duration` 2381，分片 206）；有声 `chapter` 回
+`code:1「请先登录」` 但照发 mp3；漫画章节 `price:0.3` 仍内联整话 `images`；小说「付费章节」正文照样是 SSR
+的 `div.line`（页面自称「字数：N」，交付字符数与 N 完全相等）。额度记账是播满 60 秒才 POST
+`/video/free/consume`，源里不调它并每次现生成 `viewId`。详见 [源记录](../docs/2026-11-02_UAA有爱爱综合源-VIP绕行.md)。
+
+## 2026-11-02 橙涩视频（chengshe_video）
+
+成人视频 H5（随机域名，当前 `6s9b2f4hkmbh.xyz`，发布页 `8if2pvzp.cc`）：接口全量 AES-CBC 加密，
+匿名 `POST /user/tryLogin {deviceId}` 拿 token，请求 `encData`（key=iv=毫秒时间戳+000）/ 响应 `encData`
+（key=iv=token 第 3–18 位倒序）；播放走 `/api/dec/m3u/ios/access.m3u8` 换 HLS。
+**VIP 只锁交易（券/金币/会员），`canWatch:false` 时接口照常下发 videoUrl+access，换 m3u8 实测 200**，
+无需会员态。搜索参数未公开，本源不提供搜索。详见 [记录](../docs/2026-11-02_橙涩视频源-加密链路与VIP绕过.md)。
+
+## 2026-11-02 火力视频（video/lao4j.js，详见 [源记录](docs/2026-11-02_火力视频源与e938评估.md)）
+
+舞艺吧系舞蹈站（web.lao4j.net，http + 独立 JSON API 主机）：擦边舞蹈/录屏短视频。列表、封面、搜索匿名可取
+（标题是 HTML 实体要解码；video_id 是 11 位 YouTube ID）。**播放必须登录**：m=play 匿名一律「请登录后再操作！」，
+注册要手机号+短信验证码，视频本体也不在图片 CDN 上（/vi/<id>/video.mp4 等全 404）。
+所以本源把播放交给 App 内嵌网页（用户自己登录一次），list/detail/search 原生可用。
+
+同批给的 e938ygef.com 是「果酱/小笛/香蕉…」十几个成人 APP 的**推广落地页**，站内没有内容库，未做源。
+
+## 2026-11-02 黄色仓库（video/hsckzy.js，详见 [源记录](docs/2026-11-02_黄色仓库源.md)）
+
+苹果CMS + ziyuan2 模板的资源站（hsckzy.vip，发布页 hsckzy.com 给 5 个备用域）：国产区/AV区/欧美区/动漫区/其他区
+共 41 个分类入口（5 个大区 + 36 个叶子），6.9 万部。列表是纯文字表格（无封面，封面在详情页）。
+详情页按来源分组内联地址：**「黄色仓库资源m3u8」那条是直链**（实测 master 200 → 子列表 22,550 B → 分片 200 video/mp2t 431 KB），
+「黄色仓库云」是 share 网页（走内嵌网页播放），`chapters()` 把两条线路都列出来。搜索 /index.php/vod/search.html?wd= 可用（50 条/页）。
+
+## 2026-11-02 夜社资源（video/yeshezy.js，详见 [源记录](docs/2026-11-02_夜社资源综合源.md)）
+
+苹果CMS + panghu 模板的**综合**成人资源站（yeshezy1.com）：视频 / 有声 / 写真 / 漫画 / 小说 / 影视 七大类，
+一个源全包：35 个分类入口（t1 全部 + 27 个视频/有声/写真/漫画/影视 + 7 个小说分类）。
+详情页把播放地址**直接内联**（形如「第1集$m3u8」「1P$图片」），列表/详情/播放都不用再打播放页。
+形态分派：视频 → kind video；有声三组 → kind audio；写真/漫画与小说 → kind webplayer
+（App 视频板块只渲染 video/audio，图片与文本走内嵌网页）。HLS 实测 206 + #EXTM3U；
+搜索 /vodsearch/词----------页---.html 可用（20 条/页）。采集 API /api.php/provide/vod 要授权域名，未用。
+
+## 2026-11-02 ITsACG 漫画（`comic/itsacg.js`，详见 [源记录](docs/2026-11-02_ITsACG漫画源.md)）
+
+Discuz + `jameson_manhua` 插件的绅士向漫画站（主站 www.itsacg.com，发布页 itsacg.top 给备用 itsacgaa123.space）。
+**全匿名 GET，无登录无会员**：分类 `a=ku&category_id`（同人誌/單行本/雜誌&短篇/韓漫/3D&漫畫）、排行榜 `a=rank`、
+详情 `a=bofang&kuid=`、阅读 `a=read&zjid=&nopage=1`（一次给整本图片，实测 132 张 = 分页 7×40 合并），
+搜索 `a=search&keyword=`（**不需要 formhash**）。
+
+解析踩坑：站点有**两套卡片布局**（分类页 `image-title`、排行页 `item-title`），只认一种会把 `<img>` 当标题；
+详情页没有 og:image，封面取正文第一张图。大陆直连打不开主站（站点自己标注），镜像里放了备用站。
+
+## 2026-11-02 橙涩视频 v2.2.0（`video/chengshe.js`，详见 [源记录](docs/2026-11-02_橙涩视频v2-VIP直连与短剧搜索.md)）
+
+同站升级：**VIP/金币只是前端遮罩** —— `findVideoById` 对 `canWatch:false` 的付费片（price 5-9）照样下发 `videoUrl`，
+`https://pic.tbem.org` + `videoUrl` 实测 **12/12 → 200 + #EXTM3U**（HLS 标准 AES-128，`index.key` 200/16 B），
+不需要会员态也不需要买券。v2 把播放从 `/api/dec/m3u/ios/access.m3u8` 改成 **CDN 直连**（旧线路保留兜底），
+并补上**短剧板块**（`/api/videoSerial/*`，整部一条播放列表，按「全集」一集处理）和**站内搜索**
+（`POST /api/video/findVideoByTag {tagTitles}`，按标签命中）；首页改成排行榜 / 橙涩短剧 / 热门三个板块。\n**v2.1.0 补上「暗网」板块**：站点 `/dark-web` 页面只对「永久至尊」放开，但 `findClassifyList {needVip:true}`
+与分类视频接口都不鉴权 —— 「暗网流出」(classifyId 11) 抽 3 页 36 条实测 **36/36 → 200 + #EXTM3U**（`restricted:true`/`reasonType:5`）。
+**v2.2.0 把暗网板块里的分类补齐**：`findClassifyList {needVip:true}` 只回一条「暗网流出」(type=3 = SubClassify)，
+站点上点进去先是 **5 个子分类**（`findSubClassify {classifyId:11}` → 圣水滋养 126 / 恐怖电影院 127 / 黄金盛筵 128 /
+全球禁片 129 / 重口调教 130），子分类视频走 `findSubClassifyVideos {classifyId: 子分类 id}`。
+本源对「暗网板块里 type=3 的分类」展开成独立分类项（`sc126`…，标题 `暗网 · 圣水滋养`），
+顶层 11 保留（它是聚合，内容与子分类不同）。子分类抽测 20 条/页 + 封面 200 + HLS 200 + #EXTM3U。
+
+## 2026-11-02 稳定性与起播优化
+
+厂长资源 v1.0.3：明确识别网页校验并保留错误；详情与选集请求合并、复用 60 秒；连接失败时从官方发布页读取并验证新主地址。
+可可影视 v1.0.2：动态读取站点图床、跳过详情 Logo；使用按源隔离的持久存储缓存校验会话（6 小时上限），过期重新获取；修复首次 503、重试成功仍报错；详情和选集合并请求、复用 60 秒。
+播放入口移除重复媒体预检，新增解析、媒体就绪、播放进度开始三阶段耗时。实测及限制见 [记录](../docs/2026-11-02_源稳定性与起播优化.md)。
+
 # LumeBox 视频源：站点转源结果
 
 ## 2026-11-01 六个新源（子子影视 / PPnix / 厂长资源 / 嘀嗒影视 / 多多追剧 / 爱壹帆）
@@ -33,7 +129,7 @@
 
 `video/kkys.js`（`kkys_video`）：可可影视。入口有 **cdndefend 反爬挑战**（纯 JS SHA-1 现算 PoW
 自动过，首次 1-2 秒）。电影/连续剧/动漫/综艺 + 类型/地区/语言/年份/排序筛选 + 站内搜索（需页面 `t` 令牌）；
-详情页最多 **37 条线路**，每条线路分集全列；播放页直出 m3u8。限制：封面图被源站 403 拦，列表可能无封面。
+详情页最多 **37 条线路**，每条线路分集全列；播放页直出 m3u8。v1.0.2 改为读取站点 RDUL 图床配置，封面不再请求受挑战保护的主站；会话按域名和 UA 缓存，失效重取，详情/选集共用请求。
 
 `video/libvio.js`（`libvio_video` v2.0.0）：**LIBVIO**（真实站 `www.libvio.io`；旧域名
 libvio.host / www.libvio.to / libviobd.com 已停用为停车页）。站点用 CDN 浏览器校验挡非浏览器请求
@@ -240,7 +336,8 @@ sources/video/
 ├── haijiao.js     海角（www.haijiao.com）Vue2 SPA + /api，三重 Base64；**匿名只给线路名不给地址** → 播放走 webplayer(/watch?id=)，填账号后可取原生地址
 ├── aido8.js       爱豆（ww15.aido8.icu）  /awsapi 加密 JSON；匿名整片；封面是反转 JPEG（占位图）
 ├── tangtoutiao.js 汤头条（p1.wgbqoiqv.com）Nuxt 壳 + 独立接口域，AES-256-CFB 签名；付费仅 ~2 分钟试看
-├── h4dh3.js       hxc（h4dh3.com）        **VIP 真破解**：getPreUrl 签名只覆盖路径，删 start/end 即整片
+├── h4dh3.js       hxc（壳域 jhqjg.com / 9zx3x.com）**VIP 真破解**：getPreUrl 签名只覆盖路径，删 start/end 即整片；接口主机从 H5 包 `VUE_APP_API_BASE_URL` 自发现
+├── lxxlxx.js      LXXLXX（zhs.lxxxxlxxx.com）繁中短片站；`/vjs` 三段链取 mp4；源站 2026-11-02 全球挂（CF 522），脚本按 mirrors 自动换台
 ├── cf3.js         Butterfly2（d17rhkrwip15vt.cloudfront.net）同 SDK 另一运营方；API 域与页面域分离
 ├── hentai2w.js    Hentai2W（hentai2w.com）**18+**，**需代理**，Inertia props + 自动过年龄门
 ├── zhilian-duanju.js 栀莲短剧（yklyo880.lldj1.xyz）短剧站，SPA + `/api/v1` JSON 接口；游客登录获取当前会话获准播放的地址，锁定集转源站网页
@@ -263,7 +360,14 @@ sources/video/
 ├── huangguo-duanju.js 黄果短剧（huangguoai.com）AI 短剧，**需代理**；播放页直给签名 m3u8
 ├── juzhi.js       橘汁 - 影视（juziapp.hzhcbkj.cn，从橘汁 APK 里挖出的官方后端）；开放 JSON 端点 + 换流接口
 ├── hqvod.js       点播-高清（hqvod.com）苹果CMS 站；列表走 ajax 数据接口，播放页有滑块 → webplayer
-├── d9y1w.js       四色视频（www.z2g9w.top / www.x5p2n.top，3 天换域名）maomi 模板站；标题 AES-256-CBC、卡片链接 base64 混淆，播放 m3u8 直链
+├── d9y1w.js       四色视频（www.m9y7a.top，3 天换域名）maomi 模板站；标题 AES-256-CBC、卡片链接 base64 混淆，播放 m3u8 直链；
+│                  v1.2.0 换域名自愈两条腿：旧域 302 的最终地址 reply.url 取 origin 探活 + 站方跳转服务 good.0827.la 兜底
+├── akmh.js        18ak漫画·视频（www.18akmanhua.com，来自「暮色」App 内置源）接口 /api 带 md5 签名 + AES-256 响应密文；
+│                  v1.1.0 起改用宿主原生 tools.digest / tools.aes（不再手写纯 JS，源 10 KB）；
+│                  /videoLists 1531 条（type 0=漫画改编 1=真人）、付费片 pay_url 直发可播，m3u8 实测 200 + #EXTM3U
+├── kkav.js        KKAV（www.32auqm.com；37tmrj → 73tfhk → 85fazc → 32auqm）成人视频站；接口 XOR2 加密（源内纯 JS 解）、
+│                  列表自带 mp4 直链（down.baidu.com 改写为 down.mm7878.com，206）；v1.2.0 从旧域跳板页
+│                  `url2.push("新域")` 自愈（旧域换域后 /api/* 直接 406），SEED_HOSTS + JUMP_HOSTS 两段式发现
 ├── x8x8.js        8x8x（8x8x.fun / 随机跳板域）SPA 外壳 + bodyRoot 内容页；频道/标签 SSR、推荐流 AES-256-GCM，播放三线路 HLS
 ├── pornbest.js    第一女優網 / PornBest（www.pornbest.org，镜像 www.av01.org）Yii2 SSR + video.js；**需代理**；大陆出口 302 到封锁页，另有 CDNLah WAF 的 PoW（源内纯 JS SHA-256 自动解）；详情页 `<source>` 直给 m3u8
 ├── 91pornplus.js  91PornPlus（91pornplus.com 站群）Angular SPA + 单入口 `POST /js`；响应 AES(passphrase=xxx) 密文（源内纯 JS MD5+AES-256-CBC），**接口域名国内直连**，匿名给 m3u8
@@ -281,7 +385,7 @@ sources/video/
 │                 叶子分类 16 组 + 搜索；`vod_play_url` 即 m3u8（实测 1080P），chapterId 直接编 URL，播放零额外请求
 ├── zy360.js      360资源（360zy.com）同套苹果CMS 接口，片库与暴风互补；7.4 万条、国产剧 4551 条，master 实测 `RESOLUTION=1920x1080`
 └── yingshidao.js 影视岛（tv.yingshidao.com，面向海外）**条目带 has4k 字段**（真 4K 档位，电视剧首页 20 条里 12 条有 4K）；
-                  8 类 + 类型/地区/年份筛选 + 搜索全走开放接口；播放需 ECDSA 设备密钥 + CKey → `webplayer`（网页里登录一次，站内 4K 自解）
+                  8 类 + 类型/地区/年份筛选 + 搜索全走开放接口；v2.0.2 统一网页播放并保留所选集数，游客额度耗尽需在网页正常登录，会员/4K 以站点实际权益为准
 ```
 
 - `video/kanju-ai.js` —— 看剧AI（kanju24.com；镜像 kanju.ai / kanju13.com / www.kanju24.com）：
@@ -359,7 +463,7 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 黄果 - 短剧（18+） | **是** | 1 块 | 6 分类 | 47 | 30（`/search/video/<词>/`） | ok | 1~3 | **video（m3u8，实测 200 + `#EXTM3U`，AES-128 key）** |
 | 橘汁 - 影视 | 否 | 3 块 | 8 分类 | 24 | 本地索引过滤 | ok | 1 | **video（`videoParse/test/videoUsableUrl` 换流，实测 200 + `#EXTM3U` 59 KB）** |
 | 点播 - 高清 | 否 | 1 块 | 5 分类 | 10 | 本地索引过滤 | ok | 5 线路 | **webplayer（播放页滑块人机校验，脚本 403 → App 网页视图过校验后播）** |
-| 四色视频（18+） | 否 | 3 块 | 27 分类 | 20 | 30（剧情/视频/精品三频道合并） | ok | 2 线路 | **video（m3u8 直链 + AES-128 key 与分片同域，实测 200 + `#EXTM3U` 23.8 KB）** |
+| 四色视频（18+） | 否 | 3 块 | 27 分类 | 20 | 30（剧情/视频/精品三频道合并） | ok | 2 线路 | **video（m3u8 直链 + AES-128 key 与分片同域，实测 200 + `#EXTM3U` 32.9 KB）** |
 | 8x8x（18+） | **是** | 2 块 | 5 频道 + 12 组标签 | 23 | 28（`/api/search/video`） | ok | 3 线路 | **video（`data-route1..3` + `data-m3u8`，探活 200 + `#EXTM3U` 158 B master）** |
 | 第一女優網（18+） | **是** | 2 块 | 51 分类 | 48 | 24（`/q/<词>`） | ok | 1 | **video（详情页 `<source>` / ld+json `contentUrl` → `voddadaizi5.com:…/index.m3u8`，探活 200 + `#EXTM3U` 300 KB）** |
 | 91PornPlus（18+） | 否 | 2 块 | 12 栏目 | 24 | 24（`/searchSevenVideos`，time/views 两种排序） | ok | 1 | **video（`POST /js` 加密接口 → 详情 `m3u8s[0]` = `tm.pppsuccess.com/…/index.m3u8`，探活 200 + `#EXTM3U`）** |
@@ -375,7 +479,8 @@ App → 视频板块 → **源管理** → 导入，三种方式任选：
 | 劇迷 | 否 | — | 9 组（大陸/港/台/韩/日/美剧 + 电影/综艺/动漫） | 24 | 24（`/search?q=`） | ok | 1（集内 13–27 线路） | **video（`/_gimy_plays/{id}/{ep}` → `bfikuncdn.com/…/index.m3u8`，源内探活前 4 条，200 + `#EXTM3U` 1920x1080）** |
 | 暴风资源 | 否 | — | 16 叶子组（国产剧/各国剧/动作·剧情·科幻片/国产动漫/综艺/短剧细分） | 20 | 20（`?wd=`） | ok | 全部分集 | **video（`vod_play_url` → `v.fengbao14.com/…/index.m3u8`，206 + `#EXTM3U`；分片 ffprobe 1920x1080 h264，分钟级更新）** |
 | 360资源 | 否 | — | 16 叶子组（国产剧/各国剧/电影类型/国产动漫/综艺/短剧细分） | 20 | 20（`?wd=`） | ok | 全部分集 | **video（`vod1.maowushi.com/…/index.m3u8`，200 + `#EXTM3U` `RESOLUTION=1920x1080`）** |
-| 影视岛（4K 库） | 否 | — | 8 类（电视剧/电影/动漫/综艺/短剧/微剧/纪录片/少儿）+ 类型·地区·年份筛选 | 20 | 20（`/api/v1/video/search`） | ok | 1（网页里选集） | **webplayer（`/video/<id>?play=1`）**：接口条目带 `has4k`，点播要 ECDSA 设备密钥 + CKey，网页里登录后由站点自解 4K |
+| 影视岛（4K 库） | 否 | — | 8 类（电视剧/电影/动漫/综艺/短剧/微剧/纪录片/少儿）+ 类型·地区·年份筛选 | 20 | 20（`/api/v1/video/search`） | ok | 全量分集 | **webplayer（`/video/<id>?play=1&ep=<episode_id>`）**：v2.0.2 不预发游客播放请求；游客额度耗尽需网页登录，会员/4K 按账号实际权益开放 |
+| **有爱爱 UAA（18+·综合）** | 否 | 5 板块（视频/有声/漫画/小说/排行） | 29 分组（视频 7 + 有声 7 + 漫画 6 + 小说 9） | 视频/有声/漫画/小说各 48（排行 100） | 20（`/api/video/app/video/search`，仅视频库） | ok | 视频单集 / 有声分集 / 漫画整话 / 小说全章 | **video·audio·images·text 四形态齐全**：视频 m3u8 实测 200 + `#EXTM3U`（整片 2381 秒 = duration）；有声 mp3；漫画 48 张 webp/jpg 首图 200；小说正文逐段。**页面直连被 CF 挡，走 `/api/web` 前缀绕过校验；VIP/U币 只在前端，接口给全量** |
 
 「播放」列是**真去请求那个地址**验的：`video` 表示拿到播放地址且 HTTP 200 + `#EXTM3U`（HLS 清单）；
 `webplayer` 表示拿不到可直连的 m3u8，交给 App 内置网页播放器去跑源站自己的播放器。
@@ -476,6 +581,7 @@ dart run tools/site_reachability.dart
 - **绅游巴士不能按分类/标签过滤**：列表接口只吃 `page` / `pageSize` / `sort` / `keyword`（`categoryId`、`tagId`、`categoryIds` 实测全被忽略，total 恒为 5279），站点 UI 的分类芯片是前端筛的，脚本拿不到全量就没法复刻，所以只给排序 + 站内搜索。它的 `/product` 是游戏下载站（`/cloud-link/{id}` 出网盘），LumeBox 没有对应板块，没做。
 - **探花视频 / 91大神 是同一套内容库**：同一 id 取到的 m3u8 逐字相同，只做**一个**源（`tanhua_video`），另一个域名进 `mirrors`；两个都做成源会在 App 里出现两份相同内容。站点没有搜索接口（`search.php`/`so.html` 403）。域名都是 IDN，`mirrors` 里必须写 punycode（`xn--91-mu9cv53j.com` = 91大神.com，`xn--dzu640eo1e2qq.com` = 探花视频.com）。
 - **VIP 一律先破解再决定怎么放** —— 判定顺序、三种打法（CDN 路径可推导 / 试看签名复用 / 同库镜像）、记录要求见 [docs/VIP处理约定.md](../docs/VIP处理约定.md)；同样规则也适用于此后新增的源。
+- **有爱爱的 `/api/` 是唯一通路**：站点根路径（含 `/js/`、`/image/`）都在 Cloudflare managed challenge 后面，只有 `/api/` 前缀放行 —— 页面侧一律加 `/api/web`，取流走 `/api/video|audio/app/*`。哪天站方把 `/api/` 也纳进校验，源会抛 `NEED_WEBVIEW_VERIFY`。JSON 接口（`intro` / `chapter`）必须带 `viewId`，否则回「非法操作」；额度记账靠播满 60 秒 POST `/video/free/consume`，源里不调它、每次现生成 `viewId`，所以 60 秒试看与每日 10 部/话额度都不生效。站内搜索只有视频库可用（`/api/comic|novel|audio/app/<svc>/search` 一律 500）；排行页固定 100 条不吃 `page`。小说分类跑测时 `playable` 会报「没有给出绝对地址」，属工具对纯文本载荷的限制。
 - **618 影院是「地址表 + 站群」**：`618208.xyz` 首页只有 2×5 的区表（一区…漫画），每格由脚本用 `crypto.getRandomValues()%30` 从 95 个域名码里随机挑一个拼成 `618<码>.xyz/index.php/{vod|art}/type/id/{X}.html`（去重 847 个域名）；页面文字（导航、标题）用 **XOR 0x80** 混淆、浏览器里由内联脚本还原（`幨遨襆頑`→`全部视频`），所以直接抓 HTML 会看到乱码。本源自带 xor80 解码、并会解析地址表自动挑可用域名（缓存 30 分钟）。
 - **TheAVPorn 的流是浏览器抓包定位的**：游客页只有 `no-player`（观看次数受限），但真实播放请求是 `https://bytt.jb-aiwei.cc/contents/videos/{dir}/{id}/index.m3u8?ttl=…&dsc=…`；实测**整段查询串去掉仍 200**、分片 `.ts` 也不带签名、另一个 id 同规则可播 → `content()` 只用 id 拼路径（`dir=floor(id/1000)*1000`）。换分发域时改 `CDN_HOSTS`。
 - **jizeyy / hsex / reddxxx 的取流方式各不相同**：jizeyy 详情页按钮指向 `?action=get&p=1`，页面里是 `jx.php?url=<真 m3u8>`，URL 解码即得直链（`play4.laoyacdn.com` 在本机出口被 RST，换网络可播）；hsex 列表页可直连但详情页一律 CF 挑战、CDN 是逐条签名（`/hls/{id}/index.m3u8` 403），reddxxx 整站 Turnstile 但 **sitemap 未被挑战**（`/sitemap-videos/{N}`，N=0 最新，4214 个分片）——这两个都按 `webplayer` 交付，由 App 内嵌浏览器过 CF 后播放。
@@ -503,9 +609,31 @@ dart run tools/site_reachability.dart
   `invalid_request_signature`，把新 `main-*.js` 里的 `lo="…"` 抄进 `SIGN_KEY` 即可（源里不写站点版本号，发版不影响）。
 - **四色视频的标题与链接都是站点自己的加密**：标题/分类名/菜单链接是 AES-256-CBC（key、iv 在 `/assets/js/common/encrypt.js`，**iv 只有 10 字节 + 固定后缀 `883346`**，见 `common.js` 的 `decodeString2`），卡片 href 是 `/cYc` + base64(明文路径)。明文路径（`/juqing/play-438649.html`、`/juqing/list-麻豆传媒.html`）直接可访问，所以源里**只解不拼**：链接先 base64 还原再取页，AES 用源内纯 JS 实现（沙箱没有 atob/Buffer/crypto）。站点换 key 时源会抛「标题一条都解不开（站点换加密 key 了？）」。
 - **四色视频的封面别用站点自己的图片主机**：卡片 `data-base64` 指到 `base4s.0827.la`，回来的是 `data:image/jpg;base64,…` **文本**，App 图片管线不吃文本 body；但**同一个路径在媒体 CDN（2026-11-01 实测 `4sv.0827.la` / `s4.dt188.site`）上就是真 JPEG**，所以封面改用 play 页 `m3u8_host` 拼，域名随站点轮换自动跟着换。老的 `www.0734.la`（连不上）与 `s5.sanheyiliao.xyz`（NXDOMAIN）已从兜底里去掉。
-- **四色视频 3 天换一次域名，脚本要能自己跟过去**：官方 `/help/help.html` 写明这点，并给出长期地址 `https://www.zie2.com` 和找回邮箱 `liumangtu@mail.com`。旧域（`www.z8f0q.top` / `www.d9y1w.top`）现在还在响应，但**整站 302 到新域的 `/enter/index.html`**——App 的 HTTP 桥会跟随 302，却既不回报 `reply.url` 也不回 302 的 `Location`，脚本拿到的是那张「进入页」，于是「首页没有解析到板块」。源里靠**页面形态**（有 `enter-content` / `qrcodeSmall`、没有 `video-item`）认出它，再按 `MIRRORS` 换台重试并把成功的主机缓存 12 小时（`host.json`）。当前可用：`www.z2g9w.top`（主）、`www.x5p2n.top`（镜像）。
+- **四色视频 3 天换一次域名，脚本会自己去问站方要当前域名**：官方 `/help/help.html` 写明这点，并给出长期地址 `https://www.zie2.com` 和找回邮箱 `liumangtu@mail.com`。旧域还在响应，但**整站 302 到新域的 `/enter/index.html`**——脚本靠**页面形态**（有 `enter-content` / `qrcodeSmall`、没有 `video-item`）认出这张「进入页」，先按 `MIRRORS` 换台（成功的主机缓存 12 小时，`host.json`）；已知域名全废时走**域名自发现**：请求站方跳转服务 `http://good.0827.la/?u=<b64 种子>&p=<b64 路径>`（种子用永久地址 `zie2.com` 或跳板 `af284.com`；用站点自己的域名当种子只会回 `code:1007`），宿主把跟随 302 后的最终地址放进 `reply.url`，取 origin 再探活首页，能开就记下来（`discover.json` 记失败退避 10 分钟）。这台机器的证书已过期，所以走 http。当前可用：`www.y1c5w.top`（主）、`www.q5h7m.top`（镜像）。
 
 ## 七、免责
 
 这些脚本只是把你本来就能在浏览器里看到的公开页面**换成 App 里的浏览/播放体验**，
 不破解任何付费内容、不绕过登录、不下载不存储视频；仅供本地自用研究，请勿传播或商用。
+
+### 综合源的文字小说与类型分流
+
+综合站可以在同一源里返回小说、漫画、视频。列表/详情应提供 `mediaType: "novel" | "comic" | "video"`，章节分别返回 `text` / `images` / `video` 载荷；缺少明确类型时 App 按实际章节内容识别。小说必须提供目录和正文，不得把简介或网页链接当正文。源的存储归属仍是现有 `video` / `comic`，不新增 `novel` 板块标识。见 [小说与综合源说明](../docs/2026-11-02_小说阅读与综合源类型识别.md)。
+
+## 2026-11-03 阅读归类与声明修复
+
+漫画、美图、文字小说、有声与 Kazumi 统一在漫画板块；TVBox 在视频板块独立显示。`novel` / `audiobook` / `kazumi` 分类对应漫画存储归属，普通视频仍归视频。火力视频 `lao4j_video` 2.0.1 将密码字段改为受支持的 text 类型，敏感输入由 App 遮挡。单个源声明错误不再中断整份订阅的后续导入。见 [本次变更说明](../docs/2026-11-03_阅读分类与抽屉交互.md)。
+
+
+## 2026-11-03 PY 合集订阅
+
+用户提供的 PY 合集按完整内容去重后，304 份通过当前生产宿主离线加载，已接入独立 PY 总订阅和现有总订阅；13 份加载失败脚本保留在 archive/python，不自动安装。详情、验证边界及 4kyingshi.net 的 HTTP 403 排查见 [合集记录](../docs/2026-11-03_PY合集入库与4K源排查.md)。离线加载不代表逐站播放可用。
+
+
+## 2026-11-03 小说封面与源图标
+
+爱丽丝书屋 1.1.1 改善慢线路列表补图并复用详情封面；App 小说详情页补上实际封面控件。蚂蚁搬运 1.0.1 声明站点图标。验证与生效范围见 [修复记录](../docs/2026-11-03_小说封面与蚂蚁源图标修复.md)。
+
+## 2026-11-03 爱丽丝访问错误分类
+
+爱丽丝书屋 1.1.2 区分真实网页挑战与普通 HTTP 拒绝/限流，并在普通 403 时尝试已知正文镜像；会话内复用可用镜像。真正挑战仍需网页验证。见 [本聊天验收记录](../docs/2026-11-03_本聊天验收清单.md)。
