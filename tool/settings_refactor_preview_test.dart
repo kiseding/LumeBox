@@ -170,7 +170,18 @@ void main() {
   });
 
   testWidgets('App 图标页', (tester) async {
-    await pump(tester, const AppIconSettingsPage(), const Size(390, 844));
+    // 「App 图标」现在作为区块嵌在图标库页里，独立页面类已移除；
+    // 预览直接把 AppIconGrid 铺出来截图。
+    await pump(
+      tester,
+      const Scaffold(
+        body: Padding(
+          padding: EdgeInsets.fromLTRB(16, 24, 16, 24),
+          child: AppIconGrid(previewOnly: true),
+        ),
+      ),
+      const Size(390, 844),
+    );
     // 测试环境的资源图片是异步解码的；先 precache，截图里才看得到图标。
     final context = tester.element(find.byType(AppIconGrid));
     await tester.runAsync(() async {

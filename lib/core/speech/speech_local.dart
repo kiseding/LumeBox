@@ -260,13 +260,284 @@ class SpeechLocalModel extends ChangeNotifier {
   }
 }
 
+/// Kokoro is installed separately from the VITS voice.
+class KokoroModel extends ChangeNotifier {
+  KokoroModel({Uri? downloadUri})
+    : _downloadUri = downloadUri ?? Uri.parse(url);
+  final Uri _downloadUri;
+  static final instance = KokoroModel();
+  static const url =
+      'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2';
+  static const digest =
+      '259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c';
+  bool ready = false, preparing = false, present = false;
+  String? error;
+  Directory? directory;
+  String phase = '';
+  double? progress;
+  HttpClient? _client;
+  bool _cancelled = false;
+  static const requiredSizes = <String, int>{
+    'model.int8.onnx': 114203914,
+    'voices.bin': 53790720,
+    'tokens.txt': 1111,
+    'lexicon-us-en.txt': 5956885,
+    'lexicon-zh.txt': 2120131,
+    'date-zh.fst': 59154,
+    'number-zh.fst': 64482,
+    'phone-zh.fst': 88630,
+    'dict/jieba.dict.utf8': 5071204,
+    'espeak-ng-data/phontab': 55796,
+  };
+
+  static const requiredHashes = <String, String>{
+    'model.int8.onnx':
+        '05d793700b0b507f760c183c0e39bdd6a97b43d32fdc7bf7b54a5179f1b11222',
+    'voices.bin':
+        'e64a5a581d8c2a350d848f51c3121657cd83aa07ed6109172177345874a7244c',
+    'tokens.txt':
+        '931ab2df2400cd65d580a22402024c2347ced8ae9ea300e545144b1aacc48e14',
+    'lexicon-us-en.txt':
+        '7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14',
+    'lexicon-zh.txt':
+        'fea060803db3e59193987f1a3436f56917bda09f3b3595b6588e46ae60cebf93',
+    'date-zh.fst':
+        'eb8aa079ae3cb81d8f4404992f39d61a0cb990947512b5b8d1e54d1f6980e718',
+    'number-zh.fst':
+        '743f402181fcfebf76cc2f0546b71fa26476e626fbe4e460fb7b4c3a7a8bd5bd',
+    'phone-zh.fst':
+        '1ac2b6fa56b1442320c4de7db08353bab8963a2b57f365eebcdd3a2d3562f8d7',
+    'dict/jieba.dict.utf8':
+        '3043b77068e09c9904f27cad82f12b6ebe9dbdb5aeff3b25e45ab7f9c1122b55',
+    'espeak-ng-data/phontab':
+        '886f3fa402cb0ba73d483aa8ad000af47a6b7cc06293c75a97913fba68a530f6',
+  };
+  Future<bool>? _checking;
+  String? _checkedSignature;
+
+  void cancel() {
+    if (!preparing) return;
+    _cancelled = true;
+    phase = '正在取消';
+    _client?.close(force: true);
+    notifyListeners();
+  }
+
+  Future<void> remove() async {
+    if (preparing) return;
+    await check();
+    final target = directory;
+    if (target != null && await target.exists()) {
+      await target.delete(recursive: true);
+    }
+    ready = false;
+    present = false;
+    _checkedSignature = null;
+    error = null;
+    notifyListeners();
+  }
+
+  Future<bool> check() {
+    if (preparing) return Future.value(ready);
+    return _checking ??= _check().whenComplete(() => _checking = null);
+  }
+
+  Future<bool> _check() async {
+    final support = await getApplicationSupportDirectory();
+    directory = Directory('${support.path}/speech/kokoro');
+    final root = directory!;
+    present = await root.exists();
+    final marker = File('${root.path}/.ready');
+    var valid = false;
+    try {
+      valid = await marker.exists() && await marker.readAsString() == digest;
+    } on FileSystemException {
+      valid = false;
+    } on FormatException {
+      valid = false;
+    }
+    final signature = StringBuffer();
+    if (valid) {
+      for (final entry in requiredSizes.entries) {
+        final stat = await File('${root.path}/${entry.key}').stat();
+        if (stat.type != FileSystemEntityType.file ||
+            stat.size != entry.value) {
+          valid = false;
+          break;
+        }
+        signature.write(
+          '${entry.key}:${stat.size}:${stat.modified.microsecondsSinceEpoch};',
+        );
+      }
+    }
+    if (valid && _checkedSignature != signature.toString()) {
+      final rootPath = root.path;
+      try {
+        valid = await Isolate.run(() async {
+          for (final entry in requiredHashes.entries) {
+            final actual = await sha256
+                .bind(File('$rootPath/${entry.key}').openRead())
+                .first;
+            if (actual.toString() != entry.value) return false;
+          }
+          return true;
+        });
+      } on FileSystemException {
+        valid = false;
+      }
+      _checkedSignature = valid ? signature.toString() : null;
+    }
+    ready = valid;
+    notifyListeners();
+    return ready;
+  }
+
+  Future<bool> install() async {
+    if (preparing) return false;
+    preparing = true;
+    _cancelled = false;
+    phase = '正在连接';
+    progress = null;
+    error = null;
+    notifyListeners();
+    Directory? stage;
+    final client = _client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
+    try {
+      final support = await getApplicationSupportDirectory();
+      final parent = Directory('${support.path}/speech');
+      await parent.create(recursive: true);
+      stage = await parent.createTemp('kokoro-');
+      final archive = File('${stage.path}/model.tar.bz2');
+      final request = await client.getUrl(_downloadUri);
+      final response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+      if (_cancelled) throw const FormatException('已取消');
+      phase = '正在下载';
+      notifyListeners();
+      if (response.statusCode != 200) throw const FormatException('下载模型失败');
+      final sink = archive.openWrite();
+      var count = 0;
+      try {
+        await for (final bytes in response.timeout(
+          const Duration(seconds: 45),
+        )) {
+          if (_cancelled) throw const FormatException('已取消');
+          count += bytes.length;
+          final next = (count / 147052523).clamp(0.0, 1.0);
+          if (progress == null || next - progress! >= .01) {
+            progress = next;
+            notifyListeners();
+          }
+          if (count > 200 * 1024 * 1024) throw const FormatException('模型文件过大');
+          sink.add(bytes);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (_cancelled) throw const FormatException('已取消');
+      phase = '正在校验';
+      progress = null;
+      notifyListeners();
+      if ((await sha256.bind(archive.openRead()).first).toString() != digest) {
+        throw const FormatException('模型校验失败');
+      }
+      if (_cancelled) throw const FormatException('已取消');
+      phase = '正在解压';
+      notifyListeners();
+      final path = stage.path;
+      await Isolate.run(() {
+        final input = InputFileStream('$path/model.tar.bz2');
+        final output = OutputFileStream('$path/model.tar');
+        try {
+          BZip2Decoder().decodeStream(input, output);
+        } finally {
+          input.closeSync();
+          output.closeSync();
+        }
+        final tar = InputFileStream('$path/model.tar');
+        try {
+          final entries = TarDecoder().decodeStream(tar);
+          const prefix = 'kokoro-int8-multi-lang-v1_1/';
+          for (final entry in entries) {
+            if (!entry.isFile ||
+                entry.isSymbolicLink ||
+                !entry.name.startsWith(prefix)) {
+              continue;
+            }
+            final relative = entry.name.substring(prefix.length);
+            if (relative.isEmpty ||
+                relative.contains('..') ||
+                relative.contains('\\') ||
+                relative.startsWith('/')) {
+              throw const FormatException('模型文件路径无效');
+            }
+            final file = File('$path/data/$relative');
+            file.parent.createSync(recursive: true);
+            final target = OutputFileStream(file.path);
+            try {
+              entry.writeContent(target);
+            } finally {
+              target.closeSync();
+            }
+          }
+        } finally {
+          tar.closeSync();
+        }
+        for (final name in [
+          'model.int8.onnx',
+          'voices.bin',
+          'tokens.txt',
+          'lexicon-us-en.txt',
+          'lexicon-zh.txt',
+        ]) {
+          if (!File('$path/data/$name').existsSync()) {
+            throw const FormatException('模型文件不完整');
+          }
+        }
+      });
+      if (_cancelled) throw const FormatException('已取消');
+      final target = Directory('${parent.path}/kokoro');
+      if (await target.exists()) await target.delete(recursive: true);
+      directory = await Directory('${stage.path}/data').rename(target.path);
+      await File('${target.path}/.ready').writeAsString(digest, flush: true);
+      _checkedSignature = null;
+      present = true;
+      ready = true;
+      return true;
+    } catch (e) {
+      error = _cancelled
+          ? '已取消'
+          : e is TimeoutException
+          ? '连接超时，请检查网络后重试'
+          : e is FormatException
+          ? e.message
+          : '模型下载或安装失败，请检查网络与存储空间';
+      return false;
+    } finally {
+      client.close(force: true);
+      _client = null;
+      if (stage != null && await stage.exists()) {
+        await stage.delete(recursive: true);
+      }
+      preparing = false;
+      phase = '';
+      progress = null;
+      notifyListeners();
+    }
+  }
+}
+
 /// A cancellable per-playback worker. The native callback delivers generated
 /// chunks without blocking Flutter's UI isolate. No network or LLM is involved.
 class SpeechLocalVoice {
   Future<_LocalSpeechWorker>? _worker;
+  String? _workerKey;
   void close() {
     final current = _worker;
     _worker = null;
+    _workerKey = null;
     if (current != null) {
       unawaited(current.then((worker) => worker.close(), onError: (_) {}));
     }
@@ -276,9 +547,16 @@ class SpeechLocalVoice {
     String text,
     String path,
     int voice,
-    double speed,
-  ) async* {
-    final worker = await (_worker ??= _LocalSpeechWorker.create(path));
+    double speed, {
+    bool kokoro = false,
+  }) async* {
+    final key = '$path:${kokoro ? 'kokoro' : 'vits'}';
+    if (_workerKey != null && _workerKey != key) close();
+    _workerKey = key;
+    final worker = await (_worker ??= _LocalSpeechWorker.create(
+      path,
+      kokoro: kokoro,
+    ));
     if (worker.closed) return;
     worker.commands.send([text, voice, speed]);
     while (!worker.closed && await worker.messages.moveNext()) {
@@ -298,27 +576,46 @@ class SpeechLocalVoice {
     try {
       sherpa.initBindings();
       final path = args[1] as String;
+      final kokoro = args.length > 2 && args[2] == true;
       tts = sherpa.OfflineTts(
         sherpa.OfflineTtsConfig(
           model: sherpa.OfflineTtsModelConfig(
             numThreads: 2,
             debug: false,
-            vits: sherpa.OfflineTtsVitsModelConfig(
-              model: '$path/vits-aishell3.onnx',
-              lexicon: '$path/lexicon.txt',
-              tokens: '$path/tokens.txt',
-            ),
+            vits: kokoro
+                ? const sherpa.OfflineTtsVitsModelConfig()
+                : sherpa.OfflineTtsVitsModelConfig(
+                    model: '$path/vits-aishell3.onnx',
+                    lexicon: '$path/lexicon.txt',
+                    tokens: '$path/tokens.txt',
+                  ),
+            kokoro: kokoro
+                ? sherpa.OfflineTtsKokoroModelConfig(
+                    model: '$path/model.int8.onnx',
+                    voices: '$path/voices.bin',
+                    tokens: '$path/tokens.txt',
+                    dataDir: '$path/espeak-ng-data',
+                    dictDir: '$path/dict',
+                    lexicon: '$path/lexicon-us-en.txt,$path/lexicon-zh.txt',
+                  )
+                : const sherpa.OfflineTtsKokoroModelConfig(),
           ),
-          ruleFsts: [
-            'date',
-            'number',
-            'new_heteronym',
-            'phone',
-          ].map((n) => '$path/$n.fst').join(','),
+          ruleFsts: kokoro
+              ? [
+                  '$path/date-zh.fst',
+                  '$path/number-zh.fst',
+                  '$path/phone-zh.fst',
+                ].join(',')
+              : [
+                  'date',
+                  'number',
+                  'new_heteronym',
+                  'phone',
+                ].map((n) => '$path/$n.fst').join(','),
           maxNumSenetences: 1,
         ),
       );
-      if (tts.sampleRate != 8000 || tts.numSpeakers < 1) {
+      if (tts.sampleRate != (kokoro ? 24000 : 8000) || tts.numSpeakers < 1) {
         throw const FormatException('模型音频格式无效');
       }
       send.send(commands.sendPort);
@@ -361,10 +658,17 @@ class _LocalSpeechWorker {
   final StreamIterator<dynamic> messages;
   final SendPort commands;
   bool closed = false;
-  static Future<_LocalSpeechWorker> create(String path) async {
+  static Future<_LocalSpeechWorker> create(
+    String path, {
+    bool kokoro = false,
+  }) async {
     final port = ReceivePort();
     final messages = StreamIterator(port);
-    await Isolate.spawn(SpeechLocalVoice.generate, [port.sendPort, path]);
+    await Isolate.spawn(SpeechLocalVoice.generate, [
+      port.sendPort,
+      path,
+      kokoro,
+    ]);
     if (!await messages.moveNext() || messages.current is! SendPort) {
       port.close();
       await messages.cancel();

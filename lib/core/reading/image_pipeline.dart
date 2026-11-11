@@ -1334,6 +1334,19 @@ class ImageMemoryCache {
 
   int get length => _entries.length;
 
+  /// 工作集：正在被引用或钉在预加载窗口里的位图。这些不能淘汰，
+  /// 所以不该计入投机缓存的预算压力。
+  int get workingSetBytes {
+    var total = 0;
+    for (final entry in _entries.values) {
+      if (entry.refs > 0 || entry.pinned) total += entry.bytes;
+    }
+    return total;
+  }
+
+  /// 投机缓存：没有引用也没被钉住的位图，随时可以淘汰。
+  int get speculativeBytes => _bytes - workingSetBytes;
+
   ui.Image? get(String key) {
     final entry = _entries[key];
     if (entry == null) return null;
