@@ -1,3 +1,5 @@
+import '../../core/cache/source_response_cache.dart';
+import 'source_loading_surface.dart';
 import '../../core/util/source_load_profile.dart';
 
 import 'package:flutter/gestures.dart';
@@ -248,7 +250,87 @@ class _ExploreViewState extends State<ExploreView>
   /// 试试」，等网络回来才换成真实列表（用户报的就是这个 2 秒假空态）。
   bool _loadingFirst = false;
   bool _loadMoreFailed = false;
+  bool _browseVisible = true;
+  Timer? _liveCoverTimer;
+  int _liveCoverPage = 1;
+  bool _refreshingLiveCovers = false;
+
+  void _scheduleLiveCovers() {
+    if (!_items.any((item) => item.mediaInfo['liveCover'] == true)) return;
+    _liveCoverTimer ??= Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(_refreshLiveCovers()),
+    );
+  }
+
+  Future<void> _refreshLiveCovers() async {
+    final source = _source;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (source == null ||
+        !_browseVisible ||
+        ModalRoute.isCurrentOf(context) == false ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed) ||
+        _pendingPage != 0 ||
+        _refreshingLiveCovers) {
+      return;
+    }
+    final seq = _requestSeq;
+    final page = _liveCoverPage;
+    _refreshingLiveCovers = true;
+    try {
+      final result = await networkRequests.run(
+        'live-covers',
+        () => SourceResponseCache.fresh(
+          () => source.list(
+            categoryId: _categoryId,
+            page: page,
+            filters: _facetFilters.isEmpty ? null : _facetFilters,
+          ),
+        ),
+        timeout: const Duration(seconds: 10),
+      );
+      if (!mounted ||
+          seq != _requestSeq ||
+          !_browseVisible ||
+          ModalRoute.isCurrentOf(context) == false) {
+        return;
+      }
+      final updates = {for (final item in result.items) item.id: item};
+      setState(() {
+        if (page == 1 &&
+            _page == 1 &&
+            _pendingPage == 0 &&
+            updates.isNotEmpty) {
+          _items
+            ..clear()
+            ..addAll(result.items);
+          _hasMore = result.hasMore;
+        } else {
+          for (var i = 0; i < _items.length; i++) {
+            _items[i] = updates[_items[i].id] ?? _items[i];
+          }
+        }
+        _liveCoverPage = page < _page ? page + 1 : 1;
+      });
+    } catch (_) {
+      // Keep the last thumbnails during a transient live refresh failure.
+    } finally {
+      _refreshingLiveCovers = false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _browseVisible = TickerMode.valuesOf(context).enabled;
+    if (!_browseVisible) {
+      networkRequests.cancel('suggestions');
+      _suggestDebounce?.cancel();
+    }
+  }
+
   bool _switching = false;
+  String? _switchTarget;
   bool _searching = false;
 
   /// 正在为哪一页发请求（0 = 空闲）：挡住「同一页被并发请求两次」。
@@ -344,6 +426,8 @@ class _ExploreViewState extends State<ExploreView>
     _requestSeq++;
     _suggestSeq++;
     _suggestDebounce?.cancel();
+    _liveCoverTimer?.cancel();
+    networkRequests.cancel('live-covers');
     networkRequests.cancel('suggestions');
     _search.dispose();
     // 图源管理器是**板块级共享**的（本页只是借用）：这里**不 close**。
@@ -475,23 +559,30 @@ class _ExploreViewState extends State<ExploreView>
           _homeSupported = visit.home;
           _homeBrowseMode = visit.mode;
         }
-        _state = SourceStateKind.ready;
+        _state = visit == null
+            ? SourceStateKind.loading
+            : SourceStateKind.ready;
         _failure = null;
       });
-      if (visit != null) return;
-      // 首页探针**并行**跑：它是一次 JS 求值，串行会把列表加载整整推后一拍
-      //（真机表现：进板块先闪两秒「暂无内容」才出数据）。
-      unawaited(_probeHomeSupport());
-      // 分类同样**并行**：它是第二次 JS 往返（`categories()`），而首屏要的是
-      // `list()`。串行等于让用户多等一整次往返（真机反馈：切板块 / 切图源整体偏慢）。
-      // 代价：万一刚选中的分类在新分类表里已经没了，这一屏会先按旧分类拉一次
-      // （拿不到就落空态 + 【重试】），分类表回来后 _categoryId 被清掉，
-      // 点重试即回到「全部」——可恢复，且比每次都多等一拍划算。
-      unawaited(_loadCategories());
-      await _loadPage();
+      if (visit != null) {
+        _scheduleLiveCovers();
+        return;
+      }
+      // Python calls share a native serial worker. Let real home content go
+      // first; a slow site's category/filter discovery must not block it.
+      final deferMetadata = current.runtimeKind == 'python';
+      if (!deferMetadata) unawaited(_loadCategories());
+      await _probeHomeSupport();
+      if (!mounted || bootstrapSeq != _bootstrapSeq) return;
+      setState(() => _state = SourceStateKind.ready);
+      if (!_isHomeMode) {
+        if (deferMetadata) unawaited(_loadCategories());
+        await _loadPage();
+      }
       if (mounted &&
           bootstrapSeq == _bootstrapSeq &&
           identical(source, _source) &&
+          !(deferMetadata && _isHomeMode) &&
           (_categories.isEmpty || _filterGroups.isEmpty)) {
         // Some script hosts populate metadata during their first list request.
         // Recheck once after it completes instead of waiting for a pull refresh.
@@ -543,7 +634,7 @@ class _ExploreViewState extends State<ExploreView>
     var supported = false;
     if (source is HomeCapable) {
       try {
-        supported = await (source as HomeCapable).supportsHome();
+        supported = await SectionPreloader.supportsHome(source!);
       } on NetworkCancelled {
         return;
       } catch (error) {
@@ -555,7 +646,31 @@ class _ExploreViewState extends State<ExploreView>
   }
 
   /// 分类失败不阻塞列表：拿不到分类就当图源没有分类。
-  Future<void> _loadCategories() async {
+  Future<void>? _metadataTask;
+  DataSource? _metadataSource;
+  Future<void> _loadCategories() {
+    if (_metadataTask != null && identical(_metadataSource, _source)) {
+      return _metadataTask!;
+    }
+    _metadataSource = _source;
+    late Future<void> task;
+    task = _loadCategoriesOwned().whenComplete(() {
+      if (identical(_metadataTask, task)) _metadataTask = null;
+    });
+    _metadataTask = task;
+    return task;
+  }
+
+  Future<void> _metadataAfterHome() async {
+    final source = _source;
+    await _metadataTask;
+    if (!mounted || !identical(source, _source)) return;
+    if (_categories.isEmpty || _filterGroups.isEmpty) {
+      await _loadCategories();
+    }
+  }
+
+  Future<void> _loadCategoriesOwned() async {
     final source = _source;
     if (source == null) return;
     final seq = ++_facetRequestSeq;
@@ -932,6 +1047,10 @@ class _ExploreViewState extends State<ExploreView>
   /// 分页状态**（用户点名）：换源时必须清干净，否则会带着旧源的页码与
   /// hasMore 继续翻页。
   void _resetPagination() {
+    _liveCoverTimer?.cancel();
+    _liveCoverTimer = null;
+    _liveCoverPage = 1;
+    networkRequests.cancel('live-covers');
     _page = 1;
     _hasMore = false;
     _loadingMore = false;
@@ -947,6 +1066,7 @@ class _ExploreViewState extends State<ExploreView>
     final source = _source;
     if (source == null) return;
     final page = more ? _page + 1 : 1;
+    if (more && !_browseVisible) return;
     if (more) {
       // 触底通知来得密集，三重条件都要满足才发请求：还有下一页、没有在飞的、
       // 且这一页不是正在飞的那一页。
@@ -991,6 +1111,7 @@ class _ExploreViewState extends State<ExploreView>
           _items.addAll(warm.items);
         });
         _pendingPage = 0;
+        _scheduleLiveCovers();
         _preloadCovers(warm.items);
         return;
       }
@@ -1044,6 +1165,7 @@ class _ExploreViewState extends State<ExploreView>
         }
       });
       _preloadCovers(result.items, more: more);
+      _scheduleLiveCovers();
     } on NetworkCancelled {
       // Replaced requests belong to the previous source/filter/page lifetime.
       return;
@@ -1079,10 +1201,21 @@ class _ExploreViewState extends State<ExploreView>
       _failure = null;
     });
     // 预热缓存作废：用户明确要求要新的。
+    SourceResponseCache.invalidate(widget.section);
     SectionPreloader.discard(widget.section);
-    await _loadCategories();
-    if (!mounted || refreshSeq != _bootstrapSeq) return;
-    await _loadPage();
+    // Python sources share a serial worker: prioritize visible results for
+    // the unfiltered list, then refresh metadata after the first page arrives.
+    if (_current?.runtimeKind == 'python' &&
+        _categoryId == null &&
+        _facetFilters.isEmpty) {
+      await _loadPage();
+      if (!mounted || refreshSeq != _bootstrapSeq) return;
+      await _loadCategories();
+    } else {
+      await _loadCategories();
+      if (!mounted || refreshSeq != _bootstrapSeq) return;
+      await _loadPage();
+    }
   }
 
   /// 这一页里有几条是**新**的（按 id 与已有列表比）。
@@ -1148,16 +1281,31 @@ class _ExploreViewState extends State<ExploreView>
     if (sourceId == _current?.id || _switching) return;
     _rememberVisit();
     SectionPreloader.discard(widget.section);
-    setState(() => _switching = true);
-    final selected = await _manager.select(sourceId);
-    if (!mounted) return;
-    setState(() => _switching = false);
-    if (selected == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('该源不可用')));
-      return;
+    final target = _sources.where((s) => s.id == sourceId).firstOrNull;
+    setState(() {
+      _switching = true;
+      _switchTarget = target?.name ?? sourceId;
+    });
+    try {
+      final selected = await _manager
+          .select(sourceId)
+          .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (selected == null) {
+        _toast('该源不可用');
+        return;
+      }
+      await _bootstrap(restoreVisit: true);
+    } catch (error) {
+      if (mounted) _toast('换源失败，请重试：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _switching = false;
+          _switchTarget = null;
+        });
+      }
     }
-    await _bootstrap(restoreVisit: true);
   }
 
   /// 可读提示（不冒泡异常）。
@@ -1366,7 +1514,7 @@ class _ExploreViewState extends State<ExploreView>
       builder: (context, _) => SourcePickerEdgeSwipe(
         onOpen: _openSourceDrawer,
         onOpenLeft: (motion) => _openSourceDrawer(motion: motion),
-        onOpenRight: (motion) => _openSourceDrawer(motion: motion),
+        onOpenRight: (motion) => _openCombinedFilters(motion: motion),
         child: Scaffold(
           // **本页不随键盘收缩**（真机反馈：唤起键盘后顶部搜索框被顶出屏幕，
           // 漫画 / 视频三块都复现）。这里的布局契约是：
@@ -1494,6 +1642,15 @@ class _ExploreViewState extends State<ExploreView>
           onSourcesChanged: _bootstrap,
         ),
         actions: [
+          if (_switchTarget != null)
+            SizedBox(
+              width: 80,
+              child: Text(
+                '正在切换 $_switchTarget…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ...HomeHeaderScope.actionsOf(context),
           SourceTranslationAction(
             texts: [
@@ -1748,6 +1905,14 @@ class _ExploreViewState extends State<ExploreView>
         child: const SkeletonNotice(),
       );
     }
+    if (_state == SourceStateKind.loading) {
+      return SourceLoadingSurface(
+        section: widget.section,
+        topInset: _contentTop,
+        label:
+            '正在启动 ${_switchTarget ?? _current?.name ?? widget.section.label}…',
+      );
+    }
     // 首页模式：横滑板块（或旧兼容的普通网格），由 SourceHomeView 自理加载与空态。
     if (_isHomeMode) {
       return SourceHomeView(
@@ -1760,11 +1925,12 @@ class _ExploreViewState extends State<ExploreView>
         onTranslationTexts: (texts) {
           if (mounted) setState(() => _homeTranslationTexts = texts);
         },
-        onHomeLoaded: () {
-          if (_categories.isEmpty || _filterGroups.isEmpty) {
-            unawaited(_loadCategories());
-          }
-        },
+        onHomeLoaded: _current?.runtimeKind == 'python'
+            ? null
+            : () => unawaited(_metadataAfterHome()),
+        onHomeSettled: _current?.runtimeKind == 'python'
+            ? () => unawaited(_metadataAfterHome())
+            : null,
         pipeline: _imagePipeline,
         originUrl: _current?.originUrl ?? '',
         onOpenItem: _open,
@@ -1839,7 +2005,10 @@ class _ExploreViewState extends State<ExploreView>
       );
     }
     if (_items.isEmpty && _loadingFirst) {
-      return const SourceStateView(state: SourceStateKind.loading);
+      return SourceLoadingSurface(
+        section: widget.section,
+        label: '正在加载${_current?.name ?? ''}内容…',
+      );
     }
     if (_items.isEmpty && !_loadingMore) {
       if (_current?.isKazumi == true) {

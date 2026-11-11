@@ -1,3 +1,4 @@
+import '../source/source_runtime_pins.dart';
 import '../source/source_extension_settings.dart';
 
 import 'dart:async';
@@ -46,7 +47,51 @@ class SourceImportOutcome {
 /// 标记与本板块不符的记录在列出、加载、启停、删除四条路径上都被当作不存在，
 /// 脚本因此只可能从本板块的库里读出来执行。
 class SourceRegistry {
-  SourceRegistry._(this.section, this._database, this._http);
+  SourceRegistry._(this.section, this._database, this._http) {
+    _idleTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => _trimEngines(),
+    );
+  }
+  Timer? _idleTimer;
+  final _engineTouched = <String, DateTime>{};
+  static void trimIdleRuntimes() {
+    for (final registry in _registries.values) {
+      registry._trimEngines(memoryPressure: true);
+    }
+  }
+
+  void _trimEngines({bool memoryPressure = false, String? keep}) {
+    if (_disposed || _leases > 0) return;
+    final current = currentSource()?.id;
+    final now = DateTime.now();
+    final candidates =
+        _engines.keys
+            .where(
+              (id) =>
+                  id != current &&
+                  id != keep &&
+                  !_loadingEngines.containsKey(id) &&
+                  !SourceRuntimePins.contains(section, id),
+            )
+            .toList()
+          ..sort(
+            (a, b) =>
+                (_engineTouched[a] ?? now).compareTo(_engineTouched[b] ?? now),
+          );
+    for (final id in candidates) {
+      final age = now.difference(_engineTouched[id] ?? now);
+      if (!memoryPressure &&
+          age < const Duration(minutes: 10) &&
+          (_engines.length <= 8 || age < const Duration(minutes: 1))) {
+        continue;
+      }
+      // Preserve HTTP sessions and cached metadata; adapters reacquire on demand.
+      _engines.remove(id)?.dispose();
+      _engineTouched.remove(id);
+    }
+  }
+
   Future<void> _mutations = Future<void>.value();
   Future<T> _mutate<T>(Future<T> Function() action) {
     final result = Completer<T>();
@@ -101,6 +146,18 @@ class SourceRegistry {
   static const String currentSourceKey = 'current_source';
 
   static final Map<String, Future<SourceRegistry>> _opening = {};
+  static final _closePending = <String>{};
+
+  /// Read from the current registry, never from a registry retained by a page.
+  static SourceSiteConfig? existingSiteConfig(
+    Section section,
+    String sourceId,
+  ) {
+    final registry = _registries[section.id];
+    if (registry == null) return null;
+    return registry.source(sourceId)?.siteConfig ?? SourceSiteConfig.none;
+  }
+
   static String rewriteExisting(
     Section section,
     String sourceId,
@@ -111,6 +168,7 @@ class SourceRegistry {
       SourcePreferences.read(section, sourceId).rewrite(url);
 
   static Future<SourceRegistry> open(Section section) {
+    _closePending.remove(section.id);
     final existing = _registries[section.id];
     if (existing != null) {
       existing._closeRequested = false;
@@ -128,6 +186,7 @@ class SourceRegistry {
         LumeHttp(),
       );
       _registries[section.id] = registry;
+      if (_closePending.remove(section.id)) registry._requestClose();
       return registry;
     } finally {
       _opening.remove(section.id);
@@ -624,6 +683,8 @@ class SourceRegistry {
   /// 返回端口而不是具体引擎：猫源在 Android 上可能是 Node-Mobile，
   /// 调用方（数据源适配层）只依赖 [SourceEngine] 的四套能力。
   Future<SourceEngine?> engineFor(String sourceId) async {
+    _engineTouched[sourceId] = DateTime.now();
+    _trimEngines(keep: sourceId);
     final existing = _engines[sourceId];
     if (existing is QuickJsSourceEngine && existing.engine.isPoisoned ||
         existing is PythonSourceEngine && existing.isPoisoned) {
@@ -689,6 +750,7 @@ class SourceRegistry {
       return null;
     }
     _engines[sourceId] = engine;
+    _engineTouched[sourceId] = DateTime.now();
     _loadFailures.remove(sourceId);
     return engine;
   }
@@ -709,6 +771,7 @@ class SourceRegistry {
     _engineEpochs[sourceId] = (_engineEpochs[sourceId] ?? 0) + 1;
     _loadingEngines.remove(sourceId);
     _engines.remove(sourceId)?.dispose();
+    _engineTouched.remove(sourceId);
     _httpBySource.remove(sourceId)?.dispose();
     // 运行时没了，它之前的读结果（分类 / 详情 / 章节）也一并作废：
     // 覆盖导入换了脚本、删除换了图源，旧输出不能再被读出来。
@@ -716,8 +779,15 @@ class SourceRegistry {
   }
 
   /// 关闭整个板块：释放引擎、HTTP 客户端与数据库。
-  static void close(Section section) =>
-      _registries[section.id]?._requestClose();
+  static void close(Section section) {
+    final registry = _registries[section.id];
+    if (registry != null) {
+      registry._requestClose();
+    } else if (_opening.containsKey(section.id)) {
+      // A page can leave before directory/keychain/database initialization ends.
+      _closePending.add(section.id);
+    }
+  }
 
   int _leases = 0;
   bool _closeRequested = false;
@@ -728,7 +798,11 @@ class SourceRegistry {
       return await operation();
     } finally {
       _leases--;
-      if (_leases == 0 && _closeRequested) dispose();
+      if (_leases == 0 && _closeRequested) {
+        dispose();
+      } else if (_leases == 0) {
+        _trimEngines();
+      }
     }
   }
 
@@ -741,6 +815,8 @@ class SourceRegistry {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _idleTimer?.cancel();
+    _engineTouched.clear();
     for (final engine in _engines.values) {
       engine.dispose();
     }

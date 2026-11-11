@@ -1,10 +1,71 @@
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/material.dart';
 
+import 'player_vertical_menu.dart';
+
 import '../../core/player/player_factory.dart';
 import '../../core/player/player_settings.dart';
 import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
+import '../../shared/widgets/video_glass_surface.dart';
+
+/// 与倍速入口相同的锚点小菜单，点击选项后立即收起。
+class PlayerKernelButton extends StatefulWidget {
+  const PlayerKernelButton({
+    super.key,
+    required this.selected,
+    required this.catalog,
+    required this.onChanged,
+    required this.builder,
+    this.onOpen,
+    this.onClose,
+  });
+  final PlayerKernel selected;
+  final PlayerKernelCatalog catalog;
+  final ValueChanged<PlayerKernel> onChanged;
+  final Widget Function(VoidCallback open) builder;
+  final VoidCallback? onOpen, onClose;
+  @override
+  State<PlayerKernelButton> createState() => _PlayerKernelButtonState();
+}
+
+class _PlayerKernelButtonState extends State<PlayerKernelButton> {
+  final menu = MenuController();
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+    controller: menu,
+    consumeOutsideTap: true,
+    onOpen: widget.onOpen,
+    onClose: widget.onClose,
+    style: PlayerVerticalMenu.style,
+    menuChildren: [
+      PlayerVerticalMenu.body(
+        context: context,
+        key: const Key('player-kernel-menu'),
+        children: [
+          for (final kernel in PlayerKernel.values)
+            Tooltip(
+              message: widget.catalog.unavailableReason(kernel) ?? kernel.label,
+              child: PlayerVerticalMenu.option(
+                context: context,
+                label: kernel.label,
+                selected: widget.selected == kernel,
+                onSelected: widget.catalog.isAvailable(kernel)
+                    ? (_) {
+                        menu.close();
+                        widget.onChanged(kernel);
+                      }
+                    : null,
+              ),
+            ),
+        ],
+      ),
+    ],
+    builder: (context, controller, child) => widget.builder(
+      () => controller.isOpen ? controller.close() : controller.open(),
+    ),
+  );
+}
 
 /// 播放内核选择列表。
 ///
@@ -22,6 +83,7 @@ class PlayerKernelPicker extends StatelessWidget {
     required this.onChanged,
     this.retryKernel,
     this.onRetry,
+    this.settingsCard = false,
   });
 
   /// 当前选中的内核。
@@ -39,10 +101,13 @@ class PlayerKernelPicker extends StatelessWidget {
   /// 重试动作：调用方负责解除熔断并刷新列表。
   final VoidCallback? onRetry;
 
+  final bool settingsCard;
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
+    final options = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         for (final kernel in PlayerKernel.values)
           _KernelTile(
             kernel: kernel,
@@ -54,6 +119,17 @@ class PlayerKernelPicker extends StatelessWidget {
             onTap: () => onChanged(kernel),
           ),
       ],
+    );
+    if (settingsCard) {
+      return GlassCard(radius: 14, padding: EdgeInsets.zero, child: options);
+    }
+    return Material(
+      color: VideoGlassScope.active(context)
+          ? Colors.white.withValues(alpha: .22)
+          : Theme.of(context).colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: options,
     );
   }
 }
@@ -81,69 +157,71 @@ class _KernelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GlassCard(
-        radius: 14,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        onTap: available ? onTap : null,
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    kernel.label,
-                    style: TextStyle(
-                      fontSize: LumeTypography.titleSize,
-                      fontWeight: FontWeight.w600,
-                      color: available
-                          ? LumeTheme.textPrimary
-                          : LumeTheme.muted,
-                    ),
-                  ),
-                  if (reason != null) ...<Widget>[
-                    const SizedBox(height: 2),
+    return InkWell(
+      onTap: available ? onTap : null,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
                     Text(
-                      reason!,
+                      kernel.label,
                       style: TextStyle(
+                        fontSize: LumeTypography.bodySize,
                         fontWeight: FontWeight.w600,
-                        fontSize: LumeTypography.descriptionSize,
-                        color: LumeTheme.descriptionColor,
+                        color: available
+                            ? LumeTheme.textPrimary
+                            : LumeTheme.muted,
                       ),
                     ),
+                    if (reason != null) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        reason!,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w400,
+                          height: 1.3,
+                          fontSize: LumeTypography.descriptionSize,
+                          color: LumeTheme.descriptionColor,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            ),
-            if (retryable)
-              TextButton(
-                onPressed: onRetry,
-                child: const Text(
-                  '重试',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: LumeTypography.bodySize,
-                  ),
                 ),
-              )
-            else if (selected)
-              LumeIcon(
-                Icons.check_circle,
-                slot: 'player_kernel_picker.1',
-                size: 20,
-                color: LumeTheme.textPrimary,
-              )
-            else if (available)
-              LumeIcon(
-                Icons.radio_button_unchecked,
-                slot: 'player_kernel_picker.2',
-                size: 20,
-                color: LumeTheme.muted,
               ),
-          ],
+              if (retryable)
+                TextButton(
+                  onPressed: onRetry,
+                  child: const Text(
+                    '重试',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: LumeTypography.bodySize,
+                    ),
+                  ),
+                )
+              else if (selected)
+                LumeIcon(
+                  Icons.check_circle,
+                  slot: 'player_kernel_picker.1',
+                  size: 20,
+                  color: LumeTheme.textPrimary,
+                )
+              else if (available)
+                LumeIcon(
+                  Icons.radio_button_unchecked,
+                  slot: 'player_kernel_picker.2',
+                  size: 20,
+                  color: LumeTheme.muted,
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -27,8 +27,9 @@ class _PerformancePageState extends State<PerformancePage> {
 
   @override
   Widget build(BuildContext context) => GlassScaffold(
+    effectModule: GlassModule.settings,
     title: '流畅度采集',
-    child: ListView(
+    child: SettingsSurfaceList(
       padding: const EdgeInsets.all(16),
       children: [
         ExpansionTile(
@@ -48,7 +49,7 @@ class _PerformancePageState extends State<PerformancePage> {
           ],
         ),
         const Text(
-          '选择场景后开始采集，返回对应页面操作，再回来结束。采集在页面切换后继续；建议在 iPhone 的 Profile 构建上验收。',
+          '选择场景后开始采集，返回对应页面操作，再回来结束。报告包含帧耗时与采集前后进程内存；不估算耗电。建议在 iPhone 的 Profile 构建上验收。',
         ),
         DropdownButton<String>(
           value: scene,
@@ -60,6 +61,10 @@ class _PerformancePageState extends State<PerformancePage> {
               '视频切集',
               '大缓存清理',
               '冷启动后浏览',
+              '多源聚合搜索',
+              '长时间阅读',
+              '视频连续播放',
+              '前后台切换',
               if (profile.recording) profile.scene,
             })
               DropdownMenuItem(value: value, child: Text(value)),

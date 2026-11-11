@@ -46,6 +46,73 @@ void main() {
     );
   });
 
+  test('MiMo streams base64 PCM from chat completions', () async {
+    const endpoint = 'https://api.xiaomimimo.com/v1';
+    endpoints['mimo'] = endpoint;
+    secrets['mimo'] = 'secret';
+    final config = SpeechCloudConfig();
+    await config.load();
+    config.ttsProvider = SpeechTtsProvider.mimo;
+    final client = SpeechCloudClient(
+      config,
+      client: MockClient((request) async {
+        expect(request.url.toString(), '$endpoint/chat/completions');
+        expect(request.headers['Authorization'], 'Bearer secret');
+        final body = jsonDecode(request.body) as Map;
+        expect(body['model'], 'mimo-v2.5-tts');
+        expect(body['audio']['voice'], '白桦');
+        expect(body['audio']['format'], 'pcm16');
+        expect(body['messages'].last['content'], '你好');
+        return http.Response(
+          'data: {"choices":[{"delta":{"audio":{"data":"AQIDBA=="}}}]}\n\ndata: [DONE]\n\n',
+          200,
+        );
+      }),
+    );
+    expect(await client.audio('你好', '白桦', 1).expand((part) => part).toList(), [
+      1,
+      2,
+      3,
+      4,
+    ]);
+    client.close();
+  });
+
+  test(
+    'MiMo reports authentication, quota, rate and service errors safely',
+    () async {
+      const endpoint = 'https://api.xiaomimimo.com/v1';
+      endpoints['mimo'] = endpoint;
+      secrets['mimo'] = 'secret';
+      final config = SpeechCloudConfig();
+      await config.load();
+      config.ttsProvider = SpeechTtsProvider.mimo;
+      for (final item in {
+        401: '密钥无效',
+        402: '余额或额度',
+        403: '账号权限',
+        429: '过于频繁',
+        503: '暂时不可用',
+      }.entries) {
+        final client = SpeechCloudClient(
+          config,
+          client: MockClient((_) async => http.Response('secret', item.key)),
+        );
+        await expectLater(
+          client.audio('你好', '冰糖', 1).toList(),
+          throwsA(
+            isA<SpeechProviderException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains(item.value), isNot(contains('secret'))),
+            ),
+          ),
+        );
+        client.close();
+      }
+    },
+  );
+
   test('Azure Speech requests raw 24k PCM with escaped SSML', () async {
     endpoints['azure'] = 'eastasia';
     secrets['azure'] = 'azure-key';

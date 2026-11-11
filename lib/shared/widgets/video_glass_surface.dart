@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/theme/frosted_settings.dart';
+import 'frosted_glass_widget.dart';
+import 'native_glass_preview.dart';
 
 /// One neutral glass material for video capsules, menus and modal panels.
 /// Only the background is filtered; foreground widgets keep full opacity.
@@ -13,15 +15,18 @@ class VideoGlassSurface extends StatelessWidget {
     this.radius = 28,
     this.dark = false,
     this.materialOpacity = opacity,
+    this.filledOptions = false,
   });
 
   static const tint = Colors.white;
   static const opacity = .58;
+  static const panelOpacity = .78;
   static const foreground = Color(0xFF17181B);
   final Widget child;
   final double radius;
   final bool dark;
   final double materialOpacity;
+  final bool filledOptions;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,7 @@ class VideoGlassSurface extends StatelessWidget {
         MediaQuery.highContrastOf(context) ||
         MediaQuery.of(context).accessibleNavigation ||
         FrostedSettings.instance.reduceTransparency;
+    final native = !reduced && NativeGlassPreview.enabledOf(context);
     final scheme = ColorScheme.fromSeed(
       seedColor: inherited.colorScheme.primary,
       brightness: dark ? Brightness.dark : Brightness.light,
@@ -41,7 +47,31 @@ class VideoGlassSurface extends StatelessWidget {
       brightness: dark ? Brightness.dark : Brightness.light,
       colorScheme: scheme,
       scaffoldBackgroundColor: Colors.transparent,
+      canvasColor: Colors.transparent,
       disabledColor: const Color(0xFF777880),
+      chipTheme: filledOptions
+          ? inherited.chipTheme.copyWith(
+              color: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return scheme.onSurface.withValues(alpha: .06);
+                }
+                return states.contains(WidgetState.selected)
+                    ? scheme.primary
+                    : scheme.surfaceContainerHighest;
+              }),
+              labelStyle: TextStyle(color: scheme.onSurface),
+              secondaryLabelStyle: TextStyle(
+                color: scheme.onPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+              checkmarkColor: scheme.onPrimary,
+            )
+          : inherited.chipTheme.copyWith(
+              color: const WidgetStatePropertyAll(Colors.transparent),
+              backgroundColor: Colors.transparent,
+              selectedColor: Colors.transparent,
+              disabledColor: Colors.transparent,
+            ),
       dividerColor: Colors.black.withValues(alpha: .12),
       textTheme: inherited.textTheme.apply(bodyColor: ink, displayColor: ink),
       iconTheme: IconThemeData(color: ink),
@@ -70,7 +100,16 @@ class VideoGlassSurface extends StatelessWidget {
         alpha: reduced ? .97 : materialOpacity,
       ),
     );
-    if (!reduced) {
+    if (native) {
+      background = FrostedGlassWidget(
+        radius: radius,
+        nativeGlass: true,
+        // Keep the system effect intact, as in the bottom navigation bar.
+        // Fading UIVisualEffectView also fades its refraction and highlights.
+        materialOpacity: 1,
+        child: const SizedBox.expand(),
+      );
+    } else if (!reduced) {
       background = BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: background,
@@ -82,27 +121,28 @@ class VideoGlassSurface extends StatelessWidget {
         fit: StackFit.passthrough,
         children: [
           Positioned.fill(child: background),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(radius),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: .45),
-                    width: .7,
-                  ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withValues(alpha: .12),
-                      Colors.transparent,
-                    ],
+          if (!native)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(radius),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .45),
+                      width: .7,
+                    ),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: .12),
+                        Colors.transparent,
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           VideoGlassScope(
             child: Theme(
               data: theme,

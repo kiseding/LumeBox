@@ -1,3 +1,4 @@
+import 'package:lume_box/core/session/app_preferences.dart';
 import 'package:lume_box/core/player/playback_diagnostics.dart';
 import 'package:lume_box/features/video/player_source_sheet.dart';
 
@@ -120,7 +121,7 @@ void main() {
       }
       expect(avplayer.bufferingParams, isTrue);
       expect(mpv.bufferingParams, isTrue);
-      expect(mdk.bufferingParams, isFalse);
+      expect(mdk.bufferingParams, isTrue);
     });
 
     test('统一提示文案（用户点名的口径）', () {
@@ -197,7 +198,7 @@ void main() {
     test('偏好 JSON 往返：坏值只影响那一项', () {
       const prefs = KernelPrefs(
         speed: 1.25,
-        zoom: ZoomMode.scale125,
+        zoom: ZoomMode.stretch,
         rotation: RotationMode.cw270,
         mirrored: true,
         subtitleSize: SubtitleSize.large,
@@ -285,6 +286,7 @@ void main() {
       bool fullscreenOnly = false,
       PlayerPrelaunch? prelaunch,
       ReadingLibrary? library,
+      Uri? mediaUri,
     }) async {
       final created = <_FakePlayer>[];
       await tester.binding.setSurfaceSize(const Size(900, 1600));
@@ -296,7 +298,9 @@ void main() {
             fullscreenOnly: fullscreenOnly,
             library: library,
             prelaunch: prelaunch,
-            media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+            media: PlayerMedia(
+              uri: mediaUri ?? Uri.parse('https://example.com/a.mp4'),
+            ),
             qualities: qualities,
             catalog: catalog ?? const _AllKernelsCatalog(),
             speedMeter: speedMeter,
@@ -313,6 +317,16 @@ void main() {
           ),
         ),
       );
+      // Prelaunch can have completed in runAsync. Join its real-zone Future
+      // before asking the fake frame clock to settle the route animation.
+      if (prelaunch != null) {
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 30)),
+          );
+        }
+      }
       await tester.pumpAndSettle();
       return created;
     }
@@ -347,6 +361,14 @@ void main() {
       player.loadError = StateError('fixture load failure');
       await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
+      final selectedChip = tester
+          .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+          .firstWhere((chip) => chip.selected);
+      final selectedFill = selectedChip.color!.resolve({WidgetState.selected})!;
+      expect(
+        LumeTheme.contrast(selectedFill, selectedChip.labelStyle!.color!),
+        greaterThanOrEqualTo(4.5),
+      );
       await tester.tap(find.text('第2集'));
       await tester.pumpAndSettle();
       expect(find.byType(PlayerSourceSheet), findsOneWidget);
@@ -381,9 +403,13 @@ void main() {
       );
       await openPlayerAction(tester, '播放源 / 更换线路');
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('视图：网格'));
+      await tester.tap(find.byTooltip('更多'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('视图：列表'));
+      await tester.tap(find.text('视图：列表'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('视图：封面'));
       await tester.pumpAndSettle();
       expect(PlayerExperienceStore.current.text('episodeView'), 'cover');
       await tester.tapAt(const Offset(20, 20));
@@ -962,13 +988,17 @@ void main() {
       );
     });
 
-    testWidgets('两套按钮样式立即切换，不重建播放器，暂停后也在三秒淡出', (tester) async {
+    testWidgets('两套按钮样式立即切换，不重建播放器，暂停后也在五秒淡出', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       expect(find.text('选集'), findsOneWidget);
       expect(find.text('暂停'), findsNothing);
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-controls')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-controls')));
       await tester.pumpAndSettle();
@@ -992,7 +1022,7 @@ void main() {
       expect(players.length, 1);
       await tester.tap(find.byTooltip('暂停'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 2900));
+      await tester.pump(const Duration(milliseconds: 4900));
       expect(find.byTooltip('播放'), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 150));
       await tester.pumpAndSettle();
@@ -1028,15 +1058,56 @@ void main() {
       expect(find.byType(BottomSheet), findsWidgets);
     });
 
+    test('画面适配只有三项，旧倍率回落原比例', () {
+      expect(ZoomMode.values.map((mode) => mode.label), [
+        '原比例',
+        '填满屏幕',
+        '拉伸铺满',
+      ]);
+      for (final id in ['0.75', '1.0', '1.25', '1.5']) {
+        expect(ZoomMode.fromId(id), ZoomMode.fit);
+      }
+      expect(ZoomMode.fromId('fill'), ZoomMode.fill);
+      expect(ZoomMode.fromId('stretch'), ZoomMode.stretch);
+    });
+
+    for (final mode in ZoomMode.values) {
+      testWidgets('横屏画面适配实际布局 ${mode.label}', (tester) async {
+        await tester.binding.setSurfaceSize(const Size(932, 430));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final library = await ReadingLibrary.open(Section.video);
+        VideoPlayerSettingsStore(library)
+            .save(const PlayerSettings().copyWith(zoom: mode));
+        final players = await pump(tester);
+        players.single.pushStats(const PlayerStats(width: 1920, height: 800));
+        await tester.tap(find.byTooltip('全屏'));
+        await tester.binding.setSurfaceSize(const Size(932, 430));
+        players.single.pushStats(const PlayerStats(width: 1920, height: 800));
+        await tester.pumpAndSettle();
+        final rect = tester.getRect(find.text('fake-view'));
+        if (mode == ZoomMode.stretch) {
+          expect(rect.width, closeTo(932, 1));
+          expect(rect.height, closeTo(430, 1));
+        } else {
+          expect(rect.width / rect.height, closeTo(2.4, .01));
+          expect(
+            mode == ZoomMode.fill ? rect.height : rect.width,
+            closeTo(mode == ZoomMode.fill ? 430 : 932, 1),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('重新播放保留上次选择的画面适配', (tester) async {
       final library = await ReadingLibrary.open(Section.video);
       VideoPlayerSettingsStore(library)
-          .save(const PlayerSettings().copyWith(zoom: ZoomMode.scale75));
+          .save(const PlayerSettings().copyWith(zoom: ZoomMode.fit));
       final players = await pump(tester);
       players.single.pushStats(const PlayerStats(width: 1920, height: 1080));
       await tester.pumpAndSettle();
       final picture = tester.getRect(find.text('fake-view'));
-      expect(picture.width, closeTo(675, 1));
+      expect(picture.width, closeTo(900, 1));
       expect(picture.width / picture.height, closeTo(16 / 9, 0.01));
     });
 
@@ -1065,7 +1136,9 @@ void main() {
         findsNothing,
         reason: '当前地址只通过复制图标获取，不在面板上铺长链接',
       );
-      await tester.tap(find.byTooltip('播放信息'));
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('播放信息'));
       await tester.pumpAndSettle();
       expect(find.text('复制地址'), findsOneWidget);
       await tester.tap(find.text('关闭'));
@@ -1079,7 +1152,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(PlayerSourceSheet),
-          matching: find.byTooltip('画质'),
+          matching: find.widgetWithText(TextButton, '画质'),
         ),
       );
       await tester.pumpAndSettle();
@@ -1215,24 +1288,76 @@ void main() {
       await tester.pumpAndSettle();
       // 标题行已并入图标工具条：面板里没有大标题，只有集数与图标。
       expect(find.text('选集与线路'), findsNothing);
-      expect(find.byTooltip('选集'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.widgetWithText(TextButton, '选集'),
+        ),
+        findsOneWidget,
+      );
       // 全屏也提供画质分区，不必再绕去设置。
-      expect(find.byTooltip('画质'), findsOneWidget);
-      await tester.tap(find.byTooltip('画质'));
+      expect(find.widgetWithText(TextButton, '画质'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, '画质'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('选集'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.widgetWithText(TextButton, '选集'),
+        ),
+        findsOneWidget,
+      );
       await tester.tapAt(const Offset(20, 20));
       await tester.pumpAndSettle();
       // 从设置「清晰度」进来的画质面板没有分区切换，只有列表与信息图标。
       await openPlayerAction(tester, '清晰度');
       await tester.pumpAndSettle();
       expect(find.byType(PlayerSourceSheet), findsOneWidget);
-      expect(find.byTooltip('选集'), findsNothing);
-      expect(find.byTooltip('线路'), findsNothing);
-      expect(find.byTooltip('画质'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(PlayerSourceSheet),
+          matching: find.widgetWithText(TextButton, '选集'),
+        ),
+        findsNothing,
+      );
+      expect(find.widgetWithText(TextButton, '线路'), findsNothing);
+      expect(find.widgetWithText(TextButton, '画质'), findsNothing);
     });
 
-    testWidgets('返回与右上角图标至少48点击区域，按钮间保留8间距', (tester) async {
+    testWidgets('播放器设置分类放大并填满面板可用高度', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(932, 430));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pump(tester);
+      await tester.tap(find.byTooltip('全屏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      final home = tester.getRect(
+        find.byKey(const Key('player-settings-home')),
+      );
+      final first = tester.getRect(
+        find.byKey(const ValueKey('player-category-playback')),
+      );
+      final last = tester.getRect(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
+      expect(first.height, greaterThanOrEqualTo(56));
+      expect(first.top, closeTo(home.top + 6, .01));
+      expect(last.bottom, greaterThanOrEqualTo(home.bottom - 6.01));
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+        100,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('player-settings-home')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('返回分类'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('返回至少48点击区域，右上角按钮与右下角等间距', (tester) async {
       await tester.binding.setSurfaceSize(const Size(932, 430));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await pump(tester);
@@ -1243,7 +1368,14 @@ void main() {
       final settings = tester.getRect(find.byTooltip('播放器设置'));
       expect(back.width, greaterThanOrEqualTo(48));
       expect(back.height, greaterThanOrEqualTo(48));
-      expect(settings.left - kernel.right, greaterThanOrEqualTo(8));
+      expect(settings.left - kernel.right, closeTo(0, .01));
+      final speed = tester.getRect(find.byTooltip('播放速度（1.0x）'));
+      final episodes = tester.getRect(find.byTooltip('线路 / 选集'));
+      expect(
+        settings.center.dx - kernel.center.dx,
+        closeTo(episodes.center.dx - speed.center.dx, .01),
+      );
+      expect(settings.width, greaterThanOrEqualTo(44));
       await tester.tapAt(back.topLeft + const Offset(3, 3));
       await tester.pumpAndSettle();
       expect(
@@ -1316,6 +1448,10 @@ void main() {
       await pump(tester, catalog: const _AvPlayerOnlyCatalog());
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-audio')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-audio')));
       await tester.pumpAndSettle();
 
@@ -1335,16 +1471,30 @@ void main() {
       await tester.tap(find.text('大'), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.text(PlayerCapabilities.unsupportedMessage), findsOneWidget);
+      expect(
+        tester.getRect(find.text(PlayerCapabilities.unsupportedMessage)).top,
+        greaterThanOrEqualTo(0),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text(PlayerCapabilities.unsupportedMessage), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.text(PlayerCapabilities.unsupportedMessage), findsNothing);
     });
 
     testWidgets('切内核后按钮旁倍速菜单显示那个内核自己的值', (tester) async {
       await pump(tester);
       await tester.tap(find.byTooltip('播放速度（1.0x）'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, '1.5×'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '1.5×'));
       await tester.pumpAndSettle();
       expect(find.byTooltip('播放速度（1.5x）'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
@@ -1354,13 +1504,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('播放速度（1.0x）'));
       await tester.pumpAndSettle();
-      final slider = tester.widget<Slider>(
-        find.descendant(
-          of: find.byKey(const Key('player-speed-menu')),
-          matching: find.byType(Slider),
-        ),
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '1×'))
+            .selected,
+        isTrue,
       );
-      expect(slider.value, 1.0);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '1.5×'))
+            .selected,
+        isFalse,
+      );
     });
 
     testWidgets('弹幕独立入口有效，播放器设置不重复弹幕面板', (tester) async {
@@ -1426,13 +1581,13 @@ void main() {
       await tester.pumpAndSettle();
       // 顶部显示分辨率，底部显示速率，二者一起收起与唤回。
       expect(find.text('1920×1080'), findsOneWidget);
-      expect(find.text('125.0MB/s'), findsOneWidget);
+      expect(find.text('下载 125.0MB/s'), findsOneWidget);
       expect(find.textContaining('网速'), findsNothing);
       // 自动收起：浮层连同这一排一起走，画面上不再压着参数。
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(find.text('1920×1080'), findsNothing);
-      expect(find.text('125.0MB/s'), findsNothing);
+      expect(find.text('下载 125.0MB/s'), findsNothing);
       // 点画面唤回。
       await tester.tap(find.text('fake-view'));
       await tester.pump();
@@ -1607,6 +1762,10 @@ void main() {
       expect(find.byIcon(Icons.music_note_rounded), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-audio')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-audio')));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
@@ -1685,6 +1844,8 @@ void main() {
       await tester.tap(find.byTooltip('播放速度（1.0x）'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('player-speed-menu')), findsOneWidget);
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, '2×'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '2×'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('player-speed-menu')), findsNothing);
@@ -1830,12 +1991,18 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('未知尺寸先保持竖屏，迟到的短剧尺寸不会触发横屏闪动', (tester) async {
+    testWidgets('未知尺寸不修改系统方向，迟到的短剧尺寸不会触发横屏闪动', (tester) async {
       final calls = _captureOrientations(tester);
       final players = await pump(tester, fullscreenOnly: true);
-      expect(_lastOrientations(calls), ['DeviceOrientation.portraitUp']);
+      expect(
+        calls.where(
+          (call) => call.method == 'SystemChrome.setPreferredOrientations',
+        ),
+        isEmpty,
+      );
       players.single.pushStats(const PlayerStats(width: 720, height: 1280));
       await tester.pumpAndSettle();
+      expect(_lastOrientations(calls), ['DeviceOrientation.portraitUp']);
       expect(
         calls
             .where((c) => c.method == 'SystemChrome.setPreferredOrientations')
@@ -1954,7 +2121,7 @@ void main() {
       expect(find.byKey(VideoPlayerPage.controlPanelKey), findsOneWidget);
     });
 
-    testWidgets('网络流拖出缓冲区时松手才跳转', (tester) async {
+    testWidgets('网络流拖动中只预览，松手提交并保持目标进度', (tester) async {
       final players = await pump(tester);
       players.single.emit(
         position: const Duration(minutes: 1),
@@ -1991,8 +2158,8 @@ void main() {
       expect(players.single.seeks, isNotEmpty, reason: '松手要落到精确位置');
       expect(
         find.textContaining('拖动到'),
-        findsOneWidget,
-        reason: '内核尚未确认跳转，保留目标位置避免回弹',
+        findsNothing,
+        reason: '松手立即收起拖动提示，进度条独立保留目标位置',
       );
       players.single.emit(
         position: players.single.seeks.last,
@@ -2002,53 +2169,53 @@ void main() {
       expect(find.textContaining('拖动到'), findsNothing);
     });
 
-    testWidgets('拖动中快 seek 串行且只留最新落点', (tester) async {
-      final players = await pump(tester);
-      players.single.emit(
+    testWidgets('本地进度条拖动只预览，松手只提交最终位置', (tester) async {
+      final players = await pump(tester, mediaUri: Uri.file('D:/test.mp4'));
+      final player = players.single;
+      player.emit(
         position: const Duration(minutes: 1),
         duration: const Duration(minutes: 10),
       );
-      players.single.pushStats(
-        const PlayerStats(buffered: Duration(minutes: 10)),
-      );
       await tester.pumpAndSettle();
-
-      // 快 seek 挂在闸门上：模拟内核还在处理上一次跳转。
-      final gate = Completer<void>();
-      players.single.seekGate = gate;
-
-      final slider = find.byType(Slider).first;
-      final box = tester.getRect(slider);
+      final box = tester.getRect(find.byType(Slider).first);
       final gesture = await tester.startGesture(
-        Offset(box.left + box.width * 0.5, box.center.dy),
+        Offset(box.left + box.width * .4, box.center.dy),
       );
       for (var i = 0; i < 8; i++) {
-        await gesture.moveBy(const Offset(24, 0));
+        await gesture.moveBy(const Offset(12, 0));
         await tester.pump(const Duration(milliseconds: 40));
       }
-      expect(
-        players.single.fastSeeks.length,
-        1,
-        reason: '上一次快 seek 没回来之前不并发下发',
-      );
-
-      // 放行之后只补一次「最新落点」，中间那些落点不补发。
-      gate.complete();
-      players.single.seekGate = null;
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(players.single.fastSeeks.length, 2, reason: '排队的多个落点合并成最新一个');
-      expect(
-        players.single.fastSeeks.last,
-        isNot(players.single.fastSeeks.first),
-        reason: '补发的是最新落点，不是被打断的那个',
-      );
+      expect(player.fastSeeks, isEmpty);
+      expect(player.seeks, isEmpty);
       await gesture.up();
       await tester.pump();
-      // 让内核把位置落到松手的目标上：确认成功就不会再挂看门狗。
-      players.single.emit(
-        position: players.single.seeks.last,
+      expect(player.seeks, hasLength(1));
+      player.emit(position: player.seeks.single);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('网络跳转落到容差内并已播放，不因快照延迟重新下载', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(seconds: 30),
         duration: const Duration(minutes: 10),
       );
+      final gate = Completer<void>();
+      player.seekGate = gate;
+      await tester.tap(find.byTooltip('前进 10 秒'));
+      await tester.pump();
+      final target = player.seeks.single;
+      player.emit(
+        position: target + const Duration(milliseconds: 1500),
+        buffering: false,
+        playing: true,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 9));
+      expect(player.seeks, hasLength(1), reason: '允许原生1秒落点容差与快照间隔，不能重发已成功的跳转');
+      player.seekGate = null;
+      gate.complete();
       await tester.pumpAndSettle();
     });
 
@@ -2074,7 +2241,8 @@ void main() {
       await gesture.up();
       await tester.pump();
       expect(players.single.seeks, hasLength(1));
-      expect(find.textContaining('拖动到'), findsOneWidget);
+      expect(find.textContaining('拖动到'), findsNothing);
+      final committed = tester.widget<Slider>(slider).value;
 
       // 2s 超时后不再挂着：预览文字收掉（缓冲由内核状态自己表达）。
       await tester.pump(const Duration(seconds: 2));
@@ -2083,6 +2251,12 @@ void main() {
         find.textContaining('拖动到'),
         findsNothing,
         reason: '跳转回调不来也必须收尾，不能把预览留在屏幕上',
+      );
+
+      expect(
+        tester.widget<Slider>(slider).value,
+        committed,
+        reason: '两秒超时后仍保持目标，不回弹到旧进度',
       );
 
       // 6s 看门狗：位置没动且还在缓冲，自动重发同一跳转。
@@ -2096,9 +2270,149 @@ void main() {
       players.single.emit(
         position: players.single.seeks.last,
         duration: const Duration(minutes: 10),
+        buffering: false,
       );
       gate.complete();
       await tester.pumpAndSettle();
+    });
+
+    testWidgets('已到跳转目标且仍在收数据，缓存统计不变也继续等待', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 10),
+      );
+      await tester.pumpAndSettle();
+      final gate = Completer<void>();
+      player.seekGate = gate;
+      final slider = tester.widget<Slider>(find.byType(Slider).first);
+      slider.onChangeEnd!(.7);
+      await tester.pump();
+      final target = player.seeks.single;
+      player.emit(position: target, buffering: true);
+      player.pushStats(const PlayerStats(downloadBytesPerSecond: 64000));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 6));
+      expect(player.seeks, [target], reason: '继续使用当前取流请求');
+      player.seekGate = null;
+      player.emit(position: target, buffering: false);
+      gate.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('网络缓冲区内拖动也不发中间请求，旧进度上报不能拉回滑块', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 10),
+      );
+      player.pushStats(const PlayerStats(buffered: Duration(minutes: 10)));
+      await tester.pumpAndSettle();
+      final slider = find.byType(Slider).first;
+      final callbacks = tester.widget<Slider>(slider);
+      callbacks.onChangeStart!(.5);
+      callbacks.onChanged!(.6);
+      callbacks.onChanged!(.7);
+      await tester.pump();
+      expect(player.fastSeeks, isEmpty);
+      callbacks.onChangeEnd!(.7);
+      await tester.pump();
+      expect(player.seeks, [const Duration(minutes: 7)]);
+      await tester.pump(const Duration(seconds: 3));
+      player.emit(position: const Duration(seconds: 62), buffering: true);
+      await tester.pump();
+      expect(tester.widget<Slider>(slider).value, closeTo(.7, .001));
+      player.emit(position: const Duration(minutes: 7), buffering: false);
+      await tester.pump();
+      player.emit(position: const Duration(minutes: 7, seconds: 1));
+      await tester.pump();
+      expect(tester.widget<Slider>(slider).value, greaterThan(.7));
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('连续点击快进累计目标，不从迟到的旧位置重新计算', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(seconds: 30),
+        duration: const Duration(minutes: 10),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('前进 10 秒'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('前进 10 秒'));
+      await tester.pump();
+      expect(player.seeks, [
+        const Duration(seconds: 40),
+        const Duration(seconds: 50),
+      ]);
+      player.emit(position: const Duration(seconds: 50));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('连续跳转只跟踪最新目标，旧跳转超时不重发旧位置', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 10),
+      );
+      await tester.pumpAndSettle();
+      final slider = find.byType(Slider).first;
+      final gate = Completer<void>();
+      player.seekGate = gate;
+      var callbacks = tester.widget<Slider>(slider);
+      callbacks.onChangeStart!(.3);
+      callbacks.onChangeEnd!(.3);
+      await tester.pump();
+      callbacks = tester.widget<Slider>(slider);
+      callbacks.onChangeStart!(.8);
+      callbacks.onChangeEnd!(.8);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.widget<Slider>(slider).value, closeTo(.8, .001));
+      player.emit(position: const Duration(minutes: 3), buffering: true);
+      await tester.pump(const Duration(seconds: 6));
+      expect(player.seeks, [
+        const Duration(minutes: 3),
+        const Duration(minutes: 8),
+        const Duration(minutes: 8),
+      ]);
+      player.emit(position: const Duration(minutes: 8), buffering: false);
+      gate.complete();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('跳转未返回时停止，取消重试和目标进度，迟到回调不重新跳转', (tester) async {
+      final players = await pump(tester);
+      final player = players.single;
+      player.emit(
+        position: const Duration(seconds: 30),
+        duration: const Duration(minutes: 10),
+      );
+      await tester.pumpAndSettle();
+      final gate = Completer<void>();
+      player.seekGate = gate;
+      await tester.tap(find.byTooltip('前进 10 秒'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('停止'));
+      await tester.pump();
+      expect(player.stops, 1);
+      player.emit(position: Duration.zero, playing: false, buffering: true);
+      await tester.pump(const Duration(seconds: 10));
+      expect(player.seeks, [const Duration(seconds: 40)]);
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 0);
+      gate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 12));
+      expect(player.seeks, hasLength(1));
+      expect(find.textContaining('跳转超时'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
     });
 
     testWidgets('前进 10 秒：按当前位次跳转', (tester) async {
@@ -2123,6 +2437,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(players.single.seeks.last, const Duration(seconds: 30));
 
+      players.single.emit(position: const Duration(seconds: 30));
+      await tester.pumpAndSettle();
       // 越界夹到 0。
       players.single.emit(
         position: const Duration(seconds: 5),
@@ -2212,6 +2528,37 @@ void main() {
           expect(rect.right, lessThanOrEqualTo(size.width));
           expect(rect.bottom, lessThanOrEqualTo(size.height));
         }
+        expect(find.byTooltip(RegExp(r'^下一集')), findsOneWidget);
+        expect(find.text('记片头'), findsOneWidget);
+        final controls = find.byKey(const Key('fullscreen-actions'));
+        final rowCenter = tester.getCenter(controls).dy;
+        for (final label in [
+          RegExp(r'^下一集'),
+          RegExp(r'^播放速度'),
+          RegExp(r'^弹幕：'),
+          RegExp(r'^线路 / 选集$'),
+          RegExp(r'^记片头（'),
+        ]) {
+          expect(
+            tester.getCenter(find.byTooltip(label)).dy,
+            closeTo(rowCenter, 1),
+            reason: '播放控制保持同一排',
+          );
+        }
+        if (size.height > size.width) {
+          final left = tester.getRect(
+            find.byKey(const Key('fullscreen-transport-group')),
+          );
+          final right = tester.getRect(
+            find.byKey(const Key('fullscreen-options-group')),
+          );
+          final row = tester.getRect(controls);
+          expect(left.left, row.left);
+          expect(right.right, row.right);
+          expect(right.left - left.right, greaterThanOrEqualTo(15.9));
+        }
+        expect(find.byTooltip('片头片尾设置'), findsNothing);
+        expect(find.byTooltip(RegExp('上滑切下一集：')), findsNothing);
         expect(tester.takeException(), isNull);
         final gradient = tester.getRect(
           find.byKey(const Key('fullscreen-control-gradient')),
@@ -2228,6 +2575,9 @@ void main() {
     }
 
     testWidgets('集名后显示完整分辨率，速率在进度条上方且随媒体更新', (tester) async {
+      final badges = AppPreferences.instance.mediaBadges;
+      AppPreferences.instance.mediaBadges = {'enabled': true};
+      addTearDown(() => AppPreferences.instance.mediaBadges = badges);
       const title = '播放布局验证';
       final players = await pump(
         tester,
@@ -2251,7 +2601,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       final stats = tester.getRect(find.text('第1集 · 1920×800'));
-      final speed = tester.getRect(find.text('125.0MB/s'));
+      final speed = tester.getRect(find.text('下载 125.0MB/s'));
       final top = tester.getRect(find.byKey(const Key('fullscreen-topbar')));
       final slider = tester.getRect(find.byType(Slider));
       final actions = tester.getRect(
@@ -2264,7 +2614,11 @@ void main() {
       expect(speed.bottom, lessThanOrEqualTo(slider.top));
       expect(speed.right, closeTo(actions.right, .1));
       expect(find.byTooltip('清晰度'), findsNothing);
-      expect(find.text('800P'), findsNothing);
+      expect(
+        find.text('800P'),
+        findsOneWidget,
+        reason: '媒体徽章显示实际高度，标题仍保留完整分辨率',
+      );
       players.single.pushStats(const PlayerStats(width: 1280, height: 720));
       await tester.pumpAndSettle();
       expect(find.text('第1集 · 1280×720'), findsOneWidget);
@@ -2284,25 +2638,36 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('1.3MB/s'), findsOneWidget);
+      expect(find.text('下载 1.3MB/s'), findsOneWidget);
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
-        find.text('显示播放速率'),
+        find.text('显示下载速度'),
         find.byType(PlayerSettingsSheet),
         const Offset(0, -160),
       );
-      await tester.tap(find.text('显示播放速率'));
+      await tester.tap(find.text('显示下载速度'));
       await tester.pumpAndSettle();
       expect(
         PlayerExperienceStore.current.flag('showNetworkSpeed', true),
         isFalse,
       );
+      await tester.ensureVisible(find.text('显示缓冲时长'));
+      await tester.tap(find.text('显示缓冲时长'));
+      await tester.pumpAndSettle();
+      expect(
+        PlayerExperienceStore.current.flag('showBufferedTime', true),
+        isFalse,
+      );
       Navigator.of(tester.element(find.byType(PlayerSettingsSheet))).pop();
       await tester.pumpAndSettle();
-      expect(find.text('1.3MB/s'), findsNothing);
+      expect(find.text('下载 1.3MB/s'), findsNothing);
       expect(find.text('1920×800'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       final reopened = await pump(tester);
@@ -2325,6 +2690,10 @@ void main() {
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-intro')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-intro')));
       await tester.pumpAndSettle();
@@ -2400,7 +2769,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('全屏控制栏自动隐藏：播放中无操作 3 秒收起，点屏幕唤回', (tester) async {
+    testWidgets('全屏控制栏自动隐藏：播放中无操作 5 秒收起，点屏幕唤回', (tester) async {
       final players = await pump(tester);
       await tester.tap(find.byTooltip('全屏'));
       await tester.pumpAndSettle();
@@ -2412,9 +2781,11 @@ void main() {
         playing: true,
       );
       await tester.pump();
-      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(milliseconds: 4900));
+      expect(find.byType(Slider), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
-      expect(find.byType(Slider), findsNothing, reason: '无操作 3 秒后控制栏自动隐藏');
+      expect(find.byType(Slider), findsNothing, reason: '无操作 5 秒后控制栏自动隐藏');
 
       await tester.tap(find.byType(Scaffold).first);
       await tester.pumpAndSettle();
@@ -2473,6 +2844,10 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-picture')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-picture')));
       await tester.pumpAndSettle();
       await tester.dragUntilVisible(
@@ -2483,7 +2858,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
-          of: find.widgetWithText(Row, '自动隐藏控制栏'),
+          of: find.widgetWithText(Row, '自动隐藏控制栏').first,
           matching: find.byType(Switch),
         ),
       );
@@ -2835,6 +3210,10 @@ Future<void> openPlayerAction(WidgetTester tester, String action) async {
   if (action == '清晰度' && find.byTooltip('清晰度').evaluate().isEmpty) {
     await tester.tap(find.byTooltip('播放器设置'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('player-category-playback')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('player-category-playback')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.widgetWithText(ListTile, '画质'));
@@ -2883,6 +3262,7 @@ class _CountingSpeedMeter extends PlaybackSpeedMeter {
     Uri uri, {
     Map<String, String>? headers,
     bool force = false,
+    bool background = false,
   }) async {
     requests++;
   }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show mapEquals;
 
 import '../util/lume_log.dart';
 import 'abstract_player.dart';
+import 'video_disk_cache.dart';
 import 'player_factory.dart';
 import 'player_settings.dart';
 import 'player_stats.dart';
@@ -229,7 +230,10 @@ class PlayerPrelaunch {
     PlayerMedia media, {
     PlayerMedia? requestMedia,
     PlayerSettings? settings,
-    Duration timeout = const Duration(seconds: 4),
+    // Slow network initialization must not discard the first session after 4s
+    // and start the same CDN downloads again when the route takes ownership.
+    Duration timeout = const Duration(seconds: 30),
+    Duration sizeTimeout = const Duration(milliseconds: 250),
   }) async {
     if (_consumed || _preparedMedia != null) return;
     final pending = _launch;
@@ -241,7 +245,10 @@ class PlayerPrelaunch {
       try {
         await (() async {
           if (settings != null) await player.applySettings(settings);
-          await player.load(requestMedia ?? media);
+          await VideoDiskCache.instance.load(player, requestMedia ?? media);
+          if (player.snapshot.value.error != null) {
+            throw StateError('预启动媒体装载失败');
+          }
           await player.pause();
         })().timeout(timeout);
         _preparedMedia = media;
@@ -257,7 +264,8 @@ class PlayerPrelaunch {
           player.stats.addListener(changed);
           try {
             changed();
-            final remaining = timeout - watch.elapsed;
+            final available = timeout - watch.elapsed;
+            final remaining = available < sizeTimeout ? available : sizeTimeout;
             if (remaining > Duration.zero) {
               await ready.future.timeout(remaining);
             }
@@ -268,9 +276,13 @@ class PlayerPrelaunch {
           }
         }
         if (hasSize()) _preparedStats = player.stats.value;
+        if (player.snapshot.value.error != null) {
+          throw StateError('预启动媒体已失效');
+        }
         return launch;
       } catch (error) {
         _preparedMedia = null;
+        _preparedStats = null;
         unawaited(_discardPrepared(player));
         LumeLog.info('[player] 入场方向预检未完成：$error');
         return null;
@@ -293,7 +305,14 @@ class PlayerPrelaunch {
   Future<PlayerLaunch?> take() async {
     if (_consumed) return null;
     _consumed = true;
-    return _launch;
+    final launch = await _launch;
+    if (launch != null && launch.player.snapshot.value.error != null) {
+      _preparedMedia = null;
+      _preparedStats = null;
+      unawaited(_discardPrepared(launch.player));
+      return null;
+    }
+    return launch;
   }
 
   /// 放弃这次预启动：等创建结束再释放实例（释放失败只记日志）。

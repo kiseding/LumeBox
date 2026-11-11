@@ -1,3 +1,5 @@
+import '../../core/search/search_source_filter.dart';
+import 'search_source_filters.dart';
 import 'aggregate_work_groups.dart';
 
 import 'package:flutter/material.dart';
@@ -25,6 +27,7 @@ class AggregateSearchResults extends StatefulWidget {
     required this.onRetry,
     this.pipeline,
     this.query = '',
+    this.onRetryFailed,
   });
   final Section section;
   final String query;
@@ -35,6 +38,7 @@ class AggregateSearchResults extends StatefulWidget {
   final bool loading;
   final ValueChanged<SearchHit> onOpen;
   final VoidCallback onRetry;
+  final ValueChanged<Set<String>>? onRetryFailed;
   final SectionImagePipeline? pipeline;
 
   @override
@@ -42,17 +46,95 @@ class AggregateSearchResults extends StatefulWidget {
 }
 
 class _AggregateSearchResultsState extends State<AggregateSearchResults> {
+  void _showFailures() {
+    final failedSites = _sites
+        .where((site) => widget.failed.contains(site.id))
+        .toList();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('搜索失败 · ${failedSites.length} 个站点'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final site in failedSites)
+                ListTile(
+                  title: Text(site.name),
+                  trailing: TextButton(
+                    onPressed: widget.onRetryFailed == null
+                        ? null
+                        : () {
+                            Navigator.pop(dialogContext);
+                            widget.onRetryFailed!({site.id});
+                          },
+                    child: const Text('重试'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+          if (widget.onRetryFailed != null)
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                widget.onRetryFailed!(
+                  failedSites.map((site) => site.id).toSet(),
+                );
+              },
+              child: const Text('重试失败站点'),
+            ),
+        ],
+      ),
+    );
+  }
+
   static const _layoutKey = 'search.results.siteLayout';
   static const _cardsKey = 'search.results.cards';
   static const _referenceVersionKey = 'search.results.threeColumnVersion';
+  SearchSourceFilter _filter = const SearchSourceFilter();
+  List<SourceDescriptor> _sites = const [];
+  List<SearchHit> _hits = const [];
+  List<SourceDescriptor>? _groupedSites;
+  SearchSourceFilter? _groupedFilter;
+  Set<String> get _failed =>
+      widget.failed.intersection(_sites.map((s) => s.id).toSet());
   _SiteLayout _layout = _SiteLayout.left;
   bool _cards = true;
   String _sort = 'relevance';
   String? _selected;
+  List<SearchHit>? _groupedHits;
+  final _siteGroups = <String, List<SearchHit>>{};
+  final _mergedCache = <String, List<List<SearchHit>>>{};
+
+  void _prepareGroups() {
+    if (identical(_groupedHits, widget.hits) &&
+        identical(_groupedSites, widget.sites) &&
+        identical(_groupedFilter, _filter)) {
+      return;
+    }
+    _groupedHits = widget.hits;
+    _groupedSites = widget.sites;
+    _groupedFilter = _filter;
+    _sites = widget.sites.where(_filter.matches).toList();
+    final ids = _sites.map((s) => s.id).toSet();
+    _hits = widget.hits.where((hit) => ids.contains(hit.sourceId)).toList();
+    _siteGroups.clear();
+    _mergedCache.clear();
+    for (final hit in _hits) {
+      (_siteGroups[hit.sourceId] ??= []).add(hit);
+    }
+  }
 
   List<SourceDescriptor> get _visibleSites {
-    final matching = widget.hits.map((hit) => hit.sourceId).toSet();
-    return widget.sites
+    final matching = _hits.map((hit) => hit.sourceId).toSet();
+    return _sites
         .where(
           (site) =>
               matching.contains(site.id) ||
@@ -84,6 +166,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   @override
   void didUpdateWidget(covariant AggregateSearchResults oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _prepareGroups();
     if (_selected != null &&
         !_visibleSites.any((site) => site.id == _selected)) {
       _selected = null;
@@ -197,7 +280,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
     required bool vertical,
   }) {
     final entries = <({String? id, String name, String detail})>[
-      (id: null, name: '全部', detail: '${widget.hits.length} 条'),
+      (id: null, name: '全部', detail: '${_hits.length} 条'),
       for (final site in _visibleSites)
         (
           id: site.id,
@@ -428,10 +511,11 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   }
 
   Widget _grouped(Map<String, List<SearchHit>> groups) {
-    if (_visibleSites.isEmpty) return _empty();
+    final visibleSites = _visibleSites;
+    if (visibleSites.isEmpty) return _empty();
     final sites = [
-      ..._visibleSites.where((site) => groups[site.id]?.isNotEmpty == true),
-      ..._visibleSites.where((site) => groups[site.id]?.isNotEmpty != true),
+      ...visibleSites.where((site) => groups[site.id]?.isNotEmpty == true),
+      ...visibleSites.where((site) => groups[site.id]?.isNotEmpty != true),
     ];
     return ListView.builder(
       key: const ValueKey('search-groups'),
@@ -477,11 +561,18 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
   }
 
   Widget mergedWorks(List<SearchHit> hits) {
-    final groups = AggregateWorkGroups.group(
-      hits,
-      order: _sort,
-      query: widget.query,
-      library: ReadingLibrary.find(widget.section),
+    final cacheKey = '$_sort:${widget.query}:${_selected ?? ''}';
+    if (_mergedCache.length >= 8 && !_mergedCache.containsKey(cacheKey)) {
+      _mergedCache.remove(_mergedCache.keys.first);
+    }
+    final groups = _mergedCache.putIfAbsent(
+      cacheKey,
+      () => AggregateWorkGroups.group(
+        hits,
+        order: _sort,
+        query: widget.query,
+        library: ReadingLibrary.find(widget.section),
+      ),
     );
     return ListView.builder(
       itemCount: groups.length + 1,
@@ -533,15 +624,22 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
 
   @override
   Widget build(BuildContext context) {
-    final groups = <String, List<SearchHit>>{};
-    for (final hit in widget.hits) {
-      (groups[hit.sourceId] ??= []).add(hit);
-    }
+    _prepareGroups();
+    final groups = _siteGroups;
     final filtered = _selected == null
-        ? widget.hits
+        ? _hits
         : groups[_selected] ?? const <SearchHit>[];
     return Column(
       children: [
+        SearchSourceFilters(
+          sources: widget.sites,
+          value: _filter,
+          onChanged: (v) => setState(() {
+            _filter = v;
+            _selected = null;
+            _groupedHits = null;
+          }),
+        ),
         Padding(
           padding: const EdgeInsets.only(left: 16, right: 4),
           child: Row(
@@ -549,9 +647,9 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
               Expanded(
                 child: Text(
                   widget.loading
-                      ? '${widget.completed.length}/${widget.sites.length} 站点 · ${widget.hits.length} 条'
+                      ? '${widget.completed.length}/${widget.sites.length} 站点 · ${_hits.length} 条'
                       : _selected == null
-                      ? '${widget.hits.length} 条结果 · ${_visibleSites.length} 个来源'
+                      ? '${_hits.length} 条结果 · ${_visibleSites.length} 个来源'
                       : '${widget.sites.where((s) => s.id == _selected).firstOrNull?.name ?? '所选站点'} · ${filtered.length} 条',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -561,22 +659,12 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
                   ),
                 ),
               ),
-              if (widget.failed.isNotEmpty)
+              if (_failed.isNotEmpty)
                 Tooltip(
-                  message: '${widget.failed.length} 个源未取得结果，其他来源正常显示',
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.info_outline, size: 13),
-                        const SizedBox(width: 3),
-                        Text(
-                          '${widget.failed.length}',
-                          style: const TextStyle(fontSize: 10.5),
-                        ),
-                      ],
-                    ),
+                  message: '${_failed.length} 个源未取得结果，其他来源正常显示',
+                  child: TextButton(
+                    onPressed: widget.loading ? null : () => _showFailures(),
+                    child: Text('失败 ${_failed.length}'),
                   ),
                 ),
               IconButton(
@@ -633,7 +721,7 @@ class _AggregateSearchResultsState extends State<AggregateSearchResults> {
               ? _grouped(groups)
               : _flat(filtered),
         ),
-        if (!widget.loading && widget.hits.isEmpty && widget.failed.isEmpty)
+        if (!widget.loading && _hits.isEmpty && _failed.isEmpty)
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text('未搜索到相关内容，可修改关键词或搜索站点'),

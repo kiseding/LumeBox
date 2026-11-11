@@ -18,7 +18,10 @@ Future<T?> showDanmakuPanel<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool edgeDrawer = true,
+  double? maxPortraitHeight,
+  bool compact = false,
 }) {
+  final back = PlayerPanelBackController();
   return showGlassModalBottomSheet<T>(
     context: context,
     videoGlass: false,
@@ -39,8 +42,13 @@ Future<T?> showDanmakuPanel<T>({
           ),
         ),
         DanmakuPanelFrame(
+          compact: compact,
           edgeDrawer: edgeDrawer,
-          child: PlayerPanelScope(child: builder(context)),
+          maxPortraitHeight: maxPortraitHeight,
+          child: PlayerPanelScope(
+            back: back,
+            child: _PanelBackGesture(back: back, child: builder(context)),
+          ),
         ),
       ],
     ),
@@ -53,20 +61,48 @@ class DanmakuPanelFrame extends StatefulWidget {
     required this.child,
     this.screenPadding,
     this.edgeDrawer = true,
+    this.maxPortraitHeight,
+    this.compact = false,
   });
+  final bool compact;
   final Widget child;
   final EdgeInsets? screenPadding;
   final bool edgeDrawer;
+  final double? maxPortraitHeight;
   @override
   State<DanmakuPanelFrame> createState() => _DanmakuPanelFrameState();
 }
 
-class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
+class _DanmakuPanelFrameState extends State<DanmakuPanelFrame>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
-    final keyboard = media.viewInsets.bottom;
+    // Nested panels inherit a MediaQuery with its keyboard inset removed.
+    // Read the actual view as well so an input panel still clears the keyboard.
+    final view = View.of(context);
+    final keyboard = math.max(
+      media.viewInsets.bottom,
+      view.viewInsets.bottom / view.devicePixelRatio,
+    );
     final safe =
         widget.screenPadding ??
         MediaQuery.viewPaddingOf(
@@ -101,26 +137,31 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
         alignment: landscape ? Alignment.centerRight : Alignment.bottomCenter,
         child: SizedBox(
           key: const ValueKey('danmaku-panel-frame'),
-          width: edge
+          width: widget.compact
+              ? math.min(340, media.size.width - safe.horizontal)
+              : edge
               ? media.size.width * .4
               : landscape
               ? PlayerLayout.panelWidth(media.size.width - safe.horizontal - 32)
               : 560,
-          height: edge
+          height: widget.compact
+              ? math.min(340, available)
+              : edge
               ? math.max(0, media.size.height - keyboard)
               : landscape
               ? math.min(available, media.size.height * .85)
-              : available *
-                    // 所有竖屏抽屉统一 40% 高（与横屏 40% 宽 × 满高同面积），
-                    // 键盘弹出时让到 85%。
-                    (keyboard > 0 ? .85 : .40),
+              : math.min(
+                  widget.maxPortraitHeight ?? double.infinity,
+                  available * (keyboard > 0 ? .85 : .40),
+                ),
           child: ModuleGlassScope(
             module: GlassModule.video,
             part: GlassPart.panels,
             child: VideoGlassSurface(
               radius: edge ? 0 : 24,
               dark: Theme.of(context).brightness == Brightness.dark,
-              materialOpacity: .78,
+              materialOpacity: .94,
+              filledOptions: true,
               child: MediaQuery.removeViewInsets(
                 context: context,
                 removeBottom: true,
@@ -155,12 +196,58 @@ class _DanmakuPanelFrameState extends State<DanmakuPanelFrame> {
 }
 
 /// Marks content opened from the player without changing global settings dialogs.
+class PlayerPanelBackController {
+  bool Function()? onBack;
+}
+
 class PlayerPanelScope extends InheritedWidget {
-  const PlayerPanelScope({super.key, required super.child});
+  const PlayerPanelScope({super.key, required this.back, required super.child});
+  final PlayerPanelBackController back;
+  static PlayerPanelBackController? backOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PlayerPanelScope>()?.back;
   static bool active(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<PlayerPanelScope>() != null;
   @override
   bool updateShouldNotify(PlayerPanelScope oldWidget) => false;
+}
+
+class _PanelBackGesture extends StatefulWidget {
+  const _PanelBackGesture({required this.back, required this.child});
+  final PlayerPanelBackController back;
+  final Widget child;
+  @override
+  State<_PanelBackGesture> createState() => _PanelBackGestureState();
+}
+
+class _PanelBackGestureState extends State<_PanelBackGesture> {
+  double distance = 0;
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      widget.child,
+      Positioned(
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 20,
+        child: GestureDetector(
+          key: const ValueKey('player-panel-back-edge'),
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: (_) => distance = 0,
+          onHorizontalDragUpdate: (event) =>
+              distance += event.primaryDelta ?? 0,
+          onHorizontalDragEnd: (_) {
+            if (distance >= 64 && !(widget.back.onBack?.call() ?? false)) {
+              Navigator.of(context, rootNavigator: true).maybePop();
+            }
+            distance = 0;
+          },
+          onHorizontalDragCancel: () => distance = 0,
+        ),
+      ),
+    ],
+  );
 }
 
 /// Input and help dialogs use the same player frame as episode selection.
@@ -179,6 +266,7 @@ Future<T?> showPlayerDialog<T>({
   }
   return showDanmakuPanel<T>(
     context: context,
+    maxPortraitHeight: 280,
     builder: (context) => _PlayerDialogBody(dialog: builder(context)),
   );
 }
@@ -222,7 +310,7 @@ class _PlayerDialogBody extends StatelessWidget {
       return dialog;
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -244,7 +332,7 @@ class _PlayerDialogBody extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const Divider(height: 16),
           Expanded(
             child: content == null
                 ? const SizedBox.shrink()
@@ -254,10 +342,11 @@ class _PlayerDialogBody extends StatelessWidget {
           ),
           if (actions.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 12),
               child: Wrap(
                 alignment: WrapAlignment.end,
                 spacing: 8,
+                runSpacing: 4,
                 children: actions,
               ),
             ),

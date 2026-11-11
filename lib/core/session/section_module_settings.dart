@@ -45,6 +45,7 @@ class SectionModuleSettings {
     this.swipeTurnThresholdPx = defaultSwipeTurnThresholdPx,
     this.longPressMs = defaultLongPressMs,
     this.bufferSeconds = 0,
+    this.bufferMiB = 256,
   });
 
   /// 呼出工具栏（含底部面板）的延后：**这是防误触的那个阈值**，越大越不容易误触。
@@ -64,8 +65,9 @@ class SectionModuleSettings {
   static const int minLongPressMs = 300;
   static const int maxLongPressMs = 800;
 
-  /// 前向缓冲秒数；**0 = 交给内核自动决定**（默认，起播最快）。
-  static const int maxBufferSeconds = 30;
+  /// 前向缓冲秒数；0 使用默认预读策略，不等待缓存填满才起播。
+  // Largest whole-second value representable by Duration in microseconds.
+  static const int maxBufferSeconds = 9223372036854;
 
   static const double minControlScale = 0.85;
   static const double maxControlScale = 1.15;
@@ -84,6 +86,7 @@ class SectionModuleSettings {
   final int swipeTurnThresholdPx;
   final int longPressMs;
   final int bufferSeconds;
+  final int bufferMiB;
 
   Duration get toolbarToggleDelay =>
       Duration(milliseconds: toolbarToggleDelayMs);
@@ -101,6 +104,7 @@ class SectionModuleSettings {
     int? swipeTurnThresholdPx,
     int? longPressMs,
     int? bufferSeconds,
+    int? bufferMiB,
   }) => SectionModuleSettings(
     layoutPreset: layoutPreset ?? this.layoutPreset,
     controlScale: controlScale ?? this.controlScale,
@@ -111,6 +115,7 @@ class SectionModuleSettings {
     swipeTurnThresholdPx: swipeTurnThresholdPx ?? this.swipeTurnThresholdPx,
     longPressMs: longPressMs ?? this.longPressMs,
     bufferSeconds: bufferSeconds ?? this.bufferSeconds,
+    bufferMiB: bufferMiB ?? this.bufferMiB,
   );
 
   /// 套用一套预制方案：尺寸与间距跟着方案走（阈值等其它项不动）。
@@ -130,6 +135,7 @@ class SectionModuleSettings {
     'swipeThresholdPx': swipeTurnThresholdPx,
     'longPressMs': longPressMs,
     'bufferSeconds': bufferSeconds,
+    'bufferMiB': bufferMiB,
   };
 
   /// 从落盘 JSON 还原；缺项与非法值一律回退默认（旧配置不会让页面起不来），
@@ -181,7 +187,8 @@ class SectionModuleSettings {
         maxLongPressMs,
         defaultLongPressMs,
       ),
-      bufferSeconds: _clampInt(json['bufferSeconds'], 0, maxBufferSeconds, 0),
+      bufferSeconds: normalizeBufferSeconds(json['bufferSeconds'], 0),
+      bufferMiB: _clampInt(json['bufferMiB'], 32, 1024, 256),
     );
   }
 
@@ -200,6 +207,11 @@ class SectionModuleSettings {
   /// 写回本板块的库。
   void save(ReadingLibrary library) =>
       library.setSetting(key, jsonEncode(toJson()));
+
+  static int normalizeBufferSeconds(Object? value, int fallback) =>
+      value is num && value.isFinite
+      ? value.clamp(0, maxBufferSeconds).round()
+      : fallback;
 
   static double _clampDouble(
     Object? value,

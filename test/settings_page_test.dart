@@ -13,12 +13,18 @@ import 'js_sandbox/support/js_sandbox_support.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/core/session/configuration_backup.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/core/util/lume_log.dart';
 import 'package:lume_box/features/settings/log_report.dart';
 import 'package:lume_box/features/settings/settings_page.dart';
+import 'package:lume_box/features/settings/settings_ui.dart';
+import 'package:lume_box/features/settings/experience_settings_card.dart';
+import 'package:lume_box/features/settings/novel_settings_page.dart';
 import 'package:lume_box/features/shell/app_shell.dart';
 import 'package:lume_box/features/shell/shell_dock.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_settings.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_sources_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
 
 /// 设置页面的验证：缓存管理（分板块统计与清理，互不影响）、运行日志查看、
@@ -51,6 +57,7 @@ void main() {
     // 时钟里，首次打开要创建目录（真实异步），在测试体里 await 会等不到。
     for (final section in Section.values) {
       await SectionScope.open(section);
+      await ReadingLibrary.open(section);
     }
   });
 
@@ -75,7 +82,7 @@ void main() {
       '缓存管理': '存储与安全',
       '运行日志': '诊断与关于',
       '错误报告': '诊断与关于',
-      '源总管理': '内容与订阅',
+      '源管理': '内容与订阅',
     };
     final category = categories[label];
     if (category != null) {
@@ -88,7 +95,7 @@ void main() {
         240,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text(category));
+      await tester.tap(find.byKey(ValueKey('settings-category-$category')));
       await tester.pumpAndSettle();
     }
     await tester.scrollUntilVisible(
@@ -128,6 +135,47 @@ void main() {
     ),
     matching: find.widgetWithText(TextButton, '清理'),
   );
+
+  testWidgets('通用功能分别归入界面、内容和服务，阅读播放不再重复收录', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: const SettingsPage(runtimeAvailable: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final groups = tester
+        .widget<SettingsHome>(find.byType(SettingsHome))
+        .categories;
+    List<Widget> children(String title) =>
+        groups.firstWhere((g) => g.title == title).children;
+    List<String> titles(String title) =>
+        children(title)
+            .whereType<SettingsEntryCard>()
+            .map((e) => e.title)
+            .toList();
+    expect(titles('内容与订阅'), containsAll(['内容中心', '继续看／读／听']));
+    expect(titles('网络与服务'), contains('全局翻译'));
+    expect(children('个性与界面').whereType<ExperienceSettingsCard>(), hasLength(1));
+    expect(
+      groups.firstWhere((g) => g.title == '个性与界面').keywords,
+      contains('触感强度'),
+    );
+    expect(
+      groups.firstWhere((g) => g.title == '阅读与播放').keywords,
+      isNot(contains('触感')),
+    );
+    expect(
+      titles('阅读与播放'),
+      isNot(anyOf(contains('内容中心'), contains('继续看／读／听'), contains('全局翻译'))),
+    );
+    expect(children('阅读与播放').whereType<ExperienceSettingsCard>(), isEmpty);
+    expect(titles('阅读与播放'), contains('内容与播放增强'));
+    expect(
+      children('阅读与播放').whereType<SettingsGroupTitle>().map((g) => g.text),
+      isNot(contains('通用体验')),
+    );
+  });
 
   testWidgets('删除参考播放器后只提供原播放器设置入口', (tester) async {
     await pumpSettings(tester);
@@ -252,6 +300,16 @@ void main() {
       find.descendant(of: find.byType(AlertDialog), matching: find.text('清理')),
     );
     await pumpIoAndSettle(tester);
+    for (
+      var i = 0;
+      i < 40 && find.textContaining('已清理 漫画').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump();
+    }
 
     expect(find.textContaining('缓存 0 B'), findsWidgets);
     expect(
@@ -277,12 +335,225 @@ void main() {
   testWidgets('图源总管理：设置页内的子页面入口仍在', (tester) async {
     await pumpSettings(tester);
 
-    await scrollTo(tester, '源总管理');
-    expect(find.text('源总管理'), findsOneWidget);
-    await tester.tap(find.text('源总管理'));
+    await tester.tap(find.byKey(const ValueKey('settings-category-源管理')));
     await pumpIoAndSettle(tester);
 
     expect(find.widgetWithText(AppBar, '源总管理'), findsOneWidget);
+    expect(find.byTooltip('一键导入全部订阅源'), findsNothing);
+  });
+
+  for (final path in const [
+    ('阅读与播放', '漫画设置'),
+    ('阅读与播放', '播放器设置'),
+    ('阅读与播放', '弹幕服务'),
+    ('导航与首页', '原生液态玻璃'),
+    ('存储与安全', '预载与清理'),
+    ('存储与安全', '缓存管理'),
+    ('诊断与关于', '运行日志'),
+    ('诊断与关于', '错误报告'),
+    ('诊断与关于', '沙箱设置'),
+    ('诊断与关于', '调试面板'),
+  ]) {
+    testWidgets('${path.$2} 最多三级，页内切换不增加返回层级', (tester) async {
+      final observer = _PageDepthObserver();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        DanmakuSourcesStore.channel,
+        (_) async => <String, String>{'profilesJson': '[]'},
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(
+          DanmakuSourcesStore.channel,
+          null,
+        ),
+      );
+      await tester.binding.setSurfaceSize(const Size(900, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(),
+          navigatorObservers: [observer],
+          home: const SettingsPage(runtimeAvailable: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('settings-category-${path.$1}')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text(path.$2),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(path.$2));
+      await pumpIoAndSettle(tester);
+      expect(observer.depth, 3);
+      if (path.$2 == '原生液态玻璃') {
+        expect(
+          find.byKey(const ValueKey('native-glass-preview')),
+          findsOneWidget,
+        );
+      }
+      if (path.$2 == '漫画设置') {
+        for (final tab in ['images', 'translation', 'reading']) {
+          await tester.ensureVisible(find.byKey(ValueKey('settings-tab-$tab')));
+          await tester.tap(find.byKey(ValueKey('settings-tab-$tab')));
+          await pumpIoAndSettle(tester);
+          expect(observer.depth, 3);
+          expect(find.byType(AppBar), findsOneWidget);
+        }
+      }
+      if (path.$2 == '播放器设置') {
+        expect(
+          find.byKey(const ValueKey('global-player-category-danmaku')),
+          findsNothing,
+        );
+        for (final tab in ['advanced', 'audio', 'playback']) {
+          final category = find.byKey(ValueKey('global-player-category-$tab'));
+          await tester.ensureVisible(category);
+          await tester.tap(category);
+          await tester.pumpAndSettle();
+          expect(observer.depth, 4);
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          expect(observer.depth, 3);
+        }
+      }
+      if (path.$2 == '弹幕服务') {
+        expect(find.text('内置本机服务').hitTestable(), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('settings-tab-matching')));
+        await tester.pumpAndSettle();
+        expect(observer.depth, 3);
+        final library = await tester.runAsync(
+          () => ReadingLibrary.open(Section.video),
+        );
+        final store = DanmakuSettingsStore(library!);
+        final previous = store.load().avoidSubtitles;
+        await tester.tap(find.text('避让底部字幕').hitTestable());
+        await tester.pumpAndSettle();
+        expect(store.load().avoidSubtitles, !previous);
+      }
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(observer.depth, 2);
+      expect(
+        find.byKey(ValueKey('settings-category-${path.$1}')),
+        findsNothing,
+      );
+    });
+  }
+
+  testWidgets('内容订阅保留导入更新入口，不再提供仓库维护', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: const SettingsPage(runtimeAvailable: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('内容与订阅'));
+    await tester.pumpAndSettle();
+    expect(find.text('仓库维护'), findsNothing);
+    expect(find.text('高级导入与仓库'), findsNothing);
+    expect(find.text('一键同步全部订阅'), findsOneWidget);
+    expect(find.text('私有 GitHub 订阅'), findsOneWidget);
+    expect(find.text('总订阅导入导出'), findsOneWidget);
+    expect(find.text('TVBox 聚合配置导入'), findsOneWidget);
+  });
+
+  testWidgets('小说设置写入小说阅读器使用的现有设置', (tester) async {
+    final library = await tester.runAsync(
+      () => ReadingLibrary.open(Section.comic),
+    );
+    library!.setSetting('novel.fontSize', '24');
+    await tester.pumpWidget(
+      MaterialApp(home: NovelSettingsPage(library: library)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('字号 24'), findsOneWidget);
+    final preview = find.byKey(const Key('novel-settings-preview'));
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(of: preview, matching: find.byType(Text)),
+          )
+          .style!
+          .fontSize,
+      24,
+    );
+    await tester.tap(find.text('护眼'));
+    await tester.pumpAndSettle();
+    expect(library.setting('novel.theme'), '1');
+    await tester.tap(find.text('恢复排版默认'));
+    await tester.pumpAndSettle();
+    expect(library.setting('novel.fontSize'), '20');
+    expect(library.setting('novel.theme'), '0');
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(of: preview, matching: find.byType(Text)),
+          )
+          .style!
+          .fontSize,
+      20,
+    );
+    await tester.scrollUntilVisible(find.text('读完自动下一章'), 300);
+    await tester.tap(find.text('读完自动下一章'));
+    await tester.pumpAndSettle();
+    expect(library.setting('novel.speech.autoNext'), 'false');
+  });
+
+  test('配置预览区分新增、覆盖与受保护项，且不写入', () async {
+    final library = await ReadingLibrary.open(Section.comic);
+    library.setSetting('novel.fontSize', '22');
+    writeFile('appearance_settings.json', 2);
+    final lines = await ConfigurationBackup().previewSettingsChanges({
+      'files': {'appearance_settings.json': {}, 'network_settings.json': {}},
+      'sections': {
+        'comic': {
+          'novel.fontSize': '30',
+          'novel.lineHeight': '2',
+          'history.lock': 'secret',
+        },
+      },
+    });
+    expect(lines, contains('appearance_settings.json：预计覆盖'));
+    expect(lines, contains('network_settings.json：预计新增'));
+    expect(lines, contains('漫画 · novel.fontSize：预计覆盖'));
+    expect(lines, contains('漫画 · novel.lineHeight：预计新增'));
+    expect(lines, contains('漫画 · history.lock：预计跳过'));
+    expect(library.setting('novel.fontSize'), '22');
+  });
+
+  test('阅读记录预览按真实记录身份估计覆盖且不更改记录', () async {
+    final library = await ReadingLibrary.open(Section.comic);
+    library.recordHistoryItem(sourceId: 'site', itemId: 'book', title: '测试作品');
+    final store = await ReadingStore.open(Section.comic);
+    final rows = store.cloudRecords(includeSettings: false);
+    final lines = await ConfigurationBackup().previewReadingChanges({
+      'readingData': {'comic': rows},
+    });
+    expect(lines, contains('漫画 · 收藏／历史 · 测试作品：预计覆盖'));
+    expect(store.cloudRecords(includeSettings: false), rows);
+  });
+
+  testWidgets('设置首页不再显示搜索框', (tester) async {
+    await pumpSettings(tester);
+    expect(find.byKey(const ValueKey('settings-search')), findsNothing);
+    expect(find.text('搜索设置'), findsNothing);
+    expect(find.text('常用'), findsOneWidget);
+    double? right;
+    for (final category in ['阅读与播放', '内容与订阅', '源管理', '个性与界面']) {
+      final arrow = find.descendant(
+        of: find.byKey(ValueKey('settings-category-$category')),
+        matching: find.byIcon(Icons.chevron_right),
+      );
+      final edge = tester.getRect(arrow).right;
+      right ??= edge;
+      expect(edge, closeTo(right, .1), reason: '不同长度说明文字不能带偏右侧箭头');
+    }
   });
 
   testWidgets('播放器内核：全局设置里保留逃生入口', (tester) async {
@@ -294,9 +565,10 @@ void main() {
     expect(find.text('播放器设置'), findsOneWidget);
     await tester.tap(find.text('播放器设置'));
     await pumpIoAndSettle(tester);
-    expect(find.widgetWithText(AppBar, '播放器设置'), findsOneWidget);
+    await tester.tap(find.text('播放与选集'));
+    await pumpIoAndSettle(tester);
+    expect(find.text('后台播放'), findsOneWidget);
     expect(find.text('播放倍速'), findsOneWidget);
-    expect(find.text('字幕'), findsOneWidget);
   });
 
   testWidgets('运行日志：查看、按级别筛选、清空', (tester) async {
@@ -422,15 +694,7 @@ void main() {
       expect(find.text(group), findsOneWidget, reason: '缺少分组「$group」');
     }
 
-    for (final item in [
-      '外观',
-      '主题色',
-      '页面底色',
-      '悬浮模块',
-      '底部导航栏管理',
-      '播放器设置',
-      '运行日志',
-    ]) {
+    for (final item in ['主题色', '页面底色', '悬浮模块', '底部导航栏管理', '播放器设置', '运行日志']) {
       expect(find.text(item), findsNothing, reason: '具体设置不再平铺在首页');
     }
 
@@ -483,3 +747,16 @@ void main() {
 }
 
 DateTime _fixedNow() => DateTime(2026, 10, 4, 21, 33, 10);
+
+class _PageDepthObserver extends NavigatorObserver {
+  int depth = 0;
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) depth++;
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) depth--;
+  }
+}

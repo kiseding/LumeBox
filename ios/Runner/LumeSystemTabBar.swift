@@ -40,6 +40,7 @@ final class LumeSystemTabBarFactory: NSObject, FlutterPlatformViewFactory {
 private struct LumeSystemTabSpec: Equatable {
   let id: String
   let label: String
+  let badge: Int
 }
 
 private final class LumeContentTabBar: UITabBar {
@@ -99,6 +100,7 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
   private var specs: [LumeSystemTabSpec] = []
   private var showLabels = true
   private var iconSize: CGFloat = 24
+  private var solidIcons = false
   private var selectedContentId: String?
 
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
@@ -134,7 +136,8 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
       guard let id = entry["id"] as? String, ["comic", "video", "settings", "search"].contains(id),
             let label = entry["label"] as? String, !label.isEmpty,
             !next.contains(where: { $0.id == id }) else { return false }
-      next.append(LumeSystemTabSpec(id: id, label: label))
+      next.append(LumeSystemTabSpec(id: id, label: label,
+        badge: max(0, (entry["badge"] as? NSNumber)?.intValue ?? 0)))
     }
     let labels = values["showLabels"] as? Bool ?? true
     let rawHeight = (values["barHeight"] as? NSNumber)?.doubleValue ?? 0
@@ -142,10 +145,12 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
       ? CGFloat(min(max(rawHeight, 40), 120)) : 0
     let rawSize = (values["iconSize"] as? NSNumber)?.doubleValue ?? 24
     let size = CGFloat(rawSize.isFinite ? min(max(rawSize, 18), 30) : 24)
-    if specs != next || labels != showLabels || size != iconSize {
+    let solid = values["solidIcons"] as? Bool ?? false
+    if specs != next || labels != showLabels || size != iconSize || solid != solidIcons {
       specs = next
       showLabels = labels
       iconSize = size
+      solidIcons = solid
       let configuration = UIImage.SymbolConfiguration(pointSize: size, weight: .regular)
       let items = specs.map { spec -> UITabBarItem in
         let symbol: String
@@ -155,12 +160,14 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
         case "search": symbol = "magnifyingglass"
         default: symbol = "gearshape"
         }
+        let filled = spec.id == "search" ? symbol : symbol + ".fill"
         let item = UITabBarItem(
           title: labels ? spec.label : nil,
-          image: UIImage(systemName: symbol, withConfiguration: configuration),
-          selectedImage: UIImage(systemName: spec.id == "search" ? symbol : symbol + ".fill", withConfiguration: configuration)
+          image: UIImage(systemName: solid ? filled : symbol, withConfiguration: configuration),
+          selectedImage: UIImage(systemName: filled, withConfiguration: configuration)
         )
         item.accessibilityLabel = spec.label
+        item.badgeValue = spec.badge > 0 ? (spec.badge > 99 ? "99+" : String(spec.badge)) : nil
         item.accessibilityIdentifier = "shell.tab.\(spec.id)"
         return item
       }
@@ -171,6 +178,9 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
     let index = specs.firstIndex(where: { $0.id == activeId })
     container.bar.selectedItem = index.flatMap { container.bar.items?[$0] }
     container.overrideUserInterfaceStyle = values["brightness"] as? String == "dark" ? .dark : .light
+    container.bar.unselectedItemTintColor = solid
+      ? (values["brightness"] as? String == "dark" ? .white : UIColor(white: 0.086, alpha: 1))
+      : nil
     let opacity = (values["materialOpacity"] as? NSNumber)?.doubleValue ?? 0.6
     let density = CGFloat(opacity.isFinite ? min(1, max(0, opacity)) : 0.6)
     let appearance = UITabBarAppearance()

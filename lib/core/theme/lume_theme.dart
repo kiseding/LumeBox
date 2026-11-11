@@ -11,6 +11,26 @@ import 'interface_typography.dart';
 export 'lume_typography.dart';
 export 'interface_typography.dart' show interfaceFontWeight;
 
+/// Unmodified user-selected fill and the white foreground used on controls.
+class LumeAccentColors extends ThemeExtension<LumeAccentColors> {
+  const LumeAccentColors({required this.fill, required this.onFill});
+  final Color fill;
+  final Color onFill;
+
+  @override
+  LumeAccentColors copyWith({Color? fill, Color? onFill}) =>
+      LumeAccentColors(fill: fill ?? this.fill, onFill: onFill ?? this.onFill);
+
+  @override
+  LumeAccentColors lerp(covariant LumeAccentColors? other, double t) =>
+      other == null
+      ? this
+      : LumeAccentColors(
+          fill: Color.lerp(fill, other.fill, t)!,
+          onFill: Color.lerp(onFill, other.onFill, t)!,
+        );
+}
+
 /// 全局主题色板：**浅色与深色两套值**，由 [LumeTheme.of] 按当前亮度取用。
 ///
 /// ## 为什么是「色板对象 + 静态转发」而不是直接换成 ThemeExtension
@@ -175,6 +195,7 @@ class LumePalette {
     ThemeAccent accent, {
     ThemeBackground background = ThemeBackground.grouped,
     Color? customAccent,
+    Color? customBackground,
   }) => LumePalette(
     brightness: brightness,
     accent: LumeTheme.readableForeground(
@@ -185,7 +206,9 @@ class LumePalette {
           : customAccent,
       surfaceAlt,
     ),
-    base: brightness == Brightness.light ? background.color : base,
+    base:
+        customBackground ??
+        (brightness == Brightness.light ? background.color : base),
     surface: surface,
     surfaceAlt: surfaceAlt,
     glass: glass,
@@ -235,18 +258,21 @@ class LumeTheme {
 
   static const chipIdleBackground = Color(0xFFF2F2F7);
   static const chipIdleForeground = Color(0xFF333333);
-  static const chipSelectedBackground = Color(0xFF6C5CE7);
+  static Color get chipSelectedBackground => accentFill;
 
   /// RawChip resolves stateful Color after merging TextStyle, not TextStyle itself.
-  static TextStyle get chipLabelStyle => TextStyle(
-    fontSize: LumeTypography.descriptionSize,
-    fontWeight: FontWeight.w600,
-    color: WidgetStateColor.resolveWith(
-      (states) => states.contains(WidgetState.selected)
-          ? Colors.white
-          : chipIdleForeground,
-    ),
-  );
+  static TextStyle get chipLabelStyle {
+    final selectedForeground = onAccentFill;
+    return TextStyle(
+      fontSize: LumeTypography.descriptionSize,
+      fontWeight: FontWeight.w600,
+      color: WidgetStateColor.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? selectedForeground
+            : chipIdleForeground,
+      ),
+    );
+  }
 
   /// App 内所有标题与页面文字统一使用项目名称。
   static const String appName = 'Lume Box';
@@ -258,12 +284,26 @@ class LumeTheme {
   static ThemeAccent _accent = ThemeAccent.fallback;
   static Color? _customAccent;
   static ThemeBackground _background = ThemeBackground.grouped;
-  static void applyBackground(ThemeBackground value) => _background = value;
+  static Color? _lightBackground, _darkBackground;
+  static void applyBackground(
+    ThemeBackground value, {
+    Color? light,
+    Color? dark,
+  }) {
+    _background = value;
+    _lightBackground = light;
+    _darkBackground = dark;
+  }
 
   /// 当前生效色板：亮度定结构、主题色定主色。
-  static LumePalette get palette => LumePalette.of(
-    _brightness,
-  ).withAccent(_accent, background: _background, customAccent: _customAccent);
+  static LumePalette get palette => LumePalette.of(_brightness).withAccent(
+    _accent,
+    background: _background,
+    customAccent: _customAccent,
+    customBackground: _brightness == Brightness.light
+        ? _lightBackground
+        : _darkBackground,
+  );
 
   /// 按亮度取色板（供需要显式区分的场合，如阅读页的工具栏）。
   static LumePalette paletteOf(Brightness brightness) =>
@@ -290,12 +330,26 @@ class LumeTheme {
   /// 换 key **重建不了子树**：`child` 是带 GlobalKey 的 Navigator，换 key 只会
   /// 把它换个位置、子树原样复用（实测，见 settings_page_test 的深色用例）。
   static String get themeId =>
-      '${_brightness.name}-${_accent.id}-${_background.id}${_customAccent == null ? '' : '-${_customAccent!.toARGB32()}'}';
+      '${_brightness.name}-${_accent.id}-${_background.id}-${_lightBackground?.toARGB32()}-${_darkBackground?.toARGB32()}${_customAccent == null ? '' : '-${_customAccent!.toARGB32()}'}';
 
   // ------------------------------------------------------------------ 色板
 
   /// 品牌紫（低饱和）：按钮、高亮、交互元素专用。
   static Color get accent => palette.accent;
+
+  /// The user's exact opaque color, for solid fills and selected controls.
+  static Color get accentFill => _customAccent ?? Color(_accent.argb);
+
+  /// Solid theme-colored controls use white labels and icons.
+  static Color get onAccentFill => Colors.white;
+
+  static Color accentFillOf(BuildContext context) =>
+      Theme.of(context).extension<LumeAccentColors>()?.fill ??
+      Theme.of(context).colorScheme.primary;
+
+  static Color onAccentFillOf(BuildContext context) =>
+      Theme.of(context).extension<LumeAccentColors>()?.onFill ??
+      Theme.of(context).colorScheme.onPrimary;
 
   /// 页面最底层。
   static Color get base => palette.base;
@@ -349,8 +403,8 @@ class LumeTheme {
   /// 稍重一点的填充（选中态底座、进度条槽）。
   static Color get fillStrong => palette.fillStrong;
 
-  /// 品牌紫上的前景色。
-  static Color get onAccent => palette.onAccent;
+  /// Foreground used on an opaque theme-colored surface.
+  static Color get onAccent => Colors.white;
 
   /// 语义色：各自主题下可读的版本（浅色用深色版，深色用亮色版）。
   static Color get success =>
@@ -420,15 +474,22 @@ class LumeTheme {
     ThemeAccent accent = ThemeAccent.fallback,
     ThemeBackground background = ThemeBackground.grouped,
     Color? customAccent,
+    Color? lightBackground,
+    Color? darkBackground,
     String? fontFamily,
     bool fontBold = true,
     bool fontItalic = false,
   }) {
     applyBrightness(brightness);
     applyAccent(accent, customAccent: customAccent);
-    applyBackground(background);
+    applyBackground(background, light: lightBackground, dark: darkBackground);
     // 局部别名：下面所有裸 `accent` 要的都是**颜色**，而参数是档位。
     final accentColor = palette.accent;
+    final fillColor = accentFill;
+    final onFill = onAccentFill;
+    final switchThumb = contrast(Colors.white, fillColor) >= 3
+        ? Colors.white
+        : Colors.black;
     final isDark = brightness == Brightness.dark;
     final scheme =
         ColorScheme.fromSeed(
@@ -436,7 +497,7 @@ class LumeTheme {
           brightness: brightness,
         ).copyWith(
           primary: accentColor,
-          onPrimary: onAccent,
+          onPrimary: Colors.white,
           surface: surface,
           onSurface: textPrimary,
           onSurfaceVariant: textSecondary,
@@ -447,6 +508,7 @@ class LumeTheme {
     final theme = ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      extensions: [LumeAccentColors(fill: fillColor, onFill: onFill)],
       colorScheme: scheme,
       cupertinoOverrideTheme: CupertinoThemeData(
         primaryColor: accentColor,
@@ -527,7 +589,7 @@ class LumeTheme {
       ),
       textTheme: readableTextTheme(brightness),
       primaryTextTheme: readableTextTheme(brightness)
-          .apply(bodyColor: onAccent, displayColor: onAccent),
+          .apply(bodyColor: Colors.white, displayColor: Colors.white),
       cardTheme: CardThemeData(
         color: surface,
         surfaceTintColor: Colors.transparent,
@@ -540,31 +602,31 @@ class LumeTheme {
         ),
       ),
       iconTheme: IconThemeData(color: textPrimary),
-      progressIndicatorTheme: ProgressIndicatorThemeData(color: accentColor),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: fillColor),
       sliderTheme: SliderThemeData(
-        activeTrackColor: accentColor,
-        thumbColor: accentColor,
+        activeTrackColor: fillColor,
+        thumbColor: fillColor,
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
               ? (isDark ? const Color(0xFFB8B8C0) : Colors.white)
               : states.contains(WidgetState.selected)
-              ? onAccent
+              ? switchThumb
               : Colors.white,
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
               ? (isDark ? const Color(0xFF494952) : const Color(0xFFC7C7CF))
               : states.contains(WidgetState.selected)
-              ? accentColor
+              ? fillColor
               : (isDark ? const Color(0xFF70707A) : const Color(0xFF85858F)),
         ),
         trackOutlineColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
               ? (isDark ? const Color(0xFF777781) : const Color(0xFF9999A3))
               : states.contains(WidgetState.selected)
-              ? accentColor
+              ? fillColor
               : const Color(0xFF90909A),
         ),
       ),
@@ -576,8 +638,8 @@ class LumeTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: accentColor,
-          foregroundColor: onAccent,
+          backgroundColor: fillColor,
+          foregroundColor: onFill,
           disabledForegroundColor: textPrimary,
           disabledBackgroundColor: surfaceAlt,
         ),
@@ -601,7 +663,7 @@ class LumeTheme {
         side: BorderSide(color: inputBorder),
         labelStyle: chipLabelStyle,
         secondaryLabelStyle: chipLabelStyle,
-        checkmarkColor: Colors.white,
+        checkmarkColor: onFill,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -677,7 +739,7 @@ class LumeTheme {
           ),
           backgroundColor: WidgetStateProperty.resolveWith(
             (states) => states.contains(WidgetState.selected)
-                ? accentColor.withValues(alpha: isDark ? .18 : .12)
+                ? fillColor.withValues(alpha: isDark ? .18 : .12)
                 : (isDark ? surfaceAlt : Colors.white),
           ),
           // hairline 在浅色下是透明色，会让整个切换器没有边界；这里统一用
@@ -691,7 +753,7 @@ class LumeTheme {
         labelColor: accentColor,
         unselectedLabelColor: textSecondary,
         dividerColor: Colors.transparent,
-        indicatorColor: accentColor,
+        indicatorColor: fillColor,
       ),
     );
     return interfaceTypography(

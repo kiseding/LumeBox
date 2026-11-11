@@ -1,9 +1,11 @@
+import '../experience/clip_editor.dart';
+import '../../core/experience/content_center.dart';
 import '../../shared/widgets/native_glass_controls.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import '../../shared/widgets/drawer_geometry.dart';
-import '../../shared/widgets/module_glass_scope.dart';
+import '../../shared/widgets/glass_card.dart';
 
 import 'dart:async';
 
@@ -20,10 +22,14 @@ class AudioPlayerPage extends StatefulWidget {
     required this.resource,
     required this.tracks,
     this.initialIndex,
+    this.initialPosition,
+    this.restart = false,
   });
   final MediaResource resource;
   final List<AudioBookTrack> tracks;
   final int? initialIndex;
+  final Duration? initialPosition;
+  final bool restart;
   @override
   State<AudioPlayerPage> createState() => _AudioPlayerPageState();
 }
@@ -31,42 +37,64 @@ class AudioPlayerPage extends StatefulWidget {
 class _AudioPlayerPageState extends State<AudioPlayerPage> {
   final session = AudioBookSession.instance;
   double? _drag;
+  bool _starting = true;
   @override
   void initState() {
     super.initState();
-    unawaited(_start());
+    // Let the route paint before preparing a large chapter catalog.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_start());
+    });
   }
 
   Future<void> _start() async {
-    if (session.resource?.id != widget.resource.id) {
-      await session.load(
+    try {
+      await session.open(
         widget.resource,
         widget.tracks,
         index: widget.initialIndex,
+        restart: widget.restart,
       );
-      if (session.error == null && session.resource?.id == widget.resource.id) {
-        unawaited(session.play());
+      if (widget.initialPosition != null &&
+          session.resource?.id == widget.resource.id) {
+        await session.seek(widget.initialPosition!);
       }
-    } else if (widget.initialIndex != null) {
-      await session.load(
-        widget.resource,
-        widget.tracks,
-        index: widget.initialIndex,
-      );
-      unawaited(session.play());
+    } finally {
+      if (mounted) setState(() => _starting = false);
     }
   }
 
   String _time(Duration time) =>
       '${time.inMinutes}:${(time.inSeconds % 60).toString().padLeft(2, '0')}';
   @override
-  Widget build(BuildContext context) =>
-      ModuleGlassScope(module: GlassModule.video, child: _legacyBuild(context));
+  Widget build(BuildContext context) => SettingsSurfaceScope(
+    enabled: true,
+    child: ModuleGlassScope(
+      module: GlassModule.video,
+      child: _legacyBuild(context),
+    ),
+  );
   Widget _legacyBuild(BuildContext context) => Scaffold(
     appBar: AppBar(
       flexibleSpace: const SizedBox.expand(),
       title: const Text('音频播放'),
       actions: [
+        IconButton(
+          tooltip: '保存听书书签',
+          icon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: () => saveContentClip(
+            context,
+            ContentRef(
+              widget.resource.destination,
+              '@audio-library',
+              widget.resource.id,
+              widget.resource.title,
+            ),
+            chapter: session.current,
+            seconds: session.position.inSeconds,
+          ),
+        ),
+
         IconButton(
           tooltip: '音频播放器设置',
           icon: const LumeIcon(
@@ -86,13 +114,17 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
       child: ListenableBuilder(
         listenable: session,
         builder: (context, _) {
-          final duration = session.duration.inMilliseconds.toDouble();
-          final current = session.current.clamp(
-            0,
-            widget.resource.episodes.isEmpty
-                ? 0
-                : widget.resource.episodes.length - 1,
-          );
+          final ownsSession = session.resource?.id == widget.resource.id;
+          final busy = _starting || !ownsSession || session.loading;
+          final failure = ownsSession ? session.error : null;
+          final playing = !busy && session.playing;
+          final current =
+              (ownsSession ? session.current : widget.initialIndex ?? 0).clamp(
+                0,
+                widget.resource.episodes.isEmpty
+                    ? 0
+                    : widget.resource.episodes.length - 1,
+              );
           return ListView(
             padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
             children: [
@@ -137,51 +169,81 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                   textAlign: TextAlign.center,
                 ),
               const SizedBox(height: 20),
-              if (session.loading) const LinearProgressIndicator(),
-              if (session.error != null)
+              if (busy) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
                 Text(
-                  session.error!,
+                  ownsSession ? session.loadingMessage : '正在准备播放器…',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              if (failure != null)
+                Text(
+                  failure,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: Theme.of(context).colorScheme.error,
                   ),
                 ),
-              NativeGlassSlider(
-                key: const Key('audio-book-seek'),
-                min: 0,
-                max: duration > 0 ? duration : 1,
-                value: (_drag ?? session.position.inMilliseconds.toDouble())
-                    .clamp(0, duration > 0 ? duration : 1),
-                onChangeStart: duration > 0
-                    ? (value) => setState(() => _drag = value)
-                    : null,
-                onChanged: duration > 0
-                    ? (value) => setState(() => _drag = value)
-                    : null,
-                onChangeEnd: duration > 0
-                    ? (value) async {
-                        await session.seek(
-                          Duration(milliseconds: value.round()),
-                        );
-                        if (mounted) setState(() => _drag = null);
-                      }
-                    : null,
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _time(
-                      Duration(
-                        milliseconds:
-                            (_drag ??
-                                    session.position.inMilliseconds.toDouble())
-                                .round(),
-                      ),
+              if (failure != null && !busy)
+                TextButton.icon(
+                  onPressed: session.retry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新加载'),
+                ),
+              ValueListenableBuilder<(Duration, Duration)>(
+                valueListenable: session.progress,
+                builder: (context, progress, _) {
+                  final position = ownsSession ? progress.$1 : Duration.zero;
+                  final total = ownsSession ? progress.$2 : Duration.zero;
+                  final duration = busy ? 0.0 : total.inMilliseconds.toDouble();
+                  return StatefulBuilder(
+                    builder: (context, updateProgress) => Column(
+                      children: [
+                        NativeGlassSlider(
+                          key: const Key('audio-book-seek'),
+                          min: 0,
+                          max: duration > 0 ? duration : 1,
+                          value: (_drag ?? position.inMilliseconds.toDouble())
+                              .clamp(0, duration > 0 ? duration : 1),
+                          onChangeStart: duration > 0
+                              ? (value) => updateProgress(() => _drag = value)
+                              : null,
+                          onChanged: duration > 0
+                              ? (value) => updateProgress(() => _drag = value)
+                              : null,
+                          onChangeEnd: duration > 0
+                              ? (value) async {
+                                  await session.seek(
+                                    Duration(milliseconds: value.round()),
+                                  );
+                                  if (mounted) {
+                                    updateProgress(() => _drag = null);
+                                  }
+                                }
+                              : null,
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _time(
+                                Duration(
+                                  milliseconds:
+                                      (_drag ??
+                                              position.inMilliseconds
+                                                  .toDouble())
+                                          .round(),
+                                ),
+                              ),
+                            ),
+                            Text(_time(total)),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(_time(session.duration)),
-                ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               Row(
@@ -189,7 +251,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                 children: [
                   IconButton(
                     tooltip: '上一集',
-                    onPressed: session.current > 0 ? session.previous : null,
+                    onPressed: !busy && current > 0 ? session.previous : null,
                     icon: const LumeIcon(
                       Icons.skip_previous_rounded,
                       slot: 'audio_book_page.4',
@@ -198,16 +260,14 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                   ),
                   const SizedBox(width: 20),
                   IconButton.filled(
-                    tooltip: session.playing ? '暂停' : '播放',
-                    onPressed: session.loading
+                    tooltip: playing ? '暂停' : '播放',
+                    onPressed: busy
                         ? null
                         : () => session.playing
                               ? session.pause()
                               : session.play(),
                     icon: LumeIcon(
-                      session.playing
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
+                      playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                       slot: 'audio_book_page.5',
                       variant: true,
                     ),
@@ -217,7 +277,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                   IconButton(
                     tooltip: '下一集',
                     onPressed:
-                        session.current + 1 < widget.resource.episodes.length
+                        !busy && current + 1 < widget.resource.episodes.length
                         ? session.next
                         : null,
                     icon: const LumeIcon(
@@ -233,6 +293,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   PopupMenuButton<double>(
+                    enabled: !busy,
                     tooltip: '播放倍速',
                     initialValue: AudioBookSettings.instance.speed,
                     onSelected: session.setSpeed,
@@ -256,6 +317,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                     ),
                   ),
                   PopupMenuButton<int>(
+                    enabled: !busy,
                     tooltip: '睡眠定时',
                     onSelected: (minutes) async {
                       session.setSleep(minutes);
@@ -284,11 +346,14 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                       slot: 'audio_book_page.7',
                     ),
                     label: const Text('选集'),
-                    onPressed: () => _episodes(context),
+                    onPressed: busy ? null : () => _episodes(context),
                   ),
                 ],
               ),
-              TextButton(onPressed: session.stop, child: const Text('停止播放')),
+              TextButton(
+                onPressed: busy ? null : session.stop,
+                child: const Text('停止播放'),
+              ),
             ],
           );
         },
@@ -321,7 +386,8 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
 }
 
 class AudioPlaybackSettingsPage extends StatefulWidget {
-  const AudioPlaybackSettingsPage({super.key});
+  const AudioPlaybackSettingsPage({super.key, this.embedded = false});
+  final bool embedded;
   @override
   State<AudioPlaybackSettingsPage> createState() =>
       _AudioPlaybackSettingsPageState();
@@ -343,36 +409,45 @@ class _AudioPlaybackSettingsPageState extends State<AudioPlaybackSettingsPage> {
   Widget build(BuildContext context) =>
       ModuleGlassScope(module: GlassModule.video, child: _legacyBuild(context));
   Widget _legacyBuild(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      flexibleSpace: const SizedBox.expand(),
-      title: const Text('音频播放器'),
-    ),
+    appBar: widget.embedded
+        ? null
+        : AppBar(
+            flexibleSpace: const SizedBox.expand(),
+            title: const Text('音频播放器'),
+          ),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        DropdownButtonFormField<AudioBookEngine>(
-          initialValue: AudioBookEngine.justAudio,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: '音频播放器'),
-          items: const [
-            DropdownMenuItem(
-              value: AudioBookEngine.justAudio,
-              child: Text('just_audio（默认推荐）'),
-            ),
-            DropdownMenuItem(
-              value: AudioBookEngine.audioPlayers,
-              enabled: false,
-              child: Text('audioplayers（预留，暂不可用）'),
-            ),
-          ],
-          onChanged: (value) async {
-            if (value != AudioBookEngine.justAudio) return;
-            settings.engine = value!;
-            await settings.save();
-          },
+        GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<AudioBookEngine>(
+                initialValue: AudioBookEngine.justAudio,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: '音频播放器'),
+                items: const [
+                  DropdownMenuItem(
+                    value: AudioBookEngine.justAudio,
+                    child: Text('just_audio（默认推荐）'),
+                  ),
+                  DropdownMenuItem(
+                    value: AudioBookEngine.audioPlayers,
+                    enabled: false,
+                    child: Text('audioplayers（预留，暂不可用）'),
+                  ),
+                ],
+                onChanged: (value) async {
+                  if (value != AudioBookEngine.justAudio) return;
+                  settings.engine = value!;
+                  await settings.save();
+                },
+              ),
+              const SizedBox(height: 20),
+              const Text('用于音频文件和播放列表，支持倍速、定时关闭、后台与锁屏控制。'),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
-        const Text('用于音频文件和播放列表，支持倍速、定时关闭、后台与锁屏控制。'),
       ],
     ),
   );

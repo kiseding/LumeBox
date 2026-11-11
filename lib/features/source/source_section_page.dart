@@ -1,5 +1,7 @@
 import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../core/source/source_health.dart';
+import '../../core/source/source_capability_history.dart';
+import 'source_duplicates_page.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -317,6 +319,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
         ),
       ),
     );
+    if (mounted) await _reload();
   }
 
   Future<void> _restoreSource([SourceDescriptor? selected]) async {
@@ -662,6 +665,13 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   onSelected: (action) {
                     if (action == 'health') {
                       _inspectSource();
+                    } else if (action == 'duplicates') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              SourceDuplicatesPage(manager: _manager),
+                        ),
+                      );
                     } else if (action == 'rollback') {
                       _restoreSource();
                     } else if (action == 'select') {
@@ -677,6 +687,10 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                     }
                   },
                   itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'duplicates',
+                      child: Text('重复源检查'),
+                    ),
                     PopupMenuItem(
                       value: 'health',
                       enabled: (_sources ?? []).isNotEmpty,
@@ -842,9 +856,6 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
           key: const ValueKey('source-manager-header'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '已安装 ${sources.length} · 已启用 ${sources.where((s) => s.enabled).length} · 当前显示 ${visible.length}',
-            ),
             TextField(
               onChanged: (value) => setState(() => _sourceQuery = value),
               decoration: const InputDecoration(
@@ -853,6 +864,14 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                   slot: 'source_section_page.5',
                 ),
                 hintText: '搜索源名称、ID、分组或来源地址',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '已安装 ${sources.length} · 已启用 ${sources.where((s) => s.enabled).length} · 当前显示 ${visible.length}',
+              style: TextStyle(
+                fontSize: LumeTypography.descriptionSize,
+                color: LumeTheme.descriptionColor,
               ),
             ),
             const SizedBox(height: 8),
@@ -886,7 +905,7 @@ class _SourceSectionPageState extends State<SourceSectionPage> {
                       label,
                       style: TextStyle(
                         color: _sourceFilter == value
-                            ? Colors.white
+                            ? LumeTheme.onAccentFill
                             : LumeTheme.chipIdleForeground,
                       ),
                     ),
@@ -1387,6 +1406,15 @@ class _SourceTile extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (ReadingLibrary.find(section) case final library?)
+                      Text(
+                        SourceCapabilityHistory.summary(
+                          library,
+                          source.id,
+                          source.version,
+                        ),
+                        style: const TextStyle(fontSize: 11),
+                      ),
                     if (source.hasGroup) ...<Widget>[
                       Text(
                         source.group,

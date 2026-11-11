@@ -151,10 +151,19 @@ var LumeSource = {
 | 入口 | 入参 | 返回 |
 |---|---|---|
 | `categories()` | — | `[{id, title}]` |
-| `list({categoryId?, keyword?, page})` | `page` 从 1 开始 | `{items: [{id, title, cover?, subtitle?}], hasMore}` |
-| `detail({id})` | — | `{id, title, cover?, subtitle?, description?}`；找不到返回 `null` |
+| `list({categoryId?, keyword?, page})` | `page` 从 1 开始 | `{items: [{id, title, cover?, subtitle?, coverLabel?}], hasMore}` |
+| `detail({id})` | — | `{id, title, cover?, subtitle?, coverLabel?, description?}`；找不到返回 `null` |
 | `chapters({id})` | — | `[{id, title}]` |
 | `content({id, chapterId})` | — | 见下表（**按板块返回不同形态**） |
+
+`coverLabel`（可选）：封面角标，源自己给的短文本，App 原样画在封面上（三列网格在左下角、
+遮罩标题样式的卡片在左上角、列表行贴封面底部）。直播源拿它标国籍 / 地区，例如
+`mediaInfo: { liveCover: true, coverLabel: '🇹🇼 台湾' }`；顶层写 `coverLabel` 等价。
+空串、超过 12 个字符（或 24 个 UTF-16 单元）的文本会被丢弃——角标只是补充信息，
+长句会把封面压没。App 不做国旗推导，也不从标题里猜地区。
+
+直播用 `mediaInfo.liveCover: true` 声明「封面会变」：浏览页每 20 秒重取当前页并换图，
+封面地址带秒级时间戳（站方快照接口）就能一帧一帧地刷新。
 
 ### content 的三种形态（板块决定）
 
@@ -480,3 +489,12 @@ class Komiic extends ComicSource {
 2. 本机起一个静态站，把脚本里的 `BASE_URL` 指过去，用三份示例源对照——
    本仓库的 `test/js_sandbox/smoke_test.dart` 就是这么做的
    （`flutter test test/js_sandbox/smoke_test.dart` 一条命令跑完三类内容形态）。
+
+
+## 可选的分批目录（2026-11-07）
+
+长目录可以实现 `chapterPage({id, page})`，返回 `{items: [{id,title}], nextPage: 整数或null}`。
+`page` 从 1 开始；`nextPage` 必须递增且不超过 400，`null` 表示完成。宿主逐批调用，
+每批单独受沙箱时限约束，合并时按章节 ID 去重，全部成功后才缓存；任何批次失败都保留错误。
+仍须实现 `chapters({id})` 供旧宿主调用；未实现 `chapterPage` 的源继续按旧契约读取。
+不要在一批中抓取整本目录。月亮小说每批最多 6 个站点分页。

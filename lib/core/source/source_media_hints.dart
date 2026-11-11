@@ -22,10 +22,22 @@ abstract final class SourceMediaHints {
           if (['audio', 'audiobook', 'audio-book'].contains(kind)) {
             return 'audio';
           }
+          if (kind.isEmpty &&
+              data['category'] == 'video' &&
+              data['contentTypes'] is List &&
+              (data['contentTypes'] as List).contains('video') &&
+              (data['contentTypes'] as List).length >= 2) {
+            return 'video';
+          }
           if (kind.isEmpty && data['category'] == 'audiobook') return 'audio';
           if (['novel', 'text', 'html'].contains(kind) ||
               data['category'] == 'novel') {
             return 'novel';
+          }
+          if (['photo', 'gallery'].contains(kind) ||
+              data['category'] == 'photo' ||
+              '${data['id'] ?? ''}'.endsWith('_photo')) {
+            return 'photo';
           }
           if (['photo', 'comic'].contains(data['category'])) {
             return '${data['category']}';

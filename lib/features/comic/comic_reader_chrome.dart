@@ -75,6 +75,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
     _speechContinuous = false;
     _speechGeneration++;
     _speechWorking = false;
+    _speechAdvancePending = false;
     _speechText = null;
     _speechUrl = null;
     _speechCursor.value = null;
@@ -503,7 +504,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
                 thumbShape: const _ReaderSliderThumb(),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               ),
-              child: Slider(
+              child: NativeGlassSlider(
                 key: const Key('comic.pageSlider'),
                 value: _images.isEmpty ? 0 : _page.toDouble(),
                 max: math.max(1, _images.length - 1).toDouble(),
@@ -1180,6 +1181,24 @@ extension _ComicReaderChrome on _ComicReaderPageState {
           ),
           _entry(Icons.bookmark_border, '书签', () => open('bookmarks')),
           _entry(
+            Icons.bookmark_add_outlined,
+            '保存到统一摘录',
+            () => close(
+              () => saveContentClip(
+                context,
+                ContentRef(
+                  widget.library.section,
+                  widget.target.sourceId,
+                  widget.target.itemId,
+                  widget.target.title,
+                ),
+                chapter: _chapterIndex,
+                page: _page,
+              ),
+            ),
+            arrow: false,
+          ),
+          _entry(
             Icons.edit_note,
             '为本章添加笔记',
             () => close(_editNote),
@@ -1452,7 +1471,7 @@ extension _ComicReaderChrome on _ComicReaderPageState {
             ),
           ],
         ),
-        Slider(
+        NativeGlassSlider(
           activeColor: _readerAccent,
           value: value.clamp(min, max),
           min: min,

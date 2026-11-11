@@ -1,3 +1,5 @@
+import '../media/playback_focus.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -103,8 +105,8 @@ class MethodChannelPlaybackBackend implements PlaybackSessionBackend {
   MethodChannelPlaybackBackend({
     MethodChannel? methodChannel,
     EventChannel? eventChannel,
-  })  : _methods = methodChannel ?? const MethodChannel(methodChannelName),
-        _events = eventChannel ?? const EventChannel(eventChannelName);
+  }) : _methods = methodChannel ?? const MethodChannel(methodChannelName),
+       _events = eventChannel ?? const EventChannel(eventChannelName);
 
   static const String methodChannelName = 'lumebox/playback';
   static const String eventChannelName = 'lumebox/playback/events';
@@ -205,7 +207,7 @@ PlaybackSessionBackend createPlatformPlaybackBackend() => Platform.isIOS
 /// （退出 / 停止时）。它自己判断平台支不支持——不支持时全是空操作。
 class PlaybackSession {
   PlaybackSession({PlaybackSessionBackend? backend})
-      : _backend = backend ?? createPlatformPlaybackBackend();
+    : _backend = backend ?? createPlatformPlaybackBackend();
 
   final PlaybackSessionBackend _backend;
 
@@ -214,6 +216,9 @@ class PlaybackSession {
 
   /// 节流：进度更新不必每次都过通道（系统播放条不需要 0.5 秒级精度）。
   Duration _lastPosition = Duration.zero;
+  bool? _lastPlaying;
+  Duration? _lastDuration;
+  double? _lastSpeed;
   static const Duration _positionInterval = Duration(seconds: 5);
 
   bool get isActive => _active;
@@ -228,6 +233,9 @@ class PlaybackSession {
     if (!await _backend.isSupported()) return;
     _active = true;
     _lastPosition = Duration.zero;
+    _lastPlaying = null;
+    _lastDuration = duration;
+    _lastSpeed = speed;
     await _backend.start(
       title: title,
       subtitle: subtitle,
@@ -243,30 +251,32 @@ class PlaybackSession {
     Duration? duration,
     double? speed,
   }) async {
+    if (playing != null) PlaybackFocus.setPlaying('video', playing);
     if (!_active) return;
-    Duration? throttled = position;
-    if (position != null) {
-      final changed =
-          (position - _lastPosition).abs() >= _positionInterval;
-      if (!changed && playing == null && duration == null && speed == null) {
-        return;
-      }
-      if (changed) {
-        _lastPosition = position;
-      } else {
-        throttled = null;
-      }
-    }
+    final stateChanged = playing != null && playing != _lastPlaying;
+    final durationChanged = duration != null && duration != _lastDuration;
+    final speedChanged = speed != null && speed != _lastSpeed;
+    final metadataChanged = stateChanged || durationChanged || speedChanged;
+    final positionChanged =
+        position != null &&
+        (position - _lastPosition).abs() >= _positionInterval;
+    if (!metadataChanged && !positionChanged) return;
+    final sentPosition = positionChanged || metadataChanged ? position : null;
+    if (sentPosition != null) _lastPosition = sentPosition;
+    if (stateChanged) _lastPlaying = playing;
+    if (durationChanged) _lastDuration = duration;
+    if (speedChanged) _lastSpeed = speed;
     await _backend.update(
-      position: throttled,
-      playing: playing,
-      duration: duration,
-      speed: speed,
+      position: sentPosition,
+      playing: stateChanged ? playing : null,
+      duration: durationChanged ? duration : null,
+      speed: speedChanged ? speed : null,
     );
   }
 
   /// 结束会话（页面退出 / 播放器释放）。
   Future<void> stop() async {
+    PlaybackFocus.setPlaying('video', false);
     if (!_active) return;
     _active = false;
     await _backend.stop();

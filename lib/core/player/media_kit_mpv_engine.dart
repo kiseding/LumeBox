@@ -174,6 +174,8 @@ class MediaKitMpvEngine
   int? _width;
   int? _height;
   String? _error;
+  Timer? _tcpReadTimer;
+  String? _pendingTcpReadError;
   Timer? _speedTimer;
   final _highestHls = HighestHls();
   bool _networkMedia = false;
@@ -268,12 +270,9 @@ class MediaKitMpvEngine
   @override
   Future<void> setBuffering(BufferingConfig config) async {
     if (_disposed) return;
-    final changed = config != _bufferingConfig;
     _bufferingConfig = config;
-    // 没变就不重复写：`open()` 之前还会统一应用一次，值相同的那次是多余的。
-    if (!changed) return;
-    // 已经打开媒体时也写一遍：这几项属性在播放中改对**下一个**文件生效，
-    // 因此不会打断正在播的画面（下一集 / 下次起播就会用上新值）。
+    // 成功应用的相同配置由 _appliedBuffering 去重；失败写入允许重试。
+    // 预读时长与容量为运行时选项，更新当前解复用缓存。
     await _applyBufferingProperties();
   }
 
@@ -555,6 +554,7 @@ class MediaKitMpvEngine
   @override
   Future<void> pause() async {
     if (_disposed) return;
+    _clearTcpReadError();
     await _player.pause();
   }
 
@@ -566,6 +566,7 @@ class MediaKitMpvEngine
     // libmpv silently ignores a seek issued before the file is ready.
     if (_duration <= Duration.zero) {
       _pendingSeek = position;
+      _pendingSeekFast = false;
       return;
     }
     _pendingSeek = null;
@@ -581,6 +582,7 @@ class MediaKitMpvEngine
     final generation = ++_seekGeneration;
     if (_duration <= Duration.zero) {
       _pendingSeek = position;
+      _pendingSeekFast = true;
       return;
     }
     _pendingSeek = null;
@@ -595,6 +597,8 @@ class MediaKitMpvEngine
     try {
       final platform = _player.platform;
       if (platform is NativePlayer) {
+        // Keep the requested landing point while discarding intermediate frames.
+        await platform.setProperty('hr-seek-framedrop', 'yes');
         await platform.setProperty('hr-seek', exact ? 'yes' : 'no');
       }
     } catch (error) {
@@ -603,6 +607,7 @@ class MediaKitMpvEngine
   }
 
   Duration? _pendingSeek;
+  bool _pendingSeekFast = false;
 
   /// 与 AVPlayer 内核同口径：回到起点并暂停，不卸载媒体。
   ///
@@ -611,6 +616,7 @@ class MediaKitMpvEngine
   @override
   Future<void> stop() async {
     if (_disposed) return;
+    _clearTcpReadError();
     await _player.pause();
     await _player.seek(Duration.zero);
   }
@@ -738,6 +744,7 @@ class MediaKitMpvEngine
         }
       }
 
+      final decoder = await read('hwdec-current');
       final gamma = await read('video-params/gamma');
       final primaries = await read('video-params/primaries');
       final audio = await read('audio-codec-name');
@@ -751,6 +758,11 @@ class MediaKitMpvEngine
           ? '待识别'
           : 'SDR';
       _presentationStatus.value = [
+        '实际解码：${decoder == null || decoder.isEmpty
+            ? '未提供'
+            : decoder == 'no'
+            ? '软件解码'
+            : decoder}',
         '片源：$range${primaries == null ? '' : ' · $primaries'}',
         '显示：SDR 纹理；HDR 内容使用色调映射',
         if (audio != null && audio.isNotEmpty)
@@ -865,6 +877,7 @@ class MediaKitMpvEngine
     await _highestHls.close();
     if (_disposed) return;
     _disposed = true;
+    _clearTcpReadError();
     _presentationStatus.dispose();
     _speedTimer?.cancel();
     for (final subscription in _subscriptions) {
@@ -942,6 +955,13 @@ class MediaKitMpvEngine
     final streams = _player.stream;
     _subscriptions.addAll(<StreamSubscription<Object?>>[
       streams.position.listen((value) {
+        if (value > _position && _pendingTcpReadError != null) {
+          _tcpReadTimer?.cancel();
+          _tcpReadTimer = Timer(
+            const Duration(seconds: 8),
+            _reportTcpReadError,
+          );
+        }
         _position = value;
         _emit();
       }),
@@ -951,7 +971,10 @@ class MediaKitMpvEngine
         if (value > Duration.zero && pending != null) {
           _pendingSeek = null;
           unawaited(
-            _player.seek(pending).catchError((Object error, StackTrace stack) {
+            (_pendingSeekFast ? seekFast(pending) : seek(pending)).catchError((
+              Object error,
+              StackTrace stack,
+            ) {
               LumeLog.error(error, stack);
             }),
           );
@@ -967,6 +990,7 @@ class MediaKitMpvEngine
         _emit();
       }),
       streams.buffer.listen((value) {
+        if (_buffered != null && value > _buffered!) _clearTcpReadError();
         _buffered = value;
         _emit();
       }),
@@ -978,7 +1002,29 @@ class MediaKitMpvEngine
       streams.tracks.listen(_applyTracks),
       streams.track.listen((_) => _applyTracks(_player.state.tracks)),
       streams.error.listen((value) {
-        _fail(value);
+        if (_networkMedia &&
+            _position > Duration.zero &&
+            (_playing || _buffering || _pendingTcpReadError != null) &&
+            isTcpReadWarning(value)) {
+          // media_kit forwards FFmpeg log lines before mpv has exhausted its
+          // reconnect attempts. Keep decoding buffered packets in the meantime.
+          _pendingTcpReadError = value;
+          _tcpReadTimer ??= Timer(
+            const Duration(seconds: 8),
+            _reportTcpReadError,
+          );
+        } else {
+          _fail(value);
+        }
+      }),
+      streams.completed.listen((completed) {
+        if (!completed || _pendingTcpReadError == null) return;
+        if (_duration > Duration.zero &&
+            _duration - _position <= const Duration(seconds: 2)) {
+          _clearTcpReadError();
+        } else {
+          _reportTcpReadError();
+        }
       }),
     ]);
   }
@@ -1021,6 +1067,7 @@ class MediaKitMpvEngine
   }
 
   void _resetMediaState() {
+    _clearTcpReadError();
     _pendingSeek = null;
     _downloadBytesPerSecond = null;
     _position = Duration.zero;
@@ -1040,9 +1087,25 @@ class MediaKitMpvEngine
   }
 
   void _fail(String message) {
+    _clearTcpReadError();
     _error = message;
     LumeLog.warn('[mpv] $message');
     _emit();
+  }
+
+  @visibleForTesting
+  static bool isTcpReadWarning(String message) =>
+      message.trimLeft().toLowerCase().startsWith('tcp: ffurl_read returned ');
+
+  void _clearTcpReadError() {
+    _tcpReadTimer?.cancel();
+    _tcpReadTimer = null;
+    _pendingTcpReadError = null;
+  }
+
+  void _reportTcpReadError() {
+    final message = _pendingTcpReadError;
+    if (!_disposed && message != null) _fail(message);
   }
 
   void _emit() {

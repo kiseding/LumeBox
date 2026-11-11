@@ -137,7 +137,6 @@ flutter:
     - assets/models/waifu2x/LICENSE
     - assets/models/intro/anchor_vectors.json
     - assets/models/intro/prompts.json
-    - assets/models/intro/compact_checksums.json
     - assets/models/intro/MobileCLIP-LICENSE.txt
     - assets/models/intro/MobileCLIP-LICENSE_MODELS.txt
     - assets/models/intro/MobileCLIP-ACKNOWLEDGEMENTS.txt

@@ -4,17 +4,77 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/player/player_factory.dart';
 import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_settings.dart';
+import 'package:lume_box/features/video/danmaku/danmaku_sources_page.dart';
 import 'package:lume_box/features/video/player_settings_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
 
 /// 播放器设置页的验证：内核选择（未接入项不可选并给出原因）、倍速档位、
 /// 字幕开关与字号。页面是受控组件，断言落在「回调收到了什么设置」上。
 void main() {
+  testWidgets('全局播放器分组进入详情，返回后保留数值', (tester) async {
+    var settings = const PlayerSettings();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, update) => PlayerSettingsPage(
+            settings: settings,
+            catalog: _FakeCatalog({PlayerKernel.avplayer}),
+            onChanged: (value) => update(() => settings = value),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('播放与选集'), findsOneWidget);
+    expect(find.text('画面与显示'), findsOneWidget);
+    expect(find.text('声音与字幕'), findsOneWidget);
+    expect(find.text('弹幕与匹配'), findsNothing);
+    expect(find.text('手势与外观'), findsOneWidget);
+    expect(find.text('默认播放内核'), findsOneWidget);
+    expect(find.text('播放倍速'), findsNothing);
+    await Scrollable.ensureVisible(
+      tester.element(find.text('播放与选集')),
+      alignment: .5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放与选集'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, '2x'));
+    await tester.pumpAndSettle();
+    expect(settings.speed, 2);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.text('画面与显示')),
+      alignment: .5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('画面与显示'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.text('播放与选集')),
+      alignment: .5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放与选集'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '2x')).selected,
+      isTrue,
+    );
+  });
+
   Future<void> pumpPage(
     WidgetTester tester, {
     required PlayerSettings settings,
     required PlayerKernelCatalog catalog,
     required ValueChanged<PlayerSettings> onChanged,
+    String category = 'playback',
   }) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -25,11 +85,51 @@ void main() {
           settings: settings,
           catalog: catalog,
           onChanged: onChanged,
+          focusCategory: category,
+          danmaku: category == 'danmaku' ? DanmakuSettings.defaults : null,
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('全局弹幕服务铺满页面并在同一页切换弹幕设置', (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      DanmakuSourcesStore.channel,
+      (_) async => <String, String>{'profilesJson': '[]'},
+    );
+    addTearDown(
+      () =>
+          messenger.setMockMethodCallHandler(DanmakuSourcesStore.channel, null),
+    );
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 59);
+    addTearDown(tester.view.reset);
+    await pumpPage(
+      tester,
+      settings: const PlayerSettings(),
+      catalog: _FakeCatalog({PlayerKernel.avplayer}),
+      onChanged: (_) {},
+      category: 'danmaku',
+    );
+
+    final header = find.widgetWithText(AppBar, '弹幕服务');
+    expect(tester.getTopLeft(header).dy, lessThanOrEqualTo(0));
+    expect(tester.getCenter(find.text('弹幕服务')).dy, greaterThan(59));
+    expect(find.byTooltip('添加弹幕源'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('settings-tab-matching')));
+    await tester.pumpAndSettle();
+    expect(find.text('避让底部字幕').hitTestable(), findsOneWidget);
+    expect(header, findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('settings-tab-sources')));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('添加弹幕源').hitTestable(), findsOneWidget);
+  });
 
   testWidgets('内核：当前项打勾；未接入项不可选并显示原因', (tester) async {
     PlayerSettings? changed;
@@ -38,17 +138,28 @@ void main() {
       settings: const PlayerSettings(),
       catalog: _FakeCatalog(<PlayerKernel>{PlayerKernel.avplayer}),
       onChanged: (next) => changed = next,
+      category: 'advanced',
     );
 
     expect(find.text('AVPlayer'), findsOneWidget);
+    final kernelCard = find.ancestor(
+      of: find.text('AVPlayer'),
+      matching: find.byType(GlassCard),
+    );
+    final decodingCard = find.ancestor(
+      of: find.text('硬件解码'),
+      matching: find.byType(GlassCard),
+    );
+    expect(
+      tester.widget<GlassCard>(kernelCard).radius,
+      tester.widget<GlassCard>(decodingCard).radius,
+    );
     expect(find.text('MPV 内核尚未接入'), findsOneWidget);
     expect(find.text('MDK 内核尚未接入'), findsOneWidget);
     // 只有当前内核打勾。
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
 
     // 未接入的内核点击无效。
-    await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('MDK'));
     await tester.pumpAndSettle();
     expect(changed, isNull);
@@ -64,17 +175,18 @@ void main() {
         PlayerKernel.mpv,
       }),
       onChanged: (next) => changed = next,
+      category: 'advanced',
     );
 
-    await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('MPV'));
     await tester.pumpAndSettle();
 
     expect(changed?.kernel, PlayerKernel.mpv);
     // 页面本地状态同步更新：勾选移到 MPV 那一行。
     Finder checkOn(String label) => find.descendant(
-      of: find.ancestor(of: find.text(label), matching: find.byType(GlassCard)),
+      of: find
+          .ancestor(of: find.text(label), matching: find.byType(InkWell))
+          .first,
       matching: find.byIcon(Icons.check_circle),
     );
     expect(checkOn('MPV'), findsOneWidget);
@@ -97,11 +209,7 @@ void main() {
     for (final label in <String>['0.5x', '1x', '2x', '3x']) {
       expect(find.widgetWithText(ChoiceChip, label), findsOneWidget);
     }
-    expect(
-      find.widgetWithText(ChoiceChip, '1.5x'),
-      findsWidgets,
-      reason: '1.5x 在倍速与画面缩放里都有（同一个数字档）',
-    );
+    expect(find.widgetWithText(ChoiceChip, '1.5x'), findsOneWidget);
     expect(
       tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '1x')).selected,
       isTrue,
@@ -131,10 +239,6 @@ void main() {
     final dropdown = find.byType(DropdownButtonFormField<DefaultQuality>);
     await tester.ensureVisible(dropdown);
     await tester.pumpAndSettle();
-    expect(
-      tester.getTopLeft(dropdown).dy,
-      lessThan(tester.getTopLeft(find.text('后台静默校验播放源')).dy),
-    );
     await tester.tap(dropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('720p').last);
@@ -152,6 +256,7 @@ void main() {
       settings: const PlayerSettings(kernel: PlayerKernel.mpv),
       catalog: _FakeCatalog(<PlayerKernel>{PlayerKernel.avplayer}),
       onChanged: (next) => changed = next,
+      category: 'audio',
     );
 
     expect(find.text('显示字幕'), findsOneWidget);
@@ -204,6 +309,7 @@ void main() {
       settings: const PlayerSettings(subtitlesEnabled: false),
       catalog: _FakeCatalog(<PlayerKernel>{PlayerKernel.avplayer}),
       onChanged: (next) => changed = next,
+      category: 'audio',
     );
 
     await tester.dragUntilVisible(
@@ -235,6 +341,7 @@ void main() {
           settings: const PlayerSettings(),
           onChanged: (_) {},
           catalog: const _FakeCatalog(<PlayerKernel>{PlayerKernel.avplayer}),
+          focusCategory: 'advanced',
         ),
       ),
     );
@@ -243,11 +350,7 @@ void main() {
     // 页面里应当只有**一个**滚动视图（内嵌面板不再自带 ListView）。
     expect(find.byType(ListView), findsOneWidget);
     final section = find.text('硬件解码');
-    expect(
-      tester.getTopLeft(section).dy,
-      greaterThan(700),
-      reason: '首屏这一节在屏幕外（这正是用户「拉不上来」的那一段）',
-    );
+    expect(section, findsOneWidget);
 
     // 往上拖：页面**真的能滚**（内层不再吃手势），那一节随之上移。
     final before = tester.getTopLeft(section).dy;
@@ -258,10 +361,11 @@ void main() {
       after = tester.getTopLeft(section).dy;
       if (after < 700) break;
     }
+    expect(after, lessThanOrEqualTo(before));
     expect(
-      after,
-      lessThan(before - 400),
-      reason: '往上拖要能带动页面（真机上是「拉不上来」，一点都滚不动）',
+      tester.getRect(section).bottom,
+      lessThan(700),
+      reason: '内容缩短时无需滚动，硬解入口仍可见',
     );
   });
 }

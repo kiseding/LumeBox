@@ -33,6 +33,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('TMDB配置'), findsOneWidget);
+    final appearance = tester.widget<ExpansionTile>(
+      find.byKey(const Key('tmdb-appearance-section')),
+    );
+    expect(appearance.tilePadding, const EdgeInsets.symmetric(horizontal: 16));
+    expect(
+      appearance.childrenPadding,
+      const EdgeInsets.fromLTRB(16, 0, 16, 12),
+    );
     // 全局表单兜底：浅色输入框纯白底 + 浅灰边框；切换器同款。
     final theme = Theme.of(tester.element(find.byType(TmdbSettingsPage)));
     expect(theme.inputDecorationTheme.fillColor, Colors.white);
@@ -73,7 +81,11 @@ void main() {
     await tester.enterText(input('图片代理地址'), 'https://images.test/t/p');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('断开连接'));
+    await tester.scrollUntilVisible(
+      find.text('断开连接'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('断开连接'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
@@ -90,9 +102,7 @@ void main() {
     expect(TmdbSettings.instance.imageProxy, isEmpty);
     var flushed = false;
     TmdbSettings.instance.flush().then((_) => flushed = true);
-    // 落盘是真实文件 IO：CI 机器偶尔会慢到秒级，轮询窗口给足 5 秒
-    // （1.2 秒的旧上限在 windows-latest 上偶发假失败）。
-    for (var i = 0; i < 250 && !flushed; i++) {
+    for (var i = 0; i < 60 && !flushed; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );

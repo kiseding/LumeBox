@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/browse_choice_access.dart';
 
 void main() {
@@ -10,13 +11,15 @@ void main() {
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(
-              useMaterial3: true,
-              brightness: brightness,
-              chipTheme: const ChipThemeData(
-                labelStyle: TextStyle(color: Colors.white),
-              ),
-            ),
+            theme:
+                LumeTheme.build(
+                  brightness: brightness,
+                  customAccent: const Color(0xFFFF2D55),
+                ).copyWith(
+                  chipTheme: const ChipThemeData(
+                    labelStyle: TextStyle(color: Colors.white),
+                  ),
+                ),
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
@@ -64,7 +67,7 @@ void main() {
           final selected = tester.widget<ChoiceChip>(finder);
           expect(selected.selected, isTrue);
           expect(selected.labelStyle!.color, Colors.white);
-          expect(selected.selectedColor, const Color(0xFF6C5CE7));
+          expect(selected.selectedColor, const Color(0xFFFF2D55));
           expect(selected.checkmarkColor, Colors.white);
         }
         expect(tester.takeException(), isNull);
@@ -107,7 +110,7 @@ void main() {
     expect(footer.left, 16);
     expect(
       footer.right,
-      tester.getRect(find.byKey(const ValueKey('browse-left-drawer'))).right -
+      tester.getRect(find.byKey(const ValueKey('browse-right-drawer'))).right -
           16,
     );
     expect(footer.bottom, 844 - 34);

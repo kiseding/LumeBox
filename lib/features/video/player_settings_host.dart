@@ -16,7 +16,13 @@ import 'video_player_settings.dart';
 /// 在这里改，落库仍写**视频板块自己的**设置库（与其他板块隔离）。
 /// 改动在下次进入视频板块时生效（切 Tab 会重建该板块页面）。
 class PlayerSettingsHost extends StatefulWidget {
-  const PlayerSettingsHost({super.key, this.catalog, this.storeOpener});
+  const PlayerSettingsHost({
+    super.key,
+    this.catalog,
+    this.storeOpener,
+    this.focusCategory,
+  });
+  final String? focusCategory;
 
   /// 内核可用性目录；为空时用平台目录。
   final PlayerKernelCatalog? catalog;
@@ -49,19 +55,24 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
 
   Future<void> _boot() async {
     try {
+      if (widget.focusCategory == 'danmaku') {
+        final library = await ReadingLibrary.open(Section.video);
+        if (!mounted) return;
+        setState(() {
+          _library = library;
+          _settings = const PlayerSettings();
+          _danmaku = DanmakuSettingsStore(library).load();
+        });
+        library.settingsRevision.addListener(_sharedSettingsChanged);
+        return;
+      }
       final opener = widget.storeOpener ?? VideoPlayerSettingsStore.open;
       final store = await opener();
-      if (!mounted) return;
-      // 弹幕设置也在视频板块的库里：全局设置页要能直接改它（用户口径）。
-      final library = await ReadingLibrary.open(Section.video);
       if (!mounted) return;
       setState(() {
         _store = store;
         _settings = store.load();
-        _library = library;
-        _danmaku = DanmakuSettingsStore(library).load();
       });
-      library.settingsRevision.addListener(_sharedSettingsChanged);
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
@@ -113,10 +124,11 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
       );
     }
     return PlayerSettingsPage(
+      focusCategory: widget.focusCategory,
       settings: settings,
       catalog: widget.catalog ?? const PlatformPlayerKernelCatalog(),
       onChanged: _apply,
-      danmaku: _danmaku,
+      danmaku: _library == null ? null : _danmaku,
       onDanmakuChanged: _applyDanmaku,
     );
   }

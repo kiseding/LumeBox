@@ -40,7 +40,8 @@ const introMethodHelp = <String, String>{
 };
 
 class IntroSettingsPage extends StatefulWidget {
-  const IntroSettingsPage({super.key, this.store});
+  const IntroSettingsPage({super.key, this.store, this.embedded = false});
+  final bool embedded;
   final IntroStore? store;
   @override
   State<IntroSettingsPage> createState() => _IntroSettingsPageState();
@@ -82,7 +83,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
         _store!.update({'videoModelRoot': null, 'audioModelPath': null});
         _message(
           Platform.isIOS
-              ? '已准备 MobileCLIP-S0 与 YAMNet，首次推理时编译 Core ML'
+              ? '已准备内置 MobileCLIP-S0 与 YAMNet，首次推理时编译 Core ML'
               : '已准备 YAMNet；MobileCLIP Core ML 在 iPhone 上运行',
         );
       } else {
@@ -176,6 +177,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
     final store = _store;
     if (store == null) {
       return PlayerSettingsScaffold(
+        embedded: widget.embedded,
         title: '片头片尾识别',
         body: Center(
           child: _error == null
@@ -365,7 +367,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
                 const Padding(
                   padding: EdgeInsets.all(12),
                   child: Text(
-                    '首次准备会下载 MobileCLIP-S0 图像编码器（约 20 MB）与 YAMNet（约 15 MB），之后本地推理。识别为实验性辅助结果，可替换兼容模型。',
+                    '内置 MobileCLIP-S0 与 YAMNet。识别为实验性辅助结果，可替换兼容模型。',
                     style: TextStyle(fontSize: 12, height: 1.4),
                   ),
                 ),
@@ -383,7 +385,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
                   title: const Text('更换视频模型'),
                   subtitle: Text(
                     options.values['videoModelRoot'] == null
-                        ? '当前：MobileCLIP-S0'
+                        ? '当前：内置 MobileCLIP-S0'
                         : '当前：自定义 Core ML',
                   ),
                   trailing: const Icon(Icons.chevron_right, size: 20),
@@ -485,6 +487,7 @@ class _IntroSettingsPageState extends State<IntroSettingsPage> {
           );
         }
         return PlayerSettingsScaffold(
+          embedded: widget.embedded,
           title: '片头片尾识别',
           actions: [
             IconButton(

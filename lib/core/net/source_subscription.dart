@@ -16,6 +16,7 @@ import '../source/source_bundle.dart';
 import '../js/module_script.dart';
 import '../js/rex_widget.dart';
 import 'rex_collection.dart';
+import 'private_github_subscription.dart';
 
 /// 一次订阅拉取的结果。
 ///
@@ -50,7 +51,10 @@ class SourceSubscription {
 
   Future<({SourceFetchResult? value, Object? error, StackTrace? stack})>
   _startDownload(String url) async {
-    if (_activeDownloads >= 4) {
+    // The official repository is a static file host, not a scraped site.
+    // Keep general source hosts at four while allowing six official downloads.
+    final limit = SubscriptionCatalog.officialPath(url) == null ? 4 : 6;
+    if (_activeDownloads >= limit) {
       final ready = Completer<void>();
       _downloadWaiters.add(ready);
       await ready.future;
@@ -87,9 +91,10 @@ class SourceSubscription {
   ) sync* {
     for (var i = 0; i < urls.length; i++) {
       // Tiny/custom import limits preserve strictly lazy expansion. Normal
-      // subscriptions prefetch only a four-entry window; parsing stays ordered.
+      // subscriptions keep a bounded twelve-entry window so slower early files
+      // do not leave download slots idle; parsing stays ordered.
       if (maxScripts >= defaultMaxScripts) {
-        for (var j = i; j < urls.length && j < i + 4 && j < budget; j++) {
+        for (var j = i; j < urls.length && j < i + 12 && j < budget; j++) {
           final url = urls[j];
           if (!visited.contains(url)) {
             _downloads.putIfAbsent(url, () => _startDownload(url));
@@ -158,6 +163,19 @@ class SourceSubscription {
     bool force = false,
   }) async {
     url = SubscriptionCatalog.migrateUrl(url);
+    final credentials = await PrivateGithubSubscription.load();
+    final privateApi = credentials?.apiFor(url);
+    if (privateApi != null) {
+      final bytes = await credentials!.download(privateApi);
+      return SourceFetchResult(
+        bytes: bytes,
+        text: stripBomText(utf8.decode(bytes, allowMalformed: true)),
+      );
+    }
+    if (credentials?.targetsRepository(url) == true) {
+      throw const FormatException('私有订阅地址的分支或路径不匹配，请检查私有仓库设置');
+    }
+    url = SubscriptionCatalog.migrateUrl(url);
     final headers = force ? const {'Cache-Control': 'no-cache'} : null;
     Future<LumeHttpResponse> send(String target) async {
       final current = await _currentCdnManifest(http, target, headers);
@@ -171,7 +189,9 @@ class SourceSubscription {
         throw LumeHttpException('HTTP ${response.statusCode}');
       }
     } on LumeHttpException {
-      final alternate = githubCdnUrl(url);
+      final alternate = SubscriptionCatalog.officialPath(url) == null
+          ? githubCdnUrl(url)
+          : null;
       if (alternate == null) rethrow;
       LumeLog.info('[订阅] GitHub 原始地址暂不可达，尝试 CDN：$url');
       response = await send(alternate);

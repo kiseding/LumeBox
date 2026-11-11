@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CURL = shutil.which('curl.exe' if os.name == 'nt' else 'curl')
@@ -65,7 +66,7 @@ def invoke(raw):
         return json.dumps({'ok': False, 'error': str(error)})
 
 
-def check(path):
+def check(path, category_id=None):
     source = path.read_text(encoding='utf-8-sig')
     match = re.search(r'^\s*#\s*LumeSource:\s*(\{[^\n]+\})', source, re.M)
     identity = json.loads(match[1]) if match else {}
@@ -79,11 +80,14 @@ def check(path):
     host = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(host)
 
+    latencies = {}
     def call(method, argument=None):
+        started = time.perf_counter()
         result = json.loads(host.run(json.dumps({
             'sourceId': 'cli-source', 'action': 'call', 'method': method,
             'argument': argument or {}, 'timeout': 30,
         })))
+        latencies[method] = round((time.perf_counter() - started) * 1000)
         if not result['ok']:
             raise RuntimeError(result['error']['message'])
         return result['value']
@@ -98,12 +102,17 @@ def check(path):
         report['calls']['categories'] = {'ok': True, 'count': len(categories)}
         home = call('home')
         report['calls']['home'] = {'ok': True, 'count': len(home)}
-        category = categories[0]['id'] if categories else ''
+        category = category_id or (categories[0]['id'] if categories else '')
         listing = call('list', {'categoryId': category, 'page': 1})['items']
         if not listing:
             raise RuntimeError('The first category returned no items')
         report['calls']['list'] = {'ok': True, 'count': len(listing)}
         item = listing[0]
+        cover = item.get('cover', '')
+        if cover.startswith(('http://', 'https://')):
+            image_status, image_headers, image_body = http_request(cover, headers=item.get('coverHeaders', {}))
+            image_ok = image_status == 200 and image_headers.get('content-type', '').startswith('image/')
+            report['calls']['cover'] = {'ok': image_ok, 'status': image_status, 'bytes': len(image_body)}
         detail = call('detail', {'id': item['id']})
         report['calls']['detail'] = {'ok': bool(detail), 'title': 'present' if detail else ''}
         episodes = call('chapters', {'id': item['id']})
@@ -116,15 +125,27 @@ def check(path):
             **content.get('headers', {}), 'Range': 'bytes=0-1023',
         })
         playable = status in (200, 206) and (
-            prefix.startswith(b'#EXTM3U') or b'ftyp' in prefix[:32])
+            prefix.startswith((b'#EXTM3U', b'ID3', b'fLaC', b'OggS', b'RIFF')) or b'ftyp' in prefix[:32] or headers.get('content-type', '').startswith('audio/'))
         report['calls']['playable'] = {'ok': playable, 'probe': {
             'ok': playable, 'status': status, 'type': headers.get('content-type', ''),
         }}
+        # A source-owned streaming server must remain usable after the
+        # playerContent deadline, rather than succeeding only on its first read.
+        if playable and content['url'].startswith(('http://127.0.0.1:', 'http://localhost:')) and status == 206:
+            host._contexts['cli-source']['deadline'] = 0
+            second, range_headers, chunk = http_request(content['url'], headers={
+                **content.get('headers', {}), 'Range': 'bytes=1048576-1049599',
+            })
+            range_ok = second == 206 and range_headers.get('content-range', '').startswith('bytes 1048576-1049599/') and len(chunk) == 1024
+            report['calls']['continuedRange'] = {'ok': range_ok, 'status': second, 'bytes': len(chunk)}
+            playable = playable and range_ok
         report['ok'] = playable
     except Exception as error:
         report['calls']['run'] = {'ok': False, 'error': str(error)}
     finally:
         host.run(json.dumps({'sourceId': 'cli-source', 'action': 'dispose'}))
+        for method, ms in latencies.items():
+            if method in report['calls']: report['calls'][method]['ms'] = ms
     return report
 
 
@@ -132,7 +153,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--category')
     options = parser.parse_args()
-    result = check(options.source)
+    result = check(options.source, options.category)
     print(json.dumps([result], ensure_ascii=not options.json, indent=2))
     raise SystemExit(0 if result['ok'] else 1)

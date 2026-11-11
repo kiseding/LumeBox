@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 
 import '../net/lume_http.dart';
 import '../net/source_subscription.dart';
+import '../net/private_github_subscription.dart';
 import '../session/section.dart';
 import '../session/section_scope.dart';
 import '../util/lume_log.dart';
@@ -57,6 +58,12 @@ class SubscriptionSyncResult {
   int pending = 0;
   String message = '';
   final List<String> errors = [];
+
+  /// Previously removed sources intentionally skipped by an explicit bulk import.
+  final Map<String, String> excluded = {};
+
+  /// Subscription records that need retry after incomplete synchronization.
+  final Set<String> failedSubscriptions = {};
   bool get changed => added + updated + removed > 0;
   String get summary => message.isNotEmpty
       ? message
@@ -64,6 +71,7 @@ class SubscriptionSyncResult {
             '新增 $added · 更新 $updated · 移除 $removed'
             '${unchanged > 0 ? ' · 无变化 $unchanged' : ''}'
             '${pending > 0 ? ' · 待选择安装 $pending' : ''}'
+            '${excluded.isNotEmpty ? ' · 已跳过 ${excluded.length}' : ''}'
             '${skipped > 0 ? ' · 未到检查时间 $skipped' : ''}'
             '${errors.isEmpty ? '' : ' · 失败 ${errors.length}'}';
 }
@@ -119,6 +127,11 @@ class SourceSubscriptionSync {
     if (changes.isEmpty) return;
     final entries = _changes.putIfAbsent(section, () => {});
     for (final change in changes) {
+      if (change['url'] != null) {
+        entries.removeWhere(
+          (id, old) => id != change['id'] && old['url'] == change['url'],
+        );
+      }
       entries[change['id']!] = change;
     }
     final count = changeCount(section);
@@ -310,6 +323,16 @@ class SourceSubscriptionSync {
     Iterable<String> urls, {
     bool autoInstallNew = false,
   }) async {
+    final credentials = await PrivateGithubSubscription.load();
+    for (final raw in urls) {
+      final input = raw.trim();
+      final parsed = Uri.tryParse(input);
+      if (parsed?.userInfo.isNotEmpty == true ||
+          (credentials?.targetsRepository(input) == true &&
+              credentials?.apiFor(input) == null)) {
+        throw const FormatException('私有订阅地址不能包含凭据，且须使用已配置的分支');
+      }
+    }
     for (final raw in urls) {
       final url = SubscriptionCatalog.canonical(raw.trim(), section);
       if (!_validUrl(url)) throw const FormatException('订阅地址须为完整 HTTP(S) 地址');
@@ -413,7 +436,11 @@ class SourceSubscriptionSync {
     }
   }
 
-  Future<SubscriptionSyncResult> sync({bool force = false}) async {
+  Future<SubscriptionSyncResult> sync({
+    bool force = false,
+    Set<String> installNewFor = const {},
+    Set<String>? onlyUrls,
+  }) async {
     final result = SubscriptionSyncResult();
     final changes = <Map<String, String>>[];
     var downloaded = 0;
@@ -431,7 +458,9 @@ class SourceSubscriptionSync {
         (String url) =>
             SourceSubscription.fetchSubscription(http, url, force: force);
     try {
-      for (final record in subscriptions.where((s) => s.enabled)) {
+      for (final record in subscriptions.where(
+        (s) => s.enabled && (onlyUrls == null || onlyUrls.contains(s.url)),
+      )) {
         final interval = record.error.isEmpty
             ? const Duration(hours: 6)
             : const Duration(minutes: 30);
@@ -478,12 +507,23 @@ class SourceSubscriptionSync {
               // Yield to Flutter between scripts so the progress can be painted.
               await Future<void>.delayed(Duration.zero);
               final declaredId = SourceMetadata.parseHeader(ref.script)?.id;
-              if (record.excludedIds.contains(declaredId) ||
-                  record.members.entries.any(
-                    (entry) =>
-                        record.excludedIds.contains(entry.key) &&
-                        entry.value == ref.url,
-                  )) {
+              final excludedId = record.excludedIds.contains(declaredId)
+                  ? declaredId
+                  : record.members.entries
+                        .where(
+                          (entry) =>
+                              record.excludedIds.contains(entry.key) &&
+                              SubscriptionCatalog.sameSourceUrl(
+                                entry.value,
+                                ref.url,
+                              ),
+                        )
+                        .map((entry) => entry.key)
+                        .firstOrNull;
+              if (excludedId != null) {
+                if (installNewFor.contains(record.url)) {
+                  result.excluded[excludedId] = declaredName;
+                }
                 continue;
               }
               final old = before.values
@@ -495,7 +535,16 @@ class SourceSubscriptionSync {
               final installed = old ?? before[declaredId];
               if (installed == null &&
                   !record.autoInstallNew &&
+                  !installNewFor.contains(record.url) &&
                   !record.approvedUrls.contains(ref.url)) {
+                if (!record.pending.containsKey(ref.url)) {
+                  changes.add({
+                    'id': declaredId ?? ref.url,
+                    'name': declaredName,
+                    'status': '新源待安装',
+                    'url': ref.url,
+                  });
+                }
                 record.pending[ref.url] = declaredName;
                 result.pending++;
                 continue;
@@ -503,6 +552,8 @@ class SourceSubscriptionSync {
               if (old != null &&
                   await manager.exportScript(old.id) == ref.script) {
                 next[old.id] = ref.url;
+                record.pending.remove(ref.url);
+                record.approvedUrls.remove(ref.url);
                 result.unchanged++;
                 continue;
               }
@@ -524,6 +575,7 @@ class SourceSubscriptionSync {
                 changes.add({
                   'id': descriptor.id,
                   'name': descriptor.name,
+                  'url': ref.url,
                   'status':
                       '已更新 ${sourceVersionChange(before[descriptor.id]!.version, descriptor.version)}',
                 });
@@ -532,6 +584,7 @@ class SourceSubscriptionSync {
                 changes.add({
                   'id': descriptor.id,
                   'name': descriptor.name,
+                  'url': ref.url,
                   'status': '已新增',
                 });
               }
@@ -542,6 +595,16 @@ class SourceSubscriptionSync {
           }
           if (complete) {
             final available = refs.map((ref) => ref.url).toSet();
+            for (final pending in record.pending.entries) {
+              if (!available.contains(pending.key)) {
+                changes.add({
+                  'id': pending.key,
+                  'name': pending.value,
+                  'url': pending.key,
+                  'status': '仓库已移除（未安装）',
+                });
+              }
+            }
             record.pending.removeWhere((url, _) => !available.contains(url));
             record.approvedUrls.removeWhere((url) => !available.contains(url));
             for (final old in record.members.entries) {
@@ -576,11 +639,13 @@ class SourceSubscriptionSync {
           } else {
             record.members = {...record.members, ...next};
             record.error = '清单未完整同步，已保留旧源';
+            result.failedSubscriptions.add(record.url);
             if (result.errors.length == previousErrors) {
               result.errors.add('${record.url}: ${record.error}');
             }
           }
         } catch (error) {
+          result.failedSubscriptions.add(record.url);
           record.error = '$error';
           result.errors.add('${record.url}: $error');
         }

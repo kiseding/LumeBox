@@ -138,6 +138,7 @@ function makeHttp(opts) {
     let payload = options.body == null ? undefined : String(options.body);
     let status = 0;
     let body = '';
+    let bodyBase64 = null;
     let headersOut = {};
     let finalUrl = url;
     const setCookie = [];
@@ -164,7 +165,10 @@ function makeHttp(opts) {
         finalUrl = target;
         const location = res.headers.get('location');
         if (![301, 302, 303, 307, 308].includes(status) || !location) {
-          body = await res.text();
+          // 与 App 侧一致：脚本传 {binary:true} 时额外回 bodyBase64（二进制接口用）。
+          const bytes = Buffer.from(await res.arrayBuffer());
+          body = bytes.toString('utf8');
+          if (options.binary === true) bodyBase64 = bytes.toString('base64');
           break;
         }
         await res.arrayBuffer().catch(() => undefined);
@@ -186,6 +190,7 @@ function makeHttp(opts) {
       status,
       headers: headersOut,
       body,
+      ...(bodyBase64 == null ? {} : { bodyBase64 }),
       setCookie,
       text: () => body,
       json: () => JSON.parse(body),
@@ -553,11 +558,11 @@ async function runSource(file, options) {
         report.calls.playable = body.length
           ? { ok: true, url: '', text: body.length }
           : { ok: false, error: 'content 是 text 但正文为空：' + JSON.stringify(content).slice(0, 200) };
-      } else if (content && (content.kind === 'video' || content.kind === 'images')) {
+      } else if (content && (content.kind === 'video' || content.kind === 'audio' || content.kind === 'images')) {
         const url = content.url || (content.images && content.images[0]) || '';
         if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
           report.calls.playable = { ok: true, url: url.slice(0, 160) };
-          if (content.kind === 'video') {
+          if (content.kind === 'video' || content.kind === 'audio') {
             const probe = await probeMedia(url, content.headers || {});
             report.calls.playable.probe = probe;
           }
@@ -623,7 +628,7 @@ async function probeMedia(url, headers) {
       ok:
         res.status >= 200 &&
         res.status < 400 &&
-        (looksM3u8 || looksFlv || /video|octet-stream|mp4|mpegurl/i.test(type)),
+        (looksM3u8 || looksFlv || /video|audio|octet-stream|mp4|mpegurl/i.test(type)),
       status: res.status,
       type,
       bytes: buffer.length,

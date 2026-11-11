@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_type_swipe.dart';
 import 'source_entry_order_sheet.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/source_picker_card.dart';
@@ -11,15 +12,12 @@ import '../../shared/widgets/browse_side_drawer.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/cat_site_tile.dart';
 import '../../shared/widgets/source_drag_tile.dart';
-import '../../shared/widgets/source_swipe_tile.dart';
 import '../../shared/widgets/source_card_metrics.dart';
 import '../../shared/widgets/source_icon.dart';
 import '../../core/source/source_content_rating.dart';
 import '../../shared/widgets/source_rating_badge.dart';
 import '../../core/source/source_order.dart';
 import '../../core/source/source_content_visibility.dart';
-
-import '../../shared/widgets/frosted_glass_widget.dart';
 
 import 'package:flutter/material.dart';
 
@@ -38,8 +36,6 @@ import 'source_drawer_actions.dart';
 import '../shell/section_preloader.dart';
 import '../settings/subscription_sync_page.dart';
 
-enum SourceQuickAction { pin, preferences, browse, test, update }
-
 Future<String?> showSourcePicker({
   required BuildContext context,
   required Section section,
@@ -50,7 +46,7 @@ Future<String?> showSourcePicker({
   BrowseDrawerMotion? motion,
 }) => showBrowseSideDrawer<String>(
   context: context,
-  side: motion?.side ?? BrowseDrawerSide.right,
+  side: motion?.side ?? BrowseDrawerSide.left,
   edgeToggle: true,
   motion: motion,
   builder: (_) => SourcePickerSheet(
@@ -103,8 +99,32 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           });
   String query = '';
   String contentGroup = 'all';
+  final _typeKeys = <String, GlobalKey>{};
   final _currentSourceKey = GlobalKey();
   bool _locateCurrent = true;
+  List<SourceDescriptor>? _sortInput, _sorted;
+  List<SourceDescriptor> _orderedSources() {
+    if (identical(_sortInput, sources) && _sorted != null) return _sorted!;
+    _sortInput = sources;
+    final compare = SourceOrder.comparator(
+      widget.section,
+      sources.map((s) => s.id).toList(),
+    );
+    final pins = {
+      for (final source in sources)
+        source.id: SourcePreferences.read(widget.section, source.id).pinned,
+    };
+    return _sorted = List<SourceDescriptor>.of(sources)
+      ..sort((a, b) {
+        final pa = pins[a.id]!, pb = pins[b.id]!;
+        return pa == pb
+            ? compare(a.id, b.id)
+            : pa
+            ? -1
+            : 1;
+      });
+  }
+
   final busy = <String>{};
   final results = <String, SourceTestResult>{};
 
@@ -122,6 +142,41 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
     SourceSubscriptionSync.revision(widget.section)
         .addListener(_subscriptionChanged);
     SourceContentVisibility.instance.addListener(_onVisibility);
+  }
+
+  void _chooseGroup(String value) {
+    if (value == contentGroup) return;
+    setState(() {
+      contentGroup = value;
+      _locateCurrent = false;
+    });
+    ReadingLibrary.find(widget.section)
+        ?.setSetting(SourcePickerSheet.contentFilterKey, value);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _typeKeys[value]?.currentContext;
+      if (target != null) {
+        Scrollable.ensureVisible(
+          target,
+          alignment: .5,
+          duration: const Duration(milliseconds: 180),
+        );
+      }
+    });
+  }
+
+  void _stepGroup(int direction) {
+    final values = [
+      'all',
+      ...SourceContentVisibility.instance
+          .groups(widget.section)
+          .map((g) => g.$1),
+    ];
+    final index = values.indexOf(contentGroup);
+    final next = index + direction;
+    if (index >= 0 && next >= 0 && next < values.length) {
+      _chooseGroup(values[next]);
+    }
   }
 
   void _subscriptionChanged() {
@@ -249,72 +304,19 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   Future<void> action(SourceDescriptor source) async {
     if (busy.contains(source.id)) return;
     final prefs = SourcePreferences.read(widget.section, source.id);
-    final selected = await showGlassDialog<SourceQuickAction>(
+    final selected = await showSourceQuickActions(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: .28),
-      builder: (dialogContext) => Dialog(
-        constraints: const BoxConstraints(maxWidth: 320),
-        backgroundColor: Colors.transparent,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: FrostedGlassWidget(
-            nativeGlass: false,
-            neutralTint: true,
-            color: LumeTheme.surface,
-            opacity: .96,
-            radius: 24,
-            child: Material(
-              color: LumeTheme.surface,
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                        child: Text(
-                          source.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      for (final entry in [
-                        (
-                          SourceQuickAction.pin,
-                          Icons.push_pin_outlined,
-                          prefs.pinned ? '取消置顶' : '置顶此源',
-                        ),
-                        (SourceQuickAction.preferences, Icons.tune, '源设置'),
-                        (SourceQuickAction.browse, Icons.open_in_new, '浏览'),
-                        (SourceQuickAction.test, Icons.network_check, '测试连通性'),
-                        (SourceQuickAction.update, Icons.refresh, '更新订阅源'),
-                      ])
-                        ListTile(
-                          leading: LumeIcon(
-                            entry.$2,
-                            slot: 'source_picker_sheet.1',
-                            variant: true,
-                            color: LumeTheme.accent,
-                          ),
-                          title: Text(entry.$3),
-                          enabled:
-                              entry.$1 != SourceQuickAction.update ||
-                              source.subscribed,
-                          onTap: () => Navigator.pop(dialogContext, entry.$1),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      name: source.name,
+      pinned: prefs.pinned,
+      subscribed: source.subscribed,
     );
     if (selected == null || !mounted) return;
     if (selected == SourceQuickAction.browse) {
       Navigator.pop(context, source.id);
+      return;
+    }
+    if (selected == SourceQuickAction.delete) {
+      await deleteSource(source);
       return;
     }
     setState(() => busy.add(source.id));
@@ -324,6 +326,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           await prefs
               .copyWith(pinned: !prefs.pinned)
               .save(widget.section, source.id);
+          _sorted = null;
           widget.onChanged?.call();
         case SourceQuickAction.preferences:
           await openSettings(source);
@@ -351,6 +354,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
             SourceUpdateStatus.skipped => '跳过：${result.message}',
             SourceUpdateStatus.failed => '更新失败：${result.message}',
           });
+        case SourceQuickAction.delete:
         case SourceQuickAction.browse:
           break;
       }
@@ -365,7 +369,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
   Widget sourceTile(SourceDescriptor source) {
     final selected = source.id == widget.currentId;
     final busyNow = busy.contains(source.id);
-    // 猫源走**单独的**极简卡片：没有左侧图标、没有右侧三点，文字单行居中。
+    // 猫源使用无图标的紧凑卡片，三点菜单统一提供设置和删除。
     // 高度 / 圆角 / 描边与其它三个板块共用 SourceCardMetrics。
     if (widget.section == Section.cat) {
       return KeyedSubtree(
@@ -374,6 +378,8 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           key: ValueKey('picker-source-${source.id}'),
           height: CatSiteTile.compactHeight,
           label: source.name,
+          onMore: () => action(source),
+          moreKey: ValueKey('picker-more-${source.id}'),
           selected: selected,
           busy: busyNow,
           onTap: busyNow ? null : () => Navigator.pop(context, source.id),
@@ -443,7 +449,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final visible = sources
+    final visible = _orderedSources()
         .where(
           (source) =>
               source.enabled &&
@@ -458,15 +464,6 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         .toList();
     final order = sources.map((s) => s.id).toList();
     final compareOrder = SourceOrder.comparator(widget.section, order);
-    final pinned = {
-      for (final source in visible)
-        source.id: SourcePreferences.read(widget.section, source.id).pinned,
-    };
-    visible.sort((a, b) {
-      final pinA = pinned[a.id]!;
-      final pinB = pinned[b.id]!;
-      return pinA != pinB ? (pinA ? -1 : 1) : compareOrder(a.id, b.id);
-    });
     Future<void> move(
       List<SourceDescriptor> entries,
       String from,
@@ -481,99 +478,21 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
         entries.indexWhere((s) => s.id == from),
         entries.indexWhere((s) => s.id == to),
       );
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _sorted = null);
     }
 
-    // 猫源卡片：左滑露出设置 / 删除；长按拖拽仍由外层 SourceDragTile 负责。
-    Widget catCard(SourceDescriptor source) => SourceSwipeTile(
-      height: CatSiteTile.compactHeight,
-      actions: <SourceSwipeAction>[
-        SourceSwipeAction(
-          label: '设置',
-          color: LumeTheme.accent,
-          onTap: () => openSettings(source),
-        ),
-        SourceSwipeAction(
-          label: '删除',
-          color: LumeTheme.danger,
-          onTap: () => deleteSource(source),
-        ),
-      ],
+    Widget tile(
+      BuildContext context,
+      SourceDescriptor source,
+      List<SourceDescriptor> entries,
+    ) => SourceDragTile(
+      key: ValueKey('picker-drag-${source.id}'),
+      id: source.id,
+      name: source.name,
+      accepts: (id) => entries.any((s) => s.id == id),
+      onMove: (from, to) => move(entries, from, to),
       child: sourceTile(source),
     );
-
-    Widget swipeCard(SourceDescriptor source) => SourceSwipeTile(
-      key: ValueKey('picker-swipe-${source.id}'),
-      actions: [
-        SourceSwipeAction(
-          label: '删除',
-          color: LumeTheme.danger,
-          onTap: () => deleteSource(source),
-        ),
-      ],
-      child: sourceTile(source),
-    );
-
-    Widget list(List<SourceDescriptor> entries) {
-      // 所有板块统一用长按拖拽排序；猫源的设置/删除走左滑，不抢长按。
-      Widget tile(BuildContext context, int i) => SourceDragTile(
-        key: ValueKey('picker-drag-${entries[i].id}'),
-        id: entries[i].id,
-        name: entries[i].name,
-        accepts: (id) => entries.any((s) => s.id == id),
-        onMove: (from, to) => move(entries, from, to),
-        child: widget.section == Section.cat
-            ? catCard(entries[i])
-            : swipeCard(entries[i]),
-      );
-      if (entries.isEmpty) {
-        return Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'));
-      }
-      // 与视频源一致，每行两张等宽卡片；保留长按拖拽和左滑操作。
-      if (columns) {
-        Widget slot(int index) => index < entries.length
-            ? tile(context, index)
-            : const SizedBox.shrink();
-
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.section == Section.cat ? 16 : 14,
-          ),
-          itemCount: (entries.length + 1) ~/ 2,
-          itemBuilder: (context, row) => Padding(
-            padding: EdgeInsets.only(
-              bottom: widget.section == Section.cat
-                  ? 6
-                  : SourceCardMetrics.rowGap,
-            ),
-            child: SizedBox(
-              height: widget.section == Section.cat
-                  ? CatSiteTile.compactHeight
-                  : SourceCardMetrics.height,
-              child: Row(
-                children: [
-                  Expanded(child: slot(row * 2)),
-                  const SizedBox(width: SourceCardMetrics.columnGap),
-                  Expanded(child: slot(row * 2 + 1)),
-                ],
-              ),
-            ),
-          ),
-        );
-      }
-      return ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.symmetric(
-          horizontal: widget.section == Section.cat ? 16 : 14,
-        ),
-        itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 6),
-        itemBuilder: tile,
-      );
-    }
 
     final grouped = {
       for (final group in SourcePickerGroups.forSection(widget.section))
@@ -615,31 +534,65 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                         60,
                   ) +
               (columns ? currentIndex ~/ 2 : currentIndex) * rowHeight);
+    final rows = <WidgetBuilder>[];
+    for (final group in groupDefinitions) {
+      final entries = grouped[group.$1]!;
+      if (entries.isEmpty) continue;
+      rows.add(
+        (context) => Semantics(
+          header: true,
+          child: Padding(
+            key: ValueKey('picker-group-${group.$1}'),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+            child: Text(
+              group.$2,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < entries.length; i += columns ? 2 : 1) {
+        final index = i;
+        rows.add(
+          (context) => Padding(
+            padding: EdgeInsets.fromLTRB(
+              widget.section == Section.cat ? 16 : 14,
+              0,
+              widget.section == Section.cat ? 16 : 14,
+              widget.section == Section.cat ? 6 : SourceCardMetrics.rowGap,
+            ),
+            child: SizedBox(
+              height: widget.section == Section.cat
+                  ? CatSiteTile.compactHeight
+                  : SourceCardMetrics.height,
+              child: columns
+                  ? Row(
+                      children: [
+                        Expanded(child: tile(context, entries[index], entries)),
+                        const SizedBox(width: SourceCardMetrics.columnGap),
+                        Expanded(
+                          child: index + 1 < entries.length
+                              ? tile(context, entries[index + 1], entries)
+                              : const SizedBox(),
+                        ),
+                      ],
+                    )
+                  : tile(context, entries[index], entries),
+            ),
+          ),
+        );
+      }
+      rows.add((_) => const SizedBox(height: 8));
+    }
     final singleList = visible.isEmpty
         ? Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'))
         : SourcePickerScrollList(
             key: const ValueKey('picker-grouped-list'),
+            storageKey: PageStorageKey('reading-source-$contentGroup-$query'),
             focusKey: focusKey,
             estimatedOffset: initialOffset,
-            padding: const EdgeInsets.only(bottom: 16),
-            children: [
-              for (final group in groupDefinitions)
-                if (grouped[group.$1]!.isNotEmpty) ...[
-                  Semantics(
-                    header: true,
-                    child: Padding(
-                      key: ValueKey('picker-group-${group.$1}'),
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-                      child: Text(
-                        group.$2,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                    ),
-                  ),
-                  list(grouped[group.$1]!),
-                  const SizedBox(height: 8),
-                ],
-            ],
+            itemCount: rows.length,
+            itemBuilder: (context, index) => rows[index](context),
           );
 
     final groupedList = singleList;
@@ -721,7 +674,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    '点击选择源，长按拖动排序，左滑打开设置/删除',
+                    '点击选择源，长按拖动排序，点三个点管理源',
                     style: TextStyle(
                       fontSize: LumeTypography.captionSize,
                       color: LumeTheme.muted,
@@ -743,24 +696,24 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                         Padding(
                           padding: const EdgeInsets.only(right: 6),
                           child: ChoiceChip(
+                            key: _typeKeys.putIfAbsent(group.$1, GlobalKey.new),
                             label: Text(group.$2),
                             selected: contentGroup == group.$1,
-                            onSelected: (_) {
-                              setState(() {
-                                contentGroup = group.$1;
-                                _locateCurrent = false;
-                              });
-                              ReadingLibrary.find(widget.section)?.setSetting(
-                                SourcePickerSheet.contentFilterKey,
-                                group.$1,
-                              );
-                            },
+                            onSelected: (_) => _chooseGroup(group.$1),
                           ),
                         ),
                     ],
                   ),
                 ),
-              Expanded(child: groupedList),
+              Expanded(
+                child: widget.section == Section.comic
+                    ? SourceTypeSwipe(
+                        key: const ValueKey('reading-type-swipe'),
+                        onStep: _stepGroup,
+                        child: groupedList,
+                      )
+                    : groupedList,
+              ),
             ],
           ),
         ),

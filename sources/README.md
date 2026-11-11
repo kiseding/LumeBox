@@ -1,3 +1,354 @@
+## 2026-11-11 酷18 版块修复、封面与账号会话
+
+详见 [源记录](../docs/2026-11-11_酷18版块修复与封面.md)。`comic/cool18.js`（`cool18_comic` v1.0.3）：
+2026-11 起 **色色动漫（bbs7）和成人影视（bbs3）改成登录可见**，正文区只剩 `div.login-container`。
+源里不再抛死错：未登录时返回 `kind:'webplayer'` 打开帖子页；登录后先试 iframe / `<video>` /
+内联 m3u8，拿不到再退回网页。**账号不在源里写死**——站点登录带 reCAPTCHA，脚本无法代登；用
+`源管理 → 站点账号`（或源设置里的「登录站点」按钮）登录一次，App 会把会话 Cookie 按源保存并
+合并进后续请求。本次同时修掉一个会顶掉登录态的坑：脚本原来每个请求硬塞 `Cookie: isok=true`，
+`SiteSessionPool` 会用它覆盖整个会话池；现在年龄门改用 `?isok=true`，**脚本不再发 Cookie 头**。
+另外图片板广告帖（没有图）退回正文；列表 `mediaType` 按板块声明（文字 novel / 图片 comic /
+影视 video）；图片板封面改成懒解析帖子首图（`x-lume-image-page-selector:'#content-section img'`，
+图床 `img.xwbo.com` 200），文字板帖子本来就没有图，保持占位图。同轮给 `comic/crazyhome.js`
+v1.0.2 补了封面：列表用 tag 页 + `img.wp-post-image` 懒解析，详情页直接取站方预览图。
+
+## 2026-11-10 新增源：狂人之家书屋（crazyhome2000.com）
+
+详见 [源记录](../docs/2026-11-10_新增源-狂人之家书屋.md)。`comic/crazyhome.js`（`crazyhome_novel`）：
+WordPress 成人文学站，**书 = post_tag、章 = post**（一篇常含数章，标题如「赘婿的荣耀 63.22-63.29」）。
+站方 `/wp-json/wp/v2/{posts,tags,categories,media}` 全开，源统一走 REST：标签 8890 本书（`/tags` 89 页，
+篇数前列 系统帮我睡女人 171 / 赘婿的荣耀 165）、10 个小说分类 + 「AI美图共享」图集、
+`/posts?search=` 按书名搜、`/posts?tags=<id>&per_page=100` 一次 100 章、正文 `content.rendered`
+段落干净（只丢书签登录文案与站尾版权）。小说章节无 `featured_media`，所以不带封面；图集帖有特色图，
+用 `/media?include=` 批量换真地址（cool18.cc 图床，无 Referer 也 200）。
+
+## 2026-11-10 新增源：集书阁（集书阁.com）
+
+详见 [源记录](../docs/2026-11-10_新增源-集书阁.md)。`comic/jishuge.js`（`jishuge_novel`）：用户给的
+`集书阁.com` 仍在，但站点已换成**新前端**——旧域只留旧模板列表，阅读页 301 到新站（X小说 / x文学），
+旧站 canonical 指向 `www.集书阁成人小说.com`。源直接按新站写：`/books` 10603 部、53 个分类
+（短篇 10400 部 520 页 / 长篇 203 部 / 50 个题材）、`/search?q=` 搜索、`/book/<hash>` 目录、
+`/read/<hash>/<章页id>` 正文；正文里偶有的 `span.brand-mark`「x文学.com」水印整段丢掉。
+站点无封面、无排序/筛选，全部免登录，镜像用站方「收藏回家」公布的 x成人小说.com / x文学.com /
+xchengren.com。
+
+## 2026-11-10 新增源：黄视频（huang.video）
+
+详见 [源记录](../docs/2026-11-10_新增源-黄视频.md)。`video/huangvideo.js`（`huangvideo_video`）：
+Rails 服务端渲染的国产成人视频站，免登录直连。7 个分类（最新 / AI短剧 / 糖心Vlog / 网红福利姬 /
+探花大神 / PMV / ASMR）都有真实分页与四档排序，`/videos` 页内联 93 个博主可做筛选；搜索一页分
+「短剧」与「视频」两段（`series_page` / `page` 各翻各的），源里合并去重。详情页内联 HLS `master.m3u8`
+（单条 720p 变体），**CDN 只认站点 Referer**（无 Referer 或外站 Referer 都 403），源里在 `content()`
+带 `Referer` 头，实测 206 + `#EXTM3U`、分片 200 `video/mp2t`；封面与缩略图不需要 Referer。单集页自带
+整部剧的播放列表，`chapters(v:…)` 直接给全剧选集。
+
+## 2026-11-09 新增三站源：集芳阁云搜 / X云搜 / 色文網
+
+详见 [源记录](../docs/2026-11-09_新增源-集芳阁X云搜色文網.md)。`video/jifangge.js`（`jifangge_video`）：
+国产/AV 云搜，搜索词要按站方 AES-128-CBC（key/iv 前端常量）**零填充**加密才进得去，源里用 `tools.aes`
+现算；详情页给站方直链 m3u8（实测 206 + 分片 200 video/mp2t），原生可播；`/toplist.php?p=N` 被站方
+CDN 整页缓存，两个榜只做第 1 页，深逛走标签/关键词（路径分页实测 519 页）。
+`video/xyunsou.js`（`xyunsou_video`）：X云搜只做最新+搜索+详情——站方把播放器锁在会员里
+（`data-content-restricted=1`，`/api/video-user-state` 匿名回 `is_vip:false`，`/hot` 匿名 401），
+播放走网页播放器由用户自己的账号放行。`comic/book18.js`（`book18_novel`）：色文網繁体成人小说，
+目录只在繁体书页给（简体页 0 条卷链接），正文走 `/zh-hans/`，并清掉段尾 `span.d-none` 水印与广告位。
+
+## 2026-11-09 Stripchat 实时封面与封面国籍
+
+`sources/video/stripchat.js` 1.2.0：封面改用站方秒级快照 `img.doppiocdn.net/thumbs/<epoch>/<id>`，
+配合 `mediaInfo.liveCover` 每 20 秒换一帧；`coverLabel` 标国籍（App 新能力，画在封面角上）；
+播放仍是网页播放器——站方给分片名做了 PSCH v2 改名，第三方播放器只能拿到占位分片。见
+[源记录](../docs/2026-11-09_Stripchat实时封面与国籍.md)。
+
+## 2026-11-06 G社漫画正文提示图修复
+
+`comic/gmh.js` / 私有仓库 `comic/G社漫画.js` 升级至 1.1.1，为正文返回正确的逐图 imageHeaders，修复 HTTP 200 的“请到本网站阅读”提示图。《元尊》第1话上 10 张实图已验证。见 [修复记录](../docs/2026-11-06_G社漫画正文提示图修复.md)。
+
+## 2026-11-06 小说封面与加载速度修复、新增秒播
+
+见 [本轮修复与验证](../docs/2026-11-06_小说封面与秒播源修复.md)。爱丽丝不再在列表调用中批量补封面，次元姬纠正推荐书籍 ID，第一版主补文字行封面，八叉修复卡片版式，酷18图片帖按需取图，69书吧清理空格实体。西瓜和八叉部分原站图片已 404，月亮多书未上传图片，保留真实缺图状态。秒播发布页为 mmss.pro，播放使用站点网页播放器。按需详情封面与秒播密文封面需要本轮新版 App。
+
+## 2026-11-05 275听书（`comic/i275.js` v1.1.0，详见 [源记录](../docs/2026-11-05_275听书源评估.md)）
+
+`i275_audiobook`：275听书（www.i275.com，镜像 m.i275.com）有声小说。**站点结构极薄**：
+首页只有「最近上架」12 部 + 热门搜索 5 部，**没有分类页/排序/筛选/分页**；`search.php?q=` 命中书名/作者/演播，
+但服务端 `LIMIT 50` 且不吃 `page`；`/book/{id}.html` 一次给全目录（剑来 5231 章）；取音频只有
+`/api_chapter.php`，裸请求判 `非法访问`，先 `GET /` 让宿主存下 `PHPSESSID` 就正常（别自己造 session id）。
+源把站内搜索词做成 19 个「题材」分类（每个实测 10–50 条、首条互不相同），能播的题材排在前面。
+
+**音频四种来路**（抽样 70 本：lrts 31 / 自建 11 / null 3 / 空书 25）：
+
+- `lrts$…`（懒人畅听）→ `m.lrts.me/ajax/getPlayPath` 换腾讯音乐 CDN 的签名 m4a，实测 `206 + audio/mp4`；
+  但站方只免费放出**靠前的章**，中后段回「收费章节未购买」，源里翻成人话再抛（约 44% 的书属这类）。
+- `xm$<声音ID>`（喜马拉雅）→ `mobile.ximalaya.com/mobile/redirect/free/play/<id>/0` 302 到 audiopay CDN，
+  **整本可播**（实测 206 + audio/x-m4a，第 1/20/168/335 集都通）；源里不预取，免得把整集音频拉进沙箱。
+- 站方自建 `*.tingshijie.com` → **403 Access Denied: Please use the official App.**，换 UA/Referer/Cookie/
+  签名参数、境外多节点复测都一样，站点自己也弹窗「本站无法正常收听」；源里探到 403 就抛可读错误。
+- `null` / 空书 → 新书没上传或已下架。
+
+已发布 `audiobook/275听书.js`（源库 `3b6d1a1`），进了 `subscriptions/audiobook.txt` 与 `comics.txt`；
+`build_catalog.py --check` 0 变化。**但源仓库当前是私有的**，raw 与 jsDelivr 都 404（实测），
+要 `gh repo edit teng662858/LumeBox-Sources --visibility public` 之后订阅才拿得到。
+
+## 2026-11-05 听友听书（`video/tingyou.js`，详见 [源记录](../docs/2026-11-05_听友听书综合源.md)）
+
+`tingyou_video`：听友听书（tingyou.fm / www.tingyou.fm / fmfm.tingyou.fm 同内容）**综合源**——
+听书（有声小说 / 评书 / 榜单，mp3 直链）+ 影视（电影 / 连续剧 / 动漫 / 短剧 / 综艺，HLS），
+已在 `metadata/mixed-sources.json` 登记。站点两套接口完全不同：
+
+- **听书** `/h5/listening/*` 明文 JSON：`filters` 给 2 个大类 + 43 个题材，`category?category=&type=&sort=&page=`
+  固定 20 条/页，`rank?section=hot|recommend|latest` 30 条/页，`chapters/{id}` **一次给全**（《剑来》5329 章），
+  `POST play {album_id, chapter_idx}` 回 mp3（实测 206 + `audio/mpeg`）。请求**必须带 Origin/Referer**，
+  缺了接口直接 404（不是站点改版）。
+- **影视** 全部走 `POST /web/v1/tv/call`：请求体是 AES-256-CBC 的 JSON（base64 当 body 发）+
+  `X-Post-Signature = base64(HMAC-SHA256(8 字节固定密钥, 那段 base64))`，响应同 key 解密；
+  key/iv/HMAC key 都是前端常量。**播放要账号**：源里自动领站点游客账号（`/web/user/register/temp`，
+  不要手机号），token 存 fs、401 重领；`is_vip` 线路不取。分页是游标（`page=` 会 400），源里做
+  `next_cursor` 链，顺序翻页 1 请求/页。
+- **接口域名会轮换**：站方用加密的「启动头」（`h5api.dat`，`[密文][key32][iv16]`）下发 `api_hosts`，
+  源里解头 + 探活 + 缓存 6 小时；实测 `appp.fdhtbz.cn` 会阶段性 404（同时另两个域名 200）。
+- **影视封面是 TVIMAGE1 信封**（`'TVIMAGE1'|头长|JSON头|AES-256-GCM(密文+tag)`，JSON 头当 AAD、
+  `wrapped_key` 与 SHA-256 掩码异或），App 侧新增 `x-lume-image-encoding: tvimage1` 解码
+  （`lib/core/reading/image_bytes_decoder.dart`）；旧版 App 显示占位图，不影响播放。
+- 验证：`[PASS]` 听书 home 1.9s / 58 分类 / list 30 / chapters 5329 / content mp3；
+  影视 list 24 / chapters 12 / content `200 application/vnd.apple.mpegurl`；搜索「遮天」15 条。
+  58 个分类逐个跑 list 首条互不相同（连载榜/评书榜与最新/评书分类逐条相同，故未重复声明）。
+
+## 2026-11-04 第一版主（`comic/diyibanzhu.js`，详见 [源记录](../docs/2026-11-04_第一版主源与打不开的原因.md)）
+
+`diyibanzhu_novel`：第一版主（qula 模板成人小说站）。**用户给的 bz1111111.net / diyibanzhu.app 在
+Cloudflare 后面打不开**：前者是 managed challenge 且本机网络连 `challenges.cloudflare.com` 都被断
+（`ERR_CONNECTION_CLOSED`），后者是 WAF 直接 `Sorry, you have been blocked`（`cf-ray …-HKG`）。
+同站镜像 **01bzw.us**（UTF-8，200）与 111bz.cc（GBK）可直连，源默认用 01bzw.us，另两个留在 mirrors。
+
+- 分类 `/sort/{1-10}/{页码}/`：玄幻/武侠/都市/历史/侦探/网游/科幻/恐怖/散文/辣文，31 本/页，翻页实测生效
+- 详情 `/bookcv/{id}/`：直接读 `og:novel:book_name / author / category / status / update_time / lastest_chapter_*`
+- 目录：同页 `/html/{p}/{书号}/{章节号}.html`，按章节号排序并过滤「开始阅读/加入书架」按钮
+- 正文 `div#content`：**站点把部分汉字换成 `<img class="zi" data-word="字">` 防采集**，
+  源里按 `data-word`（回退 `alt`）还原；正文里插的「发布邮箱…地址发布页…」「笔趣Ω 『阁ΔＢＱgXsw』」按行过滤
+- 验证：`[PASS]` list 31 / detail ok / chapters 22（序章→第2章 有序）/ content 1615 字，无广告残留
+- **搜索（1.0.1 补上）**：qula 模板只认真宿主上的 **POST** `https://www.dybzw.me/search/`
+  （`searchkey=<词>&Submit=搜索`）；`01bzw.us/search/` 会 301 到该宿主并丢掉 POST body，GET 参数一律 0 条。
+  实测「盘龙」5 条（盘龙之妮丝/盘龙歪传/盘龙之最强本尊…），「母子」100 条。
+  （对照用户给的 Legado 书源 `D:\第一版主.json`：它用 bz88888 那套模板的
+  `/s.php?objectType=2&type=articlename&s=<GBK>&page=`，在 01bzw.us 上是 404。）
+
+## 2026-11-04 酷18（`comic/cool18.js`，详见 [源记录](../docs/2026-11-04_酷18综合源.md)）
+
+`cool18_comic`：酷18（cool18.com）综合成人论坛，**综合源**（小说 / 图片 / 视频，已在
+`metadata/mixed-sources.json` 登记）。进门先过年龄门 → 全部请求带 `Cookie: isok=true`。
+
+- **分类 9 个板块**：禁忌书屋（`/bbs4/`）· 情色趣闻（`/bbs5/`）· 性趣论坛（`/bj/`）文字；
+  性趣贴图（`/bbs/`）· 情色靓影（`/bbs2/`）· 私房自拍（`/bbs6/`）· 色色动漫（`/bbs7/`）·
+  卡通漫画（`/enter6/`）图片；成人影视（`/bbs3/`）视频（站点要登录才有播放器，源里明确提示）
+- **排序 3 档**：最新（页面内联 `const _PageData` JSON，201~261 帖/页）· 热门（`act=hot`，100 条榜单表）
+  · 精华（`act=gold`，200 条）
+- **筛选**：全成人区搜索 `/search.php?keyword=…&sa=全成人区搜索` 跨板块 200 条；
+  板块内 `act=threadsearch` 兜底
+- **正文**：`div#content-section` 的 `<pre>` —— 文字帖按 `<p></p>`/`<br>` 折行（实测 21694 字）；
+  图片帖收集 `<img src>` 并给 `imageHeaders`（实测 54 张，playable 200）
+
+## 2026-11-04 次元姬（`comic/ciyuanji.js`，详见 [源记录](../docs/2026-11-04_次元姬源.md)）
+
+`ciyuanji_novel`：次元姬（www.ciyuanji.com，Next.js **SSR** 成人轻小说站）。**必须桌面 UA**（手机 UA 只给空壳）。
+首页 `/index` 的 `regionList` 7 区块；分类用 `/tags` 的 **67 个标签**，`/tags/{id}` 给书单；
+详情 `/book_detail/{id}` 给书名/作者/字数/简介/**完整目录**（实测 329 章）；正文
+`/chapter/{bookId}_{chapterId}.html`。
+
+**关键点：正文是 DES-ECB 密文**。站点 `_app` 里的解密函数是
+`DES.decrypt(content, Utf8.parse(rk), {ECB, Pkcs7})`，`rk` 来自 `./config/index.ts`，
+取前 8 字节 **`ZUreQN0E`** 即可（CryptoJS 用整串但 DES 只吃 8 字节）。App 沙箱没有 crypto 模块，
+所以源里**内联了一份纯 JS DES**（IP/FP/E/P/PC1/PC2/S 盒 + 16 轮 + base64 + PKCS7 + UTF-8），
+与 CryptoJS 结果逐字一致。
+
+`lume-source-check` **真站点全绿**：home 7 板块 / categories 67 / list 20 / detail ok / chapters 203 /
+content text 2270 字。带 `params` 密文的 `/library/card/…`、`/rank/card/…` 没做（标签已够）。
+
+## 2026-11-04 69书吧（`comic/69shuba.js`，详见 [源记录](../docs/2026-11-04_69书吧源与次元姬卡点.md)）
+
+`shuba_novel`：69书吧（69shuba.com，jieqi 模板，**全站 Cloudflare managed challenge + GBK 编码**）。
+13 个分类 `/novels/class/{0-12}.htm` + 5 个榜单（hot/male/female/full/last）；列表取
+`#article_list_content`；详情读 `h1` / 封面 / `bookinfo`（作者·分类·标签）；目录 `/book/{id}/` 一次给全
+（实测 569 章）；正文 `/txt/{书号}/{章节号}` 取 `.txtnav` 里广告之后的段落；搜索
+`POST /modules/article/search.php`。
+
+**CF 走正规路子**：所有请求 403/挑战页时抛 `NEED_WEBVIEW_VERIFY`，由 App 网页视图让用户本人过校验、
+之后复用 `cf_clearance`（不绕过任何校验）。页面 GBK，App 侧走 iOS 原生 gb18030 解码通道。
+解析层验证方式：用真实 Chrome 过完 CF 后抓到的 HTML 离线回放五入口——
+list 50 条 / detail 书名·作者·分类·标签 / chapters 569 / content 1208 字。
+（无 Cookie 的 Node 打测器会停在 403，属预期。）
+
+同批的 `ciyuanji.com` **不是 CF 问题**：书详情是 `/bookDetails?params=<24 字节密文>`，
+直接打开只落回首页外壳、`__NEXT_DATA__` 里没有书的内容、也没有任何书籍接口 XHR；
+API 基址已知（`/api/pc/cms`）但端点运行时拼、抓不到。卡点与需要的东西写在源记录第五节。
+
+## 2026-11-04 禁漫天堂 · H動漫（`video/jmcomic-video.js`）· JM文庫（`comic/jmcomic-novel.js`）
+
+详见 [源记录](../docs/2026-11-04_禁漫天堂H動漫与JM文庫源.md)。漫画源（`comic/禁漫天堂.js`）是仓库里原有的，本次没动。
+
+**先解决域名**：`18comic.vip` / `jmcomic.me` 本机一律 `403 Just a moment...`（CF managed challenge），
+公共 CORS 代理也全挂；发布页里的 **`18comic.ink` 直连 200**，所以两个源默认走 `.ink`，
+`.vip` / `.me` 留在 mirrors（请求到它们会抛 `NEED_WEBVIEW_VERIFY` 并提示换镜像）。
+
+`jmcomic_video`：H動漫 `/videos?o={mr|mv|mp|tr|md|tf}&t={a|t|w|m}&page=N`（48 条/页，排序/时间/翻页都实测生效）；
+卡片 `<a href="/video/{id}/…">` + `.thumb-overlay img[data-original]` + `.video-factory/.video-view/.video-added`；
+播放页内联签名 m3u8（`ms18comic-2.iiooxx.rocks/…/hls/{iphone|hd}/{id}.mp4/index.m3u8?e=&st=`），
+源里按序试前 4 条、命中的放 `qualities`，实测 206 + `#EXTM3U`。
+
+`jmcomic_novel`：禁漫小說 `/novels?o=`（单页 78 部、无翻页；`?t=` 实测 0 条 → 只给排序）；
+详情 `h1` = 「[作者] 标题 | 原名」，封面 `/media/novels/{id}_tmb.jpg`；
+章节 `/novelchapters/{n}`（详情页块级 `<a><li>…`，实测 14 章）；正文 `#ncc1`+`#ncc2` 两栏（第 1 章 4317 字、第 13 章 2865 字，未登录可读）。
+
+## 2026-11-04 乐成漫画短剧（`video/lcm.js`，详见 [源记录](../docs/2026-11-04_乐成漫画短剧源.md)）
+
+`lcm_video`：乐成漫画（lcmhx.cc，Nuxt2 SSR 的成人漫画 + AI 成人短剧站）。本源只做**已验证的短剧频道**
+`/mctype/5/`（28 条/页）：条目标题在 `img title` / `.hv-title` 里，详情页 `<video data-hls-src=…>`。
+**取流要绕防盗链**：`s.chigua.media` 直连 403（referer blocked），源里统一改写成站点代理
+`/media.php?url=`，实测 206 + `#EXTM3U`（2302 B），分片 200 + `video/mp2t` 901 KB。
+站点漫画分类的图片域 `img5.qy0.ru` 在本机出口一律 403「链接已失效」（封面域 t4.qy0.ru 正常），
+拿不到就验证不了，所以漫画分类没有写进源。
+
+同批给的 `www.ciyuanji.com`（次元姬）**没交付**：Next.js SPA，书的 id 是 24 字节不透明参数，
+`__NEXT_DATA__` 只有推荐位与 SEO、没有书籍内容，`/api/book/*` 全 404，站内 JS chunk 直接 GET 返回 SPA 外壳，
+拿不到接口与参数加密方式，按约定不猜接口。证据见源记录第四节。
+
+## 2026-11-04 月亮小说（`comic/yueliang.js`）· 荔枝短剧（`video/liz.js`）
+
+详见 [源记录](../docs/2026-11-04_月亮小说与荔枝短剧源.md)。
+
+`yueliang_comic`：月亮小说（yueliangxiaoshuo.com，带 R-18 分区的中文小说站，全免费免登录）。
+新书 `/novel/new?p=N`（30 条/页）、榜单 `/novel/ranking?mode=daily|weekly|monthly|rookie|total`
++ 分级 `r18=0|1|2`（普通 22 条 / 全部 50 条 / R-18 25 条，三档首条不同）；书 `/novel/series/{id}`
+（目录 30 章/页、`?p=N`，实测一本 1385 章 47 页，源里 6 路并发）、单章 `/novel/show/{id}`
+正文 `div#novel-body`、搜索 `/search/novels?q=&p=`。`r18` 只对榜单生效（`/novel/new?r18=` 实测无效），
+源里只在榜单通道用它。
+
+`liz_video`：荔枝短剧（liz01.com，Nuxt3 + SSR，AI 成人短剧）。频道 `/category/`、`/original/`、
+`/featured/` + 24 个题材 `/en/tag/{slug}/`；单集 `/en/drama/{id}/ep-{n}/` 的 JSON-LD
+`VideoObject.contentUrl` 是 SSR 现签的 `/api/v1/cdn/video/{uuid}/manifest.m3u8?t=&sign=`，
+实测 206 + `#EXTM3U`（22,969 B master）。**封面是 AES-128-CBC 密文**（`media.lizdj009.com`，
+解出来是真 JPEG），源里用 `lume-enc://aes-cbc/…` 交 App 原生解密。排序按钮是前端 JS、`?sort=` 无效 → 不声明排序。
+
+同批给的 `www.69shuba.com` **没交付**：全站被 Cloudflare managed challenge 挡着（`/`、`/book/`、`/txt/`、
+`/modules/` 全 403「Just a moment...」，各镜像同样），且页面是 GBK 系编码，本机无法在挑战之后取到真实 HTML
+做五入口验证，按约定没有进 catalog/订阅。证据与后续步骤见源记录第四节。
+
+## 2026-11-04 草榴小说视频（`video/mycall.js`，详见 [源记录](../docs/2026-11-04_草榴小说视频源.md)）
+
+`mycall_video`：**综合站**（mycall.biz，小说 / 视频 / 图集三形态混在一个源里）。
+小说频道 `/threadlist?group=RecentThread|PopularThread|HotThread` + 7 个分类（诱骗/改编/变身/乱伦/
+古典情色/武侠/玄幻）；视频 `/category/6095467d69deb6073dc6d6d7?sort=`；图片 `/images?sort=`；
+搜索 `/search?type=all|novel|video&q=`。排序做成筛选（最新/最多浏览/最多点赞），小说换 `group=`、
+视频与图片换 `?sort=`，三处实测都生效。
+帖子按 `<body class>` 分派：`novel-reader` 用 `?chapter=N` 取 `#chapter-content` 纯文本（实测 957 章）；
+`video-watch-page` 走 `GET /api/v1/video/thread/{id}/play` → `manifest/master.m3u8`（200 + `#EXTM3U`）；
+`image-viewer-page` 取 `data-gallery-preview` 的 960 预览图（20 张，首图 200 image/jpeg）。
+⚠ 站点全站列表**单页 24 条、没有翻页参数**（`page=`/`p=` 实测被忽略）→ `hasMore` 恒 false；
+小说帖子页没有封面图。
+
+## 2026-11-04 八叉书库（`comic/8csk.js`，详见 [源记录](../docs/2026-11-04_八叉书库源.md)）
+
+`8csk_comic`：8xsk 字站的成人小说（`8csk.org`，发布页 `8csk.xyz` 给 18 个同内容域名，全实测 200）。
+按**文字小说**交付（`mediaType: novel`）。分类 `/booklist1…9`（分页是「页号 − 1」）、榜单
+`/latest` `/release` `/popular` `/completed`（分页 `index_N.html`）、题材 `/genre/{slug}/`
+（站点没有题材索引，30 个 slug 从书页反查；题材会覆盖分类，站点没有组合参数）。
+搜索 `/e/search/index.php?keyboard=` 带 `searchid` 翻页（源里按词缓存 30 分钟）。
+**正文不在 HTML 里**：章节页内嵌一次性令牌，源里回放 `POST /conapi.php`
+（`url/mobile/isk/novel/chapter/t/n/sign`）取纯文本，实测第 1 章 4617 字、第 500 章 2027 字，无付费墙。
+目录两个坑都处理了：顶部「最新章节」块不认（只认 `#list-chapter`）、隐藏诱饵章节
+（`left:-99999px`）跳过；1001 章的书 6 路并发 5.3 秒抓完。封面在 `img.8xsk.top`（webp 实测 200）。
+
+## 2026-11-04 91大事件（`video/91dasj.js`）· 西瓜书屋（`comic/xiguashuwu.js`）
+
+详见 [源记录](../docs/2026-11-04_91大事件与西瓜书屋源.md)。
+
+`91dasj_video`：Typecho + Mirages + DPlayer 的吃瓜爆料站（用户给的入口 `campus.ravwriau.cc`，
+canonical 指 `91dasj.com`，同内容直连 200）。12 分类 + 24 个「标签」筛选 + 站内搜索（`/search/{词}/{N}/`
+实测 12 页）；帖子详情里 1–3 个 DPlayer 的 `data-config` 直给原生 m3u8（`op.udhhzr.cn`，实测 206 +
+`#EXTM3U`），多段视频全展开成章节；封面是 **AES-128-CBC 密文**（key `f5d965df75336270` /
+iv `97b60394abc2fbe1`，与 91吃瓜同源），交 App 原生解密。站点没有排序参数，源里不放假选项。
+
+`xiguashuwu_comic`：成人小说站（`www.xiguashuwu2.com`，原 simishuwu）。分类 16 个（0–15）、
+筛选「默认 / 完本 / VIP」、排序「总榜 / 周榜 / 月榜」，三类实测首条互不相同；详情 `/book/{id}/`、
+目录 `/book/{id}/catalog/{页}.html`（100 章/页）、正文 `/book/{id}/{章节}.html`（长章节再拆 `_2.html`，
+源里顺着接起来）。**VIP 书（vipok 角标 / `isvip=1`）正文照样全量下发**，4 本书首中末章各 1.1–1.8 千字，
+按普通书读。唯一缺口：第二分页的敏感词是 30×30 位图字（`/wzbodyimg/{hash}.png`，文件名与字无推导关系、
+站上无字典），源里跳过这些图片字，正文主干完整。搜索 `/search/{词}` 在 Cloudflare managed challenge 后面，
+挡到抛 `NEED_WEBVIEW_VERIFY`，并用浏览过程攒下的本地索引先顶着。
+
+## 2026-11-03 懂片帝（`video/dongpiandi.js`，详见 [源记录](../docs/2026-11-03_懂片帝源.md)）
+
+AI 找片 + 片单 + 播放的聚合前端（`dongpiandi.ai`，标题「懂片帝AI」）：React SPA + 同源 `/v1/*` JSON 接口，
+首页 HTML 只有 4 KB，所有数据走接口。**每个请求都要 HMAC-SHA256 签名**
+（`x-ai-movie-timestamp/nonce/signature`，msg = `METHOD\npath?query\nts\nnonce`，key 取自
+`/assets/movie-card-runtime-*.js` 的 `Jo="…"`）；实测只校验这三个头，不校验客户端版本号，
+站点换前端版本不影响本源。源里用宿主原生 `tools.hmac` 算，失败自动退回纯 JS 实现，
+并对设备时钟偏差按响应 `Date` 做一次校正重试。
+
+交付形态：板块 `video`，`contentCategory: movie`（同架构的看剧AI 源同口径）。分类 id 直接用站点查询串
+（`kind=movie` / `sort=trending&window=day` / `hot_list_key=tv_korean` …），首页板块的「更多」由
+`section.browse.params` 转成同一套编码；筛选组从 `/v1/runtime/bootstrap` 的 `catalog_ui` 实时取
+（分类/地区/语言/年份/排序，短剧多「状态」「形式」两行且站点自己标了不可用）；genre 不支持多选，取第一个。
+
+播放**不逐条探活**：站点 32 条线路里总有一两条 CDN 已挂、要等宿主 6 秒超时，串行探活会把 `content`
+拖到 16 秒被判超时。改成按「站点权重 + 资源站实测稳定性」排序后直接给地址，前 5 条进 `qualities`
+供切换，默认走第三方直链（`resolve_mode:"direct"`，免费不扣额度），官方 `resolve://` 票券线路
+只在直链一条都没有时兜底。实测 `content` 213–899 ms、直链 206 + `#EXTM3U`，签名头与 Dart 侧
+HMAC 在真 QuickJS 沙箱里逐字一致。
+
+**v1.1.0 补上账号与线路偏好**（2026-11-03 用真实账号实测结论）：**不填账号也能用全部片库** ——
+登录前后线路表逐条一致（34 条：25 直链 + 9 官方票券），连「新4K-限时等级专属」「4K海外-官方C」
+这些票券线路匿名换也返回 201 + 真地址。登录只多出站内那套（`/v1/users/me/quota` 每日词元、
+收藏、历史、午夜剧场且要确认 18+）。所以源里把账号做成可选：`POST /v1/users/password/login`
+（字段名是 `account` 不是 `username`，登录不要验证码），会话取 `ai_movie_session=ums2_…`
+存 `fs` 复用，401 重登一次，密码错只写 30 分钟 TTL 的 `login_fail.json` 不阻塞播放。
+另加 `lineMode`（直链优先 / 官方优先）与设置页两个动作「检查账号与额度」「退出站点登录」。
+
+**v1.2.0：午夜剧场没有接入**（有实测依据，不是省事）。它是站点「AI 现生成今晚片单」的玩法，
+不是片库：`POST /v1/midnight-theater/playlists`（前端超时 45 秒）→ 轮询
+`/generations/{id}` → `POST .../playlists/{id}/play` 拿播放请求 → 再进 `/v1/playback`，
+每次生成按次扣大量词元。更关键的是**这个账号没有资格**：走完站点自己的成年确认
+（`PUT /v1/users/me/preferences {"adult_confirmed":true}` → 200 返回 `adult_confirmed_at`）之后，
+`GET /v1/midnight-theater/access` 仍回
+`403 {"code":"midnight_theater_not_eligible","message":"当前账号暂不符合开放条件"}`，
+`discovery` 同 403，`eligibility` 是 `{eligible:false}`（前端文案提到「今日生成次数」「加速升级解锁」，
+是等级/灰度门槛）。没资格就拿不到任何可验证的响应结构，按写源规则不猜。所以只加了两个能验证的
+动作：「确认已满 18 岁（站点账号）」和「查午夜剧场资格」（把 5 种 code 翻成人话，实测输出
+「账号暂不符合开放条件（练气1层不开放）」）。资格一到，按上面那条流程接分类即可。
+
+v1.2.0 同时修了线路选择：站点给的头几条偶尔是 403/404 的资源站（实测 `dytt-tvs` 403、
+`bfeng11` 404），直接播黑屏。现在单条探活最多 1 秒、总预算 2.2 秒，只验前几条，命中就停，
+全不通转官方票券，票券也没有才把第一条直链原样交出去；`content` 仍在 2.5 秒内。
+
+**v1.3.0 把分类 / 筛选 / 排序补全**（2026-11-03 参数矩阵实测）：
+
+- 分类 17 个、全部出内容，15 个首条唯一（重复的两个是「今日热播 / 本周热播」——榜首都是
+  《嫁金钗》，站点数据本身重合，第 2 页起就不同）；分页 p1/p2/p5 三页互不相同。
+  kind 分类显式带 `sort=heat_desc`：实测「不带 sort」时站点按最新出，不显式给就和「最近更新」撞首屏。
+- 筛选组按分类给不同表：bootstrap 的 5 个 kind 走 `catalog_ui`；**documentary / sports
+  bootstrap 里没有，但参数照样生效**，补本地表（genre 从片库反查：纪录片/音乐/历史/传记…、
+  体育/体育赛事）；`all` 与两个热播分类给通用组（实测「不带 kind」时 area/year/genre 也生效）；
+  7 个榜单不给组 —— 实测榜单会丢附加参数（`hot_list_key + area` 的 area 不生效、`+ sort`
+  反而把榜单顶掉）。
+- **多选只有地区支持**：`area=中国大陆,中国香港` 会混出两地结果，而 `genre=喜剧,爱情`、
+  `language=国语,粤语` 都回 0 条。源里只对 `area` 做逗号拼接，其它组取第一个。
+- 排序只认 `updated_desc` / `heat_desc`（`sort=whatever` 被丢掉）+ 榜单专用 `trending` +
+  `window=day|week`；筛选里的「排序」组能覆盖分类默认（实测《空枪》→ 选「最新」变《半山腰的索玛花》）。
+- 没有的维度（实测静默忽略，不做假声明）：`rating_gte` / `score_gte` / `duration_lte` /
+  `is_finished` / `status` / `free` / `playable_only` / `actor` / `channel` / `region` / `lang`；
+  短剧的「状态」「形式」两行站点自己标了 `enabled:false`。
+
+**v1.4.0 把午夜剧场接成第 18 个分类**（`midnight`）：走 `discovery → play → timeline` 而不是 catalog，
+`chapters()` 把 `timeline.segments` 展开成章节，`content()` 按段取 `media_sources[].url`，
+`play` 结果缓存 10 分钟避免重复扣词元。**请求侧已实测打通**：`play_request_id` 必须标准 UUID v4
+（纯随机 hex → `400 Invalid UUID`；改成 8-4-4-12、第三段首字符 `4`、第四段 `8/9/a/b` 后，
+`random/play`、`top/play`、`playlists/{id}/play` 三个都从「400 格式错」变成「403 资格拦截」，
+说明 body 形状被服务端接受）。**响应结构还没有真实样本**：账号练气1层走完成年确认后
+`access`/`discovery`/`play` 全 403 `midnight_theater_not_eligible`，结构取自
+`/assets/MidnightTheaterRoute-*.js` 的消费代码，解析全程防御式；资格放开后要拿一条真实片单复验。
+没资格时分类会明确回报原因（不会静默返回空）。
+
+
 ## 2026-11-03 爱丽丝书屋（`comic/alicesw.js`，详见 [源记录](../docs/2026-11-03_爱丽丝书屋源.md)）
 
 成人网络小说站 `alicesw.com`（全站 18+，diyquge 模板的静态 HTML，无接口无加密；发布页 `alicesw.click`，
@@ -618,7 +969,7 @@ dart run tools/site_reachability.dart
 
 ### 综合源的文字小说与类型分流
 
-综合站可以在同一源里返回小说、漫画、视频。列表/详情应提供 `mediaType: "novel" | "comic" | "video"`，章节分别返回 `text` / `images` / `video` 载荷；缺少明确类型时 App 按实际章节内容识别。小说必须提供目录和正文，不得把简介或网页链接当正文。源的存储归属仍是现有 `video` / `comic`，不新增 `novel` 板块标识。见 [小说与综合源说明](../docs/2026-11-02_小说阅读与综合源类型识别.md)。
+综合站可以在同一源里返回小说、漫画、视频。身份头使用 `contentTypes` 数组声明实际支持的两种或更多内容类型（`video`、`comic`、`novel`、`photo`、`audio`）；成人综合源仍须保留 `contentCategory: "adult"`。已验证的综合源还需登记源仓库 `metadata/mixed-sources.json`，生成独立综合订阅，同时保留在原有视频订阅中。列表/详情应提供 `mediaType: "novel" | "comic" | "video"`，章节分别返回 `text` / `images` / `video` 载荷；缺少明确类型时 App 按实际章节内容识别。小说必须提供目录和正文，不得把简介或网页链接当正文。源的存储归属仍是现有 `video` / `comic`，不新增 `novel` 板块标识。见 [小说与综合源说明](../docs/2026-11-02_小说阅读与综合源类型识别.md)。
 
 ## 2026-11-03 阅读归类与声明修复
 
@@ -629,6 +980,8 @@ dart run tools/site_reachability.dart
 
 用户提供的 PY 合集按完整内容去重后，304 份通过当前生产宿主离线加载，已接入独立 PY 总订阅和现有总订阅；13 份加载失败脚本保留在 archive/python，不自动安装。详情、验证边界及 4kyingshi.net 的 HTTP 403 排查见 [合集记录](../docs/2026-11-03_PY合集入库与4K源排查.md)。离线加载不代表逐站播放可用。
 
+2026-11-04 在受限实站复核后移除 8 份持续空列表或 404 的源，并移除 5 份重复源，现余 291 份；有声源和 Spider 父类初始化的宿主兼容修复需更新 App。证据与边界见 [PY 源可用性排查](../docs/2026-11-04_PY源可用性排查.md)。
+
 
 ## 2026-11-03 小说封面与源图标
 
@@ -637,3 +990,7 @@ dart run tools/site_reachability.dart
 ## 2026-11-03 爱丽丝访问错误分类
 
 爱丽丝书屋 1.1.2 区分真实网页挑战与普通 HTTP 拒绝/限流，并在普通 403 时尝试已知正文镜像；会话内复用可用镜像。真正挑战仍需网页验证。见 [本聊天验收记录](../docs/2026-11-03_本聊天验收清单.md)。
+
+## 2026-11-07 月亮小说目录与详情分类
+
+月亮小说升级 1.0.3，目录按每批6页读取，修复长篇整本目录超时、60页截断与分页失败漏章。需新版 App 的 chapterPage 支持；原站未上传封面的条目保持书名占位。见 [修复记录](../docs/2026-11-07_详情分类与月亮小说目录修复.md)。

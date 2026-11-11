@@ -22,6 +22,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
     this.onMatch,
     this.onConfigureService,
     this.onReload,
+    this.onTools,
     this.videoTitle,
     this.episodeTitle,
     this.serviceLabel,
@@ -42,7 +43,7 @@ class DanmakuSettingsSheet extends StatefulWidget {
   final String? status;
   final VoidCallback? onMatch;
   final VoidCallback? onConfigureService;
-  final VoidCallback? onReload, onClearMatch;
+  final VoidCallback? onReload, onClearMatch, onTools;
   final String? videoTitle, episodeTitle, serviceLabel, matchLabel;
   final int sourceCount, publicCount;
   final List<DanmakuItem> preview;
@@ -174,6 +175,12 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
               ),
           ],
         ),
+        if (widget.onTools != null)
+          ListTile(
+            title: const Text('自动匹配、链接、收藏与时间对齐'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: widget.onTools,
+          ),
         ListTile(
           dense: true,
           minTileHeight: 52,
@@ -555,7 +562,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               (value) => _update(_settings.copyWith(avoidSubtitles: value)),
             ),
           _switch(
-            '画中画显示弹幕',
+            '画中画显示弹幕（自动精简字号与密度）',
             _settings.pipEnabled,
             (value) => _update(_settings.copyWith(pipEnabled: value)),
           ),

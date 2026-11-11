@@ -17,49 +17,48 @@ import '../util/lume_log.dart';
 ///   `VideoPlayerOptions` 只暴露 `mixWithOthers` / `allowBackgroundPlayback`
 ///   （已核对 2.14.1 的源码）；
 /// - MPV：libmpv 的 `cache` / `demuxer-*` 属性（media_kit 的高层 API 不开放）；
-/// - MDK：libmdk 的 `avio.*` 属性（fvp 只给了 `setProperty` 这一条通道）。
+/// - MDK：fvp 的 `setBufferRange` 毫秒队列接口。
 ///
 /// 因此本文件定义**一个统一的参数对象 + 一个原生写通道**：符合平台条件时写
 /// 原生参数，不符合时如实降级（[UnsupportedBufferingBackend]），绝不假装已生效。
 @immutable
 class BufferingConfig {
   const BufferingConfig({
-    this.forwardBuffer = Duration.zero,
+    this.forwardBuffer = const Duration(seconds: 300),
     this.minimizeStalling = false,
-    this.readAhead = const Duration(seconds: 15),
-    this.maxBufferBytes = 64 * 1024 * 1024,
-    this.maxBackBufferBytes = 16 * 1024 * 1024,
+    this.readAhead = const Duration(seconds: 300),
+    this.maxBufferBytes = 256 * 1024 * 1024,
+    this.maxBackBufferBytes = 32 * 1024 * 1024,
     this.seekTolerance = Duration.zero,
   });
 
-  /// 默认参数：以「尽快出画面」为准，而不是把缓冲填满再播。
-  ///
-  /// 取值理由：
-  /// - [forwardBuffer] = 0（AVFoundation 的「自动」）—— 交给系统按网络状况决定；
-  ///   写死一个大值只会让起播更晚；
-  /// - [minimizeStalling] = false —— 这是「等缓冲」最直接的开关：关掉后 AVPlayer
-  ///   一拿到可播数据就起播，而不是先攒够缓冲；
-  /// - 缓存上限给的是**中等值**（64MB 前向 / 16MB 回退）：长片连续播放足够用，
-  ///   又不会像默认那样先把大块数据拉满再开始。
+  /// 默认预读 300 秒，前向缓存最多 256 MiB，回退缓存 32 MiB。
+  /// 扩大播放中的预读空间，同时保持 minimizeStalling = false，
+  /// 不为了填满前向缓存推迟起播。原生内核仍可按媒体与网络调整实际预读量。
   static const BufferingConfig defaults = BufferingConfig();
 
   /// 由「前向缓冲」设置（模块设置里的秒数）派生一份参数。
   ///
   /// 为什么要有这条派生：那个滑杆此前只把值存进库，**没有任何内核消费它**
-  /// （真机上「调了没反应」）。用户口径是一个设置，因此这里映射到两套内核
+  /// （真机上「调了没反应」）。用户口径是一个设置，因此这里映射到各内核
   /// **等价的那一项**：
   /// - AVPlayer：`preferredForwardBufferDuration`（[forwardBuffer]）；
-  /// - MPV：`demuxer-readahead-secs`（[readAhead]）。
+  /// - MPV：`cache-secs` 与 `demuxer-readahead-secs`（[readAhead]）；
+  /// - MDK：`setBufferRange`；Aether：约 4 秒一段的前向分段队列。
   ///
-  /// [forwardBuffer] 为 0 / 负 = 交给内核自动决定，与 [defaults] 完全一致。
+  /// [forwardBuffer] 为 0 / 负 = 使用默认的 300 秒预读策略。
   /// **[minimizeStalling] 永远保持 false**：它是「不为了填缓冲而推迟起播」的
   /// 底线（见 [defaults] 的说明），前向缓冲只决定播放中预读多少，不许变成
   /// 起播前的一次等待。
-  factory BufferingConfig.forForwardBuffer(Duration forwardBuffer) {
-    if (forwardBuffer <= Duration.zero) return defaults;
+  factory BufferingConfig.forForwardBuffer(
+    Duration forwardBuffer, {
+    int maxBufferBytes = 256 * 1024 * 1024,
+  }) {
+    if (forwardBuffer <= Duration.zero) forwardBuffer = defaults.forwardBuffer;
     return BufferingConfig(
       forwardBuffer: forwardBuffer,
       readAhead: forwardBuffer,
+      maxBufferBytes: maxBufferBytes,
     );
   }
 
@@ -91,23 +90,43 @@ class BufferingConfig {
     seekTolerance: tolerance,
   );
 
+  BufferingConfig withMaxBufferBytes(int bytes) => BufferingConfig(
+    forwardBuffer: forwardBuffer,
+    minimizeStalling: minimizeStalling,
+    readAhead: readAhead,
+    maxBufferBytes: bytes,
+    maxBackBufferBytes: maxBackBufferBytes,
+    seekTolerance: seekTolerance,
+  );
+
+  /// MDK's documented packet queue API uses milliseconds, not avio properties.
+  int get mdkMinBufferMs => readAhead.inMilliseconds.clamp(0, 750);
+  int get mdkMaxBufferMs =>
+      readAhead.inMilliseconds < 1 ? 1 : readAhead.inMilliseconds;
+
   /// MPV 属性写法：字符串值 + 单位已在属性名里约定。
   Map<String, String> get mpvProperties => <String, String>{
-        // 网络流开启缓存（本地文件由 libmpv 自行忽略）。
-        'cache': 'yes',
-        // 不要「等缓存填满再起播」——这是 mpv 侧的同一个开关。
-        'cache-pause-initial': 'no',
-        'demuxer-readahead-secs': '${readAhead.inSeconds}',
-        'demuxer-max-bytes': '$maxBufferBytes',
-        'demuxer-max-back-bytes': '$maxBackBufferBytes',
-      };
+    // 网络流开启缓存（本地文件由 libmpv 自行忽略）。
+    'cache': 'yes',
+    // 不要「等缓存填满再起播」——这是 mpv 侧的同一个开关。
+    'cache-pause-initial': 'no',
+    // Recover with a small reserve; never wait for the full read-ahead window.
+    'cache-pause': 'yes',
+    'cache-pause-wait': '${readAhead.inMilliseconds.clamp(0, 500) / 1000}',
+    'demuxer-seekable-cache': 'yes',
+    // 网络缓存开启时 cache-secs 才是有效的时长上限。
+    'cache-secs': '${readAhead.inSeconds}',
+    'demuxer-readahead-secs': '${readAhead.inSeconds}',
+    'demuxer-max-bytes': '$maxBufferBytes',
+    'demuxer-max-back-bytes': '$maxBackBufferBytes',
+  };
 
   /// 通道参数（原生侧只需要这两项：它拿不到 Dart 的 Duration / 字节单位）。
   Map<String, Object?> toChannelArguments() => <String, Object?>{
-        'forwardBufferSeconds': forwardBuffer.inMilliseconds / 1000.0,
-        'minimizeStalling': minimizeStalling,
-        'seekToleranceMs': seekTolerance.inMilliseconds,
-      };
+    'forwardBufferSeconds': forwardBuffer.inMilliseconds / 1000.0,
+    'minimizeStalling': minimizeStalling,
+    'seekToleranceMs': seekTolerance.inMilliseconds,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -121,15 +140,16 @@ class BufferingConfig {
 
   @override
   int get hashCode => Object.hash(
-        forwardBuffer,
-        minimizeStalling,
-        readAhead,
-        maxBufferBytes,
-        maxBackBufferBytes,
-      );
+    forwardBuffer,
+    minimizeStalling,
+    readAhead,
+    maxBufferBytes,
+    maxBackBufferBytes,
+  );
 
   @override
-  String toString() => 'BufferingConfig(前向缓冲 ${forwardBuffer.inMilliseconds}ms, '
+  String toString() =>
+      'BufferingConfig(前向缓冲 ${forwardBuffer.inMilliseconds}ms, '
       '等待缓冲 ${minimizeStalling ? '是' : '否'}, '
       '预读 ${readAhead.inSeconds}s, 前向 $maxBufferBytes B, 回退 $maxBackBufferBytes B)';
 }
@@ -171,7 +191,7 @@ class UnsupportedBufferingBackend implements BufferingBackend {
 /// （与 `MethodChannelBrightnessBackend` 同一口径）。
 class MethodChannelBufferingBackend implements BufferingBackend {
   MethodChannelBufferingBackend({MethodChannel? methodChannel})
-      : _methods = methodChannel ?? const MethodChannel(channelName);
+    : _methods = methodChannel ?? const MethodChannel(channelName);
 
   static const String channelName = 'lumebox/buffering';
 
@@ -194,6 +214,7 @@ class MethodChannelBufferingBackend implements BufferingBackend {
 
   @override
   Future<void> apply(BufferingConfig config) async {
+    _channelKnown = false;
     try {
       await _methods.invokeMethod<void>('apply', config.toChannelArguments());
       _channelKnown = true;

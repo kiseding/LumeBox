@@ -123,7 +123,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.settings,
     title: '总订阅导入导出',
-    child: ListView(
+    child: SettingsSurfaceList(
       padding: const EdgeInsets.all(16),
       children: [
         if (results != null)
@@ -146,14 +146,19 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
             ),
         if (busy)
           for (final section in [Section.comic, Section.video])
-            ValueListenableBuilder<String>(
-              valueListenable: SourceSubscriptionSync.progress(section),
-              builder: (_, text, child) => text.isEmpty
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text('${section.label}：$text'),
-                    ),
+            SizedBox(
+              child: ValueListenableBuilder<String>(
+                valueListenable: SourceSubscriptionSync.progress(section),
+                builder: (_, text, child) => text.isEmpty
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GlassCard(
+                          padding: const EdgeInsets.all(12),
+                          child: Text('${section.label}：$text'),
+                        ),
+                      ),
+              ),
             ),
         const SettingsFooterNote(
           '自动分类并导入手机：漫画、美图、小说、有声归漫画板块；影视、视频归视频板块。猫源订阅仍在猫源配置中心管理。',
@@ -164,7 +169,7 @@ class _TotalSubscriptionPageState extends State<TotalSubscriptionPage> {
           spacing: 8,
           runSpacing: 4,
           children: [
-            for (final route in SubscriptionRoute.values)
+            for (final route in SubscriptionCatalog.availableRoutes)
               ChoiceChip(
                 label: Text(route.label),
                 selected:

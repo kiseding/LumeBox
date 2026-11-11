@@ -32,6 +32,7 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
   String? _error;
   String? _syncStatus;
   List<String> _syncErrors = [];
+  bool _mixedSubscription = false;
   @override
   void initState() {
     super.initState();
@@ -57,6 +58,47 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
     }
   }
 
+  void _showChanges() {
+    final changes = SourceSubscriptionSync.notices(widget.section);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('源仓库变更'),
+        content: SizedBox(
+          width: 360,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final change in changes)
+                    ListTile(
+                      title: Text(change['name'] ?? ''),
+                      subtitle: Text(change['status'] ?? ''),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+          TextButton(
+            onPressed: () {
+              SourceSubscriptionSync.acknowledge(widget.section);
+              Navigator.pop(context);
+            },
+            child: const Text('标为已读'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _add() async {
     final service = _service;
     if (service == null || _url.text.trim().isEmpty) return;
@@ -69,6 +111,27 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
         _url.text,
       ], manager: widget.manager);
       _url.clear();
+      await _sync();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _addOfficial(SubscriptionRoute route) async {
+    if (_service == null || _busy) return;
+    final url = _mixedSubscription && widget.section == Section.video
+        ? SubscriptionCatalog.mixedFor(route)
+        : SubscriptionCatalog.sectionUrl(widget.section, route: route);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await SourceSubscriptionSync.remember(widget.section, [
+        url,
+      ], manager: widget.manager);
       await _sync();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -173,6 +236,13 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
               onPressed: () => Navigator.pop(context, false),
               child: const Text('取消'),
             ),
+            TextButton(
+              onPressed: () {
+                selected.addAll(record.pending.keys);
+                Navigator.pop(context, true);
+              },
+              child: const Text('全部导入'),
+            ),
             FilledButton(
               onPressed: selected.isEmpty
                   ? null
@@ -226,19 +296,11 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
                       slot: 'source_subscription_page.1',
                     ),
                     title: Text('订阅源已变动 $count 条'),
-                    subtitle: Text(
-                      SourceSubscriptionSync.notices(widget.section)
-                          .map(
-                            (entry) => '${entry['name']} · ${entry['status']}',
-                          )
-                          .join('\n'),
-                    ),
+                    subtitle: const Text('查看新增、更新和移除明细'),
+                    onTap: _showChanges,
                     trailing: TextButton(
-                      onPressed: () =>
-                          SourceSubscriptionSync.changeCount(widget.section)
-                                  .value =
-                              0,
-                      child: const Text('知道了'),
+                      onPressed: _showChanges,
+                      child: const Text('查看'),
                     ),
                   ),
           ),
@@ -258,12 +320,73 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
               Icons.system_update_alt,
               slot: 'source_subscription_page.2',
             ),
-            label: const Text('一键更新全部订阅'),
+            label: const Text('检查更新与增减'),
           ),
           const Text(
             '订阅自动检查已安装源的更新和移除。新发现的源进入待安装列表，勾选后才安装。正常间隔 6 小时，失败后 30 分钟可重试。保留手动导入的源。',
           ),
           const SizedBox(height: 16),
+          if (widget.section == Section.comic ||
+              widget.section == Section.video) ...[
+            GlassCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '官方订阅',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '选择分类和线路后立即添加并检查可安装的源。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  if (widget.section == Section.video) ...[
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('全部视频订阅'),
+                          selected: !_mixedSubscription,
+                          onSelected: _busy
+                              ? null
+                              : (_) =>
+                                    setState(() => _mixedSubscription = false),
+                        ),
+                        ChoiceChip(
+                          label: const Text('综合源订阅'),
+                          selected: _mixedSubscription,
+                          onSelected: _busy
+                              ? null
+                              : (_) =>
+                                    setState(() => _mixedSubscription = true),
+                        ),
+                      ],
+                    ),
+                    if (_mixedSubscription)
+                      const Text('综合源包含多种内容；成人内容仍受隐私设置控制。'),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final route in SubscriptionCatalog.availableRoutes)
+                        ActionChip(
+                          label: Text(route.label),
+                          onPressed: _busy || service == null
+                              ? null
+                              : () => _addOfficial(route),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          const Text('自定义订阅', style: TextStyle(fontWeight: FontWeight.w600)),
           TextField(
             controller: _url,
             enabled: !_busy,
@@ -273,25 +396,6 @@ class _SourceSubscriptionPageState extends State<SourceSubscriptionPage> {
             ),
             keyboardType: TextInputType.url,
           ),
-          if (widget.section == Section.comic ||
-              widget.section == Section.video)
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final route in SubscriptionRoute.values)
-                  ActionChip(
-                    label: Text(route.label),
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() {
-                            _url.text = SubscriptionCatalog.sectionUrl(
-                              widget.section,
-                              route: route,
-                            );
-                          }),
-                  ),
-              ],
-            ),
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _busy ? null : _add,

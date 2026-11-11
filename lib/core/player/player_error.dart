@@ -12,6 +12,26 @@
 class PlayerErrorText {
   PlayerErrorText._();
 
+  /// Check both native errors and their UI translations at recovery boundaries.
+  static bool needsAlternativeKernel(Object? raw) {
+    final text = '${raw ?? ''}';
+    if (_httpStatus(text) case final status? when status >= 400) return false;
+    final lower = text.toLowerCase();
+    return [
+      '-12939',
+      '-12847',
+      '-12848',
+      'this media may be damaged',
+      'this media format is not supported',
+      '该视频的格式或编码不被当前内核支持',
+      '当前内核无法打开该媒体',
+      'byte range',
+      'no content length',
+      '服务器不支持分段请求',
+      'server is not correctly configured',
+    ].any(lower.contains);
+  }
+
   /// 归一为一句可读文案。输入为空时给一句兜底。
   static String describe(Object? raw) {
     final text = '${raw ?? ''}'.trim();
@@ -73,6 +93,10 @@ class PlayerErrorText {
   /// 常见原生错误的特征 → 中文短句（按顺序匹配，越具体越靠前）。
   static final List<_Rule> _rules = <_Rule>[
     _Rule(<String>[
+      'osstatus error -12848',
+      'this media may be damaged',
+    ], '当前内核无法打开该媒体，可能是封装、编码或数据不完整；请更换内核或线路'),
+    _Rule(<String>[
       'connection appears to be offline',
       'not connected to the internet',
       'network connection was lost',
@@ -100,7 +124,12 @@ class PlayerErrorText {
       'no content length',
       'server is not correctly configured',
     ], '服务器不支持分段请求（AVPlayer 播不了这种流）：换 MPV 内核通常可播'),
-    _Rule(<String>['cancelled', 'canceled', 'aborted', 'operation stopped'], '已取消加载'),
+    _Rule(<String>[
+      'cancelled',
+      'canceled',
+      'aborted',
+      'operation stopped',
+    ], '已取消加载'),
     _Rule(<String>['permission', 'denied'], '没有权限访问该地址'),
     _Rule(<String>['no such file', 'file not found', 'enoent'], '本地文件不存在'),
   ];

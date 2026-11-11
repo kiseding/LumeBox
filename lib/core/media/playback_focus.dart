@@ -5,8 +5,23 @@ class PlaybackFocus {
   static final Map<String, Future<void> Function()> _release = {};
   static Future<void>? _pending;
   static String? _owner;
+  static String? get owner => _owner;
+  static final _playing = <String>{};
+  static bool get isPlaying => _playing.contains(_owner);
+  static void setPlaying(String name, bool value) {
+    if (value) {
+      _playing.add(name);
+    } else {
+      _playing.remove(name);
+    }
+  }
+
   static void register(String name, Future<void> Function() release) =>
       _release[name] = release;
+  static void unregister(String name, Future<void> Function() release) {
+    if (_release[name] == release) _release.remove(name);
+  }
+
   static Future<void> acquire(String name) {
     final next = (_pending ?? Future<void>.value()).then((_) async {
       if (_owner == name) return;

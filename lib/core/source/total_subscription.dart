@@ -116,8 +116,9 @@ class TotalSubscriptionService {
   }
 
   Future<Map<Section, SubscriptionSyncResult>> import(
-    TotalSubscription total,
-  ) async {
+    TotalSubscription total, {
+    bool installAll = false,
+  }) async {
     total = TotalSubscription.decode(total.encode());
     final results = <Section, SubscriptionSyncResult>{};
     for (final entry in total.entries.entries) {
@@ -154,7 +155,106 @@ class TotalSubscriptionService {
               return SubscriptionSyncResult()
                 ..errors.add('订阅地址已保存，当前平台无法运行 JS 源');
             }
-            return service.sync(force: true);
+            return service.sync(
+              force: true,
+              installNewFor: installAll
+                  ? entry.value
+                        .where((item) => item.enabled)
+                        .map((item) => item.url)
+                        .toSet()
+                  : const {},
+            );
+          },
+        );
+      } catch (error) {
+        results[entry.key] = SubscriptionSyncResult()..errors.add('$error');
+      }
+    }
+    return results;
+  }
+
+  /// Re-enable only the selected exclusions from this total, preserving others.
+  Future<Map<Section, SubscriptionSyncResult>> restoreExcluded(
+    TotalSubscription total,
+    Map<Section, Set<String>> selected,
+  ) async {
+    final results = <Section, SubscriptionSyncResult>{};
+    for (final entry in selected.entries) {
+      if (entry.value.isEmpty) continue;
+      try {
+        results[entry.key] = await SourceSubscriptionSync.maintenance(
+          entry.key,
+          () async {
+            final stored = await SourceSubscriptionSync.open(
+              entry.key,
+              manager: managers[entry.key],
+            );
+            final urls = (total.entries[entry.key] ?? const [])
+                .where((item) => item.enabled)
+                .map((item) => item.url)
+                .toSet();
+            for (final record in stored.subscriptions.where(
+              (record) => urls.contains(record.url),
+            )) {
+              record.excludedIds.removeAll(entry.value);
+            }
+            await stored.save();
+            final service = SourceSubscriptionSync(
+              section: entry.key,
+              manager: stored.manager,
+              file: stored.file,
+              fetch: fetch,
+            );
+            await service.load();
+            return service.sync(
+              force: true,
+              installNewFor: urls,
+              onlyUrls: urls,
+            );
+          },
+        );
+      } catch (error) {
+        results[entry.key] = SubscriptionSyncResult()..errors.add('$error');
+      }
+    }
+    return results;
+  }
+
+  Future<Map<Section, SubscriptionSyncResult>> retryFailed(
+    TotalSubscription total,
+    Map<Section, SubscriptionSyncResult> previous,
+  ) async {
+    final results = <Section, SubscriptionSyncResult>{};
+    for (final entry in previous.entries.where(
+      (entry) => entry.value.errors.isNotEmpty,
+    )) {
+      try {
+        results[entry.key] = await SourceSubscriptionSync.maintenance(
+          entry.key,
+          () async {
+            final stored = await SourceSubscriptionSync.open(
+              entry.key,
+              manager: managers[entry.key],
+            );
+            final originalUrls = (total.entries[entry.key] ?? const [])
+                .where((item) => item.enabled)
+                .map((item) => item.url)
+                .toSet();
+            final failed = entry.value.failedSubscriptions.isEmpty
+                ? originalUrls
+                : entry.value.failedSubscriptions;
+            final service = SourceSubscriptionSync(
+              section: entry.key,
+              manager: stored.manager,
+              file: stored.file,
+              fetch: fetch,
+            );
+            await service.load();
+            return service.sync(
+              force: true,
+              installNewFor: originalUrls,
+              onlyUrls: failed,
+            );
           },
         );
       } catch (error) {

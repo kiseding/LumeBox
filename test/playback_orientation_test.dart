@@ -41,6 +41,7 @@ void main() {
     PlaybackOrientationStore.resetForTesting();
     PlaybackOrientationController.instance.resetForTesting();
     await SectionScope.open(Section.video);
+    await ReadingLibrary.open(Section.video);
   });
 
   tearDown(() async {
@@ -110,7 +111,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('播放器设置'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('player-category-picture')));
+      await tester.ensureVisible(find.text('画面与显示'));
+      await tester.tap(find.text('画面与显示'));
       await tester.pumpAndSettle();
     }
 

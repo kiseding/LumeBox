@@ -17,14 +17,9 @@ import 'package:lume_box/features/settings/total_subscription_page.dart';
 import 'support/fake_source_manager.dart';
 
 void main() {
-  testWidgets('总订阅可切换 Cloudflare、国内 CDN 与原站，地址跟随选择', (tester) async {
+  testWidgets('总订阅可切换 Cloudflare 与原站，地址跟随选择', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: TotalSubscriptionPage()));
-    await tester.tap(find.text('国内 CDN'));
-    await tester.pump();
-    expect(
-      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
-      SubscriptionCatalog.totalCdnUrl,
-    );
+    expect(find.text('国内 CDN'), findsNothing);
     await tester.tap(find.text('Cloudflare'));
     await tester.pump();
     expect(
@@ -116,6 +111,80 @@ void main() {
     final results = await service.import(total);
     expect(results[Section.video]!.pending, 1);
     expect(managers[Section.video]!.sources, isEmpty);
+  });
+
+  test('一键导入全部源不改变自动安装偏好', () async {
+    final results = await service.import(total, installAll: true);
+    expect(results[Section.video]!.added, 1);
+    expect(results[Section.video]!.pending, 0);
+    final stored = await SourceSubscriptionSync.open(
+      Section.video,
+      manager: managers[Section.video],
+    );
+    expect(stored.subscriptions.single.autoInstallNew, isFalse);
+  });
+
+  test('批量导入报告排除项，仅恢复用户选择的源', () async {
+    await service.import(total, installAll: true);
+    final stored = await SourceSubscriptionSync.open(
+      Section.video,
+      manager: managers[Section.video],
+    );
+    final original = managers[Section.video]!.sources.single;
+    await stored.markRemoved([original]);
+    await managers[Section.video]!.remove(original.id);
+    final result = await service.import(total, installAll: true);
+    expect(
+      result[Section.video]!.excluded,
+      containsPair(original.id, original.name),
+    );
+    expect(managers[Section.video]!.sources, isEmpty);
+    final restored = await service.restoreExcluded(total, {
+      Section.video: {original.id},
+    });
+    expect(restored[Section.video]!.added, 1);
+    expect(managers[Section.video]!.sources.single.id, original.id);
+  });
+
+  test('重试仅重新检查失败的订阅，已成功的订阅不再下载', () async {
+    const first = 'https://repo.test/first.txt';
+    const second = 'https://repo.test/second.txt';
+    const a = 'https://repo.test/a.js';
+    const b = 'https://repo.test/b.js';
+    final custom = TotalSubscription({
+      Section.video: [
+        (url: first, enabled: true),
+        (url: second, enabled: true),
+      ],
+    });
+    remote[first] = a;
+    remote[second] = b;
+    remote[a] = '// LumeSource: {"id":"a","name":"A","version":"1","category":"video"}\nvar LumeSource={};';
+    var calls = <String>[];
+    final injected = TotalSubscriptionService(
+      managers: managers,
+      fetch: (url) async {
+        calls.add(url);
+        if (!remote.containsKey(url)) throw StateError('HTTP 503');
+        final text = remote[url]!;
+        return SourceFetchResult(
+          bytes: Uint8List.fromList(utf8.encode(text)),
+          text: text,
+        );
+      },
+    );
+    final firstRun = await injected.import(custom, installAll: true);
+    expect(firstRun[Section.video]!.failedSubscriptions, contains(second));
+    remote[b] = '// LumeSource: {"id":"b","name":"B","version":"1","category":"video"}\nvar LumeSource={};';
+    calls = [];
+    final retry = await injected.retryFailed(custom, firstRun);
+    expect(retry[Section.video]!.errors, isEmpty);
+    expect(calls, contains(second));
+    expect(calls, isNot(contains(first)));
+    expect(
+      managers[Section.video]!.sources.map((source) => source.id),
+      containsAll(['a', 'b']),
+    );
   });
 
   test('总订阅递归影视清单保留 Python 源和运行时', () async {
@@ -280,7 +349,11 @@ void main() {
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
     expect(fixture.imported, 1);
-    await tester.ensureVisible(find.text('生成总订阅导出'));
+    await tester.scrollUntilVisible(
+      find.text('生成总订阅导出'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('生成总订阅导出'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
@@ -343,8 +416,9 @@ class _UiService extends TotalSubscriptionService {
   Future<TotalSubscription> export() async => total;
   @override
   Future<Map<Section, SubscriptionSyncResult>> import(
-    TotalSubscription total,
-  ) async {
+    TotalSubscription total, {
+    bool installAll = false,
+  }) async {
     imported++;
     return {
       for (final section in total.entries.keys)

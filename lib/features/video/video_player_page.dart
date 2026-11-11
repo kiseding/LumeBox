@@ -1,3 +1,23 @@
+import '../../shared/widgets/number_setting_tile.dart';
+import 'seek_preview.dart';
+import '../../core/player/playback_network.dart';
+import 'forward_buffer_control.dart';
+import 'danmaku/danmaku_tools_page.dart';
+import 'danmaku/danmaku_stream.dart';
+import '../../core/player/playback_failure.dart';
+import '../../core/player/playback_health.dart';
+import '../../core/player/video_disk_cache.dart';
+import '../settings/preload_settings_page.dart';
+import 'line_performance.dart';
+import '../experience/clip_editor.dart';
+import '../experience/subtitle_center_page.dart';
+import '../../core/experience/content_center.dart';
+import 'video_download_center.dart';
+import '../../shared/widgets/media_badges.dart';
+import 'source_playback_profiles.dart';
+import '../../core/source/source_runtime_pins.dart';
+import 'player_snapshot_selector.dart';
+import 'player_edge_back.dart';
 import '../reading/poster_card.dart';
 import '../reading/section_toolbar.dart';
 import 'video_detail_page.dart';
@@ -19,12 +39,16 @@ import 'playback_glass.dart';
 import 'playback_failure_panel.dart';
 import '../../core/session/app_preferences.dart';
 
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File, Directory;
+
+import 'package:crypto/crypto.dart' show sha256;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/net/ios_verified_webview.dart';
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
@@ -75,11 +99,13 @@ import 'player_control_glyph.dart';
 import 'playback_source_validator.dart';
 import 'playback_quality_preference.dart';
 import 'playback_preference_wiring.dart';
+import 'playback_entry_preparation.dart';
 import '../../core/player/player_experience_store.dart';
 import 'player_kernel_picker.dart';
 import 'next_episode_buffer.dart';
 import 'player_settings_sheet.dart';
 import 'player_source_sheet.dart';
+import 'player_playback_info.dart';
 import 'player_speed_meter.dart';
 import 'player_speed_button.dart';
 import 'source_playback.dart';
@@ -98,6 +124,7 @@ import '../../core/player/playback_logs.dart';
 import 'intro_episode_sheet.dart';
 
 part 'video_player_intro.dart';
+part 'video_player_routes.dart';
 
 /// 独立播放器页：视频**唯一的**播放入口。
 ///
@@ -130,10 +157,14 @@ class VideoPlayerPage extends StatefulWidget {
     this.library,
     this.playbackBackend,
     this.speedMeter,
+    this.healthClock,
     this.prelaunch,
     this.sourceValidator,
     this.fullscreenOnly = true,
   });
+
+  /// Injectable time source for deterministic stall recovery checks.
+  final DateTime Function()? healthClock;
 
   /// 起播媒体（含防盗链请求头）。
   ///
@@ -242,6 +273,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   VideoPlayerSettingsStore? _store;
   PlayerSettings _settings = const PlayerSettings();
+  final _settingsForSheet = ValueNotifier(const PlayerSettings());
+  SourcePlaybackProfiles? _sourceProfiles;
+  String? _settingsSourceId;
+  bool get _usesSourceProfile =>
+      _sourceProfiles?.contains(_settingsSourceId) ?? false;
   AbstractPlayer? _player;
   PipSession? _session;
   PlayerMedia? _media;
@@ -287,6 +323,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   ///
   /// 调库失败或还没读到时就是默认值——与历史行为一致（默认值 = 起播最快那套）。
   BufferingConfig _buffering = BufferingConfig.defaults;
+
+  SectionImagePipeline? _previewImages;
+  SectionImagePipeline? _previewPipeline() {
+    final library = _library;
+    if (library == null) return null;
+    final images = _previewImages ??= SectionImagePipeline(
+      cacheDir: library.imageCacheDir,
+      memoryBudgetBytes: 4 * 1024 * 1024,
+      maxConcurrent: 1,
+      maxRetries: 0,
+      timeout: const Duration(seconds: 5),
+    );
+    final source = _source;
+    if (source != null) images.bindSource(source);
+    final target = _target;
+    if (target != null) images.bindSession(Section.video, target.sourceId);
+    return images;
+  }
+
+  final _previews = SeekPreviewFrames();
+  final _network = PlaybackNetwork();
+  bool _cellularNoticeShown = false, _preloadAllowed = false;
+  int _bufferSeconds = 0;
+
+  void _setForwardBufferSeconds(int seconds) {
+    _bufferSeconds = seconds;
+    _buffering = BufferingConfig.forForwardBuffer(
+      Duration(seconds: seconds),
+      maxBufferBytes:
+          (_library == null
+              ? 256
+              : SectionModuleSettings.load(_library!).bufferMiB) *
+          1024 *
+          1024,
+    );
+  }
 
   /// 浏览页预启动的内核实例：**只有第一次重建**能接手（见 [_rebuildPlayer]）。
   PlayerPrelaunch? _prelaunch;
@@ -338,6 +410,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Timer? _unlockTimer;
   bool _muted = false, _musicMode = false;
   bool _showNetworkSpeed = true;
+  bool _showBufferedTime = true;
   double get _effectiveVolume => _muted ? 0 : _gesture.volume;
 
   /// 全屏（沉浸）模式：顶栏与控制栏收起，点画面切换浮层控制栏。
@@ -363,14 +436,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   int _seekWatchdogGeneration = 0;
   String? _hint;
   Timer? _hintTimer;
+  OverlayEntry? _hintOverlay;
   bool _swipeNextFired = false;
 
   /// 控制栏自动隐藏的计时器（用户要求：播放中无操作 N 秒收起，点屏幕唤回）。
   Timer? _autoHideTimer;
   bool _accessibleNavigation = false;
-
-  /// 无操作多久收起控制栏（用户口径：3 秒；画面中间那组播放控件不受影响）。
-  static const Duration _autoHideDelay = Duration(seconds: 3);
 
   /// 设置 → 各模块独立设置 → 「控件尺寸」的倍率（真机反馈「显示模式全都没有
   /// 生效」：这套值原来只写库、没有界面读）。控制栏的按钮盒与图标都乘它。
@@ -398,6 +469,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 进度条拖动预览的目标位置（拖动中显示，松手才真 seek）。
   Duration? _previewTarget;
+  Duration? _committedSeekTarget;
+  Stopwatch? _seekDiagnosticWatch;
+  int? _seekPositionObservedMs;
+  Timer? _seekDisplayTimeout;
+  VoidCallback? _cancelSeekConfirmation;
   int _seekRevision = 0;
 
   /// 进度落盘节流：播放中每 5 秒写一次，暂停 / 切集 / 退出时立即写。
@@ -433,16 +509,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _returnedFromBackground = false;
   bool _recoveringPlayback = false;
   bool _rangeFallbackAttempted = false;
+  bool _kernelFallbackInFlight = false;
+  final Set<String> _recoveryLines = {};
+  bool _autoRecovering = false;
+  final _stallGuard = PlaybackStallGuard();
+  final _linePerformanceCache = <String, LinePerformance>{};
+  PlaybackSpeedMeter? _benchmarkMeter;
+  String? _prefetchedEpisode;
   Duration _healthyPosition = Duration.zero;
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _networkSpeed.cancelBackground();
     final previous = _lifecycle;
     _lifecycle = state;
     final introSnapshot = _player?.snapshot.value;
     if (introSnapshot != null) _syncOriginalIntro(introSnapshot);
     if (state != AppLifecycleState.resumed) _nextEpisodeBuffer.discard();
+    if (state != AppLifecycleState.resumed) {
+      VideoDiskCache.instance.stopPrefetch();
+    }
     _framePump?.setBackground(state != AppLifecycleState.resumed);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -550,7 +637,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _playbackRequestHeaders = recoveryMedia.headers ?? const {};
         _networkSpeed.reset();
         _nextSpeedProbe = null;
-        await player.load(recoveryMedia);
+        await VideoDiskCache.instance.load(player, recoveryMedia);
         if (!mounted ||
             !identical(player, _player) ||
             !identical(recoveryMedia, _media)) {
@@ -597,6 +684,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _qualityIndex = selected == null ? 0 : qualities.indexOf(selected);
     return PlayerMedia(
       uri: address,
+      previews: content is VideoContent ? content.previews : const [],
       title: previous.title,
       headers: selected != null && selected.headers.isNotEmpty
           ? selected.headers
@@ -662,7 +750,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final backend = _session?.backend;
     if (backend is! MethodChannelPipBackend) return;
     await backend.updateDanmaku(
-      {..._danmakuSettings.toJson(), 'playbackRate': _settings.speed},
+      {..._danmakuSettings.toPipJson(), 'playbackRate': _settings.speed},
       [
         for (final item in _danmaku.items)
           {
@@ -676,10 +764,138 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
+  DanmakuStream? _danmakuStream;
+  bool _loadingDanmakuSegment = false;
+  double _danmakuSourceDuration = 0;
+  String get _durationKey => "$_alignmentKey.${_target?.chapterId}.duration";
+  String get _alignmentKey =>
+      'video.danmaku.align.${_target?.sourceId}.${_target?.itemId}';
+  double get _workOffset =>
+      double.tryParse(_library?.setting('$_alignmentKey.offset') ?? '') ?? 0;
+  bool get _workScale => _library?.setting('$_alignmentKey.scale') == 'true';
+
+  Future<void> _loadDanmakuAtPosition() async {
+    final stream = _danmakuStream;
+    if (stream == null || _loadingDanmakuSegment) return;
+    _loadingDanmakuSegment = true;
+    try {
+      final position = _player?.snapshot.value.position ?? Duration.zero;
+      final ratio =
+          _workScale &&
+              _danmakuSourceDuration > 0 &&
+              (_player?.snapshot.value.duration.inMilliseconds ?? 0) > 0
+          ? _player!.snapshot.value.duration.inMilliseconds /
+                1000 /
+                _danmakuSourceDuration
+          : 1.0;
+      final previousRevision = stream.revision;
+      await stream.loadAt(
+        Duration(
+          milliseconds: ((position.inMilliseconds - _workOffset * 1000) / ratio)
+              .round(),
+        ),
+      );
+      if (mounted &&
+          identical(stream, _danmakuStream) &&
+          previousRevision != stream.revision) {
+        setState(() {
+          _publicDanmakuTrack = stream.track;
+          _publicDanmakuCount = stream.track.length;
+          _danmaku = _combinedDanmaku();
+        });
+      }
+    } catch (e) {
+      if (mounted && identical(stream, _danmakuStream)) {
+        _publicDanmakuStatus = '分片加载失败，可重新加载：$e';
+        _notifyDanmakuSheet();
+      }
+    } finally {
+      _loadingDanmakuSegment = false;
+    }
+  }
+
+  Future<void> _openDanmakuTools(BuildContext panelContext) async {
+    final target = _target;
+    if (target == null) return;
+    final alignmentKey = _alignmentKey;
+    await Navigator.of(panelContext).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DanmakuToolsPage(
+          title: '${target.title} ${target.chapterTitle}',
+          offset: _workOffset,
+          scale: _workScale,
+          sourceDuration: _danmakuSourceDuration,
+          videoDuration:
+              (_player?.snapshot.value.duration.inMilliseconds ?? 0) / 1000,
+          onAlignment: (offset, scale) {
+            _library?.setSetting('$alignmentKey.offset', '$offset');
+            _library?.setSetting('$alignmentKey.scale', '$scale');
+            if (mounted) setState(() => _danmaku = _combinedDanmaku());
+          },
+          onLoad: ({id, url}) async {
+            final revision = ++_publicDanmakuSeq;
+            final config = await DandanplayCredentials.load();
+            final client = DandanplayClient(credentials: config);
+            DanmakuStream? stream;
+            try {
+              final payload = await client.commentPayload(
+                id: id,
+                videoUrl: url,
+              );
+              stream = DanmakuStream(client, payload);
+              await stream.loadAt(
+                _player?.snapshot.value.position ?? Duration.zero,
+              );
+              if (!mounted ||
+                  revision != _publicDanmakuSeq ||
+                  !(_target?.isSameEpisode(target) ?? false)) {
+                stream.close();
+                return 0.0;
+              }
+              _danmakuStream?.close();
+              _danmakuStream = stream;
+              _danmakuSourceDuration = stream.duration;
+              _library?.setSetting(_durationKey, "${stream.duration}");
+              setState(() {
+                _publicDanmakuTrack = stream!.track;
+                _publicDanmakuCount = stream.track.length;
+                _publicDanmakuStatus = '已加载 $_publicDanmakuCount 条公共弹幕';
+                _danmaku = _combinedDanmaku();
+              });
+              _notifyDanmakuSheet();
+              return stream.duration;
+            } catch (_) {
+              stream?.close();
+              client.close();
+              rethrow;
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   DanmakuTrack _combinedDanmaku() => DanmakuTrack.parse(
     {
       ..._sourceDanmakuTrack.items,
-      ..._publicDanmakuTrack.items,
+      ..._publicDanmakuTrack.items.map((item) {
+        final videoSeconds =
+            (_player?.snapshot.value.duration.inMilliseconds ?? 0) / 1000;
+        final ratio =
+            _workScale && videoSeconds > 0 && _danmakuSourceDuration > 0
+            ? videoSeconds / _danmakuSourceDuration
+            : 1.0;
+        return DanmakuItem(
+          time: Duration(
+            milliseconds:
+                (item.time.inMilliseconds * ratio + _workOffset * 1000).round(),
+          ),
+          text: item.text,
+          mode: item.mode,
+          color: item.color,
+          fontSize: item.fontSize,
+        );
+      }),
       ..._localDanmakuTrack.items,
     }.toList(),
   );
@@ -717,9 +933,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return PlayerKernel.values.firstWhere(_catalog.isAvailable);
   }
 
+  final _runtimeReleases = <String, VoidCallback>{};
+  void _retainRuntime(String? id) {
+    if (id != null) {
+      _runtimeReleases.putIfAbsent(
+        id,
+        () => SourceRuntimePins.retain(Section.video, id),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    final runtimeId = widget.target?.sourceId ?? widget.sourceId;
+    _retainRuntime(runtimeId);
+
     WidgetsBinding.instance.addObserver(this);
     DanmakuSourcesStore.revision.addListener(_danmakuServiceChanged);
     if (widget.fullscreenOnly) {
@@ -769,14 +998,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   void dispose() {
     _rebuildSeq++;
+    _benchmarkMeter?.dispose();
+    _benchmarkMeter = null;
+    _settingsForSheet.dispose();
     _library?.settingsRevision.removeListener(_onSharedSettingsChanged);
     DanmakuSourcesStore.revision.removeListener(_danmakuServiceChanged);
     _introGeneration++;
     _episodeImages?.dispose();
     _intro?.dispose();
+    _network.dispose();
+    _previewImages?.dispose();
+    _previews.dispose();
     _nextEpisodeBuffer.dispose();
+    VideoDiskCache.instance.stopPrefetch();
+    _danmakuStream?.close();
     _unlockTimer?.cancel();
     _hintTimer?.cancel();
+    _hintOverlay?.remove();
+    _hintOverlay?.dispose();
+    _hintOverlay = null;
     WidgetsBinding.instance.removeObserver(this);
     _danmakuLoadSeq++;
     for (final client in _danmakuClients) {
@@ -792,6 +1032,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _autoHideTimer = null;
     _seekWatchdog?.cancel();
     _seekWatchdog = null;
+    _seekDisplayTimeout?.cancel();
+    _cancelSeekConfirmation?.call();
+    _committedSeekTarget = null;
     _saveProgress(force: true);
 
     PlaybackOrientationController.instance.removeListener(
@@ -842,6 +1085,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         LumeLog.error(error, stack);
       } finally {
         if (player != null) await _disposeQuietly(player, '退出播放页');
+        for (final release in _runtimeReleases.values) {
+          release();
+        }
+        _runtimeReleases.clear();
       }
     }());
     // 预启动的实例没人接手（页面没起播就退了 / 内核库打不开）：就地释放，
@@ -873,6 +1120,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         !media.isNetwork ||
         !snapshot.playing ||
         snapshot.buffering ||
+        _committedSeekTarget != null ||
         snapshot.error != null ||
         snapshot.position <= Duration.zero ||
         _lifecycle != AppLifecycleState.resumed ||
@@ -908,9 +1156,62 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Stopwatch? _startupWatch;
   Stopwatch? _firstFrameWatch;
 
+  // Interactive network seeks allow a 1s native tolerance plus snapshot delay.
+  Duration get _seekLandingTolerance => _media?.isNetwork == true
+      ? const Duration(seconds: 2)
+      : const Duration(seconds: 1);
+
+  void _recordSeekOutcome(String stage) {
+    final watch = _seekDiagnosticWatch;
+    if (watch == null) return;
+    _seekDiagnosticWatch = null;
+    PlaybackDiagnostics.record(
+      stage,
+      source: _target?.sourceId,
+      kernel: _settings.kernel.name,
+      uri: _media?.uri,
+      elapsedMs: watch.elapsedMilliseconds,
+      positionObservedMs: _seekPositionObservedMs,
+    );
+  }
+
+  final _verifiedPlaybackSources = <String>{};
   void _onSnapshotChanged() {
     _syncPipPlaybackState();
     final snapshot = _player?.snapshot.value;
+    final seekTarget = _committedSeekTarget;
+    if (seekTarget != null && snapshot != null) {
+      final nearTarget =
+          (snapshot.position - seekTarget).abs() <= _seekLandingTolerance;
+      if (nearTarget && snapshot.error == null) {
+        _seekPositionObservedMs ??= _seekDiagnosticWatch?.elapsedMilliseconds;
+      }
+      if (snapshot.error != null || (nearTarget && !snapshot.buffering)) {
+        _recordSeekOutcome(
+          snapshot.error == null ? 'seek-settled' : 'seek-failed',
+        );
+        _seekDisplayTimeout?.cancel();
+        _seekWatchdog?.cancel();
+        _seekWatchdogGeneration++;
+        _committedSeekTarget = null;
+      }
+    }
+    if (_committedSeekTarget == null) unawaited(_loadDanmakuAtPosition());
+    final verifiedSource = _target?.sourceId;
+    if (snapshot?.playing == true &&
+        _loaded &&
+        !snapshot!.buffering &&
+        snapshot.error == null &&
+        snapshot.position > Duration.zero &&
+        _library != null &&
+        _library!.setting('history.incognito') != 'true' &&
+        verifiedSource != null &&
+        _verifiedPlaybackSources.add(verifiedSource)) {
+      _library!.setSetting(
+        'source.playback.last.$verifiedSource',
+        DateTime.now().toIso8601String(),
+      );
+    }
     final startupWatch = _startupWatch;
     if (startupWatch != null && snapshot?.error != null) _startupWatch = null;
     if (startupWatch != null &&
@@ -926,6 +1227,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         uri: _media?.uri,
         elapsedMs: startupWatch.elapsedMilliseconds,
       );
+      final target = _target;
+      if (target != null) {
+        unawaited(_recordLineStartup(target, startupWatch.elapsedMilliseconds));
+      }
       _startupWatch = null;
     }
     if (snapshot != null) _syncOriginalIntro(snapshot);
@@ -984,20 +1289,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _cancelAutoHide();
       _logPlaybackFailure(snapshot!);
       final error = snapshot.error!.toLowerCase();
-      if (!_rangeFallbackAttempted &&
+      final kernelCompatibilityError = PlayerErrorText.needsAlternativeKernel(
+        error,
+      );
+      final canFallback =
+          !_rangeFallbackAttempted &&
           _settings.kernel == PlayerKernel.avplayer &&
           _catalog.isAvailable(PlayerKernel.mpv) &&
-          (error.contains('-12939') ||
-              error.contains('byte range and no content length') ||
-              error.contains('服务器不支持分段请求') ||
-              error.contains('server is not correctly configured'))) {
+          kernelCompatibilityError;
+      if (!canFallback) {
+        scheduleMicrotask(() => _recoverAlternative());
+      }
+      if (canFallback) {
         _rangeFallbackAttempted = true;
+        _kernelFallbackInFlight = true;
         // 快照通知期间不能同步释放发出通知的播放器。
         scheduleMicrotask(() async {
-          if (!mounted || _settings.kernel != PlayerKernel.avplayer) return;
-          _showToast('当前媒体的分段响应与 AVPlayer 不兼容，正在切换 MPV');
-          await _applySettings(_settings.copyWith(kernel: PlayerKernel.mpv));
-          if (mounted) await _player?.play();
+          try {
+            if (!mounted || _settings.kernel != PlayerKernel.avplayer) return;
+            _showToast('当前媒体与 AVPlayer 不兼容，正在切换 MPV');
+            await _applySettings(
+              _settings.copyWith(kernel: PlayerKernel.mpv),
+              autoPlayAfterKernelSwitch: true,
+            );
+          } finally {
+            _kernelFallbackInFlight = false;
+            if (mounted && _player?.snapshot.value.error != null) {
+              unawaited(_recoverAlternative());
+            }
+          }
         });
       }
     }
@@ -1006,40 +1326,177 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       // 首帧到了（播放中且不在缓冲）才去排测速：起播抢带宽的事不做（见
       // 片头片尾：每次快照变化判一次（判定本身是纯函数，跳过一次后不再重复）。
       _scheduleSourceValidation(snapshot);
+      if (playing &&
+          _committedSeekTarget == null &&
+          ContentCenter.instance.enabled('autoNextDownloads') &&
+          _target != null &&
+          _prefetchedEpisode != _target!.chapterId) {
+        final target = _target!;
+        _prefetchedEpisode = target.chapterId;
+        unawaited(() async {
+          try {
+            final source = await _openSource();
+            if (source == null) return;
+            final all = await VideoEpisodeCatalog.load(source, target.itemId);
+            if (!mounted || _target?.isSameEpisode(target) != true) return;
+            final current = all
+                .where((c) => c.id == target.chapterId)
+                .firstOrNull;
+            if (current == null) return;
+            final line = all
+                .where(
+                  (c) =>
+                      VideoEpisodeCatalog.lineOf(c) ==
+                      VideoEpisodeCatalog.lineOf(current),
+                )
+                .toList();
+            final index = line.indexOf(current);
+            await VideoDownloadCenter.instance.enqueue(
+              sourceId: target.sourceId,
+              itemId: target.itemId,
+              title: target.title,
+              chapters: line
+                  .skip(index + 1)
+                  .take(
+                    ContentCenter.instance
+                        .number('nextDownloads', 2)
+                        .clamp(1, 5),
+                  )
+                  .toList(),
+            );
+          } catch (_) {
+            /* Optional offline prefetch must not interrupt playback. */
+          }
+        }());
+      }
+      final stats = _player?.stats.value;
+      final bufferedAhead = stats?.buffered ?? Duration.zero;
+      final probeAllowed = PlaybackSpeedMeter.canProbeInBackground(
+        playing: playing,
+        buffering: snapshot.buffering,
+        buffered: bufferedAhead,
+        foreground:
+            _lifecycle == AppLifecycleState.resumed &&
+            _loaded &&
+            _committedSeekTarget == null &&
+            !_advancing &&
+            !_switchingQuality,
+        hasNativeSpeed: stats?.downloadBytesPerSecond != null,
+      );
+      if (!probeAllowed) _networkSpeed.cancelBackground();
       if (_settings.backgroundSourceValidation &&
-          playing &&
-          _player?.stats.value.downloadBytesPerSecond == null &&
-          !snapshot.buffering &&
+          probeAllowed &&
           snapshot.position > Duration.zero &&
-          _lifecycle == AppLifecycleState.resumed &&
           !(_nextSpeedProbe?.isAfter(DateTime.now()) ?? false)) {
         final media = _media;
         if (media != null && media.isNetwork) {
-          _nextSpeedProbe = DateTime.now().add(const Duration(seconds: 30));
+          _nextSpeedProbe = DateTime.now().add(const Duration(minutes: 2));
           unawaited(
             _networkSpeed.measure(
               media.uri,
               headers: media.headers,
               force: true,
+              background: true,
             ),
           );
         }
       }
+      _previews.reset((_media?.uri, _target?.chapterId, _qualityIndex));
+      final capture = _frameEngineOf(_player);
+      if (capture != null &&
+          (_media?.previews.isEmpty ?? true) &&
+          playing &&
+          !snapshot.buffering &&
+          snapshot.error == null &&
+          _previewTarget == null &&
+          !_gesture.active &&
+          _committedSeekTarget == null &&
+          _session?.state != PipState.active &&
+          _lifecycle == AppLifecycleState.resumed &&
+          (_player?.stats.value.height ?? 9999) <= 1080 &&
+          snapshot.position.inSeconds > 5) {
+        unawaited(_previews.sample(capture, snapshot.position.inSeconds));
+      }
+      _network.refresh();
+      final allowPreload = _network.allowsPreload(
+        MediaPreload.instance.wifiOnly,
+      );
+      if (!allowPreload) {
+        if (_preloadAllowed) {
+          _nextEpisodeBuffer.discard();
+        } else {
+          _nextEpisodeBuffer.cancelPendingPreparation();
+        }
+      }
+      _preloadAllowed = allowPreload;
+      if (_network.cellular == true && !_cellularNoticeShown) {
+        _cellularNoticeShown = true;
+        scheduleMicrotask(() {
+          if (mounted) {
+            _showToast(
+              MediaPreload.instance.wifiOnly
+                  ? '正在使用蜂窝网络，已暂停额外磁盘预读和下一集预载'
+                  : '正在使用蜂窝网络，播放和额外预载会消耗流量',
+            );
+          }
+        });
+      }
       final remaining = snapshot.duration - snapshot.position;
       final target = _target;
       final buffered = _player?.stats.value.buffered ?? Duration.zero;
+      final currentMedia = _media;
+      if (currentMedia != null) {
+        VideoDiskCache.instance.prefetch(
+          PlayerMedia(uri: currentMedia.uri, headers: _playbackRequestHeaders),
+          snapshot.duration,
+          ahead: _buffering.readAhead,
+          allowed:
+              allowPreload &&
+              playing &&
+              !snapshot.buffering &&
+              snapshot.error == null &&
+              buffered >= const Duration(seconds: 15) &&
+              _lifecycle == AppLifecycleState.resumed &&
+              !_advancing &&
+              !_switchingQuality,
+        );
+      }
       if (target != null &&
           playing &&
           !snapshot.buffering &&
           snapshot.error == null &&
+          _committedSeekTarget == null &&
+          allowPreload &&
+          MediaPreload.instance.video &&
+          snapshot.position >= const Duration(seconds: 10) &&
+          _lifecycle == AppLifecycleState.resumed &&
           !_advancing &&
+          !_switchingQuality) {
+        unawaited(_nextEpisodeBuffer.warmCatalog(target, _openSource));
+      }
+      if (target != null &&
+          playing &&
+          !snapshot.buffering &&
+          snapshot.error == null &&
+          _committedSeekTarget == null &&
+          !_advancing &&
+          !_switchingQuality &&
+          allowPreload &&
           MediaPreload.instance.video &&
           _lifecycle == AppLifecycleState.resumed &&
           _session?.state != PipState.active &&
           snapshot.position >= const Duration(seconds: 10) &&
           remaining >= const Duration(seconds: 5) &&
+          (remaining <=
+                  Duration(seconds: MediaPreload.instance.triggerSeconds) ||
+              snapshot.position.inMilliseconds >=
+                  snapshot.duration.inMilliseconds *
+                      MediaPreload.instance.triggerPercent /
+                      100) &&
           buffered >=
-              Duration(seconds: _settings.kernel == PlayerKernel.mdk ? 3 : 8)) {
+              (remaining < const Duration(seconds: 15)
+                  ? remaining
+                  : const Duration(seconds: 15))) {
         unawaited(
           _nextEpisodeBuffer.prepare(
             target,
@@ -1047,9 +1504,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             _openSource,
             widget.playerFactory ??
                 ((kernel) => PlayerFactory.create(kernel: kernel)),
-            refreshNearEnd:
-                remaining <=
-                Duration(seconds: MediaPreload.instance.triggerSeconds),
+            currentQuality: _qualities.elementAtOrNull(_qualityIndex),
+            currentHeight: _player?.stats.value.height,
           ),
         );
       }
@@ -1150,11 +1606,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _pendingDanmakuSave = null;
       setState(() {
         _library = library;
+        _sourceProfiles = SourcePlaybackProfiles(library);
+        _settingsSourceId = widget.target?.sourceId ?? widget.sourceId;
         if (!_danmakuSettingsDirty) _danmakuSettings = loaded;
         // 「前向缓冲」在**模块设置**里（与设置页同一份数据），派生成内核参数；
         // 装载前经 setBuffering 交给内核（见 _rebuildPlayer）。
-        _buffering = BufferingConfig.forForwardBuffer(
-          SectionModuleSettings.load(library).buffer,
+        _setForwardBufferSeconds(
+          SectionModuleSettings.load(library).bufferSeconds,
         );
       });
       if (pending != null) {
@@ -1171,7 +1629,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final store = result;
       if (!mounted) return;
       _store = store;
-      _settings = store.load();
+      _settings =
+          _sourceProfiles?.load(_settingsSourceId, store.load()) ??
+          store.load();
+      if (_sourceProfiles != null && _library != null) {
+        _setForwardBufferSeconds(
+          _sourceProfiles!.bufferSeconds(_settingsSourceId, _bufferSeconds),
+        );
+      }
       final work = widget.target;
       final rememberedKernel = work == null
           ? null
@@ -1179,11 +1644,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       final preferred = PlayerKernel.values
           .where((k) => k.name == rememberedKernel && _catalog.isAvailable(k))
           .firstOrNull;
-      if (preferred != null) _settings = _settings.copyWith(kernel: preferred);
+      if (preferred != null && !_usesSourceProfile) {
+        _settings = _settings.copyWith(kernel: preferred);
+      }
       final experience = PlayerExperienceStore.current;
       _muted = experience.flag('muted');
       _musicMode = experience.flag('musicMode');
       _showNetworkSpeed = experience.flag('showNetworkSpeed', true);
+      _showBufferedTime = experience.flag(
+        'showBufferedTime',
+        _showNetworkSpeed,
+      );
       _gesture = _gesture.copyWith(
         volume: experience.number('volume', 1, 0, 1),
       );
@@ -1259,7 +1730,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   ///    要么拿着一个播放器，要么拿着一条带出口的失败说明——不会停在「转圈」上；
   /// 2. **实例不泄漏**：任何路径下建出来但没被采用的播放器都要 dispose；
   /// 3. **落库失败不拖垮播放**：写设置库失败只记日志并提示。
-  Future<void> _rebuildPlayer({bool loadCurrentMedia = true}) async {
+  Future<void> _rebuildPlayer({
+    bool loadCurrentMedia = true,
+    bool autoPlayAfterLoad = false,
+  }) async {
     _nextEpisodeBuffer.discard();
     final seq = ++_rebuildSeq;
     if (_session?.state == PipState.active ||
@@ -1275,8 +1749,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     //（见 [_suppressProgressSave]）。
     _saveProgress(force: true);
     final previous = _player;
-    final resume =
-        previous != null && previous.snapshot.value.position > Duration.zero
+    final resume = !loadCurrentMedia
+        ? null
+        : previous != null && previous.snapshot.value.position > Duration.zero
         ? _ResumePoint.of(previous)
         : _kernelResume;
     _kernelResume = resume;
@@ -1362,7 +1837,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final player = launch.player;
     _activeKernel = launch.kernel;
     try {
-      _store?.save(_settings);
+      _savePlayerSettings(_settings);
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       LumeLog.warn('[player] 播放器设置写库失败，本次仍按已生效的内核播放');
@@ -1373,11 +1848,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _pendingKernel = null;
       _rebuildFailure = null;
     });
+    _seekRevision++;
+    _previewTarget = null;
     // 换内核 / 换集：上一轮拖动留下的落点与看门狗都要作废。
     _pendingScrubSeek = null;
     _lastScrubSeek = null;
     _seekWatchdog?.cancel();
     _seekWatchdog = null;
+    _seekDisplayTimeout?.cancel();
+    _cancelSeekConfirmation?.call();
+    _committedSeekTarget = null;
     _seekWatchdogGeneration++;
     player.snapshot.addListener(_onSnapshotChanged);
     // 分辨率参数也算全屏方向的输入（「自动」档要按宽高比判断，见 [_onStatsChanged]）。
@@ -1398,9 +1878,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!mounted || !identical(player, _player)) return;
       if (resume != null && !resume.isAtStart) {
         await player.seek(resume.position);
-        if (resume.playing && mounted && identical(player, _player)) {
+        if ((resume.playing || autoPlayAfterLoad) &&
+            mounted &&
+            identical(player, _player)) {
           await player.play();
         }
+      } else if (autoPlayAfterLoad && mounted && identical(player, _player)) {
+        await player.play();
       }
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
@@ -1481,6 +1965,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (!mounted || !identical(player, _player)) return;
     _cancelSourceValidation();
     _media = media;
+    VideoDiskCache.instance.prefetch(media, Duration.zero, allowed: false);
     _networkSpeed.reset();
     _nextSpeedProbe = null;
     if (mounted) setState(() => _loaded = false);
@@ -1500,7 +1985,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _playbackRequestHeaders = headers ?? const {};
       try {
         _firstFrameWatch = loadWatch;
-        await player.load(
+        await VideoDiskCache.instance.load(
+          player,
           PlayerMedia(uri: media.uri, title: media.title, headers: headers),
         );
       } catch (error) {
@@ -1530,10 +2016,81 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     _startupWatch = player.snapshot.value.error == null ? loadWatch : null;
     setState(() => _loaded = player.snapshot.value.error == null);
+    _rememberVideoDirection(player.stats.value);
   }
 
   /// 设置变更：落库并立即生效；换内核走重建，其余项直接应用到当前内核。
-  Future<void> _applySettings(PlayerSettings next) async {
+  void _savePlayerSettings(PlayerSettings next) {
+    _settingsForSheet.value = next;
+    final profiles = _sourceProfiles;
+    final id = _settingsSourceId;
+    if (profiles != null && id != null && profiles.contains(id)) {
+      profiles.save(id, next, _bufferSeconds);
+      final global = _store?.load();
+      if (global != null) {
+        // Only these fields belong to the source profile; unrelated controls
+        // continue to save globally without leaking the source's kernel/prefs.
+        _store?.save(
+          next.copyWith(
+            kernel: global.kernel,
+            prefs: global.prefs,
+            presentation: global.presentation,
+            subtitlesEnabled: global.subtitlesEnabled,
+            hardwareDecoding: global.hardwareDecoding,
+            decodingPreset: global.decodingPreset,
+          ),
+        );
+      }
+    } else {
+      _store?.save(next);
+    }
+  }
+
+  Future<void> _activateSourceProfile(
+    String? id, {
+    bool reloadMedia = false,
+  }) async {
+    final store = _store;
+    final library = _library;
+    if (store == null || library == null) return;
+    final oldKernel = _settings.kernel;
+    _settingsSourceId = id;
+    final next = _sourceProfiles?.load(id, store.load()) ?? store.load();
+    setState(() {
+      _settings = next;
+      _preferredSubtitleApplied = false;
+      final defaults = SectionModuleSettings.load(library).bufferSeconds;
+      _setForwardBufferSeconds(
+        _sourceProfiles?.bufferSeconds(id, defaults) ?? defaults,
+      );
+    });
+    _settingsForSheet.value = _settings;
+    if (next.kernel != oldKernel) {
+      await _rebuildPlayer(loadCurrentMedia: reloadMedia);
+    } else {
+      await _player?.setBuffering(_buffering);
+      await _player?.applySettings(next);
+    }
+  }
+
+  Future<void> _setSourceProfile(bool enabled) async {
+    final id = _settingsSourceId;
+    final profiles = _sourceProfiles;
+    if (id == null || id.isEmpty || profiles == null) return;
+    if (enabled) {
+      profiles.save(id, _settings, _bufferSeconds);
+      setState(() {});
+    } else {
+      profiles.clear(id);
+      await _activateSourceProfile(id, reloadMedia: true);
+      if (mounted) unawaited(_applyPreferredSubtitle());
+    }
+  }
+
+  Future<void> _applySettings(
+    PlayerSettings next, {
+    bool autoPlayAfterKernelSwitch = false,
+  }) async {
     final subtitlePreferenceChanged =
         next.presentation.subtitleLanguage !=
             _settings.presentation.subtitleLanguage ||
@@ -1562,9 +2119,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _cancelAutoHide();
     }
     if (kernelChanged) {
-      await _rebuildPlayer();
+      await _rebuildPlayer(autoPlayAfterLoad: autoPlayAfterKernelSwitch);
     } else {
-      _store?.save(next);
+      _savePlayerSettings(next);
       await _player?.applySettings(next);
       _player?.setFastSeekSnapToKeyframe(next.fastSeekSnap);
       if (subtitlePreferenceChanged) unawaited(_applyPreferredSubtitle());
@@ -1579,9 +2136,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (message == null || !mounted) return;
     _hintTimer?.cancel();
     setState(() => _hint = message);
-    _hintTimer = Timer(const Duration(milliseconds: 1600), () {
-      if (mounted) setState(() => _hint = null);
-    });
+    _hintOverlay?.remove();
+    _hintOverlay?.dispose();
+    _hintOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        top: 8,
+        left: 16,
+        right: 16,
+        child: IgnorePointer(
+          child: SafeArea(
+            child: Material(
+              type: MaterialType.transparency,
+              child: _buildHintPill(),
+            ),
+          ),
+        ),
+      ),
+    );
+    // 每次重插到根 Overlay 顶层，反馈不会藏在刚打开的面板后面。
+    Overlay.of(context, rootOverlay: true).insert(_hintOverlay!);
+    _hintOverlay!.markNeedsBuild();
+    final important = RegExp('失败|超时|无法|不支持|未完成|不可用|不兼容').hasMatch(message);
+    _hintTimer = Timer(
+      Duration(
+        milliseconds: important
+            ? 5000
+            : message.length > 32
+            ? 4000
+            : 1600,
+      ),
+      () {
+        _hintOverlay?.remove();
+        _hintOverlay?.dispose();
+        _hintOverlay = null;
+        if (mounted) setState(() => _hint = null);
+      },
+    );
   }
 
   /// 顶部轻提示胶囊：不拦手势，最多两行。
@@ -1591,24 +2181,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xCC1C1C1E),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0x33FFFFFF), width: .5),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            child: Text(
-              hint,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13,
-                height: 1.25,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFFF6F6F6),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xA6222429),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0x24FFFFFF), width: .5),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 11,
+                ),
+                child: Text(
+                  hint,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFFF6F6F6),
+                  ),
+                ),
               ),
             ),
           ),
@@ -1644,7 +2243,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _settings = _settings.copyWith(
         manualQualityLabel: _qualities[index].label,
       );
-      _store?.save(_settings);
+      _savePlayerSettings(_settings);
       return;
     }
     final player = _player;
@@ -1683,11 +2282,34 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!mounted) return;
       setState(() => _qualityIndex = index);
       _settings = _settings.copyWith(manualQualityLabel: quality.label);
-      _store?.save(_settings);
+      _savePlayerSettings(_settings);
       unawaited(_applyPreferredSubtitle());
       _showToast('已切换到 ${quality.label}，继续当前进度');
-    } catch (_) {
-      if (mounted) setState(() => _media = previousMedia);
+    } catch (failure) {
+      if (!mounted) return;
+      if (previousMedia != null) {
+        try {
+          await _loadMedia(previousMedia);
+          final restored = _player;
+          if (!mounted) return;
+          if (restored == null || restored.snapshot.value.error != null) {
+            throw StateError('原线路无法恢复');
+          }
+          if (snapshot.position > Duration.zero) {
+            await restored.seek(snapshot.position);
+          }
+          if (snapshot.playing) {
+            await restored.play();
+          } else {
+            await restored.pause();
+          }
+          _healthyPosition = snapshot.position;
+        } catch (_) {
+          if (mounted) setState(() => _media = previousMedia);
+          throw StateError('画质切换失败，原线路也未能恢复，请重试或更换线路');
+        }
+        throw StateError('画质切换失败，已恢复原画质和播放进度');
+      }
       rethrow;
     } finally {
       _suppressProgressSave = false;
@@ -1704,6 +2326,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     bool isScrollControlled = false,
     bool useSafeArea = false,
     bool edgeDrawer = true,
+    bool compact = false,
   }) async {
     _panelOpen = true;
     if (mounted) setState(() {});
@@ -1712,6 +2335,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         context: context,
         builder: builder,
         edgeDrawer: edgeDrawer,
+        compact: compact,
         glass: _settings.playbackGlass,
         backgroundColor: backgroundColor,
         isScrollControlled: isScrollControlled,
@@ -1759,6 +2383,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     if (!mounted) return;
 
+    final requestedSource = target?.sourceId ?? widget.sourceId;
+    if (requestedSource != _settingsSourceId) {
+      if (_target != null) _saveProgress(force: true);
+      await _activateSourceProfile(requestedSource);
+      if (!mounted || _player == null) return;
+    }
+
     // 防盗链降级：图源给了**逐媒体请求头**，而当前内核带不了时改用能带的内核
     // （当前三套内核都能带，这里保留为安全网：将来某个内核退化时仍然成立）。
     final headers = media.headers;
@@ -1780,6 +2411,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (preparedPlayer != null && !await _adoptPreparedPlayer(preparedPlayer)) {
       return;
     }
+    _seekRevision++;
+    _seekWatchdogGeneration++;
+    _seekWatchdog?.cancel();
+    _seekDisplayTimeout?.cancel();
+    _cancelSeekConfirmation?.call();
+    _committedSeekTarget = null;
+    _previewTarget = null;
+    _pendingScrubSeek = null;
     // 换作品 / 换集：重新读这套片头片尾标记，并允许片头**与片尾**再判一次
     //（片尾那条同样必须复位：换集就是为了让新一集还能走到它自己的片尾）。
     _loadSkipMarks(target);
@@ -1788,7 +2427,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _intro?.cancel();
     _introMedia = null;
     _healthyPosition = Duration.zero;
+    _retainRuntime(target?.sourceId);
     _target = target;
+    _rangeFallbackAttempted = false;
     _syncQualityIndex(media);
     _suppressProgressSave = true;
     try {
@@ -1919,6 +2560,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               target,
               index,
               _settings.kernel,
+              wait: auto
+                  ? const Duration(seconds: 2)
+                  : const Duration(milliseconds: 350),
             );
       if (!mounted) return false;
       final List<SourceChapter>? chapters;
@@ -1948,7 +2592,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         content,
         source: source,
       );
-      final chosen = PlaybackQualityPreference.select(qualities, _settings);
+      final chosen = PlaybackQualityPreference.select(
+        qualities,
+        _settings,
+        currentQuality: previousQualities.elementAtOrNull(previousQualityIndex),
+      );
       final address = chosen?.url ?? SourcePlayback.contentAddress(content);
       if (address == null || !mounted) return false;
 
@@ -1957,16 +2605,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _qualities = qualities;
         _qualityIndex = 0;
       });
+      final preparedMedia = prepared?.media;
+      final reusePrepared =
+          prepared != null &&
+          preparedMedia?.uri == address &&
+          mapEquals(
+            preparedMedia?.headers,
+            chosen?.headers ??
+                SourcePlayback.contentHeaders(content, source: source),
+          ) &&
+          prepared.player.snapshot.value.error == null;
+      if (prepared != null && !reusePrepared) {
+        await prepared.player.dispose();
+      }
       await _startPlayback(
         PlayerMedia(
           uri: address,
+          previews: content is VideoContent ? content.previews : const [],
           title: '${target.title} · ${next.title}',
           // Reuse the existing verified headers for the selected address.
           headers:
               chosen?.headers ??
               SourcePlayback.contentHeaders(content, source: source),
         ),
-        preparedPlayer: prepared?.player,
+        preparedPlayer: reusePrepared ? prepared.player : null,
         target: VideoPlayTarget(
           sourceId: target.sourceId,
           itemId: target.itemId,
@@ -1997,8 +2659,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         _showToast('下一集需要网页播放，请手动选择');
       }
       return false;
-    } on SourceException {
-      // 连播失败不打扰：用户没主动要求跳集，安静停在当前状态即可。
+    } on SourceException catch (error) {
+      LumeLog.info('[player] 切集解析失败：$error');
+      if (mounted) _showToast(auto ? '自动续播失败，请重试下一集或切换线路' : '切集失败，请重试');
       return false;
     } catch (_) {
       if (mounted) {
@@ -2008,7 +2671,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           _qualities = previousQualities;
           _qualityIndex = previousQualityIndex;
         });
-        if (!auto) _showToast('切集失败，请重试');
+        _showToast(auto ? '自动续播失败，请重试下一集或切换线路' : '切集失败，请重试');
       }
       return false;
     } finally {
@@ -2061,6 +2724,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     _danmakuClients.clear();
     _sourceDanmakuTrack = DanmakuTrack.empty;
+    _danmakuStream?.close();
+    _danmakuStream = null;
+    _danmakuSourceDuration =
+        double.tryParse(_library?.setting(_durationKey) ?? "") ?? 0;
     _publicDanmakuTrack = DanmakuTrack.empty;
     _localDanmakuTrack = target == null
         ? DanmakuTrack.empty
@@ -2165,8 +2832,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 target.chapterTitle,
                 chapterIndex: target.chapterIndex,
               );
-              matches = await client.search(target.title, episode: number);
-              match = DandanplayClient.exactMatch(
+              if (!config.official) {
+                try {
+                  match = await client.match(
+                    '${target.title} ${target.chapterTitle}',
+                  );
+                } catch (e) {
+                  LumeLog.info('[danmaku] 服务端匹配未完成，回退搜索：$e');
+                }
+              }
+              matches = match == null
+                  ? await client.search(target.title, episode: number)
+                  : [match];
+              match ??= DandanplayClient.exactMatch(
                 matches,
                 target.title,
                 episode: number,
@@ -2203,6 +2881,37 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   );
                   return;
                 }
+              }
+            }
+            if (track == null && !config.official) {
+              try {
+                final streamClient = DandanplayClient(credentials: config);
+                final payload = await streamClient
+                    .commentPayload(id: id)
+                    .catchError((Object error) {
+                      streamClient.close();
+                      throw error;
+                    });
+                final stream = DanmakuStream(streamClient, payload);
+                try {
+                  await stream.loadAt(
+                    _player?.snapshot.value.position ?? Duration.zero,
+                  );
+                } catch (_) {
+                  stream.close();
+                  rethrow;
+                }
+                if (!publicCurrent()) {
+                  stream.close();
+                  return;
+                }
+                _danmakuStream?.close();
+                _danmakuStream = stream;
+                _danmakuSourceDuration = stream.duration;
+                _library?.setSetting(_durationKey, "${stream.duration}");
+                track = stream.track;
+              } catch (e) {
+                LumeLog.info('[danmaku] 分片接口不可用，回退完整弹幕：$e');
               }
             }
             track ??= await client.comments(id);
@@ -2248,7 +2957,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           if (resolvedTrack == null) return;
           if (!publicCurrent()) return;
           if (!resolvedTrack.isEmpty) {
-            _publicDanmakuCache.put(cacheKey, target.chapterId, resolvedTrack);
+            if (_danmakuStream?.segments.isNotEmpty != true) {
+              _publicDanmakuCache.put(
+                cacheKey,
+                target.chapterId,
+                resolvedTrack,
+              );
+            }
           }
           setState(() {
             _publicDanmakuTrack = resolvedTrack;
@@ -2365,6 +3080,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         target.chapterId,
         track,
       );
+      _danmakuStream?.close();
+      _danmakuStream = null;
       _publicDanmakuTrack = track;
       _applyDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
       applied = true;
@@ -2404,6 +3121,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _library?.setSetting(_matchingKey(target, config.baseUrl), '');
     _library?.setSetting('${_matchingKey(target, config.baseUrl)}.label', '');
     _publicDanmakuCache.clear();
+    _danmakuStream?.close();
+    _danmakuStream = null;
     setState(() {
       _publicDanmakuMatchLabel = null;
       _publicDanmakuLoading = false;
@@ -2435,6 +3154,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           serviceLabel: _danmakuServiceLabel,
           matchLabel: _publicDanmakuMatchLabel,
           onClearMatch: _clearDanmakuMatch,
+          onTools: () => _openDanmakuTools(panelContext),
           onMatch: _matchPublicDanmaku,
           onConfigureService: () => _configureDanmakuService(panelContext),
           onReload: () => _loadDanmaku(_target, force: true),
@@ -2473,8 +3193,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(_progressInterval, (_) {
       final snapshot = _player?.snapshot.value;
-      if (snapshot == null || !snapshot.playing) return;
-      _saveProgress();
+      if (snapshot == null) return;
+      _checkPlaybackStall(snapshot);
+      if (snapshot.playing) _saveProgress();
     });
   }
 
@@ -3090,7 +3811,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       );
       if (intent == PlayerGestureIntent.seek) {
         if (snapshot.duration <= Duration.zero) return;
-        _gestureStartPosition = snapshot.position;
+        _gestureStartPosition = _committedSeekTarget ?? snapshot.position;
+        _seekRevision++;
+        _seekWatchdogGeneration++;
+        _seekWatchdog?.cancel();
+        _seekDisplayTimeout?.cancel();
+        _cancelSeekConfirmation?.call();
+        _committedSeekTarget = null;
       }
     }
     final gestures = _settings.gestures;
@@ -3165,7 +3892,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final player = _player;
     final target = _gesture.seekTarget;
     if (player != null && target != null) {
-      unawaited(_seekGesture(player, target));
+      unawaited(_seekGesture(player, target, scrub: true));
     }
     _endBoost();
     _scheduleAutoHide();
@@ -3179,20 +3906,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 已缓冲区域可快速预览；网络流的未缓冲区域只在松手时请求目标。
+  /// 本地文件可快速预览；网络流只在松手时请求最终目标。
   ///
   /// 串行 + 只保留最新目标：拖动时目标是连续变化的，中间那些落点没有一个是
   /// 用户要的，排队发出去只会让源端连开一路又一路 Range 请求。
   void _scrubSeekThrottled(Duration target) {
     final player = _player;
     if (player == null) return;
+    // 网络缓存仅提供时长，不能保证目标对应的数据仍可 seek；拖动中只预览。
     if (_media?.isNetwork == true) {
-      final position = player.snapshot.value.position;
-      final buffered = player.stats.value.buffered ?? Duration.zero;
-      if (target < position || target > position + buffered) {
-        _pendingScrubSeek = null;
-        return;
-      }
+      _pendingScrubSeek = null;
+      return;
     }
     _pendingScrubSeek = target;
     final now = DateTime.now();
@@ -3232,54 +3956,99 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
-  /// 松手 / 按钮 / 手势跳转共用：精确 seek + 等一次位置确认。
+  /// 松手 / 按钮 / 手势跳转共用：交互 seek + 等一次位置确认。
   ///
   /// 内核的 seek 可能一直不返回（AVPlayer 的 seekToTime 完成回调在源端卡住时
   /// 就不来），所以这段必须自带超时——否则调用方一直挂在 await 上，
   /// 拖动预览文字和「缓冲中」就一起留着不动了。
-  Future<bool> _seekAndConfirm(AbstractPlayer player, Duration target) async {
+  Future<_SeekConfirmation> _seekAndConfirm(
+    AbstractPlayer player,
+    Duration target, {
+    bool scrub = false,
+    bool exact = false,
+  }) async {
     // 新一轮跳转作废上一轮看门狗：不然上一个落点的超时会来复查这次跳转。
     _seekWatchdog?.cancel();
     _seekWatchdogGeneration++;
-    final acknowledged = Completer<bool>();
+    final acknowledged = Completer<_SeekConfirmation>();
+    final origin = player.snapshot.value.position;
+    var previousPosition = origin;
+    var positionChangedAt = Duration.zero;
+    final clock = Stopwatch()..start();
+    final network = _media?.isNetwork == true;
+    final checkFastLanding = network && scrub;
+    var requestCompleted = false;
+    var sawPositionJump = false;
     void checkPosition() {
-      if (!acknowledged.isCompleted &&
-          (player.snapshot.value.position - target).abs() <=
-              const Duration(seconds: 1)) {
-        acknowledged.complete(true);
+      if (acknowledged.isCompleted) return;
+      final snapshot = player.snapshot.value;
+      final position = snapshot.position;
+      final distance = (position - target).abs();
+      if (checkFastLanding && position != previousPosition) {
+        final elapsed = clock.elapsed;
+        final normalAdvance =
+            (elapsed - positionChangedAt).inMilliseconds * _settings.speed;
+        // Ordinary clock ticks are not evidence of a completed fast seek.
+        if ((position - previousPosition).abs().inMilliseconds >
+                normalAdvance + _seekLandingTolerance.inMilliseconds &&
+            distance < (origin - target).abs()) {
+          sawPositionJump = true;
+        }
+        previousPosition = position;
+        positionChangedAt = elapsed;
+      }
+      if (snapshot.buffering || snapshot.error != null) return;
+      if (distance <= _seekLandingTolerance) {
+        acknowledged.complete(_SeekConfirmation.reached);
+      } else if (checkFastLanding && requestCompleted && sawPositionJump) {
+        acknowledged.complete(_SeekConfirmation.missed);
       }
     }
 
+    _cancelSeekConfirmation?.call();
     player.snapshot.addListener(checkPosition);
+    final timeout = Timer(const Duration(seconds: 2), () {
+      if (!acknowledged.isCompleted) {
+        acknowledged.complete(_SeekConfirmation.pending);
+      }
+    });
+    void cancel() {
+      timeout.cancel();
+      if (!acknowledged.isCompleted) {
+        acknowledged.complete(_SeekConfirmation.pending);
+      }
+    }
+
+    _cancelSeekConfirmation = cancel;
     try {
-      final returned = await player
-          .seek(target)
-          .then((_) => true)
-          .timeout(
-            const Duration(seconds: 2),
-            onTimeout: () {
-              LumeLog.warn(
-                '[player] ${_settings.kernel.label} 跳转未返回：'
-                '${target.inMilliseconds}ms',
-              );
-              return false;
-            },
-          );
-      checkPosition();
-      if (acknowledged.isCompleted) return true;
-      // seek 自己都没回来时不再多挂 800ms；预览立刻收尾，由看门狗恢复。
-      if (!returned) return false;
-      return await acknowledged.future.timeout(
-        const Duration(milliseconds: 800),
-        onTimeout: () => false,
+      final request = network && !exact
+          ? (scrub ? player.seekScrub(target) : player.seekInteractive(target))
+          : player.seek(target);
+      // 原生回调可能不返回；位置已经到位时直接完成，不额外等待回调。
+      unawaited(
+        request.then(
+          (_) {
+            requestCompleted = true;
+            checkPosition();
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!acknowledged.isCompleted) {
+              acknowledged.completeError(error, stack);
+            }
+          },
+        ),
       );
+      return await acknowledged.future;
     } finally {
+      cancel();
+      if (identical(_cancelSeekConfirmation, cancel)) {
+        _cancelSeekConfirmation = null;
+      }
       player.snapshot.removeListener(checkPosition);
     }
   }
 
-  /// 跳转后停滞的看门狗：6 秒内位置没动就重发一次同一跳转，
-  /// 再 6 秒还不动就换地址重开并回到目标位置（三个内核都走这条路）。
+  /// 跳转后没有进展才重发，仍卡住才重开媒体。
   void _armSeekWatchdog(
     AbstractPlayer player,
     Duration target, {
@@ -3288,17 +4057,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _seekWatchdog?.cancel();
     final generation = ++_seekWatchdogGeneration;
     final anchor = player.snapshot.value.position;
+    final bufferedAtStart = player.stats.value.buffered;
+    final revision = _seekRevision;
     _seekWatchdog = Timer(const Duration(seconds: 6), () {
       if (!mounted ||
           generation != _seekWatchdogGeneration ||
+          revision != _seekRevision ||
           !identical(player, _player)) {
         return;
       }
       final snapshot = player.snapshot.value;
+      final stats = player.stats.value;
+      final buffered = stats.buffered;
+      final nearTarget =
+          (snapshot.position - target).abs() <= _seekLandingTolerance;
+      if (snapshot.buffering &&
+          ((buffered != null &&
+                  buffered > (bufferedAtStart ?? Duration.zero)) ||
+              (nearTarget && (stats.downloadBytesPerSecond ?? 0) > 0))) {
+        // Keep the active request when the target is still receiving data.
+        _armSeekWatchdog(player, target, retried: retried);
+        return;
+      }
       final stalled =
-          snapshot.buffering &&
           snapshot.error == null &&
-          (snapshot.position - anchor).abs() <= const Duration(seconds: 1);
+          _committedSeekTarget == target &&
+          (!nearTarget ||
+              (snapshot.buffering &&
+                  (snapshot.position - anchor).abs() <=
+                      const Duration(seconds: 1)));
       if (!stalled) return;
       LumeLog.warn(
         '[player] ${_settings.kernel.label} 跳转后无进展：'
@@ -3306,23 +4093,92 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         '${retried ? '（重发过）' : ''}',
       );
       if (retried) {
+        _recordSeekOutcome('seek-reopening');
         unawaited(_restoreInlinePlayback(retry: true, position: target));
         return;
       }
       unawaited(
-        _seekAndConfirm(player, target).then((ok) {
-          if (!ok) _armSeekWatchdog(player, target, retried: true);
-        }),
+        _seekAndConfirm(player, target, exact: true).then(
+          (result) {
+            if (result != _SeekConfirmation.reached &&
+                mounted &&
+                revision == _seekRevision &&
+                identical(player, _player)) {
+              _armSeekWatchdog(player, target, retried: true);
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            if (mounted &&
+                revision == _seekRevision &&
+                identical(player, _player)) {
+              LumeLog.error(error, stack);
+              _armSeekWatchdog(player, target, retried: true);
+            }
+          },
+        ),
       );
     });
   }
 
-  Future<void> _seekGesture(AbstractPlayer player, Duration target) async {
+  Future<void> _seekGesture(
+    AbstractPlayer player,
+    Duration target, {
+    bool scrub = false,
+  }) async {
+    final revision = ++_seekRevision;
+    _pendingScrubSeek = null;
+    _seekDisplayTimeout?.cancel();
+    _seekDiagnosticWatch = _media?.isNetwork == true
+        ? (Stopwatch()..start())
+        : null;
+    _seekPositionObservedMs = null;
+    setState(() => _committedSeekTarget = target);
+    if (_media?.isNetwork == true) {
+      _networkSpeed.cancelBackground();
+      _sourceValidator.cancel();
+      _nextEpisodeBuffer.cancelPendingPreparation();
+    }
+    // 超时明确提示失败，不把旧位置当成跳转成功；迟到回调不能覆盖新一轮。
+    _seekDisplayTimeout = Timer(const Duration(seconds: 20), () {
+      if (!mounted ||
+          revision != _seekRevision ||
+          !identical(player, _player)) {
+        return;
+      }
+      _seekWatchdog?.cancel();
+      _recordSeekOutcome('seek-timeout');
+      setState(() => _committedSeekTarget = null);
+      _showToast('跳转超时，请重试或切换线路');
+    });
     try {
-      final ok = await _seekAndConfirm(player, target);
-      if (!ok) _armSeekWatchdog(player, target);
+      var result = await _seekAndConfirm(player, target, scrub: scrub);
+      if (!mounted ||
+          revision != _seekRevision ||
+          !identical(player, _player)) {
+        return;
+      }
+      final corrected = result == _SeekConfirmation.missed;
+      if (corrected) {
+        result = await _seekAndConfirm(player, target, exact: true);
+        if (!mounted ||
+            revision != _seekRevision ||
+            !identical(player, _player)) {
+          return;
+        }
+      }
+      if (result != _SeekConfirmation.reached) {
+        _armSeekWatchdog(player, target, retried: corrected);
+      }
     } catch (_) {
-      if (mounted) _showToast('跳转失败，请重试');
+      if (!mounted ||
+          revision != _seekRevision ||
+          !identical(player, _player)) {
+        return;
+      }
+      _seekDisplayTimeout?.cancel();
+      _recordSeekOutcome('seek-failed');
+      setState(() => _committedSeekTarget = null);
+      _showToast('跳转失败，请重试');
     }
   }
 
@@ -3377,9 +4233,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 设置仅保留偏好和高级参数，已有独立按钮的操作不重复列出。
   Future<void> _openSettings() async {
     _cancelAutoHide();
+    _settingsForSheet.value = _settings;
     await showPlayerSettingsSheet(
       context: context,
       settings: _settings,
+      settingsListenable: _settingsForSheet,
       showPlaybackShortcuts: false,
       capabilities: _capabilities,
       catalog: _catalog,
@@ -3401,175 +4259,303 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Widget _buildPlaybackSettings(String group) => StatefulBuilder(
     builder: (context, update) {
-      final buffer = _buffering.forwardBuffer.inSeconds;
       final supported = _player?.capabilities.bufferingParams ?? false;
-      return GlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (group == 'connection' && _player is PresentationEngine)
-              Builder(
-                builder: (context) {
-                  final engine = _player! as PresentationEngine;
-                  return ValueListenableBuilder<List<String>>(
-                    valueListenable: engine.presentationStatus,
-                    builder: (context, lines, _) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        lines.join('\n'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (group == 'connection')
+            ListTile(
+              title: const Text('视频磁盘缓冲与下一集预载'),
+              subtitle: const Text('容量、实际占用与清理'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final navigator = Navigator.of(context);
+                navigator.pop();
+                await navigator.push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const PreloadSettingsPage(),
+                  ),
+                );
+                final library = _library;
+                if (!mounted || library == null) return;
+                final module = SectionModuleSettings.load(library);
+                setState(() => _setForwardBufferSeconds(module.bufferSeconds));
+                if (_usesSourceProfile) _savePlayerSettings(_settings);
+                try {
+                  await _player?.setBuffering(_buffering);
+                } catch (_) {
+                  if (mounted) _showToast('本次缓冲调整未完成，下次加载时应用');
+                }
+              },
+            ),
+          if (group == 'connection')
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                _networkSpeed.busy,
+                _networkSpeed.failed,
+                _networkSpeed.kbps,
+              ]),
+              builder: (context, _) => ListTile(
+                title: const Text('当前线路测速'),
+                subtitle: Text(
+                  _networkSpeed.busy.value
+                      ? '正在测速…'
+                      : _networkSpeed.failed.value
+                      ? '测速未成功，可手动重试'
+                      : PlaybackSpeedMeter.describe(_networkSpeed.kbps.value) ??
+                            '测量线路速率，不代表播放器实时流量',
+                ),
+                trailing: TextButton(
+                  onPressed: _networkSpeed.busy.value
+                      ? null
+                      : () async {
+                          final media = _media;
+                          if (media == null || !media.isNetwork) {
+                            _showToast('当前不是网络视频，无需测速');
+                            return;
+                          }
+                          await _networkSpeed.measure(
+                            media.uri,
+                            headers: _playbackRequestHeaders,
+                            force: true,
+                          );
+                        },
+                  child: const Text('测速'),
+                ),
+              ),
+            ),
+          if (group == 'connection' && _player is PresentationEngine)
+            Builder(
+              builder: (context) {
+                final engine = _player! as PresentationEngine;
+                return ValueListenableBuilder<List<String>>(
+                  valueListenable: engine.presentationStatus,
+                  builder: (context, lines, _) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      lines.join('\n'),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
+                  ),
+                );
+              },
+            ),
+          if (group == 'intro') _skipQuickButton(inPanel: true),
+          if (group == 'intro')
+            ListTile(
+              title: const Text('片头片尾与同剧记忆'),
+              subtitle: const Text('记一次，后续各集自动沿用；无需作品 ID'),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_openOriginalIntro());
+              },
+            ),
+          if (group == 'playback' && _fullscreen && _media != null)
+            ListTile(
+              title: const Text('画质'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_openQualityMenu());
+              },
+            ),
+          if (group == 'audio') ...[
+            SwitchListTile(
+              title: const Text('静音'),
+              value: _muted,
+              onChanged: (value) {
+                setState(() => _muted = value);
+                update(() {});
+                _savePlaybackPreferences();
+                unawaited(_player?.setVolume(_effectiveVolume));
+              },
+            ),
+            SwitchListTile(
+              title: const Text('音乐模式'),
+              subtitle: const Text('隐藏画面，保留音频和播放控制'),
+              value: _musicMode,
+              onChanged: (value) {
+                setState(() => _musicMode = value);
+                update(() {});
+                _savePlaybackPreferences();
+              },
+            ),
+            Text('音量 ${(_gesture.volume * 100).round()}%'),
+            NativeGlassSlider(
+              value: _gesture.volume,
+              min: 0,
+              max: 1,
+              onChanged: _player == null
+                  ? null
+                  : (value) {
+                      setState(
+                        () => _gesture = _gesture.copyWith(volume: value),
+                      );
+                      update(() {});
+                      _muted = false;
+                      _savePlaybackPreferences();
+                      unawaited(_player!.setVolume(value));
+                    },
+            ),
+          ],
+          if (group == 'connection' && _settingsSourceId?.isNotEmpty == true)
+            SwitchListTile(
+              key: const ValueKey('source-playback-profile'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('此源独立播放设置'),
+              subtitle: Text(
+                _usesSourceProfile
+                    ? '已记住此源的内核、缓冲、硬解与字幕偏好'
+                    : '当前跟随全局默认；开启后只影响此源',
+              ),
+              value: _usesSourceProfile,
+              onChanged: (enabled) async {
+                await _setSourceProfile(enabled);
+                if (mounted) update(() {});
+              },
+            ),
+          if (group == 'connection') ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('显示下载速度'),
+              subtitle: const Text('显示实际下载速度或线路测速'),
+              value: _showNetworkSpeed,
+              onChanged: (value) {
+                setState(() => _showNetworkSpeed = value);
+                update(() {});
+                _savePlaybackPreferences();
+              },
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('显示缓冲时长'),
+              subtitle: const Text('显示当前播放位置前方已缓冲的时长'),
+              value: _showBufferedTime,
+              onChanged: (value) {
+                setState(() => _showBufferedTime = value);
+                update(() {});
+                _savePlaybackPreferences();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('播放信息'),
+              onTap: _showPlaybackInfo,
+              subtitle: Text(
+                [
+                  '内核：${_effectiveKernel.label}',
+                  ...?_player?.stats.value.chips,
+                ].join(' · '),
+              ),
+              trailing: IconButton(
+                tooltip: '复制地址',
+                icon: const Icon(Icons.copy),
+                onPressed: _media == null
+                    ? null
+                    : () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: _media!.uri.toString()),
+                        );
+                        if (mounted) _showToast('已复制播放地址');
+                      },
+              ),
+            ),
+
+            if (_target != null)
+              ListTile(
+                leading: const Icon(Icons.bookmark_add_outlined),
+                title: const Text('保存当前时间点到摘录'),
+                onTap: () {
+                  final target = _target!;
+                  saveContentClip(
+                    context,
+                    ContentRef(
+                      _library?.section ?? Section.video,
+                      target.sourceId,
+                      target.itemId,
+                      target.title,
+                    ),
+                    chapter: target.chapterIndex,
+                    seconds: _player?.snapshot.value.position.inSeconds,
                   );
                 },
               ),
-            if (group == 'intro') _skipQuickButton(inPanel: true),
-            if (group == 'intro')
-              ListTile(
-                title: const Text('片头片尾与同剧记忆'),
-                subtitle: const Text('记一次，后续各集自动沿用；无需作品 ID'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_openOriginalIntro());
-                },
-              ),
-            if (group == 'playback' && _fullscreen && _media != null)
-              ListTile(
-                title: const Text('画质'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_openQualityMenu());
-                },
-              ),
-            if (group == 'audio') ...[
-              SwitchListTile(
-                title: const Text('静音'),
-                value: _muted,
-                onChanged: (value) {
-                  setState(() => _muted = value);
-                  update(() {});
-                  _savePlaybackPreferences();
-                  unawaited(_player?.setVolume(_effectiveVolume));
-                },
-              ),
-              SwitchListTile(
-                title: const Text('音乐模式'),
-                subtitle: const Text('隐藏画面，保留音频和播放控制'),
-                value: _musicMode,
-                onChanged: (value) {
-                  setState(() => _musicMode = value);
-                  update(() {});
-                  _savePlaybackPreferences();
-                },
-              ),
-              Text('音量 ${(_gesture.volume * 100).round()}%'),
-              NativeGlassSlider(
-                value: _gesture.volume,
-                min: 0,
-                max: 1,
-                onChanged: _player == null
-                    ? null
-                    : (value) {
-                        setState(
-                          () => _gesture = _gesture.copyWith(volume: value),
+            NumberSettingTile(
+              title: '播放内存预算',
+              value: _buffering.maxBufferBytes ~/ (1024 * 1024),
+              min: 32,
+              max: 1024,
+              unit: 'MiB',
+              onChanged: _library == null
+                  ? null
+                  : (mib) {
+                      final library = _library!;
+                      SectionModuleSettings.load(library)
+                          .copyWith(bufferMiB: mib)
+                          .save(library);
+                      setState(
+                        () => _buffering = _buffering.withMaxBufferBytes(
+                          mib * 1024 * 1024,
+                        ),
+                      );
+                      update(() {});
+                      final player = _player;
+                      if (player != null) {
+                        unawaited(
+                          player.setBuffering(_buffering).catchError((
+                            Object error,
+                          ) {
+                            if (mounted) _showToast('本次调整未完成，下次加载时应用');
+                          }),
                         );
-                        update(() {});
-                        _muted = false;
-                        _savePlaybackPreferences();
-                        unawaited(_player!.setVolume(value));
-                      },
-              ),
-            ],
-            if (group == 'connection') ...[
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('显示播放速率'),
-                subtitle: const Text('在全屏进度条右上方显示传输速率'),
-                value: _showNetworkSpeed,
-                onChanged: (value) {
-                  setState(() => _showNetworkSpeed = value);
-                  update(() {});
-                  _savePlaybackPreferences();
-                },
-              ),
+                      }
+                    },
+            ),
+            const Text('MPV/Aether 按预算限制预读；AVPlayer/MDK 使用时长策略，不提供严格内存上限。'),
+            if (supported)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('播放信息'),
-                subtitle: Text(
-                  [
-                    '内核：${_effectiveKernel.label}',
-                    ...?_player?.stats.value.chips,
-                  ].join(' · '),
+                title: const Text('前向缓冲'),
+                trailing: ForwardBufferControl(
+                  seconds: _bufferSeconds,
+                  onChanged: (seconds) {
+                    setState(() => _setForwardBufferSeconds(seconds));
+                    update(() {});
+                    final library = _library;
+                    if (_usesSourceProfile) {
+                      _savePlayerSettings(_settings);
+                    } else if (library != null) {
+                      SectionModuleSettings.load(library)
+                          .copyWith(bufferSeconds: seconds)
+                          .save(library);
+                    }
+                    final player = _player;
+                    if (player != null) {
+                      unawaited(
+                        player.setBuffering(_buffering).catchError((
+                          Object error,
+                        ) {
+                          if (mounted) _showToast('本次缓冲调整未完成，将在下次播放时应用');
+                        }),
+                      );
+                    }
+                  },
                 ),
-                trailing: IconButton(
-                  tooltip: '复制地址',
-                  icon: const Icon(Icons.copy),
-                  onPressed: _media == null
-                      ? null
-                      : () async {
-                          await Clipboard.setData(
-                            ClipboardData(text: _media!.uri.toString()),
-                          );
-                          if (mounted) _showToast('已复制播放地址');
-                        },
-                ),
-              ),
-
-              Text(
-                supported
-                    ? '前向缓冲 ${buffer == 0 ? '自动' : '$buffer 秒'}'
-                    : '当前内核未提供缓冲参数',
-              ),
-              NativeGlassSlider(
-                value: buffer.toDouble().clamp(
-                  0,
-                  SectionModuleSettings.maxBufferSeconds.toDouble(),
-                ),
-                min: 0,
-                max: SectionModuleSettings.maxBufferSeconds.toDouble(),
-                divisions: SectionModuleSettings.maxBufferSeconds,
-                onChanged: !supported
-                    ? null
-                    : (value) {
-                        final seconds = value.round();
-                        setState(
-                          () => _buffering = BufferingConfig.forForwardBuffer(
-                            Duration(seconds: seconds),
-                          ),
-                        );
-                        update(() {});
-                        final library = _library;
-                        if (library != null) {
-                          SectionModuleSettings.load(library)
-                              .copyWith(bufferSeconds: seconds)
-                              .save(library);
-                        }
-                        final player = _player;
-                        if (player != null) {
-                          unawaited(
-                            player.setBuffering(_buffering).catchError((
-                              Object error,
-                            ) {
-                              if (mounted) _showToast('本次缓冲调整未完成，将在下次播放时应用');
-                            }),
-                          );
-                        }
-                      },
-              ),
-            ],
-            if (group == 'playback')
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('自动连播'),
-                value: _autoNext,
-                onChanged: (value) {
-                  _setAutoNext(value);
-                  update(() {});
-                },
-              ),
+              )
+            else
+              const Text('当前内核未提供缓冲参数'),
           ],
-        ),
+          if (group == 'playback')
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('自动连播'),
+              value: _autoNext,
+              onChanged: (value) {
+                _setAutoNext(value);
+                update(() {});
+              },
+            ),
+        ],
       );
     },
   );
@@ -3638,8 +4624,46 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 按设置里的“字幕语言”自动选一次字幕；用户手动选过就不再覆盖。
+  String? get _externalSubtitleKey => _target == null
+      ? null
+      : 'video.externalSubtitle.${_target!.identity}.${_target!.chapterId}';
+  Future<void> _rememberExternalSubtitle(String path) async {
+    _preferredSubtitleApplied = true;
+    final key = _externalSubtitleKey;
+    if (!_settings.presentation.rememberSubtitle ||
+        key == null ||
+        !await File(path).exists()) {
+      return;
+    }
+    final directory = Directory(
+      '${(await getApplicationSupportDirectory()).path}/external_subtitles',
+    );
+    await directory.create(recursive: true);
+    final name = '${sha256.convert(utf8.encode(key))}.srt';
+    final target = File('${directory.path}/$name');
+    if (File(path).absolute.path != target.absolute.path) {
+      await File(path).copy(target.path);
+    }
+    _library?.setSetting(key, name);
+  }
+
   Future<void> _applyPreferredSubtitle() async {
     if (_preferredSubtitleApplied || !_settings.subtitlesEnabled) return;
+    final externalKey = _externalSubtitleKey;
+    if (_settings.presentation.rememberSubtitle && externalKey != null) {
+      final name = _library?.setting(externalKey);
+      if (name != null && RegExp(r'^[a-f0-9]{64}\.srt$').hasMatch(name)) {
+        final file = File(
+          '${(await getApplicationSupportDirectory()).path}/external_subtitles/$name',
+        );
+        if (await file.exists() &&
+            _player != null &&
+            await _player!.loadSubtitleFile(file.path)) {
+          _preferredSubtitleApplied = true;
+          return;
+        }
+      }
+    }
     var preference = _settings.presentation.subtitleLanguage;
     Map? remembered;
     final memoryKey = _subtitleMemoryKey;
@@ -3691,7 +4715,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (id == null) return;
     if (!_settings.subtitlesEnabled) {
       _settings = _settings.copyWith(subtitlesEnabled: true);
-      _store?.save(_settings);
+      _savePlayerSettings(_settings);
     }
     await player.selectSubtitleTrack(id);
   }
@@ -3753,6 +4777,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         title: const Text('导入外挂字幕'),
         children: [
           SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'center'),
+            child: const Text('在线搜索／双语字幕'),
+          ),
+          SimpleDialogOption(
             onPressed: () => Navigator.pop(context, 'file'),
             child: const Text('选择本地文件'),
           ),
@@ -3764,6 +4792,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       ),
     );
     if (!mounted || source == null) return;
+    if (source == 'center') {
+      final path = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              SubtitleCenterPage(title: _target?.title ?? widget.title ?? ''),
+        ),
+      );
+      if (!mounted || path == null) return;
+      final ok = await player.loadSubtitleFile(path);
+      if (ok) await _rememberExternalSubtitle(path);
+      if (ok && mounted && !_settings.subtitlesEnabled) {
+        await _applySettings(_settings.copyWith(subtitlesEnabled: true));
+      }
+      if (mounted) _showToast(ok ? '已加载字幕' : '字幕加载失败，请尝试其他内核');
+      return;
+    }
     if (source == 'url') {
       await _pickSubtitleUrl(player);
       return;
@@ -3772,6 +4817,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (file == null || !mounted) return;
     _preferredSubtitleApplied = true;
     final ok = await player.loadSubtitleFile(file.path);
+    if (ok) await _rememberExternalSubtitle(file.path);
     if (!mounted) return;
     if (!ok) {
       _showToast('字幕导入失败：AVPlayer 支持 SRT / VTT，ASS 请使用 MPV');
@@ -3859,7 +4905,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     },
     child: ModuleGlassScope(
       module: GlassModule.video,
-      child: _legacyBuild(context),
+      child: PlayerEdgeBack(enabled: !_locked, child: _legacyBuild(context)),
     ),
   );
   Widget _legacyBuild(BuildContext context) {
@@ -3874,13 +4920,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return GlassScaffold(
       effectModule: GlassModule.video,
       title: widget.title ?? _target?.title ?? '播放',
-      actions: [
-        _compactIcon(
-          icon: VideoPlayerPage.playerKernelIcon,
-          tooltip: '播放内核',
-          onPressed: _openKernelPicker,
-        ),
-      ],
+      actions: [_kernelControl((open) => _kernelNameButton(open))],
       behindBar: true,
       child: Padding(padding: GlassScaffold.barInset(context), child: body),
     );
@@ -3944,7 +4984,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (_player?.snapshot.value.error != null) {
       return;
     }
-    _autoHideTimer = Timer(_autoHideDelay, () {
+    _autoHideTimer = Timer(PlayerLayout.controlsAutoHideDelay, () {
       if (!mounted || !_fullscreen || _locked) return;
       if (_accessibleNavigation) return;
       if (_player?.snapshot.value.error != null) {
@@ -3973,21 +5013,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final snapshot = player.snapshot.value;
     final total = snapshot.duration;
     if (total <= Duration.zero) return;
-    const delta = Duration(seconds: 10);
-    var target = direction < 0
-        ? snapshot.position - delta
-        : snapshot.position + delta;
+    final delta = Duration(
+      seconds: direction < 0
+          ? _settings.gestures.backwardSeconds
+          : _settings.gestures.forwardSeconds,
+    );
+    final start = _committedSeekTarget ?? snapshot.position;
+    var target = direction < 0 ? start - delta : start + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (target > total) target = total;
     _cancelAutoHide();
-    try {
-      await player.seek(target);
-      if (mounted) {
-        _showToast(PlayerLayout.seekDelta(snapshot.position, target));
-      }
-    } catch (_) {
-      if (mounted) _showToast('跳转失败，请重试');
-    }
+    unawaited(_seekGesture(player, target));
+    _showToast(PlayerLayout.seekDelta(start, target));
   }
 
   /// 取消自动隐藏并让控制栏保持可见。
@@ -4053,6 +5090,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       );
       _firstFrameWatch = null;
     }
+    if (_loaded && stats != null) _rememberVideoDirection(stats);
     final sizeKey = '${stats?.width}x${stats?.height}';
     if (sizeKey != _lastVideoSize) {
       setState(() => _lastVideoSize = sizeKey);
@@ -4064,6 +5102,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   /// 最近一次用于取景的宽高（`宽x高`）；用来判断分辨率有没有变。
   String? _lastVideoSize;
+
+  String? _rememberedDirection;
+  void _rememberVideoDirection(PlayerStats stats) {
+    final target = _target;
+    final library = _library;
+    final width = stats.width ?? 0;
+    final height = stats.height ?? 0;
+    if (!_loaded ||
+        target == null ||
+        library == null ||
+        width <= 0 ||
+        height <= 0) {
+      return;
+    }
+    final key = playbackEntryDirectionKey(target);
+    final direction = width < height ? 'portrait' : 'landscape';
+    final fingerprint = '$key:$direction';
+    if (_rememberedDirection == fingerprint) return;
+    _rememberedDirection = fingerprint;
+    if (library.setting(key) != direction) library.setSetting(key, direction);
+  }
 
   /// 按当前全屏状态 + 方向锁定算出该下发的方向。
   List<DeviceOrientation> _preferredOrientations() {
@@ -4119,8 +5178,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   }
 
   /// 应用当前该用的方向（同样的值不重复下发，见 [_appliedOrientations]）。
-  Future<void> _applyOrientation() =>
-      _sendOrientations(_preferredOrientations());
+  Future<void> _applyOrientation() {
+    // Unknown media dimensions keep the current system lock until stats arrive.
+    if (_fullscreen &&
+        _orientation == PlaybackOrientation.auto &&
+        !_hasVideoDimensions) {
+      return Future<void>.value();
+    }
+    return _sendOrientations(_preferredOrientations());
+  }
 
   /// 真正下发方向；桌面 / 测试环境没有方向概念，失败只记日志、不影响播放。
   Future<void> _sendOrientations(List<DeviceOrientation> orientations) async {
@@ -4269,6 +5335,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       'muted': _muted,
       'musicMode': _musicMode,
       'showNetworkSpeed': _showNetworkSpeed,
+      'showBufferedTime': _showBufferedTime,
     });
   }
 
@@ -4282,7 +5349,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _unlockTimer?.cancel();
     setState(() => _unlockVisible = true);
     if (_accessibleNavigation) return;
-    _unlockTimer = Timer(_autoHideDelay, () {
+    _unlockTimer = Timer(const Duration(seconds: 3), () {
       if (mounted && _locked) setState(() => _unlockVisible = false);
     });
   }
@@ -4326,17 +5393,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           if (stats.resolutionText != null) stats.resolutionText!,
         ];
         if (parts.isEmpty) return const SizedBox.shrink();
-        return Text(
-          parts.join(' · '),
-          key: const Key('fullscreen-media-caption'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: LumeTypography.captionSize,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFFE4E4E4),
-            shadows: _controlShadows,
-          ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              parts.join(' · '),
+              key: const Key('fullscreen-media-caption'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: LumeTypography.captionSize,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFE4E4E4),
+                shadows: _controlShadows,
+              ),
+            ),
+            MediaBadges(
+              values: MediaBadgeData.fromStats(stats),
+              location: 'player',
+              overlay: true,
+            ),
+          ],
         );
       }
 
@@ -4347,116 +5425,115 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           horizontal: VideoPlayerPage.controlHorizontalPadding,
           vertical: 2,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PlayerClock(showBattery: !_panelOpen),
-            const SizedBox(height: 2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _topIcon(
-                  icon: Icons.arrow_back_ios_new,
-                  tooltip: '退出全屏',
-                  onPressed: () => _setFullscreen(false),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: LumeTypography.titleSize,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFFF8F8F8),
-                          shadows: _controlShadows,
-                        ),
-                      ),
-                      if (_player == null)
-                        caption(PlayerStats.empty)
-                      else
-                        ValueListenableBuilder<PlayerStats>(
-                          valueListenable: _player!.stats,
-                          builder: (context, stats, _) => caption(stats),
-                        ),
-                    ],
+        child: PlaybackGlass(
+          enabled: false,
+          dark: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _PlayerClock(showBattery: !_panelOpen),
+              const SizedBox(height: 2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _topIcon(
+                    icon: Icons.arrow_back_ios_new,
+                    tooltip: '退出全屏',
+                    onPressed: () => _setFullscreen(false),
                   ),
-                ),
-                const SizedBox(width: 4),
-                if (!narrow) ...[_buildPipButton(), const SizedBox(width: 8)],
-                _topIcon(
-                  icon: VideoPlayerPage.playerKernelIcon,
-                  tooltip: '播放内核',
-                  onPressed: _openKernelPicker,
-                ),
-                const SizedBox(width: 8),
-                _topIcon(
-                  icon: Icons.more_horiz,
-                  tooltip: '播放器设置',
-                  onPressed: _openSettings,
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: LumeTypography.titleSize,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFF8F8F8),
+                            shadows: _controlShadows,
+                          ),
+                        ),
+                        if (_player == null)
+                          caption(PlayerStats.empty)
+                        else
+                          ValueListenableBuilder<PlayerStats>(
+                            valueListenable: _player!.stats,
+                            builder: (context, stats, _) => caption(stats),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  if (!narrow) _buildPipButton(),
+                  _kernelControl(
+                    (open) => _kernelNameButton(open, overlay: true),
+                  ),
+                  _topIcon(
+                    matchControlBox: true,
+                    icon: Icons.more_horiz,
+                    tooltip: '播放器设置',
+                    onPressed: _openSettings,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       );
     },
   );
 
-  Future<void> _openKernelPicker() async {
-    _cancelAutoHide();
-    final selected = await _playbackMenu<PlayerKernel>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (context) => SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '播放内核',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: LumeTypography.pageTitleSize,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '关闭',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const LumeIcon(
-                      Icons.close,
-                      slot: 'video_player_page.2',
-                    ),
-                  ),
-                ],
+  Widget _kernelNameButton(VoidCallback open, {bool overlay = false}) {
+    final kernel =
+        _activeKernel ??
+        (_anyKernelAvailable ? _effectiveKernel : _settings.kernel);
+    final label = kernel == PlayerKernel.aether ? 'Aether' : kernel.label;
+    return Tooltip(
+      message: '播放内核',
+      child: SizedBox(
+        width: overlay ? _box : 76,
+        height: _box,
+        child: TextButton(
+          onPressed: open,
+          style: TextButton.styleFrom(
+            foregroundColor: overlay ? const Color(0xFFF8F8F8) : null,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              key: const Key('player-kernel-name'),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                shadows: overlay ? _controlShadows : null,
               ),
-              PlayerKernelPicker(
-                selected: _settings.kernel,
-                catalog: _catalog,
-                onChanged: (kernel) => Navigator.pop(context, kernel),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
-    if (!mounted) return;
-    if (selected != null && selected != _settings.kernel) {
-      await _applySettings(_settings.copyWith(kernel: selected));
-    }
-    _scheduleAutoHide();
   }
+
+  Widget _kernelControl(Widget Function(VoidCallback open) builder) =>
+      PlayerKernelButton(
+        selected: _settings.kernel,
+        catalog: _catalog,
+        onOpen: _cancelAutoHide,
+        onClose: _scheduleAutoHide,
+        onChanged: (kernel) {
+          if (kernel != _settings.kernel) {
+            unawaited(_applySettings(_settings.copyWith(kernel: kernel)));
+          }
+        },
+        builder: builder,
+      );
 
   /// 顶栏上的紧凑图标按钮（白字 + 投影，压在画面上也看得清）。
   Widget _topIcon({
@@ -4464,13 +5541,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     required String tooltip,
     required VoidCallback? onPressed,
     bool highlighted = false,
+    bool matchControlBox = false,
   }) {
     if (_fullscreen) {
       return Tooltip(
         message: tooltip,
         child: SizedBox(
-          width: 48,
-          height: 48,
+          width: matchControlBox ? _box : 48,
+          height: matchControlBox ? _box : 48,
           child: TextButton(
             onPressed: onPressed,
             style: TextButton.styleFrom(
@@ -4536,31 +5614,42 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             VideoPlayerPage.controlHorizontalPadding,
             2,
           ),
-          child: ValueListenableBuilder<PlayerSnapshot>(
-            valueListenable: _player?.snapshot ?? _idleSnapshot,
-            builder: (context, snapshot, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (_showNetworkSpeed && _player != null)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 180),
-                      child: PlayerStatsInline(
-                        key: const Key('fullscreen-network-speed'),
-                        stats: _player!.stats,
-                        networkKbps: _networkSpeed.kbps,
-                        showResolution: false,
-                        dimmed: true,
-                      ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if ((_showNetworkSpeed || _showBufferedTime) && _player != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 180),
+                    child: PlayerStatsInline(
+                      key: const Key('fullscreen-network-speed'),
+                      stats: _player!.stats,
+                      networkKbps: _networkSpeed.kbps,
+                      showResolution: false,
+                      showSpeed: _showNetworkSpeed,
+                      showBuffer: _showBufferedTime,
+                      stacked: true,
+                      dimmed: true,
                     ),
                   ),
-                _buildProgress(snapshot),
-                // 两行（进度条行 / 按钮行）固定行距（用户口径）。
-                const SizedBox(height: VideoPlayerPage.controlRowGap),
-                _buildFloatingSplitControls(snapshot),
-              ],
-            ),
+                ),
+              _liveProgress(),
+
+              // 两行（进度条行 / 按钮行）固定行距（用户口径）。
+              const SizedBox(height: VideoPlayerPage.controlRowGap),
+              PlayerSnapshotSelector<(bool, String?, String, bool?)>(
+                snapshot: _player?.snapshot ?? _idleSnapshot,
+                select: (s) => (
+                  s.playing,
+                  s.error,
+                  _nextEpisodeBuffer.status,
+                  _target == null ? null : _nextEpisodeBuffer.hasNext(_target!),
+                ),
+                builder: (context, snapshot) =>
+                    _buildFloatingSplitControls(snapshot),
+              ),
+            ],
           ),
         ),
       ),
@@ -4623,68 +5712,93 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ),
       );
       final playing = snapshot.playing && snapshot.error == null;
-      return Row(
-        key: const Key('fullscreen-actions'),
-        children: [
+      final transport = <Widget>[
+        action(
+          playing ? '暂停' : '播放',
+          playing ? '暂停' : '播放',
+          playing ? Icons.pause : Icons.play_arrow,
+          _player == null
+              ? null
+              : () => unawaited(playing ? _player!.pause() : _player!.play()),
+        ),
+        if (target != null && _nextEpisodeBuffer.hasNext(target) != false)
           action(
-            playing ? '暂停' : '播放',
-            playing ? '暂停' : '播放',
-            playing ? Icons.pause : Icons.play_arrow,
-            _player == null
-                ? null
-                : () => unawaited(playing ? _player!.pause() : _player!.play()),
+            '下集',
+            '下一集 · ${_nextEpisodeBuffer.status}（长按查看）',
+            Icons.skip_next,
+            _advancing ? null : () => _playEpisodeAt(target.chapterIndex + 1),
+            onLongPress: _showNextEpisodeStatus,
           ),
-          if (!compact) ...[
-            const SizedBox(width: 4),
-            action(
-              '下集',
-              '下一集 · ${_nextEpisodeBuffer.status}',
-              Icons.skip_next,
-              target == null || _advancing
-                  ? null
-                  : () => _playEpisodeAt(target.chapterIndex + 1),
-            ),
-            const SizedBox(width: 4),
+        SizedBox(
+          width: 82,
+          height: _box,
+          child: _skipQuickButton(withIcon: true),
+        ),
+      ];
+      final trailing = <Widget>[
+        action(
+          '弹幕',
+          _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
+          Icons.forum_outlined,
+          _openDanmakuSettings,
+          forceText: true,
+        ),
+        _speedControl(
+          (open) => action(
+            PlayerSpeedButton.label(_settings.speed),
+            '播放速度（${_settings.speed}x）',
+            Icons.speed,
+            open,
+            forceText: true,
+            onLongPress: _settings.speed == 1
+                ? null
+                : () => unawaited(_applySettings(_settings.copyWith(speed: 1))),
+          ),
+        ),
+        action(
+          '选集',
+          '线路 / 选集',
+          Icons.grid_view_rounded,
+          _openSourceSheet,
+          forceText: true,
+        ),
+      ];
+      if (compact) {
+        final leftWidth = _box * 2 + 82;
+        final rightWidth = _box * 3;
+        final scale = math.min(
+          1.0,
+          math.max(0.0, constraints.maxWidth - 16) / (leftWidth + rightWidth),
+        );
+        return Row(
+          key: const Key('fullscreen-actions'),
+          children: [
             SizedBox(
-              width: 82,
-              height: _box,
-              child: _skipQuickButton(withIcon: true),
+              width: leftWidth * scale,
+              child: Row(
+                key: const Key('fullscreen-transport-group'),
+                children: [
+                  for (var i = 0; i < transport.length; i++)
+                    Expanded(flex: i == 2 ? 2 : 1, child: transport[i]),
+                ],
+              ),
+            ),
+            const Spacer(),
+            SizedBox(
+              width: rightWidth * scale,
+              child: Row(
+                key: const Key('fullscreen-options-group'),
+                children: [
+                  for (final action in trailing) Expanded(child: action),
+                ],
+              ),
             ),
           ],
-          const Spacer(),
-          Semantics(
-            toggled: _danmakuSettings.enabled,
-            child: action(
-              '弹幕',
-              _danmakuSettings.enabled ? '弹幕：开' : '弹幕：关',
-              Icons.forum_outlined,
-              _openDanmakuSettings,
-              forceText: true,
-            ),
-          ),
-          const SizedBox(width: 4),
-          _speedControl(
-            (open) => action(
-              PlayerSpeedButton.label(_settings.speed),
-              '播放速度（${_settings.speed}x）',
-              Icons.speed,
-              open,
-              forceText: true,
-              onLongPress: _settings.speed == 1
-                  ? null
-                  : () =>
-                        unawaited(_applySettings(_settings.copyWith(speed: 1))),
-            ),
-          ),
-          const SizedBox(width: 4),
-          action(
-            '选集',
-            '线路 / 选集',
-            Icons.grid_view_rounded,
-            _openSourceSheet,
-            forceText: true,
-          ),
-        ],
+        );
+      }
+      return Row(
+        key: const Key('fullscreen-actions'),
+        children: [...transport, const Spacer(), ...trailing],
       );
     },
   );
@@ -4694,9 +5808,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 文字按钮与图标按钮走同一个 [VideoPlayerPage.controlBox] 触达盒、同一个 13 号字，
   /// 因此一排看上去是等高等宽的方块，而不是「文字比图标大一号」。
   List<Widget> _essentialActions() => <Widget>[
+    _compactIcon(
+      icon: Icons.skip_next,
+      tooltip: '下一集',
+      onPressed: _target == null || _advancing
+          ? null
+          : () => _playEpisodeAt(_target!.chapterIndex + 1),
+    ),
     _actionLabel('选集', '线路 / 选集', _openSourceSheet),
     _skipQuickButton(),
-    _actionLabel('片头尾', '片头片尾设置', _openOriginalIntro),
+    _compactIcon(
+      icon: Icons.fast_forward_outlined,
+      tooltip: '片头片尾设置',
+      onPressed: _openOriginalIntro,
+    ),
     if (_media != null) _actionLabel('画质', '清晰度', _openQualityMenu),
     _actionLabel(
       '弹',
@@ -4794,26 +5919,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
     if (player == null) {
       final kernel = _pendingKernel ?? _effectiveKernel;
+      final isAvPlayer = kernel == PlayerKernel.avplayer;
       final hint = kernel == PlayerKernel.mpv
           ? 'MPV 首次启动要装载原生库，可能需要几秒；超过预算会自动回退 AVPlayer。'
+          : isAvPlayer
+          ? '播放器准备时间较长，可以重试，或通过播放器设置更换内核。'
           : '初始化完成后即可播放；一直没有响应可以切回 AVPlayer。';
-      return _PlayerStageNotice(
-        icon: Icons.hourglass_top_outlined,
-        title: '正在准备 ${kernel.label} 播放器…',
-        detail: hint,
-        busy: true,
-        actions: <Widget>[
-          OutlinedButton(
-            onPressed: _switchToAvPlayer,
-            child: const Text('切回 AVPlayer'),
-          ),
-        ],
+      return _DelayedPlayerPreparation(
+        key: ValueKey(kernel),
+        notice: _PlayerStageNotice(
+          icon: Icons.hourglass_top_outlined,
+          title: '正在准备 ${kernel.label} 播放器…',
+          detail: hint,
+          busy: true,
+          actions: <Widget>[
+            OutlinedButton(
+              onPressed: isAvPlayer ? _retryFailedKernel : _switchToAvPlayer,
+              child: Text(isAvPlayer ? '重试' : '切回 AVPlayer'),
+            ),
+          ],
+        ),
       );
     }
 
-    return ValueListenableBuilder<PlayerSnapshot>(
-      valueListenable: player.snapshot,
-      builder: (context, snapshot, _) => snapshot.error == null
+    return PlayerSnapshotSelector<String?>(
+      snapshot: player.snapshot,
+      select: (s) => s.error,
+      builder: (context, snapshot) => snapshot.error == null
           ? _buildVideoArea(player)
           : _buildErrorStage(snapshot),
     );
@@ -4843,6 +5975,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               if (mounted) _showToast('源已更新，请重试播放以获取新地址');
             },
             extraActions: [
+              TextButton(onPressed: _openSettings, child: const Text('更换播放内核')),
               if (_target != null &&
                   ((snapshot.error ?? '').contains('403') ||
                       shouldOfferWebView(snapshot.error)))
@@ -4991,6 +6124,31 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             children: <Widget>[
               // 画面本身居中，并按设置做取景 / 缩放 / 旋转 / 镜像。
               Center(child: _buildPicture(player, constraints)),
+              Positioned(
+                top: 16,
+                left: 20,
+                right: 20,
+                child: IgnorePointer(
+                  child: ListenableBuilder(
+                    listenable: MediaBadgeSettings.instance,
+                    builder: (context, _) =>
+                        (!_fullscreen ||
+                            (!_overlayVisible &&
+                                !MediaBadgeSettings.instance.enabled(
+                                  'followControls',
+                                )))
+                        ? ValueListenableBuilder<PlayerStats>(
+                            valueListenable: player.stats,
+                            builder: (context, stats, _) => MediaBadges(
+                              values: MediaBadgeData.fromStats(stats),
+                              location: 'player',
+                              overlay: true,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ),
               // 亮度遮罩：**降级路径**用（平台不支持改系统亮度时）。
               if (!_systemBrightness && _brightness < 1.0)
                 Positioned.fill(
@@ -5055,10 +6213,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   right: 0,
                   bottom: 0,
                   child: IgnorePointer(
-                    child: PlayerHud(
-                      stats: player.stats,
-                      networkKbps: _networkSpeed.kbps,
-                      showDetails: false,
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: PlayerStatsInline(
+                        stats: player.stats,
+                        networkKbps: _networkSpeed.kbps,
+                        showResolution: false,
+                        showSpeed: _showNetworkSpeed,
+                        showBuffer: _showBufferedTime,
+                        stacked: true,
+                      ),
                     ),
                   ),
                 ),
@@ -5088,7 +6252,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 top: _fullscreen ? 64 : 8,
                 left: 16,
                 right: 16,
-                child: IgnorePointer(child: _buildHintPill()),
+                child: IgnorePointer(
+                  child: _hintOverlay == null
+                      ? _buildHintPill()
+                      : const SizedBox.shrink(),
+                ),
               ),
               // 单击画面由手势层统一切换控制栏（见 _buildGestureLayer）；
               // 双击左右两侧快进/快退 10 秒（上面这层只吃点击，不吃拖动）。
@@ -5114,6 +6282,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 child: ValueListenableBuilder<PlayerSnapshot>(
                   valueListenable: player.snapshot,
                   builder: (context, snapshot, _) => PlayerWaitingOverlay(
+                    stats: player.stats.value,
                     snapshot: snapshot,
                     operation: _operation,
                     locked: _locked,
@@ -5136,7 +6305,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
-  /// 画面取景与变换：适应 / 填充 / 倍率 + 旋转 + 镜像。
+  /// 画面取景与变换：原比例 / 填满屏幕 / 拉伸铺满 + 旋转 + 镜像。
   ///
   /// 为什么放在页面层而不是各内核里：这三件事都是「把内核渲染好的画面怎么摆」，
   /// 与解码链无关。三套内核都只提供「一块能画画的区域」，因此这里按视频宽高比
@@ -5166,20 +6335,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       return _transformed(view, prefs);
     }
 
-    // 旋转 90 / 270 时用户看到的宽高是反的，取景要按「换轴后」的比例算。
-    final visible = prefs.rotation.swapsAxes ? 1 / aspect : aspect;
-    final containWidth = math.min(width, height * visible);
-    final containHeight = containWidth / visible;
-    final coverWidth = math.max(width, height * visible);
-    final coverHeight = coverWidth / visible;
-    final boxWidth = prefs.zoom.covers ? coverWidth : containWidth;
-    final boxHeight = prefs.zoom.covers ? coverHeight : containHeight;
-
+    final visibleAspect = prefs.rotation.swapsAxes ? 1 / aspect : aspect;
+    final boxWidth = prefs.zoom == ZoomMode.fill
+        ? math.max(width, height * visibleAspect)
+        : math.min(width, height * visibleAspect);
+    final boxHeight = boxWidth / visibleAspect;
+    // Keep the engine surface at its natural aspect ratio. The outer fit
+    // chooses letterboxing, cropping or stretching without tight parent
+    // constraints accidentally squeezing a cover-sized video surface.
     return ClipRect(
-      child: Center(
-        child: _transformed(
-          SizedBox(width: boxWidth, height: boxHeight, child: view),
-          prefs,
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: FittedBox(
+          fit: switch (prefs.zoom) {
+            ZoomMode.fit => BoxFit.contain,
+            ZoomMode.fill => BoxFit.cover,
+            ZoomMode.stretch => BoxFit.fill,
+          },
+          child: RotatedBox(
+            quarterTurns: prefs.rotation.degrees ~/ 90,
+            child: Transform.flip(
+              flipX: prefs.mirrored,
+              child: SizedBox(
+                width: prefs.rotation.swapsAxes ? boxHeight : boxWidth,
+                height: prefs.rotation.swapsAxes ? boxWidth : boxHeight,
+                child: view,
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -5195,16 +6379,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return width / height;
   }
 
-  /// 倍率 + 旋转 + 镜像（顺序固定：先转再镜像、最后缩放）。
+  /// 旋转与镜像；画面适配由外层取景决定。
   Widget _transformed(Widget child, KernelPrefs prefs) {
     final matrix = Matrix4.identity();
     if (prefs.rotation.degrees != 0) {
       matrix.rotateZ(prefs.rotation.degrees * math.pi / 180);
     }
     if (prefs.mirrored) matrix.scaleByDouble(-1.0, 1.0, 1.0, 1.0);
-    if (prefs.zoom.scale != 1.0) {
-      matrix.scaleByDouble(prefs.zoom.scale, prefs.zoom.scale, 1.0, 1.0);
-    }
     return Transform(
       transform: matrix,
       alignment: Alignment.center,
@@ -5220,6 +6401,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 两处按用户要求改过（见 [VideoPlayerPage.controlTopGap] 的说明）：
   /// - 地址行收进播放源弹窗（右下角那颗小信息图标），控制栏不再铺长链接；
   /// - 常用功能固定排列，控制区与画面之间只留一小段间距。
+  void _showNextEpisodeStatus() {
+    if (_target == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('下一集续播'),
+        content: ValueListenableBuilder<PlayerSnapshot>(
+          valueListenable: _player?.snapshot ?? _idleSnapshot,
+          builder: (context, _, _) => Text(
+            '${_network.allowsPreload(MediaPreload.instance.wifiOnly) ? _nextEpisodeBuffer.status : '等待 Wi-Fi，额外预载已暂停'}\n衔接失败可重新解析下一集，或在选集/线路中选择。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              unawaited(_playEpisodeAt(_target!.chapterIndex + 1));
+            },
+            child: const Text('播放下一集'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildControlPanel(AbstractPlayer? player) {
     return Padding(
       key: VideoPlayerPage.controlPanelKey,
@@ -5233,16 +6443,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         enabled: _settings.playbackGlass,
         child: Column(
           children: <Widget>[
-            ValueListenableBuilder<PlayerSnapshot>(
-              valueListenable: player?.snapshot ?? _idleSnapshot,
-              builder: (context, snapshot, _) => Column(
-                children: <Widget>[
-                  _buildProgress(snapshot),
-                  _buildPrimaryControls(snapshot),
-                  _buildSecondaryControls(),
-                ],
-              ),
+            _liveProgress(),
+
+            PlayerSnapshotSelector<(bool, String?)>(
+              snapshot: player?.snapshot ?? _idleSnapshot,
+              select: (s) => (s.playing, s.error),
+              builder: (context, snapshot) => _buildPrimaryControls(snapshot),
             ),
+            _buildSecondaryControls(),
           ],
         ),
       ),
@@ -5367,6 +6575,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       await _startPlayback(
         PlayerMedia(
           uri: address,
+          previews: content is VideoContent ? content.previews : const [],
           title: '${target.title} · ${chapter.title}',
           headers:
               chosen?.headers ??
@@ -5418,6 +6627,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       useSafeArea: true,
       builder: (sheetContext) => PlayerSourceSheet(
         fullBleed: true,
+        onPlaybackInfo: _showPlaybackInfo,
         initialTab: initialTab,
         initialView:
             PlayerEpisodeView.values
@@ -5448,35 +6658,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           );
         },
         includeQualityTab: true,
-        loadLines: target == null
-            ? null
-            : () async {
-                final source = await _openSource();
-                if (source == null) throw StateError('图源不可用');
-                final all = await VideoEpisodeCatalog.load(
-                  source,
-                  target.itemId,
-                );
-                final current = all
-                    .where((c) => c.id == target.chapterId)
-                    .firstOrNull;
-                return [
-                  for (final group in VideoEpisodeCatalog.group(all).entries)
-                    PlayerSourceLine(
-                      group.key,
-                      current:
-                          current != null &&
-                          group.key == VideoEpisodeCatalog.lineOf(current),
-                      available:
-                          current != null &&
-                          VideoEpisodeCatalog.matchingIndex(
-                                current,
-                                group.value,
-                              ) >=
-                              0,
-                    ),
-                ];
-              },
+        loadLines: target == null ? null : () => _rankedLines(target),
+        onBenchmarkLines: target == null ? null : () => _benchmarkLines(target),
         onSelectLine: (line) async {
           if (target == null || _target?.isSameEpisode(target) != true) {
             return false;
@@ -5527,8 +6710,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         onSelectQuality: _selectQuality,
       ),
     );
+    _benchmarkMeter?.dispose();
+    _benchmarkMeter = null;
     if (mounted) _scheduleAutoHide();
   }
+
+  Widget _liveProgress() => ListenableBuilder(
+    listenable: Listenable.merge([
+      _player?.snapshot ?? _idleSnapshot,
+      if (_player != null) _player!.stats,
+    ]),
+    builder: (context, _) =>
+        _buildProgress((_player?.snapshot ?? _idleSnapshot).value),
+  );
 
   Widget _buildProgress(PlayerSnapshot snapshot) {
     final old = _legacyProgress(snapshot);
@@ -5538,7 +6732,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Widget _legacyProgress(PlayerSnapshot snapshot) {
     final total = snapshot.duration.inMilliseconds;
     final preview = _previewTarget;
-    final shown = preview ?? snapshot.position;
+    final shown = preview ?? _committedSeekTarget ?? snapshot.position;
     final slider = NativeGlassSlider(
       value: _fraction(shown, snapshot.duration),
       secondaryTrackValue: _fraction(
@@ -5549,10 +6743,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? null
           : (value) {
               _seekRevision++;
+              _seekDisplayTimeout?.cancel();
+              _committedSeekTarget = null;
               _lastScrubSeek = null;
               _pendingScrubSeek = null;
               _seekWatchdog?.cancel();
               _seekWatchdogGeneration++;
+              _cancelSeekConfirmation?.call();
               _cancelAutoHide();
               setState(
                 () => _previewTarget = _positionAt(value, snapshot.duration),
@@ -5563,31 +6760,48 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           : (value) {
               final target = _positionAt(value, snapshot.duration);
               setState(() => _previewTarget = target);
-              _scrubSeekThrottled(target);
+              // Preview locally; commit one seek when the user releases.
             },
       onChangeEnd: total == 0
           ? null
           : (value) async {
               final target = _positionAt(value, snapshot.duration);
               final player = _player;
-              final revision = _seekRevision;
               _lastScrubSeek = null;
-              // 松手即作废还没下发的拖动落点：这一轮只留这次精确跳转。
               _pendingScrubSeek = null;
-              try {
-                if (player != null) {
-                  final ok = await _seekAndConfirm(player, target);
-                  if (!ok) _armSeekWatchdog(player, target);
-                }
-              } catch (error) {
-                if (mounted) _showToast('跳转失败，请重试');
-              } finally {
-                if (mounted && revision == _seekRevision) {
-                  setState(() => _previewTarget = null);
-                  _scheduleAutoHide();
-                }
+              setState(() => _previewTarget = null);
+              if (player != null) {
+                await _seekGesture(player, target, scrub: true);
               }
+              if (mounted) _scheduleAutoHide();
             },
+    );
+    final previewSlider = Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        slider,
+        if (preview != null)
+          Positioned(
+            bottom: 44,
+            child: IgnorePointer(
+              child: Material(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(8),
+                textStyle: const TextStyle(color: Colors.white),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: SeekPreview(
+                    target: preview,
+                    frames: _previews,
+                    previews: _media?.previews ?? const [],
+                    pipeline: _previewPipeline(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
     if (_fullscreen) {
       final theme = SliderTheme.of(context).copyWith(
@@ -5634,7 +6848,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 child: SizedBox(
                   // 行距收窄：滑条行高从 44 收到 34，进度行整体下沉贴近按钮行。
                   height: 34,
-                  child: SliderTheme(data: theme, child: slider),
+                  child: SliderTheme(data: theme, child: previewSlider),
                 ),
               ),
               Text(
@@ -5655,7 +6869,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     return Column(
       children: <Widget>[
-        slider,
+        previewSlider,
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
@@ -5736,7 +6950,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           slot: 'video_player_page.10',
           shadows: _fullscreen ? _controlShadows : null,
         ),
-        onPressed: player?.stop,
+        onPressed: player == null ? null : _stopPlayback,
       ),
       IconButton(
         iconSize: _iconSize + 5,
@@ -5746,7 +6960,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         color: _fullscreen
             ? Colors.white
             : Theme.of(context).colorScheme.onSurface,
-        tooltip: '后退 10 秒',
+        tooltip: '后退 ${_settings.gestures.backwardSeconds} 秒',
         icon: LumeIcon(
           Icons.replay_10,
           slot: 'video_player_page.8',
@@ -5754,7 +6968,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ),
         onPressed: player == null
             ? null
-            : () => _seekBy(const Duration(seconds: -10)),
+            : () => _seekBy(
+                Duration(seconds: -_settings.gestures.backwardSeconds),
+              ),
       ),
       IconButton(
         // 播放/暂停仍是这一组的主按钮，比旁边大一档，但不再夸张。
@@ -5786,7 +7002,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         color: _fullscreen
             ? Colors.white
             : Theme.of(context).colorScheme.onSurface,
-        tooltip: '前进 10 秒',
+        tooltip: '前进 ${_settings.gestures.forwardSeconds} 秒',
         icon: LumeIcon(
           Icons.forward_10,
           slot: 'video_player_page.12',
@@ -5794,7 +7010,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         ),
         onPressed: player == null
             ? null
-            : () => _seekBy(const Duration(seconds: 10)),
+            : () =>
+                  _seekBy(Duration(seconds: _settings.gestures.forwardSeconds)),
       ),
       _speedControl(
         (open) => IconButton(
@@ -5826,8 +7043,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   /// 控制栏右侧的小图标），其余按钮的居中排布与大小、间距、颜色都不动。
   Widget _buildSecondaryControls() => Padding(
     padding: const EdgeInsets.only(top: 4),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    child: Wrap(
+      alignment: WrapAlignment.spaceEvenly,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: _essentialActions(),
     ),
   );
@@ -5891,29 +7109,83 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
+  Future<void> _stopPlayback() async {
+    _seekRevision++;
+    _seekWatchdogGeneration++;
+    _seekWatchdog?.cancel();
+    _seekDisplayTimeout?.cancel();
+    _cancelSeekConfirmation?.call();
+    _pendingScrubSeek = null;
+    _lastScrubSeek = null;
+    setState(() {
+      _committedSeekTarget = null;
+      _previewTarget = null;
+      _gesture = PlayerGestureState.idle.copyWith(
+        volume: _gesture.volume,
+        brightness: _brightness,
+      );
+    });
+    try {
+      await _player?.stop();
+    } catch (_) {
+      if (mounted) _showToast('停止播放失败，请重试');
+    }
+  }
+
+  Future<void> _showPlaybackInfo() async {
+    final player = _player;
+    final media = _media;
+    if (player == null || media == null) return;
+    final target = _target;
+    Future<String?> line() async {
+      if (target == null) return null;
+      try {
+        final source = await _openSource();
+        if (source == null) return null;
+        final chapters = await VideoEpisodeCatalog.load(source, target.itemId);
+        final current = chapters
+            .where((c) => c.id == target.chapterId)
+            .firstOrNull;
+        return current == null ? null : VideoEpisodeCatalog.lineOf(current);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => PlayerPlaybackInfo(
+        address: media.uri,
+        stats: player.stats,
+        snapshot: player.snapshot,
+        operation: _operation,
+        nextEpisodeStatus: () => _nextEpisodeBuffer.status,
+        onRecover: () => unawaited(_restoreInlinePlayback(retry: true)),
+        decoderStatus: player is PresentationEngine
+            ? (player as PresentationEngine).presentationStatus
+            : null,
+        onCopied: _showToast,
+        line: line(),
+        source: _source?.name ?? target?.sourceId ?? '手动地址',
+        quality: _qualityIndex >= 0 && _qualityIndex < _qualities.length
+            ? _qualities[_qualityIndex].label
+            : '未提供',
+        kernel: _effectiveKernel.label,
+      ),
+    );
+  }
+
   /// 相对当前位置跳转（前进 / 后退按钮）。越界值夹到 [0, duration]。
   Future<void> _seekBy(Duration delta) async {
     final player = _player;
     final snapshot = player?.snapshot.value;
     if (player == null || snapshot == null) return;
-    var target = snapshot.position + delta;
+    var target = (_committedSeekTarget ?? snapshot.position) + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (snapshot.duration > Duration.zero && target > snapshot.duration) {
       target = snapshot.duration;
     }
-    try {
-      final ok = await _seekAndConfirm(player, target);
-      if (!ok) _armSeekWatchdog(player, target);
-    } catch (error, stackTrace) {
-      LumeLog.error(error, stackTrace);
-      LumeLog.warn(
-        '[player] ${_settings.kernel.label} 跳转失败：'
-        '${snapshot.position.inMilliseconds}ms → ${target.inMilliseconds}ms',
-      );
-      if (mounted && identical(_player, player)) {
-        _showToast('跳转失败，请重试');
-      }
-    }
+    await _seekGesture(player, target);
   }
 
   /// 画中画按钮：不可用时**照旧显示**，点了弹可读提示（不直接隐藏按钮）。
@@ -5921,6 +7193,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final session = _session;
     if (session == null) {
       return _topIcon(
+        matchControlBox: true,
         icon: Icons.picture_in_picture_alt,
         tooltip: '画中画：正在准备',
         onPressed: null,
@@ -5934,6 +7207,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           return const SizedBox.shrink();
         }
         return _topIcon(
+          matchControlBox: true,
           icon: snapshot.isActive
               ? Icons.picture_in_picture
               : Icons.picture_in_picture_alt,
@@ -6093,6 +7367,8 @@ class _BatteryGlyph extends StatelessWidget {
   );
 }
 
+enum _SeekConfirmation { reached, missed, pending }
+
 class _ResumePoint {
   const _ResumePoint({required this.position, required this.playing});
 
@@ -6111,6 +7387,41 @@ class _ResumePoint {
 ///
 /// 每种状态都**必须带出口**（重试或切回 AVPlayer）：播放器起不来时，用户手上
 /// 得有点得动的东西，而不是一个没有说明、也不知道要等多久的转圈。
+class _DelayedPlayerPreparation extends StatefulWidget {
+  const _DelayedPlayerPreparation({super.key, required this.notice});
+
+  final Widget notice;
+
+  @override
+  State<_DelayedPlayerPreparation> createState() =>
+      _DelayedPlayerPreparationState();
+}
+
+class _DelayedPlayerPreparationState extends State<_DelayedPlayerPreparation> {
+  Timer? _timer;
+  bool _showNotice = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Normal startup should not flash a recovery card on every route entry.
+    _timer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _showNotice = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _showNotice
+      ? widget.notice
+      : const Center(child: CircularProgressIndicator(color: Colors.white70));
+}
+
 class _PlayerStageNotice extends StatelessWidget {
   const _PlayerStageNotice({
     required this.icon,

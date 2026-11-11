@@ -22,7 +22,7 @@ restart from zero after a dropped connection.
 The official `vits-zh-aishell3.tar.bz2` is still accepted for manual import
 (「从文件安装」): it is checked against `archiveSha256`, and only the seven
 whitelisted runtime files are extracted — the upstream int8 and FAR variants are
-ignored.
+ignored. Existing installed models remain compatible.
 
 Measured runtime format: 8,000 Hz mono, 174 speaker IDs (0–173).
 Role assignment is a reader preference; a numeric speaker ID is not a verified

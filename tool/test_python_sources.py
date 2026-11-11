@@ -41,14 +41,28 @@ def invoke(raw):
         else: STORAGE.pop(key, None); value = True
         return json.dumps({"ok": True, "value": value})
     if request["method"] == "crypto":
-        # Forwarding is tested here; real algorithms use independent Dart KATs.
-        return json.dumps({"ok": False, "error": "crypto fixture intentionally unavailable"})
+        # Independent reference backend; production algorithms have Dart KATs.
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        key, data, iv = (base64.b64decode(payload.get(k, '')) for k in ('key', 'data', 'iv'))
+        if payload['algorithm'] == 'aes' and payload['mode'] == 11:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            operation = AESGCM(key).encrypt if payload.get('encrypt') else AESGCM(key).decrypt
+            result = operation(base64.b64decode(payload['nonce']), data, base64.b64decode(payload.get('aad', '')))
+            return json.dumps({'ok': True, 'value': base64.b64encode(result).decode()})
+        mode = {1: lambda: modes.ECB(), 2: lambda: modes.CBC(iv), 6: lambda: modes.CTR(iv)}.get(payload['mode'])
+        if payload['algorithm'] != 'aes' or mode is None:
+            return json.dumps({'ok': False, 'error': 'reference crypto mode unavailable'})
+        cipher = Cipher(algorithms.AES(key), mode())
+        operation = cipher.encryptor() if payload.get('encrypt') else cipher.decryptor()
+        return json.dumps({'ok': True, 'value': base64.b64encode(operation.update(data) + operation.finalize()).decode()})
     if request["method"] == "proxy":
         return json.dumps({"ok": True, "value": "http://127.0.0.1:12345/token/proxy?do=py"})
     url = payload["url"]
     headers, status = {"Content-Type": "application/json; charset=utf-8"}, 200
     video = {"vod_id": "v1", "vod_name": "测试影片", "vod_pic": "https://fixture.invalid/cover.jpg", "vod_remarks": "更新中"}
-    if "searchByWord" in url:
+    if "/home/hotSearch" in url:
+        body = {"data": [{"vodId": "v1", "vodName": "测试影片", "vodPic": "", "typeId1": 1, "vodVersion": "高清"}]}
+    elif "searchByWord" in url:
         body = {"data": {"result": {"list": [{"vodId": "v1", "vodName": "测试影片", "vodPic": "", "typeId1": 1, "vodVersion": "高清"}]}}}
     elif "/anonymous/video/detail" in url:
         body = {"data": {"typeName": "电影", "vodName": "测试影片", "vodRemarks": "高清", "vodYear": "2026", "vodArea": "", "vodActor": "", "vodDirector": "", "vodContent": "说明", "episodeList": [{"name": "第一集", "nid": "ep1"}]}}
@@ -105,6 +119,151 @@ def call(source, action="call", **kwargs):
 
 
 class HostTests(unittest.TestCase):
+    def test_ecdh_spider_point_multiplication_matches_shared_secret(self):
+        from Crypto.PublicKey import ECC
+        from cryptography.hazmat.primitives.asymmetric import ec
+        for curve in ('P-256', 'P-384', 'P-521'):
+            with self.subTest(curve=curve):
+                alice, bob = ECC.construct(curve=curve, d=7), ECC.construct(curve=curve, d=11)
+                expected = int.from_bytes(alice._key.exchange(ec.ECDH(), bob._key.public_key()), 'big')
+                self.assertEqual((bob.pointQ * alice.d).x, expected)
+                self.assertEqual((bob.d * alice.pointQ).x, expected)
+                self.assertEqual((bob.pointQ * alice.d).x, ECC.construct(curve=curve, d=77).pointQ.x)
+
+    def test_empty_list_with_source_network_error_is_not_reported_as_empty_category(self):
+        source = FIXTURE + '''
+    def categoryContent(self, tid, pg, filter, extend):
+        return {'list':[], 'msg':'连接失败，服务器可能不可达'} if tid == 'failed' else {'list':[]}
+'''
+        self.assertTrue(call('list-error', 'load', script=source)['ok'])
+        result = call('list-error', method='list', argument={'categoryId':'failed'})
+        self.assertFalse(result['ok'])
+        self.assertIn('连接失败', result['error']['message'])
+        result = call('list-error', method='list', argument={'categoryId':'empty'})
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['value']['items'], [])
+
+    def test_requests_network_failures_keep_requests_exception_contract(self):
+        from unittest.mock import patch
+        import requests
+        source = FIXTURE + '''
+    def playerContent(self, flag, id, vipFlags):
+        import requests
+        try:
+            self.fetch('https://fixture.invalid/failing')
+        except requests.exceptions.Timeout:
+            return {'url':'https://fixture.invalid/timeout.mp4'}
+        except requests.RequestException:
+            return {'url':'https://fixture.invalid/fallback.mp4'}
+'''
+        self.assertTrue(call('request-errors', 'load', script=source)['ok'])
+        argument = {'chapterId':json.dumps({'id':'one'})}
+        for error, suffix in [(RuntimeError('系统网络请求失败'), 'fallback'),
+                              (RuntimeError('系统网络请求超时'), 'timeout'),
+                              (TimeoutError('Python 源执行超时'), 'timeout')]:
+            with self.subTest(error=error), patch.object(host, '_host', side_effect=error):
+                result = call('request-errors', method='content', argument=argument)
+                self.assertTrue(result['ok'], result)
+                self.assertEqual(result['value']['url'], 'https://fixture.invalid/' + suffix + '.mp4')
+
+    def test_plain_scripts_have_isolated_writable_files_and_cleanup(self):
+        for source_id in ('plain-one', 'plain-two'):
+            self.assertTrue(call(source_id, 'load', script=FIXTURE)['ok'])
+            state = host._contexts[source_id]
+            path = Path(state['entry_module'].__file__)
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.read_text(encoding='utf-8'), FIXTURE)
+            (path.parent / 'device.json').write_text(source_id)
+        self.assertNotEqual(host._contexts['plain-one']['root'], host._contexts['plain-two']['root'])
+        path = Path(host._contexts['plain-one']['root'])
+        call('plain-one', 'dispose')
+        self.assertFalse(path.exists())
+
+    def test_playback_preserves_quality_size_parser_and_source_danmaku(self):
+        source = FIXTURE + '''
+    def playerContent(self, flag, id, vipFlags=None):
+        return {'parse':1, 'url':'https://fixture.invalid/watch', 'playUrl':'https://parser.invalid/?url=',
+            'header':{'Referer':'https://fixture.invalid/'}, 'width':1920, 'height':1080,
+            'qualities':[{'label':'1080p','url':'https://fixture.invalid/1080.mp4'}],
+            'thumbnails':[{'time':30,'url':'https://fixture.invalid/30.jpg'}],
+            'danmaku':'<i><d p="1.25,5,25,16711680,0,0">原生弹幕</d></i>'}
+'''
+        self.assertTrue(call('py-media', 'load', script=source)['ok'])
+        argument = {'id':'py:one', 'chapterId':json.dumps({'flag':'高清','id':'token1'})}
+        value = call('py-media', method='content', argument=argument)['value']
+        self.assertEqual(value['qualities'][0]['label'], '1080p')
+        self.assertEqual(value['thumbnails'][0]['time'], 30)
+        self.assertEqual((value['width'],value['height']), (1920,1080))
+        self.assertEqual(value['pageUrl'], 'https://parser.invalid/?url=https://fixture.invalid/watch')
+        comments = call('py-media', method='danmaku', argument=argument)['value']
+        self.assertEqual(comments[0], {'timeSeconds':1.25,'text':'原生弹幕','mode':'5','fontSize':25.,'color':16711680})
+        self.assertEqual(call('py-media', method='danmaku', argument=dict(argument, chapterId='other'))['value'], [])
+
+    def test_large_legacy_proxy_is_sliced_before_crossing_the_native_bridge(self):
+        source = FIXTURE + '''
+    def localProxy(self, params):
+        assert params.get('__range') == params['headers'].get('Range')
+        return [200, 'video/mp4', b'x' * (7 * 1024 * 1024)]
+'''
+        self.assertTrue(call('large-proxy', 'load', script=source)['ok'])
+        value = call('large-proxy', 'proxy', headers={'Range':'bytes=1048576-1048591'})['value']
+        self.assertEqual(value['status'], 206)
+        self.assertEqual(base64.b64decode(value['body']), b'x' * 16)
+        self.assertEqual(value['headers']['Content-Range'], 'bytes 1048576-1048591/7340032')
+        head = call('large-proxy', 'proxy', method='HEAD')['value']
+        self.assertEqual(head['headers']['Content-Length'], '7340032')
+        self.assertEqual(head['body'], '')
+
+    def test_spider_ctr_accepts_byte_counter_and_danmaku_json(self):
+        source = FIXTURE + '''
+from Crypto.Cipher import AES
+counter = bytes(range(16))
+cipher = AES.new(b'k'*16, AES.MODE_CTR, nonce=b'', initial_value=counter)
+assert cipher.iv == counter
+'''
+        self.assertTrue(call('byte-counter', 'load', script=source)['ok'])
+        value = host._danmaku({'comments':[{'p':'2.5,1,16777215,user','m':'JSON弹幕'}]})
+        self.assertEqual(value[0]['timeSeconds'], 2.5)
+        self.assertEqual(host._danmaku('http://127.0.0.1:9978/proxy?do=appdanmu'), [])
+
+    def test_unresolved_play_tokens_fail_before_loading_but_quality_only_is_valid(self):
+        argument = {'id':'py:one', 'chapterId':json.dumps({'flag':'line','id':'token'})}
+        for url in ('http://', 'encoded-play-token'):
+            script = FIXTURE + '\n    def playerContent(self, flag, id, vipFlags=None): return ' + repr({'url':url})
+            self.assertTrue(call('unresolved', 'load', script=script)['ok'])
+            value = call('unresolved', method='content', argument=argument)
+            self.assertFalse(value['ok'])
+            self.assertIn('未返回可播放地址', value['error']['message'])
+        script = FIXTURE + "\n    def playerContent(self, flag, id, vipFlags=None): return {'levels':[{'label':'4K','url':'https://fixture.invalid/4k.mp4'}]}"
+        self.assertTrue(call('quality-only', 'load', script=script)['ok'])
+        self.assertEqual(call('quality-only', method='content', argument=argument)['value']['url'], 'https://fixture.invalid/4k.mp4')
+
+    def test_spider_can_call_parent_init(self):
+        source = FIXTURE.replace('def init(self, extend): self.initialized = extend', 'def init(self, extend):\n        super().init(extend)\n        self.initialized = extend')
+        self.assertTrue(call('parent-init', 'load', script=source)['ok'])
+        result = call('parent-init', method='categories')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['value'][0]['title'], '电影')
+
+    def test_declared_audio_in_comic_section_uses_player_and_returns_audio(self):
+        source = '# LumeSource: {"id":"audio-test","name":"听书","version":"1","category":"comic","mediaType":"audio"}\n' + FIXTURE + "\n    def imageContent(self, id): raise ValueError('不应请求图片接口')\n    def playerContent(self, flag, id, vipFlags=None): return {'url':'https://media.test/book.mp3','header':{'Referer':'https://media.test/'}}"
+        for encoded in (False, True):
+            script = '# LumePythonBytes: ' + base64.b64encode(source.encode()).decode() if encoded else source
+            source_id = 'audio-declared-' + str(encoded)
+            self.assertTrue(call(source_id, 'load', script=script, section='comic')['ok'])
+            result = call(source_id, method='content', argument={'id':'book','chapterId':json.dumps({'id':'chapter'})})
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(result['value']['kind'], 'audio')
+            self.assertEqual(result['value']['url'], 'https://media.test/book.mp3')
+            self.assertEqual(result['value']['headers']['Referer'], 'https://media.test/')
+
+    def test_declared_audio_preserves_explicit_video_content(self):
+        source = '# LumeSource: {"id":"audio-mixed","name":"混合","version":"1","category":"comic","mediaType":"audio"}\n' + FIXTURE + "\n    def playerContent(self, flag, id, vipFlags=None): return {'kind':'video','url':'https://media.test/video.mp4'}"
+        self.assertTrue(call('audio-mixed', 'load', script=source, section='comic')['ok'])
+        result = call('audio-mixed', method='content', argument={'id':'book','chapterId':json.dumps({'id':'chapter'})})
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['value']['kind'], 'video')
+
     def test_comic_spider_uses_declared_text_method_instead_of_image_method(self):
         source = FIXTURE + "\n    def detailContent(self, ids): return {'list':[{'vod_id':ids[0],'vod_name':'书','mediaType':'novel'}]}\n    def imageContent(self, id): raise ValueError('不应请求图片接口')\n    def playerContent(self, flag, id, vipFlags=None): return {'kind':'text','text':'实际正文'}"
         self.assertTrue(call('comic-with-novel', 'load', script=source, section='comic')['ok'])
@@ -321,6 +480,33 @@ class Spider:
         host._contexts.clear()
         self.assertTrue(call("fixture", "load", script=FIXTURE)["ok"])
 
+    def test_custom_local_server_dependency_warns_without_running_a_server(self):
+        source = 'from http.server import ThreadingHTTPServer\n' + FIXTURE
+        result = call('local-server-note', 'load', script=source)
+        self.assertTrue(result['ok'], result)
+        self.assertTrue(any('自建本地 HTTP 服务' in w for w in result['value']['warnings']))
+
+    def test_script_network_timeouts_are_forwarded_and_never_extend_call_budget(self):
+        source = FIXTURE + """
+    def homeVideoContent(self):
+        import requests, urllib.request, http.client
+        requests.get('https://fixture.invalid/short', timeout=2)
+        requests.get('https://fixture.invalid/pair', timeout=(1, 3))
+        urllib.request.urlopen('https://fixture.invalid/urllib', timeout=3).read()
+        conn = http.client.HTTPSConnection('fixture.invalid', timeout=4)
+        conn.request('GET', '/client')
+        conn.getresponse().read()
+        requests.get('https://fixture.invalid/long', timeout=500)
+        return {'list':[{'vod_id':'one','vod_name':'bounded'}]}
+"""
+        self.assertTrue(call('network-timeout', 'load', script=source)['ok'])
+        result = call('network-timeout', method='home', timeout=30)
+        self.assertTrue(result['ok'], result)
+        requests = [r for r in CALLS if r['method'] == 'http']
+        self.assertEqual([round(r['timeout']) for r in requests[:4]], [2, 4, 3, 4])
+        self.assertLessEqual(requests[-1]['timeout'], 30)
+        self.assertGreater(requests[-1]['timeout'], 0)
+
     def test_shared_tools_import_and_host_decompression(self):
         source = FIXTURE + """
     def homeVideoContent(self):
@@ -477,6 +663,80 @@ Spider.playerContent = lambda *args: {'url': args[0].getProxyUrl() + '&kind=bina
         self.assertFalse(call("fixture", method="categories")["ok"])
         bad = call("bad", "load", script="import a_missing_spider_dependency\n" + FIXTURE)
         self.assertIn("a_missing_spider_dependency", bad["error"]["message"])
+
+    def test_background_range_server_survives_call_deadline_and_closes_on_dispose(self):
+        import socket
+        source = FIXTURE + r"""
+    def homeVideoContent(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                import requests
+                assert requests.get('https://fixture.invalid/cookie').json()['ok']
+                body = b'fixture-media'
+                self.send_response(206)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Range', 'bytes 0-12/13')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args): pass
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return {'list':[{'vod_id':str(self.server.server_port), 'vod_name':'本地流'}]}
+"""
+        self.assertTrue(call('background-range', 'load', script=source)['ok'])
+        result = call('background-range', method='home')
+        self.assertTrue(result['ok'], result)
+        port = int(result['value'][0]['id'].removeprefix('py:'))
+        # The originating player/home call has ended and its budget has expired.
+        host._contexts['background-range']['deadline'] = 0
+        self.assertTrue(call('other-foreground', 'load', script=FIXTURE)['ok'])
+        self.assertTrue(call('other-foreground', method='categories')['ok'])
+        CALLS.clear()
+        with socket.create_connection(('127.0.0.1', port), timeout=3) as connection:
+            connection.sendall(b'GET /media HTTP/1.0\r\nHost: localhost\r\nRange: bytes=0-12\r\n\r\n')
+            parts = []
+            while True:
+                part = connection.recv(4096)
+                if not part: break
+                parts.append(part)
+        response = b''.join(parts)
+        self.assertIn(b'206', response.split(b'\r\n', 1)[0])
+        self.assertIn(b'Content-Range: bytes 0-12/13', response)
+        self.assertTrue(response.endswith(b'fixture-media'))
+        self.assertEqual(CALLS[-1]['sourceId'], 'background-range')
+        self.assertGreater(CALLS[-1]['timeout'], 0)
+        self.assertLessEqual(CALLS[-1]['timeout'], 30)
+        self.assertTrue(call('background-range', 'dispose')['ok'])
+        with self.assertRaises(OSError):
+            socket.create_connection(('127.0.0.1', port), timeout=1)
+
+    def test_tvbox_cover_header_suffix_is_split_for_lists_and_details(self):
+        script = FIXTURE.replace("'https://fixture.invalid/cover.jpg'", "'https://fixture.invalid/cover.jpg@Referer=https://site.invalid/@User-Agent=Mobile'")
+        script = script.replace("'vod_name':tid", "'vod_name':tid,'vod_pic':'https://fixture.invalid/cover.jpg@Referer=https://site.invalid/'")
+        script = script.replace("'vod_name':'详情'", "'vod_name':'详情','vod_pic':'https://fixture.invalid/book.jpg@Referer=https://site.invalid/'")
+        self.assertTrue(call('cover-suffix', 'load', script=script)['ok'])
+        item = call('cover-suffix', method='list', argument={'categoryId':'1'})['value']['items'][0]
+        self.assertEqual(item['cover'], 'https://fixture.invalid/cover.jpg')
+        self.assertEqual(item['coverHeaders']['Referer'], 'https://site.invalid/')
+        fields = host._cover_fields({'vod_pic':'https://img.invalid/a@name.jpg@Referer=https://site.invalid/@User-Agent=Mobile', 'coverHeaders':{'referer':'https://override.invalid/'}})
+        self.assertEqual(fields['cover'], 'https://img.invalid/a@name.jpg')
+        self.assertEqual(fields['coverHeaders'], {'User-Agent':'Mobile', 'referer':'https://override.invalid/'})
+        detail = call('cover-suffix', method='detail', argument={'id':'py:one'})['value']
+        self.assertEqual(detail['cover'], 'https://fixture.invalid/book.jpg')
+        self.assertEqual(detail['coverHeaders']['Referer'], 'https://site.invalid/')
+        self.assertEqual(host._cover_fields({'vod_pic':'https://img.invalid/a@name.jpg'})['cover'], 'https://img.invalid/a@name.jpg')
+        self.assertEqual(host._cover_fields({'vod_pic':'https://img.invalid/a.jpg@Referer=bad\r\nInjected: yes'})['coverHeaders'], {})
+
+    def test_untyped_music_url_uses_audio_content_without_changing_explicit_video(self):
+        for explicit, expected in [(False, 'audio'), (True, 'video')]:
+            source = FIXTURE + "\n    def playerContent(self, *args): return {" + ("'kind':'video'," if explicit else '') + "'url':'https://media.invalid/track.mp3?token=example'}\n"
+            self.assertTrue(call('music-url', 'load', script=source)['ok'])
+            result = call('music-url', method='content', argument={'id':'py:one','chapterId':json.dumps({'id':'token'})})
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(result['value']['kind'], expected)
 
     def test_threadpool_retains_source_identity(self):
         source = FIXTURE + '''

@@ -260,8 +260,14 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         return;
       }
       await _applySpeed();
-      await _configurePresentation();
       await controller.setVolume(_volume);
+      // Metadata can require extra HLS requests. Playback must not await track
+      // selection/status inspection after the native item is already playable.
+      unawaited(
+        _configurePresentation().catchError((Object error, StackTrace stack) {
+          LumeLog.warn('[avplayer] 播放信息读取未完成：$error');
+        }),
+      );
       if (_disposed ||
           generation != _loadGeneration ||
           !identical(controller, _controller)) {
@@ -308,9 +314,11 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   /// 把缓冲参数写进原生侧（只写一次；失败只记日志，不打断起播）。
   Future<void> _applyBufferingOnce() async {
     if (_bufferingWritten) return;
-    _bufferingWritten = true;
     try {
       await _buffering.apply(_config);
+      _bufferingWritten =
+          _buffering is! MethodChannelBufferingBackend ||
+          _buffering.channelKnown;
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       LumeLog.warn('[avplayer] 写缓冲参数失败，本次按系统默认缓冲策略播放');
@@ -347,6 +355,18 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     await _controller?.seekTo(position);
   }
 
+  static const Duration interactiveSeekTolerance = Duration(seconds: 1);
+
+  @override
+  Future<void> seekInteractive(Duration position) async {
+    final generation = ++_seekGeneration;
+    // 允许前后 1 秒内就近落点，避开常见 2 秒 GOP 的逐帧精确解码。
+    // 使用有限容差，不继承实验性「只找前一关键帧」开关。
+    await _setSeekTolerance(interactiveSeekTolerance);
+    if (generation != _seekGeneration) return;
+    await _controller?.seekTo(position);
+  }
+
   /// 吸附到前一关键帧（实验开关）：写 -1 作哨兵，原生侧翻成 ±∞/0。
   bool _snapToKeyframe = false;
 
@@ -374,6 +394,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
 
   @override
   Future<void> stop() async {
+    _seekGeneration++;
     _wantsPlay = false;
     _retryAllowed = false;
     _retryTimer?.cancel();
@@ -517,6 +538,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       if (_disposed || id != nativePlayerId) return;
       if (result != null) _nativeStatus = result.whereType<String>().toList();
       _presentationStatus.value = [
+        '实际解码：系统管理，AVPlayer 未提供硬软解状态',
         ..._nativeStatus,
         _settings.presentation.wantsHdr
             ? '显示：原生 AVPlayerLayer；HDR 实际输出需设备验证'
@@ -759,7 +781,9 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         position: value.position,
         duration: value.duration,
         playing: value.isPlaying,
-        buffering: value.isBuffering || retrying,
+        buffering:
+            (value.isBuffering && (_wantsPlay || !value.isInitialized)) ||
+            retrying,
         error: value.hasError && !retrying
             ? PlayerErrorText.describe(value.errorDescription)
             : null,

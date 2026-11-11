@@ -1,3 +1,4 @@
+import '../cache/source_response_cache.dart';
 import 'source_result_routes.dart';
 import 'source_site_config.dart';
 import 'source_extension_settings.dart';
@@ -62,6 +63,7 @@ class JsSourceContract {
   static const String home = 'home';
   static const String detail = 'detail';
   static const String chapters = 'chapters';
+  static const String chapterPage = 'chapterPage';
   static const String content = 'content';
 
   /// 全部契约方法名，供文档与测试遍历。
@@ -74,6 +76,7 @@ class JsSourceContract {
     // 可选契约（有别名表、可被脚本实现；没实现也不影响导入）。
     home,
     filters,
+    chapterPage,
   ];
 }
 
@@ -194,7 +197,9 @@ class JsDataSource
   @override
   Future<List<SourceCategory>> categories() async {
     const key = 'categories';
-    final cached = cache?.read(section, id, key);
+    final cached = SourceResponseCache.bypassed
+        ? null
+        : cache?.read(section, id, key);
     if (cached is List<SourceCategory>) return cached;
     final value = parseCategories(await _invoke(JsSourceContract.categories));
     cache?.write(section, id, key, value);
@@ -227,7 +232,7 @@ class JsDataSource
 
   @override
   Future<SourceHome> home() async {
-    // 首页不缓存：它代表「现在有什么推荐」，刷新就该看到最新的。
+    // Shared short-lived metadata cache; explicit refresh bypasses it.
     return SourceHome.parse(await _invoke(JsSourceContract.home));
   }
 
@@ -281,14 +286,16 @@ class JsDataSource
           if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
       };
     }
-    // 列表不缓存：分类切换 / 搜索 / 刷新都要求看到当下内容。
+    // Cache identity includes category, keyword, page and all filters.
     return parseSourceList(await _invoke(JsSourceContract.list, argument));
   }
 
   @override
   Future<SourceDetail?> detail(String itemId) async {
     final key = 'detail|$itemId';
-    final cached = cache?.read(section, id, key);
+    final cached = SourceResponseCache.bypassed
+        ? null
+        : cache?.read(section, id, key);
     if (cached is SourceDetail) return cached;
     final value = SourceDetail.parse(
       await _invoke(JsSourceContract.detail, <String, Object?>{'id': itemId}),
@@ -301,11 +308,44 @@ class JsDataSource
   @override
   Future<List<SourceChapter>> chapters(String itemId) async {
     final key = 'chapters|$itemId';
-    final cached = cache?.read(section, id, key);
+    final cached = SourceResponseCache.bypassed
+        ? null
+        : cache?.read(section, id, key);
     if (cached is List<SourceChapter>) return cached;
-    final value = parseChapters(
-      await _invoke(JsSourceContract.chapters, <String, Object?>{'id': itemId}),
-    );
+    final value = <SourceChapter>[];
+    if ((await _contractMethods()).contains('chapterPage')) {
+      var page = 1;
+      final seen = <String>{};
+      while (true) {
+        final response = await _invoke('chapterPage', {
+          'id': itemId,
+          'page': page,
+        });
+        if (response is! Map || response['items'] is! List) {
+          throw const SourceException(SourceErrorKind.callFailed, '目录分页格式错误');
+        }
+        for (final chapter in parseChapters(response['items'])) {
+          if (seen.add(chapter.id)) value.add(chapter);
+        }
+        final next = response['nextPage'];
+        if (next == null) break;
+        if (next is! int || next <= page || next > 400) {
+          throw const SourceException(
+            SourceErrorKind.callFailed,
+            '目录分页未前进或超过上限',
+          );
+        }
+        page = next;
+      }
+    } else {
+      value.addAll(
+        parseChapters(
+          await _invoke(JsSourceContract.chapters, <String, Object?>{
+            'id': itemId,
+          }),
+        ),
+      );
+    }
     cache?.write(section, id, key, value);
     return value;
   }
@@ -456,7 +496,18 @@ class JsDataSource
   }
 
   Future<Object?> _invoke(String method, [Object? argument]) async {
-    final value = await _invokeOnce(method, argument, retriedWaf: false);
+    final store = cache;
+    final value = store != null
+        ? await SourceResponseCache.read<Object?>(
+            cache: store,
+            section: section,
+            sourceId: id,
+            method: method,
+            arguments: argument,
+            settings: sourceConfiguration?.call().toJson(),
+            load: () => _invokeOnce(method, argument, retriedWaf: false),
+          )
+        : await _invokeOnce(method, argument, retriedWaf: false);
     final route = rewriteUrl;
     if (route == null) return value;
     return routeSourceResult(

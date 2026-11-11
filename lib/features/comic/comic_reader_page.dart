@@ -1,7 +1,11 @@
+import '../experience/reading_offline.dart';
+import '../experience/clip_editor.dart';
+import '../../core/experience/content_center.dart';
 import '../../core/net/network_queue.dart';
 import '../../core/source/source_content_type.dart';
 import 'reader_interaction_surface.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
+import '../../shared/widgets/native_glass_controls.dart';
 import '../source/source_login_page.dart';
 import '../../shared/widgets/network_owned_state.dart';
 
@@ -20,7 +24,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart'
     show
@@ -73,35 +76,6 @@ import 'comic_image_tools_page.dart';
 part 'comic_reader_chrome.dart';
 part 'comic_reader_menu.dart';
 part 'comic_reader_surface.dart';
-
-/// 前方要预取的张数：从锚点往后按占位高度累计，到约 [screens] 屏为止，
-/// 最多 [max] 张。
-///
-/// 为什么按屏幕而不是按张数：条漫一张常常就有一屏半，固定给 5 张会把多屏图片
-/// 排进解码队列——每张 1179×3500 解码后约 16 MB，既来不及在用户滑到前下完，
-/// 又会把内存预算挤爆。单页漫画仍会按 [screens] 与 [max] 计算。
-///
-/// 视口高度未知（<= 0）时退回 [max]：宁可多取，也不要因为拿不到尺寸就不预取。
-@visibleForTesting
-int comicPreloadAheadCount(
-  List<double> heights,
-  double viewportHeight, {
-  int max = 5,
-  double screens = 1.5,
-}) {
-  if (heights.isEmpty) return 0;
-  if (viewportHeight <= 0) return math.min(max, heights.length);
-  final limit = viewportHeight * screens;
-  var covered = 0.0;
-  var taken = 0;
-  for (final height in heights) {
-    if (taken >= max) break;
-    covered += height;
-    taken++;
-    if (covered >= limit) break;
-  }
-  return taken;
-}
 
 /// 全屏漫画阅读器：连续滚动、方向翻页与双页阅读，共用章节和进度底座。
 ///
@@ -280,6 +254,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   bool _speechContinuous = false;
   int _speechPage = 0;
   bool _speechWorking = false;
+  bool _speechAdvancePending = false;
   int _speechGeneration = 0;
   bool _speechPanelOpened = false;
   ComicSpeechText? _speechText;
@@ -460,8 +435,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       cacheDir: widget.library.imageCacheDir,
       network: widget.network,
       requestSender: widget.imageRequestSender,
-      // Keep speculative downloads to one worker; visible images retain a free slot.
-      maxConcurrent: 2,
       // 漫画板块的图片缓存已按用户要求关闭（不读盘也不落盘）：翻页 / 预取照旧，
       // 只是这一话跨会话再看会重新下载（内存缓存与管线复用仍在）。
       diskCache: SectionImagePipeline.diskCacheFor(Section.comic),
@@ -635,14 +608,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           itemId: widget.target.itemId,
           chapterId: chapter.id,
         ),
-        // 源脚本卡住（await 一个永不返回的请求 / 等网页验证）时，这里以前会
-        // 无限转圈：用户看到的就是「一直加载不出来」，也没有重试入口。
-        timeout: const Duration(seconds: 60),
-        timeoutError: () => const SourceException(
-          SourceErrorKind.network,
-          '章节加载超时（60 秒没有返回）。可能是网络不通，或该源需要网页验证；'
-          '可以重试，或到源管理里换一个源。',
-        ),
       );
       if (!mounted || loadSequence != _chapterLoadSequence) return;
       switch (content) {
@@ -660,8 +625,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
             _page = images.isEmpty ? 0 : start.clamp(0, images.length - 1);
             _fraction = 0;
             _loading = false;
-            // 换章后旧锚点作废：新章的图序列不同，沿用旧下标会漏掉首次预加载。
-            _scrollPrimeAnchor = -1;
           });
           _rebuildControllers();
           _primeWindow();
@@ -670,6 +633,17 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           // 不能等到翻页或退出才写。
           _saveProgress();
           _showStartupZoneHint();
+          unawaited(
+            ReadingOffline.prefetch(
+              source: widget.dataSource,
+              library: widget.library,
+              target: widget.target,
+              chapters: _chapters,
+              current: _chapterIndex,
+              novel: false,
+              cancelled: () => !mounted || loadSequence != _chapterLoadSequence,
+            ),
+          );
           if (_translationScope == 'series') unawaited(_translatePages(true));
         case TextContent():
         case VideoContent():
@@ -748,25 +722,13 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       if (!mounted) return;
       final controller = _scrollController;
       if (controller == null || !controller.hasClients) return;
-      if ((controller.offset - target).abs() >= 0.5) {
-        controller.jumpTo(
-          target.clamp(
-            controller.position.minScrollExtent,
-            controller.position.maxScrollExtent,
-          ),
-        );
-      }
-      // 续读落点体检：目标偏移是用「占位比例」估出来的，与真实比例差得多时
-      // 会停在别的张上。界面上「停错位置」和「卡住不动」是同一个观感，
-      // 没有这条日志分不清是哪一种。
-      if (_images.isEmpty) return;
-      final landed = _waterfallIndexFor(controller.offset);
-      if (landed != _page) {
-        LumeLog.info(
-          '[${widget.target.itemId}] 续读落点偏差：目标第 ${_page + 1} 张，'
-          '实际落在第 ${landed + 1} 张（共 ${_images.length} 张）',
-        );
-      }
+      if ((controller.offset - target).abs() < 0.5) return;
+      controller.jumpTo(
+        target.clamp(
+          controller.position.minScrollExtent,
+          controller.position.maxScrollExtent,
+        ),
+      );
     });
   }
 
@@ -797,65 +759,32 @@ class _ComicReaderPageState extends State<ComicReaderPage>
 
   // ------------------------------------------------------------------ 预加载
 
-  /// 视野前方要预取的张数。
-  ///
-  /// 屏数上限控制前方预取；往后（回看方向）仍按设置的「预加载半径」给。
-  static const int _preloadAheadCount = 5;
-
-  /// 前方预取的**屏幕数**上限。
-  ///
-  /// 条漫一张常常就有一屏半，过量预取会增加解码、内存与耗电，且滑到目标时
-  /// 预取图可能已被淘汰。单页漫画同样受屏数上限约束，不再一次排满多张大图。
-  static const double _preloadAheadScreens = 1.5;
-
-  /// 从 [anchor] 往后数，累计到约 [_preloadAheadScreens] 屏为止。
-  ///
-  /// 用占位高度而不是真实高度：比例还没回来的图按默认比例算，只会偏保守。
-  int _aheadCountFrom(int anchor) {
-    final heights = <double>[];
-    for (
-      var i = anchor + 1;
-      i < _images.length && heights.length < _preloadAheadCount;
-      i++
-    ) {
-      heights.add(_itemSlotHeight(i));
-    }
-    return comicPreloadAheadCount(
-      heights,
-      _viewport.height,
-      max: _preloadAheadCount,
-      screens: _preloadAheadScreens,
-    );
-  }
-
-  /// 计算当前可见范围，钉住窗口内的图并预加载前后两侧。
-  void _primeWindow() => _primeWindowAt(_page);
-
-  /// 按**锚点图下标**预加载。
-  ///
-  /// [anchor] 是视口顶部那张图，滚动中由偏移量算出；它与 [_page] 不是一回事
-  /// ——[_page] 要等滚动结束才更新，拿它算窗口会让预加载一直落在「已经划过去
-  /// 的那张」上。
-  void _primeWindowAt(int anchor) {
+  /// 计算当前可见范围，钉住窗口内的图并预加载窗口外一圈。
+  void _primeWindow() {
     if (_images.isEmpty) return;
-    final last = _images.length - 1;
     final radius = _settings.preloadRadius;
-    // 保留区间必须覆盖「正在预取的那几张」：retain 会把区间外的排队请求当作
-    // 垃圾清掉，滚动中每 120ms 清一次，预取就永远跑不完（等于没预取）。
-    final ahead = _aheadCountFrom(anchor);
-    final keepFrom = math.max(0, anchor - radius);
-    final keepTo = math.min(last, anchor + math.max(radius, ahead));
-    _pipeline.retain(<String>[
-      for (int i = keepFrom; i <= keepTo; i++) _images[i],
-    ], targetWidth: _decodeWidth);
-    final aheadUrls = <String>[
-      for (int i = anchor + 1; i <= keepTo; i++) _images[i],
-      for (int i = anchor - 1; i >= keepFrom; i--) _images[i],
+    final window = <int>[
+      for (int i = _page - radius; i <= _page + radius; i++)
+        if (i >= 0 && i < _images.length) i,
     ];
-    _pipeline.preload(aheadUrls, targetWidth: _decodeWidth);
+    final urls = <String>[for (final index in window) _images[index]];
+    _pipeline.retain(urls, targetWidth: _decodeWidth);
+    // retain 只保护已有位图，并不会下载。必须先准备紧邻下一页，
+    // 再向外扩展；从 radius + 1 开始会漏掉最先要翻到的几页。
+    final ahead = <String>[
+      for (
+        int i = _page + 1;
+        i <= _page + radius * 2 && i < _images.length;
+        i++
+      )
+        _images[i],
+      for (int i = _page - 1; i >= _page - radius * 2 && i >= 0; i--)
+        _images[i],
+    ];
+    _pipeline.preload(ahead, targetWidth: _decodeWidth);
     // 临近章尾时提前拉下一章的头几张：不这么做的话，翻到章尾再等网络，
     // 用户看到的是「卡一下才出图」。
-    _prefetchNextChapterHead(anchor);
+    _prefetchNextChapterHead();
   }
 
   /// 距章尾还剩多少张时开始预取下一章。
@@ -872,12 +801,9 @@ class _ComicReaderPageState extends State<ComicReaderPage>
   final Set<String> _prefetchedChapters = <String>{};
 
   /// 预取下一章开头的几张图（只在接近章尾时做）。
-  ///
-  /// [anchor] 用调用方算出的视口锚点，而不是 [_page]：滚动中 [_page] 还没跟上，
-  /// 用它判断「是否接近章尾」会慢一张，预取也就跟着晚一张。
-  void _prefetchNextChapterHead(int anchor) {
+  void _prefetchNextChapterHead() {
     if (_images.isEmpty) return;
-    if (anchor < _images.length - _nextChapterPrefetchWindow) return;
+    if (_page < _images.length - _nextChapterPrefetchWindow) return;
     final next = _chapterIndex + 1;
     if (next >= _chapters.length) return;
     final chapter = _chapters[next];
@@ -893,13 +819,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
           widget.dataSource,
           itemId: widget.target.itemId,
           chapterId: chapterId,
-        ),
-        // 预取也必须有上限：源脚本卡住时这条请求会一直挂在运行时里，
-        // 用户真的翻到下一章时反而排在它后面——正是「继续读下一章一直转圈」。
-        timeout: const Duration(seconds: 45),
-        timeoutError: () => const SourceException(
-          SourceErrorKind.network,
-          '下一章预取超时（45 秒没有返回）',
         ),
       );
       if (!mounted || content is! ImageContent) return;
@@ -962,26 +881,8 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     }
   }
 
-  /// 滚动中两次发放预加载的最小间隔（快速甩动时别每帧重排窗口）。
-  static const Duration _scrollPrimeInterval = Duration(milliseconds: 120);
-
-  DateTime _lastScrollPrime = DateTime.fromMillisecondsSinceEpoch(0);
-
-  /// 上一次按滚动位置预加载时的锚点图，用来判断窗口是否真的变了。
-  int _scrollPrimeAnchor = -1;
-
-  /// 瀑布流的滚动通知。
-  ///
-  /// **预加载跟着滚动走，页码与进度仍然等滚动结束**。原来的实现在这里只认
-  /// `ScrollEndNotification`，等于「手松开才开始准备下一张」——条漫是连续滑
-  /// 的，于是永远滑到哪才加载到哪。现在滚动过程中按偏移量算出视口顶部那张，
-  /// 锚点一变就重发预加载；而 setState 页码、写进度、触发翻译仍留在结束时，
-  /// 避免每帧重建列表和频繁落盘。
+  /// 瀑布流滚动：结束时才更新页序号与进度，滚动过程中不做重计算。
   bool _onScroll(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification) {
-      _primeWhileScrolling();
-      return false;
-    }
     if (notification is ScrollEndNotification) {
       final controller = _scrollController;
       if (controller != null && controller.hasClients) {
@@ -1003,23 +904,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       }
     }
     return false;
-  }
-
-  /// 滚动中按视口锚点补预加载：[_scrollPrimeAnchor] 不变就说明窗口没动。
-  ///
-  /// 先过时间闸再算锚点：[_waterfallIndexFor] 是线性扫一遍图高，每帧都算没有
-  /// 意义——窗口只跟锚点有关，锚点没变就不该重排。
-  void _primeWhileScrolling() {
-    if (_images.isEmpty) return;
-    final controller = _scrollController;
-    if (controller == null || !controller.hasClients) return;
-    final now = DateTime.now();
-    if (now.difference(_lastScrollPrime) < _scrollPrimeInterval) return;
-    _lastScrollPrime = now;
-    final anchor = _waterfallIndexFor(controller.offset);
-    if (anchor == _scrollPrimeAnchor) return;
-    _scrollPrimeAnchor = anchor;
-    _primeWindowAt(anchor);
   }
 
   // ------------------------------------------------------------------ 交互
@@ -1490,14 +1374,18 @@ class _ComicReaderPageState extends State<ComicReaderPage>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _preferences.hasColorAdjustments
-                        ? ColorFiltered(
-                            colorFilter: ColorFilter.matrix(
-                              _preferences.colorMatrix,
-                            ),
-                            child: _buildContent(),
-                          )
-                        : _buildContent(),
+                    // 默认画面设置下不套全屏颜色矩阵：这一层是对整屏做离屏合成，
+                    // 每帧一次的开销在长条漫画上很可观；只有用户真的调过灰度 /
+                    // 反色 / 对比度 / 色温时才需要。
+                    if (_preferences.hasColorAdjustments)
+                      ColorFiltered(
+                        colorFilter: ColorFilter.matrix(
+                          _preferences.colorMatrix,
+                        ),
+                        child: _buildContent(),
+                      )
+                    else
+                      _buildContent(),
                     if (_preferences.brightness < 1)
                       IgnorePointer(
                         child: ColoredBox(
@@ -1622,8 +1510,6 @@ class _ComicReaderPageState extends State<ComicReaderPage>
         controller: _scrollController,
         padding: EdgeInsets.zero,
         itemCount: _images.length,
-        // 半屏预构建：保留滚动缓冲，减少屏外图片提前解码的数量。
-        scrollCacheExtent: const ScrollCacheExtent.viewport(0.5),
         itemExtentBuilder: (index, _) => _itemHeight(index) + gap,
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsets.fromLTRB(margin, 0, margin, gap),
@@ -1796,7 +1682,11 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       _speechStatus.value = '本页读完';
       return;
     }
-    unawaited(_advanceComicSpeechPage());
+    if (_speechWorking) {
+      _speechAdvancePending = true;
+    } else {
+      unawaited(_advanceComicSpeechPage());
+    }
   }
 
   void _onComicSpeechEvent(SpeechEvent event) {
@@ -1822,7 +1712,9 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     final session = _speech;
     if (session == null || _speechWorking) return;
     if (index < 0 || index >= _images.length) return;
-    if (_speechSettings.followAlong && index != _page) _goToPage(index);
+    if ((_speechContinuous || _speechSettings.followAlong) && index != _page) {
+      _goToPage(index);
+    }
     final generation = _speechGeneration;
     _speechWorking = true;
     _speechStatus.value = '正在识别第 ${index + 1}/${_images.length} 页…';
@@ -1870,7 +1762,13 @@ class _ComicReaderPageState extends State<ComicReaderPage>
       _speechContinuous = false;
       _speechStatus.value = '漫画朗读失败：$error';
     } finally {
-      if (generation == _speechGeneration) _speechWorking = false;
+      if (generation == _speechGeneration) {
+        _speechWorking = false;
+        if (_speechAdvancePending && _speechContinuous) {
+          _speechAdvancePending = false;
+          unawaited(_advanceComicSpeechPage());
+        }
+      }
     }
   }
 
@@ -1885,6 +1783,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
     _speechUrl = null;
     _speechGeneration++;
     _speechWorking = false;
+    _speechAdvancePending = false;
     _speechContinuous = continuous;
     _speechPage = _page.clamp(0, _images.length - 1);
     await _speakComicPage(_speechPage);
@@ -1967,7 +1866,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
                                         await session.pause();
                                       } else {
                                         await _startComicSpeech(
-                                          continuous: false,
+                                          continuous: true,
                                         );
                                       }
                                       if (context.mounted) setSheetState(() {});
@@ -1986,7 +1885,7 @@ class _ComicReaderPageState extends State<ComicReaderPage>
                                     ? '暂停'
                                     : paused
                                     ? '继续'
-                                    : '朗读本页',
+                                    : '连续朗读',
                               ),
                             ),
                           ),
@@ -1995,10 +1894,10 @@ class _ComicReaderPageState extends State<ComicReaderPage>
                             onPressed: unavailable
                                 ? null
                                 : () async {
-                                    await _startComicSpeech(continuous: true);
+                                    await _startComicSpeech(continuous: false);
                                     if (context.mounted) setSheetState(() {});
                                   },
-                            child: const Text('读到本章末'),
+                            child: const Text('仅读本页'),
                           ),
                         ],
                       ),

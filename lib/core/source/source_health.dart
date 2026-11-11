@@ -197,6 +197,11 @@ class SourceHealthCheck {
     });
     if (items.isEmpty) return;
     final item = items.first;
+    await _step('搜索接口', () async {
+      final results = await data.list(keyword: item.title, page: 1);
+      if (results.items.isEmpty) throw const _EmptyHealthResult();
+      return '以一个列表条目的标题试搜，返回 ${results.items.length} 条；不代表所有关键词都可用。';
+    });
     if (item.cover?.isNotEmpty == true) {
       await _step('封面图片', () async {
         final uri = Uri.tryParse(item.cover!);
@@ -205,6 +210,11 @@ class SourceHealthCheck {
             uri.host.isEmpty ||
             uri.userInfo.isNotEmpty) {
           throw const FormatException('封面地址无效');
+        }
+        if (item.coverHeaders.keys.any(
+          (key) => key.toLowerCase() == 'x-lume-image-page-selector',
+        )) {
+          return '封面按可见条目单独解析；体检不预取详情和整张封面，实际加载时检查图片。';
         }
         var headers = <String, String>{
           'User-Agent':
@@ -253,7 +263,10 @@ class SourceHealthCheck {
             '';
         if (response.body.isEmpty ||
             contentType.contains('json') ||
-            contentType.startsWith('text/') ||
+            (contentType.startsWith('text/') &&
+                !item.coverHeaders.keys.any(
+                  (key) => key.toLowerCase() == 'x-lume-image-encoding',
+                )) ||
             RegExp(
               r'^\s*(<!doctype html|<html)',
               caseSensitive: false,
@@ -283,6 +296,9 @@ class SourceHealthCheck {
       );
       if (content is ImageContent && content.images.isNotEmpty) {
         return '解析出 ${content.images.length} 张正文图片地址，未下载整章。';
+      }
+      if (content is TextContent && content.text.trim().isNotEmpty) {
+        return '已读取文本正文，未启动朗读或下载整本。';
       }
       if (content is VideoContent && content.url.hasScheme) {
         return '播放地址已解析，未实际起播；解码与防盗链仍需播放时验证。';

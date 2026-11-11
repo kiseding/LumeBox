@@ -1,3 +1,6 @@
+import '../cache/source_response_cache.dart';
+import '../cache/section_memory_cache.dart';
+import 'builtin_danmaku_bundle.dart';
 import 'cat_local_bundle.dart';
 
 import 'dart:async';
@@ -859,44 +862,35 @@ class CatService extends ChangeNotifier {
         await _stopLocalDanmaku();
       }
     }
-    final directory = Directory('${_root!.path}/builtin-danmaku/2cb7a22b8271');
-    await directory.create(recursive: true);
-    // upstream.cjs 有 3 MB；随包以 gzip 存放（解压后字节完全一致，
-    // 因此 manifest 里的 patchedSha256 仍然有效），安装时再展开成运行时
-    // 需要的 CommonJS 文件。
-    for (final (asset, name) in [
-      ('index.js', 'index.js'),
-      ('upstream.cjs.gz', 'upstream.cjs'),
-    ]) {
-      final bytes = await rootBundle.load('assets/local_danmaku/$asset');
-      final packed = bytes.buffer.asUint8List(
-        bytes.offsetInBytes,
-        bytes.lengthInBytes,
+    final dataRoot = Directory('${_root!.path}/builtin-danmaku');
+    final directory = await BuiltinDanmakuBundle.install(dataRoot);
+    Future<Uri> launch(Directory bundle) async {
+      final config = File('${bundle.path}/index.config.js');
+      await config.writeAsString(
+        'module.exports = ${jsonEncode({'token': _token, 'upstreamPath': '${bundle.path}/upstream.cjs', 'nativeNetwork': Platform.isIOS, 'dataRoot': dataRoot.path})};',
+        flush: true,
       );
-      final data = asset.endsWith('.gz') ? gzip.decode(packed) : packed;
-      if (name == 'upstream.cjs' &&
-          sha256.convert(data).toString() !=
-              '2cb7a22b8271168002740a551ece5439112763f4cf306bc77e91f1cb0fcf4ca8') {
-        throw StateError('内置弹幕组件完整性校验失败');
-      }
-      final file = File('${directory.path}/$name');
-      if (!await file.exists() ||
-          sha256.convert(await file.readAsBytes()).toString() !=
-              sha256.convert(data).toString()) {
-        await file.writeAsBytes(data, flush: true);
-      }
+      return _launchSource({
+        'id': _localDanmakuId,
+        'index': '${bundle.path}/index.js',
+        'config': config.path,
+        'dataRoot': dataRoot.path,
+      });
     }
-    final config = File('${directory.path}/index.config.js');
-    await config.writeAsString(
-      'module.exports = ${jsonEncode({'token': _token, 'upstreamPath': '${directory.path}/upstream.cjs', 'nativeNetwork': Platform.isIOS})};',
-      flush: true,
-    );
-    final base = await _launchSource({
-      'id': _localDanmakuId,
-      'index': '${directory.path}/index.js',
-      'config': config.path,
-      'dataRoot': directory.path,
-    });
+
+    Uri base;
+    try {
+      base = await launch(directory);
+    } catch (_) {
+      if (directory.path == '${dataRoot.path}/bundled') rethrow;
+      await File('${dataRoot.path}/rejected').writeAsString(
+        directory.uri.pathSegments.where((s) => s.isNotEmpty).last,
+        flush: true,
+      );
+      final active = File('${dataRoot.path}/active.json');
+      if (await active.exists()) await active.delete();
+      base = await launch(await BuiltinDanmakuBundle.install(dataRoot));
+    }
     _localDanmakuBase = base;
     return base.replace(path: '/$_token');
   });
@@ -1112,7 +1106,15 @@ class CatService extends ChangeNotifier {
           }
         }
       }
-      return request(base, endpoint(operation), body: body);
+      return SourceResponseCache.read<Map<String, dynamic>>(
+        cache: SectionMemoryCache.instance,
+        section: site.kind == 'comic' ? Section.comic : Section.video,
+        sourceId: site.id,
+        method: operation,
+        arguments: body,
+        settings: [record.hash, record.configHash, site.toJson()],
+        load: () => request(base, endpoint(operation), body: body),
+      );
     });
   }
 

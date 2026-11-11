@@ -94,6 +94,83 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('左右划切换类型，返回还原滚动位置且不切源不关闭抽屉', (tester) async {
+    final manager = FakeSourceManager(
+      sources: [
+        for (var i = 0; i < 80; i++)
+          SourceDescriptor(
+            id: 'comic-$i',
+            name: '漫画$i',
+            version: '1',
+            enabled: true,
+          ),
+        const SourceDescriptor(
+          id: 'photo',
+          name: '图库',
+          version: '1',
+          enabled: true,
+          mediaKind: 'photo',
+        ),
+        const SourceDescriptor(
+          id: 'novel',
+          name: '小说源',
+          version: '1',
+          enabled: true,
+          mediaKind: 'novel',
+        ),
+      ],
+    );
+    String? selected;
+    await showBar(tester, Section.comic, manager, (id) => selected = id);
+    final comic = find.widgetWithText(ChoiceChip, '漫画');
+    await tester.tap(comic);
+    await tester.pumpAndSettle();
+    final list = find
+        .descendant(
+          of: find.byKey(const ValueKey('picker-grouped-list')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.drag(list, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    final offset = tester.state<ScrollableState>(list).position.pixels;
+    expect(offset, greaterThan(0));
+    await tester.drag(
+      find.byKey(const ValueKey('reading-type-swipe')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '美图')).selected,
+      isTrue,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('reading-type-swipe')),
+      const Offset(120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<ChoiceChip>(comic).selected, isTrue);
+    expect(
+      tester.state<ScrollableState>(list).position.pixels,
+      closeTo(offset, 1),
+    );
+    expect(selected, isNull);
+    expect(manager.removed, isEmpty);
+    expect(find.byType(SourcePickerSheet), findsOneWidget);
+    // Hidden types are skipped, and the end of the strip does not wrap.
+    SourceContentVisibility.instance.setVisible('photo', false);
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('reading-type-swipe')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '小说')).selected,
+      isTrue,
+    );
+  });
+
   testWidgets('漫画源同分类固定两列，奇数末行保留半宽', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
@@ -235,6 +312,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(
+        find.byType(SourceIcon).evaluate().length,
+        lessThan(24),
+        reason: '80 个源只构建可见附近的行',
+      );
       if (section != Section.cat) {
         final list = find.byKey(const ValueKey('picker-grouped-list'));
         expect(
@@ -358,9 +440,7 @@ void main() {
       );
       final more = tester.getRect(find.byKey(const ValueKey('picker-more-a')));
       expect(tester.getRect(a).right - more.right, 4);
-      final panel = tester.getRect(
-        find.byKey(const ValueKey('browse-right-drawer')),
-      );
+      final panel = tester.getRect(find.byType(SourcePickerSheet));
       if (section != Section.cat) {
         expect(tester.getTopLeft(a).dx, tester.getTopLeft(b).dx);
         expect(tester.getTopLeft(a).dy, lessThan(tester.getTopLeft(b).dy));
@@ -388,7 +468,7 @@ void main() {
       expect(find.byType(SourcePickerSheet), findsNothing);
     });
   }
-  testWidgets('猫源极简卡片：名称居中、长按拖拽、左滑菜单、点击选中', (tester) async {
+  testWidgets('猫源极简卡片：名称居中、长按拖拽、三点菜单、点击选中', (tester) async {
     final manager = FakeSourceManager(
       sources: const [
         SourceDescriptor(
@@ -437,9 +517,7 @@ void main() {
     final second = find.byKey(const ValueKey('picker-source-c2'));
     expect(tester.getSize(card).height, 55, reason: '单列卡片统一 55 高');
     // 单列铺满侧栏内容宽度，左缘仍与搜索框同基线。
-    final panel = tester.getRect(
-      find.byKey(const ValueKey('browse-right-drawer')),
-    );
+    final panel = tester.getRect(find.byType(SourcePickerSheet));
     expect(tester.getSize(card).width, panel.width - 32);
     expect(tester.getTopLeft(card).dx, panel.left + 16);
     final decoration =
@@ -480,11 +558,11 @@ void main() {
     );
     expect(material.shape, isNull, reason: '没有 Material 描边');
     expect(find.byType(SourceIcon), findsNothing);
-    expect(find.byKey(const ValueKey('picker-more-c1')), findsNothing);
+    expect(find.byKey(const ValueKey('picker-more-c1')), findsOneWidget);
     expect(find.byKey(const ValueKey('picker-drag-c1')), findsOneWidget);
     expect(find.text('猫源站点甲'), findsOneWidget);
     expect(find.text('1.0.0'), findsNothing);
-    expect(find.text('点击选择源，长按拖动排序，左滑打开设置/删除'), findsOneWidget);
+    expect(find.text('点击选择源，长按拖动排序，点三个点管理源'), findsOneWidget);
     // 单列：名称水平、垂直都居中。
     expect(
       tester.getCenter(find.text('猫源站点甲')).dx,
@@ -495,14 +573,15 @@ void main() {
       closeTo(tester.getCenter(card).dy, 1),
     );
 
-    // 单列左滑：露出设置 / 删除，删除走确认框。
+    // 左滑不露出操作区；删除由三点菜单进入确认框。
     final closedX = tester.getTopLeft(card).dx;
     await tester.drag(card, const Offset(-90, 0));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(card).dx, lessThan(closedX));
-    expect(find.text('设置').hitTestable(), findsOneWidget);
-    expect(find.text('删除').hitTestable(), findsOneWidget);
-    await tester.tap(find.text('删除').hitTestable());
+    expect(tester.getTopLeft(card).dx, closedX);
+    expect(find.text('删除源'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('picker-more-c1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除源'));
     await tester.pumpAndSettle();
     expect(find.text('删除源'), findsOneWidget);
     await tester.tap(find.text('取消'));
@@ -532,18 +611,11 @@ void main() {
       closeTo(tester.getCenter(second).dy, 1),
     );
 
-    // 双列左滑同样可用。
     final closedDoubleX = tester.getTopLeft(card).dx;
     await tester.drag(card, const Offset(-80, 0));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(card).dx, lessThan(closedDoubleX));
-    expect(find.text('设置').hitTestable(), findsOneWidget);
-    // 收起的起点必须落在卡片露出的前缘（滑开后中间已被操作区占据）。
-    final slot = tester.getTopLeft(
-      find.byKey(const ValueKey('picker-drag-c1')),
-    );
-    await tester.dragFrom(slot + const Offset(24, 32), const Offset(140, 0));
-    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(card).dx, closedDoubleX);
+    expect(find.text('删除源'), findsNothing);
 
     // 双列里同样支持长按拖动：把右侧的 c1 拖回左侧。
     await longPressDrag(tester, card, second);
@@ -863,9 +935,11 @@ void main() {
         findsOneWidget,
       );
     }
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('content-visible-video')),
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const ValueKey('content-visible-video'))),
+      alignment: .5,
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('content-visible-video')));
     await tester.pumpAndSettle();
     expect(controller.isVisible('video'), false);
@@ -922,7 +996,7 @@ void main() {
     expect(second.sectionVisible(Section.video), false);
     expect(second.sectionVisible(Section.comic), false);
     expect(second.sectionVisible(Section.video), false);
-    expect(second.sectionVisible(Section.cat), true);
+    expect(second.sectionVisible(Section.cat), false);
     second.setVisible('movie', true);
     expect(second.sectionVisible(Section.video), true);
     expect(second.isVisible('video'), false);

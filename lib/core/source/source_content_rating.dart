@@ -147,6 +147,7 @@ class SourceContentRating {
     'horrorporn_video',
     'av18_video',
     'xhamsterlive_video',
+    'stripchat_live_video',
     'chaturbetter_video',
     'lxxlxx_video',
     'kxmanhua1_comic',
@@ -308,6 +309,48 @@ class SourceContentRating {
     // 爱丽丝书屋（alicesw.com，成人网络小说站）：全属性色情小说，纯文本正文，
     // 与 alicesw1.homes / alicesw.tw 同源；归漫画板块的「小说」分类。
     'alicesw_comic',
+    // 91大事件（campus.ravwriau.cc / 91dasj.com，Typecho Mirages + DPlayer）：吃瓜爆料短视频，
+    // 帖子里直接给 HLS；封面是 AES-CBC 密文，走 App 原生解密。
+    '91dasj_video',
+    // 西瓜书屋（xiguashuwu2.com，成人网络小说站）：VIP 角标书正文照样全量下发，
+    // 长章节第二分页的敏感词是图片字（图片字跳过，正文主干完整）；归漫画板块的「小说」分类。
+    'xiguashuwu_comic',
+    // 八叉书库（8csk.org，8xsk 字站，公告 18 个同内容域名）：全站成人小说，
+    // 正文走 POST /conapi.php 的一次性令牌，源里已复刻；归漫画板块的「小说」分类。
+    '8csk_comic',
+    // 草榴小说视频（mycall.biz，综合站）：小说 / 视频 / 图集三形态，
+    // 视频走 /api/v1/video/thread/{id}/play 的 HLS，小说按 ?chapter=N 翻页。
+    'mycall_video',
+    // 月亮小说（yueliangxiaoshuo.com）：带 R-18 分区的中文小说站，榜单可按分级过滤。
+    'yueliang_comic',
+    // 荔枝短剧（liz01.com）：AI 成人短剧，单集页给签名 m3u8，封面是 AES-128-CBC 密文。
+    'liz_video',
+    // 乐成漫画 · 短剧（lcmhx.cc）：AI 成人短剧频道；HLS 有防盗链，源里改走站点 media.php 代理。
+    'lcm_video',
+    // 禁漫天堂（18comic）：H動漫 频道（签名 HLS）与 JM文庫 的禁漫小說（纯文本正文）。
+    'jmcomic_video',
+    'jmcomic_novel',
+    // 69书吧（69shuba.com）：jieqi 小说站，全站 CF managed challenge + GBK 编码。
+    'shuba_novel',
+    // 次元姬（ciyuanji.com）：成人轻小说站，正文是 DES-ECB 密文，源里内联纯 JS DES 解密。
+    'ciyuanji_novel',
+    // 酷18（cool18.com）：综合成人论坛（书屋/贴图/自拍/动漫/影视九个板块）。
+    'cool18_comic',
+    // 第一版主（bz1111111.net / diyibanzhu.app 被 CF 挡，源里走同站镜像 01bzw.us）。
+    'diyibanzhu_novel',
+    'miaobo_video',
+    // 集芳阁云搜（punycode 主域）：国产/AV 成人视频聚合云搜，直链 m3u8。
+    'jifangge_video',
+    // X云搜：成人视频云搜；播放器锁站方会员（列表/详情可用）。
+    'xyunsou_video',
+    // 色文網（book18.org）：繁体成人小说站，正文走站方简体页。
+    'book18_novel',
+    // 黄视频（huang.video）：国产成人视频站（AI 短剧/糖心Vlog/网红/探花/PMV/ASMR）。
+    'huangvideo_video',
+    // 集书阁（jishuge.com，已升级为 X小说 / x文学 前端）：成人长/短篇小说。
+    'jishuge_novel',
+    // 狂人之家书屋（crazyhome2000.com）：WordPress 成人文学站，书=标签、章=文章。
+    'crazyhome_novel',
   };
   // Exact, explicitly classified repository names cover imported/custom IDs.
   static const adultNames = <String>{
@@ -470,6 +513,14 @@ class SourceContentRating {
     "逆ACG",
     "TwittHub",
     "龙禁漫",
+    "集芳阁云搜",
+    // 匹配前会 toLowerCase()，所以这里也存小写。
+    "x云搜",
+    "色文網",
+    "黄视频",
+    "集书阁",
+    "狂人之家书屋",
+    "狂人之家",
   };
   static bool isAdult(String id, String name) =>
       _declaredAdultIds.contains(id.toLowerCase()) ||

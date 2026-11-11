@@ -1,3 +1,8 @@
+import '../../core/experience/content_center.dart';
+import '../../core/reading/reading.dart';
+import '../../core/experience/offline_policy.dart';
+import '../../core/source/source_runtime_pins.dart';
+import '../../core/media/playback_focus.dart';
 import '../../core/net/lume_net.dart';
 import '../../core/net/lume_http.dart';
 
@@ -67,12 +72,23 @@ class VideoDownloadCenter extends ChangeNotifier {
     this.resolve,
     this.merge,
     this.cancelMerge,
+    this.playbackActive,
   });
   static final instance = VideoDownloadCenter();
   final Future<Directory> Function()? directory;
   final Future<VideoContent> Function(VideoDownloadTask)? resolve;
   final Future<void> Function(Directory, File, String)? merge;
   final Future<void> Function(String)? cancelMerge;
+  final bool Function()? playbackActive;
+  bool get _yieldToPlayback =>
+      playbackActive?.call() ?? PlaybackFocus.isPlaying;
+  final _progressWatch = Stopwatch()..start();
+  void _notifyProgress() {
+    if (_progressWatch.elapsedMilliseconds < 250) return;
+    _progressWatch.reset();
+    notifyListeners();
+  }
+
   final _merger = VideoDownloadMerger();
   final tasks = <VideoDownloadTask>[];
   Future<void>? _boot;
@@ -218,13 +234,53 @@ class VideoDownloadCenter extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<int> pruneWatched() async {
+    await boot();
+    if (!ContentCenter.instance.enabled('cleanupWatched')) return 0;
+    final library = await ReadingLibrary.open(Section.video);
+    var removed = 0;
+    for (final task in List<VideoDownloadTask>.of(tasks)) {
+      if (task.state != 'done' || identical(_active, task)) continue;
+      final progress = library.videoEpisodeProgress(
+        task.itemId,
+        task.chapterId,
+        sourceId: task.sourceId,
+      );
+      if (progress?.isFinished != true) continue;
+      final file = localFile(task);
+      if (!await file.exists() ||
+          DateTime.now().difference(await file.lastModified()) <
+              const Duration(days: 7)) {
+        continue;
+      }
+      await remove(task, deleteFiles: true);
+      removed++;
+    }
+    return removed;
+  }
+
+  Future<void> _policyCheckpoint(VideoDownloadTask task) async {
+    _check(task);
+    final reason = await OfflinePolicy.blocked();
+    if (reason != null) throw OfflinePolicyPaused(reason);
+  }
+
   Future<void> _drain() async {
     if (_draining) return;
     _draining = true;
     try {
+      await pruneWatched();
       while (true) {
         final task = tasks.where((t) => t.state == 'queued').firstOrNull;
         if (task == null) break;
+        final blocked = await OfflinePolicy.blocked();
+        if (blocked != null) {
+          task.state = 'paused';
+          task.error = blocked;
+          await _save();
+          notifyListeners();
+          continue;
+        }
         _active = task;
         task.state = 'running';
         task.error = null;
@@ -235,6 +291,10 @@ class VideoDownloadCenter extends ChangeNotifier {
           ..autoUncompress = false;
         await _save();
         notifyListeners();
+        final releaseRuntime = SourceRuntimePins.retain(
+          Section.video,
+          task.sourceId,
+        );
         try {
           if (task.hasLocalPlaylist && await localFile(task).exists()) {
             await _mergeDownloaded(task);
@@ -286,6 +346,8 @@ class VideoDownloadCenter extends ChangeNotifier {
             ..reset()
             ..start();
           _speedBytes = 0;
+          final blockedNow = await OfflinePolicy.blocked();
+          if (blockedNow != null) throw OfflinePolicyPaused(blockedNow);
           await _download(task, uri, content.headers);
           _check(task);
           if (task.hasLocalPlaylist) {
@@ -295,11 +357,16 @@ class VideoDownloadCenter extends ChangeNotifier {
           task.state = 'done';
         } catch (error) {
           if (task.running) {
-            task.state = task.hasLocalPlaylist ? 'merge_failed' : 'failed';
+            task.state = error is OfflinePolicyPaused
+                ? 'paused'
+                : task.hasLocalPlaylist
+                ? 'merge_failed'
+                : 'failed';
             task.error = SensitiveData.redact('$error')
                 .replaceAll(RegExp(r'https?://[^\s]+'), '[地址]');
           }
         } finally {
+          releaseRuntime();
           _client?.close(force: true);
           _client = null;
           _active = null;
@@ -542,17 +609,26 @@ class VideoDownloadCenter extends ChangeNotifier {
     );
     final watch = Stopwatch()..start();
     var interval = 0;
+    var policyBytes = 0;
     try {
       await for (final bytes in stream()) {
         _check(task);
         sink.add(bytes);
         task.bytes += bytes.length;
         interval += bytes.length;
+        policyBytes += bytes.length;
+        if (policyBytes >= 8 * 1024 * 1024) {
+          await _policyCheckpoint(task);
+          policyBytes = 0;
+        }
         if (watch.elapsedMilliseconds >= 300) {
           task.bytesPerSecond = interval * 1000 / watch.elapsedMilliseconds;
           interval = 0;
           watch.reset();
-          notifyListeners();
+          _notifyProgress();
+        }
+        if (_yieldToPlayback) {
+          await Future<void>.delayed(const Duration(milliseconds: 8));
         }
       }
       await sink.flush();
@@ -679,26 +755,25 @@ class VideoDownloadCenter extends ChangeNotifier {
           .writeAsString('${master.join('\n')}\n', flush: true);
       return;
     }
-    if (!lines.contains('#EXT-X-ENDLIST')) throw StateError('直播流不支持离线下载');
-    if (lines.any((l) => l.startsWith('#EXT-X-BYTERANGE'))) {
-      throw StateError('该线路使用字节范围 HLS，暂不支持下载');
-    }
+    final unsupported = unsupportedPlaylistReason(body);
+    if (unsupported != null) throw StateError(unsupported);
     final plan = sha256.convert(utf8.encode(body)).toString().substring(0, 16);
     final resourceDir = Directory(p.join(folder(task), '$name-$plan'));
     await resourceDir.create(recursive: true);
     final output = <String>[];
     var index = 0;
     task.total += lines.where((l) => l.isNotEmpty && !l.startsWith('#')).length;
+    final pending = <Future<void>>[];
+    Future<void> flushSegments() async {
+      final batch = List<Future<void>>.of(pending);
+      pending.clear();
+      await Future.wait(batch);
+    }
+
     for (final line in lines) {
       _check(task);
-      if (line.startsWith('#EXT-X-KEY:') &&
-          !line.contains('METHOD=NONE') &&
-          (!line.contains('METHOD=AES-128') ||
-              (line.contains('KEYFORMAT=') &&
-                  !line.contains('KEYFORMAT="identity"')))) {
-        throw StateError('该加密格式不支持离线下载');
-      }
       if (line.startsWith('#EXT-X-KEY:') || line.startsWith('#EXT-X-MAP:')) {
+        await flushSegments();
         final match = RegExp(r'URI="([^"]+)"').firstMatch(line);
         if (match != null) {
           final url = uri.resolve(match.group(1)!);
@@ -727,22 +802,55 @@ class VideoDownloadCenter extends ChangeNotifier {
             ? suffix
             : '.ts';
         final relative = '$name-$plan/segment-${index++}$extension';
-        await _resource(
-          task,
-          url,
-          origin,
-          headers,
-          File(p.join(folder(task), relative)),
-        );
-        task.completed++;
-        notifyListeners();
+        pending.add(() async {
+          if (_yieldToPlayback) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          await _resource(
+            task,
+            url,
+            origin,
+            headers,
+            File(p.join(folder(task), relative)),
+          );
+          task.completed++;
+          _notifyProgress();
+        }());
         output.add(relative);
+        if (pending.length >= (_yieldToPlayback ? 1 : 3)) {
+          await _policyCheckpoint(task);
+          await flushSegments();
+        }
       } else {
         output.add(line);
       }
     }
+    await flushSegments();
     await File(p.join(folder(task), '$name.m3u8'))
         .writeAsString('${output.join('\n')}\n', flush: true);
+  }
+
+  static String? unsupportedPlaylistReason(String body) {
+    final lines = const LineSplitter()
+        .convert(body)
+        .map((line) => line.trim())
+        .toList();
+    if (lines.any((line) => line.startsWith('#EXT-X-STREAM-INF:'))) return null;
+    if (!lines.contains('#EXT-X-ENDLIST')) return '直播流不支持离线下载';
+    if (lines.any((line) => line.startsWith('#EXT-X-BYTERANGE'))) {
+      return '该线路使用字节范围 HLS，暂不支持下载';
+    }
+    if (lines.any(
+      (line) =>
+          line.startsWith('#EXT-X-KEY:') &&
+          !line.contains('METHOD=NONE') &&
+          (!line.contains('METHOD=AES-128') ||
+              line.contains('KEYFORMAT=') &&
+                  !line.contains('KEYFORMAT="identity"')),
+    )) {
+      return '该加密格式不支持离线下载';
+    }
+    return null;
   }
 
   Future<void> _resource(

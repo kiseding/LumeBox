@@ -6,6 +6,8 @@ import 'frosted_glass_widget.dart';
 
 import 'package:flutter/material.dart';
 
+import 'native_glass_preview.dart';
+
 import '../../core/theme/lume_theme.dart';
 import '../../core/theme/floating_modules.dart';
 import '../../features/shell/shell_dock.dart';
@@ -18,6 +20,95 @@ abstract final class HomePanelLayout {
   static const EdgeInsets padding = EdgeInsets.symmetric(
     horizontal: 6,
     vertical: 4,
+  );
+}
+
+/// Visual treatment for settings pages without changing their glass module.
+class SettingsSurfaceScope extends InheritedWidget {
+  const SettingsSurfaceScope({
+    super.key,
+    required this.enabled,
+    required super.child,
+  });
+  final bool enabled;
+  static bool enabledOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<SettingsSurfaceScope>()
+          ?.enabled ??
+      false;
+  @override
+  bool updateShouldNotify(SettingsSurfaceScope oldWidget) =>
+      enabled != oldWidget.enabled;
+}
+
+/// Scrollable settings rows with the same floating surfaces as grouped pages.
+/// Spacing and section labels remain outside cards; content stays lazy.
+class SettingsSurfaceList extends StatelessWidget {
+  const SettingsSurfaceList({
+    super.key,
+    required this.children,
+    this.padding = const EdgeInsets.all(16),
+  });
+
+  final List<Widget> children;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: padding,
+    children: children.map((child) {
+      if (child is SizedBox || child is Text || child is Divider) return child;
+      // Filled and elevated buttons already draw their own surface. The app's
+      // outlined buttons are borderless and use the card as their surface.
+      if (child is FilledButton || child is ElevatedButton) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: child,
+        );
+      }
+      final input = child is TextField || child is TextFormField;
+      final theme = Theme.of(context);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: GlassCard(
+          padding:
+              child is ListTile ||
+                  child is SwitchListTile ||
+                  child is CheckboxListTile ||
+                  child is ExpansionTile
+              ? EdgeInsets.zero
+              : const EdgeInsets.all(12),
+          child: input
+              ? Theme(
+                  data: theme.copyWith(
+                    inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
+                      ),
+                      errorBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: theme.colorScheme.error),
+                      ),
+                      focusedErrorBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.error,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: child,
+                )
+              : child,
+        ),
+      );
+    }).toList(),
   );
 }
 
@@ -67,6 +158,10 @@ class GlassPanel extends StatelessWidget {
         offset: Offset.zero,
         child: FrostedGlassWidget(
           translucentOverlay: true,
+          nativeGlass:
+              (module == FloatingModule.navigation ||
+                  ModuleGlassScope.partOf(context) == GlassPart.navigation) &&
+              NativeGlassPreview.enabledOf(context),
           radius: radius,
           neutralTint: true,
           part: switch (module) {
@@ -137,7 +232,27 @@ class GlassCard extends StatelessWidget {
         ),
       ),
     );
-    return surface;
+    if (!SettingsSurfaceScope.enabledOf(context) ||
+        MediaQuery.highContrastOf(context)) {
+      return surface;
+    }
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: border,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: dark ? .08 : .75),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? .16 : .045),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: surface,
+    );
   }
 }
 
@@ -273,33 +388,20 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 ///
 /// 用户口径（第六次反馈）：顶栏外框本来就铺到 y=0，但内容被**完整的**安全区
 /// （刘海机 62）压在下面，视觉上「整条横条不能往上靠」。参考做法是
-/// **容器贴顶、内容单独避让**：刘海机型内容少让一档（[kLumeTopInsetTrim]），
-/// 标题与图标跟着上移，中间内容区同时多出这一段。
+/// **容器贴顶、内容单独避让**：内容少让一档（默认 12），标题与图标跟着上移，
+/// 中间内容区同时多出这一段。
 ///
-/// 用户口径（第七次反馈）：真机上标题栏压进了灵动岛。原因是灵动岛机型的安全区
-/// （59–62）比刘海机型（44–47）高，可**岛下留白只有 9–11pt**——再让 12pt 正好
-/// 让进岛里。所以灵动岛机型一档都不让，内容停在系统给的安全线；刘海机型留白
-/// 更宽（17pt 以上），继续按 12 上移。
-///
-/// 12 是保守值：刘海机型状态栏 47，缩到 35 之后图标盒（34）落在 35..69，
-/// 刘海下沿（约 30）与两侧时间/电量（约 16..34）都在它上面，不会压到。
+/// 12 是保守值：刘海机状态栏 62，缩到 50 之后图标盒（34）落在 50..84，
+/// 灵动岛（约 11..48）与两侧时间/电量（约 22..42）都在它上面，不会压到。
 /// 小状态栏（无刘海机 / 安卓，inset ≤ 24）不缩——那里时间电量就贴着顶，
 /// 缩了会撞上（见 [trimmedTopInset]）。
 const double kLumeTopInsetTrim = 12;
 
-/// 灵动岛机型的状态栏高度下限（iPhone 14 Pro 起为 59，16 Pro 为 62；
-/// 刘海机型是 44–47，两类不重叠）。
-const double kLumeIslandTopInset = 54;
-
 /// 顶栏内容实际要让出的顶部高度：状态栏高度减去一档 [kLumeTopInsetTrim]。
 ///
-/// - 状态栏太薄（无刘海机 / 安卓，≤ 24）：原样返回，那里没有可让的余地；
-/// - 灵动岛机型（≥ [kLumeIslandTopInset]）：原样返回。系统安全区里本来就只留了
-///   岛下那一条缝，再往上抬会直接压进岛里（真机踩过，见上）；
-/// - 刘海机型：让出一档 [kLumeTopInsetTrim]。
+/// 状态栏太薄时（无刘海机 / 安卓，≤ 24）原样返回：那里没有可让的余地。
 double trimmedTopInset(double statusInset) {
   if (statusInset <= 24) return statusInset;
-  if (statusInset >= kLumeIslandTopInset) return statusInset;
   final trim = statusInset - 24 < kLumeTopInsetTrim
       ? statusInset - 24
       : kLumeTopInsetTrim;
@@ -347,15 +449,24 @@ class GlassScaffold extends StatelessWidget {
     this.bottom,
     this.leading,
     this.floatingActionButton,
+    this.bottomNavigationBar,
     this.behindBar = false,
     this.floatingBar = false,
     this.mergeHomeHeader = false,
     this.resizeToAvoidBottomInset,
     this.effectModule,
+    this.settingsSurface = false,
+    this.embedded = false,
   });
 
   final Widget child;
   final GlassModule? effectModule;
+
+  /// Apply settings visual styling while retaining the original glass module.
+  final bool settingsSurface;
+
+  /// Render the content inside an existing settings shell.
+  final bool embedded;
 
   /// 页面标题。为空时回退到项目名称。
   final String? title;
@@ -367,6 +478,7 @@ class GlassScaffold extends StatelessWidget {
 
   final Widget? leading;
   final Widget? floatingActionButton;
+  final Widget? bottomNavigationBar;
 
   /// 内容是否铺到顶栏之下（见类文档）。
   final bool behindBar;
@@ -401,10 +513,73 @@ class GlassScaffold extends StatelessWidget {
       EdgeInsets.only(top: barHeight(context, extra: extra));
 
   @override
-  Widget build(BuildContext context) => ModuleGlassScope(
-    module: effectModule ?? ModuleGlassScope.moduleOf(context),
-    child: _legacyBuild(context),
-  );
+  Widget build(BuildContext context) {
+    final isSettings = settingsSurface || effectModule == GlassModule.settings;
+    final module = effectModule ?? ModuleGlassScope.moduleOf(context);
+    Widget content = embedded ? child : _legacyBuild(context);
+    if (isSettings) {
+      final theme = Theme.of(context);
+      content = Theme(
+        data: theme.copyWith(
+          inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+            contentPadding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+            labelStyle: LumeTypography.body.copyWith(
+              color: LumeTheme.textSecondary,
+            ),
+            floatingLabelStyle: LumeTypography.body.copyWith(
+              color: LumeTheme.accent,
+              fontWeight: interfaceFontWeight(context, FontWeight.w600),
+            ),
+            border: UnderlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(
+                color: LumeTheme.textSecondary.withValues(alpha: .22),
+              ),
+            ),
+            enabledBorder: UnderlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(
+                color: LumeTheme.textSecondary.withValues(alpha: .22),
+              ),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: LumeTheme.accent, width: 1.4),
+            ),
+            errorBorder: UnderlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: theme.colorScheme.error),
+            ),
+            focusedErrorBorder: UnderlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(
+                color: theme.colorScheme.error,
+                width: 1.4,
+              ),
+            ),
+          ),
+          listTileTheme: theme.listTileTheme.copyWith(
+            titleTextStyle: LumeTypography.title.copyWith(
+              color: LumeTheme.textPrimary,
+              fontWeight: interfaceFontWeight(context, FontWeight.w600),
+            ),
+            subtitleTextStyle: LumeTypography.description.copyWith(
+              color: LumeTheme.descriptionColorOf(theme.brightness),
+            ),
+            leadingAndTrailingTextStyle: LumeTypography.body.copyWith(
+              color: LumeTheme.textSecondary,
+            ),
+          ),
+        ),
+        child: content,
+      );
+    }
+    return SettingsSurfaceScope(
+      enabled: isSettings,
+      child: ModuleGlassScope(module: module, child: content),
+    );
+  }
+
   Widget _legacyBuild(BuildContext context) {
     // 顶栏内容要让出的高度：**避让后的**状态栏 + 工具栏 + 页签条。
     // 用壳自己的 context 读（此时还没被 Scaffold 注入顶栏高度）。
@@ -429,8 +604,9 @@ class GlassScaffold extends StatelessWidget {
                   ? _buildBar()
                   : _ShiftedAppBar(dy: unusedInset, child: _buildBar())),
         floatingActionButton: floatingActionButton,
+        bottomNavigationBar: bottomNavigationBar,
         body: _SettingsBackplane(
-          gradient: effectModule == GlassModule.settings,
+          gradient: settingsSurface || effectModule == GlassModule.settings,
           child: _GlassBarHeight(
             height: merge ? trimmedTopInset(statusInset) : height,
             child: HomeHeaderScope(
@@ -492,8 +668,8 @@ class GlassScaffold extends StatelessWidget {
                   ? SafeArea(
                       top: false,
                       bottom: false,
-                      // 内容铺到顶栏之下时，这个 Stack 从屏幕顶边开始：提示条要
-                      // 让过整条顶栏，否则会落在状态栏那一带被灵动岛压住。
+                      // 内容铺满整屏时 Stack 的顶边就是屏幕顶边，提示条要额外
+                      // 让出顶栏高度，否则会落进状态栏、被灵动岛压住。
                       child: NetworkWaitingView(
                         topInset: barHeight(context),
                         child: child,
@@ -611,18 +787,18 @@ class _SettingsBackplane extends StatelessWidget {
     color: LumeTheme.base,
     child: Ink(
       decoration: BoxDecoration(
-        gradient: gradient
+        gradient: gradient && LumeTheme.base != Colors.black
             ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
                   Color.alphaBlend(
-                    LumeTheme.accent.withValues(alpha: .055),
+                    LumeTheme.accentFillOf(context).withValues(alpha: .055),
                     LumeTheme.base,
                   ),
                   LumeTheme.base,
                   Color.alphaBlend(
-                    LumeTheme.accent.withValues(alpha: .025),
+                    LumeTheme.accentFillOf(context).withValues(alpha: .025),
                     LumeTheme.base,
                   ),
                 ],

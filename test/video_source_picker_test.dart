@@ -14,6 +14,7 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
+import 'package:lume_box/core/source/source_content_visibility.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
 import 'package:lume_box/features/reading/source_bar.dart';
 import 'package:lume_box/features/source/video_source_picker.dart';
@@ -146,6 +147,62 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('视频源类型开关隐藏对应页签和全部分组，不删除站点', (tester) async {
+    final visibility = SourceContentVisibility.instance;
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'py-test',
+        name: 'PY测试源',
+        version: '1',
+        enabled: true,
+        runtimeKind: 'python',
+      ),
+    );
+    manager.sources.add(
+      const SourceDescriptor(
+        id: 'module-test',
+        name: '模块测试源',
+        version: '1',
+        enabled: true,
+        runtimeKind: 'module',
+      ),
+    );
+    visibility.setVisible('python', false);
+    visibility.setVisible('cat', false);
+    visibility.setVisible('module', false);
+    visibility.setVisible('web', false);
+    addTearDown(() {
+      for (final id in ['python', 'cat', 'module', 'web']) {
+        visibility.setVisible(id, true);
+      }
+    });
+    await pump(tester);
+    for (final type in ['python', 'cat', 'module', 'web']) {
+      expect(find.byKey(ValueKey('video-source-type-$type')), findsNothing);
+      expect(find.byKey(ValueKey('video-source-group-$type')), findsNothing);
+    }
+    expect(find.text('PY测试源'), findsNothing);
+    expect(find.text('猫源测试长名称站点'), findsNothing);
+    expect(manager.sources.any((source) => source.id == 'py-test'), isTrue);
+    expect(service.subscriptions.single.sites.length, 2);
+    visibility.setVisible('python', true);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-source-type-python')),
+      findsOneWidget,
+    );
+    expect(find.text('PY测试源'), findsOneWidget);
+    visibility.setVisible('js', false);
+    addTearDown(() => visibility.setVisible('js', true));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('video-source-type-ordinary')),
+      findsNothing,
+    );
+    expect(find.text('普通视频长名称测试'), findsNothing);
+    expect(find.text('PY测试源'), findsOneWidget);
+  });
 
   testWidgets('视频源选择器给已分级的源显示 18+ 徽章，普通源不误标', (tester) async {
     final privacy = PrivacySettings.instance;
@@ -482,6 +539,8 @@ void main() {
     expect(manager.imported, isEmpty);
     await tester.tap(find.byTooltip('本地直播的设置'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('源设置'));
+    await tester.pumpAndSettle();
     expect(find.text('本地 HTML 已保存在 App 内，可以修改名称或删除。'), findsOneWidget);
     final html = store.items.single.html;
     await tester.enterText(find.byType(TextField).last, '我的直播');
@@ -490,6 +549,8 @@ void main() {
     expect(store.items.single.name, '我的直播');
     expect(store.items.single.html, html);
     await tester.tap(find.byTooltip('我的直播的设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('删除').last);
     await flush();
@@ -521,6 +582,8 @@ void main() {
     expect(store.items.single.url, 'https://example.com/home');
     expect(store.items.single.isLocal, false);
     await tester.tap(find.byTooltip('网页首页的设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('源设置'));
     await tester.pumpAndSettle();
     await tester.enterText(fields.at(0), '取消改名');
     await tester.tap(find.text('取消'));
@@ -573,7 +636,42 @@ void main() {
     expect(find.text('Kazumi 源'), findsNothing);
     expect(find.text('普通视频源'), findsOneWidget);
   });
-  testWidgets('左滑先露出删除，取消保留，确认才删除且相邻卡片保留', (tester) async {
+  testWidgets('长左右划切换可见源类型，不改变已选源或删除源', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('video-source-type-ordinary')));
+    await tester.pumpAndSettle();
+    final selected = manager.selected;
+    await tester.drag(
+      find.byKey(const ValueKey('video-type-swipe')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('video-source-type-cat')),
+          )
+          .selected,
+      isTrue,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('video-type-swipe')),
+      const Offset(120, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('video-source-type-ordinary')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(manager.selected, selected);
+    expect(manager.removed, isEmpty);
+  });
+
+  testWidgets('左滑不露出删除，菜单删除可取消或确认且相邻卡片保留', (tester) async {
     manager.sources.add(
       const SourceDescriptor(
         id: 'neighbor',
@@ -583,11 +681,17 @@ void main() {
       ),
     );
     await pump(tester);
-    final tile = find.byKey(const ValueKey('video-picker-swipe-ordinary'));
+    final tile = find.byKey(const ValueKey('video-picker-source-ordinary'));
     Future<void> reveal() async {
-      await tester.drag(tile, const Offset(-110, 0));
+      await tester.drag(tile, const Offset(-50, 0));
       await tester.pumpAndSettle();
-      await tester.tap(find.descendant(of: tile, matching: find.text('删除')));
+      expect(find.text('删除源'), findsNothing);
+      await tester.tap(find.byTooltip('普通视频长名称测试的设置'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.text('置顶此源'), findsOneWidget);
+      expect(find.text('测试连通性'), findsOneWidget);
+      await tester.tap(find.text('删除源'));
       await tester.pumpAndSettle();
     }
 
@@ -615,11 +719,14 @@ void main() {
     final record = service.subscriptions.single;
     final site = record.sites.first;
     service.selectedSiteId = site.id;
-    final tile = find.byKey(ValueKey('video-picker-swipe-${site.id}'));
+    final tile = find.byKey(ValueKey('video-picker-source-${site.id}'));
     await tester.ensureVisible(tile);
-    await tester.drag(tile, const Offset(-110, 0));
+    await tester.drag(tile, const Offset(-50, 0));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: tile, matching: find.text('删除')));
+    expect(find.text('删除源'), findsNothing);
+    await tester.tap(find.byTooltip('${site.name}的设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除源'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, '删除').last);
     for (var i = 0; i < 5; i++) {

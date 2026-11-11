@@ -2,6 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/source/source_content_rating.dart';
 
 void main() {
+  test('Stripchat 直播源按 18+ 隔离', () {
+    expect(SourceContentRating.isAdult('stripchat_live_video', '直播源'), isTrue);
+  });
   test('PY合集成人源全部登记', () {
     for (final id in <String>[
       'pypack_02c9b149e1a6c17c',
@@ -167,6 +170,20 @@ void main() {
       'akmh_comic',
       'kpdz_video',
       'alicesw_comic',
+      '91dasj_video',
+      'xiguashuwu_comic',
+      '8csk_comic',
+      'mycall_video',
+      'yueliang_comic',
+      'liz_video',
+      'lcm_video',
+      'jmcomic_video',
+      'jmcomic_novel',
+      'shuba_novel',
+      'ciyuanji_novel',
+      'cool18_comic',
+      'diyibanzhu_novel',
+      'miaobo_video',
     ]) {
       expect(SourceContentRating.isAdult(id, ''), isTrue);
       expect(SourceContentRating.isAdult('subscription:$id', ''), isTrue);
@@ -186,5 +203,31 @@ void main() {
     for (final name in ['18＋', '18 +', 'R-18', 'r 18']) {
       expect(SourceContentRating.isAdult('new_source', name), isTrue);
     }
+  });
+  test('2026-11-09 三个新源按 18+ 归档', () {
+    for (final id in <String>[
+      'jifangge_video',
+      'xyunsou_video',
+      'book18_novel',
+    ]) {
+      expect(SourceContentRating.isAdult(id, ''), isTrue);
+    }
+    // 显示名也要认（导入的自定义 id 靠名字兜底）
+    expect(SourceContentRating.isAdult('custom', '集芳阁云搜'), isTrue);
+    expect(SourceContentRating.isAdult('custom', 'X云搜'), isTrue);
+    expect(SourceContentRating.isAdult('custom', '色文網'), isTrue);
+  });
+  test('2026-11-10 黄视频按 18+ 归档', () {
+    expect(SourceContentRating.isAdult('huangvideo_video', '黄视频'), isTrue);
+    expect(SourceContentRating.isAdult('custom', '黄视频'), isTrue);
+  });
+  test('2026-11-10 集书阁按 18+ 归档', () {
+    expect(SourceContentRating.isAdult('jishuge_novel', '集书阁'), isTrue);
+    expect(SourceContentRating.isAdult('custom', '集书阁'), isTrue);
+  });
+  test('2026-11-10 狂人之家书屋按 18+ 归档', () {
+    expect(SourceContentRating.isAdult('crazyhome_novel', '狂人之家书屋'), isTrue);
+    expect(SourceContentRating.isAdult('crazyhome_novel', ''), isTrue);
+    expect(SourceContentRating.isAdult('custom', '狂人之家书屋'), isTrue);
   });
 }

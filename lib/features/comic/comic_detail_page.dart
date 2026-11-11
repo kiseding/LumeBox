@@ -100,6 +100,7 @@ class _ComicDetailPageState extends State<ComicDetailPage>
   bool _onShelf = false;
   static const _layoutKey = 'comic.detail.compactLayout';
   bool _compact = true, _descriptionExpanded = false, _isGallery = false;
+  bool _isAudio = false;
   static const _originalColumnsKey = 'comic.detail.originalColumns';
   int? _originalColumns;
   bool _originalSearchVisible = false;
@@ -172,9 +173,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
           .where((entry) => entry.id == widget.target.sourceId)
           .firstOrNull;
       _isGallery =
+          descriptor?.mediaKind == 'photo' ||
           descriptor != null &&
-          SourcePickerGroups.groupFor(widget.library.section, descriptor) ==
-              'photo';
+              SourcePickerGroups.groupFor(widget.library.section, descriptor) ==
+                  'photo';
+      setState(() {
+        _isAudio = descriptor?.isAudio == true;
+      });
       _pipeline.bindSource(source);
       // 详情页封面也在源站自己的域名上：把源站会话挂到管线上，脚本带什么它就带什么
       // （源站上了 Cloudflare 校验而图片请求不带 cf_clearance 时，封面就是一片空白）。
@@ -188,24 +193,54 @@ class _ComicDetailPageState extends State<ComicDetailPage>
         });
         return;
       }
+      // 单一小说源无需等待整本目录和正文探测后才进入小说详情。
+      if (widget.detectContent &&
+          descriptor?.mediaKind == 'novel' &&
+          descriptor?.mixedContent != true) {
+        setState(() {
+          _loading = false;
+          _typedDetail = contentDetailPage(
+            type: SourceContentType.novel,
+            source: source,
+            library: widget.library,
+            manager: widget.manager,
+            target: widget.target,
+          );
+        });
+        return;
+      }
       final detail = await networkRequests.run(
         'detail',
         () => source.detail(widget.target.itemId),
-        // 与阅读器同一口径：源脚本卡住时必须能结束，否则详情页永远转圈
-        // （书架「继续阅读」点进来看到的就是这个）。
-        timeout: const Duration(seconds: 30),
-        timeoutError: () => const SourceException(
-          SourceErrorKind.network,
-          '详情加载超时（30 秒没有返回）。请检查网络，或稍后重试。',
-        ),
       );
       if (!mounted || revision != _loadRevision) return;
       if (detail?.cover != null) {
         _pipeline.configureImageHeaders({detail!.cover!: detail.coverHeaders});
       }
+      final declaredType = SourceContentType.parse(detail?.mediaType);
+      if (widget.detectContent &&
+          declaredType != null &&
+          declaredType != SourceContentType.comic) {
+        setState(() {
+          _loading = false;
+          _typedDetail = contentDetailPage(
+            type: declaredType,
+            source: source,
+            library: widget.library,
+            manager: widget.manager,
+            target: widget.target,
+          );
+        });
+        return;
+      }
       setState(() {
         _source = source;
         _detail = detail;
+        final mediaType = detail?.mediaType.toLowerCase();
+        if (mediaType != null && mediaType.isNotEmpty) {
+          _isAudio = mediaType == 'audio' || mediaType == 'audiobook';
+          _isGallery = _isGallery || mediaType == 'photo';
+        }
         _loading = false;
         _chaptersLoading = true;
         _onShelf = widget.library.onShelf(
@@ -220,12 +255,6 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       final chapters = await networkRequests.run(
         'chapters',
         () => source.chapters(widget.target.itemId),
-        // 章节列表比详情重（有的站一次返回上百话），给的时间宽一档。
-        timeout: const Duration(seconds: 45),
-        timeoutError: () => const SourceException(
-          SourceErrorKind.network,
-          '章节列表加载超时（45 秒没有返回）。请检查网络，或稍后重试。',
-        ),
       );
       if (!mounted || revision != _loadRevision) return;
       if (widget.detectContent) {
@@ -734,13 +763,17 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                   ),
                   onPressed: _chapters.isEmpty ? null : _continueReading,
                   icon: Icon(
-                    _isGallery
+                    _isAudio
+                        ? Icons.headphones_rounded
+                        : _isGallery
                         ? Icons.photo_library_outlined
                         : Icons.menu_book_outlined,
                     size: 19,
                   ),
                   label: Text(
-                    _isGallery
+                    _isAudio
+                        ? (_progress == null ? '开始收听' : '继续收听')
+                        : _isGallery
                         ? '浏览图集'
                         : _progress == null
                         ? '开始阅读'
@@ -1189,7 +1222,13 @@ class _ComicDetailPageState extends State<ComicDetailPage>
       return Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
         appBar: AppBar(
-          title: Text(_isGallery ? '图集详情' : '漫画详情'),
+          title: Text(
+            _isAudio
+                ? '有声详情'
+                : _isGallery
+                ? '图集详情'
+                : '漫画详情',
+          ),
           actions: [_layoutMenu()],
         ),
         body: SafeArea(top: false, child: _compactBody()),
@@ -1404,7 +1443,11 @@ class _ComicDetailPageState extends State<ComicDetailPage>
                         slot: 'comic_detail_page.1',
                         size: 18,
                       ),
-                      label: Text(progress == null ? '开始阅读' : '继续阅读'),
+                      label: Text(
+                        _isAudio
+                            ? (progress == null ? '开始收听' : '继续收听')
+                            : (progress == null ? '开始阅读' : '继续阅读'),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),

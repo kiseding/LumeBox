@@ -131,16 +131,24 @@ class _SystemTabBarViewState extends State<_SystemTabBarView> {
     final bar = widget.bar;
     return {
       'entries': [
-        for (final entry in bar.entries) {'id': entry.id, 'label': entry.label},
+        for (final entry in bar.entries)
+          {
+            'id': entry.id,
+            'label': entry.label,
+            if (entry.badgeCount > 0) 'badge': entry.badgeCount,
+          },
       ],
       'activeId': bar.activeId,
       'brightness': Theme.of(context).brightness.name,
       'showLabels': bar.settings.showLabels,
+      'solidIcons': bar.settings.solidIcons,
       'iconSize': bar.settings.iconSize,
       'barHeight': bar.settings.barHeight,
       'materialOpacity': bar.settings.materialOpacity,
       'opaqueBackground': bar.settings.opaqueBackground,
-      'tintColor': bar.settings.followThemeColor
+      'tintColor': bar.settings.solidIcons
+          ? Theme.of(context).colorScheme.primary.toARGB32()
+          : bar.settings.followThemeColor
           ? LumeTheme.accent.toARGB32()
           : bar.settings.tintColor,
     };

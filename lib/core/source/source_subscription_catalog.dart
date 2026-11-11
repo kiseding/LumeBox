@@ -10,6 +10,10 @@ enum SubscriptionRoute {
 }
 
 class SubscriptionCatalog {
+  static const availableRoutes = [
+    SubscriptionRoute.github,
+    SubscriptionRoute.cloudflare,
+  ];
   static const base =
       'https://raw.githubusercontent.com/teng662858/LumeBox-Sources/main/';
   static const cdnBase =
@@ -19,6 +23,8 @@ class SubscriptionCatalog {
   static const totalUrl = '${base}subscriptions/all.json';
   static const totalCdnUrl = '${cdnBase}subscriptions/cdn/all.json';
   static const audiobooksUrl = '${base}subscriptions/audiobook.txt';
+  static String mixedFor(SubscriptionRoute route) =>
+      _routeUrl('subscriptions/mixed.txt', route);
   static const sections = [Section.comic, Section.video];
   static const names = {
     Section.comic: 'subscriptions/comics.txt',
@@ -84,6 +90,27 @@ class SubscriptionCatalog {
 
   /// Only migrate exact paths in our official repository, never arbitrary URLs.
   static String migrateUrl(String url) {
+    // Retire only this project's old CDN URLs. Preserve third-party URLs and
+    // signed/query URLs, whose semantics cannot safely be inferred.
+    if (url.startsWith(cdnBase) && !url.contains('?') && !url.contains('#')) {
+      var path = url.substring(cdnBase.length);
+      try {
+        path = Uri.decodeFull(path);
+      } on ArgumentError {
+        return url;
+      }
+      path = path.replaceFirst('subscriptions/cdn/', 'subscriptions/');
+      path = path.replaceFirstMapped(
+        RegExp(
+          r'^(subscriptions/(?:comic|comics|photo|novel|movie|video|videos|audiobook|mixed))\.[0-9a-f]{8}\.txt$',
+        ),
+        (match) => '${match[1]}.txt',
+      );
+      if (path.startsWith('subscriptions/legacy/')) {
+        path = path.replaceFirst('-cdn.txt', '.txt');
+      }
+      return migrateUrl('$base$path');
+    }
     for (final prefix in [base, cdnBase, pagesBase]) {
       if (!url.startsWith(prefix)) continue;
       final rawPath = url.substring(prefix.length);
@@ -95,7 +122,7 @@ class SubscriptionCatalog {
       }
       if (prefix == cdnBase) {
         final snapshot = RegExp(
-          r'^subscriptions/cdn/(comic|comics|photo|novel|movie|video|videos|audiobook)\.[0-9a-f]{8}\.txt$',
+          r'^subscriptions/cdn/(comic|comics|photo|novel|movie|video|videos|audiobook|mixed)\.[0-9a-f]{8}\.txt$',
         ).firstMatch(path);
         if (snapshot != null) {
           return '${cdnBase}subscriptions/cdn/${snapshot[1]}.txt';
@@ -103,7 +130,7 @@ class SubscriptionCatalog {
       }
       if (prefix == cdnBase &&
           RegExp(
-            r'^subscriptions/(?:all\.json|(?:comic|comics|photo|novel|movie|video|videos|audiobook)\.txt)$',
+            r'^subscriptions/(?:all\.json|(?:comic|comics|photo|novel|movie|video|videos|audiobook|mixed)\.txt)$',
           ).hasMatch(path)) {
         return '$prefix${path.replaceFirst('subscriptions/', 'subscriptions/cdn/')}';
       }

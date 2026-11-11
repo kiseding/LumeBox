@@ -1,5 +1,12 @@
+import 'dart:io';
+
+import 'package:lume_box/core/reading/reading.dart';
+import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/core/session/section_scope.dart';
+import 'package:lume_box/core/source/source_models.dart';
 import 'package:flutter/services.dart';
 import 'package:lume_box/features/video/playback_entry_preparation.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/core/player/playback_orientation.dart';
 
 import 'dart:async';
@@ -21,8 +28,39 @@ void main() {
   setUp(() => PlayerFactory.clearMpvInitFailure());
   tearDown(() => PlayerFactory.clearMpvInitFailure());
 
+  test('预启动装载返回错误快照时丢弃实例，不标记媒体已准备', () async {
+    final player = _FailedMediaPlayer();
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    final media = PlayerMedia(uri: Uri.parse('https://example.test/video.mp4'));
+    await prelaunch.prepareMedia(media);
+    expect(prelaunch.hasPreparedMedia(media), isFalse);
+    expect(prelaunch.preparedStats, isNull);
+    expect(await prelaunch.take(), isNull);
+    await Future<void>.delayed(Duration.zero);
+    expect(player.disposals, 1);
+  });
+
+  test('接手前才失效的预启动实例也必须释放', () async {
+    final player = _PreflightPlayer();
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    final media = PlayerMedia(uri: Uri.parse('https://example.test/video.mp4'));
+    await prelaunch.prepareMedia(media);
+    player._snapshot.value = const PlayerSnapshot(error: 'late failure');
+    expect(await prelaunch.take(), isNull);
+    expect(prelaunch.hasPreparedMedia(media), isFalse);
+    expect(prelaunch.preparedStats, isNull);
+    await Future<void>.delayed(Duration.zero);
+    expect(player.disposals, 1);
+  });
+
   for (final portrait in [false, true]) {
-    test('入场方向采用迟到1.2秒的真实尺寸：portrait=$portrait', () async {
+    test('显式方向预算可等待迟到1.2秒的真实尺寸：portrait=$portrait', () async {
       PlaybackOrientationController.instance.resetForTesting();
       final directions = <List<dynamic>>[];
       final messenger =
@@ -44,7 +82,12 @@ void main() {
       final media = PlayerMedia(
         uri: Uri.parse('https://example.test/orientation.mp4'),
       );
-      await preparePlaybackEntry(prelaunch, media, null);
+      await preparePlaybackEntry(
+        prelaunch,
+        media,
+        null,
+        sizeTimeout: const Duration(seconds: 2),
+      );
       await applyPlaybackEntryOrientation(prelaunch);
       expect(prelaunch.preparedStats?.width, portrait ? 720 : 1920);
       expect(
@@ -81,6 +124,153 @@ void main() {
     expect(player.disposals, 0);
     await player.dispose();
   });
+
+  test('default orientation preflight does not hold the loaded player for late dimensions', () async {
+    final player = _DelayedDimensionsPlayer(false);
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    final media = PlayerMedia(uri: Uri.parse('https://example.test/late.mp4'));
+    await preparePlaybackEntry(prelaunch, media, null);
+    expect(prelaunch.preparedStats, isNull);
+    expect(prelaunch.hasPreparedMedia(media), true);
+    expect((await prelaunch.take())?.player, same(player));
+    expect(player.loads, 1);
+    await player.dispose();
+  });
+
+  test('route enters before a pending media load and later takes the same instance', () async {
+    final root = await Directory.systemTemp.createTemp('lume-entry-budget-');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (_) async => root.path,
+    );
+    addTearDown(() async {
+      ReadingLibrary.disposeAll();
+      ReadingStore.disposeAll();
+      await SectionScope.closeAll();
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        null,
+      );
+      await root.delete(recursive: true);
+    });
+    PlaybackOrientationController.instance.resetForTesting();
+    final library = await ReadingLibrary.open(Section.video);
+    final player = _PreflightPlayer()..pending = Completer<void>();
+    final prelaunch = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => player,
+    );
+    final media = PlayerMedia(
+      uri: Uri.parse('https://example.test/pending.mp4'),
+    );
+    final entry = await preparePlaybackRoute(
+      media,
+      library: library,
+      prelaunch: prelaunch,
+    );
+    expect(entry, same(prelaunch));
+    expect(player.pending!.isCompleted, false);
+    player.pending!.complete();
+    expect((await prelaunch.take())?.player, same(player));
+    expect(prelaunch.hasPreparedMedia(media), true);
+    expect(player.loads, 1);
+    await player.dispose();
+    const target = VideoPlayTarget(
+      sourceId: 'source',
+      itemId: 'show',
+      title: 'show',
+      chapterIndex: 1,
+      chapterId: 'episode-2',
+      chapterTitle: 'episode 2',
+    );
+    library.setSetting(playbackEntryDirectionKey(target), 'landscape');
+    final second = _PreflightPlayer();
+    final secondEntry = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => second,
+    );
+    final directions = <List<dynamic>>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations') {
+        directions.add(call.arguments as List<dynamic>);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    expect(
+      await preparePlaybackRoute(
+        media,
+        library: library,
+        target: target,
+        prelaunch: secondEntry,
+      ),
+      same(secondEntry),
+    );
+    expect(directions.single, [
+      'DeviceOrientation.landscapeLeft',
+      'DeviceOrientation.landscapeRight',
+    ]);
+    expect(second.loads, 0);
+    await secondEntry.discard();
+
+    final sourceContent = ChapterContent.parse({
+      'kind': 'video',
+      'url': media.uri.toString(),
+      'width': '720',
+      'height': 1280,
+    }) as VideoContent;
+    final third = _PreflightPlayer();
+    final thirdEntry = PlayerPrelaunch.start(
+      PlayerKernel.avplayer,
+      factory: (_) => third,
+    );
+    await preparePlaybackRoute(
+      media,
+      library: library,
+      target: target,
+      prelaunch: thirdEntry,
+      sourceDirection: playbackDirectionFromDimensions(
+        sourceContent.width,
+        sourceContent.height,
+      ),
+      fallbackDirection: 'landscape',
+    );
+    expect(directions.last, ['DeviceOrientation.portraitUp']);
+    expect(third.loads, 0);
+    await thirdEntry.discard();
+  });
+
+  testWidgets(
+    'slow first load over 4s keeps its session instead of downloading again',
+    (tester) async {
+      final player = _PreflightPlayer()..pending = Completer<void>();
+      final prelaunch = PlayerPrelaunch.start(
+        PlayerKernel.avplayer,
+        factory: (_) => player,
+      );
+      final media = PlayerMedia(
+        uri: Uri.parse('https://example.test/slow.m3u8'),
+      );
+      final preparing = prelaunch.prepareMedia(media);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      expect(player.disposals, 0);
+      expect(player.loads, 1);
+      player.pending!.complete();
+      await tester.pump();
+      await preparing;
+      expect((await prelaunch.take())?.player, same(player));
+      expect(prelaunch.hasPreparedMedia(media), isTrue);
+      await player.dispose();
+    },
+  );
 
   test('timed out preflight disposes the loading instance and allows a fresh launch', () async {
     final player = _PreflightPlayer()..pending = Completer<void>();
@@ -213,6 +403,16 @@ void main() {
     expect(await launcher.launch(PlayerKernel.mpv), isNull);
     expect(PlayerFactory.mpvInitFailed, isTrue, reason: 'MPV 已判定失败');
   });
+}
+
+class _FailedMediaPlayer extends _FakePlayer {
+  _FailedMediaPlayer() : super(PlayerKernel.avplayer);
+  @override
+  Future<void> load(PlayerMedia media) async {
+    _snapshot.value = const PlayerSnapshot(
+      error: 'Could not connect to the server.',
+    );
+  }
 }
 
 class _PreflightPlayer extends _FakePlayer {

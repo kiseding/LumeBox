@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/source/source.dart';
 import '../../shared/widgets/video_glass_surface.dart';
+import '../../shared/widgets/glass_card.dart';
 import 'player_layout.dart';
 import 'danmaku/danmaku_panel.dart';
 import 'video_episode_catalog.dart';
@@ -14,8 +15,10 @@ class PlayerSourceLine {
     this.name, {
     this.current = false,
     this.available = true,
+    this.detail,
   });
   final String name;
+  final String? detail;
   final bool current, available;
 }
 
@@ -43,6 +46,7 @@ class PlayerSourceSheet extends StatefulWidget {
     this.onSelectEpisode,
     this.onSwitchLine,
     this.loadLines,
+    this.onBenchmarkLines,
     this.onSelectLine,
     this.initialTab = PlayerSourceTab.episodes,
     this.includeQualityTab = true,
@@ -50,10 +54,12 @@ class PlayerSourceSheet extends StatefulWidget {
     this.onViewChanged,
     this.artworkBuilder,
     this.fullBleed = false,
+    this.onPlaybackInfo,
   });
 
-  /// 竖屏抽屉铺满屏幕宽度：卡片贴边，只有工具条保留内边距。
+  /// 抽屉外壳铺满宽度，工具条与内容均保留左右 14 点内边距。
   final bool fullBleed;
+  final VoidCallback? onPlaybackInfo;
   final String address;
   final List<VideoQuality> qualities;
   final int currentIndex;
@@ -63,6 +69,7 @@ class PlayerSourceSheet extends StatefulWidget {
   final Future<bool> Function(int)? onSelectEpisode;
   final VoidCallback? onSwitchLine;
   final Future<List<PlayerSourceLine>> Function()? loadLines;
+  final Future<void> Function()? onBenchmarkLines;
   final Future<bool> Function(String)? onSelectLine;
   final PlayerSourceTab initialTab;
   final bool includeQualityTab;
@@ -81,7 +88,30 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   late PlayerEpisodeView _view = widget.initialView;
   double _rowExtent = 52;
   final _scroll = ScrollController();
+  bool _benchmarking = false;
   bool _busy = false, _reverse = false, _located = false;
+  final List<PlayerSourceTab> _tabHistory = [];
+  PlayerPanelBackController? _panelBack;
+  bool _backTab() {
+    if (_busy || _tabHistory.isEmpty) return _busy;
+    setState(() {
+      _tab = _tabHistory.removeLast();
+      _error = null;
+    });
+    return true;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = PlayerPanelScope.backOf(context);
+    if (_panelBack != next) {
+      if (_panelBack?.onBack == _backTab) _panelBack?.onBack = null;
+      _panelBack = next;
+      _panelBack?.onBack = _backTab;
+    }
+  }
+
   String? _error;
   int? _pending;
   int _columns = 4, _segment = 0;
@@ -90,6 +120,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   @override
   void dispose() {
+    if (_panelBack?.onBack == _backTab) _panelBack?.onBack = null;
     _scroll.dispose();
     super.dispose();
   }
@@ -402,16 +433,30 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                             ),
                     ),
                     selected: current,
+                    // Explicit state colors override the glass panel's chip
+                    // theme, which otherwise pairs a pale fill with white ink.
+                    color: WidgetStateProperty.resolveWith((states) {
+                      final colors = Theme.of(context).colorScheme;
+                      return states.contains(WidgetState.selected)
+                          ? colors.primary
+                          : colors.surfaceContainerHighest;
+                    }),
                     showCheckmark: false,
                     padding: EdgeInsets.zero,
                     labelPadding: const EdgeInsets.symmetric(horizontal: 2),
                     labelStyle: TextStyle(
                       fontSize: 13,
+                      fontWeight: current ? FontWeight.w600 : FontWeight.w500,
                       color: current
                           ? Theme.of(context).colorScheme.onPrimary
                           : Theme.of(context).colorScheme.onSurface,
                     ),
                     selectedColor: Theme.of(context).colorScheme.primary,
+                    side: BorderSide(
+                      color: current
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.outlineVariant,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -430,20 +475,25 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     if (widget.qualities.isEmpty) {
       return const Center(child: Text('当前片源未提供多画质选项'));
     }
-    return ListView(
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Text('按片源原始名称显示，切换后恢复当前进度', style: TextStyle(fontSize: 13)),
-        ),
-        for (var i = 0; i < widget.qualities.length; i++)
-          ListTile(
-            title: Text(widget.qualities[i].label),
-            trailing: i == widget.currentIndex ? const Icon(Icons.check) : null,
-            enabled: !_busy && widget.onSelectQuality != null,
-            onTap: () => _select(i, quality: true),
+    return SettingsSurfaceScope(
+      enabled: true,
+      child: SettingsSurfaceList(
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('按片源原始名称显示，切换后恢复当前进度', style: TextStyle(fontSize: 13)),
           ),
-      ],
+          for (var i = 0; i < widget.qualities.length; i++)
+            ListTile(
+              title: Text(widget.qualities[i].label),
+              trailing: i == widget.currentIndex
+                  ? const Icon(Icons.check)
+                  : null,
+              enabled: !_busy && widget.onSelectQuality != null,
+              onTap: () => _select(i, quality: true),
+            ),
+        ],
+      ),
     );
   }
 
@@ -459,8 +509,9 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
         if (snapshot.hasError) {
           return Center(
             child: TextButton(
-              onPressed: () =>
-                  setState(() => _lines = widget.loadLines?.call()),
+              onPressed: () => setState(() {
+                _lines = widget.loadLines?.call();
+              }),
               child: const Text('线路加载失败，点击重试'),
             ),
           );
@@ -478,6 +529,39 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               minVerticalPadding: 10,
               subtitle: Text('仅切换到对应集，保留当前进度和暂停状态'),
             ),
+            if (widget.onBenchmarkLines != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_benchmarking ? '正在逐条测速…' : '测速并排序'),
+                subtitle: const Text('每条请求最多 768 KiB，结果保留 6 小时；探测速度不等于播放速度'),
+                trailing: _benchmarking
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(),
+                      )
+                    : const Icon(Icons.speed),
+                onTap: _benchmarking || _busy
+                    ? null
+                    : () async {
+                        setState(() {
+                          _benchmarking = true;
+                          _error = null;
+                        });
+                        try {
+                          await widget.onBenchmarkLines!();
+                          if (mounted) {
+                            setState(() {
+                              _lines = widget.loadLines?.call();
+                            });
+                          }
+                        } catch (_) {
+                          if (mounted) setState(() => _error = '测速未完成，请重试');
+                        } finally {
+                          if (mounted) setState(() => _benchmarking = false);
+                        }
+                      },
+              ),
             const Divider(height: 20),
             for (final line in lines)
               ListTile(
@@ -489,11 +573,16 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: line.current
-                    ? const Text('当前线路')
-                    : !line.available
-                    ? const Text('没有对应集，请在详情页手动选择')
-                    : null,
+                subtitle: line.available && !line.current && line.detail == null
+                    ? null
+                    : Text(
+                        !line.available
+                            ? '没有对应集，请在详情页手动选择'
+                            : [
+                                if (line.current) '当前线路',
+                                if (line.detail != null) line.detail!,
+                              ].join(' · '),
+                      ),
                 enabled: !_busy && line.available,
                 trailing: line.current ? const Icon(Icons.check) : null,
                 onTap: () => line.current
@@ -511,22 +600,6 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
   }
 
   int _chapterCount = 0;
-  static const _jumpItem = -1;
-
-  IconData get _viewIcon => switch (_view) {
-    PlayerEpisodeView.grid => Icons.grid_view_rounded,
-    PlayerEpisodeView.list => Icons.view_list_rounded,
-    PlayerEpisodeView.cover => Icons.view_carousel_outlined,
-  };
-
-  void _cycleView() {
-    final next = PlayerEpisodeView
-        .values[(_view.index + 1) % PlayerEpisodeView.values.length];
-    setState(() => _view = next);
-    widget.onViewChanged?.call(next);
-    _locateCurrent();
-  }
-
   String _segmentLabel(int index) {
     final total = _chapterCount;
     final first = _reverse ? total - index * 50 : index * 50 + 1;
@@ -536,7 +609,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     return '$first–$last 集';
   }
 
-  /// 除选集卡片本身，面板里的开关一律收成右上角 34 逻辑像素的小图标。
+  /// 除选集卡片本身，面板里的开关一律收成右上角带 44 逻辑像素触控区的小图标。
   Widget _toolIcon(
     IconData icon,
     String tooltip, {
@@ -549,12 +622,11 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       onPressed: _busy ? null : onPressed,
       icon: Icon(icon, size: 18),
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      // 走 ButtonStyle 的 IconButton 会忽略 constraints，必须把尺寸写进样式，
-      // 否则默认 40×40 会把 8 个图标挤到第二行。
+      constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+      // 显式保留触控区；低频工具已收进更多，不再压缩按钮尺寸。
       style: IconButton.styleFrom(
-        minimumSize: const Size(32, 32),
-        maximumSize: const Size(32, 32),
+        minimumSize: const Size(44, 44),
+        maximumSize: const Size(44, 44),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         padding: EdgeInsets.zero,
         foregroundColor: selected ? colors.primary : colors.onSurfaceVariant,
@@ -566,175 +638,182 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     );
   }
 
-  Future<void> _pickSegment(BuildContext anchor) async {
-    final box = anchor.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (box == null || overlay == null) return;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final picked = await showMenu<int>(
-      context: context,
-      position: RelativeRect.fromRect(
-        origin & box.size,
-        Offset.zero & overlay.size,
-      ),
-      items: [
-        if (_chapterCount > 50)
-          for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
-            PopupMenuItem(value: i, child: Text(_segmentLabel(i))),
-        if (_chapterCount > 50) const PopupMenuDivider(),
-        // 跳转集数不再单独占图标，收进这个菜单里。
-        const PopupMenuItem<int>(value: _jumpItem, child: Text('跳转到第几集…')),
-      ],
-    );
-    if (picked == null || !mounted) return;
-    if (picked == _jumpItem) {
-      await _jump();
+  /// 信息卡走普通居中对话框：复用抽屉框会拉成一整条 40% 宽的白板。
+  Future<void> _showPlaybackInfo() async {
+    if (widget.onPlaybackInfo != null) {
+      widget.onPlaybackInfo!();
       return;
     }
-    setState(() {
-      _segment = picked;
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    });
-  }
-
-  /// 信息卡走普通居中对话框：复用抽屉框会拉成一整条 40% 宽的白板。
-  Future<void> _showPlaybackInfo() => showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('播放信息'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('播放地址', style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 6),
-          SelectableText(
-            widget.address.isEmpty ? '尚未获取地址' : widget.address,
-            style: const TextStyle(fontSize: 13),
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('播放信息'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('播放地址', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 6),
+            SelectableText(
+              widget.address.isEmpty ? '尚未获取地址' : widget.address,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: widget.address.trim().isEmpty
+                ? null
+                : () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: widget.address.trim()),
+                    );
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        duration: Duration(seconds: 1),
+                        content: Text('已复制播放地址'),
+                      ),
+                    );
+                  },
+            child: const Text('复制地址'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: widget.address.trim().isEmpty
-              ? null
-              : () async {
-                  await Clipboard.setData(
-                    ClipboardData(text: widget.address.trim()),
-                  );
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      duration: Duration(seconds: 1),
-                      content: Text('已复制播放地址'),
-                    ),
-                  );
-                },
-          child: const Text('复制地址'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 
-  /// 一行到底：左边集数，右边全部小图标；标题行与关闭按钮不再占位。
-  Widget _buildToolbar() {
-    final count =
-        !_qualityOnly && _tab == PlayerSourceTab.episodes && _chapterCount > 0;
-    return LayoutBuilder(
-      builder: (context, box) {
-        // 窄面板（最窄的 iPhone 横屏）优先保住一整排图标，集数让位。
-        final showCount = count && box.maxWidth >= 320;
-        return Row(
-          children: [
-            if (_qualityOnly)
-              const Text(
-                '画质',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              )
-            else if (showCount)
-              Text(
-                '共 $_chapterCount 集',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            Expanded(
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 0,
+  /// 主要分类保持文字可见，低频工具收进更多菜单。
+  Widget _buildToolbar() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
                 children: [
-                  if (!_qualityOnly) ...[
+                  if (_qualityOnly)
+                    const Text('画质')
+                  else
                     for (final entry in [
-                      (
-                        PlayerSourceTab.episodes,
-                        Icons.video_library_outlined,
-                        '选集',
-                      ),
-                      (PlayerSourceTab.lines, Icons.alt_route, '线路'),
+                      (PlayerSourceTab.episodes, '选集'),
+                      (PlayerSourceTab.lines, '线路'),
                       if (widget.includeQualityTab)
-                        (PlayerSourceTab.quality, Icons.hd_outlined, '画质'),
+                        (PlayerSourceTab.quality, '画质'),
                     ])
-                      _toolIcon(
-                        entry.$2,
-                        entry.$3,
-                        selected: _tab == entry.$1,
-                        onPressed: () => setState(() {
-                          _tab = entry.$1;
-                          _error = null;
-                        }),
-                      ),
-                    if (_tab == PlayerSourceTab.episodes) ...[
-                      _toolIcon(
-                        _viewIcon,
-                        '视图：${_view.label}',
-                        onPressed: _cycleView,
-                      ),
-                      _toolIcon(
-                        Icons.swap_vert,
-                        _reverse ? '倒序' : '正序',
-                        onPressed: () {
-                          setState(() => _reverse = !_reverse);
-                          _locateCurrent();
-                        },
-                      ),
-                      _toolIcon(
-                        Icons.my_location,
-                        '定位当前',
-                        onPressed: _chapterCount == 0 ? null : _locateCurrent,
-                      ),
-                      if (_chapterCount > 0)
-                        Builder(
-                          builder: (anchor) => _toolIcon(
-                            Icons.layers_outlined,
-                            _chapterCount > 50
-                                ? '分段：${_segmentLabel(_segment)}'
-                                : '跳转到第几集',
-                            onPressed: () => _pickSegment(anchor),
-                          ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(44, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          foregroundColor: _tab == entry.$1
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                          backgroundColor: _tab == entry.$1
+                              ? Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: .12)
+                              : null,
                         ),
-                    ],
-                  ],
-                  _toolIcon(
-                    Icons.info_outline,
-                    '播放信息',
-                    onPressed: _showPlaybackInfo,
-                  ),
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                if (_tab != entry.$1) _tabHistory.add(_tab);
+                                _tab = entry.$1;
+                                _error = null;
+                              }),
+                        child: Text(entry.$2),
+                      ),
                 ],
               ),
             ),
-          ],
-        );
-      },
-    );
-  }
+          ),
+          if (!_qualityOnly && _tab == PlayerSourceTab.episodes)
+            _toolIcon(
+              Icons.my_location,
+              '定位当前',
+              onPressed: _chapterCount == 0 ? null : _locateCurrent,
+            ),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            enabled: !_busy,
+            onSelected: (value) {
+              if (value == 'info') {
+                _showPlaybackInfo();
+                return;
+              }
+              if (value == 'jump') {
+                _jump();
+                return;
+              }
+              if (value == 'reverse') {
+                setState(() => _reverse = !_reverse);
+                _locateCurrent();
+                return;
+              }
+              if (value.startsWith('view:')) {
+                final next = PlayerEpisodeView.values.byName(
+                  value.substring(5),
+                );
+                setState(() => _view = next);
+                widget.onViewChanged?.call(next);
+                _locateCurrent();
+                return;
+              }
+              if (value.startsWith('segment:')) {
+                setState(() => _segment = int.parse(value.substring(8)));
+                if (_scroll.hasClients) _scroll.jumpTo(0);
+              }
+            },
+            itemBuilder: (_) => [
+              if (!_qualityOnly && _tab == PlayerSourceTab.episodes) ...[
+                for (final view in PlayerEpisodeView.values)
+                  CheckedPopupMenuItem(
+                    value: 'view:${view.name}',
+                    checked: _view == view,
+                    child: Text('视图：${view.label}'),
+                  ),
+                PopupMenuItem(
+                  value: 'reverse',
+                  child: Text(_reverse ? '倒序' : '正序'),
+                ),
+                if (_chapterCount > 50)
+                  for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
+                    CheckedPopupMenuItem(
+                      value: 'segment:$i',
+                      checked: _segment == i,
+                      child: Text(_segmentLabel(i)),
+                    ),
+                if (_chapterCount > 0)
+                  const PopupMenuItem(value: 'jump', child: Text('跳转到第几集…')),
+                const PopupMenuDivider(),
+              ],
+              const PopupMenuItem(value: 'info', child: Text('播放信息')),
+            ],
+            icon: const Icon(Icons.more_horiz),
+          ),
+        ],
+      ),
+      if (!_qualityOnly &&
+          _tab == PlayerSourceTab.episodes &&
+          _chapterCount > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            '共 $_chapterCount 集',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) => Material(
@@ -759,7 +838,8 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
             ),
             child: _buildToolbar(),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             Semantics(
@@ -776,11 +856,16 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               ),
             ),
           Expanded(
-            child: switch (_tab) {
-              PlayerSourceTab.episodes => _buildEpisodes(),
-              PlayerSourceTab.quality => _variants(),
-              PlayerSourceTab.lines => _buildLines(),
-            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.fullBleed ? 14 : 0,
+              ),
+              child: switch (_tab) {
+                PlayerSourceTab.episodes => _buildEpisodes(),
+                PlayerSourceTab.quality => _variants(),
+                PlayerSourceTab.lines => _buildLines(),
+              },
+            ),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:lume_box/shared/widgets/lume_icon.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/theme/frosted_settings.dart';
@@ -9,7 +10,6 @@ import 'package:lume_box/features/settings/settings_page.dart';
 import 'package:lume_box/features/settings/display_settings_group.dart';
 import 'package:lume_box/features/settings/liquid_glass_settings_page.dart';
 import 'package:lume_box/features/settings/configuration_settings_page.dart';
-import 'package:lume_box/features/settings/experience_settings_card.dart';
 import 'package:lume_box/shared/widgets/frosted_glass_widget.dart';
 import 'package:lume_box/shared/widgets/module_glass_scope.dart';
 
@@ -110,10 +110,12 @@ void main() {
     restored.dispose();
   });
   testWidgets('材质参数进入真实表面，高对比度自动使用实色', (tester) async {
-    await FrostedSettings.instance.setStyle(
-      GlassModule.video,
-      GlassPart.cards,
-      const LiquidGlassStyle().withValue(GlassParameter.opacity, .25),
+    await tester.runAsync(
+      () => FrostedSettings.instance.setStyle(
+        GlassModule.video,
+        GlassPart.cards,
+        const LiquidGlassStyle().withValue(GlassParameter.opacity, .25),
+      ),
     );
     Widget scene(bool contrast) => MaterialApp(
       home: MediaQuery(
@@ -163,8 +165,18 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byType(DisplaySettingsGroup), findsNothing);
+        await tester.scrollUntilVisible(
+          find.text('个性与界面').hitTestable(),
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
         await tester.tap(find.text('个性与界面'));
         await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byType(DisplaySettingsGroup),
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.byType(DisplaySettingsGroup), findsOneWidget);
         await tester.scrollUntilVisible(
           find.text('页面底色').hitTestable(),
@@ -187,7 +199,7 @@ void main() {
       });
     }
   }
-  testWidgets('首页搜索定位功能，使用体验从配置备份移至阅读播放', (tester) async {
+  testWidgets('首页目录进入功能，使用体验保留在阅读播放', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
@@ -195,16 +207,25 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('settings-search')),
-      '后台播放',
-    );
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-search')), findsNothing);
     expect(find.text('阅读与播放'), findsOneWidget);
     await tester.tap(find.text('阅读与播放'));
     await tester.pumpAndSettle();
-    expect(find.byType(ExperienceSettingsCard), findsOneWidget);
-    expect(find.text('后台播放'), findsOneWidget);
+    expect(find.text('小说设置'), findsOneWidget);
+    expect(find.text('漫画设置'), findsOneWidget);
+    expect(find.text('播放器设置'), findsOneWidget);
+    final glyph = find.byWidgetPredicate(
+      (widget) => widget is LumeIcon && widget.slot == 'settings.entry.播放器设置',
+    );
+    final icon = tester.widget<LumeIcon>(glyph);
+    expect(icon.icon, Icons.play_circle_filled);
+    expect(icon.size, 18, reason: '二级图标尺寸保持不变');
+    expect(icon.color, Colors.white);
+    final tile = tester.widget<Container>(
+      find.ancestor(of: glyph, matching: find.byType(Container)).first,
+    );
+    expect((tile.decoration as BoxDecoration).color?.a, 1, reason: '图标底色为实体彩色');
+
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
     await tester.pumpWidget(
@@ -236,12 +257,14 @@ void main() {
       240,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.drag(
-      find.byKey(const ValueKey('native-glass-tint')),
-      const Offset(40, 0),
-    );
+    await tester.runAsync(() async {
+      await tester.drag(
+        find.byKey(const ValueKey('native-glass-tint')),
+        const Offset(40, 0),
+      );
+      await FrostedSettings.instance.save();
+    });
     await tester.pumpAndSettle();
-    await tester.runAsync(() => FrostedSettings.instance.save());
     expect(FrostedSettings.instance.native.tintOpacity, greaterThan(0));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());

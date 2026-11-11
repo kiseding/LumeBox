@@ -16,15 +16,34 @@ enum HapticStrength {
 class AppPreferences {
   static final instance = AppPreferences();
   bool haptics = false, backgroundPlayback = true, autoBackup = false;
+  static const maxSettingsShortcuts = 4;
+  static const defaultSettingsShortcuts = ['appearance', 'sources', 'player'];
+  List<String> settingsShortcuts = List.of(defaultSettingsShortcuts);
   HapticStrength hapticStrength = HapticStrength.medium;
+  Map<String, dynamic> mediaBadges = {};
+  Map<String, dynamic> experience = {};
   File? file;
-  Future<void> boot() async {
+  Future<void> boot({Directory? directory}) async {
     file = File(
-      '${(await getApplicationSupportDirectory()).path}/app_preferences.json',
+      '${(directory ?? await getApplicationSupportDirectory()).path}/app_preferences.json',
     );
     if (!file!.existsSync()) return;
     try {
       final data = jsonDecode(file!.readAsStringSync()) as Map;
+      mediaBadges = Map<String, dynamic>.from(
+        data['mediaBadges'] is Map ? data['mediaBadges'] : {},
+      );
+      experience = Map<String, dynamic>.from(
+        data['experience'] is Map ? data['experience'] : {},
+      );
+      final shortcuts = data['settingsShortcuts'];
+      settingsShortcuts = shortcuts is List
+          ? shortcuts
+                .whereType<String>()
+                .toSet()
+                .take(maxSettingsShortcuts)
+                .toList()
+          : List.of(defaultSettingsShortcuts);
       haptics = data['haptics'] == true;
       hapticStrength =
           HapticStrength.values
@@ -45,10 +64,13 @@ class AppPreferences {
     final temp = File('${target.path}.tmp');
     temp.writeAsStringSync(
       jsonEncode({
+        'settingsShortcuts': settingsShortcuts,
         'haptics': haptics,
         'hapticStrength': hapticStrength.name,
         'backgroundPlayback': backgroundPlayback,
         'autoBackup': autoBackup,
+        'mediaBadges': mediaBadges,
+        'experience': experience,
       }),
       flush: true,
     );

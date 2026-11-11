@@ -1,16 +1,21 @@
+import '../experience/experience_settings_page.dart';
+import '../experience/content_center_page.dart';
+import 'media_badge_settings_page.dart';
+import '../source/total_subscription_import_entry.dart';
+import '../reading/continue_activity_page.dart';
 import 'performance_page.dart';
 import '../comic/download_center_page.dart';
 import '../video/player_settings_host.dart';
-import '../comic/comic_reader_settings_host.dart';
+import '../comic/comic_settings_page.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
 import 'diagnostic_export_tile.dart';
 import 'configuration_settings_page.dart';
 import 'privacy_settings_page.dart';
-import '../comic/comic_image_tools_page.dart';
 import 'total_subscription_page.dart';
 import 'subscription_sync_page.dart';
+import '../../core/source/source_subscription_sync.dart';
 import 'tmdb_settings_page.dart';
 import 'preload_settings_page.dart';
 import 'search_settings_page.dart';
@@ -31,13 +36,16 @@ import '../../core/util/lume_log.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/notice_card.dart';
 import '../source/global_source_page.dart';
-import '../source/source_repository_page.dart';
 import '../source/tvbox_import_page.dart';
-import 'app_icon_settings_page.dart';
+import '../source/source_subscription_page.dart';
+import '../cat/cat_subscription_page.dart';
+import '../../core/session/section.dart';
 import 'cache_settings_page.dart';
 import 'display_settings_group.dart';
 import 'navigation_settings_page.dart';
+import 'liquid_glass_settings_page.dart';
 import 'experience_settings_card.dart';
+import 'novel_settings_page.dart';
 import 'debug_panel_page.dart';
 import 'network_settings_page.dart';
 import 'log_report.dart';
@@ -46,7 +54,10 @@ import 'log_viewer_page.dart';
 import 'sandbox_settings_page.dart';
 import 'bangumi_settings_page.dart';
 import 'settings_ui.dart';
-import 'translation_languages_page.dart';
+import '../../core/theme/appearance.dart';
+import '../../core/session/privacy_settings.dart';
+import 'global_translation_settings_page.dart';
+import 'private_subscription_settings_page.dart';
 
 import 'section_cache.dart';
 import 'usage_guide_page.dart';
@@ -87,36 +98,49 @@ class SettingsPage extends StatelessWidget {
     }
     final entries = _entries(context);
     final descriptions = <String, String>{
-      '个性与界面': '外观、配色与图标',
+      '个性与界面': '外观、配色、图标与触感',
       '导航与首页': '首页布局、导航与液态玻璃',
-      '阅读与播放': '播放、图片工具与使用体验',
-      '内容与订阅': '订阅、源与搜索偏好',
-      '网络与服务': '网络连接与第三方服务',
+      '阅读与播放': '小说、漫画、视频与音频设置',
+      '内容与订阅': '继续记录、内容追更与订阅管理',
+      '网络与服务': '全局翻译、网络与第三方服务',
       '存储与安全': '缓存、备份与隐私保护',
       '诊断与关于': '使用帮助、诊断与版本信息',
     };
     final icons = [
-      Icons.palette_outlined,
-      Icons.dashboard_outlined,
-      Icons.play_circle_outline,
-      Icons.subscriptions_outlined,
-      Icons.wifi_outlined,
-      Icons.shield_outlined,
-      Icons.info_outline,
+      Icons.palette,
+      Icons.dashboard,
+      Icons.play_circle_filled,
+      Icons.subscriptions,
+      Icons.wifi,
+      Icons.shield,
+      Icons.info,
     ];
     final groups = <SettingsCategory>[];
     for (final entry in entries) {
-      if (entry is SettingsGroupTitle) {
+      if (entry is SettingsGroupTitle && descriptions.containsKey(entry.text)) {
         groups.add(
           SettingsCategory(
             entry.text,
             descriptions[entry.text]!,
             icons[groups.length],
             [],
+            status: switch (entry.text) {
+              '个性与界面' =>
+                () => switch (AppearanceController.instance.settings.mode) {
+                  ThemeMode.system => '跟随系统',
+                  ThemeMode.light => '浅色',
+                  ThemeMode.dark => '深色',
+                },
+              '存储与安全' =>
+                () => PrivacySettings.instance.appLock ? '应用锁已开启' : '应用锁未开启',
+              _ => null,
+            },
             keywords: entry.text == '个性与界面'
-                ? '外观 主题色 页面底色 App 图标 应用图标库'
+                ? '外观 主题色 页面底色 App 图标 应用图标库 触感反馈 触感强度'
                 : entry.text == '阅读与播放'
-                ? '触感反馈 触感强度 后台播放'
+                ? '播放器设置 视频播放器 后台播放 字号 行距 朗读 漫画 图片工具 音频 内核 弹幕'
+                : entry.text == '诊断与关于'
+                ? '问题排查 高级设置 诊断包 导出诊断包'
                 : '',
           ),
         );
@@ -124,9 +148,20 @@ class SettingsPage extends StatelessWidget {
         groups.last.children.add(entry);
       }
     }
+    groups.add(
+      SettingsCategory(
+        '源管理',
+        '添加源、批量检测和管理站点',
+        Icons.layers_outlined,
+        const [],
+        status: () => '全部站点',
+        onTap: () => _push(context, const GlobalSourcePage()),
+      ),
+    );
     const priority = [
       '阅读与播放',
       '内容与订阅',
+      '源管理',
       '个性与界面',
       '导航与首页',
       '存储与安全',
@@ -140,7 +175,54 @@ class SettingsPage extends StatelessWidget {
       effectModule: GlassModule.settings,
       behindBar: true,
       title: '设置',
-      child: SettingsHome(categories: groups),
+      child: SettingsIconScope(
+        child: SettingsHome(
+          categories: groups,
+          footer: const _SettingsVersionFooter(),
+          shortcuts: [
+            SettingsShortcut(
+              'appearance',
+              '外观',
+              Icons.palette_outlined,
+              () => _push(
+                context,
+                SettingsCategoryPage(
+                  category: groups.firstWhere((c) => c.title == '个性与界面'),
+                ),
+              ),
+            ),
+            SettingsShortcut(
+              'sources',
+              '源管理',
+              Icons.layers_outlined,
+              () => _push(context, const GlobalSourcePage()),
+            ),
+            SettingsShortcut(
+              'player',
+              '播放器',
+              Icons.play_circle_outline,
+              () => _push(context, const PlayerSettingsHost()),
+            ),
+            for (final item in [
+              ('reading', '阅读', '阅读与播放', Icons.menu_book_outlined),
+              ('subscriptions', '订阅', '内容与订阅', Icons.subscriptions_outlined),
+              ('network', '网络', '网络与服务', Icons.wifi),
+              ('storage', '存储', '存储与安全', Icons.storage_outlined),
+            ])
+              SettingsShortcut(
+                item.$1,
+                item.$2,
+                item.$4,
+                () => _push(
+                  context,
+                  SettingsCategoryPage(
+                    category: groups.firstWhere((c) => c.title == item.$3),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -154,15 +236,12 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.apps_outlined,
       title: 'App 图标',
-      subtitle: '更换主屏幕图标（7 种配色）',
-      onTap: () => _push(context, const AppIconSettingsPage()),
-    ),
-    SettingsEntryCard(
-      icon: Icons.interests_outlined,
-      title: '应用图标库',
-      subtitle: '逐项换图标 · 长按编辑 · 导入自己的图片和图标包',
+      subtitle: '主屏幕图标 · App 内图标 · 图标包',
       onTap: () => _push(context, const IconLibraryPage()),
     ),
+    const SettingsGroupTitle('交互体验'),
+    const ExperienceSettingsCard(),
+    const SizedBox(height: 12),
     const SettingsGroupTitle('导航与首页'),
     const AdaptiveColorSetting(),
     const SizedBox(height: 12),
@@ -174,26 +253,93 @@ class SettingsPage extends StatelessWidget {
       onTap: () => _push(context, const NavigationPreferencesPage()),
     ),
     SettingsEntryCard(
+      icon: Icons.blur_on_outlined,
+      title: '原生液态玻璃',
+      subtitle: '全局预览、材质风格与染色',
+      onTap: () => _push(context, const LiquidGlassSettingsPage()),
+    ),
+    SettingsEntryCard(
       icon: Icons.visibility_outlined,
       title: '内容分类显示',
       subtitle: '选择首页可见的内容类型',
       onTap: () => _push(context, const ContentVisibilityPage()),
     ),
 
+    SettingsEntryCard(
+      icon: Icons.search,
+      title: '搜索',
+      subtitle: '搜索自动繁转简 / 精确搜索',
+      onTap: () => _push(context, const SearchSettingsPage()),
+    ),
     const SettingsGroupTitle('阅读与播放'),
-    const ExperienceSettingsCard(),
-    const SizedBox(height: 12),
+    const SettingsGroupTitle('阅读', topPadding: 0),
+    SettingsEntryCard(
+      icon: Icons.menu_book_outlined,
+      title: '小说设置',
+      subtitle: '字号、行距、阅读主题与朗读',
+      searchTargets: {
+        '小说字号': () => _push(context, const NovelSettingsPage(focus: 'font')),
+        '小说行距': () => _push(context, const NovelSettingsPage(focus: 'height')),
+        '小说朗读': () => _push(context, const NovelSettingsPage(focus: 'speech')),
+      },
+      onTap: () => _push(context, const NovelSettingsPage()),
+    ),
     SettingsEntryCard(
       icon: Icons.auto_stories_outlined,
-      title: '漫画阅读器设置',
-      subtitle: '布局、音量键翻页、自动阅读与图片翻译 · 与阅读页同步',
-      onTap: () => _push(context, const ComicReaderSettingsHost()),
+      title: '漫画设置',
+      subtitle: '阅读器、图片处理与漫画翻译',
+      searchTargets: {
+        '漫画阅读器设置': () => _push(context, const ComicSettingsPage()),
+        '漫画翻页': () => _push(context, const ComicSettingsPage()),
+        'AI 图片超分与上色': () =>
+            _push(context, const ComicSettingsPage(initialTab: 'images')),
+      },
+      onTap: () => _push(context, const ComicSettingsPage()),
+    ),
+    const SettingsGroupTitle('播放'),
+    SettingsEntryCard(
+      icon: Icons.auto_awesome_outlined,
+      title: '内容与播放增强',
+      subtitle: '离线策略、字幕、源档案与摘录',
+      onTap: () => _push(context, const ExperienceSettingsPage()),
+    ),
+    SettingsEntryCard(
+      icon: Icons.label_outline,
+      title: '媒体徽章',
+      subtitle: '规格标签、显示位置与样式预览',
+      onTap: () => _push(context, const MediaBadgeSettingsPage()),
     ),
     SettingsEntryCard(
       icon: Icons.play_circle_outline,
       title: '播放器设置',
-      subtitle: '内核、倍速、字幕与弹幕',
+      subtitle: '画面、字幕与播放行为',
+      searchTargets: {
+        for (final entry in const [
+          ('playback', '播放与选集'),
+          ('intro', '片头片尾'),
+          ('picture', '画面与显示'),
+          ('audio', '声音与字幕'),
+          ('controls', '手势与外观'),
+          ('advanced', '内核与网络'),
+          ('playback', '播放倍速'),
+          ('playback', '后台播放'),
+          ('audio', '字幕'),
+        ])
+          entry.$2: () =>
+              _push(context, PlayerSettingsHost(focusCategory: entry.$1)),
+      },
       onTap: () => _push(context, const PlayerSettingsHost()),
+    ),
+    SettingsEntryCard(
+      icon: Icons.comment_outlined,
+      title: '弹幕服务',
+      subtitle: '弹幕源、显示样式、匹配与屏蔽',
+      searchTargets: {
+        '弹幕与匹配': () =>
+            _push(context, const PlayerSettingsHost(focusCategory: 'danmaku')),
+      },
+      onTap: () =>
+          _push(context, const PlayerSettingsHost(focusCategory: 'danmaku')),
     ),
     SettingsEntryCard(
       icon: Icons.headphones_outlined,
@@ -201,64 +347,79 @@ class SettingsPage extends StatelessWidget {
       subtitle: '独立音频内核 · 后台与锁屏控制',
       onTap: () => _push(context, const AudioPlaybackSettingsPage()),
     ),
-    SettingsEntryCard(
-      icon: Icons.auto_fix_high_outlined,
-      title: 'AI 图片超分与上色',
-      subtitle: '漫画 / 美图 AI 超分 · AI 上色 · waifu2x 模型管理',
-      onTap: () => _push(context, const ComicImageToolsSettingsPage()),
-    ),
-    SettingsEntryCard(
-      icon: Icons.translate,
-      title: '翻译语言包',
-      subtitle: '一次下载所有可用语言包 · 各个源共用',
-      onTap: () => _push(context, const TranslationLanguagesPage()),
-    ),
-    SettingsEntryCard(
-      icon: Icons.translate,
-      title: '全局翻译',
-      subtitle: '标题、搜索与漫画共用 · 系统 / AI / 自动补译',
-      onTap: () =>
-          _push(context, const ComicImageToolsSettingsPage(translation: true)),
-    ),
 
     const SettingsGroupTitle('内容与订阅'),
+    const SettingsGroupTitle('记录与追更', topPadding: 0),
     SettingsEntryCard(
-      icon: Icons.playlist_add,
-      title: 'TVBox 聚合配置导入',
-      subtitle: '采集接口、Python 与直播列表 · 逐项预览和导入',
-      onTap: () => _push(context, const TvBoxImportPage()),
+      icon: Icons.dashboard_outlined,
+      title: '内容中心',
+      subtitle: '统一继续、作品追更、版本关联与摘录',
+      onTap: () => _push(context, const ContentCenterPage()),
     ),
     SettingsEntryCard(
-      icon: Icons.cloud_upload_outlined,
-      title: 'GitHub 仓库源管理',
-      subtitle: '授权后直接新增或删除远端源文件，更新公共订阅',
-      onTap: () => _push(context, const SourceRepositoryPage()),
+      icon: Icons.history,
+      title: '继续看／读／听',
+      subtitle: '汇总视频、漫画、小说与听书进度',
+      onTap: () => _push(context, const ContinueActivityPage()),
+    ),
+
+    const SettingsGroupTitle('源与订阅'),
+    const TotalSubscriptionImportEntry(),
+    for (final section in [Section.comic, Section.video])
+      ValueListenableBuilder<int>(
+        valueListenable: SourceSubscriptionSync.changeCount(section),
+        builder: (context, count, _) => SettingsEntryCard(
+          icon: Icons.subscriptions_outlined,
+          title: '${section.label}订阅',
+          subtitle: count == 0 ? '添加、选择安装及更新订阅源' : '$count 项新增、更新或移除，点击查看处理',
+          trailing: Badge(
+            isLabelVisible: count > 0,
+            label: Text(count > 99 ? '99+' : '$count'),
+            child: const Icon(Icons.chevron_right),
+          ),
+          onTap: () => _push(context, SourceSubscriptionPage(section: section)),
+        ),
+      ),
+    SettingsEntryCard(
+      icon: Icons.pets_outlined,
+      title: '猫源订阅',
+      subtitle: '管理猫源订阅和站点',
+      onTap: () => _push(context, const CatSubscriptionPage()),
     ),
     SettingsEntryCard(
       icon: Icons.sync,
       title: '一键同步全部订阅',
-      subtitle: '立即更新漫画、视频和猫源订阅 · 查看逐项结果',
+      subtitle: '更新漫画、视频和猫源订阅',
       onTap: () => _push(context, const SubscriptionSyncPage()),
+    ),
+    const SettingsGroupTitle('高级导入'),
+    SettingsEntryCard(
+      icon: Icons.lock_outline,
+      title: '私有 GitHub 订阅',
+      subtitle: '配置仓库和只读 Token',
+      onTap: () => _push(context, const PrivateSubscriptionSettingsPage()),
     ),
     SettingsEntryCard(
       icon: Icons.subscriptions_outlined,
       title: '总订阅导入导出',
-      subtitle: '漫画、视频订阅一键导入，或导出订阅地址',
       onTap: () => _push(context, const TotalSubscriptionPage()),
     ),
     SettingsEntryCard(
-      icon: Icons.tune,
-      title: '源总管理',
-      subtitle: '漫画 / 视频 / 猫源的源总览与批量管理',
-      onTap: () => _push(context, const GlobalSourcePage()),
-    ),
-    SettingsEntryCard(
-      icon: Icons.search,
-      title: '搜索',
-      subtitle: '搜索自动繁转简 / 精确搜索',
-      onTap: () => _push(context, const SearchSettingsPage()),
+      icon: Icons.playlist_add,
+      title: 'TVBox 聚合配置导入',
+      onTap: () => _push(context, const TvBoxImportPage()),
     ),
     const SettingsGroupTitle('网络与服务'),
+    SettingsEntryCard(
+      icon: Icons.translate,
+      title: '全局翻译',
+      subtitle: '翻译方式、AI 配置与系统语言包',
+      searchTargets: {
+        '翻译语言包': () => _push(context, const GlobalTranslationSettingsPage()),
+      },
+      onTap: () => _push(context, const GlobalTranslationSettingsPage()),
+    ),
+
     SettingsEntryCard(
       icon: Icons.wifi_tethering,
       title: '网络设置',
@@ -294,18 +455,22 @@ class SettingsPage extends StatelessWidget {
       icon: Icons.download_outlined,
       title: '下载中心',
       subtitle: '暂停、继续、失败重试与重开恢复',
+      searchTargets: {
+        '下载路径与文件': () => _push(context, const DownloadCenterPage()),
+      },
       onTap: () => _push(context, const DownloadCenterPage()),
     ),
+    const SettingsGroupTitle('存储与缓存'),
     SettingsEntryCard(
       icon: Icons.downloading_outlined,
       title: '预载与清理',
-      subtitle: '视频 / 图片 / 音频预载 · TMDB · 源图标 · 历史',
+      subtitle: '视频磁盘缓冲、下一集预载与清理策略',
       onTap: () => _push(context, const PreloadSettingsPage()),
     ),
     SettingsEntryCard(
       icon: Icons.cleaning_services_outlined,
       title: '缓存管理',
-      subtitle: '按板块清理磁盘缓存与内存缓存（漫画板块的图片缓存已关闭）',
+      subtitle: '按板块统计和清理，不删除收藏及已保存内容',
       onTap: () => _push(context, CacheSettingsPage(service: cacheService)),
     ),
     SettingsEntryCard(
@@ -322,63 +487,50 @@ class SettingsPage extends StatelessWidget {
     ),
 
     const SettingsGroupTitle('诊断与关于'),
-    SettingsEntryCard(
-      icon: Icons.speed,
-      title: '流畅度采集',
-      subtitle: '长列表、翻页、切集与清理的帧耗时报告',
-      onTap: () => _push(context, const PerformancePage()),
-    ),
+    const SettingsGroupTitle('问题排查', topPadding: 0),
+    ..._diagnosticEntries(context),
     SettingsEntryCard(
       icon: Icons.menu_book_outlined,
       title: '使用说明',
       subtitle: '源导入、听书与在线接口、漫画翻译与超分、播放器、备份与隐私',
       onTap: () => _push(context, const UsageGuidePage()),
     ),
+    const SettingsGroupTitle('高级设置'),
     SettingsEntryCard(
-      icon: Icons.tune,
-      title: '高级设置',
-      subtitle: '沙箱执行限制 · 请求抓包 · JS 上下文统计',
-      searchTargets: {
-        '沙箱设置': () => _push(context, const SandboxSettingsPage()),
-        '调试面板': () => _push(context, const DebugPanelPage()),
-      },
-      onTap: () => _push(
-        context,
-        SettingsCategoryPage(
-          category: SettingsCategory('高级设置', '脚本执行与开发排查工具', Icons.tune, [
-            SettingsEntryCard(
-              icon: Icons.hourglass_bottom_outlined,
-              title: '沙箱设置',
-              subtitle: '脚本执行超时与运行限制',
-              onTap: () => _push(context, const SandboxSettingsPage()),
-            ),
-            SettingsEntryCard(
-              icon: Icons.bug_report_outlined,
-              title: '调试面板',
-              subtitle: '请求抓包与 JS 上下文统计；抓包默认关闭',
-              onTap: () => _push(context, const DebugPanelPage()),
-            ),
-          ]),
-        ),
-      ),
+      icon: Icons.hourglass_bottom_outlined,
+      title: '沙箱设置',
+      subtitle: '脚本执行超时与运行限制',
+      onTap: () => _push(context, const SandboxSettingsPage()),
+    ),
+    SettingsEntryCard(
+      icon: Icons.bug_report_outlined,
+      title: '调试面板',
+      subtitle: '请求抓包与 JS 上下文统计；抓包默认关闭',
+      onTap: () => _push(context, const DebugPanelPage()),
+    ),
+    const _BuildInfoRow(),
+  ];
+
+  List<Widget> _diagnosticEntries(BuildContext context) => [
+    SettingsEntryCard(
+      icon: Icons.speed,
+      title: '流畅度采集',
+      subtitle: '源加载耗时与帧耗时报告',
+      onTap: () => _push(context, const PerformancePage()),
     ),
     SettingsEntryCard(
       icon: Icons.receipt_long_outlined,
       title: '运行日志',
-      subtitle: '查看本次运行的日志：信息 / 警告 / 错误',
+      subtitle: '本次与上次会话记录',
       onTap: () => _push(context, LogViewerPage(exporter: exporter)),
     ),
     SettingsEntryCard(
       icon: Icons.file_upload_outlined,
       title: '错误报告',
-      subtitle: '把错误与警告整理成报告，导出文件或复制全文',
+      subtitle: '整理错误与警告并导出',
       onTap: () => _push(context, LogReportPage(exporter: exporter)),
     ),
-
-    // 额外的诊断工具：放在用户点名的四项之后，不打断「沙箱 → 日志 →
-    // 错误报告 → 调试面板 → 关于」的顺序。
     const DiagnosticExportTile(),
-    const _BuildInfoRow(),
   ];
 
   void _push(BuildContext context, Widget page) {
@@ -487,4 +639,26 @@ class _BuildInfoRowState extends State<_BuildInfoRow> {
       },
     );
   }
+}
+
+class _SettingsVersionFooter extends StatefulWidget {
+  const _SettingsVersionFooter();
+  @override
+  State<_SettingsVersionFooter> createState() => _SettingsVersionFooterState();
+}
+
+class _SettingsVersionFooterState extends State<_SettingsVersionFooter> {
+  late final Future<PackageInfo> info = PackageInfo.fromPlatform();
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PackageInfo>(
+    future: info,
+    builder: (context, snapshot) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: Text(
+        snapshot.hasData ? 'LumeBox · ${snapshot.data!.version}' : 'LumeBox',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 12, color: LumeTheme.textSecondary),
+      ),
+    ),
+  );
 }

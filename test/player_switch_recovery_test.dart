@@ -1,3 +1,9 @@
+import 'package:lume_box/features/video/player_settings_sheet.dart';
+import 'package:lume_box/features/video/source_playback_profiles.dart';
+import 'package:lume_box/features/video/video_player_settings.dart';
+
+import 'dart:async';
+
 import 'package:lume_box/features/video/player_kernel_picker.dart';
 
 import 'dart:io';
@@ -68,6 +74,7 @@ void main() {
   Future<void> pumpVideo(
     WidgetTester tester, {
     required AbstractPlayer? Function(PlayerKernel) factory,
+    String? sourceId,
     Set<PlayerKernel> available = const <PlayerKernel>{
       PlayerKernel.avplayer,
       PlayerKernel.mpv,
@@ -80,6 +87,7 @@ void main() {
         theme: LumeTheme.build(),
         home: VideoPlayerPage(
           fullscreenOnly: false,
+          sourceId: sourceId,
           media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
           catalog: _Catalog(available),
           playerFactory: factory,
@@ -88,6 +96,82 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('独立源内核启动不污染全局，关闭后恢复全局内核', (tester) async {
+    final library = ReadingLibrary.find(Section.video)!;
+    final global = VideoPlayerSettingsStore(library);
+    global.save(const PlayerSettings());
+    final profiles = SourcePlaybackProfiles(library);
+    profiles.save(
+      'profile-source',
+      const PlayerSettings().copyWith(kernel: PlayerKernel.mpv, speed: 1.5),
+      15,
+    );
+    final created = <_FakePlayer>[];
+    await pumpVideo(
+      tester,
+      sourceId: 'profile-source',
+      factory: (kernel) {
+        final player = _FakePlayer(kernel);
+        created.add(player);
+        return player;
+      },
+    );
+    expect(created.single.kernel, PlayerKernel.mpv);
+    expect(global.load().kernel, PlayerKernel.avplayer);
+    await tester.tap(find.byTooltip('播放器设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('player-category-advanced')),
+    );
+    await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const ValueKey('source-playback-profile'));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(profiles.contains('profile-source'), isFalse);
+    expect(created.last.kernel, PlayerKernel.avplayer);
+    expect(global.load().kernel, PlayerKernel.avplayer);
+    expect(
+      tester
+          .widget<PlayerSettingsSheet>(find.byType(PlayerSettingsSheet))
+          .settings
+          .kernel,
+      PlayerKernel.avplayer,
+    );
+  });
+
+  testWidgets('正常准备不闪提示卡，慢启动三秒后显示重试且就绪后消失', (tester) async {
+    final ready = Completer<void>();
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LumeTheme.build(),
+        home: VideoPlayerPage(
+          fullscreenOnly: false,
+          media: PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+          catalog: const _Catalog({PlayerKernel.avplayer}),
+          playerFactory: (kernel) => _SlowPlayer(kernel, ready.future),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('正在准备 AVPlayer 播放器…'), findsNothing);
+    expect(find.text('切回 AVPlayer'), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('正在准备 AVPlayer 播放器…'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('切回 AVPlayer'), findsNothing);
+    ready.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('正在准备 AVPlayer 播放器…'), findsNothing);
+    expect(find.text('fake:avplayer'), findsOneWidget);
+  });
 
   testWidgets('AVPlayer 分段响应失败自动接续 MPV，MPV 再失败不循环切换', (tester) async {
     final created = <_FakePlayer>[];
@@ -112,6 +196,31 @@ void main() {
     expect(created.length, 2);
     expect(find.text('源站拒绝了访问'), findsOneWidget);
   });
+
+  for (final error in [
+    'Failed to load video: This media format is not supported (OSStatus error -12847.)',
+    '打开失败：当前内核无法打开该媒体，可能是封装、编码或数据不完整；请更换内核或线路',
+  ]) {
+    testWidgets('AVPlayer 媒体兼容失败自动接续 MPV：$error', (tester) async {
+      final created = <_FakePlayer>[];
+      await pumpVideo(
+        tester,
+        factory: (kernel) {
+          final player = _FakePlayer(kernel);
+          created.add(player);
+          return player;
+        },
+      );
+      created.first.emit(error: error);
+      await tester.pumpAndSettle();
+      expect(created.map((p) => p.kernel), [
+        PlayerKernel.avplayer,
+        PlayerKernel.mpv,
+      ]);
+      expect(created.first.disposals, 1);
+      expect(created.last.plays, greaterThan(0));
+    });
+  }
 
   group('控制栏在任何状态下都在', () {
     testWidgets('内核起不来：给出「重试 / 切回 AVPlayer」，齿轮与地址栏仍在', (tester) async {
@@ -173,6 +282,10 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'), warnIfMissed: false);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
       // 设置是弹窗：选 MPV 后用它自己的关闭按钮收起。
@@ -215,6 +328,10 @@ void main() {
       // 「还在准备」的提示——那条 SnackBar 会盖住控制栏，真机上点哪都没反应）。
       expect(find.byType(SnackBar), findsNothing, reason: '失败态不弹误导性提示');
       await tester.tap(find.byTooltip('播放器设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
@@ -296,6 +413,10 @@ void main() {
 
       await tester.tap(find.byTooltip('播放器设置'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('player-category-advanced')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
       await tester.pumpAndSettle();
       // 同一帧里连点两次：第二次选择让第一次的重建作废。
@@ -362,6 +483,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('播放器设置'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('player-category-advanced')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('player-category-advanced')));
     await tester.pumpAndSettle();
@@ -468,4 +593,12 @@ class _FakePlayer extends AbstractPlayer {
   Future<void> dispose() async {
     disposals++;
   }
+}
+
+class _SlowPlayer extends _FakePlayer {
+  _SlowPlayer(super.kernel, this.ready);
+  final Future<void> ready;
+
+  @override
+  Future<void> initialize() => ready;
 }

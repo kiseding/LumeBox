@@ -186,9 +186,11 @@ private final class AetherSession: NSObject, FlutterStreamHandler {
     result.confirmAtmos = true
     let language = options["subtitleLanguage"] as? String ?? "source"
     if language != "source" && language != "off" { result.preferredSubtitleLanguages = [language] }
-    let seconds = options["forwardBufferSeconds"] as? Double ?? 15
-    result.forwardBufferSegments = max(1, Int(ceil(seconds / 2)))
-    result.sessionCacheByteBudget = options["maxBufferBytes"] as? Int ?? 64 * 1024 * 1024
+    let seconds = options["forwardBufferSeconds"] as? Double ?? 120
+    // AetherEngine 7.53.1: one remux segment is approximately 4 seconds;
+    // the native minimum is 4 segments to avoid starving AVPlayer.
+    result.forwardBufferSegments = max(4, Int(ceil(seconds / 4)))
+    result.sessionCacheByteBudget = options["maxBufferBytes"] as? Int ?? 150 * 1024 * 1024
     return result
   }
 
@@ -222,6 +224,7 @@ private final class AetherSession: NSObject, FlutterStreamHandler {
     surface?.updateSubtitles()
     let audio = engine.audioTracks.first { $0.id == engine.activeAudioTrackIndex }
     var presentation = [
+      "实际解码：原生管线，硬软解状态未由接口提供",
       "片源动态范围：\(engine.sourceVideoFormat)",
       "内核报告动态范围：\(engine.videoFormat)",
       "显示路径：\(engine.videoRoute.rawValue) / \(engine.playbackBackend.rawValue)（原生显示层）",

@@ -7,6 +7,7 @@ import base64
 import contextvars
 import io
 import json
+import math
 import re
 import os
 import hashlib
@@ -14,6 +15,7 @@ import hmac
 import sys
 import time
 import threading
+import http.server
 import types
 import inspect
 import ast
@@ -33,6 +35,8 @@ from requests.structures import CaseInsensitiveDict
 
 _contexts = {}
 _active = contextvars.ContextVar("lume_source")
+_background = contextvars.ContextVar("lume_background", default=False)
+_deadline = contextvars.ContextVar("lume_deadline", default=None)
 _aliases = {
     "init": ("init", "initialize"),
     "homeContent": ("homeContent", "getHomeContent", "home"),
@@ -84,15 +88,35 @@ def _invoke(spider, name, args=(), named=None):
     return function(*positional, **keywords)
 
 
-def _host(method, payload):
+def _http_timeout(value):
+    """Bound a bridged request by the script's own network budget."""
+    values = value if isinstance(value, (tuple, list)) else (value,)
+    if not values or any(v is None for v in values):
+        return None
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in values):
+        return None  # urllib/http.client may use socket's default-timeout sentinel.
+    if any(not math.isfinite(v) or v <= 0 for v in values):
+        raise ValueError("网络超时必须是有限正数")
+    # Dart has one total deadline; a requests connect/read pair shares their sum.
+    return sum(values)
+
+
+def _host(method, payload, timeout=None):
     state = _active.get()
-    remaining = state["deadline"] - time.monotonic()
+    if _contexts.get(state.get("source_id")) is not state:
+        raise RuntimeError("Python 源已释放")
+    # Source-owned HTTP handlers outlive playerContent. Each background host
+    # operation has its own bounded timeout; it must not reuse an expired call.
+    remaining = 30 if _background.get() else (_deadline.get() or state["deadline"]) - time.monotonic()
     if remaining <= 0:
         raise TimeoutError("Python 源执行超时")
+    budget = min(remaining, 30)
+    if timeout is not None:
+        budget = min(budget, timeout)
     reply = json.loads(_lume_host.invoke(json.dumps({
         "method": method, "payload": payload,
         "sourceId": state["source_id"],
-        "timeout": min(remaining, 30),
+        "timeout": budget,
     })))
     if not reply.get("ok"):
         raise RuntimeError(reply.get("error", "宿主请求失败"))
@@ -118,10 +142,15 @@ class _HttpAdapter(BaseAdapter):
                 if isinstance(body, str): body = body.encode("utf-8")
                 if not isinstance(body, bytes): raise ValueError("签名钩子必须返回文本或字节正文")
                 request.headers.pop("Content-Length", None)
-        value = _host("http", {
-            "url": request.url, "method": request.method,
-            "headers": dict(request.headers), "body": base64.b64encode(body).decode(),
-        })
+        try:
+            value = _host("http", {
+                "url": request.url, "method": request.method,
+                "headers": dict(request.headers), "body": base64.b64encode(body).decode(),
+            }, timeout=_http_timeout(timeout))
+        except (RuntimeError, TimeoutError) as error:
+            message = str(error)
+            kind = requests.exceptions.Timeout if isinstance(error, TimeoutError) or re.search(r'time.?out|超时', message, re.I) else requests.exceptions.ConnectionError
+            raise kind(message, request=request) from error
         response = requests.Response()
         response.status_code = value["status"]
         response.headers = CaseInsensitiveDict(value["headers"])
@@ -210,7 +239,7 @@ class _UrlHandler(urllib.request.HTTPHandler, urllib.request.HTTPSHandler):
             "url": request.full_url, "method": request.get_method(),
             "headers": dict(request.header_items()),
             "body": base64.b64encode(data).decode(),
-        })
+        }, timeout=_http_timeout(getattr(request, "timeout", None)))
         return _UrlResponse(value, request.full_url)
 
     https_open = http_open
@@ -245,7 +274,7 @@ def _connection_request(self, method, url, body=None, headers=None, *, encode_ch
     self._lume_response = _UrlResponse(_host("http", {
         "url": target, "method": method, "headers": headers or {},
         "body": base64.b64encode(data).decode(),
-    }), target)
+    }, timeout=_http_timeout(self.timeout)), target)
 
 
 def _connection_response(self):
@@ -280,6 +309,9 @@ sys.modules["lume_tools"] = lume_tools
 
 
 class _Spider:
+    def init(self, extend=""):
+        """Compatibility with Spider implementations that call super().init()."""
+        pass
     def fetch(self, url, **kwargs):
         return requests.get(url, **kwargs)
 
@@ -431,7 +463,9 @@ def _crypto_module():
         if mode == 6:
             if len(nonce) >= 16:
                 raise ValueError("AES CTR nonce 过长")
-            iv = nonce + int(kw.get("initial_value", 0)).to_bytes(16 - len(nonce), "big")
+            initial = kw.get("initial_value", 0)
+            initial = int.from_bytes(initial, "big") if isinstance(initial, (bytes, bytearray)) else int(initial)
+            iv = nonce + initial.to_bytes(16 - len(nonce), "big")
         elif mode in (2, 3, 5):
             iv = kw.get("iv", kw.get("IV", iv)) or os.urandom(16)
         return Cipher("aes", key, mode, iv=iv, nonce=nonce, segment_size=kw.get("segment_size", 8))
@@ -485,21 +519,57 @@ def _source_thread_init(self, *args, **kwargs):
 
 
 def _source_thread_run(self):
-    return self._lume_context.run(_thread_run, self)
+    def run():
+        token = _background.set(True)
+        try:
+            return _thread_run(self)
+        finally:
+            _background.reset(token)
+    return self._lume_context.run(run)
 
 
 threading.Thread.__init__ = _source_thread_init
 threading.Thread.run = _source_thread_run
 
 
+_server_init = http.server.HTTPServer.__init__
+_serve_forever = http.server.HTTPServer.serve_forever
+
+
+def _source_server_init(self, *args, **kwargs):
+    _server_init(self, *args, **kwargs)
+    state = _active.get(None)
+    if state is not None:
+        self._lume_source_state = state
+        state.setdefault("servers", []).append(self)
+
+
+def _source_serve_forever(self, *args, **kwargs):
+    state = getattr(self, "_lume_source_state", None)
+    if state is not None and _contexts.get(state.get("source_id")) is not state:
+        self.server_close()
+        return
+    self._lume_serving = True
+    try:
+        return _serve_forever(self, *args, **kwargs)
+    finally:
+        self._lume_serving = False
+
+
+http.server.HTTPServer.__init__ = _source_server_init
+http.server.HTTPServer.serve_forever = _source_serve_forever
+
+
 @contextmanager
 def _budget(state, seconds):
     state["deadline"] = time.monotonic() + min(max(float(seconds), 1), 60)
     token = _active.set(state)
+    deadline_token = _deadline.set(state["deadline"])
+    deadline = state["deadline"]
     previous = sys.gettrace()
 
     def trace(frame, event, arg):
-        if time.monotonic() > state["deadline"]:
+        if time.monotonic() > deadline:
             raise TimeoutError("Python 源执行超时")
         return trace
 
@@ -515,6 +585,7 @@ def _budget(state, seconds):
     finally:
         sys.settrace(previous)
         _active.reset(token)
+        _deadline.reset(deadline_token)
 
 
 @contextmanager
@@ -554,7 +625,16 @@ def _source_modules(state):
 def _close_source(state):
     if state:
         directory = state.get("directory")
+        servers = list(state.get("servers", []))
         state.clear()
+        for server in servers:
+            try:
+                if getattr(server, "_lume_serving", False):
+                    server.shutdown()
+                server.block_on_close = False
+                server.server_close()
+            except Exception:
+                pass
         if directory:
             directory.cleanup()
 
@@ -562,7 +642,13 @@ def _close_source(state):
 def _unpack_source(state, script):
     marker = re.search(r"^# LumeBundle: ([A-Za-z0-9+/=]+)$", script, re.M)
     if not marker:
-        return script, "imported_source.py"
+        # Plain Spiders also use __file__ for device/cache files. Give each
+        # source a real writable directory rather than the application's cwd.
+        directory = tempfile.TemporaryDirectory(prefix="lume_source_")
+        target = Path(directory.name) / "imported_source.py"
+        target.write_text(script, encoding="utf-8")
+        state.update(directory=directory, root=directory.name, entry=target.name)
+        return script, str(target)
     bundle = json.loads(base64.b64decode(marker[1], validate=True))
     files = bundle.get("files", {})
     if len(files) > 256:
@@ -599,8 +685,10 @@ def _proxy_response(state, request):
         state["initialized"] = True
     params = dict(request.get("params") or {})
     params.setdefault("headers", request.get("headers") or {})
-    if params['headers'].get('range'):
-        params.setdefault('range', params['headers']['range'])
+    request_headers = {str(k).lower(): str(v) for k, v in params['headers'].items()}
+    if request_headers.get('range'):
+        params.setdefault('range', request_headers['range'])
+        params.setdefault('__range', request_headers['range'])
     params.setdefault('method', request.get('method', 'GET'))
     result = _invoke(spider, "localProxy", (params,))
     if not isinstance(result, (list, tuple)) or len(result) < 3:
@@ -613,7 +701,25 @@ def _proxy_response(state, request):
         body = body.encode('utf-8')
     elif hasattr(body, 'read'):
         body = body.read(6 * 1024 * 1024 + 1)
+        if len(body) > 6 * 1024 * 1024:
+            raise ValueError('本地代理文件流超过单次读取预算')
     body = bytes(body)
+    if int(status) == 200 and str(mime).startswith(('video/', 'audio/')):
+        total = len(body)
+        if request.get('method') == 'HEAD':
+            headers = dict(headers, **{'Content-Length': str(total)})
+            body = b''
+        elif request_headers.get('range'):
+            match = re.fullmatch(r'bytes=(\d*)-(\d*)', request_headers['range'])
+            if match and any(match.groups()):
+                start = int(match[1]) if match[1] else max(0, total - int(match[2]))
+                end = int(match[2]) if match[1] and match[2] else total - 1
+                if start >= total or end < start:
+                    return {'status': 416, 'mime': str(mime), 'headers': {'Content-Range': 'bytes */%s' % total}, 'body': ''}
+                end = min(end, total - 1, start + 5 * 1024 * 1024 - 1)
+                body, status = body[start:end + 1], 206
+                headers = dict(headers, **{'Content-Range': 'bytes %s-%s/%s' % (start, end, total),
+                    'Content-Length': str(len(body)), 'Accept-Ranges': 'bytes'})
     if len(body) > 6 * 1024 * 1024:
         raise ValueError("本地代理单次响应超过 6MB，请使用分段或 Range 请求")
     return {"status": int(status), "mime": str(mime), "headers": headers, "body": base64.b64encode(body).decode()}
@@ -625,6 +731,74 @@ def _decoded(value):
     return value or {}
 
 
+def _danmaku(value, headers=None):
+    """Normalize Spider inline comments or XML/JSON endpoints for the player."""
+    if isinstance(value, list):
+        if all(isinstance(row, dict) and not row.get('url') for row in value):
+            items = []
+            for row in value:
+                if isinstance(row.get('p'), str):
+                    try:
+                        p = row['p'].split(',')
+                        if not math.isfinite(float(p[0])) or float(p[0]) < 0: continue
+                        row = dict(row, timeSeconds=float(p[0]), text=row.get('m', row.get('text', '')), mode=p[1], color=int(p[2]))
+                    except (ValueError, IndexError): continue
+                items.append(row)
+            return items
+        value = next((row.get('url') for row in value if isinstance(row, dict) and row.get('url')), '')
+    if isinstance(value, dict):
+        value = value.get('url') or value.get('items') or value.get('comments') or []
+        if not isinstance(value, str): return _danmaku(value, headers)
+    if not isinstance(value, str) or not value.strip(): return []
+    if value.startswith(('http://', 'https://')):
+        target = urlsplit(value)
+        # appdanmu belongs to Android shells. LumeBox already runs its own
+        # public episode matcher; do not wait on a nonexistent shell port.
+        if target.hostname in ('127.0.0.1', 'localhost') and target.port == 9978:
+            return []
+        response = requests.get(value, headers=headers or {}, timeout=15)
+        response.raise_for_status()
+        value = response.text
+    if not value.lstrip().startswith('<'):
+        return _danmaku(json.loads(value), headers)
+    import xml.etree.ElementTree as ET
+    items = []
+    for row in ET.fromstring(value).iter('d'):
+        try:
+            p = row.get('p', '').split(',')
+            position, size = float(p[0]), float(p[2])
+            if not math.isfinite(position) or position < 0 or not math.isfinite(size): continue
+            items.append({'timeSeconds': position, 'text': ''.join(row.itertext()),
+                'mode': p[1], 'fontSize': size, 'color': int(p[3])})
+        except (ValueError, IndexError):
+            continue
+    return items
+
+
+def _cover_fields(entry):
+    """Translate TVBox image suffix headers into the app's image contract."""
+    url = str(entry.get("vod_pic", entry.get("pic", "")) or "")
+    headers = {}
+    suffixes = list(re.finditer(r"@(Referer|User-Agent|Cookie|Origin|Authorization|Accept)=", url, re.I))
+    if suffixes:
+        for index, match in enumerate(suffixes):
+            end = suffixes[index + 1].start() if index + 1 < len(suffixes) else len(url)
+            value = url[match.end():end]
+            if not any(ord(c) < 32 or ord(c) == 127 for c in value):
+                headers[match[1]] = value
+        url = url[:suffixes[0].start()]
+    explicit = entry.get("coverHeaders", entry.get("vod_pic_header", entry.get("picHeader", {})))
+    if isinstance(explicit, str):
+        try: explicit = json.loads(explicit)
+        except ValueError: explicit = {}
+    if isinstance(explicit, dict):
+        for name, value in explicit.items():
+            if isinstance(name, str) and isinstance(value, str) and re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) and not any(ord(c) < 32 or ord(c) == 127 for c in value):
+                headers = {k: v for k, v in headers.items() if k.lower() != name.lower()}
+                headers[name] = value
+    return {"cover": url, "coverHeaders": headers}
+
+
 def _items(value):
     raw = _decoded(value)
     entries = raw if isinstance(raw, list) else raw.get("list", [])
@@ -632,7 +806,7 @@ def _items(value):
         return []
     return [{"id": "py:" + str(x.get("vod_id", x.get("id", ""))),
              "title": str(x.get("vod_name", x.get("name", ""))),
-             "cover": x.get("vod_pic", x.get("pic", "")),
+             **_cover_fields(x),
              "mediaType": x.get("mediaType", x.get("contentType", x.get("kind", ""))),
              "subtitle": str(x.get("vod_remarks", x.get("remarks", "")))}
             for x in entries if isinstance(x, dict) and x.get("vod_id", x.get("id")) is not None]
@@ -771,6 +945,9 @@ def _dispatch(state, method, arg):
             _invoke(spider, "init", (state.get("config", {}).get("extend", ""),))
         state["initialized"] = True
     arg = arg or {}
+    if method == 'danmaku':
+        value, headers = state.get('playback', {}).get((str(arg.get('id', '')), str(arg.get('chapterId', ''))), (None, {}))
+        return _danmaku(value, headers)
     if method == "home":
         return _home(state)
     if method in ("categories", "filters"):
@@ -803,6 +980,10 @@ def _dispatch(state, method, arg):
             raw = _invoke(spider, "homeVideoContent") if _method(spider, "homeVideoContent") else _invoke(spider, "homeContent", (False,)) if _method(spider, "homeContent") else {"list": []}
         value = _decoded(raw)
         items = _items(value)
+        if not items and isinstance(value, dict):
+            message = str(value.get('error') or value.get('msg') or value.get('message') or '')
+            if value.get('error') or re.search(r'fail|error|timeout|HTTP\s*[45]\d\d|TLS|失败|错误|超时|连接|缺少依赖', message, re.I):
+                raise ValueError('源请求未完成：' + re.sub(r'https?://\S+', '[URL omitted]', message)[:300])
         more = False
         if isinstance(value, dict):
             try:
@@ -817,7 +998,7 @@ def _dispatch(state, method, arg):
         raw = _detail(state, item_id[3:] if item_id.startswith("py:") else item_id)
         if method == "detail":
             return {"id": item_id, "title": raw.get("vod_name", ""),
-                    "cover": raw.get("vod_pic", ""), "subtitle": raw.get("vod_remarks", ""),
+                    **_cover_fields(raw), "subtitle": raw.get("vod_remarks", ""),
                     "description": raw.get("vod_content", ""),
                     "mediaType": raw.get("mediaType", raw.get("contentType", raw.get("kind", "")))}
         flags = str(raw.get("vod_play_from", "")).split("$$$")
@@ -837,7 +1018,8 @@ def _dispatch(state, method, arg):
         item_id = item_id[3:] if item_id.startswith("py:") else item_id
         detail = state.get("detail", {}) if state.get("detail_id") == item_id else {}
         hint = str(detail.get("mediaType", detail.get("contentType", detail.get("kind", "")))).lower()
-        use_images = state.get("section") == "comic" and _method(spider, "imageContent") and hint not in ("video", "text", "novel", "html", "audio", "audiobook", "webplayer")
+        source_audio = state.get("media_type") in ("audio", "audiobook")
+        use_images = state.get("section") == "comic" and not source_audio and _method(spider, "imageContent") and hint not in ("video", "text", "novel", "html", "audio", "audiobook", "webplayer")
         if use_images:
             raw = _invoke(spider, "imageContent", (episode["id"],), {"id": episode["id"], "chapterid": episode["id"], "chapter_id": episode["id"], "flag": episode.get("flag", "")})
         else:
@@ -852,17 +1034,29 @@ def _dispatch(state, method, arg):
                 return {"kind": kind, "text": body, "format": value.get("format", "html" if "html" in value else "text")}
             if kind in ("images", "image") or isinstance(value.get("images"), list):
                 return _image_content(value, episode["id"])
-        explicit_video = isinstance(value, dict) and str(value.get("kind", "")).lower() in ("video", "audio", "audiobook", "webplayer")
+        explicit_video = isinstance(value, dict) and (str(value.get("kind", "")).lower() in ("video", "audio", "audiobook", "webplayer") or source_audio and bool(value.get("url") or value.get("pageUrl")))
         if state.get("section") == "comic" and not explicit_video:
             return _image_content(raw, episode["id"])
         raw = value
         url = str(raw.get("url") or raw.get("pageUrl") or "")
+        qualities = raw.get('qualities', raw.get('levels', []))
+        if not url and isinstance(qualities, list):
+            url = next((str(row.get('url') or row.get('playUrl') or row.get('src')) for row in qualities if isinstance(row, dict) and (row.get('url') or row.get('playUrl') or row.get('src'))), '')
         if not url:
             raise ValueError("源未返回播放地址；请检查站点、外部解析后端或 Android 专属依赖")
+        address = urlsplit(url)
+        if not address.scheme or (address.scheme in ('http', 'https') and not address.hostname):
+            raise ValueError('源解析未完成，未返回可播放地址；请更换线路或重试')
         headers = _decoded(raw.get("header", raw.get("headers", {})))
-        return {"kind": raw.get("kind") if raw.get("kind") in ("audio", "audiobook") else "video", "url": url, "headers": headers,
+        playback = state.setdefault('playback', {})
+        playback[(str(arg.get('id', '')), str(arg.get('chapterId', '')))] = (raw.get('danmaku') or raw.get('danmu'), headers)
+        while len(playback) > 8: playback.pop(next(iter(playback)))
+        parser = str(raw.get('playUrl') or '')
+        return {"kind": raw.get("kind") if raw.get("kind") in ("audio", "audiobook", "video") else "audio" if (source_audio or re.search(r"\.(?:mp3|m4a|aac|flac|wav|ogg|opus)(?:$|[?#])", url, re.I)) and raw.get("kind") != "webplayer" else "video", "url": url, "headers": headers,
+                'qualities': qualities, 'thumbnails': raw.get('thumbnails', []),
+                'width': raw.get('width'), 'height': raw.get('height'),
                 "webPlayer": raw.get("webPlayer") is True or raw.get("kind") == "webplayer",
-                "pageUrl": str(raw.get("pageUrl") or url),
+                "pageUrl": str(raw.get("pageUrl") or (parser + url if parser else url)),
                 "webParse": str(raw.get("parse", 0)) == "1" or (str(raw.get("jx", 0)) == "1" and not re.search(r"\.(?:mp4|m3u8|mp3|m4a|aac|flac|mkv|webm|mpd)(?:$|[?#])", url, re.I))}
     raise ValueError("Python 源不提供接口：" + method)
 
@@ -893,6 +1087,14 @@ def execute(request):
             encoded = re.search(r"^# LumePythonBytes: ([A-Za-z0-9+/=]+)$", source, re.M) if isinstance(source, str) else None
             if encoded:
                 source = base64.b64decode(encoded[1], validate=True)
+            header_source = source.decode('utf-8-sig', errors='replace') if isinstance(source, bytes) else source
+            header = re.search(r'^\s*#\s*LumeSource:\s*(\{[^\r\n]+\})', header_source, re.M)
+            if header:
+                try:
+                    metadata = json.loads(header[1])
+                    state['media_type'] = str(metadata.get('mediaType') or metadata.get('mediaKind') or metadata.get('category') or '').lower()
+                except (ValueError, AttributeError):
+                    pass
             namespace = module.__dict__
             exec(compile(source, filename, "exec"), namespace)
             cls = namespace.get("Spider")
@@ -909,16 +1111,21 @@ def execute(request):
             _contexts[source_id] = state
         warnings = []
         imports = set()
+        local_server = False
         with python_warnings.catch_warnings(action="ignore", category=SyntaxWarning):
             parsed = ast.parse(source)
         for node in ast.walk(parsed):
             if isinstance(node, ast.Import):
                 imports.update(alias.name.split('.')[0] for alias in node.names)
+                local_server |= any(alias.name in ('http.server', 'socketserver') for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imports.add(node.module.split('.')[0])
+                local_server |= node.module in ('http.server', 'socketserver')
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if isinstance(node.func.value, ast.Name) and node.func.value.id in ("os", "subprocess") and node.func.attr in ("system", "popen", "Popen", "run", "fork", "execv"):
                     warnings.append("含系统进程接口；iOS 无法执行该路径")
+        if local_server:
+            warnings.append("含自建本地 HTTP 服务；由源管理并随源释放，实际播放仍取决于源站与响应格式")
         for name in sorted(imports):
             if name in ("java", "jnius", "android", "dalvik", "chaquopy"):
                 warnings.append("含 Android 专属依赖 " + name + "；对应功能需要其他实现或外部后端")
@@ -930,7 +1137,7 @@ def execute(request):
                     found = None
                 if found is None:
                     warnings.append("含尚未内置的可选/延迟依赖：" + name)
-        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content"] + (["filters"] if _method(spider, "homeContent") else []) + (["home"] if _method(spider, "homeVideoContent") or _method(spider, "homeContent") else []), "warnings": list(dict.fromkeys(warnings))}}
+        return {"ok": True, "value": {"methods": ["categories", "list", "detail", "chapters", "content", "danmaku"] + (["filters"] if _method(spider, "homeContent") else []) + (["home"] if _method(spider, "homeVideoContent") or _method(spider, "homeContent") else []), "warnings": list(dict.fromkeys(warnings))}}
     state = _contexts.get(source_id)
     if state is None:
         raise ValueError("Python 源已释放，请重新选择")

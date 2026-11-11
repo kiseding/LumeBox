@@ -1,3 +1,6 @@
+import '../experience/reading_offline.dart';
+import '../experience/clip_editor.dart';
+import '../../core/experience/content_center.dart';
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/source/source_content_type.dart';
 
@@ -5,7 +8,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/frosted_glass_widget.dart';
+import '../../shared/widgets/native_glass_preview.dart';
+import '../../shared/widgets/native_glass_controls.dart';
+
 import '../../core/reading/reading.dart';
+import '../../core/reading/chapter_display_order.dart';
+import '../../core/reading/novel_text_cleanup.dart';
+import '../../core/speech/speech.dart';
+import '../reading/speech_modes_panel.dart';
 import '../../core/source/source.dart';
 
 /// Preserve every UTF-16 offset while giving blank paragraph lines a compact
@@ -29,19 +40,19 @@ TextSpan novelBodySpan(String text, TextStyle style) {
 
 /// Paginate actual body text using the same dimensions/scaler as the rendered
 /// page. Checkpoints are UTF-16 offsets, never screen-dependent page numbers.
-List<int> novelPageStarts(
+Iterable<int> novelPageOffsets(
   String text,
   TextStyle style,
   Size size,
   TextScaler scaler,
   TextDirection direction,
-) {
-  if (text.isEmpty || size.width <= 0 || size.height <= 0) return [0];
-  final starts = <int>[0];
+) sync* {
+  yield 0;
+  if (text.isEmpty || size.width <= 0 || size.height <= 0) return;
   var start = 0;
-  final painter = TextPainter(textDirection: direction, textScaler: scaler);
-  try {
-    while (start < text.length) {
+  while (start < text.length) {
+    final painter = TextPainter(textDirection: direction, textScaler: scaler);
+    try {
       // Bound layout work for long chapters; grow only when the page fits.
       var limit = (start + 4096).clamp(0, text.length);
       while (true) {
@@ -69,13 +80,20 @@ List<int> novelPageStarts(
       }
       if (next <= start) throw StateError('当前屏幕无法容纳正文');
       start = next;
-      if (start < text.length) starts.add(start);
+    } finally {
+      painter.dispose();
     }
-    return starts;
-  } finally {
-    painter.dispose();
+    if (start < text.length) yield start;
   }
 }
+
+List<int> novelPageStarts(
+  String text,
+  TextStyle style,
+  Size size,
+  TextScaler scaler,
+  TextDirection direction,
+) => novelPageOffsets(text, style, size, scaler, direction).toList();
 
 class NovelReaderPage extends StatefulWidget {
   const NovelReaderPage({
@@ -84,13 +102,17 @@ class NovelReaderPage extends StatefulWidget {
     required this.library,
     required this.target,
     required this.chapters,
-    this.initialChapterIndex = 0,
+    this.initialChapterIndex,
+    this.speechBackend,
   });
   final DataSource source;
   final ReadingLibrary library;
   final ReadingTarget target;
   final List<SourceChapter> chapters;
-  final int initialChapterIndex;
+
+  /// An explicit source index preserves existing chapter IDs and resume data.
+  final int? initialChapterIndex;
+  final SpeechBackend? speechBackend;
   @override
   State<NovelReaderPage> createState() => _NovelReaderPageState();
 }
@@ -98,6 +120,9 @@ class NovelReaderPage extends StatefulWidget {
 class _NovelReaderPageState extends State<NovelReaderPage>
     with WidgetsBindingObserver, NetworkOwnedState<NovelReaderPage> {
   late int _chapter;
+  late final List<int> _chapterOrder;
+  late final List<SourceChapter> _orderedChapters;
+  int? _savedTextLength;
   int _revision = 0, _offset = 0, _page = 0;
   String _text = '';
   String? _error;
@@ -106,14 +131,283 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   int _theme = 0;
   List<int> _starts = [0];
   String? _layoutKey;
+  String? _requestedLayout;
+  bool _paginationComplete = false;
+  int get _pageCount => _paginationComplete
+      ? _starts.length
+      : (_starts.length - 1).clamp(1, _starts.length);
+  final _paginationCache = <String, List<int>>{};
+
+  void _schedulePagination(
+    String key,
+    TextStyle style,
+    Size size,
+    TextScaler scaler,
+    TextDirection direction,
+  ) {
+    if (_requestedLayout == key) return;
+    _requestedLayout = key;
+    _paginationComplete = false;
+    final text = _text;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || _requestedLayout != key) return;
+      final cached = _paginationCache[key];
+      final starts = <int>[];
+      var painted = false;
+      void publish(bool complete) {
+        if (!mounted || _requestedLayout != key) return;
+        setState(() {
+          _starts = List.of(starts);
+          _paginationComplete = complete;
+          if (!painted) {
+            _page = _starts
+                .lastIndexWhere((start) => start <= _offset)
+                .clamp(0, _starts.length - 1);
+            final old = _controller;
+            _controller = PageController(initialPage: _page);
+            WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+            painted = true;
+            _layoutKey = key;
+          }
+          _pageLabel.value =
+              '${_page + 1} / $_pageCount${complete ? '' : '+'} 页';
+        });
+      }
+
+      try {
+        if (cached != null) {
+          starts.addAll(cached);
+          publish(true);
+          return;
+        }
+        final watch = Stopwatch()..start();
+        for (final start in novelPageOffsets(
+          text,
+          style,
+          size,
+          scaler,
+          direction,
+        )) {
+          if (!mounted || _requestedLayout != key) return;
+          starts.add(start);
+          if (watch.elapsedMilliseconds >= 4) {
+            // Restore by character offset before exposing the first visible pages.
+            if (starts.last > _offset || painted) publish(false);
+            await Future<void>.delayed(Duration.zero);
+            watch.reset();
+          }
+        }
+        if (!mounted || _requestedLayout != key) return;
+        _paginationCache[key] = List.of(starts);
+        while (_paginationCache.length > 3) {
+          _paginationCache.remove(_paginationCache.keys.first);
+        }
+        publish(true);
+      } catch (error) {
+        if (mounted && _requestedLayout == key) {
+          setState(() => _error = '$error');
+        }
+      }
+    });
+  }
+
   PageController? _controller;
   Timer? _saveTimer;
   final _pageLabel = ValueNotifier<String>('');
+  late SpeechSettings _speechSettings;
+  late SpeechSession _speech;
+  bool _continueSpeech = false;
+  bool _autoNext = true;
+  int? _speechPrefetchIndex;
+  Future<TextContent?>? _speechPrefetch;
+  void _speechChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _speechPosition(int offset) {
+    if (!mounted) return;
+    if (offset > 0 && offset < _text.length && _speech.isActive) {
+      _prefetchSpeechChapter();
+    }
+    if (!_speechSettings.followAlong || _starts.isEmpty) return;
+    final page = _starts.lastIndexWhere((start) => start <= offset);
+    if (page >= 0 && page != _page && (_controller?.hasClients ?? false)) {
+      _controller!.jumpToPage(page);
+    }
+  }
+
+  Future<ChapterContent?> _readChapter(int index) async {
+    final id = _orderedChapters[index].id;
+    return await ReadingOffline.read(widget.source, widget.target.itemId, id) ??
+        await SourceContentRead.read(
+          widget.source,
+          itemId: widget.target.itemId,
+          chapterId: id,
+        );
+  }
+
+  void _prefetchSpeechChapter() {
+    final next = _chapter + 1;
+    if (!_autoNext ||
+        next >= _orderedChapters.length ||
+        _speechPrefetchIndex == next ||
+        ContentCenter.instance.enabled('autoReadDownloads')) {
+      return;
+    }
+    _speechPrefetchIndex = next;
+    _speechPrefetch = networkRequests
+        .run(
+          'speech-next',
+          () => _readChapter(next),
+          timeout: const Duration(seconds: 12),
+        )
+        .then<TextContent?>(
+          (content) => content is TextContent && content.text.trim().isNotEmpty
+              ? content
+              : null,
+          onError: (Object _) => null,
+        );
+  }
+
+  void _cancelSpeechPrefetch() {
+    _speechPrefetchIndex = null;
+    _speechPrefetch = null;
+    networkRequests.cancel('speech-next');
+  }
+
+  Future<void> _startSpeech() async {
+    if (_loading || _error != null || _text.isEmpty) return;
+    final revision = _revision;
+    final backend = _speech.backend;
+    if (backend is MethodChannelSpeechBackend) {
+      backend.applySettings(_speechSettings);
+    }
+    final segments = SpeechSegments.split(
+      _text,
+      fromOffset: _offset,
+      maxChars: _speechSettings.maxCharsPerSegment,
+    );
+    await _speech.setNowPlaying(
+      title: widget.target.title,
+      subtitle: _orderedChapters[_chapter].title,
+    );
+    if (!mounted || revision != _revision) return;
+    final error = await _speech.start(segments);
+    if (mounted && error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  void _speechOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('语速 ${(_speechSettings.rate / .5).toStringAsFixed(1)} 倍'),
+                NativeGlassSlider(
+                  value: _speechSettings.rate,
+                  min: SpeechSettings.minRate,
+                  max: SpeechSettings.maxRate,
+                  onChanged: (value) {
+                    _setSpeechSettings(_speechSettings.copyWith(rate: value));
+                    update(() {});
+                  },
+                ),
+                Text('音量 ${(_speechSettings.volume * 100).round()}%'),
+                NativeGlassSlider(
+                  value: _speechSettings.volume,
+                  min: 0,
+                  max: 1,
+                  onChanged: (value) {
+                    _setSpeechSettings(_speechSettings.copyWith(volume: value));
+                    update(() {});
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('朗读跟随翻页'),
+                  value: _speechSettings.followAlong,
+                  onChanged: (value) {
+                    _setSpeechSettings(
+                      _speechSettings.copyWith(followAlong: value),
+                    );
+                    update(() {});
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('读完自动下一章'),
+                  value: _autoNext,
+                  onChanged: (value) {
+                    setState(() => _autoNext = value);
+                    if (!value) _cancelSpeechPrefetch();
+                    widget.library.setSetting(
+                      'novel.speech.autoNext',
+                      '$value',
+                    );
+                    update(() {});
+                  },
+                ),
+                SpeechModesPanel(
+                  settings: _speechSettings,
+                  onChanged: (value) {
+                    _setSpeechSettings(value);
+                    update(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setSpeechSettings(SpeechSettings value) {
+    setState(() => _speechSettings = value);
+    widget.library.setSetting(SpeechSettings.settingKey, value.encode());
+    final backend = _speech.backend;
+    if (backend is MethodChannelSpeechBackend) backend.applySettings(value);
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _chapter = widget.initialChapterIndex.clamp(0, widget.chapters.length - 1);
+    _speechSettings = SpeechSettings.decode(
+      widget.library.setting(SpeechSettings.settingKey),
+    );
+    _autoNext = widget.library.setting('novel.speech.autoNext') != 'false';
+    _speech = SpeechSession(
+      backend: widget.speechBackend ?? createPlatformSpeechBackend(),
+      onPosition: _speechPosition,
+      onEvent: (event) {
+        if (mounted && event.kind == SpeechEventKind.failed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(event.message ?? '朗读失败，请检查语音设置')),
+          );
+        }
+      },
+      onCompleted: () {
+        if (mounted && _autoNext && _chapter + 1 < _orderedChapters.length) {
+          _changeChapter(_chapter + 1, continueSpeech: true);
+        }
+      },
+    );
+    _speech.state.addListener(_speechChanged);
+    _chapterOrder = ChapterDisplayOrder.correctedIndexes(widget.chapters);
+    _orderedChapters = _chapterOrder
+        .map((index) => widget.chapters[index])
+        .toList();
+    final initial = widget.initialChapterIndex;
+    _chapter = initial == null
+        ? 0
+        : _chapterOrder.indexOf(initial.clamp(0, widget.chapters.length - 1));
     _font =
         (double.tryParse(widget.library.setting('novel.fontSize') ?? '') ?? 20)
             .clamp(14, 32);
@@ -128,8 +422,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       sourceId: widget.target.sourceId,
     );
     if (saved is NovelProgress &&
-        saved.chapterId == widget.chapters[_chapter].id) {
+        saved.chapterId == _orderedChapters[_chapter].id) {
       _offset = saved.offset;
+      _savedTextLength = saved.textLength;
     }
     _load();
   }
@@ -141,6 +436,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
 
   @override
   void dispose() {
+    _speech.state.removeListener(_speechChanged);
+    unawaited(_speech.dispose());
     _pageLabel.dispose();
     _revision++;
     _saveTimer?.cancel();
@@ -150,35 +447,58 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     super.dispose();
   }
 
-  Future<void> _load() async {
-    networkRequests.cancelAll();
+  Future<void> _load({Future<TextContent?>? prefetched}) async {
+    networkRequests.cancel('chapter');
+    if (prefetched == null) _cancelSpeechPrefetch();
     final revision = ++_revision;
+    _requestedLayout = null;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final content = await networkRequests.run(
-        'chapter',
-        () => SourceContentRead.read(
-          widget.source,
-          itemId: widget.target.itemId,
-          chapterId: widget.chapters[_chapter].id,
-        ),
-      );
+      final chapter = _chapter;
+      final prepared = await prefetched;
+      if (!mounted || revision != _revision) return;
+      final content =
+          prepared ??
+          await networkRequests.run<ChapterContent?>(
+            'chapter',
+            () => _readChapter(chapter),
+          );
       if (!mounted || revision != _revision) return;
       if (content is! TextContent || content.text.trim().isEmpty) {
         throw StateError(
           content == null ? '本章暂无正文' : '本章返回的不是小说正文，请返回详情检查内容类型',
         );
       }
+      final cleaned = cleanNovelText(content.text, offset: _offset);
+      if (cleaned.text.trim().isEmpty) throw StateError('本章暂无正文');
       setState(() {
-        _text = content.text;
-        _offset = _offset.clamp(0, _text.length - 1);
+        _text = cleaned.text;
+        _offset =
+            (_savedTextLength == content.text.length ? cleaned.offset : _offset)
+                .clamp(0, _text.length - 1);
+        _savedTextLength = null;
         _loading = false;
         _layoutKey = null;
       });
       _save();
+      unawaited(
+        ReadingOffline.prefetch(
+          source: widget.source,
+          library: widget.library,
+          target: widget.target,
+          chapters: _orderedChapters,
+          current: _chapter,
+          novel: true,
+          cancelled: () => !mounted || revision != _revision,
+        ),
+      );
+      if (_continueSpeech) {
+        _continueSpeech = false;
+        await _startSpeech();
+      }
     } catch (error) {
       if (mounted && revision == _revision) {
         setState(() {
@@ -191,13 +511,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
 
   void _save() {
     if (_loading || _error != null || _text.isEmpty) return;
-    final chapter = widget.chapters[_chapter];
+    final chapter = _orderedChapters[_chapter];
     widget.library.saveProgress(
       NovelProgress(
         section: widget.library.section,
         sourceId: widget.target.sourceId,
         itemId: widget.target.itemId,
-        chapterIndex: _chapter,
+        chapterIndex: _chapterOrder[_chapter],
         chapterId: chapter.id,
         chapterTitle: chapter.title,
         updatedAt: DateTime.now(),
@@ -207,15 +527,23 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
   }
 
-  void _changeChapter(int index) {
-    if (index < 0 || index >= widget.chapters.length || index == _chapter) {
+  void _changeChapter(int index, {bool continueSpeech = false}) {
+    if (index < 0 || index >= _orderedChapters.length || index == _chapter) {
       return;
     }
     _saveTimer?.cancel();
+    _continueSpeech = continueSpeech;
+    if (!continueSpeech) unawaited(_speech.stop());
+    final prefetched = continueSpeech && _speechPrefetchIndex == index
+        ? _speechPrefetch
+        : null;
+    _speechPrefetchIndex = null;
+    _speechPrefetch = null;
     _save();
     _chapter = index;
     _offset = 0;
-    _load();
+    _savedTextLength = null;
+    _load(prefetched: prefetched);
   }
 
   Future<void> _directory() async {
@@ -223,9 +551,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       context: context,
       showDragHandle: true,
       builder: (context) => ListView.builder(
-        itemCount: widget.chapters.length,
+        itemCount: _orderedChapters.length,
         itemBuilder: (context, index) => ListTile(
-          title: Text(widget.chapters[index].title),
+          title: Text(_orderedChapters[index].title),
           selected: index == _chapter,
           onTap: () => Navigator.pop(context, index),
         ),
@@ -246,7 +574,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('字号 ${_font.round()}'),
-                Slider(
+                NativeGlassSlider(
                   value: _font,
                   min: 14,
                   max: 32,
@@ -258,7 +586,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                   },
                 ),
                 const Text('行距'),
-                Slider(
+                NativeGlassSlider(
                   value: _height,
                   min: 1.3,
                   max: 2.3,
@@ -292,6 +620,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
 
   @override
   Widget build(BuildContext context) {
+    final nativeGlass = NativeGlassPreview.enabledOf(context);
     final dark =
         _theme == 2 ||
         (_theme == 0 && Theme.of(context).brightness == Brightness.dark);
@@ -301,11 +630,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         ? const Color(0xfff1e6ce)
         : Theme.of(context).colorScheme.surface;
     final foreground = dark ? const Color(0xffd4d2ca) : const Color(0xff302c27);
-    final style = TextStyle(
-      fontSize: _font,
-      height: _height,
-      color: foreground,
-    );
+    final style = Theme.of(context).textTheme.bodyLarge!
+        .copyWith(fontSize: _font, height: _height, color: foreground);
     return Theme(
       data: Theme.of(context).copyWith(
         brightness: dark ? Brightness.dark : Brightness.light,
@@ -317,12 +643,72 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       ),
       child: Scaffold(
         appBar: AppBar(
+          backgroundColor: nativeGlass ? Colors.transparent : null,
+          surfaceTintColor: nativeGlass ? Colors.transparent : null,
+          flexibleSpace: nativeGlass
+              ? const FrostedGlassWidget(
+                  nativeGlass: true,
+                  radius: 0,
+                  child: SizedBox.expand(),
+                )
+              : null,
           title: Text(
-            widget.chapters[_chapter].title,
+            _orderedChapters[_chapter].title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            IconButton(
+              tooltip: '保存摘录',
+              icon: const Icon(Icons.bookmark_add_outlined),
+              onPressed: _loading
+                  ? null
+                  : () => saveContentClip(
+                      context,
+                      ContentRef(
+                        widget.library.section,
+                        widget.target.sourceId,
+                        widget.target.itemId,
+                        widget.target.title,
+                      ),
+                      chapter: _chapterOrder[_chapter],
+                      text: _text.substring(
+                        _offset.clamp(0, _text.length),
+                        (_offset + 300).clamp(0, _text.length),
+                      ),
+                    ),
+            ),
+            if (_speech.isActive || _speech.isPaused || _continueSpeech)
+              IconButton(
+                onPressed: () {
+                  _continueSpeech = false;
+                  _cancelSpeechPrefetch();
+                  unawaited(_speech.stop());
+                  setState(() {});
+                },
+                tooltip: '停止朗读',
+                icon: const Icon(Icons.stop),
+              ),
+            IconButton(
+              onPressed: _speechOptions,
+              tooltip: '朗读设置',
+              icon: const Icon(Icons.record_voice_over_outlined),
+            ),
+            IconButton(
+              onPressed: _loading
+                  ? null
+                  : () async {
+                      if (_speech.isActive) {
+                        await _speech.pause();
+                      } else if (_speech.isPaused) {
+                        await _speech.resume();
+                      } else {
+                        await _startSpeech();
+                      }
+                    },
+              tooltip: _speech.isActive ? '暂停朗读' : '朗读',
+              icon: Icon(_speech.isActive ? Icons.pause : Icons.headphones),
+            ),
             IconButton(
               onPressed: _directory,
               tooltip: '目录',
@@ -363,45 +749,27 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                         constraints.maxHeight,
                       );
                       final key =
-                          '${size.width}:${size.height}:$_font:$_height:${scaler.scale(_font)}:$direction';
+                          '$_revision:${size.width}:${size.height}:$_font:$_height:${scaler.scale(_font)}:$direction:${style.fontFamily}:${style.fontWeight}:${style.fontStyle}';
                       if (_layoutKey != key) {
-                        try {
-                          _starts = novelPageStarts(
-                            _text,
-                            style,
-                            size,
-                            scaler,
-                            direction,
-                          );
-                        } catch (error) {
-                          return Center(child: Text('$error'));
-                        }
-                        _page = _starts
-                            .lastIndexWhere((start) => start <= _offset)
-                            .clamp(0, _starts.length - 1);
-                        final old = _controller;
-                        _controller = PageController(initialPage: _page);
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          old?.dispose();
-                        });
-                        _layoutKey = key;
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            _pageLabel.value =
-                                '${_page + 1} / ${_starts.length} 页';
-                          }
-                        });
+                        _schedulePagination(
+                          key,
+                          style,
+                          size,
+                          scaler,
+                          direction,
+                        );
+                        return const Center(child: CircularProgressIndicator());
                       }
                       return PageView.builder(
                         key: ValueKey('$_revision:$key'),
                         controller: _controller,
-                        itemCount: _starts.length,
+                        itemCount: _pageCount,
                         onPageChanged: (index) {
                           setState(() {
                             _page = index;
                             _offset = _starts[index];
                             _pageLabel.value =
-                                '${index + 1} / ${_starts.length} 页';
+                                '${index + 1} / $_pageCount${_paginationComplete ? '' : '+'} 页';
                           });
                           _saveTimer?.cancel();
                           _saveTimer = Timer(
@@ -430,34 +798,41 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                   ),
                 ),
               ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: _chapter == 0
-                    ? null
-                    : () => _changeChapter(_chapter - 1),
-                child: const Text('上一章'),
-              ),
-              ValueListenableBuilder<String>(
-                valueListenable: _pageLabel,
-                builder: (context, label, _) => Text(
-                  _loading ? '正在加载' : label,
-                  style: TextStyle(color: foreground),
+        bottomNavigationBar: _chapterBar(
+          nativeGlass,
+          SafeArea(
+            top: false,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: _chapter == 0
+                      ? null
+                      : () => _changeChapter(_chapter - 1),
+                  child: const Text('上一章'),
                 ),
-              ),
-              TextButton(
-                onPressed: _chapter + 1 >= widget.chapters.length
-                    ? null
-                    : () => _changeChapter(_chapter + 1),
-                child: const Text('下一章'),
-              ),
-            ],
+                ValueListenableBuilder<String>(
+                  valueListenable: _pageLabel,
+                  builder: (context, label, _) => Text(
+                    _loading ? '正在加载' : label,
+                    style: TextStyle(color: foreground),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _chapter + 1 >= _orderedChapters.length
+                      ? null
+                      : () => _changeChapter(_chapter + 1),
+                  child: const Text('下一章'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _chapterBar(bool nativeGlass, Widget child) => nativeGlass
+      ? FrostedGlassWidget(nativeGlass: true, radius: 0, child: child)
+      : child;
 }

@@ -4,6 +4,9 @@
 # 仓库是公开的，标准 runner 不折算 Actions 用量，自动构建没有额度成本。
 # 仅文档改动（**.md、docs/**）不触发，避免白跑 60 分钟 macOS。
 # 手动触发保留两个开关：models_only（只算模型）/ typecheck_only（只查 Swift 类型）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 name: Build unsigned IPA (iOS)
 
 on:
@@ -21,13 +24,6 @@ on:
         description: '只检查 Swift 类型，不编译 App、不生成或上传安装包'
         type: boolean
         default: false
-  push:
-    branches: ['**']
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.tmp_shots/**'
-      - '.zcode/**'
 
 run-name: ${{ inputs.remux_only && 'Offline MP4 remux check — no package' || inputs.typecheck_only && 'Swift typecheck only — no package' || 'Build unsigned IPA' }}
 
@@ -109,6 +105,7 @@ jobs:
         if: ${{ inputs.typecheck_only != true }}
         run: |
           python3 tool/prepare_intro_models.py
+          python3 tool/prepare_speech_assets.py
 
       - name: 准备 Python 运行环境（锁定版本与校验值）
         run: python3 tool/prepare_python_runtime.py
@@ -134,7 +131,8 @@ jobs:
             ios/Runner/SpeechStream.swift ios/Runner/SpeechController.swift \
             ios/Runner/ICloudSyncController.swift ios/Runner/ComicImageToolsController.swift \
             ios/Runner/IntroRecognitionController.swift ios/Runner/LumeGlassBackdrop.swift \
-            ios/Runner/LumeSystemTabBar.swift ios/Runner/SourceRepositoryCredentials.swift
+            ios/Runner/LumeSystemTabBar.swift ios/Runner/SourceRepositoryCredentials.swift \
+            ios/Runner/ExperienceController.swift
 
       - name: System tab bar simulator check (no IPA)
         if: ${{ inputs.typecheck_only == true }}

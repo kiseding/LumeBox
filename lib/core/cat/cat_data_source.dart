@@ -1,3 +1,5 @@
+import '../cache/source_response_cache.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -46,9 +48,7 @@ class CatDataSource
   final CatService service;
   final CatSite site;
   final String? chapterFlag;
-  Map<String, dynamic>? _home;
   String? _homeCategoryId;
-  final _details = <String, Map<String, dynamic>>{};
   final _folders = <String>{};
   bool isFolder(String itemId) => _folders.contains(itemId);
   @override
@@ -60,10 +60,11 @@ class CatDataSource
     'comic' => Section.comic,
     _ => Section.video,
   };
-  Future<Map<String, dynamic>> homeData({bool force = false}) async {
-    if (force) _home = null;
-    return _home ??= catPayload(await service.call(site, 'home'));
-  }
+  Future<Map<String, dynamic>> homeData({bool force = false}) => force
+      ? SourceResponseCache.fresh(
+          () async => catPayload(await service.call(site, 'home')),
+        )
+      : service.call(site, 'home').then(catPayload);
 
   @override
   Future<bool> supportsHome() async => true;
@@ -273,13 +274,13 @@ class CatDataSource
   }
 
   Future<Map<String, dynamic>> rawDetail(String itemId) async =>
-      _details[itemId] ??=
-          catMaps(
-            catPayload(
-              await service.call(site, 'detail', {'id': rawItemId(itemId)}),
-            )['list'],
-          ).firstOrNull ??
-          {};
+      catMaps(
+        catPayload(
+          await service.call(site, 'detail', {'id': rawItemId(itemId)}),
+        )['list'],
+      ).firstOrNull ??
+      {};
+
   @override
   Future<SourceDetail?> detail(String itemId) async {
     final raw = await rawDetail(itemId);
@@ -445,8 +446,53 @@ class CatDataSource
       'url': uri.toString(),
       'headers': requestHeaders,
       'qualities': data['qualities'] ?? data['levels'],
+      'thumbnails': data['thumbnails'],
+      'width': data['width'],
+      'height': data['height'],
     })!;
   }
+}
+
+/// Search across searchable sites from enabled Cat subscriptions.
+class CatAggregateSourceManager implements SourceManager {
+  CatAggregateSourceManager(this.service);
+  final CatService service;
+
+  Iterable<CatSite> get sites => service.subscriptions
+      .where((record) => record.enabled)
+      .expand((record) => record.sites)
+      .where((site) => site.searchable);
+
+  @override
+  bool get runtimeAvailable => true;
+  @override
+  Future<DataSource?> open(String sourceId) async {
+    final site = sites.where((site) => site.id == sourceId).firstOrNull;
+    return site == null ? null : CatDataSource(service, site);
+  }
+
+  @override
+  Future<List<SourceDescriptor>> list() async => [
+    for (final site in sites)
+      SourceDescriptor(
+        id: site.id,
+        name: site.name,
+        version: 'Node',
+        enabled: true,
+        runtimeKind: 'cat',
+        section: site.kind == 'comic' ? Section.comic : Section.video,
+        mediaKind: site.kind,
+      ),
+  ];
+  @override
+  Future<SourceDescriptor?> current() async => (await list())
+      .where((site) => site.id == service.selectedSiteId)
+      .firstOrNull;
+  @override
+  void close() {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('请在猫源订阅管理中操作');
 }
 
 /// The player/readers use this port to reopen their own Cat site. Management is
@@ -469,6 +515,9 @@ class CatSourceManager implements SourceManager {
       name: site.name,
       version: 'Node',
       enabled: true,
+      runtimeKind: 'cat',
+      section: site.kind == 'comic' ? Section.comic : Section.video,
+      mediaKind: site.kind,
     ),
   ];
   @override

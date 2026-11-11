@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -6,6 +7,7 @@ import 'package:pointycastle/api.dart';
 import 'package:pointycastle/block/aes.dart';
 import 'package:pointycastle/block/modes/cbc.dart';
 import 'package:pointycastle/block/modes/ecb.dart';
+import 'package:pointycastle/block/modes/gcm.dart';
 import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
 
@@ -16,7 +18,11 @@ typedef _LegacyImageWork = ({Uint8List bytes, Uint8List key, Uint8List? iv});
 /// 站点前端拿到图片后做 `for (i=0; i<100; i++) bytes[i] ^= key[i % key.length]`
 /// 再交给浏览器，所以 CDN 上放的是「前 100 字节被 XOR、其余是原图」的文件。
 /// 这里按同样的规则还原前 [length] 字节，后面的原样保留。
-Uint8List xorRepairImageBytes(Uint8List bytes, Uint8List key, {int length = 100}) {
+Uint8List xorRepairImageBytes(
+  Uint8List bytes,
+  Uint8List key, {
+  int length = 100,
+}) {
   if (bytes.isEmpty || key.isEmpty) return bytes;
   final limit = length <= 0
       ? bytes.length
@@ -73,15 +79,7 @@ Uint8List? decodeImageDataUri(String url) {
     // covers do). Accept only known image subtypes; do not turn `data:text/…`
     // into an image by accident.
     final subtype = meta.split(';').first;
-    const imageSubtypes = {
-      'png',
-      'jpeg',
-      'jpg',
-      'gif',
-      'webp',
-      'bmp',
-      'avif',
-    };
+    const imageSubtypes = {'png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'avif'};
     if (!imageSubtypes.contains(subtype)) return null;
     meta =
         'image/${subtype == 'jpg' ? 'jpeg' : subtype}'
@@ -129,6 +127,15 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     if (_isPlainImage(bytes)) return bytes;
     return _decodeFernetImage(bytes, field('x-lume-image-key'));
   }
+  // 听友听书（tingyou.fm）的影视封面是站方自研的 TVIMAGE1 信封：
+  //   ['TVIMAGE1'][uint32 头长度][JSON 头][AES-256-GCM 密文 + 16 字节 tag]
+  // 头里带 nonce / wrapped_key / plaintext_sha256，wrapped_key 与
+  // SHA-256('tv.image-envelope/v3/wrapped-key\0' + nonce + 摘要 + 0 + asset_id + 0 + role)
+  // 逐字节异或过；JSON 头本身又是 GCM 的 AAD。所以既没有固定密钥也没有固定 IV。
+  if (encoding == 'tvimage1') {
+    if (_isPlainImage(bytes)) return bytes;
+    return _decodeTvImageEnvelope(bytes);
+  }
   // Some sites store each JPEG byte-reversed (aido8's `.ttf` covers). The
   // reversal is a pure byte permutation, so it needs no key.
   if (encoding == 'reverse') {
@@ -140,6 +147,16 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
   }
   // INS AV 的图床把真图整段包成 `data:image/jpeg;base64,…` 纯文本下发
   //（响应头还写着 image/jpeg，直接当图片解会裂）。解出 data URI 即可，无密钥。
+  if (encoding == 'xor-base64') {
+    final key = Uint8List.fromList(utf8.encode(field('x-lume-image-key')));
+    if (key.isEmpty) throw const FormatException('Missing XOR image key');
+    final encoded = base64Decode(utf8.decode(bytes).trim());
+    final decoded = xorRepairImageBytes(encoded, key, length: encoded.length);
+    if (!_isPlainImage(decoded)) {
+      throw const FormatException('Invalid XOR source image');
+    }
+    return decoded;
+  }
   if (encoding == 'data-uri') {
     if (_isPlainImage(bytes)) return bytes;
     final inline = decodeImageDataUri(utf8.decode(bytes, allowMalformed: true));
@@ -185,8 +202,7 @@ Uint8List decodeSourceImage(Uint8List bytes, Map<String, String> headers) {
     if (cipherBytes.isEmpty || cipherBytes.length % 16 != 0) {
       throw const FormatException('Invalid base64 source image');
     }
-    final cipher = ECBBlockCipher(AESEngine())
-      ..init(false, KeyParameter(key));
+    final cipher = ECBBlockCipher(AESEngine())..init(false, KeyParameter(key));
     final plain = Uint8List(cipherBytes.length);
     for (var offset = 0; offset < cipherBytes.length; offset += 16) {
       cipher.processBlock(cipherBytes, offset, plain, offset);
@@ -323,6 +339,112 @@ Uint8List _decodeFernetImage(Uint8List bytes, String encodedKey) {
   } on Object {
     throw const FormatException('Invalid encoded Fernet image');
   }
+}
+
+/// 听友听书影视封面的 TVIMAGE1 信封解码。
+///
+/// 站点前端 `decodeImageEnvelope` 的等价实现：头是明文 JSON，正文是
+/// AES-256-GCM（AAD = 头本身），密钥由 `wrapped_key` 与一段 SHA-256 掩码异或得到。
+/// 全部输入都来自同一份报文体，脚本不需要（也没有）额外密钥。
+Uint8List _decodeTvImageEnvelope(Uint8List bytes) {
+  const magic = 'TVIMAGE1';
+  const maskPrefix = 'tv.image-envelope/v3/wrapped-key';
+  const invalid = FormatException('Invalid tvimage1 source image');
+  final signature = utf8.encode(magic);
+  if (bytes.length < 12 + 16 + signature.length) throw invalid;
+  for (var index = 0; index < signature.length; index++) {
+    if (bytes[index] != signature[index]) throw invalid;
+  }
+  final headerLength = ByteData.sublistView(
+    bytes,
+    signature.length,
+    signature.length + 4,
+  ).getUint32(0, Endian.big);
+  final headerStart = signature.length + 4;
+  final bodyStart = headerStart + headerLength;
+  if (headerLength < 2 ||
+      headerLength > 64 * 1024 ||
+      bodyStart + 16 > bytes.length) {
+    throw invalid;
+  }
+  final headerBytes = Uint8List.sublistView(bytes, headerStart, bodyStart);
+  Object? parsed;
+  try {
+    parsed = jsonDecode(utf8.decode(headerBytes));
+  } on Object {
+    throw invalid;
+  }
+  if (parsed is! Map) throw invalid;
+  final meta = parsed;
+  if (meta['schema'] != 'tv.image-envelope' ||
+      meta['version'] != 3 ||
+      meta['algorithm'] != 'AES-256-GCM') {
+    throw invalid;
+  }
+  final assetId = meta['asset_id'];
+  final role = meta['role'];
+  if (assetId is! String ||
+      assetId.isEmpty ||
+      role is! String ||
+      role.isEmpty) {
+    throw invalid;
+  }
+  final digestHex = '${meta['plaintext_sha256'] ?? ''}';
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digestHex)) throw invalid;
+  final nonce = Uint8List.fromList(_base64UrlBytes('${meta['nonce'] ?? ''}'));
+  final wrapped = Uint8List.fromList(
+    _base64UrlBytes('${meta['wrapped_key'] ?? ''}'),
+  );
+  if (nonce.length != 12 || wrapped.length != 32) throw invalid;
+  final digest = Uint8List.fromList(_hexBytes(digestHex));
+
+  final material = BytesBuilder(copy: false)
+    ..add(utf8.encode(maskPrefix))
+    ..addByte(0)
+    ..add(nonce)
+    ..add(digest)
+    ..addByte(0)
+    ..add(utf8.encode(assetId))
+    ..addByte(0)
+    ..add(utf8.encode(role));
+  final mask = crypto.sha256.convert(material.takeBytes()).bytes;
+  final key = Uint8List(32);
+  for (var index = 0; index < 32; index++) {
+    key[index] = wrapped[index] ^ mask[index];
+  }
+
+  Uint8List plain;
+  try {
+    final cipher = GCMBlockCipher(AESEngine())
+      ..init(false, AEADParameters(KeyParameter(key), 128, nonce, headerBytes));
+    plain = cipher.process(Uint8List.sublistView(bytes, bodyStart));
+  } on Object {
+    throw invalid;
+  }
+  final actual = crypto.sha256.convert(plain).bytes;
+  for (var index = 0; index < 32; index++) {
+    if (actual[index] != digest[index]) throw invalid;
+  }
+  if (!_isPlainImage(plain)) throw invalid;
+  return plain;
+}
+
+List<int> _base64UrlBytes(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty || trimmed.contains('=')) return const <int>[];
+  try {
+    return base64Url.decode(base64Url.normalize(trimmed));
+  } on Object {
+    return const <int>[];
+  }
+}
+
+List<int> _hexBytes(String hex) {
+  final out = <int>[];
+  for (var index = 0; index + 1 < hex.length; index += 2) {
+    out.add(int.parse(hex.substring(index, index + 2), radix: 16));
+  }
+  return out;
 }
 
 bool _isPlainImage(Uint8List bytes) {

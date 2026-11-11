@@ -121,28 +121,16 @@ enum SubtitleOutline {
   }
 }
 
-/// 画面缩放模式（文档要求：0.75x / 1.0 / 1.25x / 1.5x / 填充 / 适应）。
-///
-/// 「适应」与「填充」是两种**取景方式**（留黑边 vs 裁满框），其余四档是在
-/// 「适应」基础上的倍率——两组语义放在同一个菜单里，因为用户就是这么用的：
-/// 先在「适应 / 填充」里挑一个取景，再用倍率微调。
+/// 画面适配：保留原比例、等比裁满屏幕、非等比拉伸铺满。
+/// 旧倍率设置读取时回落原比例，不再显示或继续应用隐藏倍率。
 enum ZoomMode {
-  fit('fit', '适应', 1.0, false),
-  fill('fill', '填充', 1.0, true),
-  scale75('0.75', '0.75x', 0.75, false),
-  scale100('1.0', '1.0x', 1.0, false),
-  scale125('1.25', '1.25x', 1.25, false),
-  scale150('1.5', '1.5x', 1.5, false);
+  fit('fit', '原比例', false),
+  fill('fill', '填满屏幕', true),
+  stretch('stretch', '拉伸铺满', false);
 
-  const ZoomMode(this.id, this.label, this.scale, this.covers);
-
+  const ZoomMode(this.id, this.label, this.covers);
   final String id;
   final String label;
-
-  /// 在取景尺寸之上的倍率。
-  final double scale;
-
-  /// 是否「裁满整框」（填充）：true 时按 cover 取景，false 时按 contain 取景。
   final bool covers;
 
   static ZoomMode fromId(String? id) {
@@ -417,12 +405,24 @@ enum DefaultQuality {
 enum PlayerControlStyle { text, icons }
 
 /// 播放器设置：内核 + 全局开关 + **每个内核各一份**的偏好。
+enum DecodingPreset {
+  automatic('自动'),
+  hardware('硬解优先'),
+  software('软件兼容');
+
+  const DecodingPreset(this.label);
+  final String label;
+  static DecodingPreset parse(String? value) =>
+      values.where((v) => v.name == value).firstOrNull ?? automatic;
+}
+
 class PlayerSettings {
   const PlayerSettings({
     this.kernel = PlayerKernel.avplayer,
     this.presentation = const PlaybackPresentation(),
     this.subtitlesEnabled = true,
-    this.hardwareDecoding = true,
+    bool hardwareDecoding = true,
+    DecodingPreset? decodingPreset,
     this.autoHideControls = true,
     this.swipeUpNext = false,
     this.fastSeekSnap = false,
@@ -436,7 +436,11 @@ class PlayerSettings {
     this.gestureSensitivity = defaultGestureSensitivity,
     this.gestures = const PlayerGestureOptions(),
     this.prefs = const <PlayerKernel, KernelPrefs>{},
-  });
+  }) : decodingPreset =
+           decodingPreset ??
+           (hardwareDecoding
+               ? DecodingPreset.automatic
+               : DecodingPreset.software);
 
   /// 自动连播：一集播完自动进下一集（时长未知时不跳）。
   ///
@@ -515,7 +519,8 @@ class PlayerSettings {
   ///
   /// 默认开启（硬解是常态，省电且流畅）；关掉即走软解——当某台设备硬解
   /// HEVC 花屏 / 黑屏时，用户有一个不用换播放器的出口。
-  final bool hardwareDecoding;
+  final DecodingPreset decodingPreset;
+  bool get hardwareDecoding => decodingPreset != DecodingPreset.software;
 
   /// 全屏控制栏自动隐藏（用户要求；默认开）。
   ///
@@ -622,6 +627,7 @@ class PlayerSettings {
     RotationMode? rotation,
     bool? mirrored,
     bool? hardwareDecoding,
+    DecodingPreset? decodingPreset,
     Map<PlayerKernel, KernelPrefs>? prefs,
   }) {
     final target = kernel ?? this.kernel;
@@ -667,6 +673,13 @@ class PlayerSettings {
       presentation: presentation ?? this.presentation,
       subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
+      decodingPreset:
+          decodingPreset ??
+          (hardwareDecoding == null
+              ? this.decodingPreset
+              : hardwareDecoding
+              ? DecodingPreset.hardware
+              : DecodingPreset.software),
       autoHideControls: autoHideControls ?? this.autoHideControls,
       swipeUpNext: swipeUpNext ?? this.swipeUpNext,
       fastSeekSnap: fastSeekSnap ?? this.fastSeekSnap,
@@ -725,6 +738,7 @@ class PlayerSettings {
         other.kernel != kernel ||
         other.subtitlesEnabled != subtitlesEnabled ||
         other.hardwareDecoding != hardwareDecoding ||
+        other.decodingPreset != decodingPreset ||
         other.autoHideControls != autoHideControls ||
         other.swipeUpNext != swipeUpNext ||
         other.fastSeekSnap != fastSeekSnap ||
@@ -755,6 +769,7 @@ class PlayerSettings {
     kernel,
     subtitlesEnabled,
     hardwareDecoding,
+    decodingPreset,
     autoHideControls,
     swipeUpNext,
     fastSeekSnap,

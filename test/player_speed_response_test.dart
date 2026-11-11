@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -5,6 +7,80 @@ import 'package:lume_box/core/net/lume_http.dart';
 import 'package:lume_box/features/video/player_speed_meter.dart';
 
 void main() {
+  test('background probes require sufficient buffering and no native traffic counter', () {
+    bool allowed({
+      int seconds = 20,
+      bool buffering = false,
+      bool native = false,
+    }) => PlaybackSpeedMeter.canProbeInBackground(
+      playing: true,
+      buffering: buffering,
+      buffered: Duration(seconds: seconds),
+      foreground: true,
+      hasNativeSpeed: native,
+    );
+    expect(allowed(), true);
+    expect(allowed(seconds: 8), false);
+    expect(allowed(buffering: true), false);
+    expect(allowed(native: true), false);
+  });
+  test('canceling a background probe releases busy state without reporting failure', () async {
+    final entered = Completer<void>(), response = Completer<http.Response>();
+    final client = LumeHttp(
+      client: MockClient((_) {
+        entered.complete();
+        return response.future;
+      }),
+    );
+    final meter = PlaybackSpeedMeter(http: client);
+    final task = meter.measure(
+      Uri.parse('https://example.test/slow.mp4'),
+      background: true,
+    );
+    await entered.future;
+    expect(meter.busy.value, true);
+    meter.cancelBackground();
+    await task;
+    expect(meter.busy.value, false);
+    expect(meter.failed.value, false);
+    response.complete(http.Response(List.filled(4096, 'a').join(), 200));
+    await Future<void>.delayed(Duration.zero);
+    meter.dispose();
+    client.dispose();
+  });
+
+  test(
+    'cancelled background request can be retried for the same address',
+    () async {
+      final entered = Completer<void>();
+      final response = Completer<http.Response>();
+      var requests = 0;
+      final client = LumeHttp(
+        client: MockClient((_) async {
+          requests++;
+          if (requests == 1) {
+            entered.complete();
+            return response.future;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return http.Response('x' * 16384, 206);
+        }),
+      );
+      final meter = PlaybackSpeedMeter(http: client);
+      final uri = Uri.parse('https://example.test/video.mp4');
+      final pending = meter.measure(uri, background: true);
+      await entered.future;
+      meter.cancelBackground();
+      await pending;
+      await meter.measure(uri, background: true);
+      expect(requests, 2);
+      expect(meter.kbps.value, greaterThan(0));
+      response.complete(http.Response('', 200));
+      meter.dispose();
+      client.dispose();
+    },
+  );
+
   test('HLS 测媒体分片而非索引，保留防盗链头', () async {
     final urls = <String>[];
     final meter = PlaybackSpeedMeter(

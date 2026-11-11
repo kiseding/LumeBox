@@ -11,7 +11,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:lume_box/core/models/model_source.dart';
 import 'package:lume_box/core/reading/comic_image_tools.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
@@ -40,9 +39,6 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   setUp(() {
-    // 权重不再打进安装包；仓库里那 8 份就是下载源，测试直接读磁盘，
-    // 既覆盖真实字节，又不会让单测真的联网。
-    ModelSource.debugReader = (path) async => File(path).readAsBytes();
     messenger.setMockMethodCallHandler(ComicImageTools.channel, (call) async {
       switch (call.method) {
         case 'recognize':
@@ -258,6 +254,9 @@ void main() {
         find.byKey(const Key('advanced-image-models')),
         250,
       );
+      await tester.ensureVisible(
+        find.byKey(const Key('advanced-image-models')),
+      );
       await tester.tap(find.byKey(const Key('advanced-image-models')));
       await tester.pumpAndSettle();
       final button = find.byKey(const Key('import-super-resolution-model'));
@@ -288,6 +287,7 @@ void main() {
       find.byKey(const Key('advanced-image-models')),
       250,
     );
+    await tester.ensureVisible(find.byKey(const Key('advanced-image-models')));
     await tester.tap(find.byKey(const Key('advanced-image-models')));
     await tester.pumpAndSettle();
     final button = find.byKey(const Key('import-super-resolution-model'));
@@ -436,21 +436,13 @@ void main() {
     }
   });
 
-  test('八个 waifu2x 模型不随安装包发布，权重按需从仓库下载', () async {
-    // 看资产清单而不是去 load：load 失败会把 FlutterError 报给测试框架，
-    // 即使被 expectLater 接住，用例本身仍会被判失败（这里踩过）。
-    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-    expect(
-      manifest.listAssets().where((path) => path.endsWith('.mlmodel')),
-      isEmpty,
-      reason: '权重不进包：这一条就是 IPA 少掉 17 MB 的原因',
-    );
-    // 但仓库里仍有这份权重（它就是下载源），摘要比对在上一个用例完成。
+  test('all eight waifu2x models are bundled with the app', () async {
     for (final name in ComicImageTools.bundledModelNames) {
+      final data = await rootBundle.load('assets/models/waifu2x/$name.mlmodel');
       expect(
-        File('assets/models/waifu2x/$name.mlmodel').lengthSync(),
+        data.lengthInBytes,
         greaterThan(1 * 1024 * 1024),
-        reason: '$name 需要留在仓库里供下载',
+        reason: '$name 应随 App 打包',
       );
     }
   });
@@ -1024,6 +1016,18 @@ void main() {
     ]) {
       expect(find.text(text), findsOneWidget, reason: '缺少「$text」');
     }
+    expect(find.byType(Divider), findsNothing);
+    final promptLabel = find.text('上色提示词');
+    final promptField = find.ancestor(
+      of: promptLabel,
+      matching: find.byType(TextField),
+    );
+    expect(promptField, findsOneWidget);
+    expect(
+      tester.getRect(promptLabel).top,
+      greaterThanOrEqualTo(tester.getRect(promptField).top),
+      reason: '浮动标签应位于输入框内部',
+    );
     expect(tester.takeException(), isNull);
   });
 

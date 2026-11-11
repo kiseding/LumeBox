@@ -1,6 +1,9 @@
+import '../../core/js/source_registry.dart';
+import '../../core/cache/section_memory_cache.dart';
 import '../../core/net/lume_net.dart';
 import '../../core/net/network_cancellation.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
+import '../../shared/widgets/native_glass_preview.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
 
@@ -114,7 +117,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool get _usesSystemNavigation =>
       !(widget.desktopRail ?? _isDesktopPlatform) &&
       _systemNavigationAvailable &&
-      _shellSettings.settings.nativeNavigation.enabled;
+      (_shellSettings.settings.nativeNavigation.enabled ||
+          NativeGlassPreview.enabledOf(context));
 
   double get _navigationHeight => _usesSystemNavigation
       ? _shellSettings.settings.nativeNavigation.heightFor(
@@ -369,8 +373,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     );
     final difference = total - _seenSubscriptionChanges;
     _seenSubscriptionChanges = total;
-    if (difference <= 0) return;
-    // Update badges and source-row notices provide persistent feedback.
+    if (difference != 0 && mounted) setState(() {});
+  }
+
+  int _subscriptionBadge(String tab) => tab == 'settings'
+      ? _seenSubscriptionChanges
+      : SourceSubscriptionSync.changeCount(
+          tab == 'video' ? Section.video : Section.comic,
+        ).value;
+
+  @override
+  void didHaveMemoryPressure() {
+    SourceRegistry.trimIdleRuntimes();
+    SectionMemoryCache.instance.clearAll();
+    SectionImagePipeline.trimMemory();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    SectionPreloader.discard();
   }
 
   @override
@@ -382,6 +401,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _backgroundWarmed.clear();
       _scheduleBackgroundWarm();
     } else {
+      SectionPreloader.cancelPendingExcept(null);
+      CatPreloader.discard();
       _subscriptionTimer?.cancel();
       _subscriptionStartupTimer?.cancel();
       _backgroundWarmTimer?.cancel();
@@ -417,6 +438,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // 点下去、页面还没构建的那一小段，把板块运行时（阅读库 + 源引擎）与首页
     // 第一页提前拉起来；页面构建后能直接吃这口热饭。
     // 预热失败不影响任何事（页面照旧自己取），见 [SectionPreloader]。
+    SectionPreloader.cancelPendingExcept(sectionFromId(id));
+    if (sectionFromId(id) != Section.cat) CatPreloader.discard();
     if (!_visitedPages.contains(id)) unawaited(_warmUp(id));
     setState(() {
       _activeId = id;
@@ -767,6 +790,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         label: tab.label,
                         icon: tab.icon,
                         selectedIcon: tab.selectedIcon,
+                        badgeCount: _subscriptionBadge(tab.id),
                       ),
                     ShellDockEntry.search,
                   ],
@@ -790,6 +814,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         label: tab.label,
                         icon: tab.icon,
                         selectedIcon: tab.selectedIcon,
+                        badgeCount: _subscriptionBadge(tab.id),
                       ),
                     ShellDockEntry.search,
                   ],
@@ -799,6 +824,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       _controller.visible &&
                       MediaQuery.viewInsetsOf(context).bottom == 0,
                   appearance: _dockAppearance,
+                  solidIcons:
+                      _shellSettings.settings.nativeNavigation.solidIcons,
                   materialOpacity:
                       _shellSettings.settings.nativeNavigation.materialOpacity,
                   contentInset: contentInset,
@@ -853,13 +880,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   /// 首次访问时创建页面，切走时保留状态并停止其动画。
   ///
-  /// Key 用页签**标识 + 主题身份**：
-  /// - 页签标识——同一页签在顺序变化或切换时保留状态和在途加载；
-  /// - 主题身份——切亮暗 / 换主题色时**整页重建**，静态色名（`LumeTheme.*`）
-  ///   才会重新取值。少了它，切主题后页面里只读静态色名的部件会留在旧配色上
-  ///   （真机现象：设置页里两张**内容为 const 的分组卡**在深色下仍是白底、
-  ///   文字却是深色主题的浅色，糊成一片）。代价：切主题会重建当前页签，
-  ///   页内滚动位置等局部状态归零——这是静态色名架构下的取舍。
+  /// Stable tab identity keeps scroll positions and in-flight work across themes.
   Widget _buildPage() => Stack(
     fit: StackFit.expand,
     children: [
@@ -872,7 +893,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           child: TickerMode(
             enabled: tab.id == _activeId,
             child: KeyedSubtree(
-              key: ValueKey<String>('${tab.id}·${LumeTheme.themeId}'),
+              key: ValueKey<String>('shell-content-${tab.id}'),
               child: ModuleGlassScope(
                 module: GlassModule.fromId(tab.id),
                 child: widget.pageBuilder?.call(tab.id) ?? tab.builder(),

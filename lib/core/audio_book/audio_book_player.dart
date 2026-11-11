@@ -1,3 +1,5 @@
+import '../source/source_runtime_pins.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -23,6 +25,21 @@ class AudioBookSettings extends ChangeNotifier {
   double speed = 1;
   int sleepMinutes = 0;
   final Map<String, Map<String, int>> positions = {};
+  final Map<String, String> chapterIds = {};
+  int indexFor(MediaResource entry) {
+    final chapter = chapterIds[entry.id];
+    if (chapter != null) {
+      final index = entry.episodes.indexWhere(
+        (episode) => episode.id == chapter,
+      );
+      return index < 0 ? 0 : index;
+    }
+    return (positions[entry.id]?['index'] ?? 0).clamp(
+      0,
+      entry.episodes.isEmpty ? 0 : entry.episodes.length - 1,
+    );
+  }
+
   Future<void> _saving = Future.value();
   Future<void>? _loading;
   Future<File> get _file async => File(
@@ -35,6 +52,13 @@ class AudioBookSettings extends ChangeNotifier {
     try {
       final data = jsonDecode(await file.readAsString());
       if (data is Map) {
+        if (data['chapterIds'] is Map) {
+          for (final entry in (data['chapterIds'] as Map).entries) {
+            if (entry.key is String && entry.value is String) {
+              chapterIds[entry.key as String] = entry.value as String;
+            }
+          }
+        }
         final raw = data['speed'];
         if (raw is num && raw.isFinite) speed = raw.toDouble().clamp(.5, 3);
         if (data['sleepMinutes'] is int) {
@@ -45,6 +69,8 @@ class AudioBookSettings extends ChangeNotifier {
             if (entry.key is String && entry.value is Map) {
               final row = entry.value as Map;
               positions[entry.key as String] = {
+                if (row['updatedAt'] is int)
+                  'updatedAt': row['updatedAt'] as int,
                 'index': row['index'] is int
                     ? (row['index'] as int).clamp(0, 1000000)
                     : 0,
@@ -69,6 +95,7 @@ class AudioBookSettings extends ChangeNotifier {
       'speed': speed,
       'sleepMinutes': sleepMinutes,
       'positions': positions,
+      'chapterIds': chapterIds,
     });
     final next = _saving.then((_) async {
       final file = await _file;
@@ -175,7 +202,9 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   }) async {
     await _configureSession();
     final urls = await _proxy.prepare(sources);
-    _singleMode = !MediaPreload.instance.audio;
+    // Huge native queues serialize thousands of MediaItems on route entry.
+    // Keep the Dart catalog intact and load chapters on demand instead.
+    _singleMode = !MediaPreload.instance.audio || sources.length > 200;
     _removePreloadClearer ??= MediaPreload.instance.onClear(() async {
       if (_playlist.isEmpty || _changing || _singleMode) return;
       final index = (_player.currentIndex ?? 0) + (_singleMode ? _offset : 0);
@@ -300,6 +329,7 @@ class AudioBookSession extends ChangeNotifier {
   final Future<void> Function() _initialize;
   final AudioBookSettings settings;
   final Timer Function(Duration, void Function()) _schedule;
+  VoidCallback? _releaseRuntime;
   AudioBookPlayer? _player;
   String? _preloadConfiguration;
   MediaResource? resource;
@@ -307,6 +337,7 @@ class AudioBookSession extends ChangeNotifier {
   int current = 0;
   bool playing = false, loading = false, seeking = false;
   String? error;
+  String loadingMessage = '正在加载音频…';
   DateTime? sleepAt;
   Timer? _sleep;
   DateTime _savedAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -314,15 +345,85 @@ class AudioBookSession extends ChangeNotifier {
   Future<void> _loads = Future.value();
   List<AudioBookTrack> _tracks = [];
   bool _ready = false;
+  bool _acceptEvents = false;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
+  final progress = ValueNotifier<(Duration, Duration)>((
+    Duration.zero,
+    Duration.zero,
+  ));
+  void _notifyProgress() => progress.value = (position, duration);
+  @override
+  void notifyListeners() {
+    PlaybackFocus.setPlaying('audioBook', playing);
+    _notifyProgress();
+    super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    PlaybackFocus.unregister('audioBook', release);
+    _generation++;
+    _acceptEvents = false;
+    PlaybackFocus.setPlaying('audioBook', false);
+    _releaseRuntime?.call();
+    progress.dispose();
+    super.dispose();
+  }
+
   AudioBookPlayer? get player => _player;
+  Future<void> open(
+    MediaResource entry,
+    List<AudioBookTrack> sources, {
+    int? index,
+    bool restart = false,
+  }) async {
+    if (!restart &&
+        resource?.id == entry.id &&
+        _ready &&
+        error == null &&
+        (index == null || index == current) &&
+        sources.length == _tracks.length &&
+        List.generate(
+          sources.length,
+          (i) => i,
+        ).every((i) => sources[i].id == _tracks[i].id)) {
+      return;
+    }
+    final task = load(entry, sources, index: index, resume: !restart);
+    final generation = _generation;
+    await task;
+    if (generation == _generation &&
+        resource?.id == entry.id &&
+        error == null) {
+      unawaited(play());
+    }
+  }
+
+  Future<void> retry() async {
+    final entry = resource;
+    if (entry == null || loading) return;
+    final task = load(
+      entry,
+      _tracks,
+      index: current,
+      initialPosition: position,
+    );
+    final generation = _generation;
+    await task;
+    if (generation == _generation && error == null) unawaited(play());
+  }
+
   Future<void> load(
     MediaResource entry,
     List<AudioBookTrack> sources, {
     int? index,
+    bool resume = false,
+    Duration? initialPosition,
   }) {
     final generation = ++_generation;
-    final task = _loads.then((_) => _load(entry, sources, index, generation));
+    final task = _loads.then(
+      (_) => _load(entry, sources, index, generation, resume, initialPosition),
+    );
     _loads = task.catchError((_) {});
     return task;
   }
@@ -332,17 +433,66 @@ class AudioBookSession extends ChangeNotifier {
     List<AudioBookTrack> sources,
     int? requested,
     int generation,
+    bool restore,
+    Duration? initialPosition,
   ) async {
     if (generation != _generation) return;
     _remember();
+    final previousId = resource?.id;
+    final previousIndex = current;
+    final previousPosition = position;
+    final previousChapter =
+        current >= 0 && current < (resource?.episodes.length ?? 0)
+        ? resource!.episodes[current].id
+        : null;
+    final wasReady = _ready;
+    _ready = false;
+    _acceptEvents = false;
+    _sleep?.cancel();
+    sleepAt = null;
     loading = true;
+    loadingMessage = '正在准备播放器…';
+    _releaseRuntime?.call();
+    _releaseRuntime = entry.originSection != null && entry.sourceId != null
+        ? SourceRuntimePins.retain(entry.originSection!, entry.sourceId!)
+        : null;
+    resource = entry;
+    current = requested ?? 0;
+    position = Duration.zero;
+    duration = Duration.zero;
+    playing = false;
     error = null;
     notifyListeners();
     _tracks = sources;
     try {
+      if (sources.isEmpty) throw const AudioBookFailure('资源没有可播放的章节');
       await PlaybackFocus.acquire('audioBook');
       await settings.load();
       if (generation != _generation) return;
+      final saved = settings.positions[entry.id];
+      final index = (requested ?? settings.indexFor(entry)).clamp(
+        0,
+        sources.length - 1,
+      );
+      final savedChapter = settings.chapterIds[entry.id];
+      final savedMatches = savedChapter == null
+          ? (saved?['index'] == index)
+          : savedChapter == sources[index].episode.id;
+      final resume =
+          initialPosition ??
+          (restore &&
+                  wasReady &&
+                  previousId == entry.id &&
+                  (previousChapter == sources[index].episode.id ||
+                      previousChapter == null && previousIndex == index)
+              ? previousPosition
+              : ((requested == null || restore) && savedMatches)
+              ? Duration(milliseconds: saved?['position'] ?? 0)
+              : Duration.zero);
+      resource = entry;
+      position = resume;
+      duration = Duration.zero;
+      current = index;
       final policy = MediaPreload.instance;
       final configuration = '${policy.bufferSeconds}|${policy.capacityMb}';
       if (_player != null && _preloadConfiguration != configuration) {
@@ -357,14 +507,15 @@ class AudioBookSession extends ChangeNotifier {
       }
       if (_player == null) {
         await _initialize();
+        if (generation != _generation) return;
         _player = _factory();
         _preloadConfiguration = configuration;
         _subscriptions.addAll([
           _player!.position.listen((value) {
-            if (!_ready && !loading) return;
+            if (!_acceptEvents) return;
             if (!seeking) {
               position = value;
-              notifyListeners();
+              _notifyProgress();
             }
             if (!loading &&
                 DateTime.now().difference(_savedAt).inSeconds >= 5) {
@@ -372,21 +523,24 @@ class AudioBookSession extends ChangeNotifier {
             }
           }),
           _player!.duration.listen((value) {
-            if (!_ready && !loading) return;
+            if (!_acceptEvents) return;
             duration = value ?? Duration.zero;
-            notifyListeners();
+            _notifyProgress();
           }),
           _player!.playing.listen((value) {
+            if (!_acceptEvents) return;
+            if (playing == value) return;
             playing = value;
             notifyListeners();
             if (!loading && !value) _remember();
           }),
           _player!.index.listen((value) {
-            if (!_ready && !loading) return;
+            if (!_acceptEvents) return;
             current = value ?? 0;
             notifyListeners();
           }),
           _player!.errors.listen((message) {
+            if (!_acceptEvents) return;
             error = message;
             notifyListeners();
           }),
@@ -395,26 +549,51 @@ class AudioBookSession extends ChangeNotifier {
       _remember();
       await _player!.stop();
       if (generation != _generation) return;
-      final saved = settings.positions[entry.id];
-      final index = (requested ?? saved?['index'] ?? 0).clamp(
-        0,
-        sources.length - 1,
+      _acceptEvents = true;
+      loadingMessage = '正在加载音频…';
+      notifyListeners();
+      await _player!.load(
+        [
+          for (final track in sources)
+            if (track.resolve == null)
+              track
+            else
+              AudioBookTrack(
+                id: track.id,
+                episode: track.episode,
+                album: track.album,
+                cover: track.cover,
+                resolve: () async {
+                  if (generation == _generation && loading) {
+                    loadingMessage = '正在解析音频地址…';
+                    notifyListeners();
+                  }
+                  final audio = await track.resolve!();
+                  if (generation == _generation && loading) {
+                    loadingMessage = '正在缓冲音频…';
+                    notifyListeners();
+                  }
+                  return audio;
+                },
+              ),
+        ],
+        index: index,
+        position: resume,
       );
-      final resume = requested == null
-          ? Duration(milliseconds: saved?['position'] ?? 0)
-          : Duration.zero;
-      resource = entry;
-      position = resume;
-      duration = Duration.zero;
-      current = index;
-      await _player!.load(sources, index: index, position: resume);
-      if (generation != _generation) return;
+      if (generation != _generation) {
+        // A focus change may release the queue while the native load is still
+        // pending. Its late completion must not reinstall the old media.
+        await _player?.release();
+        return;
+      }
       await _player!.speed(settings.speed);
+      if (generation != _generation) return;
       _ready = true;
       setSleep(settings.sleepMinutes);
     } catch (failure, stack) {
       LumeLog.error('[audioBook] 加载失败: $failure', stack);
       if (generation == _generation) {
+        _acceptEvents = false;
         error = failure is AudioBookFailure
             ? failure.message
             : '音频加载失败，请检查地址、权限和网络';
@@ -430,9 +609,13 @@ class AudioBookSession extends ChangeNotifier {
   void _remember() {
     final id = resource?.id;
     if (id == null || loading || !_ready) return;
+    if (current >= 0 && current < (resource?.episodes.length ?? 0)) {
+      settings.chapterIds[id] = resource!.episodes[current].id;
+    }
     settings.positions[id] = {
       'index': current,
       'position': position.inMilliseconds,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
     };
     _savedAt = DateTime.now();
     unawaited(settings.save().catchError((_) {}));
@@ -440,7 +623,10 @@ class AudioBookSession extends ChangeNotifier {
 
   Future<void> play() async {
     if (loading) return;
-    if (!_ready && resource != null) await load(resource!, _tracks);
+    if (error != null || !_ready && resource != null) {
+      await retry();
+      return;
+    }
     if (_player == null || loading || error != null) return;
     try {
       await _player!.play();
@@ -511,23 +697,39 @@ class AudioBookSession extends ChangeNotifier {
 
   Future<void> release() async {
     _remember();
+    final generation = ++_generation;
+    loading = false;
     _sleep?.cancel();
     sleepAt = null;
     _ready = false;
-    await _player?.release();
-    playing = false;
-    notifyListeners();
+    _acceptEvents = false;
+    final releaseRuntime = _releaseRuntime;
+    _releaseRuntime = null;
+    try {
+      await _player?.release();
+    } finally {
+      releaseRuntime?.call();
+      if (generation == _generation) {
+        playing = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> shutdown() async {
     _remember();
     _generation++;
+    _ready = false;
+    _acceptEvents = false;
+    loading = false;
     _sleep?.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
     _subscriptions.clear();
     await _player?.release();
+    _releaseRuntime?.call();
+    _releaseRuntime = null;
     await settings.save();
   }
 }

@@ -1,7 +1,7 @@
 import Flutter
 import Security
 
-/// Device-only credential for the remote source repository. Never exported.
+/// Device-only private subscription credentials and local storage key. Never exported.
 enum SourceRepositoryCredentials {
   static func register(with messenger: FlutterBinaryMessenger) {
     FlutterMethodChannel(name: "lumebox/source_repository", binaryMessenger: messenger).setMethodCallHandler { call, result in
@@ -22,8 +22,9 @@ enum SourceRepositoryCredentials {
         result(data.base64EncodedString()); return
       }
       let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "lumebox.source-repository", kSecAttrAccount as String: "github"]
-      if call.method == "read" {
+        kSecAttrService as String: "lumebox.private-subscription",
+        kSecAttrAccount as String: "github"]
+      if call.method == "privateRead" {
         var read = query; read[kSecReturnData as String] = true
         var value: CFTypeRef?
         let status = SecItemCopyMatching(read as CFDictionary, &value)
@@ -31,7 +32,7 @@ enum SourceRepositoryCredentials {
           result(FlutterError(code: "keychain", message: "无法读取 GitHub 授权", details: nil)); return
         }
         result((value as? Data).flatMap { String(data: $0, encoding: .utf8) } ?? "")
-      } else if call.method == "write", let text = call.arguments as? String {
+      } else if call.method == "privateWrite", let text = call.arguments as? String {
         var status: OSStatus
         if text.isEmpty { status = SecItemDelete(query as CFDictionary) }
         else {

@@ -1,3 +1,6 @@
+import 'video_preview.dart';
+export 'video_preview.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -8,7 +11,12 @@ import 'player_stats.dart';
 
 /// 播放器要打开的媒体。
 class PlayerMedia {
-  const PlayerMedia({required this.uri, this.headers, this.title});
+  const PlayerMedia({
+    required this.uri,
+    this.headers,
+    this.title,
+    this.previews = const [],
+  });
 
   /// 本地文件与网络地址统一用 URI 表达。
   final Uri uri;
@@ -16,6 +24,7 @@ class PlayerMedia {
   final Map<String, String>? headers;
 
   final String? title;
+  final List<VideoPreview> previews;
 
   bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
 }
@@ -84,9 +93,15 @@ abstract class AbstractPlayer {
 
   Future<void> seek(Duration position);
 
+  /// 用户拖动或快进：允许小幅容差以尽快恢复画面，精确定位仍使用 seek。
+  Future<void> seekInteractive(Duration position) => seek(position);
+
+  /// 网络进度条或横向拖动松手后的定位。支持关键帧定位的内核可以优先出画。
+  Future<void> seekScrub(Duration position) => seekInteractive(position);
+
   /// 拖动预览用的快速定位：允许落到最近关键帧，落点可能有误差。
   ///
-  /// 拖滑条/横向手势时每 150ms 会发一次，要求尽量快；松手时改用 [seek]。
+  /// 本地拖动预览会节流调用，网络拖动期间不发连续定位请求。
   /// 内核没有更快的路径时退化为 [seek]（行为完全一致）。
   Future<void> seekFast(Duration position) => seek(position);
 

@@ -4,13 +4,15 @@ import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/features/source/source_subscription_page.dart';
 
 import 'dart:convert';
+
+import 'package:lume_box/core/source/source_subscription_catalog.dart';
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/source/source_subscription_sync.dart';
-import 'package:lume_box/core/source/source_subscription_catalog.dart';
 import 'package:lume_box/core/net/source_subscription.dart';
 import 'package:lume_box/core/net/network_settings.dart';
 
@@ -57,20 +59,42 @@ void main() {
       'var LumeSource = {id:"$id", name:"$id", version:"$version"};';
 
   test('新源默认待选择，批准后才安装并保持后续更新', () async {
+    SourceSubscriptionSync.attachNoticeFile(
+      Section.video,
+      File('${root.path}/notice.txt'),
+    );
+    SourceSubscriptionSync.acknowledge(Section.video);
     final record = service.subscriptions.single;
     record.autoInstallNew = false;
     remote[manifest] = 'https://repo.example/new.js';
     remote['https://repo.example/new.js'] = script('new', 1);
     final pending = await service.sync(force: true);
     expect(pending.pending, 1);
+    expect(SourceSubscriptionSync.changeCount(Section.video).value, 1);
+    expect(
+      SourceSubscriptionSync.notices(Section.video).single['status'],
+      '新源待安装',
+    );
     expect(manager.sources, isEmpty);
     expect(record.pending.keys, contains('https://repo.example/new.js'));
+    SourceSubscriptionSync.acknowledge(Section.video);
+    await service.sync(force: true);
+    expect(
+      SourceSubscriptionSync.changeCount(Section.video).value,
+      0,
+      reason: '同一个待安装源已读后不反复亮角标',
+    );
     await service.save();
     await service.load();
     final saved = service.subscriptions.single;
     expect(saved.pending, isNotEmpty);
     saved.approvedUrls.add('https://repo.example/new.js');
     expect((await service.sync(force: true)).added, 1);
+    expect(SourceSubscriptionSync.changeCount(Section.video).value, 1);
+    expect(
+      SourceSubscriptionSync.notices(Section.video).single['status'],
+      '已新增',
+    );
     expect(saved.pending, isEmpty);
     remote['https://repo.example/new.js'] = script('new', 2);
     expect((await service.sync(force: true)).updated, 1);
@@ -87,6 +111,31 @@ void main() {
     expect(result.errors.join(), isNot(contains('$manifest:')));
     expect(manager.sources.map((source) => source.id), contains('good'));
     expect(result.removed, 0);
+  });
+
+  test('仓库撤回待安装源后，提示移除而不是继续提示安装', () async {
+    SourceSubscriptionSync.attachNoticeFile(
+      Section.video,
+      File('${root.path}/notice.txt'),
+    );
+    SourceSubscriptionSync.acknowledge(Section.video);
+    remote[manifest] = 'https://repo.example/stay.js';
+    remote['https://repo.example/stay.js'] = script('stay', 1);
+    await service.sync(force: true);
+    SourceSubscriptionSync.acknowledge(Section.video);
+    service.subscriptions.single.autoInstallNew = false;
+    remote[manifest] =
+        'https://repo.example/stay.js\nhttps://repo.example/new.js';
+    remote['https://repo.example/new.js'] = script('new', 1);
+    await service.sync(force: true);
+    remote[manifest] = 'https://repo.example/stay.js';
+    await service.sync(force: true);
+    expect(service.subscriptions.single.pending, isEmpty);
+    expect(
+      SourceSubscriptionSync.notices(Section.video).single['status'],
+      '仓库已移除（未安装）',
+    );
+    expect(manager.sources.single.id, 'stay');
   });
 
   test('旧 CDN 快照订阅迁移并合并成员与用户排除项', () async {
@@ -106,7 +155,10 @@ void main() {
     await service.save();
     await service.load();
     expect(service.subscriptions, hasLength(1));
-    expect(service.subscriptions.single.url, stable);
+    expect(
+      service.subscriptions.single.url,
+      '${SubscriptionCatalog.base}subscriptions/video.txt',
+    );
     expect(
       service.subscriptions.single.members.keys,
       containsAll(['retired', 'active']),
@@ -509,6 +561,61 @@ void main() {
     expect(manager.sources.single.version, '2');
   });
 
+  testWidgets('官方综合订阅选择线路后直接添加，自定义地址保留', (tester) async {
+    final official = SubscriptionCatalog.mixedFor(SubscriptionRoute.cloudflare);
+    remote[official] = 'https://repo.example/mixed.js';
+    remote['https://repo.example/mixed.js'] = script('mixed', 1);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceSubscriptionPage(
+          section: Section.video,
+          manager: manager,
+          fetchSubscription: service.fetch,
+        ),
+      ),
+    );
+    Future<void> settle() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
+      await tester.pumpAndSettle();
+    }
+
+    await settle();
+    await tester.enterText(
+      find.byType(TextField),
+      'https://custom.example/list.txt',
+    );
+    await tester.tap(find.text('综合源订阅'));
+    await settle();
+    await tester.tap(find.text('Cloudflare'));
+    await settle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'https://custom.example/list.txt',
+    );
+    final stored = await tester.runAsync(
+      () => SourceSubscriptionSync.open(Section.video, manager: manager),
+    );
+    expect(
+      stored!.subscriptions.map((record) => record.url),
+      contains(official),
+    );
+    await tester.scrollUntilVisible(
+      find.textContaining('个新源待选择安装'),
+      250,
+      scrollable: find
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
+          .first,
+    );
+    expect(find.textContaining('个新源待选择安装'), findsOneWidget);
+  });
+
   testWidgets('常驻订阅入口：添加一次、返回重进保留链接、无需粘贴即可更新', (tester) async {
     await tester.runAsync(
       () => SourceSubscriptionSync.open(Section.video, manager: manager),
@@ -552,14 +659,21 @@ void main() {
     await tester.tap(find.text('订阅'));
     await settle();
     await tester.enterText(find.byType(TextField), manifest);
+    await tester.tap(find.text('综合源订阅'));
+    await settle();
+    await tester.tap(find.text('全部视频订阅'));
+    await settle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      manifest,
+    );
+    await tester.enterText(find.byType(TextField), manifest);
     await tester.tap(find.text('添加订阅并检查可安装源'));
     await settle();
     expect(manager.sources, isEmpty);
     await tester.tap(find.text('选择安装'));
     await settle();
-    await tester.tap(find.text('全选'));
-    await settle();
-    await tester.tap(find.text('安装 1 个'));
+    await tester.tap(find.text('全部导入'));
     await settle();
     expect(manager.sources.single.version, '1');
     expect(find.text(manifest), findsOneWidget);
@@ -573,15 +687,15 @@ void main() {
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
       isEmpty,
     );
-    expect(find.text('一键更新全部订阅'), findsOneWidget);
+    expect(find.text('检查更新与增减'), findsOneWidget);
     expect(find.text('更新已保存的订阅'), findsNothing);
     expect(find.byTooltip('同步订阅'), findsNothing);
     remote['https://repo.example/a.js'] = script('a', 2);
-    await tester.tap(find.text('一键更新全部订阅'));
+    await tester.tap(find.text('检查更新与增减'));
     await settle();
     expect(manager.sources.single.version, '2');
     remote.remove('https://repo.example/a.js');
-    await tester.tap(find.text('一键更新全部订阅'));
+    await tester.tap(find.text('检查更新与增减'));
     await settle();
     expect(find.byType(SelectableText), findsWidgets);
     expect(find.textContaining('HTTP 503'), findsWidgets);

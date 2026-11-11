@@ -107,6 +107,15 @@ class MultiLineDetailSource extends DetailSource {
   ];
 }
 
+class NumericDetailSource extends DetailSource {
+  @override
+  Future<List<SourceChapter>> chapters(String id) async => const [
+    SourceChapter(id: 'e1', title: '01'),
+    SourceChapter(id: 'e2', title: '02'),
+    SourceChapter(id: 'e3', title: '03'),
+  ];
+}
+
 class LongDetailSource extends DetailSource {
   @override
   Future<List<SourceChapter>> chapters(String id) async => [
@@ -235,6 +244,17 @@ void main() {
             .abs(),
         lessThan(1),
       );
+      if (compact) {
+        final sort = find.byTooltip('倒序排列');
+        expect(
+          tester.getCenter(sort).dx,
+          greaterThan(tester.getCenter(download).dx),
+        );
+        expect(
+          (tester.getCenter(sort).dy - tester.getCenter(download).dy).abs(),
+          lessThan(1),
+        );
+      }
       expect(tester.takeException(), isNull);
       await tester.tap(download);
       await tester.pumpAndSettle();
@@ -360,6 +380,36 @@ void main() {
     final dynamic state = tester.state(find.byType(VideoDetailPage));
     expect(state.currentLine, '线路B');
     expect(state.lineResume.position, const Duration(seconds: 60));
+  });
+
+  testWidgets('换源续播未选剧集时明确提示，不转移进度或自动播放', (tester) async {
+    final multi = MultiLineDetailSource();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: multi,
+          item: const SourceItem(id: 'resume-cancel', title: '详情测试片'),
+          library: library,
+          resumeRequest: const VideoResumeRequest(
+            title: '详情测试片',
+            chapterTitle: '第1集',
+            chapterIndex: 0,
+            position: Duration(seconds: 60),
+            duration: Duration.zero,
+          ),
+          onPlay: (_, _, _, _) async => fail('未选择剧集不能自动播放'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('确认续播剧集'), findsOneWidget);
+    Navigator.of(tester.element(find.text('确认续播剧集'))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('未选择对应剧集，请手动选集后播放；原进度未转移'), findsOneWidget);
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.lineResume, isNull);
+    expect(multi.parses, 0);
   });
 
   testWidgets('沉浸详情的TMDB小标和评分放在类型旁，不挤占年份行', (tester) async {
@@ -660,6 +710,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('video-detail-tmdb-status')), findsOneWidget);
     expect(find.text('示例演员'), findsOneWidget);
+    final castTitle = tester.getRect(
+      find.byKey(const Key('video-detail-cast-title')),
+    );
+    final avatar = tester.getRect(
+      find.byKey(const ValueKey('video-detail-cast-avatar-0')),
+    );
+    expect(avatar.width, 48);
+    expect(avatar.left, greaterThan(castTitle.right));
+    expect(avatar.center.dy, closeTo(castTitle.center.dy, .1));
     expect(find.text('TMDB · 已匹配'), findsOneWidget);
     expect(find.textContaining('2026 · 剧情'), findsOneWidget);
     expect(find.text('相似影片 · 全站找片'), findsNothing);
@@ -855,6 +914,49 @@ void main() {
     expect(state.lineResume.position, const Duration(minutes: 12, seconds: 36));
   });
 
+  testWidgets('列表选集不显示重复数字，每两集之间有可见分隔线', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(440, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoDetailPage(
+          source: NumericDetailSource(),
+          item: const SourceItem(id: 'numeric', title: '详情测试片'),
+          library: library,
+          onPlay: (_, _, _, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final open = find.byKey(const Key('video-detail-select-episodes'));
+    await tester.ensureVisible(open);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('列表显示').last);
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 3; i++) {
+      final tile = tester.widget<ListTile>(
+        find.byKey(ValueKey('video-detail-picker-episode-$i')),
+      );
+      expect(tile.subtitle, isNull);
+    }
+    final dividers = tester
+        .widgetList<Divider>(find.byType(Divider))
+        .where((d) => d.indent == 48 && d.endIndent == 24)
+        .toList();
+    expect(dividers, hasLength(2));
+    final first = tester.getRect(
+      find.byKey(const ValueKey('video-detail-picker-episode-0')),
+    );
+    final second = tester.getRect(
+      find.byKey(const ValueKey('video-detail-picker-episode-1')),
+    );
+    expect(first.height, 56);
+    expect(second.top - first.top, 57);
+    expect(dividers.every((d) => d.thickness == .5 && d.color!.a > .1), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('选集移除搜索和跳集，定位按钮回到当前集', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -936,6 +1038,8 @@ void main() {
       duration: Duration(minutes: 40),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('更多恢复方式'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('换线路继续看'));
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -1008,7 +1112,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('列表先详情，尺寸预备后直接横屏入场，复用一个实例并返回详情', (tester) async {
+  testWidgets('方向预检等待受限，先进入播放页，尺寸返回后复用同一实例横屏播放', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final entryDirections = <List<dynamic>>[];
@@ -1074,19 +1178,19 @@ void main() {
     await tester.pump();
     expect(
       find.byType(VideoPlayerPage),
-      findsNothing,
-      reason: '先在详情页等待同一个内核读取尺寸，避免先竖屏再横屏',
+      findsOneWidget,
+      reason: '不在详情页等待慢媒体加载，播放页接手同一项预备任务',
     );
     expect(loadGate.isCompleted, isFalse);
+    expect(entryDirections.first, [
+      'DeviceOrientation.landscapeLeft',
+      'DeviceOrientation.landscapeRight',
+    ]);
     loadGate.complete();
     await tester.runAsync(() async {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     await tester.pumpAndSettle();
-    expect(entryDirections.first, [
-      'DeviceOrientation.landscapeLeft',
-      'DeviceOrientation.landscapeRight',
-    ]);
     expect(players.single.loads, 1, reason: '进入播放页只加载一次媒体');
     expect(source.parses, 1);
     expect(players.length, 1);

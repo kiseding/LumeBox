@@ -19,7 +19,25 @@ class FrostedSettings extends ChangeNotifier {
   bool _frostedEnabled = true;
   bool get frostedEnabled => _frostedEnabled;
   final Map<String, LiquidGlassStyle> _styles = {};
-  bool reduceTransparency = false;
+  bool lightweight = false;
+  bool _nativePreview = false;
+  bool get nativePreview => _nativePreview;
+
+  Future<void> setNativePreview(bool value) {
+    _nativePreview = value;
+    notifyListeners();
+    return save();
+  }
+
+  bool _reduceTransparency = false;
+  bool get reduceTransparency => _reduceTransparency || lightweight;
+  set reduceTransparency(bool value) => _reduceTransparency = value;
+  Future<void> setLightweight(bool value) {
+    lightweight = value;
+    notifyListeners();
+    return save();
+  }
+
   NativeGlassStyle native = const NativeGlassStyle();
   Future<void> setNative(NativeGlassStyle value, {bool persist = true}) {
     native = value;
@@ -67,6 +85,8 @@ class FrostedSettings extends ChangeNotifier {
     _frostedEnabled = true;
     _styles.clear();
     reduceTransparency = false;
+    lightweight = false;
+    _nativePreview = false;
     native = const NativeGlassStyle();
     try {
       final base = directory ?? await getApplicationSupportDirectory();
@@ -78,6 +98,8 @@ class FrostedSettings extends ChangeNotifier {
         if (data is Map) {
           _frostedEnabled = data['frostedEnabled'] != false;
           reduceTransparency = data['reduceTransparency'] == true;
+          lightweight = data['lightweight'] == true;
+          _nativePreview = data['nativePreview'] == true;
           if (data['native'] is Map) {
             native = NativeGlassStyle.fromJson(data['native'] as Map);
           }
@@ -115,32 +137,21 @@ class FrostedSettings extends ChangeNotifier {
   Future<void> save() {
     final contents = jsonEncode({
       'frostedEnabled': _frostedEnabled,
-      'reduceTransparency': reduceTransparency,
+      'reduceTransparency': _reduceTransparency,
+      'lightweight': lightweight,
+      'nativePreview': _nativePreview,
       'native': native.toJson(),
       'styles': {for (final e in _styles.entries) e.key: e.value.toJson()},
     });
-    void write() {
+    _pending = _pending.catchError((Object _) {}).then((_) async {
       try {
-        _file!.parent.createSync(recursive: true);
-        final temp = File('${_file!.path}.tmp');
-        temp.writeAsStringSync(contents, flush: true);
-        temp.renameSync(_file!.path);
-      } catch (error) {
-        LumeLog.warn('玻璃设置保存失败：$error');
-      }
-    }
-
-    // Settings are small. Commit atomically on gesture release, never on each tick.
-    if (_file != null) {
-      write();
-      return Future<void>.value();
-    }
-    _pending = _pending.then((_) async {
-      try {
-        _file = File(
+        _file ??= File(
           '${(await getApplicationSupportDirectory()).path}/$fileName',
         );
-        write();
+        await _file!.parent.create(recursive: true);
+        final temp = File('${_file!.path}.tmp');
+        await temp.writeAsString(contents, flush: true);
+        await temp.rename(_file!.path);
       } catch (error) {
         LumeLog.warn('玻璃设置保存失败：$error');
       }

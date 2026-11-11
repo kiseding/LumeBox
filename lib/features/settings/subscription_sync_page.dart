@@ -87,7 +87,7 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
   Widget build(BuildContext context) => GlassScaffold(
     effectModule: GlassModule.settings,
     title: widget.section == null ? '一键同步全部订阅' : '同步${widget.section!.label}订阅',
-    child: ListView(
+    child: SettingsSurfaceList(
       padding: const EdgeInsets.all(16),
       children: [
         const Text('立即更新已启用的订阅。单个订阅失败时保留原内容并继续其他订阅；本地手动源、收藏和历史会保留。'),
@@ -95,14 +95,19 @@ class _SubscriptionSyncPageState extends State<SubscriptionSyncPage> {
         Text(current),
         if (busy)
           for (final section in [Section.comic, Section.video])
-            ValueListenableBuilder<String>(
-              valueListenable: SourceSubscriptionSync.progress(section),
-              builder: (_, text, child) => text.isEmpty
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text('${section.label}：$text'),
-                    ),
+            SizedBox(
+              child: ValueListenableBuilder<String>(
+                valueListenable: SourceSubscriptionSync.progress(section),
+                builder: (_, text, child) => text.isEmpty
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GlassCard(
+                          padding: const EdgeInsets.all(12),
+                          child: Text('${section.label}：$text'),
+                        ),
+                      ),
+              ),
             ),
         if (busy)
           const Padding(

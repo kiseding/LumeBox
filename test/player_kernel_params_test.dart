@@ -68,6 +68,27 @@ void main() {
       VideoPlayerPlatform.instance = platform;
     });
 
+    test(
+      'buffering follows playback intent and stops on an explicit pause',
+      () async {
+        final player = AvPlayer(buffering: _RecordingBufferingBackend());
+        addTearDown(player.dispose);
+        await player.load(
+          PlayerMedia(uri: Uri.parse('https://example.test/movie.mp4')),
+        );
+        await player.play();
+        platform._streams.values.single.add(
+          VideoEvent(eventType: VideoEventType.bufferingStart),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(player.snapshot.value.buffering, isTrue);
+        await player.pause();
+        expect(player.snapshot.value.buffering, isFalse);
+        await player.play();
+        expect(player.snapshot.value.buffering, isTrue);
+      },
+    );
+
     test('HDR display switches retain playback and position while subtitle changes do not reload video', () async {
       final player = AvPlayer(buffering: _RecordingBufferingBackend());
       await player.load(
@@ -221,6 +242,38 @@ void main() {
       await player.dispose();
     });
 
+    test('交互跳转使用有限容差，精确跳转归零且不继承关键帧实验开关', () async {
+      final backend = _RecordingBufferingBackend();
+      final player = AvPlayer(buffering: backend);
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+      );
+      player.setFastSeekSnapToKeyframe(true);
+      await player.seekInteractive(const Duration(seconds: 42));
+      expect(backend.seekTolerances.last, AvPlayer.interactiveSeekTolerance);
+      expect(platform.seekCalls.last, const Duration(seconds: 42));
+      await player.seek(const Duration(seconds: 60));
+      expect(backend.seekTolerances.last, Duration.zero);
+      await player.dispose();
+    });
+
+    test('停止作废仍在设置容差的交互跳转，不把停止后的进度拉回旧目标', () async {
+      final backend = _RecordingBufferingBackend();
+      final player = AvPlayer(buffering: backend);
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/a.mp4')),
+      );
+      final gate = Completer<void>();
+      backend.nonZeroToleranceGate = gate;
+      final pending = player.seekInteractive(const Duration(seconds: 42));
+      await Future<void>.delayed(Duration.zero);
+      await player.stop();
+      gate.complete();
+      await pending;
+      expect(platform.seekCalls, [Duration.zero]);
+      await player.dispose();
+    });
+
     test('松手精确 seek 作废仍在写容差的旧 fast seek', () async {
       final backend = _RecordingBufferingBackend();
       final player = AvPlayer(buffering: backend);
@@ -283,6 +336,13 @@ void main() {
       );
       expect(backend.applied, isEmpty);
       expect(platform.created, hasLength(1), reason: '缓冲通道失败照样起播');
+      backend.failure = null;
+      await player.load(
+        PlayerMedia(uri: Uri.parse('https://example.com/b.mp4')),
+      );
+      expect(backend.applied, [
+        BufferingConfig.defaults,
+      ], reason: '下次装载应重试失败的参数写入');
 
       await player.dispose();
     });
