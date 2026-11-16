@@ -184,6 +184,10 @@ jobs:
         if: ${{ inputs.typecheck_only == true }}
         run: bash tool/check_ios_python.sh
 
+      - name: 精简 App 图标（移除仅上架用的 1024 营销图）
+        if: ${{ inputs.typecheck_only != true }}
+        run: python3 tool/trim_marketing_icons.py
+
       - name: 编译（--no-codesign，带构建号）
         if: ${{ inputs.typecheck_only != true }}
         run: |
@@ -195,9 +199,12 @@ jobs:
           STRIP_STYLE = non-global
           EOF
           export XCODE_XCCONFIG_FILE="$RUNNER_TEMP/lumebox-unsigned.xcconfig"
+          # --split-debug-info 把 DWARF 从 App.framework 的 AOT snapshot 里剥出来，
+          # 单独存到 build/symbols（本 job 内保留，用于解析崩溃栈）。
           flutter build ipa --no-codesign --verbose \
             --build-name=1.0.${{ github.run_number }} \
-            --build-number=${{ github.run_number }}
+            --build-number=${{ github.run_number }} \
+            --split-debug-info=build/symbols
 
       - name: 验证离线 MP4 无损合并（实际 FFmpeg 库）
         if: ${{ inputs.typecheck_only != true }}

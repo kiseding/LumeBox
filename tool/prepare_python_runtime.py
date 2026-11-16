@@ -17,6 +17,27 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_URL = "https://github.com/beeware/Python-Apple-support/releases/download/3.13-b13/Python-3.13-iOS-support.b13.tar.gz"
 RUNTIME_SHA256 = "d1f95f95137a4b91dc0cbe9b99ddfc0a78918dde883c7fbe7147074a5e715274"
 
+# Standard-library payload an embedded script host never reaches at runtime:
+# the pip bootstrap, the Tk/IDLE GUI stack, the pydoc help cache, the REPL line
+# editor and the 2to3/venv tooling. Source scripts only import the usual
+# json/re/urllib/hashlib/... modules, so dropping these trims the IPA without
+# touching anything importable by a user source. Patterns match entry *names*
+# at every directory level, which is what shutil.copytree's ignore uses.
+STDLIB_EXCLUDES = (
+    "__pycache__",
+    "test",
+    "tests",
+    "ensurepip",
+    "idlelib",
+    "tkinter",
+    "turtledemo",
+    "turtle.py",
+    "pydoc_data",
+    "_pyrepl",
+    "lib2to3",
+    "venv",
+)
+
 
 def download(url, digest, path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +131,7 @@ def embed(output):
     destination = app / "python"
     if destination.exists():
         shutil.rmtree(destination)
-    shutil.copytree(runtime / "lib", destination / "lib", ignore=shutil.ignore_patterns("__pycache__", "test", "tests"))
+    shutil.copytree(runtime / "lib", destination / "lib", ignore=shutil.ignore_patterns(*STDLIB_EXCLUDES))
     shutil.copytree(slice_path / ("lib-" + architecture), destination / "lib", dirs_exist_ok=True)
     shutil.copytree(output / "packages", destination / "packages", ignore=shutil.ignore_patterns("__pycache__"))
     install_native(destination / 'packages', architecture, simulator)
@@ -131,6 +152,12 @@ def embed(output):
             shutil.rmtree(candidate)
     import plistlib
     import subprocess
+    # The prebuilt runtime keeps its local symbols; `strip -x` removes only
+    # those and leaves the exported ABI that module init relies on intact.
+    # Re-signing happens further down, after every binary has been placed.
+    python_binary = python_framework / "Python"
+    if python_binary.is_file():
+        subprocess.run(["/usr/bin/strip", "-x", str(python_binary)], check=False)
     native_roots = [destination / 'lib/python3.13/lib-dynload', destination / 'packages']
     for binary in [path for base in native_roots for path in base.rglob('*.so')]:
         base = next(base for base in native_roots if binary.is_relative_to(base))
@@ -144,6 +171,9 @@ def embed(output):
         target = folder / module
         subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', architecture], check=True)
         shutil.move(str(binary), target)
+        # Rust/C extensions carry large local symbol tables; the module ABI is
+        # exported symbols only, so -x is safe and saves a few MiB overall.
+        subprocess.run(["/usr/bin/strip", "-x", str(target)], check=False)
         identifier = os.environ.get("PRODUCT_BUNDLE_IDENTIFIER", "com.lumebox.app") + "." + module.replace("_", "-")
         with (folder / "Info.plist").open("wb") as handle:
             plistlib.dump({"CFBundleExecutable": module, "CFBundleIdentifier": identifier,
